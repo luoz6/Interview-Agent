@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>面试 Agent</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel setup-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">面试预热</p>
+          <h1>面试 Agent</h1>
+        </div>
+        <label>
+          岗位 JD
+          <textarea id="jobDescription" rows="8">后端岗位，要求熟悉 Python、FastAPI、Redis 和 PostgreSQL。</textarea>
+        </label>
+        <label>
+          简历内容
+          <textarea id="resumeText" rows="8">做过一个 FastAPI 服务，使用 Redis 做缓存，并用 PostgreSQL 处理事务数据。</textarea>
+        </label>
+        <div class="actions">
+          <button id="prepButton" type="button">生成题目计划</button>
+          <button id="startButton" type="button">开始面试</button>
+        </div>
+        <div id="plan" class="plan"></div>
+      </section>
+
+      <section class="panel interview-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">文本模拟面试</p>
+          <h2 id="status">未开始</h2>
+        </div>
+        <div id="conversation" class="conversation"></div>
+        <form id="answerForm" class="answer-form">
+          <input id="answerInput" type="text" placeholder="输入你的回答" autocomplete="off" />
+          <button type="submit">发送</button>
+        </form>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
