@@ -82,3 +82,29 @@ def test_interview_answer_flow():
     answered = answer_response.json()
     assert answered["session_id"] == started["session_id"]
     assert answered["follow_up"] or answered["current_question"]
+
+
+def test_interview_moves_to_next_question_after_followup_answer():
+    client = make_client()
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    started = start_response.json()
+
+    first_answer = client.post(
+        f"/api/interviews/{started['session_id']}/answer",
+        json={"answer": "I used Redis to cache hot records."},
+    ).json()
+    second_answer = client.post(
+        f"/api/interviews/{started['session_id']}/answer",
+        json={"answer": "I use logical expiration and rate limiting."},
+    ).json()
+
+    assert first_answer["follow_up"] == "请继续说明缓存失效时如何保护数据库。"
+    assert second_answer["follow_up"] is None
+    assert second_answer["current_question"]["id"] == "q2"
+    assert second_answer["status"] == "active"
