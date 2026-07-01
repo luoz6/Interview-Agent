@@ -3,6 +3,7 @@ from copy import deepcopy
 from app.graphs.interview_state import (
     InterviewState,
     build_initial_state,
+    count_candidate_answers_for_question,
     get_current_question,
 )
 from app.services.llm import InterviewLLM
@@ -50,6 +51,23 @@ def brain_node(state: InterviewState, llm: InterviewLLM | None) -> InterviewStat
         }
         return state
 
+    answer_count = count_candidate_answers_for_question(state, question.id)
+    if answer_count >= 2:
+        next_index = state["current_index"] + 1
+        if next_index >= len(state["plan"].questions):
+            state["decision"] = {
+                "action": "finish",
+                "follow_up": None,
+                "reason": "all_questions_completed",
+            }
+        else:
+            state["decision"] = {
+                "action": "next_question",
+                "follow_up": None,
+                "reason": "question_completed",
+            }
+        return state
+
     try:
         if llm is None:
             from app.services.llm import OpenAIInterviewLLM
@@ -69,18 +87,49 @@ def brain_node(state: InterviewState, llm: InterviewLLM | None) -> InterviewStat
 
 def speaker_node(state: InterviewState) -> InterviewState:
     decision = state["decision"]
-    question = get_current_question(state)
-    if decision is None or question is None:
+    if decision is None:
         state["status"] = "finished"
         state["pending_output"] = "本次模拟面试已结束。"
         return state
 
-    if decision["action"] == "follow_up":
+    action = decision["action"]
+    question = get_current_question(state)
+
+    if action == "follow_up" and question is not None:
         output = decision.get("follow_up") or fallback_followup(question.focus)
         state["pending_output"] = output
         state["messages"].append(
             {"role": "interviewer", "content": output, "question_id": question.id}
         )
+        return state
+
+    if action == "next_question":
+        state["current_index"] += 1
+        next_question = get_current_question(state)
+        if next_question is None:
+            state["status"] = "finished"
+            state["pending_output"] = "本次模拟面试已结束。"
+            return state
+        state["pending_output"] = next_question.prompt
+        state["messages"].append(
+            {
+                "role": "interviewer",
+                "content": next_question.prompt,
+                "question_id": next_question.id,
+            }
+        )
+        return state
+
+    state["current_index"] = len(state["plan"].questions)
+    state["status"] = "finished"
+    state["pending_output"] = "本次模拟面试已结束。"
+    state["messages"].append(
+        {
+            "role": "interviewer",
+            "content": "本次模拟面试已结束。",
+            "question_id": None,
+        }
+    )
     return state
 
 

@@ -51,3 +51,14 @@ def get_current_question(state: InterviewState) -> InterviewQuestion | None:
     if current_index >= len(questions):
         return None
     return questions[current_index]
+
+
+def count_candidate_answers_for_question(
+    state: InterviewState,
+    question_id: str,
+) -> int:
+    return sum(
+        1
+        for message in state["messages"]
+        if message["role"] == "candidate" and message["question_id"] == question_id
+    )

@@ -114,3 +114,40 @@ def test_runner_submit_answer_falls_back_when_llm_fails():
 
     assert new_state["decision"]["action"] == "follow_up"
     assert new_state["pending_output"] == "请继续深挖项目：你当时做了什么取舍，为什么这样选？"
+
+
+def test_runner_advances_to_next_question_after_followup_answer():
+    runner = InterviewGraphRunner(llm=FakeLLM())
+    state = runner.start(session_id="s1", plan=make_plan())
+
+    state = runner.submit_answer(state, "我用 Redis 缓存热点数据。")
+    state = runner.submit_answer(state, "我会用逻辑过期和限流兜底。")
+
+    assert state["current_index"] == 1
+    assert state["decision"]["action"] == "next_question"
+    assert state["pending_output"] == "请解释 Redis。"
+    assert state["messages"][-1] == {
+        "role": "interviewer",
+        "content": "请解释 Redis。",
+        "question_id": "q2",
+    }
+
+
+def test_runner_finishes_after_last_question_followup_answer():
+    runner = InterviewGraphRunner(llm=FakeLLM())
+    state = runner.start(session_id="s1", plan=make_plan())
+
+    for answer in [
+        "项目回答。",
+        "项目追问回答。",
+        "技术回答。",
+        "技术追问回答。",
+        "设计回答。",
+        "设计追问回答。",
+    ]:
+        state = runner.submit_answer(state, answer)
+
+    assert state["status"] == "finished"
+    assert state["current_index"] == 3
+    assert state["decision"]["action"] == "finish"
+    assert state["pending_output"] == "本次模拟面试已结束。"
