@@ -73,4 +73,23 @@ def test_submit_answer_advances_after_followup():
 
     assert second_response.current_question is not None
     assert second_response.current_question.id == "q2"
-    assert len(store.get(session.session_id).answers) == 2
+    state = store.get(session.session_id)
+    assert len([message for message in state["messages"] if message["role"] == "candidate"]) == 2
+
+
+def test_store_persists_graph_messages_in_order():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = store.start(make_plan())
+
+    store.submit_answer(session.session_id, "我用 Redis 缓存热点数据。")
+    store.submit_answer(session.session_id, "我会用逻辑过期和限流兜底。")
+    state = store.get(session.session_id)
+
+    assert [message["role"] for message in state["messages"]] == [
+        "interviewer",
+        "candidate",
+        "interviewer",
+        "candidate",
+        "interviewer",
+    ]
+    assert state["messages"][-1]["content"] == "请解释 Redis。"
