@@ -72,3 +72,45 @@ def test_runner_start_returns_initial_state():
     assert state["pending_output"] == "请介绍项目。"
     assert state["messages"][0]["role"] == "interviewer"
     assert state["messages"][0]["question_id"] == "q1"
+
+
+class FailingLLM:
+    def generate_plan(self, job_description: str, resume_text: str):
+        raise AssertionError("Graph tests should not generate plans")
+
+    def generate_followup(self, context: list[dict[str, str]]) -> str:
+        raise RuntimeError("llm failed")
+
+
+def test_runner_submit_answer_generates_followup_decision():
+    runner = InterviewGraphRunner(llm=FakeLLM())
+    state = runner.start(session_id="s1", plan=make_plan())
+
+    new_state = runner.submit_answer(state, "我用 Redis 缓存热点数据。")
+
+    assert new_state["decision"] == {
+        "action": "follow_up",
+        "follow_up": "请继续说明缓存失效策略。",
+        "reason": "candidate_answer_needs_depth",
+    }
+    assert new_state["pending_output"] == "请继续说明缓存失效策略。"
+    assert new_state["messages"][-2] == {
+        "role": "candidate",
+        "content": "我用 Redis 缓存热点数据。",
+        "question_id": "q1",
+    }
+    assert new_state["messages"][-1] == {
+        "role": "interviewer",
+        "content": "请继续说明缓存失效策略。",
+        "question_id": "q1",
+    }
+
+
+def test_runner_submit_answer_falls_back_when_llm_fails():
+    runner = InterviewGraphRunner(llm=FailingLLM())
+    state = runner.start(session_id="s1", plan=make_plan())
+
+    new_state = runner.submit_answer(state, "我用 Redis 缓存热点数据。")
+
+    assert new_state["decision"]["action"] == "follow_up"
+    assert new_state["pending_output"] == "请继续深挖项目：你当时做了什么取舍，为什么这样选？"
