@@ -4,6 +4,7 @@ from app.graphs.interview_state import (
     build_initial_state,
     get_current_question,
 )
+from app.graphs.interview_graph import InterviewGraphRunner
 from app.services.prep import InterviewPlan, InterviewQuestion
 
 
@@ -52,3 +53,22 @@ def test_state_types_accept_decision_and_message_shapes():
 
     assert message["role"] == "candidate"
     assert decision["action"] == "follow_up"
+
+
+class FakeLLM:
+    def generate_plan(self, job_description: str, resume_text: str):
+        raise AssertionError("Graph tests should not generate plans")
+
+    def generate_followup(self, context: list[dict[str, str]]) -> str:
+        return "请继续说明缓存失效策略。"
+
+
+def test_runner_start_returns_initial_state():
+    runner = InterviewGraphRunner(llm=FakeLLM())
+
+    state = runner.start(session_id="s1", plan=make_plan())
+
+    assert state["session_id"] == "s1"
+    assert state["pending_output"] == "请介绍项目。"
+    assert state["messages"][0]["role"] == "interviewer"
+    assert state["messages"][0]["question_id"] == "q1"
