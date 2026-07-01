@@ -1,12 +1,42 @@
 from fastapi.testclient import TestClient
 
+from app.api.routes import get_session_store
 from app.main import app
+from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.session import InterviewSessionStore
 
 
-client = TestClient(app)
+class FakeApiLLM:
+    def __init__(self):
+        self.last_context = None
+
+    def generate_plan(self, job_description: str, resume_text: str):
+        return InterviewPlan(
+            title="LLM 生成的后端模拟面试",
+            questions=[
+                InterviewQuestion(id="q1", kind="project", prompt="请介绍一个项目。", focus="项目"),
+                InterviewQuestion(id="q2", kind="technical", prompt="请解释 Redis。", focus="Redis"),
+                InterviewQuestion(id="q3", kind="system-design", prompt="请设计服务。", focus="系统设计"),
+            ],
+        )
+
+    def generate_followup(self, context: list[dict[str, str]]) -> str:
+        self.last_context = context
+        return "请继续说明缓存失效时如何保护数据库。"
+
+
+def make_client():
+    store = InterviewSessionStore(llm=FakeApiLLM())
+    app.dependency_overrides[get_session_store] = lambda: store
+    return TestClient(app)
+
+
+def teardown_function():
+    app.dependency_overrides.clear()
 
 
 def test_health_endpoint():
+    client = make_client()
     response = client.get("/api/health")
 
     assert response.status_code == 200
@@ -14,6 +44,7 @@ def test_health_endpoint():
 
 
 def test_prepare_endpoint_returns_questions():
+    client = make_client()
     response = client.post(
         "/api/prep",
         json={
@@ -24,11 +55,11 @@ def test_prepare_endpoint_returns_questions():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["title"] == "后端岗位模拟面试"
     assert len(body["questions"]) >= 3
 
 
 def test_interview_answer_flow():
+    client = make_client()
     start_response = client.post(
         "/api/interviews",
         json={

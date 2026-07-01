@@ -1,6 +1,4 @@
-from dataclasses import asdict
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.services.prep import prepare_interview
@@ -20,34 +18,56 @@ class AnswerRequest(BaseModel):
     answer: str
 
 
+def get_session_store() -> InterviewSessionStore:
+    return session_store
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
 
 
 @router.post("/prep")
-def prep_interview(payload: PrepRequest):
+def prep_interview(
+    payload: PrepRequest,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
     try:
-        plan = prepare_interview(payload.job_description, payload.resume_text)
+        plan = prepare_interview(
+            payload.job_description,
+            payload.resume_text,
+            llm=store.llm,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return asdict(plan)
+    return plan.model_dump()
 
 
 @router.post("/interviews")
-def start_interview(payload: PrepRequest):
+def start_interview(
+    payload: PrepRequest,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
     try:
-        plan = prepare_interview(payload.job_description, payload.resume_text)
-        turn = session_store.start(plan)
+        plan = prepare_interview(
+            payload.job_description,
+            payload.resume_text,
+            llm=store.llm,
+        )
+        turn = store.start(plan)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
 
 
 @router.post("/interviews/{session_id}/answer")
-def submit_answer(session_id: str, payload: AnswerRequest):
+def submit_answer(
+    session_id: str,
+    payload: AnswerRequest,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
     try:
-        turn = session_store.submit_answer(session_id, payload.answer)
+        turn = store.submit_answer(session_id, payload.answer)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
@@ -56,7 +76,9 @@ def submit_answer(session_id: str, payload: AnswerRequest):
 def _turn_to_dict(turn):
     return {
         "session_id": turn.session_id,
-        "current_question": asdict(turn.current_question) if turn.current_question else None,
+        "current_question": turn.current_question.model_dump()
+        if turn.current_question
+        else None,
         "follow_up": turn.follow_up,
         "status": turn.status,
     }

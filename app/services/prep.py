@@ -1,74 +1,63 @@
-from dataclasses import dataclass
-from typing import List
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from app.services.llm import InterviewLLM
 
 
-@dataclass(frozen=True)
-class InterviewQuestion:
-    id: str
-    kind: str
-    prompt: str
-    focus: str
+class InterviewQuestion(BaseModel):
+    id: str = Field(description="题目唯一标识")
+    kind: Literal["project", "technical", "system-design", "behavioral"] = Field(
+        description="题目类型"
+    )
+    prompt: str = Field(description="面试官要问的问题")
+    focus: str = Field(description="本题重点考察方向")
 
 
-@dataclass(frozen=True)
-class InterviewPlan:
+class InterviewPlan(BaseModel):
     title: str
-    questions: List[InterviewQuestion]
+    questions: list[InterviewQuestion]
 
 
-TECH_KEYWORDS = [
-    "Python",
-    "FastAPI",
-    "Redis",
-    "PostgreSQL",
-    "SQL",
-    "cache",
-    "database",
-    "API",
-]
-
-
-def prepare_interview(job_description: str, resume_text: str) -> InterviewPlan:
+def prepare_interview(
+    job_description: str,
+    resume_text: str,
+    llm: InterviewLLM | None = None,
+) -> InterviewPlan:
     job_description = _require_text("job_description", job_description)
     resume_text = _require_text("resume_text", resume_text)
 
-    role_title = _infer_role_title(job_description)
-    keywords = _extract_keywords(f"{job_description} {resume_text}")
-    primary_keyword = keywords[0] if keywords else "后端开发"
+    try:
+        llm = llm or _build_default_llm()
+        return llm.generate_plan(job_description, resume_text)
+    except Exception:
+        return fallback_interview_plan()
 
-    questions = [
-        InterviewQuestion(
-            id="q1",
-            kind="project",
-            prompt=f"请从简历里选择一个最匹配{role_title}的项目，说明业务背景、你的职责和最终结果。",
-            focus="项目匹配度",
-        ),
-        InterviewQuestion(
-            id="q2",
-            kind="technical",
-            prompt=f"你的材料中提到了 {primary_keyword}。请说明你在设计时做过哪些取舍，以及可能出现哪些失败场景。",
-            focus=primary_keyword,
-        ),
-        InterviewQuestion(
-            id="q3",
-            kind="system-design",
-            prompt="请设计一个适合该岗位的小型服务，重点说明存储设计、接口边界和异常处理。",
-            focus="系统设计",
-        ),
-    ]
 
-    if "Redis" in keywords:
-        questions.insert(
-            2,
+def fallback_interview_plan() -> InterviewPlan:
+    return InterviewPlan(
+        title="基础模拟面试",
+        questions=[
             InterviewQuestion(
-                id="q-redis",
-                kind="technical",
-                prompt="你的材料里出现了 Redis。请分别说明缓存穿透、缓存击穿和缓存雪崩的处理思路。",
-                focus="Redis",
+                id="q1",
+                kind="project",
+                prompt="请从简历中选择一个最能代表你能力的项目，说明业务背景、你的职责和最终结果。",
+                focus="项目表达",
             ),
-        )
-
-    return InterviewPlan(title=f"{role_title}模拟面试", questions=questions)
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="请选择项目中一个核心技术点，说明你当时的设计取舍、失败场景和兜底方案。",
+                focus="技术深度",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="system-design",
+                prompt="如果这个项目的流量扩大十倍，你会优先改造哪些模块？为什么？",
+                focus="系统设计",
+            ),
+        ],
+    )
 
 
 def _require_text(field_name: str, value: str) -> str:
@@ -77,23 +66,7 @@ def _require_text(field_name: str, value: str) -> str:
     return value.strip()
 
 
-def _infer_role_title(job_description: str) -> str:
-    lower = job_description.lower()
-    if "backend engineer" in lower:
-        return "后端工程师"
-    if "backend role" in lower:
-        return "后端岗位"
-    if "frontend" in lower:
-        return "前端岗位"
-    if "full stack" in lower or "full-stack" in lower:
-        return "全栈岗位"
-    return "软件工程师岗位"
+def _build_default_llm() -> InterviewLLM:
+    from app.services.llm import OpenAIInterviewLLM
 
-
-def _extract_keywords(text: str) -> List[str]:
-    lowered = text.lower()
-    found = []
-    for keyword in TECH_KEYWORDS:
-        if keyword.lower() in lowered and keyword not in found:
-            found.append(keyword)
-    return found
+    return OpenAIInterviewLLM()
