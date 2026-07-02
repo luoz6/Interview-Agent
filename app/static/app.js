@@ -218,6 +218,24 @@ function renderFeedback(feedback) {
   item.appendChild(createEl("p", "feedback-rationale", feedback.rationale));
   item.appendChild(createEl("p", "feedback-critique", feedback.critique));
   item.appendChild(createEl("p", "feedback-better", feedback.better_answer));
+
+  if (Array.isArray(feedback.references) && feedback.references.length > 0) {
+    const references = createEl("div", "feedback-references");
+    references.appendChild(createEl("p", "report-label", "References"));
+    feedback.references.forEach((reference) => {
+      const refItem = createEl("div", "reference-item");
+      refItem.appendChild(
+        createEl(
+          "p",
+          "reference-title",
+          `${reference.title} (${reference.source_type})`
+        )
+      );
+      refItem.appendChild(createEl("p", "reference-excerpt", reference.excerpt));
+      references.appendChild(refItem);
+    });
+    item.appendChild(references);
+  }
   return item;
 }
 

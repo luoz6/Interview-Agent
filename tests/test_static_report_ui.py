@@ -27,6 +27,8 @@ def test_app_js_reads_progress_fields():
     assert "progress.message" in js
     assert "progress.percent" in js
     assert "overall_dimension_scores" in js
+    assert "feedback.references" in js
+    assert "reference-item" in js
 
 
 def test_report_styles_use_css_variables_for_soft_backgrounds():

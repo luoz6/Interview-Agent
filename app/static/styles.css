@@ -325,6 +325,34 @@ input:disabled {
   padding: 10px;
 }
 
+.feedback-references {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.reference-item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.reference-title,
+.reference-excerpt {
+  margin: 0;
+}
+
+.reference-title {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.reference-excerpt {
+  color: var(--muted);
+  margin-top: 6px;
+}
+
 @media (max-width: 860px) {
   .shell {
     grid-template-columns: 1fr;

@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.vector_store import KnowledgeChunk
+from app.services.vector_store import KnowledgeChunk, get_knowledge_store
 
 
 KNOWLEDGE_ROOT = Path("app/data/knowledge")
@@ -31,12 +31,23 @@ def build_chunks() -> list[KnowledgeChunk]:
                 content=content,
                 source_type=source_type,
                 domain=domain,
-                tags=[domain],
+                tags=[domain, "general"] if domain != "general" else ["general"],
                 metadata={"source_path": str(path)},
             )
         )
     return chunks
 
 
+def load_knowledge() -> int:
+    chunks = build_chunks()
+    try:
+        store = get_knowledge_store()
+    except KeyError as exc:
+        raise RuntimeError("POSTGRES_DSN is required to load knowledge into pgvector") from exc
+    store.upsert_chunks(chunks)
+    return len(chunks)
+
+
 if __name__ == "__main__":
-    print(f"Discovered {len(build_chunks())} knowledge chunks.")
+    count = load_knowledge()
+    print(f"Discovered and upserted {count} knowledge chunks.")

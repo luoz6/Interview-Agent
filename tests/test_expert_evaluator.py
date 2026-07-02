@@ -1,3 +1,5 @@
+import pytest
+
 from app.graphs.interview_state import build_initial_state
 from app.services.evaluator_ext import ExpertShadowEvaluator
 from app.services.prep import InterviewPlan, InterviewQuestion
@@ -6,6 +8,7 @@ from app.services.report import (
     FeedbackReference,
     InterviewFeedback,
     InterviewReport,
+    ReportGenerationFailed,
     ReportProgress,
 )
 
@@ -64,6 +67,11 @@ class FakeVectorStore:
         ]
 
 
+class FailingVectorStore:
+    def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+        raise RuntimeError("db down")
+
+
 class FakeExpertLLM:
     def __init__(self):
         self.last_items = None
@@ -102,8 +110,8 @@ class FakeExpertLLM:
                         communication=87,
                     ),
                     rationale=(
-                        "The answer matched the retrieved Redis consistency guidance "
-                        "but missed deeper race condition handling."
+                        "Based on Redis cache consistency guidance, the answer "
+                        "matched delete-after-write but missed race condition handling."
                     ),
                     critique="The answer did not explain retry or delayed double delete strategies.",
                     better_answer=(
@@ -140,3 +148,23 @@ def test_expert_evaluator_injects_references_and_reports_progress():
         "aggregating",
         "completed",
     ]
+
+
+def test_expert_evaluator_keeps_rationale_aligned_with_references():
+    llm = FakeExpertLLM()
+    evaluator = ExpertShadowEvaluator(llm=llm, vector_store=FakeVectorStore())
+
+    report = evaluator.evaluate(make_state())
+
+    feedback = report.feedbacks[0]
+    assert feedback.references[0].chunk_id == "redis-1"
+    assert "race condition" in feedback.rationale.lower()
+    assert "delete-after-write" in feedback.rationale.lower()
+
+
+def test_expert_evaluator_fails_when_retrieval_infrastructure_fails():
+    llm = FakeExpertLLM()
+    evaluator = ExpertShadowEvaluator(llm=llm, vector_store=FailingVectorStore())
+
+    with pytest.raises(ReportGenerationFailed, match="pgvector knowledge store is unavailable"):
+        evaluator.evaluate(make_state())

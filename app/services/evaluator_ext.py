@@ -3,7 +3,11 @@ from collections.abc import Callable
 from app.graphs.interview_state import InterviewState
 from app.services.evaluator import build_evaluation_chunks, build_fallback_report
 from app.services.llm import InterviewLLM
-from app.services.report import InterviewReport, ReportProgress
+from app.services.report import (
+    InterviewReport,
+    ReportGenerationFailed,
+    ReportProgress,
+)
 from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
 
 
@@ -33,12 +37,16 @@ class ExpertShadowEvaluator:
 
         evaluation_items: list[dict] = []
         for chunk in chunks:
-            references = self._vector_store.search(
-                self._build_query_text(chunk.question_text, chunk.focus, chunk.messages),
-                job_tags=state["job_tags"],
-                source_types=["theory", "expert_benchmark"],
-                limit=5,
-            )
+            try:
+                references = self._vector_store.search(
+                    self._build_query_text(chunk.question_text, chunk.focus, chunk.messages),
+                    job_tags=state["job_tags"],
+                    source_types=["theory", "expert_benchmark"],
+                    limit=5,
+                )
+            except Exception as exc:
+                raise ReportGenerationFailed("pgvector knowledge store is unavailable") from exc
+
             reference_dicts = [self._reference_to_dict(reference) for reference in references]
             evaluation_items.append(
                 {

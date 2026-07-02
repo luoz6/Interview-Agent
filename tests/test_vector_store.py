@@ -1,10 +1,28 @@
+import os
+
 import pytest
 
-from app.services.vector_store import KnowledgeChunk
+from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
 
 
-def test_knowledge_chunk_preserves_metadata():
-    chunk = KnowledgeChunk(
+class FakeEmbeddingModel:
+    def encode(self, text: str, normalize_embeddings: bool = True):
+        base = 0.1 if "redis" in text.lower() else 0.2
+        return [base, base + 0.1, base + 0.2]
+
+
+def make_store() -> PgVectorKnowledgeStore:
+    return PgVectorKnowledgeStore(
+        dsn="postgresql://placeholder",
+        table_name="knowledge_chunks",
+        embedding_model_name="BAAI/bge-m3",
+        embedding_dimension=3,
+        embedding_model=FakeEmbeddingModel(),
+    )
+
+
+def make_chunk() -> KnowledgeChunk:
+    return KnowledgeChunk(
         chunk_id="redis-1",
         title="Redis cache consistency",
         content="Delete cache after updating the database.",
@@ -14,20 +32,52 @@ def test_knowledge_chunk_preserves_metadata():
         metadata={"section": "consistency"},
     )
 
+
+def test_knowledge_chunk_preserves_metadata():
+    chunk = make_chunk()
+
     assert chunk.tags == ["redis", "backend"]
     assert chunk.metadata["section"] == "consistency"
 
 
-@pytest.mark.pgvector
-def test_pgvector_search_signature_smoke():
-    from app.services.vector_store import PgVectorKnowledgeStore
+def test_embed_text_uses_injected_model_and_validates_dimension():
+    store = make_store()
 
+    vector = store.embed_text("redis cache consistency")
+
+    assert vector == pytest.approx([0.1, 0.2, 0.3])
+
+
+def test_vector_literal_format_is_pgvector_compatible():
+    literal = PgVectorKnowledgeStore._to_vector_literal([0.1, 0.2, 0.3])
+
+    assert literal == "[0.10000000,0.20000000,0.30000000]"
+
+
+@pytest.mark.pgvector
+def test_pgvector_upsert_and_search_roundtrip():
+    dsn = os.getenv("POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("POSTGRES_DSN is not configured")
+
+    table_name = "knowledge_chunks_test"
     store = PgVectorKnowledgeStore(
-        dsn="postgresql://placeholder",
-        table_name="knowledge_chunks",
+        dsn=dsn,
+        table_name=table_name,
         embedding_model_name="BAAI/bge-m3",
-        embedding_dimension=1024,
+        embedding_dimension=3,
+        embedding_model=FakeEmbeddingModel(),
+    )
+    chunk = make_chunk()
+    store.upsert_chunks([chunk])
+
+    results = store.search(
+        "Redis cache invalidation",
+        job_tags=["redis"],
+        source_types=["theory"],
+        limit=3,
     )
 
-    assert store.table_name == "knowledge_chunks"
-    assert store.embedding_dimension == 1024
+    assert results
+    assert results[0].chunk_id == "redis-1"
+    assert results[0].score is not None
