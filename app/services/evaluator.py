@@ -4,6 +4,7 @@ from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewQuestion
 from app.services.report import (
+    DimensionScores,
     InterviewFeedback,
     InterviewReport,
     ReportGenerationFailed,
@@ -29,7 +30,7 @@ class ShadowEvaluator:
                 raise ReportGenerationFailed("report llm is not configured")
             return self._llm.generate_report(
                 plan=state["plan"],
-                chunks=[chunk.model_dump() for chunk in chunks],
+                evaluation_items=[chunk.model_dump() for chunk in chunks],
                 session_id=state["session_id"],
             )
         except ReportGenerationTimeout:
@@ -52,6 +53,16 @@ def build_evaluation_chunks(state: InterviewState) -> list[EvaluationChunk]:
     ]
 
 
+def _default_dimension_scores(score: int = 60) -> DimensionScores:
+    return DimensionScores(
+        breadth=score,
+        depth=score,
+        architecture=score,
+        engineering=score,
+        communication=score,
+    )
+
+
 def build_fallback_report(
     state: InterviewState,
     chunks: list[EvaluationChunk] | None = None,
@@ -60,6 +71,7 @@ def build_fallback_report(
     return InterviewReport(
         session_id=state["session_id"],
         overall_score=60,
+        overall_dimension_scores=_default_dimension_scores(),
         summary=(
             "AI evaluation could not generate a complete report. "
             "Review the original answers manually."
@@ -72,11 +84,17 @@ def build_fallback_report(
                 question_text=chunk.question_text,
                 user_answer=_summarize_candidate_answers(chunk),
                 score=60,
+                dimension_scores=_default_dimension_scores(),
+                rationale=(
+                    "Fallback report: structured expert evaluation was unavailable "
+                    "for this question."
+                ),
                 critique="AI evaluation could not parse stable feedback for this question.",
                 better_answer=(
                     "Rebuild the answer around context, task, action, and result, "
                     "then add concrete technical tradeoffs."
                 ),
+                references=[],
             )
             for chunk in chunks
         ],

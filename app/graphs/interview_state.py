@@ -23,11 +23,24 @@ class InterviewState(TypedDict):
     decision: InterviewDecision | None
     pending_output: str | None
     status: Literal["active", "finished"]
+    job_description: str
+    resume_text: str
+    job_tags: list[str]
 
 
-def build_initial_state(session_id: str, plan: InterviewPlan) -> InterviewState:
+def build_initial_state(
+    session_id: str,
+    plan: InterviewPlan,
+    job_description: str,
+    resume_text: str,
+    job_tags: list[str],
+) -> InterviewState:
     first_question = plan.questions[0] if plan.questions else None
-    first_output = first_question.prompt if first_question else "面试题目为空，面试结束。"
+    first_output = (
+        first_question.prompt
+        if first_question
+        else "Interview finished because the plan is empty."
+    )
     return {
         "session_id": session_id,
         "plan": plan,
@@ -42,6 +55,9 @@ def build_initial_state(session_id: str, plan: InterviewPlan) -> InterviewState:
         "decision": None,
         "pending_output": first_output,
         "status": "active" if first_question else "finished",
+        "job_description": job_description,
+        "resume_text": resume_text,
+        "job_tags": job_tags,
     }
 
 

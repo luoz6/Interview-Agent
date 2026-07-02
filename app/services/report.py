@@ -11,18 +11,37 @@ class ReportGenerationTimeout(ReportGenerationFailed):
     """Raised when report generation times out."""
 
 
+class DimensionScores(BaseModel):
+    breadth: int = Field(ge=0, le=100)
+    depth: int = Field(ge=0, le=100)
+    architecture: int = Field(ge=0, le=100)
+    engineering: int = Field(ge=0, le=100)
+    communication: int = Field(ge=0, le=100)
+
+
+class FeedbackReference(BaseModel):
+    chunk_id: str
+    title: str
+    source_type: str
+    excerpt: str
+
+
 class InterviewFeedback(BaseModel):
     question_id: str = Field(description="Question identifier")
     question_text: str = Field(description="Original interview question text")
     user_answer: str = Field(description="Summary of the candidate answer")
     score: int = Field(ge=0, le=100, description="Question score from 0 to 100")
+    dimension_scores: DimensionScores
+    rationale: str = Field(description="Why the score was assigned")
     critique: str = Field(description="Main flaw or critique")
     better_answer: str = Field(description="Improved answer to practice")
+    references: list[FeedbackReference]
 
 
 class InterviewReport(BaseModel):
     session_id: str
     overall_score: int = Field(ge=0, le=100)
+    overall_dimension_scores: DimensionScores
     summary: str
     highlights: list[str] = Field(min_length=1, max_length=3)
     feedbacks: list[InterviewFeedback]
@@ -30,17 +49,26 @@ class InterviewReport(BaseModel):
     is_fallback: bool = False
 
 
+class ReportProgress(BaseModel):
+    stage: Literal["retrieving", "analyzing", "aggregating", "completed"]
+    percent: int = Field(ge=0, le=100)
+    message: str
+    current_question_id: str | None = None
+
+
 class ReportRecord(BaseModel):
     status: Literal["processing", "completed", "failed"]
+    progress: ReportProgress | None = None
     report: InterviewReport | None = None
     error: str | None = None
 
     @model_validator(mode="after")
     def validate_state(self) -> "ReportRecord":
-        if self.status == "processing" and (
-            self.report is not None or self.error is not None
-        ):
-            raise ValueError("processing report records cannot contain report or error")
+        if self.status == "processing":
+            if self.progress is None or self.report is not None or self.error is not None:
+                raise ValueError(
+                    "processing report records require progress and cannot contain report or error"
+                )
         if self.status == "completed" and self.report is None:
             raise ValueError("completed report records require report")
         if self.status == "failed" and not self.error:

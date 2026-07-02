@@ -6,7 +6,7 @@ from app.graphs.interview_graph import InterviewGraphRunner
 from app.graphs.interview_state import InterviewState, get_current_question
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import InterviewReport, ReportRecord
+from app.services.report import InterviewReport, ReportProgress, ReportRecord
 
 
 @dataclass(frozen=True)
@@ -28,9 +28,22 @@ class InterviewSessionStore:
     def llm(self) -> InterviewLLM | None:
         return self._llm
 
-    def start(self, plan: InterviewPlan) -> InterviewTurn:
+    def start(
+        self,
+        plan: InterviewPlan,
+        *,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+    ) -> InterviewTurn:
         session_id = str(uuid4())
-        state = self._runner.start(session_id=session_id, plan=plan)
+        state = self._runner.start(
+            session_id=session_id,
+            plan=plan,
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+        )
         self._sessions[session_id] = state
         return self._to_turn(state, follow_up=None)
 
@@ -55,8 +68,31 @@ class InterviewSessionStore:
             raise ValueError("interview is not finished")
         if session_id in self._reports:
             return False
-        self._reports[session_id] = ReportRecord(status="processing")
+        self._reports[session_id] = ReportRecord(
+            status="processing",
+            progress=ReportProgress(
+                stage="retrieving",
+                percent=20,
+                message="Retrieving role-specific knowledge references.",
+            ),
+        )
         return True
+
+    def update_report_progress(
+        self,
+        session_id: str,
+        progress: ReportProgress,
+    ) -> None:
+        self.get(session_id)
+        record = self._reports.get(session_id)
+        if record is None:
+            raise ValueError("report record not found")
+        if record.status != "processing":
+            raise ValueError("report is not processing")
+        self._reports[session_id] = ReportRecord(
+            status="processing",
+            progress=progress,
+        )
 
     def save_report(self, session_id: str, report: InterviewReport) -> None:
         self.get(session_id)

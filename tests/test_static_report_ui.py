@@ -20,6 +20,15 @@ def test_app_js_polls_report_endpoint():
     assert "renderReport(" in js
 
 
+def test_app_js_reads_progress_fields():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "body.progress" in js
+    assert "progress.message" in js
+    assert "progress.percent" in js
+    assert "overall_dimension_scores" in js
+
+
 def test_report_styles_use_css_variables_for_soft_backgrounds():
     css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 

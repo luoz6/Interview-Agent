@@ -27,7 +27,7 @@ startButton.addEventListener("click", async () => {
   answerInput.disabled = false;
   answerButton.disabled = false;
   resetReport();
-  statusEl.textContent = "面试进行中";
+  statusEl.textContent = "Interview in progress";
   renderTurn(turn);
 });
 
@@ -61,7 +61,7 @@ async function postJson(url, payload) {
   });
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || "请求失败");
+    throw new Error(error.detail || "Request failed");
   }
   return response.json();
 }
@@ -77,13 +77,13 @@ function renderPlan(plan) {
 }
 
 function renderTurn(turn) {
-  statusEl.textContent = turn.status === "finished" ? "面试已结束" : "面试进行中";
+  statusEl.textContent = turn.status === "finished" ? "Interview finished" : "Interview in progress";
   if (turn.follow_up) {
     addMessage("agent", turn.follow_up);
   } else if (turn.current_question) {
     addMessage("agent", turn.current_question.prompt);
   } else {
-    addMessage("agent", "面试已完成。");
+    addMessage("agent", "Interview completed.");
   }
 
   if (turn.status === "finished") {
@@ -111,7 +111,7 @@ function resetReport() {
 
 function beginReportPolling() {
   resetReport();
-  renderReportProcessing();
+  renderReportProcessing(null);
   pollReport();
 }
 
@@ -122,34 +122,40 @@ async function pollReport() {
 
   try {
     const response = await fetch(`/api/interviews/${sessionId}/report`);
+    const body = await response.json().catch(() => ({}));
     if (response.status === 202) {
-      renderReportProcessing();
+      renderReportProcessing(body.progress || null);
       reportPollTimer = setTimeout(pollReport, 3000);
       return;
     }
 
-    const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(body.detail || "报告生成失败");
+      throw new Error(body.detail || "Report generation failed");
     }
     renderReport(body);
   } catch (error) {
-    renderReportError(error.message || "报告生成失败");
+    renderReportError(error.message || "Report generation failed");
   }
 }
 
-function renderReportProcessing() {
+function renderReportProcessing(progress) {
   reportSection.hidden = false;
   reportSection.className = "report-section";
-  reportStatus.textContent = "报告生成中...";
+  reportStatus.textContent = "Report processing";
   reportContent.innerHTML = "";
-  reportContent.appendChild(createEl("p", "report-note", "AI 正在复盘整场面试，请稍候。"));
+
+  const message = progress && progress.message ? progress.message : "AI is reviewing the interview.";
+  const percent =
+    progress && typeof progress.percent === "number" ? `${progress.percent}%` : "";
+  reportContent.appendChild(
+    createEl("p", "report-note", percent ? `${percent} - ${message}` : message)
+  );
 }
 
 function renderReportError(message) {
   reportSection.hidden = false;
   reportSection.className = "report-section failed";
-  reportStatus.textContent = "报告生成失败";
+  reportStatus.textContent = "Report generation failed";
   reportContent.innerHTML = "";
   reportContent.appendChild(createEl("p", "report-note", message));
 }
@@ -159,16 +165,27 @@ function renderReport(report) {
   reportSection.className = report.is_fallback
     ? "report-section fallback"
     : "report-section completed";
-  reportStatus.textContent = report.is_fallback ? "报告已生成（兜底版）" : "报告已完成";
+  reportStatus.textContent = report.is_fallback
+    ? "Report completed (fallback)"
+    : "Report completed";
   reportContent.innerHTML = "";
 
   const overview = createEl("div", "report-overview");
   overview.appendChild(createEl("div", "report-score", String(report.overall_score)));
   const summary = createEl("div", "report-summary");
-  summary.appendChild(createEl("p", "report-label", "综合评价"));
+  summary.appendChild(createEl("p", "report-label", "Overall summary"));
   summary.appendChild(createEl("p", "report-text", report.summary));
   overview.appendChild(summary);
   reportContent.appendChild(overview);
+
+  const dimensions = createEl("div", "report-dimensions");
+  Object.entries(report.overall_dimension_scores).forEach(([name, value]) => {
+    const row = createEl("div", "dimension-row");
+    row.appendChild(createEl("span", "dimension-name", name));
+    row.appendChild(createEl("span", "dimension-value", String(value)));
+    dimensions.appendChild(row);
+  });
+  reportContent.appendChild(dimensions);
 
   const highlights = createEl("ul", "report-highlights");
   report.highlights.forEach((highlight) => {
@@ -190,6 +207,15 @@ function renderFeedback(feedback) {
   header.appendChild(createEl("span", "feedback-score", `${feedback.score}`));
   item.appendChild(header);
   item.appendChild(createEl("p", "feedback-answer", feedback.user_answer));
+
+  const dimensions = createEl("div", "feedback-dimensions");
+  Object.entries(feedback.dimension_scores).forEach(([name, value]) => {
+    const row = createEl("span", "feedback-dimension", `${name}: ${value}`);
+    dimensions.appendChild(row);
+  });
+  item.appendChild(dimensions);
+
+  item.appendChild(createEl("p", "feedback-rationale", feedback.rationale));
   item.appendChild(createEl("p", "feedback-critique", feedback.critique));
   item.appendChild(createEl("p", "feedback-better", feedback.better_answer));
   return item;

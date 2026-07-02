@@ -240,6 +240,18 @@ input:disabled {
   padding-left: 18px;
 }
 
+.report-dimensions,
+.feedback-dimensions {
+  display: grid;
+  gap: 8px;
+}
+
+.dimension-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .feedback-list {
   display: grid;
   gap: 12px;
@@ -283,8 +295,23 @@ input:disabled {
   margin: 10px 0 0;
 }
 
+.feedback-dimensions {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin-top: 10px;
+}
+
+.feedback-dimension {
+  background: var(--report-strong);
+  border-radius: 4px;
+  padding: 8px;
+}
+
 .feedback-answer {
   color: var(--muted);
+}
+
+.feedback-rationale {
+  margin: 10px 0 0;
 }
 
 .feedback-critique {

@@ -4,6 +4,7 @@ from app.graphs.interview_state import build_initial_state
 from app.services.evaluator import ShadowEvaluator
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import (
+    DimensionScores,
     InterviewFeedback,
     InterviewReport,
     ReportGenerationTimeout,
@@ -30,8 +31,24 @@ def make_plan() -> InterviewPlan:
     )
 
 
+def make_dimension_scores(score: int = 80) -> DimensionScores:
+    return DimensionScores(
+        breadth=score,
+        depth=score,
+        architecture=score,
+        engineering=score,
+        communication=score,
+    )
+
+
 def make_finished_state():
-    state = build_initial_state(session_id="s1", plan=make_plan())
+    state = build_initial_state(
+        session_id="s1",
+        plan=make_plan(),
+        job_description="Backend role using Python and Redis.",
+        resume_text="Built a Python API with Redis.",
+        job_tags=["python", "redis"],
+    )
     state["messages"].extend(
         [
             {
@@ -72,7 +89,7 @@ def make_finished_state():
 class FakeReportLLM:
     def __init__(self):
         self.last_plan = None
-        self.last_chunks = None
+        self.last_evaluation_items = None
         self.last_session_id = None
 
     def generate_plan(self, job_description: str, resume_text: str):
@@ -84,15 +101,16 @@ class FakeReportLLM:
     def generate_report(
         self,
         plan: InterviewPlan,
-        chunks: list[dict],
+        evaluation_items: list[dict],
         session_id: str,
     ) -> InterviewReport:
         self.last_plan = plan
-        self.last_chunks = chunks
+        self.last_evaluation_items = evaluation_items
         self.last_session_id = session_id
         return InterviewReport(
             session_id=session_id,
             overall_score=80,
+            overall_dimension_scores=make_dimension_scores(80),
             summary="Clear project story with room for stronger metrics.",
             highlights=["Explained failure handling"],
             feedbacks=[
@@ -101,12 +119,15 @@ class FakeReportLLM:
                     question_text="Please introduce a backend project.",
                     user_answer="The candidate described a FastAPI Redis project.",
                     score=82,
+                    dimension_scores=make_dimension_scores(82),
+                    rationale="The answer covered architecture and reliability tradeoffs.",
                     critique="Business metrics were not specific enough.",
                     better_answer=(
                         "I built a FastAPI service for hot record lookup, "
                         "measured p95 latency, and added Redis with database "
                         "fallback."
                     ),
+                    references=[],
                 ),
                 InterviewFeedback(
                     question_id="q2",
@@ -116,11 +137,14 @@ class FakeReportLLM:
                         "eventual consistency."
                     ),
                     score=78,
+                    dimension_scores=make_dimension_scores(78),
+                    rationale="The answer described the main write path but not the edge cases.",
                     critique="The answer did not explain race conditions.",
                     better_answer=(
                         "I would describe cache-aside, delete-after-write, "
                         "retry behavior, and consistency windows."
                     ),
+                    references=[],
                 ),
             ],
         )
@@ -130,7 +154,7 @@ class FailingReportLLM(FakeReportLLM):
     def generate_report(
         self,
         plan: InterviewPlan,
-        chunks: list[dict],
+        evaluation_items: list[dict],
         session_id: str,
     ) -> InterviewReport:
         raise ValueError("invalid structured output")
@@ -140,7 +164,7 @@ class TimeoutReportLLM(FakeReportLLM):
     def generate_report(
         self,
         plan: InterviewPlan,
-        chunks: list[dict],
+        evaluation_items: list[dict],
         session_id: str,
     ) -> InterviewReport:
         raise ReportGenerationTimeout("report generation timed out")
@@ -155,8 +179,8 @@ def test_evaluator_chunks_messages_by_question_id():
     assert report.overall_score == 80
     assert llm.last_session_id == "s1"
     assert llm.last_plan.title == "Backend interview"
-    assert [chunk["question_id"] for chunk in llm.last_chunks] == ["q1", "q2"]
-    assert [message["role"] for message in llm.last_chunks[0]["messages"]] == [
+    assert [item["question_id"] for item in llm.last_evaluation_items] == ["q1", "q2"]
+    assert [message["role"] for message in llm.last_evaluation_items[0]["messages"]] == [
         "interviewer",
         "candidate",
         "interviewer",
@@ -172,6 +196,7 @@ def test_evaluator_returns_fallback_completed_report_when_structured_output_fail
     assert report.status == "completed"
     assert report.is_fallback is True
     assert report.overall_score == 60
+    assert report.overall_dimension_scores.depth == 60
     assert (
         report.summary
         == "AI evaluation could not generate a complete report. Review the original answers manually."
@@ -179,6 +204,9 @@ def test_evaluator_returns_fallback_completed_report_when_structured_output_fail
     assert len(report.feedbacks) == 2
     assert {feedback.question_id for feedback in report.feedbacks} == {"q1", "q2"}
     assert all(feedback.score == 60 for feedback in report.feedbacks)
+    assert report.feedbacks[0].dimension_scores.engineering == 60
+    assert report.feedbacks[0].references == []
+    assert "fallback" in report.feedbacks[0].rationale.lower()
 
 
 def test_evaluator_includes_unanswered_questions_in_fallback():

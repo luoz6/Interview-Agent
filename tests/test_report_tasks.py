@@ -1,5 +1,6 @@
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import (
+    DimensionScores,
     InterviewFeedback,
     InterviewReport,
     ReportGenerationTimeout,
@@ -22,7 +23,7 @@ class ReportLLM:
     def generate_report(
         self,
         plan: InterviewPlan,
-        chunks: list[dict],
+        evaluation_items: list[dict],
         session_id: str,
     ) -> InterviewReport:
         if self.should_timeout:
@@ -30,6 +31,7 @@ class ReportLLM:
         return InterviewReport(
             session_id=session_id,
             overall_score=self.report_score,
+            overall_dimension_scores=make_dimension_scores(self.report_score),
             summary="Strong backend fundamentals.",
             highlights=["Explained tradeoffs"],
             feedbacks=[
@@ -38,11 +40,24 @@ class ReportLLM:
                     question_text="Introduce a project.",
                     user_answer="I built a cache service.",
                     score=self.report_score,
+                    dimension_scores=make_dimension_scores(self.report_score),
+                    rationale="The answer showed practical implementation detail.",
                     critique="Needs sharper metrics.",
                     better_answer="I reduced p95 latency with Redis and fallback.",
+                    references=[],
                 )
             ],
         )
+
+
+def make_dimension_scores(score: int = 81) -> DimensionScores:
+    return DimensionScores(
+        breadth=score,
+        depth=score,
+        architecture=score,
+        engineering=score,
+        communication=score,
+    )
 
 
 def make_plan() -> InterviewPlan:
@@ -56,6 +71,15 @@ def make_plan() -> InterviewPlan:
                 focus="project depth",
             )
         ],
+    )
+
+
+def start_session(store: InterviewSessionStore):
+    return store.start(
+        make_plan(),
+        job_description="Backend role using Python and Redis.",
+        resume_text="Built a Python API with Redis.",
+        job_tags=["python", "redis"],
     )
 
 
@@ -73,8 +97,15 @@ def finish_session(store: InterviewSessionStore, session_id: str) -> None:
 
 
 def test_generate_report_for_session_saves_completed_report():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    import app.services.report_tasks as report_tasks
+
+    report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     store = InterviewSessionStore(llm=ReportLLM(report_score=81))
-    session = store.start(make_plan())
+    session = start_session(store)
     finish_session(store, session.session_id)
     store.mark_report_processing(session.session_id)
 
@@ -87,8 +118,15 @@ def test_generate_report_for_session_saves_completed_report():
 
 
 def test_generate_report_for_session_saves_failed_record_on_timeout():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    import app.services.report_tasks as report_tasks
+
+    report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     store = InterviewSessionStore(llm=ReportLLM(should_timeout=True))
-    session = store.start(make_plan())
+    session = start_session(store)
     finish_session(store, session.session_id)
     store.mark_report_processing(session.session_id)
 
@@ -101,6 +139,13 @@ def test_generate_report_for_session_saves_failed_record_on_timeout():
 
 
 def test_generate_report_for_session_returns_when_session_is_missing():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    import app.services.report_tasks as report_tasks
+
+    report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     store = InterviewSessionStore(llm=ReportLLM())
 
     generate_report_for_session("missing", store)

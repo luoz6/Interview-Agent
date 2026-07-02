@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class MissingLLMConfigError(RuntimeError):
-    """LLM 配置缺失，通常是没有设置 OPENAI_API_KEY。"""
+    """LLM configuration is missing, usually OPENAI_API_KEY."""
 
 
 @dataclass(frozen=True)
@@ -34,19 +34,18 @@ class LLMConfig:
 
 class InterviewLLM(Protocol):
     def generate_plan(self, job_description: str, resume_text: str):
-        """根据 JD 和简历生成结构化面试大纲。"""
+        """Generate the interview plan from JD and resume."""
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
-        """根据最近几轮上下文生成追问。"""
-
+        """Generate a follow-up question from recent context."""
 
     def generate_report(
         self,
         plan,
-        chunks: list[dict],
+        evaluation_items: list[dict],
         session_id: str,
     ) -> "InterviewReport":
-        """Generate a structured post-interview report."""
+        """Generate a structured expert report."""
 
 
 class OpenAIInterviewLLM:
@@ -63,8 +62,8 @@ class OpenAIInterviewLLM:
             "1. 至少包含项目题、技术深挖题、系统设计题三类问题。\n"
             "2. 问题必须贴合候选人的真实经历，不要生成泛泛而谈的问题。\n"
             "3. 输出必须严格符合 InterviewPlan 的结构化字段。\n\n"
-            f"JD：\n{job_description}\n\n"
-            f"简历：\n{resume_text}"
+            f"JD:\n{job_description}\n\n"
+            f"简历:\n{resume_text}"
         )
         structured_model = self.chat_model.with_structured_output(
             InterviewPlan,
@@ -83,7 +82,7 @@ class OpenAIInterviewLLM:
             "1. 追问必须基于候选人刚才的回答。\n"
             "2. 优先追问取舍、边界条件、故障兜底、性能瓶颈或源码原理。\n"
             "3. 不要输出解释，不要输出多道题，只输出追问本身。\n\n"
-            f"上下文：\n{transcript}"
+            f"上下文:\n{transcript}"
         )
         message = self.chat_model.invoke(prompt)
         return str(getattr(message, "content", message)).strip()
@@ -91,26 +90,30 @@ class OpenAIInterviewLLM:
     def generate_report(
         self,
         plan,
-        chunks: list[dict],
+        evaluation_items: list[dict],
         session_id: str,
     ) -> "InterviewReport":
         from app.services.report import InterviewReport
 
         prompt = (
-            "You are a strict technical interview coach. Generate a structured interview report.\n"
+            "You are a strict technical interview coach. Generate a structured "
+            "expert interview report.\n"
             "Rules:\n"
-            "1. Use only the supplied interview transcript and interview plan.\n"
-            "2. Return one feedback item for every question chunk.\n"
+            "1. Use only the supplied transcript and retrieved references.\n"
+            "2. Return one feedback item for every evaluation item.\n"
             "3. Scores must be integers from 0 to 100.\n"
-            "4. The critique must be specific and actionable.\n"
-            "5. The better_answer must be a practice-ready answer, not generic advice.\n"
-            "6. Keep highlights to one to three items.\n\n"
+            "4. dimension_scores must include breadth, depth, architecture, "
+            "engineering, communication.\n"
+            "5. rationale must explain the scoring and mention reference gaps "
+            "when relevant.\n"
+            "6. references must only include retrieved evidence.\n"
+            "7. Keep highlights to one to three items.\n\n"
             f"session_id: {session_id}\n\n"
             f"plan_title: {plan.title}\n\n"
             "questions:\n"
             f"{json.dumps([question.model_dump() for question in plan.questions], ensure_ascii=False, indent=2)}\n\n"
-            "chunks:\n"
-            f"{json.dumps(chunks, ensure_ascii=False, indent=2)}"
+            "evaluation_items:\n"
+            f"{json.dumps(evaluation_items, ensure_ascii=False, indent=2)}"
         )
         structured_model = self.chat_model.with_structured_output(
             InterviewReport,

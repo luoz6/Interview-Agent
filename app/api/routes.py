@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
 from app.services.report_tasks import generate_report_for_session
 from app.services.session import InterviewSessionStore
@@ -56,7 +57,13 @@ def start_interview(
             payload.resume_text,
             llm=store.llm,
         )
-        turn = store.start(plan)
+        job_tags = extract_job_tags(payload.job_description)
+        turn = store.start(
+            plan,
+            job_description=payload.job_description,
+            resume_text=payload.resume_text,
+            job_tags=job_tags,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
@@ -93,7 +100,15 @@ def get_interview_report(
 
     record = store.get_report_record(session_id)
     if record is None or record.status == "processing":
-        return JSONResponse(status_code=202, content={"status": "processing"})
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "processing",
+                "progress": record.progress.model_dump()
+                if record is not None and record.progress is not None
+                else None,
+            },
+        )
     if record.status == "failed":
         raise HTTPException(status_code=500, detail=record.error)
     return record.report.model_dump()

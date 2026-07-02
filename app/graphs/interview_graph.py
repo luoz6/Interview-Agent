@@ -14,8 +14,21 @@ class InterviewGraphRunner:
     def __init__(self, llm: InterviewLLM | None = None) -> None:
         self._llm = llm
 
-    def start(self, session_id: str, plan: InterviewPlan) -> InterviewState:
-        return build_initial_state(session_id=session_id, plan=plan)
+    def start(
+        self,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+    ) -> InterviewState:
+        return build_initial_state(
+            session_id=session_id,
+            plan=plan,
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+        )
 
     def submit_answer(self, state: InterviewState, answer: str) -> InterviewState:
         next_state = deepcopy(state)
@@ -134,7 +147,7 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
 
 def fallback_followup(focus: str) -> str:
-    return f"请继续深挖{focus}：你当时做了什么取舍，为什么这样选？"
+    return f"请继续深挖 {focus}：你当时做了什么取舍，为什么这样选？"
 
 
 def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:
