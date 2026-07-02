@@ -190,6 +190,24 @@ input:disabled {
   padding: 12px;
 }
 
+.report-alert {
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+
+.report-alert.warning {
+  background: rgba(180, 83, 9, 0.12);
+  color: var(--warn);
+}
+
+.report-alert.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .report-section.failed .report-note {
   background: var(--danger-soft);
   border-left-color: var(--danger);
@@ -351,6 +369,12 @@ input:disabled {
 .reference-excerpt {
   color: var(--muted);
   margin-top: 6px;
+}
+
+.reference-empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: 12px 0 0;
 }
 
 @media (max-width: 860px) {

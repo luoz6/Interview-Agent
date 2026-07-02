@@ -1,0 +1,68 @@
+[
+  {
+    "id": "kafka-strong-idempotent-consumer",
+    "domain": "kafka",
+    "job_tags": ["kafka", "backend"],
+    "question": "How do you build reliable Kafka consumers?",
+    "focus": "Kafka delivery guarantees",
+    "answer": "I design consumers to be idempotent, commit offsets after successful processing, configure retries with dead-letter handling, and watch consumer lag plus end-to-end latency.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "kafka-1",
+    "required_rationale_terms": ["idempotent", "dead-letter", "consumer lag"]
+  },
+  {
+    "id": "kafka-weak-fire-and-forget",
+    "domain": "kafka",
+    "job_tags": ["kafka"],
+    "question": "How do you build reliable Kafka consumers?",
+    "focus": "Kafka delivery guarantees",
+    "answer": "I just read messages and trust Kafka to retry everything.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "kafka-1",
+    "required_critique_terms": ["idempotent", "dead-letter", "consumer lag"]
+  },
+  {
+    "id": "kafka-strong-backpressure",
+    "domain": "kafka",
+    "job_tags": ["kafka", "python"],
+    "question": "How do you handle Kafka backpressure during spikes?",
+    "focus": "Consumer scaling and resilience",
+    "answer": "I monitor consumer lag, scale partitions and workers carefully, keep handlers idempotent, use retries with dead-letter queues, and only commit offsets after durable work finishes.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "kafka-1",
+    "required_rationale_terms": ["idempotent", "dead-letter", "consumer lag"]
+  },
+  {
+    "id": "kafka-weak-more-brokers",
+    "domain": "kafka",
+    "job_tags": ["kafka", "system"],
+    "question": "How do you handle Kafka backpressure during spikes?",
+    "focus": "Consumer scaling and resilience",
+    "answer": "I would add more brokers and see if it gets better.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "kafka-1",
+    "required_critique_terms": ["idempotent", "dead-letter", "consumer lag"]
+  },
+  {
+    "id": "kafka-mixed-db-outbox",
+    "domain": "kafka",
+    "job_tags": ["kafka", "mysql"],
+    "question": "How do Kafka and MySQL work together safely for event publishing?",
+    "focus": "Kafka in a mixed stack",
+    "answer": "I prefer an outbox or equivalent durability pattern, keep consumers idempotent, use retries and dead-letter queues, and monitor consumer lag so failures are visible.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "kafka-1",
+    "required_rationale_terms": ["idempotent", "dead-letter", "consumer lag"]
+  },
+  {
+    "id": "kafka-mixed-no-retry-policy",
+    "domain": "kafka",
+    "job_tags": ["kafka", "redis"],
+    "question": "How does Kafka fit with cache update events?",
+    "focus": "Kafka in distributed cache flows",
+    "answer": "I publish cache update events and let each service do whatever it wants.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "kafka-1",
+    "required_critique_terms": ["idempotent", "dead-letter", "consumer lag"]
+  }
+]

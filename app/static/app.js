@@ -152,12 +152,21 @@ function renderReportProcessing(progress) {
   );
 }
 
+function toUserFacingReportError(message) {
+  if (message && message.includes("pgvector knowledge store is unavailable")) {
+    return "Knowledge retrieval unavailable";
+  }
+  return message || "Report generation failed";
+}
+
 function renderReportError(message) {
   reportSection.hidden = false;
   reportSection.className = "report-section failed";
   reportStatus.textContent = "Report generation failed";
   reportContent.innerHTML = "";
-  reportContent.appendChild(createEl("p", "report-note", message));
+  reportContent.appendChild(
+    createEl("p", "report-alert danger", toUserFacingReportError(message))
+  );
 }
 
 function renderReport(report) {
@@ -169,6 +178,17 @@ function renderReport(report) {
     ? "Report completed (fallback)"
     : "Report completed";
   reportContent.innerHTML = "";
+
+  const allReferences = report.feedbacks.flatMap((feedback) => feedback.references || []);
+  if (report.is_fallback && allReferences.length === 0) {
+    reportContent.appendChild(
+      createEl(
+        "p",
+        "report-alert warning",
+        "Evidence insufficient"
+      )
+    );
+  }
 
   const overview = createEl("div", "report-overview");
   overview.appendChild(createEl("div", "report-score", String(report.overall_score)));
@@ -235,6 +255,14 @@ function renderFeedback(feedback) {
       references.appendChild(refItem);
     });
     item.appendChild(references);
+  } else {
+    item.appendChild(
+      createEl(
+        "p",
+        "reference-empty",
+        "No strong reference found for this answer."
+      )
+    );
   }
   return item;
 }

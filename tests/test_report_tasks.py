@@ -50,6 +50,36 @@ class ReportLLM:
         )
 
 
+class FallbackReportLLM(ReportLLM):
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        evaluation_items: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        return InterviewReport(
+            session_id=session_id,
+            overall_score=60,
+            overall_dimension_scores=make_dimension_scores(60),
+            summary="Evidence was insufficient for a grounded expert report.",
+            highlights=["Completed the mock interview"],
+            is_fallback=True,
+            feedbacks=[
+                InterviewFeedback(
+                    question_id="q1",
+                    question_text="Introduce a project.",
+                    user_answer="I built a cache service.",
+                    score=60,
+                    dimension_scores=make_dimension_scores(60),
+                    rationale="Fallback report generated because grounded evidence was insufficient.",
+                    critique="Needs sharper metrics.",
+                    better_answer="I reduced p95 latency with Redis and fallback.",
+                    references=[],
+                )
+            ],
+        )
+
+
 def make_dimension_scores(score: int = 81) -> DimensionScores:
     return DimensionScores(
         breadth=score,
@@ -136,6 +166,50 @@ def test_generate_report_for_session_saves_failed_record_on_timeout():
     assert record.status == "failed"
     assert record.error == "report generation timed out"
     assert record.report is None
+
+
+def test_generate_report_for_session_saves_failed_record_when_retrieval_is_unavailable():
+    class FailingVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            raise RuntimeError("db down")
+
+    import app.services.report_tasks as report_tasks
+
+    report_tasks.get_knowledge_store = lambda: FailingVectorStore()
+    store = InterviewSessionStore(llm=ReportLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    generate_report_for_session(session.session_id, store)
+
+    record = store.get_report_record(session.session_id)
+    assert record.status == "failed"
+    assert record.error == "pgvector knowledge store is unavailable"
+    assert record.report is None
+
+
+def test_generate_report_for_session_saves_completed_fallback_when_evidence_is_insufficient():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    import app.services.report_tasks as report_tasks
+
+    report_tasks.get_knowledge_store = lambda: FakeVectorStore()
+    store = InterviewSessionStore(llm=FallbackReportLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    generate_report_for_session(session.session_id, store)
+
+    record = store.get_report_record(session.session_id)
+    assert record.status == "completed"
+    assert record.report is not None
+    assert record.report.is_fallback is True
+    assert record.report.summary == "Evidence was insufficient for a grounded expert report."
+    assert record.report.feedbacks[0].references == []
 
 
 def test_generate_report_for_session_returns_when_session_is_missing():

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "system-strong-tradeoff-answer",
+    "domain": "system-design",
+    "job_tags": ["system-design", "backend"],
+    "question": "How would you design a scalable notification system?",
+    "focus": "System design tradeoffs and observability",
+    "answer": "I would define clear service boundaries, queue asynchronous work, plan failure isolation, cover data consistency tradeoffs, and watch latency plus saturation metrics for each hop.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "system-design-1",
+    "required_rationale_terms": ["service boundaries", "failure isolation", "latency"]
+  },
+  {
+    "id": "system-weak-handwave",
+    "domain": "system-design",
+    "job_tags": ["system-design"],
+    "question": "How would you design a scalable notification system?",
+    "focus": "System design tradeoffs and observability",
+    "answer": "I would use microservices and scale horizontally.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "system-design-1",
+    "required_critique_terms": ["service boundaries", "failure isolation", "latency"]
+  },
+  {
+    "id": "system-strong-mixed-stack",
+    "domain": "system-design",
+    "job_tags": ["system-design", "redis", "kafka", "mysql"],
+    "question": "How do you reason about a mixed Redis, MySQL, and Kafka architecture?",
+    "focus": "End-to-end architecture tradeoffs",
+    "answer": "I separate responsibilities with clear service boundaries, define consistency boundaries, isolate failures between read, write, and event paths, and monitor end-to-end latency so tradeoffs stay visible.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "system-design-1",
+    "required_rationale_terms": ["service boundaries", "failure isolation", "latency"]
+  },
+  {
+    "id": "system-weak-no-failure-story",
+    "domain": "system-design",
+    "job_tags": ["system-design", "redis"],
+    "question": "How do you reason about a mixed Redis, MySQL, and Kafka architecture?",
+    "focus": "End-to-end architecture tradeoffs",
+    "answer": "I would connect the components and optimize later.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "system-design-1",
+    "required_critique_terms": ["service boundaries", "failure isolation", "latency"]
+  },
+  {
+    "id": "system-strong-capacity-review",
+    "domain": "system-design",
+    "job_tags": ["system-design", "backend"],
+    "question": "How do you review whether a backend architecture will hold under load?",
+    "focus": "Capacity and resilience review",
+    "answer": "I estimate traffic, identify bottlenecks per service boundary, plan failure isolation, validate async paths, and use latency plus saturation metrics to confirm the design under load.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "system-design-1",
+    "required_rationale_terms": ["service boundaries", "failure isolation", "latency"]
+  },
+  {
+    "id": "system-weak-capacity-vague",
+    "domain": "system-design",
+    "job_tags": ["system-design", "kafka"],
+    "question": "How do you review whether a backend architecture will hold under load?",
+    "focus": "Capacity and resilience review",
+    "answer": "I would load test it and then fix issues.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "system-design-1",
+    "required_critique_terms": ["service boundaries", "failure isolation", "latency"]
+  }
+]

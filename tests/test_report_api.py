@@ -187,3 +187,54 @@ def test_report_endpoint_returns_500_for_failed_report():
 
     assert response.status_code == 500
     assert response.json()["detail"] == "report generation timed out"
+
+
+def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
+    client, store, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+    store.fail_report(session_id, "pgvector knowledge store is unavailable")
+
+    response = client.get(f"/api/interviews/{session_id}/report")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "pgvector knowledge store is unavailable"
+
+
+def test_report_endpoint_returns_fallback_report_for_evidence_insufficient():
+    client, store, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.save_report(
+        session_id,
+        InterviewReport(
+            session_id=session_id,
+            overall_score=60,
+            overall_dimension_scores=make_dimension_scores(60),
+            summary="Evidence was insufficient for a grounded expert report.",
+            highlights=["Completed the mock interview"],
+            is_fallback=True,
+            feedbacks=[
+                InterviewFeedback(
+                    question_id="q1",
+                    question_text="Introduce a backend project.",
+                    user_answer="The candidate built a backend cache service.",
+                    score=60,
+                    dimension_scores=make_dimension_scores(60),
+                    rationale="Fallback report generated because grounded evidence was insufficient.",
+                    critique="Needs stronger business metrics.",
+                    better_answer="I reduced p95 latency using cache-aside Redis.",
+                    references=[],
+                )
+            ],
+        ),
+    )
+
+    response = client.get(f"/api/interviews/{session_id}/report")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_fallback"] is True
+    assert body["summary"] == "Evidence was insufficient for a grounded expert report."
+    assert body["feedbacks"][0]["references"] == []

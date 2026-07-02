@@ -1,0 +1,68 @@
+[
+  {
+    "id": "mysql-strong-index-transaction",
+    "domain": "mysql",
+    "job_tags": ["python", "mysql"],
+    "question": "How do you improve slow MySQL write-heavy endpoints?",
+    "focus": "MySQL performance and correctness",
+    "answer": "I inspect query plans, add the right composite indexes, keep transactions short, batch writes carefully, and watch lock wait plus p95 latency before and after changes.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "mysql-1",
+    "required_rationale_terms": ["indexes", "transactions", "p95 latency"]
+  },
+  {
+    "id": "mysql-weak-restart-db",
+    "domain": "mysql",
+    "job_tags": ["mysql"],
+    "question": "How do you improve slow MySQL write-heavy endpoints?",
+    "focus": "MySQL performance and correctness",
+    "answer": "I would restart MySQL and add more CPU.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "mysql-1",
+    "required_critique_terms": ["indexes", "transactions", "lock wait"]
+  },
+  {
+    "id": "mysql-strong-pagination",
+    "domain": "mysql",
+    "job_tags": ["mysql", "backend"],
+    "question": "How would you tune a MySQL feed query?",
+    "focus": "Read path tuning",
+    "answer": "I check EXPLAIN, use covering indexes where useful, avoid deep offset pagination when possible, keep transactions scoped, and confirm improvements with p95 latency and lock metrics.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "mysql-1",
+    "required_rationale_terms": ["indexes", "transactions", "p95 latency"]
+  },
+  {
+    "id": "mysql-weak-generic-scaling",
+    "domain": "mysql",
+    "job_tags": ["mysql", "redis"],
+    "question": "How would you tune a MySQL feed query?",
+    "focus": "Read path tuning",
+    "answer": "I would cache more and hope the query gets faster.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "mysql-1",
+    "required_critique_terms": ["indexes", "transactions", "lock wait"]
+  },
+  {
+    "id": "mysql-mixed-cache-coordination",
+    "domain": "mysql",
+    "job_tags": ["mysql", "redis"],
+    "question": "In a MySQL plus Redis service, how do you keep writes safe and fast?",
+    "focus": "MySQL in a mixed stack",
+    "answer": "I optimize MySQL first with indexes and short transactions, then coordinate cache invalidation after commit and validate changes with p95 latency and lock-wait metrics.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "mysql-1",
+    "required_rationale_terms": ["indexes", "transactions", "p95 latency"]
+  },
+  {
+    "id": "mysql-mixed-no-transaction-plan",
+    "domain": "mysql",
+    "job_tags": ["mysql", "kafka"],
+    "question": "How do you protect MySQL writes in an event-driven service?",
+    "focus": "MySQL in distributed systems",
+    "answer": "I would send events first and let the database catch up later.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "mysql-1",
+    "required_critique_terms": ["indexes", "transactions", "lock wait"]
+  }
+]
