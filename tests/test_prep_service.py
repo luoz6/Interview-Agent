@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.prep import InterviewPlan, InterviewQuestion, prepare_interview
+from app.services.report import InterviewReport
 
 
 class FakePlanLLM:
@@ -39,12 +40,29 @@ class FakePlanLLM:
         return "请继续展开。"
 
 
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise AssertionError("Prep tests do not generate reports")
+
+
 class FailingPlanLLM:
     def generate_plan(self, job_description: str, resume_text: str):
         raise RuntimeError("llm failed")
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         raise RuntimeError("llm failed")
+
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise AssertionError("Prep tests do not generate reports")
 
 
 def test_prepare_interview_uses_llm_for_question_plan():

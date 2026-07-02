@@ -6,6 +6,7 @@ from app.graphs.interview_state import (
 )
 from app.graphs.interview_graph import InterviewGraphRunner
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.report import InterviewReport
 
 
 def make_plan():
@@ -63,6 +64,15 @@ class FakeLLM:
         return "请继续说明缓存失效策略。"
 
 
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise AssertionError("Graph tests do not generate reports")
+
+
 def test_runner_start_returns_initial_state():
     runner = InterviewGraphRunner(llm=FakeLLM())
 
@@ -80,6 +90,15 @@ class FailingLLM:
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         raise RuntimeError("llm failed")
+
+
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise AssertionError("Graph tests do not generate reports")
 
 
 def test_runner_submit_answer_generates_followup_decision():

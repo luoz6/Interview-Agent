@@ -1,4 +1,5 @@
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.report import InterviewReport
 from app.services.session import InterviewSessionStore
 
 
@@ -22,6 +23,15 @@ class FakeInterviewLLM:
         if self.should_fail_followup:
             raise RuntimeError("llm failed")
         return "你提到了缓存，请继续说明缓存失效时如何保护数据库。"
+
+
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise AssertionError("Session store report cache tests do not generate reports")
 
 
 def make_plan():

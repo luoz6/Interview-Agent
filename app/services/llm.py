@@ -1,6 +1,10 @@
+import json
 import os
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from app.services.report import InterviewReport
 
 
 class MissingLLMConfigError(RuntimeError):
@@ -34,6 +38,15 @@ class InterviewLLM(Protocol):
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         """根据最近几轮上下文生成追问。"""
+
+
+    def generate_report(
+        self,
+        plan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> "InterviewReport":
+        """Generate a structured post-interview report."""
 
 
 class OpenAIInterviewLLM:
@@ -74,6 +87,36 @@ class OpenAIInterviewLLM:
         )
         message = self.chat_model.invoke(prompt)
         return str(getattr(message, "content", message)).strip()
+
+    def generate_report(
+        self,
+        plan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> "InterviewReport":
+        from app.services.report import InterviewReport
+
+        prompt = (
+            "You are a strict technical interview coach. Generate a structured interview report.\n"
+            "Rules:\n"
+            "1. Use only the supplied interview transcript and interview plan.\n"
+            "2. Return one feedback item for every question chunk.\n"
+            "3. Scores must be integers from 0 to 100.\n"
+            "4. The critique must be specific and actionable.\n"
+            "5. The better_answer must be a practice-ready answer, not generic advice.\n"
+            "6. Keep highlights to one to three items.\n\n"
+            f"session_id: {session_id}\n\n"
+            f"plan_title: {plan.title}\n\n"
+            "questions:\n"
+            f"{json.dumps([question.model_dump() for question in plan.questions], ensure_ascii=False, indent=2)}\n\n"
+            "chunks:\n"
+            f"{json.dumps(chunks, ensure_ascii=False, indent=2)}"
+        )
+        structured_model = self.chat_model.with_structured_output(
+            InterviewReport,
+            method="json_schema",
+        )
+        return structured_model.invoke(prompt)
 
     @staticmethod
     def _build_chat_model(config: LLMConfig):

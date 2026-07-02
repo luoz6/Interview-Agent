@@ -6,6 +6,7 @@ from app.graphs.interview_graph import InterviewGraphRunner
 from app.graphs.interview_state import InterviewState, get_current_question
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.report import InterviewReport, ReportRecord
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class InterviewTurn:
 class InterviewSessionStore:
     def __init__(self, llm: InterviewLLM | None = None) -> None:
         self._sessions: Dict[str, InterviewState] = {}
+        self._reports: Dict[str, ReportRecord] = {}
         self._llm = llm
         self._runner = InterviewGraphRunner(llm=llm)
 
@@ -46,6 +48,27 @@ class InterviewSessionStore:
         new_state = self._runner.submit_answer(state, answer)
         self._sessions[session_id] = new_state
         return self._to_turn(new_state, follow_up=_extract_follow_up(new_state))
+
+    def mark_report_processing(self, session_id: str) -> bool:
+        state = self.get(session_id)
+        if state["status"] != "finished":
+            raise ValueError("interview is not finished")
+        if session_id in self._reports:
+            return False
+        self._reports[session_id] = ReportRecord(status="processing")
+        return True
+
+    def save_report(self, session_id: str, report: InterviewReport) -> None:
+        self.get(session_id)
+        self._reports[session_id] = ReportRecord(status="completed", report=report)
+
+    def fail_report(self, session_id: str, error: str) -> None:
+        self.get(session_id)
+        self._reports[session_id] = ReportRecord(status="failed", error=error)
+
+    def get_report_record(self, session_id: str) -> ReportRecord | None:
+        self.get(session_id)
+        return self._reports.get(session_id)
 
     def _to_turn(self, state: InterviewState, follow_up: Optional[str]) -> InterviewTurn:
         return InterviewTurn(

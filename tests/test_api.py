@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.api.routes import get_session_store
 from app.main import app
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.report import InterviewReport
 from app.services.session import InterviewSessionStore
 
 
@@ -23,6 +24,15 @@ class FakeApiLLM:
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         self.last_context = context
         return "请继续说明缓存失效时如何保护数据库。"
+
+
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        chunks: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise AssertionError("API flow tests do not generate reports")
 
 
 def make_client():
