@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,24 +20,83 @@ def iter_markdown_files() -> list[Path]:
 def build_chunks() -> list[KnowledgeChunk]:
     chunks: list[KnowledgeChunk] = []
     for path in iter_markdown_files():
-        content = path.read_text(encoding="utf-8").strip()
+        raw = path.read_text(encoding="utf-8").strip()
+        metadata, content = parse_front_matter(raw)
         if not content:
             continue
-        domain = infer_domain(path, content)
-        source_type = "expert_benchmark" if "benchmarks" in path.parts else "theory"
-        tags = [domain] if domain == "general" else [domain, "general"]
+        domain = resolve_domain(metadata=metadata, path=path, content=content)
+        source_type = resolve_source_type(metadata=metadata, path=path)
+        tags = resolve_tags(metadata=metadata, domain=domain)
         chunks.append(
             KnowledgeChunk(
                 chunk_id=path.stem,
-                title=path.stem.replace("_", " ").title(),
+                title=resolve_title(metadata=metadata, path=path),
                 content=content,
                 source_type=source_type,
                 domain=domain,
                 tags=tags,
-                metadata={"source_path": str(path)},
+                metadata=build_chunk_metadata(metadata=metadata, path=path),
             )
         )
     return chunks
+
+
+def parse_front_matter(raw: str) -> tuple[dict[str, object], str]:
+    if not raw.startswith("---\n"):
+        return {}, raw.strip()
+
+    parts = raw.split("\n---\n", 1)
+    if len(parts) != 2:
+        return {}, raw.strip()
+
+    header, body = parts
+    metadata: dict[str, object] = {}
+    for line in header.splitlines()[1:]:
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        metadata[key.strip()] = _parse_front_matter_value(value.strip())
+    return metadata, body.strip()
+
+
+def resolve_domain(*, metadata: dict[str, object], path: Path, content: str) -> str:
+    domain = metadata.get("domain")
+    if isinstance(domain, str) and domain.strip():
+        return domain.strip()
+    return infer_domain(path, content)
+
+
+def resolve_source_type(*, metadata: dict[str, object], path: Path) -> str:
+    source_type = metadata.get("source_type")
+    if isinstance(source_type, str) and source_type.strip():
+        return source_type.strip()
+    return "expert_benchmark" if "benchmarks" in path.parts else "theory"
+
+
+def resolve_tags(*, metadata: dict[str, object], domain: str) -> list[str]:
+    tags = metadata.get("tags")
+    if isinstance(tags, list):
+        normalized = [str(tag).strip() for tag in tags if str(tag).strip()]
+        if normalized:
+            return normalized
+    return [domain] if domain == "general" else [domain, "general"]
+
+
+def resolve_title(*, metadata: dict[str, object], path: Path) -> str:
+    title = metadata.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    return path.stem.replace("_", " ").title()
+
+
+def build_chunk_metadata(*, metadata: dict[str, object], path: Path) -> dict[str, str]:
+    chunk_metadata: dict[str, str] = {"source_path": str(path)}
+    for key in ("domain", "source_type", "title"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            chunk_metadata[key] = value.strip()
+    return chunk_metadata
 
 
 def infer_domain(path: Path, content: str) -> str:
@@ -52,6 +112,17 @@ def infer_domain(path: Path, content: str) -> str:
     if "system design" in text or "service scaling" in text or "scaling" in text:
         return "system-design"
     return "general"
+
+
+def _parse_front_matter_value(value: str) -> object:
+    if value.startswith("[") and value.endswith("]"):
+        items = value[1:-1].strip()
+        if not items:
+            return []
+        return [item.strip().strip("'\"") for item in items.split(",") if item.strip()]
+    if value.startswith("{") and value.endswith("}"):
+        return json.loads(value)
+    return value.strip().strip("'\"")
 
 
 def resolve_store(store: PgVectorKnowledgeStore | None = None) -> PgVectorKnowledgeStore:

@@ -1,3 +1,10 @@
+---
+domain: redis
+source_type: theory
+tags: [redis, cache, hotkey]
+title: Cache Breakdown
+---
+
 # Cache Breakdown
 
 Cache breakdown usually means many concurrent requests miss the same hot key and hit the database together.

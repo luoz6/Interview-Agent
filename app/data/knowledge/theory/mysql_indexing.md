@@ -1,3 +1,10 @@
+---
+domain: mysql
+source_type: theory
+tags: [mysql, indexing, query]
+title: MySQL Indexing
+---
+
 # MySQL Indexing
 
 Important interview checkpoints:

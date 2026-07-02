@@ -1,3 +1,10 @@
+---
+domain: kafka
+source_type: expert_benchmark
+tags: [kafka, backend, messaging]
+title: Kafka Backend Project Benchmark
+---
+
 # Kafka Backend Project Benchmark
 
 ## High-score answer pattern

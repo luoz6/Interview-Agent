@@ -1,3 +1,10 @@
+---
+domain: redis
+source_type: theory
+tags: [redis, consistency, cache]
+title: Redis Cache Consistency
+---
+
 # Redis Cache Consistency
 
 Cache consistency in a cache-aside design usually means updating the database first and then deleting the cache.

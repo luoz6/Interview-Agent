@@ -1,3 +1,10 @@
+---
+domain: kafka
+source_type: theory
+tags: [kafka, delivery, consumer]
+title: Kafka Delivery Semantics
+---
+
 # Kafka Delivery Semantics
 
 Key interview checkpoints:

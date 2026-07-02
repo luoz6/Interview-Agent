@@ -1,3 +1,10 @@
+---
+domain: system-design
+source_type: theory
+tags: [system-design, scaling, architecture]
+title: Service Scaling
+---
+
 # Service Scaling
 
 Key interview checkpoints:

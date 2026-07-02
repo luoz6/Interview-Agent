@@ -1,3 +1,10 @@
+---
+domain: mysql
+source_type: expert_benchmark
+tags: [mysql, backend, database]
+title: MySQL Backend Project Benchmark
+---
+
 # MySQL Backend Project Benchmark
 
 ## High-score answer pattern

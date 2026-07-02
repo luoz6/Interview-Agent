@@ -1,3 +1,10 @@
+---
+domain: redis
+source_type: expert_benchmark
+tags: [redis, backend, cache]
+title: Redis Backend Project Benchmark
+---
+
 # Redis Backend Project Benchmark
 
 ## High-score answer pattern

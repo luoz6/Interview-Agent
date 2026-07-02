@@ -1,3 +1,10 @@
+---
+domain: fastapi
+source_type: expert_benchmark
+tags: [fastapi, backend, python]
+title: FastAPI Backend Project Benchmark
+---
+
 # FastAPI Backend Project Benchmark
 
 ## High-score answer pattern
