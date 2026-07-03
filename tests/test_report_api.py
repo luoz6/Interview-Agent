@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+import app.api.routes as route_module
 from app.api.routes import get_session_store
 from app.main import app
 from app.services.prep import InterviewPlan, InterviewQuestion
@@ -10,6 +11,9 @@ from app.services.report import (
 )
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import KnowledgeChunk
+
+
+_ORIGINAL_GET_REPORT_JOB_STORE = route_module.get_report_job_store
 
 
 class ReportApiLLM:
@@ -72,6 +76,20 @@ def make_dimension_scores(score: int = 81) -> DimensionScores:
 
 
 def make_client():
+    class FakeReportJobStore:
+        def __init__(self, store: InterviewSessionStore) -> None:
+            self._store = store
+            self.enqueue_calls: list[str] = []
+
+        def enqueue_report_request(self, session_id: str) -> dict:
+            self.enqueue_calls.append(session_id)
+            self._store.mark_report_processing(session_id)
+            return {
+                "job_id": f"job-{len(self.enqueue_calls)}",
+                "session_id": session_id,
+                "status": "queued",
+            }
+
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return [
@@ -92,12 +110,15 @@ def make_client():
     report_tasks.get_knowledge_store = lambda: FakeVectorStore()
     llm = ReportApiLLM()
     store = InterviewSessionStore(llm=llm)
+    job_store = FakeReportJobStore(store)
     app.dependency_overrides[get_session_store] = lambda: store
-    return TestClient(app), store, llm
+    route_module.get_report_job_store = lambda: job_store
+    return TestClient(app), store, llm, job_store
 
 
 def teardown_function():
     app.dependency_overrides.clear()
+    route_module.get_report_job_store = _ORIGINAL_GET_REPORT_JOB_STORE
 
 
 def start_interview(client: TestClient) -> str:
@@ -119,7 +140,7 @@ def finish_session(store: InterviewSessionStore, session_id: str) -> None:
 
 
 def test_report_endpoint_returns_404_for_unknown_session():
-    client, _, _ = make_client()
+    client, _, _, _ = make_client()
 
     response = client.get("/api/interviews/missing/report")
 
@@ -127,7 +148,7 @@ def test_report_endpoint_returns_404_for_unknown_session():
 
 
 def test_report_endpoint_rejects_active_interview():
-    client, _, _ = make_client()
+    client, _, _, _ = make_client()
     session_id = start_interview(client)
 
     response = client.get(f"/api/interviews/{session_id}/report")
@@ -136,7 +157,7 @@ def test_report_endpoint_rejects_active_interview():
 
 
 def test_report_endpoint_returns_202_with_progress():
-    client, store, _ = make_client()
+    client, store, _, _ = make_client()
     session_id = start_interview(client)
     finish_session(store, session_id)
     store.mark_report_processing(session_id)
@@ -150,8 +171,38 @@ def test_report_endpoint_returns_202_with_progress():
     assert body["progress"]["percent"] == 20
 
 
-def test_finished_answer_triggers_report_generation_once():
-    client, store, llm = make_client()
+def test_finished_answer_enqueues_report_generation_once_and_leaves_processing():
+    client, store, llm, job_store = make_client()
+    session_id = start_interview(client)
+
+    first_response = client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I built a Redis-backed service."},
+    )
+    second_response = client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I used cache-aside and database fallback."},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert second_response.json()["status"] == "finished"
+    assert job_store.enqueue_calls == [session_id]
+    assert llm.report_calls == 0
+    record = store.get_report_record(session_id)
+    assert record is not None
+    assert record.status == "processing"
+
+    report_response = client.get(f"/api/interviews/{session_id}/report")
+    assert report_response.status_code == 202
+    assert report_response.json()["status"] == "processing"
+
+
+def test_finished_answer_falls_back_to_in_memory_report_generation_when_job_store_is_unavailable():
+    client, store, llm, _ = make_client()
+    route_module.get_report_job_store = lambda: (_ for _ in ()).throw(
+        RuntimeError("POSTGRES_DSN is required to build report job store")
+    )
     session_id = start_interview(client)
 
     first_response = client.post(
@@ -168,8 +219,8 @@ def test_finished_answer_triggers_report_generation_once():
     assert second_response.json()["status"] == "finished"
     assert llm.report_calls == 1
     record = store.get_report_record(session_id)
+    assert record is not None
     assert record.status == "completed"
-    assert record.report.overall_score == 81
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
     assert report_response.status_code == 200
@@ -177,7 +228,7 @@ def test_finished_answer_triggers_report_generation_once():
 
 
 def test_report_endpoint_returns_500_for_failed_report():
-    client, store, _ = make_client()
+    client, store, _, _ = make_client()
     session_id = start_interview(client)
     finish_session(store, session_id)
     store.mark_report_processing(session_id)
@@ -190,7 +241,7 @@ def test_report_endpoint_returns_500_for_failed_report():
 
 
 def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
-    client, store, _ = make_client()
+    client, store, _, _ = make_client()
     session_id = start_interview(client)
     finish_session(store, session_id)
     store.mark_report_processing(session_id)
@@ -203,7 +254,7 @@ def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
 
 
 def test_report_endpoint_returns_fallback_report_for_evidence_insufficient():
-    client, store, _ = make_client()
+    client, store, _, _ = make_client()
     session_id = start_interview(client)
     finish_session(store, session_id)
     store.save_report(

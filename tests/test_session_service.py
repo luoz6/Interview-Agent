@@ -1,5 +1,5 @@
 from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import DimensionScores, InterviewReport
+from app.services.report import InterviewReport
 from app.services.session import InterviewSessionStore
 
 
@@ -41,6 +41,14 @@ class FakeInterviewLLM:
             "You mentioned caching. Please explain how you protect the database "
             "when the cache becomes invalid."
         )
+
+    def stream_followup(self, context: list[dict[str, str]]):
+        self.last_context = context
+        if self.should_fail_followup:
+            raise RuntimeError("llm failed")
+        yield "You mentioned caching. "
+        yield "Please explain how you protect the database "
+        yield "when the cache becomes invalid."
 
     def generate_report(
         self,
@@ -120,8 +128,34 @@ def test_submit_answer_falls_back_when_llm_followup_fails():
         "I used Redis to cache frequently requested records.",
     )
 
-    assert response.follow_up == (
-        "请继续深挖 project：你当时做了什么取舍，为什么这样选？"
+    assert response.follow_up == "请继续深挖 project：你当时做了什么取舍，为什么这样选？"
+
+
+def test_prepare_and_complete_streaming_answer_persists_followup():
+    llm = FakeInterviewLLM()
+    store = InterviewSessionStore(llm=llm)
+    session = start_session(store)
+
+    prepared = store.prepare_streaming_answer(
+        session.session_id,
+        "I used Redis to cache frequently requested records.",
+    )
+    assert prepared.stream_follow_up is True
+
+    chunks = list(store.stream_followup(session.session_id))
+    finalized = store.complete_streaming_answer(
+        session.session_id,
+        follow_up_text="".join(chunks),
+    )
+
+    assert chunks == [
+        "You mentioned caching. ",
+        "Please explain how you protect the database ",
+        "when the cache becomes invalid.",
+    ]
+    assert finalized["pending_output"] == (
+        "You mentioned caching. Please explain how you protect the database "
+        "when the cache becomes invalid."
     )
 
 

@@ -1,15 +1,18 @@
+import json
+from collections.abc import Iterator
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
 from app.services.report_tasks import generate_report_for_session
+from app.services.runtime import get_report_job_store, get_session_store
 from app.services.session import InterviewSessionStore
 
 
 router = APIRouter(prefix="/api")
-session_store = InterviewSessionStore()
 
 
 class PrepRequest(BaseModel):
@@ -19,10 +22,6 @@ class PrepRequest(BaseModel):
 
 class AnswerRequest(BaseModel):
     answer: str
-
-
-def get_session_store() -> InterviewSessionStore:
-    return session_store
 
 
 @router.get("/health")
@@ -80,9 +79,53 @@ def submit_answer(
         turn = store.submit_answer(session_id, payload.answer)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    if turn.status == "finished" and store.mark_report_processing(session_id):
-        background_tasks.add_task(generate_report_for_session, session_id, store)
+    _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
     return _turn_to_dict(turn)
+
+
+@router.post("/interviews/{session_id}/answer/stream")
+def submit_answer_stream(
+    session_id: str,
+    payload: AnswerRequest,
+    background_tasks: BackgroundTasks,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        prepared = store.prepare_streaming_answer(session_id, payload.answer)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    def event_stream() -> Iterator[str]:
+        try:
+            if prepared.stream_follow_up:
+                chunks: list[str] = []
+                for chunk in store.stream_followup(session_id):
+                    chunks.append(chunk)
+                    yield _sse_event("chunk", {"delta": chunk})
+                follow_up_text = "".join(chunks).strip()
+            else:
+                decision = prepared.state["decision"]
+                follow_up_text = decision.get("follow_up") if decision else None
+
+            finalized_state = store.complete_streaming_answer(
+                session_id,
+                follow_up_text=follow_up_text,
+            )
+            turn = store._to_turn(finalized_state, follow_up=_extract_follow_up(finalized_state))
+            _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+            yield _sse_event("done", _turn_to_dict(turn))
+        except Exception as exc:  # pragma: no cover - defensive streaming boundary
+            yield _sse_event("error", {"detail": str(exc)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/interviews/{session_id}/report")
@@ -123,3 +166,31 @@ def _turn_to_dict(turn):
         "follow_up": turn.follow_up,
         "status": turn.status,
     }
+
+
+def _sse_event(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _schedule_report_if_needed(
+    turn_status: str,
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    store: InterviewSessionStore,
+) -> None:
+    if turn_status != "finished":
+        return
+    try:
+        get_report_job_store().enqueue_report_request(session_id)
+    except RuntimeError:
+        if store.mark_report_processing(session_id):
+            background_tasks.add_task(generate_report_for_session, session_id, store)
+
+
+def _extract_follow_up(state) -> str | None:
+    decision = state["decision"]
+    if decision and decision["action"] == "follow_up":
+        return state["pending_output"]
+    if state["status"] == "finished":
+        return state["pending_output"]
+    return None

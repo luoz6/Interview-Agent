@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 
 from app.graphs.interview_state import InterviewState
@@ -6,9 +7,12 @@ from app.services.llm import InterviewLLM
 from app.services.report import (
     InterviewReport,
     ReportGenerationFailed,
+    ReportOutputFormatError,
     ReportProgress,
 )
 from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
+
+logger = logging.getLogger(__name__)
 
 
 class ExpertShadowEvaluator:
@@ -75,7 +79,15 @@ class ExpertShadowEvaluator:
                 evaluation_items=evaluation_items,
                 session_id=state["session_id"],
             )
-        except (TypeError, ValueError):
+        except ReportOutputFormatError as exc:
+            logger.warning(
+                "Falling back to heuristic interview report",
+                extra={
+                    "session_id": state["session_id"],
+                    "reason": str(exc),
+                    "question_count": len(chunks),
+                },
+            )
             report = build_fallback_report(state, chunks)
 
         if on_progress is not None:

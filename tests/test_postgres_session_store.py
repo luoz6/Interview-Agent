@@ -1,0 +1,207 @@
+import os
+from uuid import uuid4
+
+import pytest
+
+from app.services.postgres_session import PostgresInterviewSessionStore
+from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.report import ReportProgress
+
+
+pytestmark = pytest.mark.pg_runtime
+
+
+def require_dsn():
+    dsn = os.getenv("POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("POSTGRES_DSN is required for pg_runtime tests")
+    return dsn
+
+
+def make_table_prefix():
+    return "test_runtime_" + uuid4().hex[:12]
+
+
+def test_schema_initializes_runtime_tables():
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+
+    tables = store.list_runtime_tables()
+
+    assert set(tables) == {
+        store.sessions_table,
+        store.messages_table,
+        store.reports_table,
+    }
+
+
+def make_plan():
+    return InterviewPlan(
+        title="Backend Interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="project",
+                prompt="Describe your backend project.",
+                focus="Project depth",
+            )
+        ],
+    )
+
+
+def test_started_session_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    state = recovered_store.get(turn.session_id)
+
+    assert state["session_id"] == turn.session_id
+    assert state["plan"].title == "Backend Interview"
+    assert state["messages"][0]["role"] == "interviewer"
+    assert state["messages"][0]["content"] == "Describe your backend project."
+    assert state["job_tags"] == ["python", "fastapi"]
+
+
+def test_submit_answer_persists_candidate_and_followup_messages():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    answered = store.submit_answer(turn.session_id, "I built a FastAPI API.")
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    state = recovered_store.get(turn.session_id)
+    assert answered.follow_up is not None
+    assert [message["role"] for message in state["messages"]] == [
+        "interviewer",
+        "candidate",
+        "interviewer",
+    ]
+    assert state["messages"][1]["content"] == "I built a FastAPI API."
+    assert state["messages"][2]["content"] == answered.follow_up
+
+
+def test_streaming_prepare_and_complete_are_persisted_once():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    prepared = store.prepare_streaming_answer(turn.session_id, "I built APIs.")
+    assert prepared.stream_follow_up is True
+
+    store.complete_streaming_answer(
+        turn.session_id,
+        follow_up_text="Which failure mode did you handle?",
+    )
+    store.complete_streaming_answer(
+        turn.session_id,
+        follow_up_text="Which failure mode did you handle?",
+    )
+
+    recovered = PostgresInterviewSessionStore(
+        dsn=dsn,
+        table_prefix=table_prefix,
+    ).get(turn.session_id)
+
+    assert [message["role"] for message in recovered["messages"]] == [
+        "interviewer",
+        "candidate",
+        "interviewer",
+    ]
+    assert recovered["messages"][-1]["content"] == "Which failure mode did you handle?"
+
+
+def finish_session(store, session_id):
+    store.submit_answer(session_id, "First answer.")
+    store.submit_answer(session_id, "Second answer.")
+
+
+def test_report_lifecycle_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    finish_session(store, turn.session_id)
+
+    assert store.mark_report_processing(turn.session_id) is True
+    store.update_report_progress(
+        turn.session_id,
+        ReportProgress(
+            stage="analyzing",
+            percent=60,
+            message="Analyzing answers.",
+            current_question_id="q1",
+        ),
+    )
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    record = recovered_store.get_report_record(turn.session_id)
+
+    assert record is not None
+    assert record.status == "processing"
+    assert record.progress is not None
+    assert record.progress.percent == 60
+
+    recovered_store.fail_report(turn.session_id, "retrieval unavailable")
+    failed = PostgresInterviewSessionStore(
+        dsn=dsn,
+        table_prefix=table_prefix,
+    ).get_report_record(turn.session_id)
+
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.error == "retrieval unavailable"
+
+
+def test_submit_answer_appends_new_messages_without_rewriting_existing_rows():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    first_snapshot = store.list_messages(turn.session_id)
+    assert len(first_snapshot) == 1
+    first_id = first_snapshot[0]["id"]
+
+    store.submit_answer(turn.session_id, "I built a FastAPI API.")
+
+    second_snapshot = store.list_messages(turn.session_id)
+
+    assert len(second_snapshot) == 3
+    assert second_snapshot[0]["id"] == first_id
+    assert second_snapshot[0]["sequence_no"] == 1
+    assert second_snapshot[1]["sequence_no"] == 2
+    assert second_snapshot[2]["sequence_no"] == 3

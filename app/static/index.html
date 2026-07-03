@@ -3,50 +3,229 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>面试 Agent</title>
+    <title>面试智能体 - RAG 深色界面</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="panel setup-panel">
-        <div class="panel-heading">
-          <p class="eyebrow">面试预热</p>
-          <h1>面试 Agent</h1>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">IA</div>
+          <div>
+            <h1>面试智能体</h1>
+            <p>Interview Agent</p>
+          </div>
         </div>
-        <label>
-          岗位 JD
-          <textarea id="jobDescription" rows="8">后端岗位，要求熟悉 Python、FastAPI、Redis 和 PostgreSQL。</textarea>
-        </label>
-        <label>
-          简历内容
-          <textarea id="resumeText" rows="8">做过一个 FastAPI 服务，使用 Redis 做缓存，并用 PostgreSQL 处理事务数据。</textarea>
-        </label>
-        <div class="actions">
-          <button id="prepButton" type="button">生成题目计划</button>
-          <button id="startButton" type="button">开始面试</button>
+
+        <button class="new-btn" id="newInterviewButton" type="button">＋ <span>新建面试</span></button>
+
+        <nav class="nav" aria-label="侧边导航">
+          <a href="#"><span class="icon">⌂</span><span>仪表盘</span></a>
+          <a class="active" href="#"><span class="icon">✎</span><span>面试预热</span></a>
+          <a href="#"><span class="icon">◷</span><span>面试记录</span></a>
+          <a href="#"><span class="icon">▣</span><span>面试模板</span></a>
+          <a href="#"><span class="icon">◎</span><span>知识库 RAG</span></a>
+          <a href="#"><span class="icon">⚙</span><span>系统设置</span></a>
+        </nav>
+
+        <div class="side-card">
+          <strong><span class="dot"></span>系统正常</strong>
+          <span>RAG 检索、面评服务、会话存储均已启动</span>
         </div>
-        <div id="plan" class="plan"></div>
+
+        <div class="profile">
+          <div class="avatar">Z</div>
+          <div>
+            <p>张同学</p>
+            <span>Premium Plan</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="setup">
+        <div class="topbar">
+          <div>
+            <h2>新建面试</h2>
+            <p>配置岗位、简历、知识库与面试主题</p>
+          </div>
+          <button class="ghost-btn" type="button">保存为模板</button>
+        </div>
+
+        <section class="panel">
+          <h3><span><span class="num">1.</span>选择面试官模型</span></h3>
+          <p class="panel-sub">当前界面已移除温度、最大回复长度等底层模型参数，仅保留业务配置。</p>
+          <div class="model-card">
+            <div class="bot-icon"></div>
+            <div>
+              <strong>GPT-4o 面试官</strong>
+              <span>擅长技术追问、项目深挖与结构化评价</span>
+            </div>
+            <div class="chev">⌄</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3><span><span class="num">2.</span>岗位与简历输入</span></h3>
+          <p class="panel-sub">AI 会结合 JD、简历与知识库，生成更贴近岗位的题目计划。</p>
+          <label>
+            <div class="label-row"><span>岗位 JD</span><span id="jobDescriptionCount">0/1000</span></div>
+            <textarea id="jobDescription">后端开发工程师，要求熟悉 Python、FastAPI、Redis、PostgreSQL，具备接口设计、性能优化、并发系统开发与维护经验。</textarea>
+          </label>
+          <div class="spacer"></div>
+          <label>
+            <div class="label-row"><span>简历内容</span><span id="resumeTextCount">0/1000</span></div>
+            <textarea id="resumeText">参与多个 Python 后端项目，使用 FastAPI 构建 RESTful API，熟悉 Redis 缓存、消息队列使用场景，使用 PostgreSQL 进行数据持久化，负责接口设计、性能优化与线上问题排查。</textarea>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h3>
+            <span><span class="num">3.</span>知识库（RAG）</span>
+            <button class="small-link" type="button">管理知识库</button>
+          </h3>
+          <p class="panel-sub">选择知识库作为面试参考，支持相似度检索与证据引用。</p>
+          <div class="kb-card">
+            <div class="file-icon">▤</div>
+            <div>
+              <strong>后端开发知识库</strong>
+              <span>包含数据库、缓存、系统设计、面试题库文档</span>
+            </div>
+            <span class="status-pill">已启用</span>
+          </div>
+          <div class="kb-config">
+            <span>检索配置</span>
+            <span>Top K <code>5</code></span>
+            <span>相似度阈值 <code>0.30</code></span>
+            <button class="small-link" type="button">编辑</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3><span><span class="num">4.</span>面试设置</span></h3>
+          <p class="panel-sub">配置面试类型、难度、时长与题目标签。</p>
+          <div class="field-grid">
+            <label>
+              <div class="label-row">面试类型</div>
+              <select>
+                <option>技术面试</option>
+              </select>
+            </label>
+            <label>
+              <div class="label-row">难度级别</div>
+              <select>
+                <option>中等</option>
+              </select>
+            </label>
+            <label>
+              <div class="label-row">面试时长</div>
+              <select>
+                <option>60 分钟</option>
+              </select>
+            </label>
+            <label>
+              <div class="label-row">编程语言</div>
+              <select>
+                <option>Python</option>
+              </select>
+            </label>
+          </div>
+          <div class="spacer medium"></div>
+          <div class="tags" id="topicTags">
+            <span class="tag">数据结构与算法</span>
+            <span class="tag">操作系统</span>
+            <span class="tag">计算机网络</span>
+            <span class="tag">系统设计</span>
+            <span class="tag">数据库</span>
+            <span class="tag add">＋ 添加主题</span>
+          </div>
+        </section>
+
+        <div class="action-row">
+          <div class="setup-actions">
+            <button class="ghost-btn" id="prepButton" type="button">生成题目计划</button>
+            <button class="ghost-btn" id="resetConfigButton" type="button">重置配置</button>
+          </div>
+          <button class="primary" id="startButton" type="button">▶ 开始面试</button>
+        </div>
       </section>
 
-      <section class="panel interview-panel">
-        <div class="panel-heading">
-          <p class="eyebrow">文本模拟面试</p>
-          <h2 id="status">未开始</h2>
-        </div>
-        <div id="conversation" class="conversation"></div>
-        <section id="reportSection" class="report-section" hidden>
-          <div class="report-heading">
-            <p class="eyebrow">面评报告</p>
-            <h2 id="reportStatus">报告生成中...</h2>
+      <main class="workspace">
+        <div class="workspace-head">
+          <div class="workspace-title">
+            <h2 id="status">未开始</h2>
+            <p id="sessionMeta"><span class="dot"></span>等待开始面试 · RAG 增强已启用</p>
           </div>
-          <div id="reportContent" class="report-content"></div>
-        </section>
-        <form id="answerForm" class="answer-form">
-          <input id="answerInput" type="text" placeholder="输入你的回答" autocomplete="off" />
-          <button type="submit">发送</button>
-        </form>
-      </section>
-    </main>
+          <div class="head-actions">
+            <div class="select-chip">模型：GPT-4o ⌄</div>
+            <div class="select-chip">会话状态：<b id="sessionStateChip">未开始</b> ⌄</div>
+            <button class="danger" id="endInterviewButton" type="button">结束面试</button>
+          </div>
+        </div>
+
+        <div class="main-grid">
+          <section class="plan-card">
+            <div class="card-head">
+              <h3>题目计划</h3>
+              <span class="status-pill" id="planStatus">待生成</span>
+            </div>
+            <div id="plan" class="timeline"></div>
+            <div class="stats">
+              <div class="stat"><b id="planQuestionCount">0</b><span>题目数量</span></div>
+              <div class="stat"><b id="planDuration">0</b><span>预计分钟</span></div>
+              <div class="stat"><b id="planCoverage">0</b><span>覆盖维度</span></div>
+            </div>
+          </section>
+
+          <div class="right-stack">
+            <section class="chat-card">
+              <div class="card-head">
+                <h3>文本模拟面试</h3>
+                <span class="status-pill" id="chatStatusPill">未开始</span>
+              </div>
+
+              <div id="conversation" class="chat-body"></div>
+
+              <section class="rag-evidence" id="ragEvidenceSection">
+                <h4>已检索到相关知识（RAG）</h4>
+                <div class="evidence-list" id="ragEvidenceList">
+                  <div class="evidence-row"><span>等待真实检索结果...</span><span class="score">Top K：5</span></div>
+                </div>
+              </section>
+
+              <div class="answer-area">
+                <div class="tabs">
+                  <span class="tab active">文本回答</span>
+                  <span class="tab">代码编辑器</span>
+                </div>
+                <form id="answerForm" class="input-wrap">
+                  <textarea id="answerInput" class="input-box" placeholder="输入你的回答...&#10;Enter 发送，Shift+Enter 换行" autocomplete="off"></textarea>
+                  <button class="send" type="submit">发送 ✈</button>
+                </form>
+              </div>
+            </section>
+
+            <section id="reportSection" class="report-card" hidden>
+              <div class="report-block">
+                <small>面评报告</small>
+                <strong id="reportStatus">生成中</strong>
+                <div class="progress"><i id="reportProgressBar"></i></div>
+              </div>
+              <div class="report-block" id="reportSummaryBlock">
+                <small>候选人表现</small>
+                <strong>等待分析</strong>
+                <span class="report-block-note">基于当前对话动态更新</span>
+              </div>
+              <div class="report-block" id="reportAdviceBlock">
+                <small>下一步建议</small>
+                <strong>等待面评</strong>
+                <span class="report-block-note">结合 RAG 证据动态生成</span>
+              </div>
+              <div id="reportContent" class="report-content" hidden></div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
     <script src="/static/app.js"></script>
   </body>
 </html>

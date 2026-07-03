@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 from uuid import uuid4
 
-from app.graphs.interview_graph import InterviewGraphRunner
+from app.graphs.interview_graph import InterviewGraphRunner, fallback_followup
 from app.graphs.interview_state import InterviewState, get_current_question
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
@@ -15,6 +15,12 @@ class InterviewTurn:
     current_question: Optional[InterviewQuestion]
     follow_up: Optional[str]
     status: str
+
+
+@dataclass(frozen=True)
+class PreparedInterviewTurn:
+    state: InterviewState
+    stream_follow_up: bool
 
 
 class InterviewSessionStore:
@@ -62,6 +68,58 @@ class InterviewSessionStore:
         self._sessions[session_id] = new_state
         return self._to_turn(new_state, follow_up=_extract_follow_up(new_state))
 
+    def prepare_streaming_answer(self, session_id: str, answer: str) -> PreparedInterviewTurn:
+        if not answer or not answer.strip():
+            raise ValueError("answer is required")
+
+        state = self.get(session_id)
+        prepared_state = self._runner.prepare_answer(state, answer)
+        decision = prepared_state["decision"]
+        should_stream = bool(decision and decision["action"] == "follow_up")
+        self._sessions[session_id] = prepared_state
+        return PreparedInterviewTurn(state=prepared_state, stream_follow_up=should_stream)
+
+    def complete_streaming_answer(
+        self,
+        session_id: str,
+        *,
+        follow_up_text: str | None = None,
+    ) -> InterviewState:
+        prepared_state = self.get(session_id)
+        finalized_state = self._runner.finalize_prepared_answer(
+            prepared_state,
+            follow_up=follow_up_text,
+        )
+        self._sessions[session_id] = finalized_state
+        return finalized_state
+
+    def stream_followup(self, session_id: str) -> Iterator[str]:
+        state = self.get(session_id)
+        decision = state["decision"]
+        question = get_current_question(state)
+        fallback_text = decision.get("follow_up") if decision else None
+        if not fallback_text and question is not None:
+            fallback_text = fallback_followup(question.focus)
+        try:
+            llm = self._llm
+            if llm is None:
+                from app.services.llm import OpenAIInterviewLLM
+
+                llm = OpenAIInterviewLLM()
+            emitted = False
+            for chunk in llm.stream_followup(_build_followup_context(state)):
+                if not chunk:
+                    continue
+                emitted = True
+                yield chunk
+        except Exception:
+            if fallback_text:
+                yield fallback_text
+            return
+
+        if not emitted and fallback_text:
+            yield fallback_text
+
     def mark_report_processing(self, session_id: str) -> bool:
         state = self.get(session_id)
         if state["status"] != "finished":
@@ -107,11 +165,12 @@ class InterviewSessionStore:
         return self._reports.get(session_id)
 
     def _to_turn(self, state: InterviewState, follow_up: Optional[str]) -> InterviewTurn:
+        current_question = None if state["status"] == "finished" else get_current_question(state)
         return InterviewTurn(
             session_id=state["session_id"],
-            current_question=get_current_question(state),
+            current_question=current_question,
             follow_up=follow_up,
-            status=state["status"],
+            status="finished" if state["status"] == "finished" else "active",
         )
 
 
@@ -122,3 +181,10 @@ def _extract_follow_up(state: InterviewState) -> str | None:
     if state["status"] == "finished":
         return state["pending_output"]
     return None
+
+
+def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:
+    return [
+        {"role": message["role"], "content": message["content"]}
+        for message in state["messages"][-4:]
+    ]

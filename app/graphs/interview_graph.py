@@ -9,6 +9,8 @@ from app.graphs.interview_state import (
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan
 
+INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
+
 
 class InterviewGraphRunner:
     def __init__(self, llm: InterviewLLM | None = None) -> None:
@@ -31,30 +33,32 @@ class InterviewGraphRunner:
         )
 
     def submit_answer(self, state: InterviewState, answer: str) -> InterviewState:
-        next_state = deepcopy(state)
-        question = get_current_question(next_state)
-        if question is None:
-            next_state["status"] = "finished"
-            next_state["decision"] = {
-                "action": "finish",
-                "follow_up": None,
-                "reason": "all_questions_completed",
-            }
-            next_state["pending_output"] = "本次模拟面试已结束。"
-            return next_state
-
-        next_state["messages"].append(
-            {
-                "role": "candidate",
-                "content": answer.strip(),
-                "question_id": question.id,
-            }
-        )
+        next_state = _append_candidate_answer(state, answer)
         next_state = brain_node(next_state, self._llm)
         return speaker_node(next_state)
 
+    def prepare_answer(self, state: InterviewState, answer: str) -> InterviewState:
+        next_state = _append_candidate_answer(state, answer)
+        return brain_node(next_state, self._llm, generate_followup_text=False)
 
-def brain_node(state: InterviewState, llm: InterviewLLM | None) -> InterviewState:
+    def finalize_prepared_answer(
+        self,
+        state: InterviewState,
+        *,
+        follow_up: str | None = None,
+    ) -> InterviewState:
+        next_state = deepcopy(state)
+        if follow_up is not None and next_state["decision"] is not None:
+            next_state["decision"]["follow_up"] = follow_up
+        return speaker_node(next_state)
+
+
+def brain_node(
+    state: InterviewState,
+    llm: InterviewLLM | None,
+    *,
+    generate_followup_text: bool = True,
+) -> InterviewState:
     question = get_current_question(state)
     if question is None:
         state["decision"] = {
@@ -81,14 +85,16 @@ def brain_node(state: InterviewState, llm: InterviewLLM | None) -> InterviewStat
             }
         return state
 
-    try:
-        if llm is None:
-            from app.services.llm import OpenAIInterviewLLM
+    follow_up = None
+    if generate_followup_text:
+        try:
+            if llm is None:
+                from app.services.llm import OpenAIInterviewLLM
 
-            llm = OpenAIInterviewLLM()
-        follow_up = llm.generate_followup(_build_followup_context(state))
-    except Exception:
-        follow_up = fallback_followup(question.focus)
+                llm = OpenAIInterviewLLM()
+            follow_up = llm.generate_followup(_build_followup_context(state))
+        except Exception:
+            follow_up = fallback_followup(question.focus)
 
     state["decision"] = {
         "action": "follow_up",
@@ -102,7 +108,7 @@ def speaker_node(state: InterviewState) -> InterviewState:
     decision = state["decision"]
     if decision is None:
         state["status"] = "finished"
-        state["pending_output"] = "本次模拟面试已结束。"
+        state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
         return state
 
     action = decision["action"]
@@ -121,7 +127,7 @@ def speaker_node(state: InterviewState) -> InterviewState:
         next_question = get_current_question(state)
         if next_question is None:
             state["status"] = "finished"
-            state["pending_output"] = "本次模拟面试已结束。"
+            state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
             return state
         state["pending_output"] = next_question.prompt
         state["messages"].append(
@@ -135,11 +141,11 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
     state["current_index"] = len(state["plan"].questions)
     state["status"] = "finished"
-    state["pending_output"] = "本次模拟面试已结束。"
+    state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
     state["messages"].append(
         {
             "role": "interviewer",
-            "content": "本次模拟面试已结束。",
+            "content": INTERVIEW_FINISHED_MESSAGE,
             "question_id": None,
         }
     )
@@ -148,6 +154,29 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
 def fallback_followup(focus: str) -> str:
     return f"请继续深挖 {focus}：你当时做了什么取舍，为什么这样选？"
+
+
+def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewState:
+    next_state = deepcopy(state)
+    question = get_current_question(next_state)
+    if question is None:
+        next_state["status"] = "finished"
+        next_state["decision"] = {
+            "action": "finish",
+            "follow_up": None,
+            "reason": "all_questions_completed",
+        }
+        next_state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
+        return next_state
+
+    next_state["messages"].append(
+        {
+            "role": "candidate",
+            "content": answer.strip(),
+            "question_id": question.id,
+        }
+    )
+    return next_state
 
 
 def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:

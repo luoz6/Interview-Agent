@@ -9,6 +9,7 @@ from app.services.report import (
     InterviewReport,
     ReportGenerationFailed,
     ReportGenerationTimeout,
+    ReportOutputFormatError,
 )
 
 
@@ -37,7 +38,7 @@ class ShadowEvaluator:
             raise
         except ReportGenerationFailed:
             raise
-        except (TypeError, ValueError):
+        except ReportOutputFormatError:
             return build_fallback_report(state, chunks)
 
 

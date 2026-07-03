@@ -7,7 +7,9 @@ from app.services.report import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
+    ReportGenerationFailed,
     ReportGenerationTimeout,
+    ReportOutputFormatError,
 )
 
 
@@ -157,7 +159,17 @@ class FailingReportLLM(FakeReportLLM):
         evaluation_items: list[dict],
         session_id: str,
     ) -> InterviewReport:
-        raise ValueError("invalid structured output")
+        raise ReportOutputFormatError("invalid structured output")
+
+
+class ProviderErrorReportLLM(FakeReportLLM):
+    def generate_report(
+        self,
+        plan: InterviewPlan,
+        evaluation_items: list[dict],
+        session_id: str,
+    ) -> InterviewReport:
+        raise ReportGenerationFailed("report provider returned 502")
 
 
 class TimeoutReportLLM(FakeReportLLM):
@@ -230,4 +242,11 @@ def test_evaluator_propagates_timeout_for_background_failure_state():
     evaluator = ShadowEvaluator(llm=TimeoutReportLLM())
 
     with pytest.raises(ReportGenerationTimeout):
+        evaluator.evaluate(make_finished_state())
+
+
+def test_evaluator_propagates_provider_failures_for_worker_retry_logic():
+    evaluator = ShadowEvaluator(llm=ProviderErrorReportLLM())
+
+    with pytest.raises(ReportGenerationFailed, match="report provider returned 502"):
         evaluator.evaluate(make_finished_state())

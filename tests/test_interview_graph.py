@@ -96,6 +96,9 @@ class FakeLLM:
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         return "Please explain the cache invalidation strategy."
 
+    def stream_followup(self, context: list[dict[str, str]]):
+        yield "Please explain the cache invalidation strategy."
+
     def generate_report(
         self,
         plan: InterviewPlan,
@@ -121,6 +124,9 @@ class FailingLLM:
         raise AssertionError("Graph tests should not generate plans")
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
+        raise RuntimeError("llm failed")
+
+    def stream_followup(self, context: list[dict[str, str]]):
         raise RuntimeError("llm failed")
 
     def generate_report(
@@ -154,6 +160,20 @@ def test_runner_submit_answer_generates_followup_decision():
         "content": "Please explain the cache invalidation strategy.",
         "question_id": "q1",
     }
+
+
+def test_runner_prepare_answer_defers_followup_text_for_streaming():
+    runner = InterviewGraphRunner(llm=FakeLLM())
+    state = runner.start(**make_start_kwargs())
+
+    prepared = runner.prepare_answer(state, "I used Redis to cache hot records.")
+
+    assert prepared["decision"] == {
+        "action": "follow_up",
+        "follow_up": None,
+        "reason": "candidate_answer_needs_depth",
+    }
+    assert prepared["messages"][-1]["role"] == "candidate"
 
 
 def test_runner_submit_answer_falls_back_when_llm_fails():

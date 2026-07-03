@@ -11,6 +11,10 @@ class ReportGenerationTimeout(ReportGenerationFailed):
     """Raised when report generation times out."""
 
 
+class ReportOutputFormatError(ValueError):
+    """Raised when a provider response cannot be validated as InterviewReport."""
+
+
 class DimensionScores(BaseModel):
     breadth: int = Field(ge=0, le=100)
     depth: int = Field(ge=0, le=100)

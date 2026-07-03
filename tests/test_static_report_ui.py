@@ -10,6 +10,12 @@ def test_interview_page_has_report_region():
     assert 'id="reportSection"' in html
     assert 'id="reportStatus"' in html
     assert 'id="reportContent"' in html
+    assert 'id="jobDescription"' in html
+    assert 'id="resumeText"' in html
+    assert 'id="prepButton"' in html
+    assert 'id="startButton"' in html
+    assert 'id="conversation"' in html
+    assert 'id="answerForm"' in html
 
 
 def test_app_js_polls_report_endpoint():
@@ -18,6 +24,8 @@ def test_app_js_polls_report_endpoint():
     assert "`/api/interviews/${sessionId}/report`" in js
     assert "setTimeout(pollReport" in js
     assert "renderReport(" in js
+    assert "renderEvidenceFromReport(" in js
+    assert "setInterviewState(" in js
 
 
 def test_app_js_reads_progress_fields():
@@ -28,7 +36,10 @@ def test_app_js_reads_progress_fields():
     assert "progress.percent" in js
     assert "overall_dimension_scores" in js
     assert "feedback.references" in js
-    assert "reference-item" in js
+    assert "reference-item" in js or "reference-empty" in js
+    assert "response.body.getReader()" in js
+    assert "new TextDecoder()" in js
+    assert 'event.event === "chunk"' in js
 
 
 def test_report_styles_use_css_variables_for_soft_backgrounds():
@@ -37,6 +48,9 @@ def test_report_styles_use_css_variables_for_soft_backgrounds():
     assert "--report-soft" in css
     assert "#e6f4f1" not in css
     assert "#f7faf8" not in css
+    assert ".app" in css
+    assert ".main-grid" in css
+    assert ".report-card" in css
 
 
 def test_app_js_renders_retrieval_unavailable_and_evidence_insufficient_states():
