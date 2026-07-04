@@ -83,6 +83,23 @@ def get_interview_draft(draft_id: str, draft_store=Depends(get_draft_store)):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@router.get("/reports")
+def list_reports(
+    status: str | None = None,
+    limit: int = 20,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    if status not in (None, "processing", "completed", "failed"):
+        raise HTTPException(status_code=422, detail="invalid status")
+    safe_limit = max(1, min(limit, 100))
+    reports = store.list_reports(status=status, limit=safe_limit)
+    items = [
+        _report_summary_to_dict(item["session_id"], item["record"])
+        for item in reports
+    ]
+    return {"items": items, "total": len(items)}
+
+
 @router.post("/interviews")
 def start_interview(
     payload: PrepRequest,
@@ -306,6 +323,24 @@ def _report_job_id_for_session(session_id: str) -> str | None:
     if not job:
         return None
     return job.get("job_id")
+
+
+def _report_summary_to_dict(session_id: str, record) -> dict:
+    report = record.report
+    return {
+        "session_id": session_id,
+        "status": record.status,
+        "created_at": record.created_at,
+        "finished_at": record.finished_at,
+        "overall_score": report.overall_score if report is not None else None,
+        "summary": report.summary if report is not None else None,
+        "is_fallback": report.is_fallback if report is not None else False,
+        "error": record.error,
+        "report_url": f"/api/interviews/{session_id}/report",
+        "report_pdf_url": f"/api/interviews/{session_id}/report.pdf"
+        if record.status == "completed"
+        else None,
+    }
 
 
 def _report_progress_detail(session_id: str, record, *, report_job_id: str | None):

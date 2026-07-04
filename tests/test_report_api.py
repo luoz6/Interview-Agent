@@ -75,6 +75,34 @@ def make_dimension_scores(score: int = 81) -> DimensionScores:
     )
 
 
+def make_report_model(
+    session_id: str,
+    *,
+    score: int = 81,
+    summary: str = "Clear project story with practical tradeoffs.",
+) -> InterviewReport:
+    return InterviewReport(
+        session_id=session_id,
+        overall_score=score,
+        overall_dimension_scores=make_dimension_scores(score),
+        summary=summary,
+        highlights=["Explained tradeoffs"],
+        feedbacks=[
+            InterviewFeedback(
+                question_id="q1",
+                question_text="Introduce a backend project.",
+                user_answer="The candidate built a backend cache service.",
+                score=score,
+                dimension_scores=make_dimension_scores(score),
+                rationale="The answer covered implementation tradeoffs clearly.",
+                critique="Needs stronger business metrics.",
+                better_answer="I reduced p95 latency using cache-aside Redis.",
+                references=[],
+            )
+        ],
+    )
+
+
 def make_client():
     class FakeReportJobStore:
         def __init__(self, store: InterviewSessionStore) -> None:
@@ -179,6 +207,70 @@ def test_report_pdf_endpoint_rejects_active_interview():
 
     assert response.status_code == 409
     assert response.json()["detail"] == "interview is not finished"
+
+
+def test_reports_endpoint_lists_completed_failed_and_processing_reports():
+    client, store, _, _ = make_client()
+    completed = start_interview(client)
+    failed = start_interview(client)
+    processing = start_interview(client)
+    finish_session(store, completed)
+    finish_session(store, failed)
+    finish_session(store, processing)
+    store.save_report(completed, make_report_model(completed, summary="Completed summary."))
+    store.fail_report(failed, "llm timeout")
+    store.mark_report_processing(processing)
+
+    response = client.get("/api/reports")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert [item["session_id"] for item in body["items"]] == [
+        processing,
+        failed,
+        completed,
+    ]
+    assert [item["status"] for item in body["items"]] == [
+        "processing",
+        "failed",
+        "completed",
+    ]
+    assert body["items"][0]["overall_score"] is None
+    assert body["items"][0]["report_pdf_url"] is None
+    assert body["items"][1]["error"] == "llm timeout"
+    assert body["items"][2]["overall_score"] == 81
+    assert body["items"][2]["summary"] == "Completed summary."
+    assert body["items"][2]["report_url"] == f"/api/interviews/{completed}/report"
+    assert body["items"][2]["report_pdf_url"] == f"/api/interviews/{completed}/report.pdf"
+
+
+def test_reports_endpoint_filters_status_and_limit():
+    client, store, _, _ = make_client()
+    first = start_interview(client)
+    second = start_interview(client)
+    finish_session(store, first)
+    finish_session(store, second)
+    store.save_report(first, make_report_model(first, summary="First completed."))
+    store.mark_report_processing(second)
+
+    response = client.get("/api/reports?status=completed&limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["session_id"] == first
+    assert body["items"][0]["status"] == "completed"
+    assert body["items"][0]["summary"] == "First completed."
+
+
+def test_reports_endpoint_rejects_invalid_status():
+    client, _, _, _ = make_client()
+
+    response = client.get("/api/reports?status=missing")
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "invalid status"
 
 
 def test_report_endpoint_returns_202_with_progress():
