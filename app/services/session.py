@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, Optional
 from uuid import uuid4
 
@@ -7,7 +8,12 @@ from app.graphs.interview_graph import (
     InterviewGraphRunner,
     fallback_followup,
 )
-from app.graphs.interview_state import InterviewState, get_current_question
+from app.graphs.interview_state import (
+    InterviewState,
+    count_candidate_answers_for_question,
+    get_current_question,
+    utc_now_iso,
+)
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
@@ -65,6 +71,7 @@ class InterviewSessionStore:
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
         state = self.get(session_id)
+        _ensure_state_metadata(state)
         current_question = None if state["status"] == "finished" else get_current_question(state)
         questions = [
             {
@@ -73,12 +80,20 @@ class InterviewSessionStore:
             }
             for index, question in enumerate(state["plan"].questions)
         ]
+        answer_counts = _question_answer_counts(state)
         return {
             "session_id": state["session_id"],
             "status": state["status"],
             "current_index": state["current_index"],
             "total_questions": len(state["plan"].questions),
-            "completed_questions": _completed_question_count(state),
+            "completed_questions": answer_counts["answered"] + answer_counts["skipped"],
+            "answered_questions": answer_counts["answered"],
+            "skipped_questions": answer_counts["skipped"],
+            "unanswered_questions": answer_counts["unanswered"],
+            "started_at": state["started_at"],
+            "finished_at": state["finished_at"],
+            "elapsed_seconds": _elapsed_seconds(state),
+            "estimated_remaining_seconds": answer_counts["pending_or_current"] * 6 * 60,
             "job_tags": list(state["job_tags"]),
             "current_question": current_question.model_dump() if current_question else None,
             "questions": questions,
@@ -228,10 +243,43 @@ def _extract_follow_up(state: InterviewState) -> str | None:
     return None
 
 
+def _ensure_state_metadata(state: InterviewState) -> None:
+    state.setdefault("skipped_question_ids", [])
+    state.setdefault("started_at", utc_now_iso())
+    state.setdefault("finished_at", None)
+
+
+def _parse_state_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized)
+
+
+def _elapsed_seconds(state: InterviewState) -> int:
+    started = _parse_state_timestamp(state.get("started_at"))
+    if started is None:
+        return 0
+    finished = _parse_state_timestamp(state.get("finished_at")) or datetime.now(timezone.utc)
+    return max(0, int((finished - started).total_seconds()))
+
+
+def _record_skip_if_unanswered(state: InterviewState) -> None:
+    _ensure_state_metadata(state)
+    question = get_current_question(state)
+    if question is None:
+        return
+    if count_candidate_answers_for_question(state, question.id) > 0:
+        return
+    if question.id not in state["skipped_question_ids"]:
+        state["skipped_question_ids"].append(question.id)
+
+
 def finish_interview_state(state: InterviewState) -> InterviewState:
     if state["status"] == "finished":
         return state
 
+    _ensure_state_metadata(state)
     state["current_index"] = len(state["plan"].questions)
     state["decision"] = {
         "action": "finish",
@@ -248,6 +296,7 @@ def finish_interview_state(state: InterviewState) -> InterviewState:
                 "question_id": None,
             }
         )
+    state["finished_at"] = state["finished_at"] or utc_now_iso()
     return state
 
 
@@ -255,6 +304,8 @@ def skip_interview_question_state(state: InterviewState) -> InterviewState:
     if state["status"] == "finished":
         return state
 
+    _ensure_state_metadata(state)
+    _record_skip_if_unanswered(state)
     next_index = state["current_index"] + 1
     if next_index >= len(state["plan"].questions):
         return finish_interview_state(state)
@@ -277,17 +328,27 @@ def skip_interview_question_state(state: InterviewState) -> InterviewState:
     return state
 
 
-def _completed_question_count(state: InterviewState) -> int:
-    if state["status"] == "finished":
-        return len(state["plan"].questions)
-    return max(0, min(state["current_index"], len(state["plan"].questions)))
+def _question_answer_counts(state: InterviewState) -> dict[str, int]:
+    counts = {"answered": 0, "skipped": 0, "unanswered": 0, "pending_or_current": 0}
+    for index, _ in enumerate(state["plan"].questions):
+        question_state = _question_state(state, index)
+        if question_state in ("answered", "skipped", "unanswered"):
+            counts[question_state] += 1
+        else:
+            counts["unanswered"] += 1
+            counts["pending_or_current"] += 1
+    return counts
 
 
 def _question_state(state: InterviewState, index: int) -> str:
+    _ensure_state_metadata(state)
+    question = state["plan"].questions[index]
+    if question.id in state["skipped_question_ids"]:
+        return "skipped"
+    if count_candidate_answers_for_question(state, question.id) > 0:
+        return "answered"
     if state["status"] == "finished":
-        return "completed"
-    if index < state["current_index"]:
-        return "completed"
+        return "unanswered"
     if index == state["current_index"]:
         return "current"
     return "pending"

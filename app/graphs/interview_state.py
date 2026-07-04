@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Literal, TypedDict
 
 from app.services.prep import InterviewPlan, InterviewQuestion
@@ -26,6 +27,13 @@ class InterviewState(TypedDict):
     job_description: str
     resume_text: str
     job_tags: list[str]
+    skipped_question_ids: list[str]
+    started_at: str
+    finished_at: str | None
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def build_initial_state(
@@ -41,6 +49,7 @@ def build_initial_state(
         if first_question
         else "Interview finished because the plan is empty."
     )
+    now = utc_now_iso()
     return {
         "session_id": session_id,
         "plan": plan,
@@ -58,6 +67,9 @@ def build_initial_state(
         "job_description": job_description,
         "resume_text": resume_text,
         "job_tags": job_tags,
+        "skipped_question_ids": [],
+        "started_at": now,
+        "finished_at": now if first_question is None else None,
     }
 
 

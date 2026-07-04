@@ -291,6 +291,32 @@ def test_get_interview_session_returns_snapshot():
     assert body["messages"][0]["role"] == "interviewer"
 
 
+def test_get_interview_session_returns_skip_and_timing_metadata():
+    client = make_client()
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    session_id = start_response.json()["session_id"]
+
+    client.post(f"/api/interviews/{session_id}/skip")
+    response = client.get(f"/api/interviews/{session_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["started_at"]
+    assert body["finished_at"] is None
+    assert isinstance(body["elapsed_seconds"], int)
+    assert body["answered_questions"] == 0
+    assert body["skipped_questions"] == 1
+    assert body["unanswered_questions"] == 2
+    assert body["questions"][0]["state"] == "skipped"
+    assert body["questions"][1]["state"] == "current"
+
+
 def test_get_interview_session_missing_returns_404():
     client = make_client()
 

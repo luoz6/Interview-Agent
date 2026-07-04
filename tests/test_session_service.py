@@ -95,6 +95,17 @@ def test_start_session_records_job_context_in_store():
     assert state["resume_text"] == "Built a Python API with Redis."
 
 
+def test_start_session_records_timing_and_empty_skip_list():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+
+    session = start_session(store)
+
+    state = store.get(session.session_id)
+    assert state["started_at"]
+    assert state["finished_at"] is None
+    assert state["skipped_question_ids"] == []
+
+
 def test_submit_answer_uses_llm_context_to_generate_followup():
     llm = FakeInterviewLLM()
     store = InterviewSessionStore(llm=llm)
@@ -235,7 +246,7 @@ def test_session_snapshot_marks_completed_question_after_advance():
 
     assert snapshot["current_question"]["id"] == "q2"
     assert snapshot["completed_questions"] == 1
-    assert snapshot["questions"][0]["state"] == "completed"
+    assert snapshot["questions"][0]["state"] == "answered"
     assert snapshot["questions"][1]["state"] == "current"
 
 
@@ -249,12 +260,45 @@ def test_session_snapshot_marks_finished_session_without_current_question():
 
     assert snapshot["status"] == "finished"
     assert snapshot["current_question"] is None
-    assert snapshot["completed_questions"] == 3
+    assert snapshot["completed_questions"] == 0
+    assert snapshot["unanswered_questions"] == 3
     assert [question["state"] for question in snapshot["questions"]] == [
-        "completed",
-        "completed",
-        "completed",
+        "unanswered",
+        "unanswered",
+        "unanswered",
     ]
+
+
+def test_skip_unanswered_question_marks_snapshot_skipped():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    store.skip(session.session_id)
+
+    state = store.get(session.session_id)
+    snapshot = store.snapshot(session.session_id)
+    assert state["skipped_question_ids"] == ["q1"]
+    assert snapshot["completed_questions"] == 1
+    assert snapshot["answered_questions"] == 0
+    assert snapshot["skipped_questions"] == 1
+    assert snapshot["unanswered_questions"] == 2
+    assert snapshot["questions"][0]["state"] == "skipped"
+    assert snapshot["questions"][1]["state"] == "current"
+
+
+def test_skip_after_answer_does_not_mark_question_skipped():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    store.submit_answer(session.session_id, "I built a Redis cache service.")
+    store.skip(session.session_id)
+
+    snapshot = store.snapshot(session.session_id)
+    assert store.get(session.session_id)["skipped_question_ids"] == []
+    assert snapshot["answered_questions"] == 1
+    assert snapshot["skipped_questions"] == 0
+    assert snapshot["questions"][0]["state"] == "answered"
+    assert snapshot["questions"][1]["state"] == "current"
 
 
 def test_skip_advances_to_next_question():
@@ -268,9 +312,52 @@ def test_skip_advances_to_next_question():
     assert skipped.current_question.id == "q2"
     assert skipped.follow_up is None
     snapshot = store.snapshot(session.session_id)
-    assert snapshot["questions"][0]["state"] == "completed"
+    assert snapshot["questions"][0]["state"] == "skipped"
     assert snapshot["questions"][1]["state"] == "current"
     assert snapshot["messages"][-1]["content"] == "Explain Redis."
+
+
+def test_skip_last_unanswered_question_records_skip_before_finish():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    store.skip(session.session_id)
+    store.skip(session.session_id)
+    final_turn = store.skip(session.session_id)
+
+    state = store.get(session.session_id)
+    snapshot = store.snapshot(session.session_id)
+    assert final_turn.status == "finished"
+    assert state["skipped_question_ids"] == ["q1", "q2", "q3"]
+    assert state["finished_at"]
+    assert snapshot["completed_questions"] == 3
+    assert snapshot["answered_questions"] == 0
+    assert snapshot["skipped_questions"] == 3
+    assert snapshot["unanswered_questions"] == 0
+    assert [question["state"] for question in snapshot["questions"]] == [
+        "skipped",
+        "skipped",
+        "skipped",
+    ]
+
+
+def test_finish_without_answer_marks_remaining_questions_unanswered():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    store.finish(session.session_id)
+
+    snapshot = store.snapshot(session.session_id)
+    assert snapshot["status"] == "finished"
+    assert snapshot["completed_questions"] == 0
+    assert snapshot["answered_questions"] == 0
+    assert snapshot["skipped_questions"] == 0
+    assert snapshot["unanswered_questions"] == 3
+    assert [question["state"] for question in snapshot["questions"]] == [
+        "unanswered",
+        "unanswered",
+        "unanswered",
+    ]
 
 
 def test_skip_last_question_finishes_session():
