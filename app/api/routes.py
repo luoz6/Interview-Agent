@@ -3,12 +3,12 @@ from collections.abc import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
 from app.services.report_tasks import generate_report_for_session
-from app.services.runtime import get_report_job_store, get_session_store
+from app.services.runtime import get_draft_store, get_report_job_store, get_session_store
 from app.services.session import InterviewSessionStore
 
 
@@ -24,25 +24,62 @@ class AnswerRequest(BaseModel):
     answer: str
 
 
+class DraftRequest(BaseModel):
+    job_description: str = Field(min_length=1)
+    resume_text: str = Field(min_length=1)
+    draft_id: str | None = None
+    title: str | None = None
+    job_tags: list[str] | None = None
+
+    @field_validator("job_description", "resume_text")
+    @classmethod
+    def reject_blank_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
 
 
 @router.post("/prep")
-def prep_interview(
-    payload: PrepRequest,
-    store: InterviewSessionStore = Depends(get_session_store),
-):
+def prep_interview(payload: PrepRequest):
     try:
         plan = prepare_interview(
             payload.job_description,
             payload.resume_text,
-            llm=store.llm,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return plan.model_dump()
+    response = plan.model_dump()
+    response["job_tags"] = extract_job_tags(payload.job_description)
+    return response
+
+
+@router.post("/interview-drafts")
+def save_interview_draft(payload: DraftRequest, draft_store=Depends(get_draft_store)):
+    try:
+        return draft_store.save(
+            draft_id=payload.draft_id,
+            job_description=payload.job_description,
+            resume_text=payload.resume_text,
+            title=payload.title,
+            job_tags=payload.job_tags
+            if payload.job_tags is not None
+            else extract_job_tags(payload.job_description),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/interview-drafts/{draft_id}")
+def get_interview_draft(draft_id: str, draft_store=Depends(get_draft_store)):
+    try:
+        return draft_store.get(draft_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.post("/interviews")
@@ -68,6 +105,17 @@ def start_interview(
     return _turn_to_dict(turn)
 
 
+@router.get("/interviews/{session_id}")
+def get_interview_session(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        return store.snapshot(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+
+
 @router.post("/interviews/{session_id}/answer")
 def submit_answer(
     session_id: str,
@@ -78,7 +126,7 @@ def submit_answer(
     try:
         turn = store.submit_answer(session_id, payload.answer)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        _raise_value_error(exc)
     _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
     return _turn_to_dict(turn)
 
@@ -93,7 +141,7 @@ def submit_answer_stream(
     try:
         prepared = store.prepare_streaming_answer(session_id, payload.answer)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        _raise_value_error(exc)
 
     def event_stream() -> Iterator[str]:
         try:
@@ -128,6 +176,34 @@ def submit_answer_stream(
     )
 
 
+@router.post("/interviews/{session_id}/finish")
+def finish_interview(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        turn = store.finish(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+    _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+    return _turn_to_dict(turn)
+
+
+@router.post("/interviews/{session_id}/skip")
+def skip_interview_question(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        turn = store.skip(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+    _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+    return _turn_to_dict(turn)
+
+
 @router.get("/interviews/{session_id}/report")
 def get_interview_report(
     session_id: str,
@@ -157,6 +233,27 @@ def get_interview_report(
     return record.report.model_dump()
 
 
+@router.get("/interviews/{session_id}/report/progress")
+def get_interview_report_progress(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        state = store.get(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    if state["status"] != "finished":
+        raise HTTPException(status_code=404, detail="interview is not finished")
+
+    record = store.get_report_record(session_id)
+    return _report_progress_detail(
+        session_id,
+        record,
+        report_job_id=_report_job_id_for_session(session_id),
+    )
+
+
 def _turn_to_dict(turn):
     return {
         "session_id": turn.session_id,
@@ -172,6 +269,87 @@ def _sse_event(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _report_job_id_for_session(session_id: str) -> str | None:
+    try:
+        job = get_report_job_store().get_job_by_session(session_id)
+    except (AttributeError, RuntimeError):
+        return None
+    if not job:
+        return None
+    return job.get("job_id")
+
+
+def _report_progress_detail(session_id: str, record, *, report_job_id: str | None):
+    if record is None:
+        return {
+            "session_id": session_id,
+            "report_job_id": report_job_id,
+            "status": "processing",
+            "stage": "queued",
+            "percent": 0,
+            "message": "Waiting for report generation to start.",
+            "events": [],
+            "rag": _rag_progress_defaults(),
+        }
+
+    if record.status == "completed":
+        return {
+            "session_id": session_id,
+            "report_job_id": report_job_id,
+            "status": "completed",
+            "stage": "completed",
+            "percent": 100,
+            "message": "Report completed.",
+            "events": [{"stage": "completed", "message": "Report completed."}],
+            "rag": _rag_progress_defaults(),
+        }
+
+    if record.status == "failed":
+        message = record.error or "Report generation failed."
+        return {
+            "session_id": session_id,
+            "report_job_id": report_job_id,
+            "status": "failed",
+            "stage": "failed",
+            "percent": 100,
+            "message": message,
+            "events": [{"stage": "failed", "message": message}],
+            "rag": _rag_progress_defaults(),
+        }
+
+    progress = record.progress
+    if progress is None:
+        stage = "retrieving"
+        percent = 0
+        message = "Report generation is processing."
+        current_question_id = None
+    else:
+        stage = progress.stage
+        percent = progress.percent
+        message = progress.message
+        current_question_id = progress.current_question_id
+
+    return {
+        "session_id": session_id,
+        "report_job_id": report_job_id,
+        "status": "processing",
+        "stage": stage,
+        "percent": percent,
+        "message": message,
+        "current_question_id": current_question_id,
+        "events": [{"stage": stage, "message": message}],
+        "rag": _rag_progress_defaults(),
+    }
+
+
+def _rag_progress_defaults() -> dict:
+    return {
+        "top_k": 5,
+        "source_types": ["theory", "expert_benchmark"],
+        "matched_chunks": None,
+    }
+
+
 def _schedule_report_if_needed(
     turn_status: str,
     session_id: str,
@@ -179,6 +357,8 @@ def _schedule_report_if_needed(
     store: InterviewSessionStore,
 ) -> None:
     if turn_status != "finished":
+        return
+    if store.get_report_record(session_id) is not None:
         return
     try:
         get_report_job_store().enqueue_report_request(session_id)
@@ -194,3 +374,9 @@ def _extract_follow_up(state) -> str | None:
     if state["status"] == "finished":
         return state["pending_output"]
     return None
+
+
+def _raise_value_error(exc: ValueError) -> None:
+    detail = str(exc)
+    status_code = 404 if detail == "session not found" else 400
+    raise HTTPException(status_code=status_code, detail=detail)

@@ -1,8 +1,12 @@
 from dataclasses import dataclass
-from typing import Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional
 from uuid import uuid4
 
-from app.graphs.interview_graph import InterviewGraphRunner, fallback_followup
+from app.graphs.interview_graph import (
+    INTERVIEW_FINISHED_MESSAGE,
+    InterviewGraphRunner,
+    fallback_followup,
+)
 from app.graphs.interview_state import InterviewState, get_current_question
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
@@ -59,6 +63,35 @@ class InterviewSessionStore:
         except KeyError as exc:
             raise ValueError("session not found") from exc
 
+    def snapshot(self, session_id: str) -> dict[str, Any]:
+        state = self.get(session_id)
+        current_question = None if state["status"] == "finished" else get_current_question(state)
+        questions = [
+            {
+                **question.model_dump(),
+                "state": _question_state(state, index),
+            }
+            for index, question in enumerate(state["plan"].questions)
+        ]
+        return {
+            "session_id": state["session_id"],
+            "status": state["status"],
+            "current_index": state["current_index"],
+            "total_questions": len(state["plan"].questions),
+            "completed_questions": _completed_question_count(state),
+            "job_tags": list(state["job_tags"]),
+            "current_question": current_question.model_dump() if current_question else None,
+            "questions": questions,
+            "messages": [
+                {
+                    "role": message["role"],
+                    "content": message["content"],
+                    "question_id": message["question_id"],
+                }
+                for message in state["messages"]
+            ],
+        }
+
     def submit_answer(self, session_id: str, answer: str) -> InterviewTurn:
         if not answer or not answer.strip():
             raise ValueError("answer is required")
@@ -67,6 +100,18 @@ class InterviewSessionStore:
         new_state = self._runner.submit_answer(state, answer)
         self._sessions[session_id] = new_state
         return self._to_turn(new_state, follow_up=_extract_follow_up(new_state))
+
+    def finish(self, session_id: str) -> InterviewTurn:
+        state = self.get(session_id)
+        finished_state = finish_interview_state(state)
+        self._sessions[session_id] = finished_state
+        return self._to_turn(finished_state, follow_up=_extract_follow_up(finished_state))
+
+    def skip(self, session_id: str) -> InterviewTurn:
+        state = self.get(session_id)
+        skipped_state = skip_interview_question_state(state)
+        self._sessions[session_id] = skipped_state
+        return self._to_turn(skipped_state, follow_up=_extract_follow_up(skipped_state))
 
     def prepare_streaming_answer(self, session_id: str, answer: str) -> PreparedInterviewTurn:
         if not answer or not answer.strip():
@@ -181,6 +226,80 @@ def _extract_follow_up(state: InterviewState) -> str | None:
     if state["status"] == "finished":
         return state["pending_output"]
     return None
+
+
+def finish_interview_state(state: InterviewState) -> InterviewState:
+    if state["status"] == "finished":
+        return state
+
+    state["current_index"] = len(state["plan"].questions)
+    state["decision"] = {
+        "action": "finish",
+        "follow_up": None,
+        "reason": "user_finished_interview",
+    }
+    state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
+    state["status"] = "finished"
+    if not _has_terminal_message(state):
+        state["messages"].append(
+            {
+                "role": "interviewer",
+                "content": INTERVIEW_FINISHED_MESSAGE,
+                "question_id": None,
+            }
+        )
+    return state
+
+
+def skip_interview_question_state(state: InterviewState) -> InterviewState:
+    if state["status"] == "finished":
+        return state
+
+    next_index = state["current_index"] + 1
+    if next_index >= len(state["plan"].questions):
+        return finish_interview_state(state)
+
+    next_question = state["plan"].questions[next_index]
+    state["current_index"] = next_index
+    state["decision"] = {
+        "action": "next_question",
+        "follow_up": None,
+        "reason": "user_skipped_question",
+    }
+    state["pending_output"] = next_question.prompt
+    state["messages"].append(
+        {
+            "role": "interviewer",
+            "content": next_question.prompt,
+            "question_id": next_question.id,
+        }
+    )
+    return state
+
+
+def _completed_question_count(state: InterviewState) -> int:
+    if state["status"] == "finished":
+        return len(state["plan"].questions)
+    return max(0, min(state["current_index"], len(state["plan"].questions)))
+
+
+def _question_state(state: InterviewState, index: int) -> str:
+    if state["status"] == "finished":
+        return "completed"
+    if index < state["current_index"]:
+        return "completed"
+    if index == state["current_index"]:
+        return "current"
+    return "pending"
+
+
+def _has_terminal_message(state: InterviewState) -> bool:
+    return bool(
+        state["messages"]
+        and state["messages"][-1]["role"] == "interviewer"
+        and state["messages"][-1]["content"] == INTERVIEW_FINISHED_MESSAGE
+        and state["messages"][-1]["question_id"] is None
+    )
 
 
 def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:

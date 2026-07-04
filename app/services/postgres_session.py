@@ -5,7 +5,13 @@ from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
-from app.services.session import InterviewSessionStore, InterviewTurn, PreparedInterviewTurn
+from app.services.session import (
+    InterviewSessionStore,
+    InterviewTurn,
+    PreparedInterviewTurn,
+    finish_interview_state,
+    skip_interview_question_state,
+)
 from app.services.session_serialization import (
     message_to_row,
     report_record_from_row,
@@ -142,6 +148,24 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         new_state = self._runner.submit_answer(state, answer)
         self._replace_state(new_state)
         return self._to_turn(new_state, follow_up=self._extract_follow_up(new_state))
+
+    def finish(self, session_id: str) -> InterviewTurn:
+        state = self.get(session_id)
+        finished_state = finish_interview_state(state)
+        self._replace_state(finished_state)
+        return self._to_turn(
+            finished_state,
+            follow_up=self._extract_follow_up(finished_state),
+        )
+
+    def skip(self, session_id: str) -> InterviewTurn:
+        state = self.get(session_id)
+        skipped_state = skip_interview_question_state(state)
+        self._replace_state(skipped_state)
+        return self._to_turn(
+            skipped_state,
+            follow_up=self._extract_follow_up(skipped_state),
+        )
 
     def prepare_streaming_answer(self, session_id: str, answer: str) -> PreparedInterviewTurn:
         if not answer or not answer.strip():

@@ -80,15 +80,21 @@ def make_client():
         def __init__(self, store: InterviewSessionStore) -> None:
             self._store = store
             self.enqueue_calls: list[str] = []
+            self._jobs_by_session: dict[str, dict] = {}
 
         def enqueue_report_request(self, session_id: str) -> dict:
             self.enqueue_calls.append(session_id)
-            self._store.mark_report_processing(session_id)
-            return {
+            job = {
                 "job_id": f"job-{len(self.enqueue_calls)}",
                 "session_id": session_id,
                 "status": "queued",
             }
+            self._jobs_by_session[session_id] = job
+            self._store.mark_report_processing(session_id)
+            return job
+
+        def get_job_by_session(self, session_id: str) -> dict | None:
+            return self._jobs_by_session.get(session_id)
 
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
@@ -171,6 +177,113 @@ def test_report_endpoint_returns_202_with_progress():
     assert body["progress"]["percent"] == 20
 
 
+def test_report_progress_endpoint_returns_queued_detail_before_report_record_exists():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+
+    response = client.get(f"/api/interviews/{session_id}/report/progress")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == session_id
+    assert body["report_job_id"] is None
+    assert body["status"] == "processing"
+    assert body["stage"] == "queued"
+    assert body["percent"] == 0
+    assert body["events"] == []
+    assert body["rag"] == {
+        "top_k": 5,
+        "source_types": ["theory", "expert_benchmark"],
+        "matched_chunks": None,
+    }
+
+
+def test_report_progress_endpoint_returns_processing_detail():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+
+    response = client.get(f"/api/interviews/{session_id}/report/progress")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == session_id
+    assert body["status"] == "processing"
+    assert body["stage"] == "retrieving"
+    assert body["percent"] == 20
+    assert body["message"] == "Retrieving role-specific knowledge references."
+    assert body["events"] == [
+        {
+            "stage": "retrieving",
+            "message": "Retrieving role-specific knowledge references.",
+        }
+    ]
+    assert body["rag"]["top_k"] == 5
+    assert body["rag"]["source_types"] == ["theory", "expert_benchmark"]
+
+
+def test_report_progress_endpoint_returns_report_job_id_after_finish_enqueue():
+    client, _, _, _ = make_client()
+    session_id = start_interview(client)
+
+    finish_response = client.post(f"/api/interviews/{session_id}/finish")
+    progress_response = client.get(f"/api/interviews/{session_id}/report/progress")
+
+    assert finish_response.status_code == 200
+    assert progress_response.status_code == 200
+    assert progress_response.json()["report_job_id"] == "job-1"
+
+
+def test_report_progress_endpoint_returns_completed_detail():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.save_report(
+        session_id,
+        InterviewReport(
+            session_id=session_id,
+            overall_score=81,
+            overall_dimension_scores=make_dimension_scores(81),
+            summary="Clear project story with practical tradeoffs.",
+            highlights=["Explained tradeoffs"],
+            feedbacks=[
+                InterviewFeedback(
+                    question_id="q1",
+                    question_text="Introduce a backend project.",
+                    user_answer="The candidate built a backend cache service.",
+                    score=81,
+                    dimension_scores=make_dimension_scores(81),
+                    rationale="The answer covered implementation tradeoffs clearly.",
+                    critique="Needs stronger business metrics.",
+                    better_answer="I reduced p95 latency using cache-aside Redis.",
+                    references=[],
+                )
+            ],
+        ),
+    )
+
+    response = client.get(f"/api/interviews/{session_id}/report/progress")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["stage"] == "completed"
+    assert body["percent"] == 100
+    assert body["events"] == [{"stage": "completed", "message": "Report completed."}]
+
+
+def test_report_progress_endpoint_rejects_active_interview():
+    client, _, _, _ = make_client()
+    session_id = start_interview(client)
+
+    response = client.get(f"/api/interviews/{session_id}/report/progress")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "interview is not finished"
+
+
 def test_finished_answer_enqueues_report_generation_once_and_leaves_processing():
     client, store, llm, job_store = make_client()
     session_id = start_interview(client)
@@ -192,6 +305,34 @@ def test_finished_answer_enqueues_report_generation_once_and_leaves_processing()
     record = store.get_report_record(session_id)
     assert record is not None
     assert record.status == "processing"
+
+    report_response = client.get(f"/api/interviews/{session_id}/report")
+    assert report_response.status_code == 202
+    assert report_response.json()["status"] == "processing"
+
+
+def test_finish_endpoint_enqueues_report_generation_once_and_is_idempotent():
+    client, store, llm, job_store = make_client()
+    session_id = start_interview(client)
+
+    first_response = client.post(f"/api/interviews/{session_id}/finish")
+    second_response = client.post(f"/api/interviews/{session_id}/finish")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["status"] == "finished"
+    assert first_response.json()["current_question"] is None
+    assert first_response.json()["follow_up"] == "本次模拟面试已结束。"
+    assert second_response.json()["status"] == "finished"
+    assert job_store.enqueue_calls == [session_id]
+    assert llm.report_calls == 0
+    assert len(
+        [
+            message
+            for message in store.get(session_id)["messages"]
+            if message["content"] == "本次模拟面试已结束。"
+        ]
+    ) == 1
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
     assert report_response.status_code == 202

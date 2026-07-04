@@ -70,3 +70,99 @@ def test_report_styles_include_status_alert_variants():
     assert ".report-alert" in css
     assert ".report-alert.warning" in css
     assert ".report-alert.danger" in css
+
+
+def test_static_page_has_skip_and_explicit_submit_buttons():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="skipQuestionButton"' in html
+    assert 'type="button"' in html
+    assert 'id="sendAnswerButton"' in html
+    assert 'type="submit"' in html
+
+
+def test_app_js_calls_session_detail_skip_and_report_progress_endpoints():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "`/api/interviews/${sessionId}`" in js
+    assert "`/api/interviews/${sessionId}/skip`" in js
+    assert "`/api/interviews/${sessionId}/report/progress`" in js
+    assert "renderSessionSnapshot(" in js
+    assert "renderQuestionPlanFromSnapshot(" in js
+    assert "renderJobTags(" in js
+    assert js.count("await loadSessionSnapshot();") >= 4
+    assert "renderReportProcessing(progressBody || body.progress || null);" in js
+    assert "renderReportProcessing(body.progress || null);" not in js
+
+
+def test_app_js_targets_submit_button_not_skip_button():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'answerForm.querySelector("button[type=\\"submit\\"]")' in js
+    assert 'const skipQuestionButton = document.querySelector("#skipQuestionButton")' in js
+    assert "skipQuestionButton.disabled = !enabled" in js
+
+
+def test_app_js_renders_job_tags_and_question_snapshot_states():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "function renderJobTags(tags)" in js
+    assert "topicTags.innerHTML = \"\";" in js
+    assert "tag muted" in js
+    assert "function renderQuestionPlanFromSnapshot(questions)" in js
+    assert "question-${state}" in js
+    assert "completed: \"已完成\"" in js
+    assert "current: \"当前题\"" in js
+    assert "pending: \"待进行\"" in js
+
+
+def test_app_js_maps_dimension_labels_to_chinese():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "dimensionLabels" in js
+    assert "知识广度" in js
+    assert "技术深度" in js
+    assert "系统设计" in js
+    assert "工程实践" in js
+    assert "表达沟通" in js
+    assert "toDimensionLabel(name)" in js
+    assert 'createEl("span", "dimension-name", toDimensionLabel(name))' in js
+    assert '`${toDimensionLabel(name)}: ${value}`' in js
+
+
+def test_app_js_renders_prep_job_tags():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "renderPrepResult(plan)" in js
+    assert "function renderPrepResult(plan)" in js
+    assert "setCurrentTags(plan.job_tags || [])" in js
+    assert "let currentTags = []" in js
+    assert "function setCurrentTags(tags)" in js
+    assert "setCurrentTags(snapshot.job_tags || [])" in js
+
+
+def test_static_page_has_draft_buttons():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="saveDraftButton"' in html
+    assert 'id="restoreDraftButton"' in html
+
+
+def test_app_js_saves_and_restores_anonymous_drafts():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'let draftId = localStorage.getItem("interviewDraftId")' in js
+    assert "let currentTags = []" in js
+    assert 'const saveDraftButton = document.querySelector("#saveDraftButton")' in js
+    assert 'const restoreDraftButton = document.querySelector("#restoreDraftButton")' in js
+    assert "`/api/interview-drafts`" in js
+    assert "`/api/interview-drafts/${draftId}`" in js
+    assert 'localStorage.setItem("interviewDraftId", draft.draft_id)' in js
+    assert 'localStorage.removeItem("interviewDraftId")' in js
+    assert "renderDraftSaved(draft)" in js
+    assert "renderDraft(draft)" in js
+    assert "job_tags: currentTags.length ? currentTags : null" in js
+    assert "function renderDraftSaved(draft)" in js
+    assert "function renderDraft(draft)" in js
+    assert "setCurrentTags(draft.job_tags || [])" in js
+    assert "setCurrentTags([])" in js

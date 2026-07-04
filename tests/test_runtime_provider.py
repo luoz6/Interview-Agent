@@ -4,6 +4,7 @@ from app.services.runtime import (
     build_report_executor,
     build_report_job_store,
     build_session_store,
+    get_draft_store,
     get_report_executor,
     get_report_job_store,
     reset_runtime_for_tests,
@@ -160,3 +161,16 @@ def test_get_report_executor_caches_until_reset(monkeypatch):
 
     assert third is not first
     assert len(created) == 2
+
+
+def test_get_draft_store_caches_until_reset():
+    reset_runtime_for_tests()
+    first = get_draft_store()
+    second = get_draft_store()
+
+    assert first is second
+
+    reset_runtime_for_tests()
+    third = get_draft_store()
+
+    assert third is not first

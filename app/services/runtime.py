@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 
+from app.services.drafts import AnonymousDraftStore
 from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
@@ -18,6 +19,7 @@ class ReportExecutor:
 _session_store = None
 _report_job_store = None
 _report_executor = None
+_draft_store = None
 
 
 def build_session_store(llm=None):
@@ -45,6 +47,10 @@ def build_report_job_store():
         table_prefix=os.getenv("INTERVIEW_RUNTIME_TABLE_PREFIX", "interview"),
         lease_seconds=int(os.getenv("REPORT_JOB_LEASE_SECONDS", "300")),
     )
+
+
+def build_draft_store():
+    return AnonymousDraftStore()
 
 
 def build_report_executor(
@@ -77,6 +83,13 @@ def get_report_job_store():
     return _report_job_store
 
 
+def get_draft_store():
+    global _draft_store
+    if _draft_store is None:
+        _draft_store = build_draft_store()
+    return _draft_store
+
+
 def get_report_executor():
     global _report_executor
     if _report_executor is None:
@@ -85,7 +98,8 @@ def get_report_executor():
 
 
 def reset_runtime_for_tests() -> None:
-    global _session_store, _report_job_store, _report_executor
+    global _session_store, _report_job_store, _report_executor, _draft_store
     _session_store = None
     _report_job_store = None
     _report_executor = None
+    _draft_store = None

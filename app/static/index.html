@@ -48,7 +48,10 @@
             <h2>新建面试</h2>
             <p>配置岗位、简历、知识库与面试主题</p>
           </div>
-          <button class="ghost-btn" type="button">保存为模板</button>
+          <div class="draft-actions">
+            <button class="ghost-btn" id="saveDraftButton" type="button">保存草稿</button>
+            <button class="ghost-btn" id="restoreDraftButton" type="button">恢复草稿</button>
+          </div>
         </div>
 
         <section class="panel">
@@ -199,7 +202,8 @@
                 </div>
                 <form id="answerForm" class="input-wrap">
                   <textarea id="answerInput" class="input-box" placeholder="输入你的回答...&#10;Enter 发送，Shift+Enter 换行" autocomplete="off"></textarea>
-                  <button class="send" type="submit">发送 ✈</button>
+                  <button class="send secondary" id="skipQuestionButton" type="button">跳过</button>
+                  <button class="send" id="sendAnswerButton" type="submit">发送 ✈</button>
                 </form>
               </div>
             </section>

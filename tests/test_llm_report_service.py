@@ -10,6 +10,7 @@ from app.services.report import (
     ReportGenerationFailed,
     ReportOutputFormatError,
 )
+from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
 
 
 def make_plan() -> InterviewPlan:
@@ -72,46 +73,29 @@ class FakeReportStructuredModel:
 
     def invoke(self, prompt: str):
         self.last_prompt = prompt
-        return InterviewReport(
+        return ProviderQuestionResultsEnvelope(
             session_id="s1",
-            overall_score=84,
-            overall_dimension_scores=DimensionScores(
-                breadth=84,
-                depth=84,
-                architecture=84,
-                engineering=84,
-                communication=84,
-            ),
-            summary="Strong technical basics.",
-            highlights=["Explained Redis fallback"],
-            feedbacks=[
-                InterviewFeedback(
-                    question_id="q1",
-                    question_text="Please introduce a backend project.",
-                    user_answer="The candidate described FastAPI and Redis.",
-                    score=84,
-                    dimension_scores=DimensionScores(
-                        breadth=84,
-                        depth=84,
-                        architecture=84,
-                        engineering=84,
-                        communication=84,
-                    ),
-                    rationale="The answer covered the main cache strategy.",
-                    critique="The answer needs clearer metrics.",
-                    better_answer=(
+            question_results=[
+                {
+                    "question_id": "q1",
+                    "question_text": "Explain Redis cache invalidation.",
+                    "score": 84,
+                    "dimension_scores": {
+                        "breadth": 84,
+                        "depth": 84,
+                        "architecture": 84,
+                        "engineering": 84,
+                        "communication": 84,
+                    },
+                    "rationale": "The answer covered the main cache strategy.",
+                    "critique": "The answer needs clearer metrics.",
+                    "better_answer": (
                         "I built a FastAPI API with Redis cache and measured "
                         "p95 latency."
                     ),
-                    references=[
-                        FeedbackReference(
-                            chunk_id="redis-1",
-                            title="Redis cache consistency",
-                            source_type="theory",
-                            excerpt="Delete cache after database updates.",
-                        )
-                    ],
-                )
+                    "reference_chunk_ids": ["redis-1"],
+                    "highlights": ["Explained Redis fallback"],
+                }
             ],
         )
 
@@ -128,7 +112,7 @@ class FakeReportChatModel:
         return self.structured_model
 
 
-def test_generate_report_uses_interview_report_schema_and_includes_references():
+def test_generate_report_uses_question_result_schema_and_assembles_report():
     chat_model = FakeReportChatModel()
     llm = OpenAIInterviewLLM(chat_model=chat_model)
     plan = make_plan()
@@ -140,13 +124,16 @@ def test_generate_report_uses_interview_report_schema_and_includes_references():
     )
 
     assert report.overall_score == 84
-    assert chat_model.schema is InterviewReport
+    assert chat_model.schema is ProviderQuestionResultsEnvelope
     assert chat_model.method == "json_schema"
     assert "Backend interview" in chat_model.structured_model.last_prompt
     assert "scoring_references" in chat_model.structured_model.last_prompt
     assert "answer_references" in chat_model.structured_model.last_prompt
     assert "session_id: s1" in chat_model.structured_model.last_prompt
+    assert "reference_chunk_ids" in chat_model.structured_model.last_prompt
+    assert "Do not return overall_score" in chat_model.structured_model.last_prompt
     assert report.overall_dimension_scores.depth == 84
+    assert report.feedbacks[0].references[0].chunk_id == "redis-1"
 
 
 class FailingStructuredModel:
@@ -178,21 +165,10 @@ class FallbackReportChatModel:
             """
             {
               "session_id": "s1",
-              "overall_score": 84,
-              "overall_dimension_scores": {
-                "breadth": 84,
-                "depth": 84,
-                "architecture": 84,
-                "engineering": 84,
-                "communication": 84
-              },
-              "summary": "Strong technical basics.",
-              "highlights": ["Explained Redis fallback"],
-              "feedbacks": [
+              "question_results": [
                 {
                   "question_id": "q1",
-                  "question_text": "Please introduce a backend project.",
-                  "user_answer": "The candidate described FastAPI and Redis.",
+                  "question_text": "Explain Redis cache invalidation.",
                   "score": 84,
                   "dimension_scores": {
                     "breadth": 84,
@@ -204,18 +180,10 @@ class FallbackReportChatModel:
                   "rationale": "The answer covered the main cache strategy.",
                   "critique": "The answer needs clearer metrics.",
                   "better_answer": "I built a FastAPI API with Redis cache and measured p95 latency.",
-                  "references": [
-                    {
-                      "chunk_id": "redis-1",
-                      "title": "Redis cache consistency",
-                      "source_type": "theory",
-                      "excerpt": "Delete cache after database updates."
-                    }
-                  ]
+                  "reference_chunk_ids": ["redis-1"],
+                  "highlights": ["Explained Redis fallback"]
                 }
-              ],
-              "status": "completed",
-              "is_fallback": false
+              ]
             }
             """
         )
@@ -233,9 +201,10 @@ def test_generate_report_falls_back_to_json_prompt_when_structured_output_is_una
     )
 
     assert report.overall_score == 84
-    assert chat_model.schema is InterviewReport
+    assert chat_model.schema is ProviderQuestionResultsEnvelope
     assert chat_model.method == "json_schema"
     assert "Return valid JSON only" in chat_model.last_prompt
+    assert report.feedbacks[0].references[0].chunk_id == "redis-1"
 
 
 class ProseWrappedJsonChatModel:
@@ -250,21 +219,10 @@ class ProseWrappedJsonChatModel:
             ```json
             {
               "session_id": "s1",
-              "overall_score": 84,
-              "overall_dimension_scores": {
-                "breadth": 84,
-                "depth": 84,
-                "architecture": 84,
-                "engineering": 84,
-                "communication": 84
-              },
-              "summary": "Strong technical basics.",
-              "highlights": ["Explained Redis fallback"],
-              "feedbacks": [
+              "question_results": [
                 {
                   "question_id": "q1",
-                  "question_text": "Please introduce a backend project.",
-                  "user_answer": "The candidate described FastAPI and Redis.",
+                  "question_text": "Explain Redis cache invalidation.",
                   "score": 84,
                   "dimension_scores": {
                     "breadth": 84,
@@ -276,11 +234,9 @@ class ProseWrappedJsonChatModel:
                   "rationale": "The answer covered the main cache strategy.",
                   "critique": "The answer needs clearer metrics.",
                   "better_answer": "I built a FastAPI API with Redis cache and measured p95 latency.",
-                  "references": []
+                  "reference_chunk_ids": ["redis-1"]
                 }
-              ],
-              "status": "completed",
-              "is_fallback": false
+              ]
             }
             ```
             """
@@ -296,8 +252,7 @@ class InvalidSchemaJsonChatModel:
             """
             {
               "session_id": "s1",
-              "overall_score": 84,
-              "summary": "Missing fields on purpose"
+              "question_results": []
             }
             """
         )
@@ -463,7 +418,10 @@ def test_generate_report_parses_json_wrapped_in_prose_and_code_fences():
 def test_generate_report_raises_typed_format_error_for_schema_invalid_json():
     llm = OpenAIInterviewLLM(chat_model=InvalidSchemaJsonChatModel())
 
-    with pytest.raises(ReportOutputFormatError, match="schema validation"):
+    with pytest.raises(
+        ReportOutputFormatError,
+        match="provider payload normalization failed",
+    ):
         llm.generate_report(
             plan=make_plan(),
             evaluation_items=make_items(),
@@ -496,7 +454,7 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
     assert report.summary == "Explained delete-after-write but missed race-window handling."
     assert report.overall_dimension_scores.depth == 82
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
-    assert report.feedbacks[0].dimension_scores.engineering == 82
+    assert report.feedbacks[0].dimension_scores.engineering == 81
     assert (
         report.feedbacks[0].critique
         == "The candidate covered cache invalidation basics but did not mention delayed double delete."
@@ -549,7 +507,7 @@ def test_generate_report_normalizes_evaluation_results_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 77
+    assert report.overall_score == 75
     assert report.overall_dimension_scores.engineering == 85
     assert report.summary == "Mentioned p95 latency reduction. Described update-then-delete pattern."
     assert report.highlights == [

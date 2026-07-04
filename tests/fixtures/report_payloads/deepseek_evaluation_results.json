@@ -1,0 +1,56 @@
+{
+  "provider_payload": {
+    "session_id": "s1",
+    "evaluation_results": [
+      {
+        "question_id": "q1",
+        "question_text": "Explain Redis cache invalidation.",
+        "score": 75,
+        "rationale": "The candidate explained cache-aside, update-then-delete, and measurable latency improvement.",
+        "references": [
+          "redis-1",
+          "redis-2"
+        ],
+        "dimension_scores": {
+          "breadth": 80,
+          "depth": 70,
+          "architecture": 75,
+          "engineering": 85,
+          "communication": 75
+        },
+        "highlights": [
+          "Mentioned p95 latency reduction.",
+          "Described update-then-delete pattern."
+        ]
+      }
+    ]
+  },
+  "evaluation_items": [
+    {
+      "question_id": "q1",
+      "question_text": "Explain Redis cache invalidation.",
+      "messages": [
+        {
+          "role": "candidate",
+          "content": "I delete cache after database writes."
+        }
+      ],
+      "scoring_references": [
+        {
+          "chunk_id": "redis-1",
+          "title": "Redis cache consistency",
+          "source_type": "theory",
+          "excerpt": "Delete cache after database updates."
+        }
+      ],
+      "answer_references": [
+        {
+          "chunk_id": "redis-2",
+          "title": "High-score Redis answer",
+          "source_type": "answer",
+          "excerpt": "Use delayed double delete."
+        }
+      ]
+    }
+  ]
+}

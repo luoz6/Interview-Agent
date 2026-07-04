@@ -1,0 +1,72 @@
+{
+  "provider_payload": {
+    "session_id": "s1",
+    "dimension_scores": {
+      "breadth": 35,
+      "depth": 25,
+      "architecture": 45,
+      "engineering": 20,
+      "communication": 50
+    },
+    "feedback_items": [
+      {
+        "question_id": "q1",
+        "question_text": "Explain Redis cache invalidation.",
+        "strengths": [
+          "Identified cache-aside pattern with Redis and PostgreSQL.",
+          "Provided measurable p95 latency improvement."
+        ],
+        "weaknesses": [
+          "No cache invalidation race-window mitigation.",
+          "No cache breakdown protection."
+        ],
+        "gaps": [
+          {
+            "reference_chunk_id": "redis-1",
+            "missing": "Did not mention delete-after-write ordering."
+          },
+          {
+            "reference_chunk_id": "redis-2",
+            "missing": "Did not mention delayed double delete."
+          }
+        ],
+        "suggested_improvements": "Explain delete-after-write ordering and delayed double delete."
+      }
+    ],
+    "highlights": [
+      "Measured latency improvement with Redis cache-aside."
+    ],
+    "references": [
+      "redis-1",
+      "redis-2"
+    ]
+  },
+  "evaluation_items": [
+    {
+      "question_id": "q1",
+      "question_text": "Explain Redis cache invalidation.",
+      "messages": [
+        {
+          "role": "candidate",
+          "content": "I delete cache after database writes."
+        }
+      ],
+      "scoring_references": [
+        {
+          "chunk_id": "redis-1",
+          "title": "Redis cache consistency",
+          "source_type": "theory",
+          "excerpt": "Delete cache after database updates."
+        }
+      ],
+      "answer_references": [
+        {
+          "chunk_id": "redis-2",
+          "title": "High-score Redis answer",
+          "source_type": "answer",
+          "excerpt": "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."
+        }
+      ]
+    }
+  ]
+}

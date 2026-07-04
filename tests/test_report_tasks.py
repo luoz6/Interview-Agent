@@ -98,6 +98,39 @@ class FakeJsonMessage:
         self.content = content
 
 
+class MinimalQuestionResultStructuredModel:
+    def invoke(self, prompt: str):
+        return {
+            "session_id": "s1",
+            "question_results": [
+                {
+                    "question_id": "q1",
+                    "score": 81,
+                    "dimension_scores": {
+                        "breadth": 80,
+                        "depth": 78,
+                        "architecture": 82,
+                        "engineering": 84,
+                        "communication": 81,
+                    },
+                    "rationale": "The answer covered cache invalidation and fallback.",
+                    "critique": "It missed delayed double delete.",
+                    "better_answer": "Add delayed double delete and explicit Redis outage fallback.",
+                    "reference_chunk_ids": ["redis-1", "redis-2"],
+                    "highlights": ["Explained Redis fallback"],
+                }
+            ],
+        }
+
+
+class MinimalQuestionResultChatModel:
+    def with_structured_output(self, schema, method=None):
+        return MinimalQuestionResultStructuredModel()
+
+    def invoke(self, prompt: str):
+        raise AssertionError("structured output path should succeed")
+
+
 class WrappedJsonFallbackChatModel:
     def with_structured_output(self, schema, method=None):
         return FailingStructuredModel()
@@ -426,6 +459,32 @@ def test_run_report_generation_saves_grounded_report_when_raw_json_path_is_valid
     record = store.get_report_record(session.session_id)
     assert record.status == "completed"
     assert record.report is report
+
+
+def test_run_report_generation_persists_grounded_report_from_minimal_question_results():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    store = InterviewSessionStore(
+        llm=OpenAIInterviewLLM(chat_model=MinimalQuestionResultChatModel())
+    )
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    report = run_report_generation(
+        session_id=session.session_id,
+        store=store,
+        llm=store.llm,
+        vector_store=FakeVectorStore(),
+    )
+
+    assert report is not None
+    assert report.is_fallback is False
+    assert report.overall_score == 81
+    assert report.feedbacks[0].references == []
+    assert store.get_report_record(session.session_id).report is report
 
 
 def test_run_report_generation_saves_fallback_completed_report_when_raw_json_is_invalid(

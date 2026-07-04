@@ -1,0 +1,70 @@
+{
+  "provider_payload": {
+    "session_id": "s1",
+    "overall_score": 82,
+    "dimension_scores": {
+      "breadth": 80,
+      "depth": 82,
+      "architecture": 78,
+      "engineering": 81,
+      "communication": 84
+    },
+    "highlights": [
+      "Explained delete-after-write but missed race-window handling."
+    ],
+    "feedback_items": [
+      {
+        "question_id": "q1",
+        "question_text": "Explain Redis cache invalidation.",
+        "score": 82,
+        "rationale": "The candidate covered cache invalidation basics but did not mention delayed double delete.",
+        "references": [
+          "redis-1",
+          "redis-2"
+        ]
+      }
+    ],
+    "references": [
+      {
+        "chunk_id": "redis-1",
+        "title": "Redis cache consistency",
+        "source_type": "theory",
+        "excerpt": "Delete cache after database updates."
+      },
+      {
+        "chunk_id": "redis-2",
+        "title": "High-score Redis answer",
+        "source_type": "answer",
+        "excerpt": "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."
+      }
+    ]
+  },
+  "evaluation_items": [
+    {
+      "question_id": "q1",
+      "question_text": "Explain Redis cache invalidation.",
+      "messages": [
+        {
+          "role": "candidate",
+          "content": "I delete cache after database writes."
+        }
+      ],
+      "scoring_references": [
+        {
+          "chunk_id": "redis-1",
+          "title": "Redis cache consistency",
+          "source_type": "theory",
+          "excerpt": "Delete cache after database updates."
+        }
+      ],
+      "answer_references": [
+        {
+          "chunk_id": "redis-2",
+          "title": "High-score Redis answer",
+          "source_type": "answer",
+          "excerpt": "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."
+        }
+      ]
+    }
+  ]
+}

@@ -229,6 +229,12 @@ select {
   margin-bottom: 18px;
 }
 
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .topbar h2,
 .workspace-title h2 {
   margin: 0;
@@ -443,6 +449,12 @@ select:focus {
   background: rgba(22, 231, 223, 0.06);
 }
 
+.tag.muted {
+  color: var(--muted);
+  border-color: rgba(135, 163, 204, 0.22);
+  background: rgba(255, 255, 255, 0.035);
+}
+
 .action-row {
   justify-content: space-between;
   gap: 10px;
@@ -570,6 +582,21 @@ select:focus {
   border-radius: 12px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
+}
+
+.question-completed .step {
+  color: #d9fff2;
+  border-color: rgba(33, 211, 155, 0.78);
+  background: rgba(33, 211, 155, 0.16);
+}
+
+.question-current .question-box {
+  border-color: rgba(22, 231, 223, 0.55);
+  box-shadow: 0 0 0 1px rgba(22, 231, 223, 0.1);
+}
+
+.question-pending {
+  opacity: 0.72;
 }
 
 .question-box strong {
@@ -756,7 +783,7 @@ select:focus {
 
 .input-wrap {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 10px;
   align-items: stretch;
 }
@@ -781,6 +808,17 @@ select:focus {
   color: #fff;
   background: linear-gradient(135deg, #4f80ff, #16d8cf);
   font-weight: 850;
+}
+
+.send.secondary {
+  color: var(--text);
+  border: 1px solid rgba(135, 163, 204, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.send:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .report-card {
@@ -1080,6 +1118,16 @@ select:focus {
 
   .setup {
     border-right: 0;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .draft-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .main-grid {

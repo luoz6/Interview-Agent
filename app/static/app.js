@@ -1,6 +1,8 @@
 let sessionId = null;
 let reportPollTimer = null;
 let startedAt = null;
+let currentTags = [];
+let draftId = localStorage.getItem("interviewDraftId");
 
 const jobDescription = document.querySelector("#jobDescription");
 const resumeText = document.querySelector("#resumeText");
@@ -9,6 +11,8 @@ const resumeTextCount = document.querySelector("#resumeTextCount");
 const prepButton = document.querySelector("#prepButton");
 const startButton = document.querySelector("#startButton");
 const resetConfigButton = document.querySelector("#resetConfigButton");
+const saveDraftButton = document.querySelector("#saveDraftButton");
+const restoreDraftButton = document.querySelector("#restoreDraftButton");
 const planEl = document.querySelector("#plan");
 const planStatus = document.querySelector("#planStatus");
 const planQuestionCount = document.querySelector("#planQuestionCount");
@@ -21,7 +25,9 @@ const chatStatusPill = document.querySelector("#chatStatusPill");
 const conversation = document.querySelector("#conversation");
 const answerForm = document.querySelector("#answerForm");
 const answerInput = document.querySelector("#answerInput");
-const answerButton = answerForm.querySelector("button");
+const answerButton = answerForm.querySelector("button[type=\"submit\"]");
+const skipQuestionButton = document.querySelector("#skipQuestionButton");
+const topicTags = document.querySelector("#topicTags");
 const reportSection = document.querySelector("#reportSection");
 const reportStatus = document.querySelector("#reportStatus");
 const reportContent = document.querySelector("#reportContent");
@@ -37,12 +43,20 @@ const DEFAULT_JOB_DESCRIPTION =
 const DEFAULT_RESUME_TEXT =
   "参与多个 Python 后端项目，使用 FastAPI 构建 RESTful API，熟悉 Redis 缓存、消息队列使用场景，使用 PostgreSQL 进行数据持久化，负责接口设计、性能优化与线上问题排查。";
 
+const dimensionLabels = {
+  breadth: "知识广度",
+  depth: "技术深度",
+  architecture: "系统设计",
+  engineering: "工程实践",
+  communication: "表达沟通",
+};
+
 jobDescription.addEventListener("input", updateCounters);
 resumeText.addEventListener("input", updateCounters);
 
 prepButton.addEventListener("click", async () => {
   const plan = await postJson("/api/prep", buildPayload());
-  renderPlan(plan);
+  renderPrepResult(plan);
 });
 
 startButton.addEventListener("click", async () => {
@@ -54,6 +68,7 @@ startButton.addEventListener("click", async () => {
   setAnswerEnabled(true);
   resetReport();
   renderTurn(turn);
+  await loadSessionSnapshot();
 });
 
 answerForm.addEventListener("submit", async (event) => {
@@ -72,6 +87,7 @@ answerForm.addEventListener("submit", async (event) => {
       answer,
     });
     renderStreamedTurn(turn);
+    await loadSessionSnapshot();
   } catch (error) {
     setAnswerEnabled(true);
     addMessage("agent", "流式回复失败，请稍后重试。");
@@ -85,10 +101,78 @@ resetConfigButton.addEventListener("click", () => {
   updateCounters();
 });
 
+saveDraftButton.addEventListener("click", async () => {
+  try {
+    const draft = await postJson(`/api/interview-drafts`, {
+      ...buildPayload(),
+      draft_id: draftId,
+      job_tags: currentTags.length ? currentTags : null,
+      title: "面试准备草稿",
+    });
+    draftId = draft.draft_id;
+    localStorage.setItem("interviewDraftId", draft.draft_id);
+    renderDraftSaved(draft);
+  } catch (error) {
+    planStatus.textContent = "草稿保存失败";
+    console.error(error);
+  }
+});
+
+restoreDraftButton.addEventListener("click", async () => {
+  if (!draftId) {
+    planStatus.textContent = "暂无草稿";
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/interview-drafts/${draftId}`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        localStorage.removeItem("interviewDraftId");
+        draftId = null;
+      }
+      planStatus.textContent = "草稿不存在";
+      return;
+    }
+    const draft = await response.json();
+    renderDraft(draft);
+  } catch (error) {
+    planStatus.textContent = "草稿恢复失败";
+    console.error(error);
+  }
+});
+
 newInterviewButton.addEventListener("click", resetWorkspace);
-endInterviewButton.addEventListener("click", () => {
-  setInterviewState("finished");
+endInterviewButton.addEventListener("click", async () => {
+  if (!sessionId) {
+    return;
+  }
   setAnswerEnabled(false);
+  try {
+    const turn = await postJson(`/api/interviews/${sessionId}/finish`, {});
+    renderTurn(turn);
+    await loadSessionSnapshot();
+  } catch (error) {
+    setAnswerEnabled(true);
+    addMessage("agent", "结束面试失败，请稍后重试。");
+    console.error(error);
+  }
+});
+
+skipQuestionButton.addEventListener("click", async () => {
+  if (!sessionId) {
+    return;
+  }
+  setAnswerEnabled(false);
+  try {
+    const turn = await postJson(`/api/interviews/${sessionId}/skip`, {});
+    renderTurn(turn);
+    await loadSessionSnapshot();
+  } catch (error) {
+    setAnswerEnabled(true);
+    addMessage("agent", "跳过题目失败，请稍后重试。");
+    console.error(error);
+  }
 });
 
 function buildPayload() {
@@ -109,6 +193,19 @@ async function postJson(url, payload) {
     throw new Error(error.detail || "Request failed");
   }
   return response.json();
+}
+
+async function loadSessionSnapshot() {
+  if (!sessionId) {
+    return null;
+  }
+  const response = await fetch(`/api/interviews/${sessionId}`);
+  if (!response.ok) {
+    return null;
+  }
+  const snapshot = await response.json();
+  renderSessionSnapshot(snapshot);
+  return snapshot;
 }
 
 async function postAnswerStream(url, payload) {
@@ -237,6 +334,90 @@ function renderPlan(plan) {
   });
 }
 
+function setCurrentTags(tags) {
+  currentTags = Array.isArray(tags) ? tags.filter(Boolean) : [];
+  renderJobTags(currentTags);
+}
+
+function renderPrepResult(plan) {
+  renderPlan(plan);
+  setCurrentTags(plan.job_tags || []);
+}
+
+function renderDraftSaved(draft) {
+  planStatus.textContent = draft && draft.draft_id ? "草稿已保存" : "草稿保存完成";
+}
+
+function renderDraft(draft) {
+  jobDescription.value = draft.job_description || "";
+  resumeText.value = draft.resume_text || "";
+  draftId = draft.draft_id;
+  localStorage.setItem("interviewDraftId", draft.draft_id);
+  updateCounters();
+  setCurrentTags(draft.job_tags || []);
+  planStatus.textContent = "草稿已恢复";
+}
+
+function renderSessionSnapshot(snapshot) {
+  if (!snapshot) {
+    return;
+  }
+
+  setInterviewState(snapshot.status === "finished" ? "finished" : "in_progress");
+  const questions = snapshot.questions || [];
+  planQuestionCount.textContent = String(snapshot.total_questions || questions.length || 0);
+  planDuration.textContent = String((snapshot.total_questions || questions.length || 0) * 6);
+  planCoverage.textContent = String(
+    new Set(questions.map((question) => question.kind).filter(Boolean)).size
+  );
+  setCurrentTags(snapshot.job_tags || []);
+  renderQuestionPlanFromSnapshot(questions);
+}
+
+function renderJobTags(tags) {
+  topicTags.innerHTML = "";
+  if (!tags.length) {
+    topicTags.appendChild(createEl("span", "tag muted", "等待岗位标签"));
+    return;
+  }
+
+  tags.forEach((tag) => {
+    topicTags.appendChild(createEl("span", "tag", tag));
+  });
+}
+
+function renderQuestionPlanFromSnapshot(questions) {
+  planEl.innerHTML = "";
+  planStatus.textContent = questions.length ? "已生成计划" : "待生成";
+  if (!questions.length) {
+    planEl.appendChild(
+      createEl("div", "empty-state", "点击“生成题目计划”后，会在这里展示面试路线。")
+    );
+    return;
+  }
+
+  const stateLabels = {
+    completed: "已完成",
+    current: "当前题",
+    pending: "待进行",
+  };
+
+  questions.forEach((question, index) => {
+    const state = question.state || "pending";
+    const row = createEl("div", `question-row question-${state}`);
+    row.appendChild(createEl("div", "step", String(index + 1)));
+
+    const box = createEl("div", "question-box");
+    box.appendChild(createEl("strong", "", question.prompt));
+    const meta = createEl("div", "meta");
+    meta.appendChild(createEl("span", "", toQuestionLabel(question)));
+    meta.appendChild(createEl("span", "", stateLabels[state] || "待进行"));
+    box.appendChild(meta);
+    row.appendChild(box);
+    planEl.appendChild(row);
+  });
+}
+
 function renderTurn(turn) {
   setInterviewState(turn.status === "finished" ? "finished" : "in_progress");
 
@@ -251,6 +432,8 @@ function renderTurn(turn) {
   if (turn.status === "finished") {
     setAnswerEnabled(false);
     beginReportPolling();
+  } else {
+    setAnswerEnabled(true);
   }
 }
 
@@ -331,6 +514,14 @@ function beginReportPolling() {
   pollReport();
 }
 
+async function loadReportProgress() {
+  const progressResponse = await fetch(`/api/interviews/${sessionId}/report/progress`);
+  if (!progressResponse.ok) {
+    return null;
+  }
+  return progressResponse.json();
+}
+
 async function pollReport() {
   if (!sessionId) {
     return;
@@ -340,7 +531,8 @@ async function pollReport() {
     const response = await fetch(`/api/interviews/${sessionId}/report`);
     const body = await response.json().catch(() => ({}));
     if (response.status === 202) {
-      renderReportProcessing(body.progress || null);
+      const progressBody = await loadReportProgress();
+      renderReportProcessing(progressBody || body.progress || null);
       reportPollTimer = setTimeout(pollReport, 3000);
       return;
     }
@@ -419,7 +611,7 @@ function renderReport(report) {
   const dimensions = createEl("div", "report-dimensions");
   Object.entries(report.overall_dimension_scores).forEach(([name, value]) => {
     const row = createEl("div", "dimension-row");
-    row.appendChild(createEl("span", "dimension-name", name));
+    row.appendChild(createEl("span", "dimension-name", toDimensionLabel(name)));
     row.appendChild(createEl("span", "dimension-value", String(value)));
     dimensions.appendChild(row);
   });
@@ -448,7 +640,7 @@ function renderFeedback(feedback) {
 
   const dimensions = createEl("div", "feedback-dimensions");
   Object.entries(feedback.dimension_scores).forEach(([name, value]) => {
-    dimensions.appendChild(createEl("span", "feedback-dimension", `${name}: ${value}`));
+    dimensions.appendChild(createEl("span", "feedback-dimension", `${toDimensionLabel(name)}: ${value}`));
   });
   item.appendChild(dimensions);
 
@@ -546,6 +738,10 @@ function setReportAdvice(title, note) {
   reportAdviceBlock.appendChild(createEl("span", "report-block-note", note));
 }
 
+function toDimensionLabel(name) {
+  return dimensionLabels[name] || name;
+}
+
 function toQuestionLabel(question) {
   const kindMap = {
     technical: "技术深度",
@@ -584,9 +780,11 @@ function updateCounters() {
 function resetWorkspace() {
   sessionId = null;
   startedAt = null;
+  draftId = localStorage.getItem("interviewDraftId");
   jobDescription.value = DEFAULT_JOB_DESCRIPTION;
   resumeText.value = DEFAULT_RESUME_TEXT;
   updateCounters();
+  setCurrentTags([]);
   clearConversation();
   resetReport();
   setInterviewState("idle");
@@ -602,6 +800,7 @@ function resetWorkspace() {
 function setAnswerEnabled(enabled) {
   answerInput.disabled = !enabled;
   answerButton.disabled = !enabled;
+  skipQuestionButton.disabled = !enabled;
 }
 
 updateCounters();

@@ -1,9 +1,12 @@
 from fastapi.testclient import TestClient
 
+import app.api.routes as route_module
 from app.api.routes import get_session_store
 from app.main import app
+from app.services.drafts import AnonymousDraftStore
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import InterviewReport
+from app.services.runtime import get_draft_store
 from app.services.session import InterviewSessionStore
 
 
@@ -45,14 +48,19 @@ class FakeApiLLM:
         raise AssertionError("API flow tests do not generate reports")
 
 
+_api_draft_store = AnonymousDraftStore()
+
+
 def make_client():
     store = InterviewSessionStore(llm=FakeApiLLM())
     app.dependency_overrides[get_session_store] = lambda: store
+    app.dependency_overrides[get_draft_store] = lambda: _api_draft_store
     return TestClient(app)
 
 
 def teardown_function():
     app.dependency_overrides.clear()
+    _api_draft_store.clear()
 
 
 def test_health_endpoint():
@@ -76,6 +84,155 @@ def test_prepare_endpoint_returns_questions():
     assert response.status_code == 200
     body = response.json()
     assert len(body["questions"]) >= 3
+
+
+def test_prepare_endpoint_returns_job_tags_without_session_store():
+    def fail_session_store():
+        raise RuntimeError("session store should not be used")
+
+    app.dependency_overrides[get_session_store] = fail_session_store
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/prep",
+        json={
+            "job_description": "Backend role using Python, FastAPI, Redis, and PostgreSQL.",
+            "resume_text": "Built a FastAPI service with Redis cache.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["questions"]) >= 1
+    assert body["job_tags"] == ["python", "fastapi", "redis", "postgresql"]
+
+
+def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
+    def fail_session_store():
+        raise RuntimeError("session store should not be used")
+
+    def fake_prepare_interview(job_description: str, resume_text: str, llm=None):
+        assert llm is None
+        return InterviewPlan(
+            title="Preview plan",
+            questions=[
+                InterviewQuestion(
+                    id="q1",
+                    kind="technical",
+                    prompt="Explain caching.",
+                    focus="cache",
+                )
+            ],
+        )
+
+    app.dependency_overrides[get_session_store] = fail_session_store
+    monkeypatch.setattr(route_module, "prepare_interview", fake_prepare_interview)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/prep",
+        json={
+            "job_description": "Backend role using Redis.",
+            "resume_text": "Built Redis-backed APIs.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Preview plan"
+
+
+def test_create_interview_draft_returns_anonymous_draft():
+    client = make_client()
+
+    response = client.post(
+        "/api/interview-drafts",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built Redis-backed APIs.",
+            "title": "Backend draft",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft_id"].startswith("draft_")
+    assert body["job_description"] == "Backend role using Python and Redis."
+    assert body["resume_text"] == "Built Redis-backed APIs."
+    assert body["job_tags"] == ["python", "redis"]
+    assert body["title"] == "Backend draft"
+    assert body["created_at"]
+    assert body["updated_at"]
+
+
+def test_update_interview_draft_reuses_draft_id():
+    client = make_client()
+    created = client.post(
+        "/api/interview-drafts",
+        json={
+            "job_description": "Backend role using Python.",
+            "resume_text": "Built APIs.",
+        },
+    ).json()
+
+    response = client.post(
+        "/api/interview-drafts",
+        json={
+            "draft_id": created["draft_id"],
+            "job_description": "Backend role using Python and FastAPI.",
+            "resume_text": "Built FastAPI APIs.",
+            "job_tags": ["python", "fastapi"],
+            "title": "Updated draft",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft_id"] == created["draft_id"]
+    assert body["created_at"] == created["created_at"]
+    assert body["job_tags"] == ["python", "fastapi"]
+    assert body["title"] == "Updated draft"
+
+
+def test_get_interview_draft_returns_saved_payload():
+    client = make_client()
+    created = client.post(
+        "/api/interview-drafts",
+        json={
+            "job_description": "Backend role using Redis.",
+            "resume_text": "Built cache APIs.",
+        },
+    ).json()
+
+    response = client.get(f"/api/interview-drafts/{created['draft_id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft_id"] == created["draft_id"]
+    assert body["job_description"] == "Backend role using Redis."
+    assert body["job_tags"] == ["redis"]
+
+
+def test_get_interview_draft_missing_returns_404():
+    client = make_client()
+
+    response = client.get("/api/interview-drafts/missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "draft not found"
+
+
+def test_create_interview_draft_rejects_blank_fields():
+    client = make_client()
+
+    response = client.post(
+        "/api/interview-drafts",
+        json={
+            "job_description": "   ",
+            "resume_text": "Built APIs.",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_interview_answer_flow():
@@ -102,6 +259,77 @@ def test_interview_answer_flow():
     answered = answer_response.json()
     assert answered["session_id"] == started["session_id"]
     assert answered["follow_up"] == "请继续说明缓存失效时如何保护数据库。"
+
+
+def test_get_interview_session_returns_snapshot():
+    client = make_client()
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python, FastAPI, Redis, and PostgreSQL.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    started = start_response.json()
+
+    response = client.get(f"/api/interviews/{started['session_id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == started["session_id"]
+    assert body["status"] == "active"
+    assert body["current_index"] == 0
+    assert body["total_questions"] == 3
+    assert body["completed_questions"] == 0
+    assert body["job_tags"] == ["python", "fastapi", "redis", "postgresql"]
+    assert body["current_question"]["id"] == "q1"
+    assert [question["state"] for question in body["questions"]] == [
+        "current",
+        "pending",
+        "pending",
+    ]
+    assert body["messages"][0]["role"] == "interviewer"
+
+
+def test_get_interview_session_missing_returns_404():
+    client = make_client()
+
+    response = client.get("/api/interviews/missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "session not found"
+
+
+def test_skip_endpoint_advances_question():
+    client = make_client()
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    session_id = start_response.json()["session_id"]
+
+    response = client.post(f"/api/interviews/{session_id}/skip")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "active"
+    assert body["current_question"]["id"] == "q2"
+    assert body["follow_up"] is None
+
+
+def test_answer_missing_session_returns_404():
+    client = make_client()
+
+    response = client.post(
+        "/api/interviews/missing/answer",
+        json={"answer": "I used Redis."},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "session not found"
 
 
 def test_interview_answer_stream_flow():

@@ -73,6 +73,69 @@ def test_started_session_survives_store_reinstantiation():
     assert state["job_tags"] == ["python", "fastapi"]
 
 
+def test_snapshot_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    snapshot = recovered_store.snapshot(turn.session_id)
+
+    assert snapshot["session_id"] == turn.session_id
+    assert snapshot["status"] == "active"
+    assert snapshot["job_tags"] == ["python", "fastapi"]
+    assert snapshot["current_question"]["id"] == "q1"
+    assert snapshot["questions"][0]["state"] == "current"
+    assert snapshot["messages"][0]["content"] == "Describe your backend project."
+
+
+def test_skip_persists_next_question_snapshot():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+
+    turn = store.start(
+        InterviewPlan(
+            title="Two question interview",
+            questions=[
+                InterviewQuestion(
+                    id="q1",
+                    kind="project",
+                    prompt="Describe a backend project.",
+                    focus="project",
+                ),
+                InterviewQuestion(
+                    id="q2",
+                    kind="technical",
+                    prompt="Explain Redis consistency.",
+                    focus="redis",
+                ),
+            ],
+        ),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "redis"],
+    )
+
+    store.skip(turn.session_id)
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    snapshot = recovered_store.snapshot(turn.session_id)
+
+    assert snapshot["status"] == "active"
+    assert snapshot["current_question"]["id"] == "q2"
+    assert snapshot["questions"][0]["state"] == "completed"
+    assert snapshot["questions"][1]["state"] == "current"
+    assert snapshot["messages"][-1]["content"] == "Explain Redis consistency."
+
+
 def test_submit_answer_persists_candidate_and_followup_messages():
     dsn = require_dsn()
     table_prefix = make_table_prefix()
