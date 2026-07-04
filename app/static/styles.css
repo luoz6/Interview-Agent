@@ -121,7 +121,7 @@ select {
   gap: 8px;
 }
 
-.nav a,
+.nav-item,
 .nav-button {
   display: flex;
   align-items: center;
@@ -136,7 +136,7 @@ select {
   text-align: left;
 }
 
-.nav a.active {
+.nav-item.active {
   color: #dffffd;
   border-color: rgba(22, 231, 223, 0.45);
   background: linear-gradient(90deg, rgba(22, 231, 223, 0.17), rgba(79, 128, 255, 0.05));
@@ -149,8 +149,8 @@ select {
   font-size: 15px;
 }
 
-.nav-button:hover,
-.nav a:hover {
+.nav-item:hover,
+.nav-button:hover {
   color: #dffffd;
   border-color: rgba(79, 128, 255, 0.28);
   background: rgba(79, 128, 255, 0.08);
@@ -432,6 +432,10 @@ select:focus {
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid var(--line);
   font-family: var(--font);
+}
+
+.kb-config.readonly {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .tags {
@@ -1235,7 +1239,7 @@ select:focus {
     width: 46px;
   }
 
-  .nav a,
+  .nav-item,
   .nav-button {
     justify-content: center;
   }

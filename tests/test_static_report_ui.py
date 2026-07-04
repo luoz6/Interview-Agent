@@ -253,6 +253,22 @@ def test_app_js_loads_report_center_and_reuses_report_renderer():
     assert "downloadReportPdfFromUrl(item.report_pdf_url" in js
 
 
+def test_static_page_uses_provider_neutral_model_copy():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert "AI 面试官" in html
+    assert "模型：自动" in html
+    assert "GPT-4o" not in html
+
+
+def test_styles_target_current_nav_markup():
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".nav-item" in css
+    assert ".nav a" not in css
+    assert ".kb-config.readonly" in css
+
+
 def test_styles_include_report_center_layout():
     css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
