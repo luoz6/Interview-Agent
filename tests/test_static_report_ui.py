@@ -225,6 +225,21 @@ def test_static_page_has_report_center_controls():
     assert 'id="interviewWorkspace"' in html
 
 
+def test_static_page_exposes_only_v1_navigation_and_controls():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert "面试预热" in html
+    assert "报告中心" in html
+    assert "仪表盘" not in html
+    assert "面试记录" not in html
+    assert "面试模板" not in html
+    assert "知识库 RAG" not in html
+    assert "系统设置" not in html
+    assert "代码编辑器" not in html
+    assert "管理知识库" not in html
+    assert ">编辑</button>" not in html
+
+
 def test_app_js_loads_report_center_and_reuses_report_renderer():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 

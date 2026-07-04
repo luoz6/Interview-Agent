@@ -20,13 +20,8 @@
         <button class="new-btn" id="newInterviewButton" type="button">＋ <span>新建面试</span></button>
 
         <nav class="nav" aria-label="侧边导航">
-          <a href="#"><span class="icon">⌂</span><span>仪表盘</span></a>
-          <a class="active" href="#"><span class="icon">✎</span><span>面试预热</span></a>
-          <a href="#"><span class="icon">◷</span><span>面试记录</span></a>
+          <span class="nav-item active"><span class="icon">✎</span><span>面试预热</span></span>
           <button class="nav-button" id="reportCenterButton" type="button"><span class="icon">▣</span><span>报告中心</span></button>
-          <a href="#"><span class="icon">▣</span><span>面试模板</span></a>
-          <a href="#"><span class="icon">◎</span><span>知识库 RAG</span></a>
-          <a href="#"><span class="icon">⚙</span><span>系统设置</span></a>
         </nav>
 
         <div class="side-card">
@@ -83,10 +78,7 @@
         </section>
 
         <section class="panel">
-          <h3>
-            <span><span class="num">3.</span>知识库（RAG）</span>
-            <button class="small-link" type="button">管理知识库</button>
-          </h3>
+          <h3><span><span class="num">3.</span>知识库（RAG）</span></h3>
           <p class="panel-sub">选择知识库作为面试参考，支持相似度检索与证据引用。</p>
           <div class="kb-card">
             <div class="file-icon">▤</div>
@@ -96,11 +88,10 @@
             </div>
             <span class="status-pill">已启用</span>
           </div>
-          <div class="kb-config">
+          <div class="kb-config readonly">
             <span>检索配置</span>
             <span>Top K <code>5</code></span>
             <span>相似度阈值 <code>0.30</code></span>
-            <button class="small-link" type="button">编辑</button>
           </div>
         </section>
 
@@ -220,7 +211,6 @@
               <div class="answer-area">
                 <div class="tabs">
                   <span class="tab active">文本回答</span>
-                  <span class="tab">代码编辑器</span>
                 </div>
                 <form id="answerForm" class="input-wrap">
                   <textarea id="answerInput" class="input-box" placeholder="输入你的回答...&#10;Enter 发送，Shift+Enter 换行" autocomplete="off"></textarea>
