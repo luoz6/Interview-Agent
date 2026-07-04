@@ -584,10 +584,22 @@ select:focus {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.question-completed .step {
+.question-answered .step {
   color: #d9fff2;
   border-color: rgba(33, 211, 155, 0.78);
   background: rgba(33, 211, 155, 0.16);
+}
+
+.question-skipped .step,
+.question-unanswered .step {
+  background: #f3e7d3;
+  color: #7a4a12;
+}
+
+.question-skipped .question-box,
+.question-unanswered .question-box {
+  border-color: rgba(150, 94, 25, 0.35);
+  opacity: 0.82;
 }
 
 .question-current .question-box {

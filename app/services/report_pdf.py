@@ -116,11 +116,18 @@ def _feedback_story(feedback: InterviewFeedback, styles: dict[str, ParagraphStyl
         Spacer(1, 8),
         Paragraph(feedback.question_text, styles["section"]),
         Paragraph(f"Score: {feedback.score}", styles["body"]),
-        Paragraph(f"Answer: {feedback.user_answer}", styles["body"]),
-        Paragraph(f"Rationale: {feedback.rationale}", styles["body"]),
-        Paragraph(f"Critique: {feedback.critique}", styles["body"]),
-        Paragraph(f"Better Answer: {feedback.better_answer}", styles["body"]),
     ]
+    status_label = _answer_status_label(feedback)
+    if status_label:
+        blocks.append(Paragraph(status_label, styles["warning"]))
+    blocks.extend(
+        [
+            Paragraph(f"Answer: {feedback.user_answer}", styles["body"]),
+            Paragraph(f"Rationale: {feedback.rationale}", styles["body"]),
+            Paragraph(f"Critique: {feedback.critique}", styles["body"]),
+            Paragraph(f"Better Answer: {feedback.better_answer}", styles["body"]),
+        ]
+    )
     for reference in feedback.references:
         blocks.append(
             Paragraph(
@@ -129,3 +136,11 @@ def _feedback_story(feedback: InterviewFeedback, styles: dict[str, ParagraphStyl
             )
         )
     return blocks
+
+
+def _answer_status_label(feedback: InterviewFeedback) -> str | None:
+    if feedback.answer_state == "skipped":
+        return "Status: skipped"
+    if feedback.answer_state == "unanswered":
+        return "Status: unanswered"
+    return None

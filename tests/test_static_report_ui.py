@@ -114,7 +114,9 @@ def test_app_js_renders_job_tags_and_question_snapshot_states():
     assert "tag muted" in js
     assert "function renderQuestionPlanFromSnapshot(questions)" in js
     assert "question-${state}" in js
-    assert "completed: \"已完成\"" in js
+    assert "answered: \"已回答\"" in js
+    assert "skipped: \"已跳过\"" in js
+    assert "unanswered: \"未回答\"" in js
     assert "current: \"当前题\"" in js
     assert "pending: \"待进行\"" in js
 
@@ -181,3 +183,22 @@ def test_app_js_downloads_report_pdf_without_clearing_rendered_report():
     assert "URL.createObjectURL(blob)" in js
     assert "showReportDownloadNotice(body.detail || \"PDF download failed\")" in js
     assert "renderReportError(body.detail || \"PDF download failed\")" not in js
+
+
+def test_app_js_renders_skipped_and_unanswered_question_states():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "answered:" in js
+    assert "skipped:" in js
+    assert "unanswered:" in js
+    assert "snapshot.elapsed_seconds" in js
+    assert "snapshot.estimated_remaining_seconds" in js
+
+
+def test_styles_include_skipped_and_unanswered_question_states():
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".question-answered" in css
+    assert ".question-completed" not in css
+    assert ".question-skipped" in css
+    assert ".question-unanswered" in css

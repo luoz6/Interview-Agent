@@ -54,6 +54,23 @@ def test_build_report_pdf_supports_fallback_reports():
     assert len(pdf_bytes) > 1000
 
 
+def test_report_pdf_contains_skipped_answer_marker():
+    report = make_report()
+    skipped_feedback = report.feedbacks[0].model_copy(
+        update={
+            "user_answer": "Question was skipped by the candidate.",
+            "answer_state": "skipped",
+            "score": 0,
+        }
+    )
+    report = report.model_copy(update={"feedbacks": [skipped_feedback]})
+
+    pdf = build_report_pdf(report)
+
+    assert b"%PDF" in pdf[:20]
+    assert len(pdf) > 1000
+
+
 def test_dimension_table_uses_chinese_labels():
     table = _dimension_table(make_report())
 

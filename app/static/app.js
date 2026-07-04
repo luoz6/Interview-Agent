@@ -375,6 +375,12 @@ function renderSessionSnapshot(snapshot) {
   planCoverage.textContent = String(
     new Set(questions.map((question) => question.kind).filter(Boolean)).size
   );
+  if (typeof snapshot.elapsed_seconds === "number") {
+    startedAt = Date.now() - snapshot.elapsed_seconds * 1000;
+  }
+  if (typeof snapshot.estimated_remaining_seconds === "number") {
+    planDuration.textContent = String(Math.ceil(snapshot.estimated_remaining_seconds / 60));
+  }
   setCurrentTags(snapshot.job_tags || []);
   renderQuestionPlanFromSnapshot(questions);
 }
@@ -402,7 +408,9 @@ function renderQuestionPlanFromSnapshot(questions) {
   }
 
   const stateLabels = {
-    completed: "已完成",
+    answered: "已回答",
+    skipped: "已跳过",
+    unanswered: "未回答",
     current: "当前题",
     pending: "待进行",
   };
