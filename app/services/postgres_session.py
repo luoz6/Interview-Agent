@@ -5,6 +5,7 @@ from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
+from app.services.report import utc_now_iso as report_utc_now_iso
 from app.services.session import (
     InterviewSessionStore,
     InterviewTurn,
@@ -226,21 +227,40 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             raise ValueError("report is not processing")
         self._upsert_report_record(
             session_id,
-            ReportRecord(status="processing", progress=progress),
+            ReportRecord(
+                status="processing",
+                progress=progress,
+                created_at=record.created_at,
+                finished_at=record.finished_at,
+            ),
         )
 
     def save_report(self, session_id: str, report: InterviewReport) -> None:
         self.get(session_id)
+        existing = self.get_report_record(session_id)
+        created_at = existing.created_at if existing is not None else report_utc_now_iso()
         self._upsert_report_record(
             session_id,
-            ReportRecord(status="completed", report=report),
+            ReportRecord(
+                status="completed",
+                report=report,
+                created_at=created_at,
+                finished_at=report_utc_now_iso(),
+            ),
         )
 
     def fail_report(self, session_id: str, error: str) -> None:
         self.get(session_id)
+        existing = self.get_report_record(session_id)
+        created_at = existing.created_at if existing is not None else report_utc_now_iso()
         self._upsert_report_record(
             session_id,
-            ReportRecord(status="failed", error=error),
+            ReportRecord(
+                status="failed",
+                error=error,
+                created_at=created_at,
+                finished_at=report_utc_now_iso(),
+            ),
         )
 
     def get_report_record(self, session_id: str) -> ReportRecord | None:
@@ -250,7 +270,8 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 cursor.execute(
                     sql.SQL(
                         """
-                        SELECT status, progress_json, report_json, error
+                        SELECT status, progress_json, report_json, error,
+                               created_at, completed_at, failed_at
                         FROM {reports}
                         WHERE session_id = %s
                         """
@@ -267,8 +288,59 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 "progress_json": row[1],
                 "report_json": row[2],
                 "error": row[3],
+                "created_at": self._iso_timestamp(row[4]),
+                "finished_at": self._iso_timestamp(row[5] or row[6]),
             }
         )
+
+    def list_reports(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        psycopg2, sql = self._import_psycopg2()
+        where_clause = sql.SQL("")
+        params: list = []
+        if status is not None:
+            where_clause = sql.SQL("WHERE status = %s")
+            params.append(status)
+        params.append(limit)
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT session_id, status, progress_json, report_json, error,
+                               created_at, completed_at, failed_at
+                        FROM {reports}
+                        {where_clause}
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """
+                    ).format(
+                        reports=sql.Identifier(self.reports_table),
+                        where_clause=where_clause,
+                    ),
+                    tuple(params),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "session_id": row[0],
+                "record": report_record_from_row(
+                    {
+                        "status": row[1],
+                        "progress_json": row[2],
+                        "report_json": row[3],
+                        "error": row[4],
+                        "created_at": self._iso_timestamp(row[5]),
+                        "finished_at": self._iso_timestamp(row[6] or row[7]),
+                    }
+                ),
+            }
+            for row in rows
+        ]
 
     def _ensure_schema(self) -> None:
         psycopg2, sql = self._import_psycopg2()
@@ -535,6 +607,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     def _upsert_report_record(self, session_id: str, record: ReportRecord) -> None:
         psycopg2, sql = self._import_psycopg2()
         row = report_record_to_row(record)
+        completed_finished_at = (
+            row["finished_at"] if row["status"] == "completed" else None
+        )
+        failed_finished_at = row["finished_at"] if row["status"] == "failed" else None
         with psycopg2.connect(self.dsn) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -542,12 +618,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         """
                         INSERT INTO {reports} (
                             session_id, status, progress_json, report_json, error,
-                            completed_at, failed_at
+                            created_at, completed_at, failed_at
                         )
                         VALUES (
                             %s, %s, %s::jsonb, %s::jsonb, %s,
-                            CASE WHEN %s = 'completed' THEN NOW() ELSE NULL END,
-                            CASE WHEN %s = 'failed' THEN NOW() ELSE NULL END
+                            %s, %s, %s
                         )
                         ON CONFLICT (session_id) DO UPDATE
                         SET status = EXCLUDED.status,
@@ -556,11 +631,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             error = EXCLUDED.error,
                             updated_at = NOW(),
                             completed_at = CASE
-                                WHEN EXCLUDED.status = 'completed' THEN NOW()
+                                WHEN EXCLUDED.status = 'completed' THEN EXCLUDED.completed_at
                                 ELSE {reports}.completed_at
                             END,
                             failed_at = CASE
-                                WHEN EXCLUDED.status = 'failed' THEN NOW()
+                                WHEN EXCLUDED.status = 'failed' THEN EXCLUDED.failed_at
                                 ELSE {reports}.failed_at
                             END
                         """
@@ -575,8 +650,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         if row["report_json"] is not None
                         else None,
                         row["error"],
-                        row["status"],
-                        row["status"],
+                        row["created_at"],
+                        completed_finished_at,
+                        failed_finished_at,
                     ),
                 )
 
@@ -596,6 +672,14 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "started_at": row[10].isoformat().replace("+00:00", "Z") if row[10] else "",
             "finished_at": row[11].isoformat().replace("+00:00", "Z") if row[11] else None,
         }
+
+    @staticmethod
+    def _iso_timestamp(value) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return value.isoformat().replace("+00:00", "Z")
 
     @staticmethod
     def _extract_follow_up(state: InterviewState) -> str | None:

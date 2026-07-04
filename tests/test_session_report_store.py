@@ -143,6 +143,52 @@ def test_store_saves_failed_report_record():
     assert record.finished_at
 
 
+def test_list_reports_returns_completed_failed_and_processing_records():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    first = start_session(store)
+    second = start_session(store)
+    third = start_session(store)
+    finish_session(store, first.session_id)
+    finish_session(store, second.session_id)
+    finish_session(store, third.session_id)
+
+    store.mark_report_processing(first.session_id)
+    store.save_report(first.session_id, make_report(first.session_id))
+    store.mark_report_processing(second.session_id)
+    store.fail_report(second.session_id, "llm timeout")
+    store.mark_report_processing(third.session_id)
+
+    reports = store.list_reports()
+
+    assert [item["session_id"] for item in reports] == [
+        third.session_id,
+        second.session_id,
+        first.session_id,
+    ]
+    assert [item["record"].status for item in reports] == [
+        "processing",
+        "failed",
+        "completed",
+    ]
+
+
+def test_list_reports_filters_status_and_limit():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    first = start_session(store)
+    second = start_session(store)
+    finish_session(store, first.session_id)
+    finish_session(store, second.session_id)
+    store.mark_report_processing(first.session_id)
+    store.save_report(first.session_id, make_report(first.session_id))
+    store.mark_report_processing(second.session_id)
+
+    reports = store.list_reports(status="completed", limit=1)
+
+    assert len(reports) == 1
+    assert reports[0]["session_id"] == first.session_id
+    assert reports[0]["record"].status == "completed"
+
+
 def test_report_methods_reject_unknown_session():
     store = InterviewSessionStore(llm=FakeInterviewLLM())
     report = make_report("missing")

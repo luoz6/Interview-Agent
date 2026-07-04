@@ -5,7 +5,12 @@ import pytest
 
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.report import ReportProgress
+from app.services.report import (
+    DimensionScores,
+    InterviewFeedback,
+    InterviewReport,
+    ReportProgress,
+)
 
 
 pytestmark = pytest.mark.pg_runtime
@@ -46,6 +51,39 @@ def make_plan():
                 kind="project",
                 prompt="Describe your backend project.",
                 focus="Project depth",
+            )
+        ],
+    )
+
+
+def make_dimension_scores(score: int = 80) -> DimensionScores:
+    return DimensionScores(
+        breadth=score,
+        depth=score,
+        architecture=score,
+        engineering=score,
+        communication=score,
+    )
+
+
+def make_report(session_id: str) -> InterviewReport:
+    return InterviewReport(
+        session_id=session_id,
+        overall_score=80,
+        overall_dimension_scores=make_dimension_scores(),
+        summary="Solid interview.",
+        highlights=["Explained project context"],
+        feedbacks=[
+            InterviewFeedback(
+                question_id="q1",
+                question_text="Describe your backend project.",
+                user_answer="I built a FastAPI API.",
+                score=80,
+                dimension_scores=make_dimension_scores(),
+                rationale="The answer covered the project shape.",
+                critique="Needs more failure-mode detail.",
+                better_answer="Explain traffic, storage, caching, and failure handling.",
+                references=[],
             )
         ],
     )
@@ -266,6 +304,46 @@ def test_report_lifecycle_survives_store_reinstantiation():
     assert failed is not None
     assert failed.status == "failed"
     assert failed.error == "retrieval unavailable"
+
+
+def test_list_reports_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    completed = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    processing = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    finish_session(store, completed.session_id)
+    finish_session(store, processing.session_id)
+
+    store.mark_report_processing(completed.session_id)
+    store.save_report(completed.session_id, make_report(completed.session_id))
+    store.mark_report_processing(processing.session_id)
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    reports = recovered_store.list_reports(limit=10)
+    completed_reports = recovered_store.list_reports(status="completed", limit=10)
+
+    assert [item["session_id"] for item in reports] == [
+        processing.session_id,
+        completed.session_id,
+    ]
+    assert [item["record"].status for item in reports] == [
+        "processing",
+        "completed",
+    ]
+    assert len(completed_reports) == 1
+    assert completed_reports[0]["session_id"] == completed.session_id
+    assert completed_reports[0]["record"].report.summary == "Solid interview."
 
 
 def test_submit_answer_appends_new_messages_without_rewriting_existing_rows():

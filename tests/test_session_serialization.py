@@ -134,6 +134,24 @@ def test_report_record_round_trips_from_row():
     assert restored.report.feedbacks[0].references[0].chunk_id == "fastapi_backend"
 
 
+def test_report_record_round_trips_lifecycle_timestamps():
+    report = make_report_record()
+    record = ReportRecord(
+        status="completed",
+        report=report.report,
+        created_at="2026-07-04T10:00:00Z",
+        finished_at="2026-07-04T10:02:00Z",
+    )
+
+    row = report_record_to_row(record)
+    restored = report_record_from_row(row)
+
+    assert row["created_at"] == "2026-07-04T10:00:00Z"
+    assert row["finished_at"] == "2026-07-04T10:02:00Z"
+    assert restored.created_at == "2026-07-04T10:00:00Z"
+    assert restored.finished_at == "2026-07-04T10:02:00Z"
+
+
 def test_processing_report_record_round_trips_from_row():
     record = ReportRecord(
         status="processing",

@@ -74,6 +74,8 @@ def report_record_to_row(record: ReportRecord) -> dict[str, Any]:
         if record.report is not None
         else None,
         "error": record.error,
+        "created_at": record.created_at,
+        "finished_at": record.finished_at,
     }
 
 
@@ -88,9 +90,19 @@ def report_record_from_row(row: dict[str, Any]) -> ReportRecord:
         if row.get("report_json") is not None
         else None
     )
+    if row.get("created_at"):
+        return ReportRecord(
+            status=row["status"],
+            progress=progress,
+            report=report,
+            error=row.get("error"),
+            created_at=row["created_at"],
+            finished_at=row.get("finished_at"),
+        )
     return ReportRecord(
         status=row["status"],
         progress=progress,
         report=report,
         error=row.get("error"),
+        finished_at=row.get("finished_at"),
     )

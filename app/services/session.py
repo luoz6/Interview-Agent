@@ -241,6 +241,25 @@ class InterviewSessionStore:
         self.get(session_id)
         return self._reports.get(session_id)
 
+    def list_reports(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for index, (session_id, record) in enumerate(self._reports.items()):
+            if status is not None and record.status != status:
+                continue
+            items.append({"session_id": session_id, "record": record, "_index": index})
+        items.sort(
+            key=lambda item: (item["record"].created_at, item["_index"]),
+            reverse=True,
+        )
+        for item in items:
+            item.pop("_index", None)
+        return items[:limit]
+
     def _to_turn(self, state: InterviewState, follow_up: Optional[str]) -> InterviewTurn:
         current_question = None if state["status"] == "finished" else get_current_question(state)
         return InterviewTurn(
