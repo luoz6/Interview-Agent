@@ -34,6 +34,7 @@ class InterviewFeedback(BaseModel):
     question_id: str = Field(description="Question identifier")
     question_text: str = Field(description="Original interview question text")
     user_answer: str = Field(description="Summary of the candidate answer")
+    answer_state: Literal["answered", "skipped", "unanswered"] = "answered"
     score: int = Field(ge=0, le=100, description="Question score from 0 to 100")
     dimension_scores: DimensionScores
     rationale: str = Field(description="Why the score was assigned")

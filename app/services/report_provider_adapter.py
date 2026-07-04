@@ -228,13 +228,17 @@ def _collect_reference_chunk_ids(
 
 
 def _build_user_answer(evaluation_item: dict[str, Any]) -> str:
+    if evaluation_item.get("answer_state") == "skipped":
+        return "Question was skipped by the candidate."
     messages = evaluation_item.get("messages", [])
-    parts = [
-        str(message.get("content") or "").strip()
+    answers = [
+        str(message.get("content", "")).strip()
         for message in messages
-        if isinstance(message, dict) and str(message.get("content") or "").strip()
+        if message.get("role") == "candidate" and str(message.get("content", "")).strip()
     ]
-    return "\n".join(parts) or "No answer recorded."
+    if answers:
+        return " ".join(answers)
+    return "No candidate answer was recorded for this question."
 
 
 def _build_rationale(item: dict[str, Any]) -> str:

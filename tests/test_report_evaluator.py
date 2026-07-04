@@ -238,6 +238,50 @@ def test_evaluator_includes_unanswered_questions_in_fallback():
     assert q2_feedback.user_answer == "No candidate answer was recorded for this question."
 
 
+def test_evaluator_marks_skipped_question_in_evaluation_items():
+    state = make_finished_state()
+    state["skipped_question_ids"] = ["q2"]
+    state["messages"] = [
+        message
+        for message in state["messages"]
+        if message["question_id"] != "q2" or message["role"] != "candidate"
+    ]
+    llm = FakeReportLLM()
+    evaluator = ShadowEvaluator(llm=llm)
+
+    report = evaluator.evaluate(state)
+
+    q2_item = next(item for item in llm.last_evaluation_items if item["question_id"] == "q2")
+    q2_feedback = next(feedback for feedback in report.feedbacks if feedback.question_id == "q2")
+    assert q2_item["answer_state"] == "skipped"
+    assert q2_feedback.answer_state == "skipped"
+    assert q2_feedback.score == 0
+    assert q2_feedback.user_answer == "Question was skipped by the candidate."
+    assert q2_feedback.references == []
+    assert report.overall_score == 41
+
+
+def test_evaluator_marks_finished_missing_answer_as_unanswered():
+    state = make_finished_state()
+    state["messages"] = [
+        message
+        for message in state["messages"]
+        if message["question_id"] != "q2" or message["role"] != "candidate"
+    ]
+    llm = FakeReportLLM()
+    evaluator = ShadowEvaluator(llm=llm)
+
+    report = evaluator.evaluate(state)
+
+    q2_item = next(item for item in llm.last_evaluation_items if item["question_id"] == "q2")
+    q2_feedback = next(feedback for feedback in report.feedbacks if feedback.question_id == "q2")
+    assert q2_item["answer_state"] == "unanswered"
+    assert q2_feedback.answer_state == "unanswered"
+    assert q2_feedback.score == 0
+    assert q2_feedback.user_answer == "No candidate answer was recorded for this question."
+    assert q2_feedback.critique == "No answer was available to evaluate."
+
+
 def test_evaluator_propagates_timeout_for_background_failure_state():
     evaluator = ShadowEvaluator(llm=TimeoutReportLLM())
 

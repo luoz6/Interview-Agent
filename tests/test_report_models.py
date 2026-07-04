@@ -81,6 +81,7 @@ def test_interview_report_contains_overall_dimension_scores():
     assert report.status == "completed"
     assert report.overall_dimension_scores.communication == 82
     assert report.is_fallback is False
+    assert report.feedbacks[0].answer_state == "answered"
 
 
 def test_report_progress_validates_percent_and_stage():

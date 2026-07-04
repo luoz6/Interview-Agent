@@ -17,6 +17,7 @@ class EvaluationChunk(BaseModel):
     question_id: str
     question_text: str
     focus: str
+    answer_state: str
     messages: list[dict[str, str]]
 
 
@@ -29,17 +30,19 @@ class ShadowEvaluator:
         try:
             if self._llm is None:
                 raise ReportGenerationFailed("report llm is not configured")
-            return self._llm.generate_report(
+            report = self._llm.generate_report(
                 plan=state["plan"],
                 evaluation_items=[chunk.model_dump() for chunk in chunks],
                 session_id=state["session_id"],
             )
+            return _apply_answer_state_overrides(report, chunks)
         except ReportGenerationTimeout:
             raise
         except ReportGenerationFailed:
             raise
         except ReportOutputFormatError:
-            return build_fallback_report(state, chunks)
+            fallback = build_fallback_report(state, chunks)
+            return _apply_answer_state_overrides(fallback, chunks)
 
 
 def build_evaluation_chunks(state: InterviewState) -> list[EvaluationChunk]:
@@ -48,6 +51,7 @@ def build_evaluation_chunks(state: InterviewState) -> list[EvaluationChunk]:
             question_id=question.id,
             question_text=question.prompt,
             focus=question.focus,
+            answer_state=_answer_state_for_question(state, question),
             messages=_messages_for_question(state, question),
         )
         for question in state["plan"].questions
@@ -84,6 +88,7 @@ def build_fallback_report(
                 question_id=chunk.question_id,
                 question_text=chunk.question_text,
                 user_answer=_summarize_candidate_answers(chunk),
+                answer_state=chunk.answer_state,
                 score=60,
                 dimension_scores=_default_dimension_scores(),
                 rationale=(
@@ -102,6 +107,88 @@ def build_fallback_report(
     )
 
 
+def _answer_state_for_question(
+    state: InterviewState,
+    question: InterviewQuestion,
+) -> str:
+    if question.id in state.get("skipped_question_ids", []):
+        return "skipped"
+    has_answer = any(
+        message["role"] == "candidate"
+        and message["question_id"] == question.id
+        and message["content"].strip()
+        for message in state["messages"]
+    )
+    if has_answer:
+        return "answered"
+    return "unanswered"
+
+
+def _apply_answer_state_overrides(
+    report: InterviewReport,
+    chunks: list[EvaluationChunk],
+) -> InterviewReport:
+    chunk_by_id = {chunk.question_id: chunk for chunk in chunks}
+    feedbacks = []
+    for feedback in report.feedbacks:
+        chunk = chunk_by_id.get(feedback.question_id)
+        if chunk is None or chunk.answer_state == "answered":
+            feedbacks.append(feedback)
+            continue
+        feedbacks.append(_empty_answer_feedback(chunk))
+    return report.model_copy(
+        update={
+            "feedbacks": feedbacks,
+            "overall_score": _average_score(feedbacks),
+            "overall_dimension_scores": _average_dimension_scores(feedbacks),
+        }
+    )
+
+
+def _empty_answer_feedback(chunk: EvaluationChunk) -> InterviewFeedback:
+    skipped = chunk.answer_state == "skipped"
+    return InterviewFeedback(
+        question_id=chunk.question_id,
+        question_text=chunk.question_text,
+        user_answer=(
+            "Question was skipped by the candidate."
+            if skipped
+            else "No candidate answer was recorded for this question."
+        ),
+        answer_state=chunk.answer_state,
+        score=0,
+        dimension_scores=_default_dimension_scores(0),
+        rationale=(
+            "The candidate skipped this question."
+            if skipped
+            else "No candidate answer was recorded for this question."
+        ),
+        critique="No answer was available to evaluate.",
+        better_answer="Answer the question with context, action, tradeoffs, and measurable results.",
+        references=[],
+    )
+
+
+def _average_score(feedbacks: list[InterviewFeedback]) -> int:
+    if not feedbacks:
+        return 0
+    return round(sum(feedback.score for feedback in feedbacks) / len(feedbacks))
+
+
+def _average_dimension_scores(feedbacks: list[InterviewFeedback]) -> DimensionScores:
+    if not feedbacks:
+        return _default_dimension_scores(0)
+    fields = DimensionScores.model_fields.keys()
+    values = {
+        field: round(
+            sum(getattr(feedback.dimension_scores, field) for feedback in feedbacks)
+            / len(feedbacks)
+        )
+        for field in fields
+    }
+    return DimensionScores(**values)
+
+
 def _messages_for_question(
     state: InterviewState,
     question: InterviewQuestion,
@@ -114,6 +201,8 @@ def _messages_for_question(
 
 
 def _summarize_candidate_answers(chunk: EvaluationChunk) -> str:
+    if chunk.answer_state == "skipped":
+        return "Question was skipped by the candidate."
     answers = [
         message["content"].strip()
         for message in chunk.messages
