@@ -131,9 +131,33 @@ def test_skip_persists_next_question_snapshot():
 
     assert snapshot["status"] == "active"
     assert snapshot["current_question"]["id"] == "q2"
-    assert snapshot["questions"][0]["state"] == "completed"
+    assert snapshot["questions"][0]["state"] == "skipped"
     assert snapshot["questions"][1]["state"] == "current"
     assert snapshot["messages"][-1]["content"] == "Explain Redis consistency."
+
+
+def test_skip_metadata_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+
+    turn = store.start(
+        make_plan(),
+        job_description="Backend role using Python and Redis.",
+        resume_text="Built Redis APIs.",
+        job_tags=["python", "redis"],
+    )
+    store.skip(turn.session_id)
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    state = recovered_store.get(turn.session_id)
+    snapshot = recovered_store.snapshot(turn.session_id)
+
+    assert state["skipped_question_ids"] == ["q1"]
+    assert state["started_at"]
+    assert state["finished_at"] is not None
+    assert snapshot["questions"][0]["state"] == "skipped"
+    assert snapshot["skipped_questions"] == 1
 
 
 def test_submit_answer_persists_candidate_and_followup_messages():

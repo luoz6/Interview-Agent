@@ -16,6 +16,9 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "job_tags": list(state["job_tags"]),
         "decision_json": state["decision"],
         "pending_output": state["pending_output"],
+        "skipped_question_ids": list(state.get("skipped_question_ids", [])),
+        "started_at": state.get("started_at"),
+        "finished_at": state.get("finished_at"),
     }
 
 
@@ -55,6 +58,9 @@ def state_from_rows(
         "job_description": session_row["job_description"],
         "resume_text": session_row["resume_text"],
         "job_tags": list(session_row["job_tags"]),
+        "skipped_question_ids": list(session_row.get("skipped_question_ids") or []),
+        "started_at": session_row.get("started_at") or "",
+        "finished_at": session_row.get("finished_at"),
     }
 
 

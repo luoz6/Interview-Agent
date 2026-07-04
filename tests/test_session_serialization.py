@@ -100,6 +100,28 @@ def test_state_round_trips_from_session_and_message_rows():
     assert restored["job_tags"] == ["python", "fastapi"]
 
 
+def test_session_serialization_preserves_skip_and_timing_metadata():
+    state = build_initial_state(
+        session_id="s1",
+        plan=make_plan(),
+        job_description="Backend role",
+        resume_text="Backend resume",
+        job_tags=["python"],
+    )
+    state["skipped_question_ids"] = ["q1"]
+    state["finished_at"] = "2026-07-04T10:00:00Z"
+
+    row = session_row_from_state(state)
+    restored = state_from_rows(row, [])
+
+    assert row["skipped_question_ids"] == ["q1"]
+    assert row["started_at"] == state["started_at"]
+    assert row["finished_at"] == "2026-07-04T10:00:00Z"
+    assert restored["skipped_question_ids"] == ["q1"]
+    assert restored["started_at"] == state["started_at"]
+    assert restored["finished_at"] == "2026-07-04T10:00:00Z"
+
+
 def test_report_record_round_trips_from_row():
     record = make_report_record()
     row = report_record_to_row(record)

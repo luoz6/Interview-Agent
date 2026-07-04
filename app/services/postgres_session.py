@@ -108,7 +108,8 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         """
                         SELECT session_id, plan_json, current_index, status,
                                job_description, resume_text, job_tags,
-                               decision_json, pending_output
+                               decision_json, pending_output, skipped_question_ids,
+                               started_at, finished_at
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -286,11 +287,23 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             job_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
                             decision_json JSONB,
                             pending_output TEXT,
+                            skipped_question_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             finished_at TIMESTAMPTZ
                         )
                         """
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS skipped_question_ids JSONB NOT NULL DEFAULT '[]'::jsonb"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
                     ).format(sessions=sql.Identifier(self.sessions_table))
                 )
                 cursor.execute(
@@ -355,10 +368,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         INSERT INTO {sessions} (
                             session_id, plan_json, current_index, status,
                             job_description, resume_text, job_tags,
-                            decision_json, pending_output, finished_at
+                            decision_json, pending_output, skipped_question_ids,
+                            started_at, finished_at
                         )
-                        VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s,
-                                CASE WHEN %s = 'finished' THEN NOW() ELSE NULL END)
+                        VALUES (
+                            %s, %s::jsonb, %s, %s,
+                            %s, %s, %s::jsonb,
+                            %s::jsonb, %s, %s::jsonb,
+                            %s, %s
+                        )
                         """
                     ).format(sessions=sql.Identifier(self.sessions_table)),
                     (
@@ -373,7 +391,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         if session_row["decision_json"] is not None
                         else None,
                         session_row["pending_output"],
-                        session_row["status"],
+                        json.dumps(
+                            session_row["skipped_question_ids"],
+                            ensure_ascii=False,
+                        ),
+                        session_row["started_at"],
+                        session_row["finished_at"],
                     ),
                 )
                 for index, message in enumerate(state["messages"], start=1):
@@ -477,9 +500,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             job_tags = %s::jsonb,
                             decision_json = %s::jsonb,
                             pending_output = %s,
+                            skipped_question_ids = %s::jsonb,
+                            started_at = %s,
                             updated_at = NOW(),
                             finished_at = CASE
-                                WHEN %s = 'finished' THEN COALESCE(finished_at, NOW())
+                                WHEN %s = 'finished' THEN COALESCE(finished_at, %s)
                                 ELSE finished_at
                             END
                         WHERE session_id = %s
@@ -496,7 +521,13 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         if session_row["decision_json"] is not None
                         else None,
                         session_row["pending_output"],
+                        json.dumps(
+                            session_row["skipped_question_ids"],
+                            ensure_ascii=False,
+                        ),
+                        session_row["started_at"],
                         session_row["status"],
+                        session_row["finished_at"],
                         session_row["session_id"],
                     ),
                 )
@@ -561,6 +592,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "job_tags": row[6],
             "decision_json": row[7],
             "pending_output": row[8],
+            "skipped_question_ids": row[9],
+            "started_at": row[10].isoformat().replace("+00:00", "Z") if row[10] else "",
+            "finished_at": row[11].isoformat().replace("+00:00", "Z") if row[11] else None,
         }
 
     @staticmethod
