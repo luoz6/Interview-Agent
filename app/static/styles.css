@@ -853,6 +853,13 @@ select:focus {
   font-size: 11px;
 }
 
+.report-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 14px 0;
+}
+
 .progress {
   height: 7px;
   border-radius: 999px;
@@ -897,6 +904,11 @@ select:focus {
 .report-alert.danger {
   background: var(--danger-soft);
   color: #ffb8b8;
+}
+
+.report-actions .ghost-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .report-overview {

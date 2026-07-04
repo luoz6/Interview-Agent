@@ -34,6 +34,7 @@ const reportContent = document.querySelector("#reportContent");
 const reportProgressBar = document.querySelector("#reportProgressBar");
 const reportSummaryBlock = document.querySelector("#reportSummaryBlock");
 const reportAdviceBlock = document.querySelector("#reportAdviceBlock");
+const downloadReportButton = document.querySelector("#downloadReportButton");
 const ragEvidenceList = document.querySelector("#ragEvidenceList");
 const endInterviewButton = document.querySelector("#endInterviewButton");
 const newInterviewButton = document.querySelector("#newInterviewButton");
@@ -140,6 +141,10 @@ restoreDraftButton.addEventListener("click", async () => {
     planStatus.textContent = "草稿恢复失败";
     console.error(error);
   }
+});
+
+downloadReportButton.addEventListener("click", async () => {
+  await downloadReportPdf();
 });
 
 newInterviewButton.addEventListener("click", resetWorkspace);
@@ -494,13 +499,36 @@ function setPlaceholderEvidence() {
   ragEvidenceList.appendChild(buildEvidenceRow("等待真实检索结果...", "Top K: --"));
 }
 
+function setReportDownloadEnabled(enabled) {
+  downloadReportButton.disabled = !enabled;
+}
+
+function clearReportDownloadNotice() {
+  const existing = reportContent.querySelector('[data-report-download-notice="true"]');
+  if (existing) {
+    existing.remove();
+  }
+}
+
+function showReportDownloadNotice(message) {
+  clearReportDownloadNotice();
+  if (reportContent.hidden) {
+    return;
+  }
+  const notice = createEl("p", "report-alert warning", message);
+  notice.dataset.reportDownloadNotice = "true";
+  reportContent.prepend(notice);
+}
+
 function resetReport() {
   if (reportPollTimer) {
     clearTimeout(reportPollTimer);
     reportPollTimer = null;
   }
+  setReportDownloadEnabled(false);
   reportSection.hidden = true;
   reportContent.hidden = true;
+  clearReportDownloadNotice();
   reportContent.innerHTML = "";
   reportProgressBar.style.width = "0%";
   reportStatus.textContent = "生成中";
@@ -520,6 +548,30 @@ async function loadReportProgress() {
     return null;
   }
   return progressResponse.json();
+}
+
+async function downloadReportPdf() {
+  if (!sessionId) {
+    return;
+  }
+
+  const response = await fetch(`/api/interviews/${sessionId}/report.pdf`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    showReportDownloadNotice(body.detail || "PDF download failed");
+    return;
+  }
+
+  clearReportDownloadNotice();
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `interview-report-${sessionId}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function pollReport() {
@@ -547,6 +599,7 @@ async function pollReport() {
 }
 
 function renderReportProcessing(progress) {
+  setReportDownloadEnabled(false);
   reportSection.hidden = false;
   reportSection.className = "report-card";
   reportStatus.textContent = progress && progress.message ? "生成中" : "报告生成中";
@@ -570,6 +623,7 @@ function toUserFacingReportError(message) {
 }
 
 function renderReportError(message) {
+  setReportDownloadEnabled(false);
   reportSection.hidden = false;
   reportSection.className = "report-card";
   reportContent.hidden = false;
@@ -577,6 +631,7 @@ function renderReportError(message) {
   reportProgressBar.style.width = "100%";
   setReportSummary("报告生成失败", "请检查检索与模型服务");
   setReportAdvice("稍后重试", "当前报告不可用");
+  clearReportDownloadNotice();
   reportContent.innerHTML = "";
   reportContent.appendChild(
     createEl("p", "report-alert danger", toUserFacingReportError(message))
@@ -584,6 +639,7 @@ function renderReportError(message) {
 }
 
 function renderReport(report) {
+  setReportDownloadEnabled(true);
   reportSection.hidden = false;
   reportSection.className = "report-card";
   reportContent.hidden = false;
@@ -591,6 +647,7 @@ function renderReport(report) {
   reportProgressBar.style.width = "100%";
   setReportSummary(report.summary, `综合得分 ${report.overall_score}`);
   setReportAdvice(report.highlights[0] || "继续复盘", "结合 RAG 证据动态生成");
+  clearReportDownloadNotice();
   reportContent.innerHTML = "";
 
   const allReferences = report.feedbacks.flatMap((feedback) => feedback.references || []);

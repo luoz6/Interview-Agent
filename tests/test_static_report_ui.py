@@ -10,6 +10,7 @@ def test_interview_page_has_report_region():
     assert 'id="reportSection"' in html
     assert 'id="reportStatus"' in html
     assert 'id="reportContent"' in html
+    assert 'id="downloadReportButton"' in html
     assert 'id="jobDescription"' in html
     assert 'id="resumeText"' in html
     assert 'id="prepButton"' in html
@@ -22,6 +23,7 @@ def test_app_js_polls_report_endpoint():
     js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     assert "`/api/interviews/${sessionId}/report`" in js
+    assert "`/api/interviews/${sessionId}/report.pdf`" in js
     assert "setTimeout(pollReport" in js
     assert "renderReport(" in js
     assert "renderEvidenceFromReport(" in js
@@ -70,6 +72,7 @@ def test_report_styles_include_status_alert_variants():
     assert ".report-alert" in css
     assert ".report-alert.warning" in css
     assert ".report-alert.danger" in css
+    assert ".report-actions" in css
 
 
 def test_static_page_has_skip_and_explicit_submit_buttons():
@@ -166,3 +169,15 @@ def test_app_js_saves_and_restores_anonymous_drafts():
     assert "function renderDraft(draft)" in js
     assert "setCurrentTags(draft.job_tags || [])" in js
     assert "setCurrentTags([])" in js
+
+
+def test_app_js_downloads_report_pdf_without_clearing_rendered_report():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'const downloadReportButton = document.querySelector("#downloadReportButton")' in js
+    assert "function setReportDownloadEnabled(enabled)" in js
+    assert "function clearReportDownloadNotice()" in js
+    assert "function showReportDownloadNotice(message)" in js
+    assert "URL.createObjectURL(blob)" in js
+    assert "showReportDownloadNotice(body.detail || \"PDF download failed\")" in js
+    assert "renderReportError(body.detail || \"PDF download failed\")" not in js

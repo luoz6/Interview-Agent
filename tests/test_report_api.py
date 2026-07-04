@@ -162,6 +162,25 @@ def test_report_endpoint_rejects_active_interview():
     assert response.status_code == 404
 
 
+def test_report_pdf_endpoint_returns_404_for_unknown_session():
+    client, _, _, _ = make_client()
+
+    response = client.get("/api/interviews/missing/report.pdf")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "session not found"
+
+
+def test_report_pdf_endpoint_rejects_active_interview():
+    client, _, _, _ = make_client()
+    session_id = start_interview(client)
+
+    response = client.get(f"/api/interviews/{session_id}/report.pdf")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "interview is not finished"
+
+
 def test_report_endpoint_returns_202_with_progress():
     client, store, _, _ = make_client()
     session_id = start_interview(client)
@@ -175,6 +194,18 @@ def test_report_endpoint_returns_202_with_progress():
     assert body["status"] == "processing"
     assert body["progress"]["stage"] == "retrieving"
     assert body["progress"]["percent"] == 20
+
+
+def test_report_pdf_endpoint_rejects_processing_report():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+
+    response = client.get(f"/api/interviews/{session_id}/report.pdf")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "report is not ready"
 
 
 def test_report_progress_endpoint_returns_queued_detail_before_report_record_exists():
@@ -272,6 +303,42 @@ def test_report_progress_endpoint_returns_completed_detail():
     assert body["stage"] == "completed"
     assert body["percent"] == 100
     assert body["events"] == [{"stage": "completed", "message": "Report completed."}]
+
+
+def test_report_pdf_endpoint_returns_pdf_for_completed_report():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.save_report(
+        session_id,
+        InterviewReport(
+            session_id=session_id,
+            overall_score=81,
+            overall_dimension_scores=make_dimension_scores(81),
+            summary="Clear project story with practical tradeoffs.",
+            highlights=["Explained tradeoffs"],
+            feedbacks=[
+                InterviewFeedback(
+                    question_id="q1",
+                    question_text="Introduce a backend project.",
+                    user_answer="The candidate built a backend cache service.",
+                    score=81,
+                    dimension_scores=make_dimension_scores(81),
+                    rationale="The answer covered implementation tradeoffs clearly.",
+                    critique="Needs stronger business metrics.",
+                    better_answer="I reduced p95 latency using cache-aside Redis.",
+                    references=[],
+                )
+            ],
+        ),
+    )
+
+    response = client.get(f"/api/interviews/{session_id}/report.pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert "attachment; filename=" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF")
 
 
 def test_report_progress_endpoint_rejects_active_interview():
@@ -378,6 +445,19 @@ def test_report_endpoint_returns_500_for_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
+    assert response.json()["detail"] == "report generation timed out"
+
+
+def test_report_pdf_endpoint_rejects_failed_report():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+    store.fail_report(session_id, "report generation timed out")
+
+    response = client.get(f"/api/interviews/{session_id}/report.pdf")
+
+    assert response.status_code == 409
     assert response.json()["detail"] == "report generation timed out"
 
 

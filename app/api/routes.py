@@ -2,11 +2,12 @@ import json
 from collections.abc import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
+from app.services.report_pdf import build_report_pdf
 from app.services.report_tasks import generate_report_for_session
 from app.services.runtime import get_draft_store, get_report_job_store, get_session_store
 from app.services.session import InterviewSessionStore
@@ -231,6 +232,34 @@ def get_interview_report(
     if record.status == "failed":
         raise HTTPException(status_code=500, detail=record.error)
     return record.report.model_dump()
+
+
+@router.get("/interviews/{session_id}/report.pdf")
+def download_interview_report_pdf(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        state = store.get(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    if state["status"] != "finished":
+        raise HTTPException(status_code=409, detail="interview is not finished")
+
+    record = store.get_report_record(session_id)
+    if record is None or record.status == "processing":
+        raise HTTPException(status_code=409, detail="report is not ready")
+    if record.status == "failed":
+        raise HTTPException(status_code=409, detail=record.error)
+
+    pdf_bytes = build_report_pdf(record.report)
+    filename = f'interview-report-{session_id}.pdf'
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/interviews/{session_id}/report/progress")
