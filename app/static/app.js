@@ -38,6 +38,13 @@ const downloadReportButton = document.querySelector("#downloadReportButton");
 const ragEvidenceList = document.querySelector("#ragEvidenceList");
 const endInterviewButton = document.querySelector("#endInterviewButton");
 const newInterviewButton = document.querySelector("#newInterviewButton");
+const reportCenterButton = document.querySelector("#reportCenterButton");
+const reportCenterSection = document.querySelector("#reportCenterSection");
+const reportCenterStatusFilter = document.querySelector("#reportCenterStatusFilter");
+const refreshReportsButton = document.querySelector("#refreshReportsButton");
+const backToInterviewButton = document.querySelector("#backToInterviewButton");
+const reportList = document.querySelector("#reportList");
+const interviewWorkspace = document.querySelector("#interviewWorkspace");
 
 const DEFAULT_JOB_DESCRIPTION =
   "后端开发工程师，要求熟悉 Python、FastAPI、Redis、PostgreSQL，具备接口设计、性能优化、并发系统开发与维护经验。";
@@ -147,6 +154,10 @@ downloadReportButton.addEventListener("click", async () => {
   await downloadReportPdf();
 });
 
+reportCenterButton.addEventListener("click", showReportCenter);
+refreshReportsButton.addEventListener("click", loadReportCenter);
+backToInterviewButton.addEventListener("click", showInterviewWorkspace);
+reportCenterStatusFilter.addEventListener("change", loadReportCenter);
 newInterviewButton.addEventListener("click", resetWorkspace);
 endInterviewButton.addEventListener("click", async () => {
   if (!sessionId) {
@@ -563,7 +574,14 @@ async function downloadReportPdf() {
     return;
   }
 
-  const response = await fetch(`/api/interviews/${sessionId}/report.pdf`);
+  await downloadReportPdfFromUrl(
+    `/api/interviews/${sessionId}/report.pdf`,
+    `interview-report-${sessionId}.pdf`
+  );
+}
+
+async function downloadReportPdfFromUrl(url, filename) {
+  const response = await fetch(url);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     showReportDownloadNotice(body.detail || "PDF download failed");
@@ -572,14 +590,14 @@ async function downloadReportPdf() {
 
   clearReportDownloadNotice();
   const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = url;
-  link.download = `interview-report-${sessionId}.pdf`;
+  link.href = objectUrl;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(objectUrl);
 }
 
 async function pollReport() {
@@ -842,10 +860,139 @@ function updateCounters() {
   resumeTextCount.textContent = `${resumeText.value.length}/1000`;
 }
 
+async function showReportCenter() {
+  interviewWorkspace.hidden = true;
+  reportCenterSection.hidden = false;
+  await loadReportCenter();
+}
+
+function showInterviewWorkspace() {
+  reportCenterSection.hidden = true;
+  interviewWorkspace.hidden = false;
+}
+
+async function loadReportCenter() {
+  const params = new URLSearchParams();
+  const status = reportCenterStatusFilter.value;
+  if (status) {
+    params.set("status", status);
+  }
+  reportList.innerHTML = "";
+  reportList.appendChild(createEl("div", "empty-state", "正在加载报告列表..."));
+
+  try {
+    const response = await fetch(`/api/reports?${params.toString()}`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Report list failed");
+    }
+    const body = await response.json();
+    renderReportList(body.items || []);
+  } catch (error) {
+    reportList.innerHTML = "";
+    reportList.appendChild(createEl("div", "report-alert danger", error.message));
+  }
+}
+
+function renderReportList(items) {
+  reportList.innerHTML = "";
+  if (!items.length) {
+    reportList.appendChild(createEl("div", "empty-state", "暂无报告记录"));
+    return;
+  }
+
+  items.forEach((item) => {
+    const card = createEl("article", `report-list-item report-list-${item.status}`);
+    const main = createEl("div", "report-list-main");
+    main.appendChild(createEl("strong", "", item.summary || `会话 ${item.session_id}`));
+    main.appendChild(
+      createEl(
+        "span",
+        "report-list-meta",
+        `${toReportStatusLabel(item.status)} · ${formatReportTime(item.created_at)}`
+      )
+    );
+    if (item.overall_score !== null && item.overall_score !== undefined) {
+      main.appendChild(createEl("span", "report-list-score", `综合得分 ${item.overall_score}`));
+    }
+    if (item.error) {
+      main.appendChild(createEl("span", "report-list-error", item.error));
+    }
+
+    const actions = createEl("div", "report-list-actions");
+    const openButton = createEl("button", "ghost-btn", "回看");
+    openButton.type = "button";
+    openButton.addEventListener("click", () => openReportFromCenter(item));
+    actions.appendChild(openButton);
+
+    const pdfButton = createEl("button", "ghost-btn", "下载 PDF");
+    pdfButton.type = "button";
+    pdfButton.disabled = !item.report_pdf_url;
+    pdfButton.addEventListener("click", async () => {
+      await downloadReportPdfFromUrl(item.report_pdf_url, `interview-report-${item.session_id}.pdf`);
+    });
+    actions.appendChild(pdfButton);
+
+    card.appendChild(main);
+    card.appendChild(actions);
+    reportList.appendChild(card);
+  });
+}
+
+async function openReportFromCenter(item) {
+  sessionId = item.session_id;
+  showInterviewWorkspace();
+  resetReport();
+
+  if (item.status === "failed") {
+    renderReportError(item.error || "Report generation failed");
+    return;
+  }
+
+  try {
+    const response = await fetch(item.report_url);
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 202) {
+      const progress = body.progress || null;
+      renderReportProcessing(progress);
+      pollReport();
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(body.detail || "Report generation failed");
+    }
+    renderReport(body);
+  } catch (error) {
+    renderReportError(error.message || "Report generation failed");
+  }
+}
+
+function toReportStatusLabel(status) {
+  const labels = {
+    completed: "已完成",
+    processing: "生成中",
+    failed: "失败",
+  };
+  return labels[status] || status;
+}
+
+function formatReportTime(value) {
+  if (!value) {
+    return "未知时间";
+  }
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function resetWorkspace() {
   sessionId = null;
   startedAt = null;
   draftId = localStorage.getItem("interviewDraftId");
+  showInterviewWorkspace();
   jobDescription.value = DEFAULT_JOB_DESCRIPTION;
   resumeText.value = DEFAULT_RESUME_TEXT;
   updateCounters();

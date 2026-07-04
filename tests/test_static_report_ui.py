@@ -202,3 +202,37 @@ def test_styles_include_skipped_and_unanswered_question_states():
     assert ".question-completed" not in css
     assert ".question-skipped" in css
     assert ".question-unanswered" in css
+
+
+def test_static_page_has_report_center_controls():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="reportCenterButton"' in html
+    assert 'id="reportCenterSection"' in html
+    assert 'id="reportCenterStatusFilter"' in html
+    assert 'id="refreshReportsButton"' in html
+    assert 'id="backToInterviewButton"' in html
+    assert 'id="reportList"' in html
+    assert 'id="interviewWorkspace"' in html
+
+
+def test_app_js_loads_report_center_and_reuses_report_renderer():
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'const reportCenterButton = document.querySelector("#reportCenterButton")' in js
+    assert 'const reportCenterStatusFilter = document.querySelector("#reportCenterStatusFilter")' in js
+    assert 'async function loadReportCenter()' in js
+    assert 'await fetch(`/api/reports?${params.toString()}`)' in js
+    assert 'function renderReportList(items)' in js
+    assert 'async function openReportFromCenter(item)' in js
+    assert "renderReport(report)" in js
+    assert "downloadReportPdfFromUrl(item.report_pdf_url" in js
+
+
+def test_styles_include_report_center_layout():
+    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".report-center" in css
+    assert ".report-list" in css
+    assert ".report-list-item" in css
+    assert ".report-center-actions" in css

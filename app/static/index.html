@@ -23,6 +23,7 @@
           <a href="#"><span class="icon">⌂</span><span>仪表盘</span></a>
           <a class="active" href="#"><span class="icon">✎</span><span>面试预热</span></a>
           <a href="#"><span class="icon">◷</span><span>面试记录</span></a>
+          <button class="nav-button" id="reportCenterButton" type="button"><span class="icon">▣</span><span>报告中心</span></button>
           <a href="#"><span class="icon">▣</span><span>面试模板</span></a>
           <a href="#"><span class="icon">◎</span><span>知识库 RAG</span></a>
           <a href="#"><span class="icon">⚙</span><span>系统设置</span></a>
@@ -153,6 +154,27 @@
       </section>
 
       <main class="workspace">
+        <section class="report-center" id="reportCenterSection" hidden>
+          <div class="report-center-head">
+            <div>
+              <h2>报告中心</h2>
+              <p>本机会话的报告列表，支持回看与下载 PDF。</p>
+            </div>
+            <div class="report-center-actions">
+              <select id="reportCenterStatusFilter" aria-label="Report status filter">
+                <option value="">全部</option>
+                <option value="completed">已完成</option>
+                <option value="processing">生成中</option>
+                <option value="failed">失败</option>
+              </select>
+              <button class="ghost-btn" id="refreshReportsButton" type="button">刷新</button>
+              <button class="ghost-btn" id="backToInterviewButton" type="button">返回面试</button>
+            </div>
+          </div>
+          <div class="report-list" id="reportList"></div>
+        </section>
+
+        <section id="interviewWorkspace">
         <div class="workspace-head">
           <div class="workspace-title">
             <h2 id="status">未开始</h2>
@@ -231,6 +253,7 @@
             </section>
           </div>
         </div>
+        </section>
       </main>
     </div>
     <script src="/static/app.js"></script>
