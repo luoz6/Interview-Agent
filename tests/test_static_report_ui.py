@@ -4,6 +4,15 @@ from pathlib import Path
 STATIC_DIR = Path(__file__).resolve().parents[1] / "app" / "static"
 
 
+def test_prototype_html_files_are_not_shipped_in_v1():
+    app_dir = STATIC_DIR.parent
+
+    assert not (app_dir / "test.html").exists()
+    assert not (app_dir / "test1.html").exists()
+    assert not (app_dir / "test2.html").exists()
+    assert not (app_dir / "test3.html").exists()
+
+
 def test_interview_page_has_report_region():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
