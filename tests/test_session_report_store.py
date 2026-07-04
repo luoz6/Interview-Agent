@@ -106,6 +106,8 @@ def test_mark_report_processing_is_idempotent_after_first_success():
     assert record.status == "processing"
     assert record.progress.stage == "retrieving"
     assert record.progress.percent == 20
+    assert record.created_at
+    assert record.finished_at is None
 
 
 def test_store_saves_completed_report_record():
@@ -121,6 +123,8 @@ def test_store_saves_completed_report_record():
     assert record.status == "completed"
     assert record.report == report
     assert record.error is None
+    assert record.created_at
+    assert record.finished_at
 
 
 def test_store_saves_failed_report_record():
@@ -135,6 +139,8 @@ def test_store_saves_failed_report_record():
     assert record.status == "failed"
     assert record.error == "llm timeout"
     assert record.report is None
+    assert record.created_at
+    assert record.finished_at
 
 
 def test_report_methods_reject_unknown_session():

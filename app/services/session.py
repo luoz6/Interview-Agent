@@ -17,6 +17,7 @@ from app.graphs.interview_state import (
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
+from app.services.report import utc_now_iso as report_utc_now_iso
 
 
 @dataclass(frozen=True)
@@ -210,15 +211,31 @@ class InterviewSessionStore:
         self._reports[session_id] = ReportRecord(
             status="processing",
             progress=progress,
+            created_at=record.created_at,
+            finished_at=record.finished_at,
         )
 
     def save_report(self, session_id: str, report: InterviewReport) -> None:
         self.get(session_id)
-        self._reports[session_id] = ReportRecord(status="completed", report=report)
+        existing = self._reports.get(session_id)
+        created_at = existing.created_at if existing is not None else report_utc_now_iso()
+        self._reports[session_id] = ReportRecord(
+            status="completed",
+            report=report,
+            created_at=created_at,
+            finished_at=report_utc_now_iso(),
+        )
 
     def fail_report(self, session_id: str, error: str) -> None:
         self.get(session_id)
-        self._reports[session_id] = ReportRecord(status="failed", error=error)
+        existing = self._reports.get(session_id)
+        created_at = existing.created_at if existing is not None else report_utc_now_iso()
+        self._reports[session_id] = ReportRecord(
+            status="failed",
+            error=error,
+            created_at=created_at,
+            finished_at=report_utc_now_iso(),
+        )
 
     def get_report_record(self, session_id: str) -> ReportRecord | None:
         self.get(session_id)

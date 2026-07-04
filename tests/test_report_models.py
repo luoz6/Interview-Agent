@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 from pydantic import ValidationError
 
@@ -117,6 +119,36 @@ def test_report_record_accepts_processing_with_progress():
     assert processing.progress is not None
     assert completed.report is not None
     assert failed.error == "pgvector unavailable"
+
+
+def test_report_record_defaults_created_at_and_open_finished_at():
+    record = ReportRecord(
+        status="processing",
+        progress=ReportProgress(stage="retrieving", percent=20, message="Loading"),
+    )
+
+    assert record.created_at
+    assert record.finished_at is None
+    datetime.fromisoformat(record.created_at.replace("Z", "+00:00"))
+
+
+def test_report_record_completed_accepts_finished_at():
+    record = ReportRecord(
+        status="completed",
+        report=InterviewReport(
+            session_id="s1",
+            overall_score=82,
+            overall_dimension_scores=make_dimension_scores(),
+            summary="Solid answer.",
+            highlights=["Clear context"],
+            feedbacks=[make_feedback()],
+        ),
+        created_at="2026-07-04T10:00:00Z",
+        finished_at="2026-07-04T10:01:00Z",
+    )
+
+    assert record.created_at == "2026-07-04T10:00:00Z"
+    assert record.finished_at == "2026-07-04T10:01:00Z"
 
 
 def test_report_record_rejects_invalid_state_combinations():

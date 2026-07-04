@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -61,11 +62,19 @@ class ReportProgress(BaseModel):
     current_question_id: str | None = None
 
 
+def utc_now_iso() -> str:
+    # Kept local to report models on purpose; importing graph-state helpers here
+    # would invert the service dependency direction.
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 class ReportRecord(BaseModel):
     status: Literal["processing", "completed", "failed"]
     progress: ReportProgress | None = None
     report: InterviewReport | None = None
     error: str | None = None
+    created_at: str = Field(default_factory=utc_now_iso)
+    finished_at: str | None = None
 
     @model_validator(mode="after")
     def validate_state(self) -> "ReportRecord":
