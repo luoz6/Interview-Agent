@@ -87,7 +87,7 @@ node --check app/static/report-detail.js
 npm run build:prototype-css
 ```
 
-Run real browser acceptance with `docs/local-v1-runbook.md` and record the result in `docs/stage-19-local-e2e.md`.
+Run real browser acceptance with `docs/local-v1-runbook.md` and record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
 ## Current Non-Scope
 

@@ -99,7 +99,7 @@ PowerShell 5.1 note: run each command separately instead of joining commands wit
 17. Confirm total score, five dimensions, feedback, and evidence excerpts render.
 18. Download PDF and confirm the file opens.
 
-Record the result in `docs/stage-19-local-e2e.md`.
+Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
 ## 7. Troubleshooting
 

@@ -79,3 +79,15 @@ def test_interface_requirements_describes_current_four_page_runtime_without_stal
     assert "当前 FastAPI `/` 仍返回旧 `app/static/index.html`" not in doc
     assert "下一阶段用四个页面路由替代旧单页" not in doc
     assert "下一阶段前端目标是不再保留" not in doc
+
+
+def test_readme_and_runbook_point_to_current_browser_acceptance_record():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    current_record = "docs/stage-21-browser-e2e-acceptance.md"
+    old_record = "docs/stage-19-local-e2e.md"
+
+    assert current_record in readme
+    assert current_record in runbook
+    assert old_record not in readme
+    assert old_record not in runbook
