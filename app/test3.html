@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模拟面试进行中 - 面试智能体</title>
+    <link rel="stylesheet" href="/static/prototype.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+        /* 侧边栏步骤连接线 */
+        .step-item::after {
+            content: '';
+            position: absolute;
+            left: 19px;
+            top: 40px;
+            bottom: -16px;
+            width: 2px;
+            background-color: #f3f4f6;
+            z-index: 0;
+        }
+        .step-item:last-child::after { display: none; }
+        .step-item-active::after { background-color: #f3f4f6; }
+
+        /* 优雅的自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+    </style>
+</head>
+<body class="h-screen flex flex-col bg-[#f9fafb] text-gray-800 overflow-hidden">
+
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide">面试智能体</span>
+        </div>
+
+        <nav class="flex h-full text-sm">
+            <a href="#" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-house mr-2"></i>首页
+            </a>
+            <a href="#" class="px-6 h-full flex items-center text-blue-600 font-medium border-b-2 border-blue-600">
+                <i class="fa-solid fa-microphone mr-2"></i>我的面试
+            </a>
+            <a href="#" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-file-lines mr-2"></i>报告中心
+            </a>
+            <a href="#" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-regular fa-circle-question mr-2"></i>帮助
+            </a>
+        </nav>
+
+        <div class="flex items-center gap-5">
+            <button class="text-gray-400 hover:text-gray-600"><i class="fa-regular fa-bell text-lg"></i></button>
+            <div class="flex items-center gap-2 cursor-pointer">
+                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-sm">
+                    张
+                </div>
+                <div class="leading-tight">
+                    <div class="text-sm font-medium">张同学</div>
+                    <div class="text-xs text-gray-400">求职者</div>
+                </div>
+                <i class="fa-solid fa-chevron-down text-gray-400 text-xs ml-1"></i>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+
+        <aside class="w-[260px] bg-[#f9fafb] border-r border-gray-200 flex flex-col shrink-0">
+            <div class="p-6 flex-1 overflow-y-auto">
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10 opacity-60">
+                        <div class="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-500 shadow-sm shrink-0">
+                            <i class="fa-regular fa-clipboard"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">1. 面试准备</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">输入 JD 与简历，生成面试计划</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item step-item-active mb-6">
+                    <div class="absolute -inset-x-6 -inset-y-3 bg-blue-50 border-l-4 border-blue-600 z-0"></div>
+                    <div class="flex gap-3 relative z-10">
+                        <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
+                            <i class="fa-regular fa-comments"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-bold text-blue-700 text-sm">2. 模拟面试</h3>
+                            <p class="text-[11px] text-blue-500 mt-0.5 leading-snug">与 AI 面试官实时对话</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10 opacity-50">
+                        <div class="w-10 h-10 bg-transparent flex items-center justify-center text-gray-400 text-xl shrink-0">
+                            <i class="fa-solid fa-file-invoice"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">3. 报告生成</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">生成评估报告与建议</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10 opacity-50">
+                        <div class="w-10 h-10 bg-transparent flex items-center justify-center text-gray-400 text-xl shrink-0">
+                            <i class="fa-solid fa-chart-line"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">4. 面试复盘</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">回顾表现，持续提升</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="m-6 p-5 border border-gray-200 rounded-xl bg-white shadow-sm">
+                <div class="flex items-center gap-1 text-[13px] font-bold text-gray-700 mb-3">
+                    面试助手 <i class="fa-regular fa-circle-question text-gray-400 text-xs"></i>
+                </div>
+                <p class="text-[11px] text-gray-500 mb-4">面试过程中，系统可能会：</p>
+                <div class="space-y-3">
+                    <div class="flex items-center gap-3">
+                        <span class="px-2 py-1 bg-blue-50 text-blue-500 text-[11px] rounded border border-blue-100 shrink-0">追问</span>
+                        <span class="text-[12px] text-gray-600">深入探究你的回答</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="px-2 py-1 bg-blue-50 text-blue-500 text-[11px] rounded border border-blue-100 shrink-0">切题</span>
+                        <span class="text-[12px] text-gray-600">切换到其它相关问题</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="px-2 py-1 bg-gray-50 text-gray-500 text-[11px] rounded border border-gray-200 shrink-0">结束面试</span>
+                        <span class="text-[12px] text-gray-600">完成全部题目或达成条件</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col min-w-0 p-6 overflow-hidden">
+
+            <div class="flex items-center justify-between mb-4 shrink-0">
+                <div>
+                    <h1 class="text-xl font-bold mb-1 text-gray-800">模拟面试进行中</h1>
+                    <p class="text-xs text-gray-500">系统将基于生成的 InterviewPlan，与您进行实时面试对话。</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="flex items-center gap-1.5 text-xs text-green-500 font-medium">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> 连接正常
+                    </span>
+                    <button class="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-600 hover:bg-gray-50 shadow-sm flex items-center gap-1.5 transition-colors">
+                        <i class="fa-solid fa-expand text-gray-400"></i> 全屏模式
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex flex-1 gap-6 min-h-0">
+
+                <div class="flex-1 flex flex-col min-w-0">
+
+                    <div id="currentQuestion" class="bg-blue-50/50 border border-blue-100 p-4 rounded-xl mb-4 flex items-start gap-3 shadow-sm shrink-0">
+                        <div class="mt-0.5 text-blue-500"><i class="fa-solid fa-location-dot"></i></div>
+                        <div>
+                            <span class="text-[13px] text-blue-500 font-bold mr-1">当前问题：</span>
+                            <span class="text-[14px] text-gray-800 font-medium">如何设计一个高并发缓存系统，并避免缓存击穿与缓存雪崩？</span>
+                        </div>
+                    </div>
+
+                    <div id="conversation" class="flex-1 overflow-y-auto pr-3 space-y-6 mb-4">
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 bg-blue-100 border border-blue-200 rounded-full flex items-center justify-center text-blue-600 shrink-0 text-lg shadow-sm">
+                                <i class="fa-solid fa-robot"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-500 mb-1 flex items-center gap-2">
+                                    <span class="font-bold text-gray-700">AI 面试官</span> <span>15:23:18</span>
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed">
+                                    我们当前使用的是 Redis 作为缓存层，请你介绍 Redis 的数据结构，以及在实际业务中如何选择合适的数据结构？
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 bg-gray-100 border border-gray-200 rounded-full flex items-center justify-center text-gray-600 font-bold text-sm shrink-0 shadow-sm">
+                                张
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-500 mb-1 flex items-center gap-2">
+                                    <span class="font-bold text-gray-700">候选人</span> <span>15:24:02</span>
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed">
+                                    Redis 常用的数据结构有 String、Hash、List、Set、ZSet 等。我会根据业务场景选择，比如字符串缓存用 String，排行榜用 ZSet，用户会话用 Hash。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 bg-blue-100 border border-blue-200 rounded-full flex items-center justify-center text-blue-600 shrink-0 text-lg shadow-sm">
+                                <i class="fa-solid fa-robot"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-500 mb-1 flex items-center gap-2">
+                                    <span class="font-bold text-gray-700">AI 面试官</span> <span>15:24:35</span>
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed">
+                                    好的。那在 MySQL 高并发场景下，你如何设计索引以提升查询性能？请举例说明。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 bg-gray-100 border border-gray-200 rounded-full flex items-center justify-center text-gray-600 font-bold text-sm shrink-0 shadow-sm">
+                                张
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-500 mb-1 flex items-center gap-2">
+                                    <span class="font-bold text-gray-700">候选人</span> <span>15:25:14</span>
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed">
+                                    我会遵循最左前缀原则，避免在索引列上使用函数或隐式类型转换；对高选择性字段建索引；覆盖索引减少回表。例如订单表按 <code class="bg-gray-100 px-1 py-0.5 rounded text-gray-600">(user_id, status, create_time)</code> 建联合索引。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 bg-blue-100 border border-blue-200 rounded-full flex items-center justify-center text-blue-600 shrink-0 text-lg shadow-sm">
+                                <i class="fa-solid fa-robot"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-500 mb-1 flex items-center gap-2">
+                                    <span class="font-bold text-gray-700">AI 面试官</span> <span>15:26:00</span>
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed">
+                                    在 FastAPI 中，如何实现接口的幂等性与限流？可以结合中间件或依赖注入说说思路。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 bg-blue-100 border border-blue-200 rounded-full flex items-center justify-center text-blue-600 shrink-0 text-lg shadow-sm">
+                                <i class="fa-solid fa-robot"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-500 mb-1 flex items-center gap-2">
+                                    <span class="font-bold text-gray-700">AI 面试官 <span class="text-blue-500 ml-1 font-medium">(追问)</span></span> <span>15:27:05</span>
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed">
+                                    你刚才提到限流，请进一步说明：在分布式场景下，如何保证限流的准确性与高可用？
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="answerForm" class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
+                        <div class="text-xs text-gray-800 font-bold mb-2">你的回答</div>
+                        <textarea id="answerInput" class="w-full h-24 bg-transparent resize-none focus:outline-none text-[13.5px] text-gray-700 placeholder-gray-400" placeholder="请在此输入你的回答（支持 Markdown），按 Enter 换行，Ctrl+Enter 提交。"></textarea>
+                        <p id="interviewNotice" class="text-[12px] text-gray-500" hidden></p>
+
+                        <div class="flex justify-between items-end mt-2 pt-2">
+                            <div class="text-[11px] text-gray-400 mb-1">0/5000</div>
+                            <div class="flex items-center gap-3">
+                                <button id="sendAnswerButton" type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-[13px] font-medium shadow-md shadow-blue-200 flex items-center gap-2 transition-colors">
+                                    <i class="fa-regular fa-paper-plane"></i> 提交回答
+                                </button>
+                                <button id="skipQuestionButton" type="button" class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-[13px] font-medium flex items-center gap-2 transition-colors shadow-sm">
+                                    <i class="fa-solid fa-arrow-right text-gray-400"></i> 下一题
+                                </button>
+                                <button id="finishInterviewButton" type="button" class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-[13px] font-medium flex items-center gap-2 transition-colors shadow-sm">
+                                    <i class="fa-regular fa-square text-gray-400"></i> 结束面试
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                </div>
+
+                <div class="w-[320px] shrink-0 flex flex-col gap-4 overflow-y-auto">
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm shrink-0">
+                        <h3 class="text-[13px] font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-blue-500"></i> 面试进度
+                        </h3>
+                        <div class="space-y-3.5 text-[13px]">
+                            <div class="flex justify-between border-b border-gray-50 pb-2.5"><span class="text-gray-500">session_id</span><span class="font-mono text-gray-700">sess_20250510_8f3a1d2c</span></div>
+                            <div class="flex justify-between border-b border-gray-50 pb-2.5"><span class="text-gray-500">状态</span><span id="sessionStatus" class="px-2 py-0.5 bg-green-50 text-green-600 rounded text-xs font-medium">active</span></div>
+                            <div class="flex justify-between border-b border-gray-50 pb-2.5"><span class="text-gray-500">当前题号</span><span class="font-bold text-gray-700">6 / 18</span></div>
+                            <div class="flex justify-between border-b border-gray-50 pb-2.5"><span class="text-gray-500">已完成题数</span><span class="font-bold text-gray-700">5</span></div>
+                            <div class="flex justify-between pb-1"><span class="text-gray-500">预计剩余时间</span><span class="font-bold text-gray-700">42 分钟</span></div>
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-gray-100">
+                            <div class="text-xs text-gray-500 mb-2.5">识别标签</div>
+                            <div id="topicTags" class="flex flex-wrap gap-1.5">
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">Redis</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">MySQL</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">FastAPI</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">系统设计</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">高并发</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">分布式</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">缓存</span>
+                                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[11px] border border-blue-100">限流</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex-1 flex flex-col min-h-[300px]">
+                        <h3 class="text-[13px] font-bold text-gray-800 mb-4">题目导航</h3>
+                        <div class="flex items-center gap-4 text-xs text-gray-500 mb-4">
+                            <span class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> 已完成</span>
+                            <span class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-blue-500 flex items-center justify-center ring-2 ring-blue-100"></span> 当前</span>
+                            <span class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full border border-gray-400"></span> 未开始</span>
+                        </div>
+
+                        <ul id="questionPlan" class="space-y-4 text-[13px] text-gray-700 flex-1 overflow-y-auto pr-1">
+                            <li class="flex items-start justify-between gap-2">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa-regular fa-circle-check text-green-500 mt-0.5 shrink-0"></i>
+                                    <span class="line-clamp-1">Redis 数据结构及使用场景</span>
+                                </div>
+                                <span class="text-[11px] text-blue-400 bg-blue-50 px-1.5 rounded shrink-0">Redis</span>
+                            </li>
+                            <li class="flex items-start justify-between gap-2">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa-regular fa-circle-check text-green-500 mt-0.5 shrink-0"></i>
+                                    <span class="line-clamp-1">MySQL 索引设计与优化</span>
+                                </div>
+                                <span class="text-[11px] text-blue-400 bg-blue-50 px-1.5 rounded shrink-0">MySQL</span>
+                            </li>
+                            <li class="flex items-start justify-between gap-2">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa-regular fa-circle-check text-green-500 mt-0.5 shrink-0"></i>
+                                    <span class="line-clamp-1">FastAPI 接口幂等性与限流</span>
+                                </div>
+                                <span class="text-[11px] text-blue-400 bg-blue-50 px-1.5 rounded shrink-0">FastAPI</span>
+                            </li>
+                            <li class="flex items-start justify-between gap-2">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa-regular fa-circle-check text-green-500 mt-0.5 shrink-0"></i>
+                                    <span class="line-clamp-1">分布式事务方案对比</span>
+                                </div>
+                                <span class="text-[11px] text-blue-400 bg-blue-50 px-1.5 rounded shrink-0">系统设计</span>
+                            </li>
+                            <li class="flex items-start justify-between gap-2">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa-regular fa-circle-check text-green-500 mt-0.5 shrink-0"></i>
+                                    <span class="line-clamp-1">消息队列的选型与应用</span>
+                                </div>
+                                <span class="text-[11px] text-blue-400 bg-blue-50 px-1.5 rounded shrink-0">高并发</span>
+                            </li>
+
+                            <li class="flex items-start justify-between gap-2 bg-blue-50 -mx-3 px-3 py-2 rounded-lg">
+                                <div class="flex items-start gap-2 font-bold text-blue-700">
+                                    <span class="w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[9px] flex items-center justify-center mt-0.5 shrink-0 shadow-sm ring-2 ring-blue-100">6</span>
+                                    <span class="line-clamp-2 leading-snug">如何设计一个高并发缓存系统，并避免缓存击穿与缓...</span>
+                                </div>
+                                <span class="text-[11px] text-blue-600 bg-blue-100/50 px-1.5 rounded shrink-0 mt-0.5">系统设计</span>
+                            </li>
+
+                            <li class="flex items-start justify-between gap-2 text-gray-500 opacity-80">
+                                <div class="flex items-start gap-2">
+                                    <span class="w-3.5 h-3.5 rounded-full border-2 border-gray-300 text-gray-400 text-[9px] flex items-center justify-center mt-0.5 shrink-0">7</span>
+                                    <span class="line-clamp-1">缓存一致性如何保证？</span>
+                                </div>
+                                <span class="text-[11px] text-gray-400 bg-gray-50 px-1.5 rounded shrink-0">Redis</span>
+                            </li>
+                            <li class="flex items-start justify-between gap-2 text-gray-500 opacity-80">
+                                <div class="flex items-start gap-2">
+                                    <span class="w-3.5 h-3.5 rounded-full border-2 border-gray-300 text-gray-400 text-[9px] flex items-center justify-center mt-0.5 shrink-0">8</span>
+                                    <span class="line-clamp-1">数据库分库分表的设计与迁移</span>
+                                </div>
+                                <span class="text-[11px] text-gray-400 bg-gray-50 px-1.5 rounded shrink-0">MySQL</span>
+                            </li>
+                        </ul>
+
+                        <div class="text-center text-xs text-blue-500 mt-4 pt-3 border-t border-gray-50 cursor-pointer hover:text-blue-600 transition-colors">
+                            查看全部 18 题 <i class="fa-solid fa-chevron-down ml-1 text-[10px]"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-blue-50/50 border border-blue-100 p-4 rounded-xl text-[12px] text-gray-500 leading-relaxed flex items-start gap-2.5 shrink-0 shadow-sm">
+                        <i class="fa-solid fa-circle-info text-blue-500 mt-0.5"></i>
+                        <div>
+                            <span class="font-bold text-gray-700 block mb-1">小贴士</span>
+                            你的每次回答都会自动追加到 messages，系统将基于内容判断是 <code class="bg-white border border-gray-200 px-1 rounded text-gray-600 font-mono text-[11px]">follow_up</code> 还是 <code class="bg-white border border-gray-200 px-1 rounded text-gray-600 font-mono text-[11px]">进入下一题</code>。
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <script type="module" src="/static/interview.js"></script>
+</body>
+</html>

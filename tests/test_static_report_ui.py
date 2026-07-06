@@ -1,137 +1,104 @@
 from pathlib import Path
 
 
-STATIC_DIR = Path(__file__).resolve().parents[1] / "app" / "static"
+APP_DIR = Path(__file__).resolve().parents[1] / "app"
+STATIC_DIR = APP_DIR / "static"
 
 
-def test_prototype_html_files_are_not_shipped_in_v1():
-    app_dir = STATIC_DIR.parent
-
-    assert not (app_dir / "test.html").exists()
-    assert not (app_dir / "test1.html").exists()
-    assert not (app_dir / "test2.html").exists()
-    assert not (app_dir / "test3.html").exists()
+def read_app_file(name: str) -> str:
+    return (APP_DIR / name).read_text(encoding="utf-8")
 
 
-def test_interview_page_has_report_region():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-
-    assert 'id="reportSection"' in html
-    assert 'id="reportStatus"' in html
-    assert 'id="reportContent"' in html
-    assert 'id="downloadReportButton"' in html
-    assert 'id="jobDescription"' in html
-    assert 'id="resumeText"' in html
-    assert 'id="prepButton"' in html
-    assert 'id="startButton"' in html
-    assert 'id="conversation"' in html
-    assert 'id="answerForm"' in html
+def read_static_file(name: str) -> str:
+    return (STATIC_DIR / name).read_text(encoding="utf-8")
 
 
-def test_app_js_polls_report_endpoint():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "`/api/interviews/${sessionId}/report`" in js
-    assert "`/api/interviews/${sessionId}/report.pdf`" in js
-    assert "setTimeout(pollReport" in js
-    assert "renderReport(" in js
-    assert "renderEvidenceFromReport(" in js
-    assert "setInterviewState(" in js
+def test_four_runtime_html_pages_exist():
+    assert (APP_DIR / "test4.html").exists()
+    assert (APP_DIR / "test3.html").exists()
+    assert (APP_DIR / "test2.html").exists()
+    assert (APP_DIR / "test1.html").exists()
 
 
-def test_app_js_reads_progress_fields():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+def test_old_static_index_is_not_the_runtime_contract():
+    html = read_static_file("index.html") if (STATIC_DIR / "index.html").exists() else ""
 
-    assert "body.progress" in js
-    assert "progress.message" in js
-    assert "progress.percent" in js
-    assert "overall_dimension_scores" in js
-    assert "feedback.references" in js
-    assert "reference-item" in js or "reference-empty" in js
-    assert "response.body.getReader()" in js
-    assert "new TextDecoder()" in js
-    assert 'event.event === "chunk"' in js
+    assert "开始一次模拟面试" not in html
 
 
-def test_report_styles_use_css_variables_for_soft_backgrounds():
-    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+def test_prep_page_has_runtime_hooks():
+    html = read_app_file("test4.html")
 
-    assert "--report-soft" in css
-    assert "#e6f4f1" not in css
-    assert "#f7faf8" not in css
-    assert ".app" in css
-    assert ".main-grid" in css
-    assert ".report-card" in css
-
-
-def test_app_js_renders_retrieval_unavailable_and_evidence_insufficient_states():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "pgvector knowledge store is unavailable" in js
-    assert "Knowledge retrieval unavailable" in js
-    assert "Evidence insufficient" in js
-    assert "No strong reference found for this answer." in js
-    assert "report-alert" in js
-    assert "report.is_fallback" in js
+    for element_id in (
+        "jobDescription",
+        "resumeText",
+        "saveDraftButton",
+        "restoreDraftButton",
+        "prepButton",
+        "startButton",
+        "topicTags",
+        "planTitle",
+        "planQuestions",
+        "prepStatus",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "/static/prep.js" in html
 
 
-def test_report_styles_include_status_alert_variants():
-    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+def test_interview_page_has_runtime_hooks():
+    html = read_app_file("test3.html")
 
-    assert ".report-alert" in css
-    assert ".report-alert.warning" in css
-    assert ".report-alert.danger" in css
-    assert ".report-actions" in css
-
-
-def test_static_page_has_skip_and_explicit_submit_buttons():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-
-    assert 'id="skipQuestionButton"' in html
-    assert 'type="button"' in html
-    assert 'id="sendAnswerButton"' in html
-    assert 'type="submit"' in html
-
-
-def test_app_js_calls_session_detail_skip_and_report_progress_endpoints():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "`/api/interviews/${sessionId}`" in js
-    assert "`/api/interviews/${sessionId}/skip`" in js
-    assert "`/api/interviews/${sessionId}/report/progress`" in js
-    assert "renderSessionSnapshot(" in js
-    assert "renderQuestionPlanFromSnapshot(" in js
-    assert "renderJobTags(" in js
-    assert js.count("await loadSessionSnapshot();") >= 4
-    assert "renderReportProcessing(progressBody || body.progress || null);" in js
-    assert "renderReportProcessing(body.progress || null);" not in js
+    for element_id in (
+        "conversation",
+        "currentQuestion",
+        "answerForm",
+        "answerInput",
+        "sendAnswerButton",
+        "skipQuestionButton",
+        "finishInterviewButton",
+        "questionPlan",
+        "topicTags",
+        "sessionStatus",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "/static/interview.js" in html
 
 
-def test_app_js_targets_submit_button_not_skip_button():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+def test_report_processing_page_has_runtime_hooks():
+    html = read_app_file("test2.html")
 
-    assert 'answerForm.querySelector("button[type=\\"submit\\"]")' in js
-    assert 'const skipQuestionButton = document.querySelector("#skipQuestionButton")' in js
-    assert "skipQuestionButton.disabled = !enabled" in js
-
-
-def test_app_js_renders_job_tags_and_question_snapshot_states():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "function renderJobTags(tags)" in js
-    assert "topicTags.innerHTML = \"\";" in js
-    assert "tag muted" in js
-    assert "function renderQuestionPlanFromSnapshot(questions)" in js
-    assert "question-${state}" in js
-    assert "answered: \"已回答\"" in js
-    assert "skipped: \"已跳过\"" in js
-    assert "unanswered: \"未回答\"" in js
-    assert "current: \"当前题\"" in js
-    assert "pending: \"待进行\"" in js
+    for element_id in (
+        "reportProgressBar",
+        "reportProgressStatus",
+        "reportEvents",
+        "reportRagSummary",
+        "reportJobId",
+        "viewReportButton",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "/static/report-processing.js" in html
 
 
-def test_app_js_maps_dimension_labels_to_chinese():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+def test_report_detail_page_has_runtime_hooks():
+    html = read_app_file("test1.html")
+
+    for element_id in (
+        "reportStatus",
+        "reportScore",
+        "reportSummary",
+        "dimensionScores",
+        "reportHighlights",
+        "feedbackList",
+        "evidenceList",
+        "downloadReportButton",
+        "reportNotice",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "/static/report-detail.js" in html
+
+
+def test_shared_ui_maps_dimensions_to_chinese():
+    js = read_static_file("shared-ui.js")
 
     assert "dimensionLabels" in js
     assert "知识广度" in js
@@ -139,140 +106,84 @@ def test_app_js_maps_dimension_labels_to_chinese():
     assert "系统设计" in js
     assert "工程实践" in js
     assert "表达沟通" in js
-    assert "toDimensionLabel(name)" in js
-    assert 'createEl("span", "dimension-name", toDimensionLabel(name))' in js
-    assert '`${toDimensionLabel(name)}: ${value}`' in js
 
 
-def test_app_js_renders_prep_job_tags():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+def test_page_scripts_use_real_api_endpoints():
+    combined = "\n".join(
+        read_static_file(name)
+        for name in (
+            "prep.js",
+            "interview.js",
+            "report-processing.js",
+            "report-detail.js",
+        )
+    )
 
-    assert "renderPrepResult(plan)" in js
-    assert "function renderPrepResult(plan)" in js
-    assert "setCurrentTags(plan.job_tags || [])" in js
-    assert "let currentTags = []" in js
-    assert "function setCurrentTags(tags)" in js
-    assert "setCurrentTags(snapshot.job_tags || [])" in js
-
-
-def test_static_page_has_draft_buttons():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-
-    assert 'id="saveDraftButton"' in html
-    assert 'id="restoreDraftButton"' in html
-
-
-def test_app_js_saves_and_restores_anonymous_drafts():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert 'let draftId = localStorage.getItem("interviewDraftId")' in js
-    assert "let currentTags = []" in js
-    assert 'const saveDraftButton = document.querySelector("#saveDraftButton")' in js
-    assert 'const restoreDraftButton = document.querySelector("#restoreDraftButton")' in js
-    assert "`/api/interview-drafts`" in js
-    assert "`/api/interview-drafts/${draftId}`" in js
-    assert 'localStorage.setItem("interviewDraftId", draft.draft_id)' in js
-    assert 'localStorage.removeItem("interviewDraftId")' in js
-    assert "renderDraftSaved(draft)" in js
-    assert "renderDraft(draft)" in js
-    assert "job_tags: currentTags.length ? currentTags : null" in js
-    assert "function renderDraftSaved(draft)" in js
-    assert "function renderDraft(draft)" in js
-    assert "setCurrentTags(draft.job_tags || [])" in js
-    assert "setCurrentTags([])" in js
+    assert "/api/prep" in combined
+    assert "/api/interview-drafts" in combined
+    assert "/api/interviews/" in combined
+    assert "/answer/stream" in combined
+    assert "/skip" in combined
+    assert "/finish" in combined
+    assert "/report/progress" in combined
+    assert "/report.pdf" in combined
 
 
-def test_app_js_downloads_report_pdf_without_clearing_rendered_report():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+def test_runtime_pages_do_not_use_external_cdn_assets():
+    for page in ("test4.html", "test3.html", "test2.html", "test1.html"):
+        html = read_app_file(page)
 
-    assert 'const downloadReportButton = document.querySelector("#downloadReportButton")' in js
-    assert "function setReportDownloadEnabled(enabled)" in js
-    assert "function clearReportDownloadNotice()" in js
-    assert "function showReportDownloadNotice(message)" in js
-    assert "URL.createObjectURL(blob)" in js
-    assert "showReportDownloadNotice(body.detail || \"PDF download failed\")" in js
-    assert "renderReportError(body.detail || \"PDF download failed\")" not in js
+        assert "https://cdn.tailwindcss.com" not in html
+        assert "cdnjs.cloudflare.com/ajax/libs/font-awesome" not in html
+        assert "cdn.jsdelivr.net/npm/chart.js" not in html
+        assert 'href="/static/prototype.css"' in html
 
 
-def test_app_js_renders_skipped_and_unanswered_question_states():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert "answered:" in js
-    assert "skipped:" in js
-    assert "unanswered:" in js
-    assert "snapshot.elapsed_seconds" in js
-    assert "snapshot.estimated_remaining_seconds" in js
+def test_old_single_page_static_assets_are_removed():
+    assert not (STATIC_DIR / "index.html").exists()
+    assert not (STATIC_DIR / "app.js").exists()
+    assert not (STATIC_DIR / "styles.css").exists()
 
 
-def test_styles_include_skipped_and_unanswered_question_states():
-    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+def test_local_prototype_css_exists_and_contains_icon_fallbacks():
+    css = read_static_file("prototype.css")
 
+    assert ".fa-solid" in css
+    assert ".fa-regular" in css
+    assert '[data-type=danger]' in css or '[data-type="danger"]' in css
+    assert ".question-current" in css
     assert ".question-answered" in css
-    assert ".question-completed" not in css
     assert ".question-skipped" in css
     assert ".question-unanswered" in css
 
 
-def test_static_page_has_report_center_controls():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+def test_api_js_handles_non_json_error_bodies():
+    js = read_static_file("api.js")
 
-    assert 'id="reportCenterButton"' in html
-    assert 'id="reportCenterSection"' in html
-    assert 'id="reportCenterStatusFilter"' in html
-    assert 'id="refreshReportsButton"' in html
-    assert 'id="backToInterviewButton"' in html
-    assert 'id="reportList"' in html
-    assert 'id="interviewWorkspace"' in html
+    assert "safeJson" in js
+    assert "response.statusText" in js
+    assert "PDF download failed" in js
 
 
-def test_static_page_exposes_only_v1_navigation_and_controls():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+def test_page_scripts_expose_busy_and_empty_states():
+    combined = "\n".join(
+        read_static_file(name)
+        for name in (
+            "prep.js",
+            "interview.js",
+            "report-processing.js",
+            "report-detail.js",
+        )
+    )
 
-    assert "面试预热" in html
-    assert "报告中心" in html
-    assert "仪表盘" not in html
-    assert "面试记录" not in html
-    assert "面试模板" not in html
-    assert "知识库 RAG" not in html
-    assert "系统设置" not in html
-    assert "代码编辑器" not in html
-    assert "管理知识库" not in html
-    assert ">编辑</button>" not in html
-
-
-def test_app_js_loads_report_center_and_reuses_report_renderer():
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    assert 'const reportCenterButton = document.querySelector("#reportCenterButton")' in js
-    assert 'const reportCenterStatusFilter = document.querySelector("#reportCenterStatusFilter")' in js
-    assert 'async function loadReportCenter()' in js
-    assert 'await fetch(`/api/reports?${params.toString()}`)' in js
-    assert 'function renderReportList(items)' in js
-    assert 'async function openReportFromCenter(item)' in js
-    assert "renderReport(report)" in js
-    assert "downloadReportPdfFromUrl(item.report_pdf_url" in js
+    assert "setBusy(" in combined
+    assert "renderEmptyState(" in combined
+    assert "缺少 session_id" in combined
+    assert "报告仍在生成中" in combined
 
 
-def test_static_page_uses_provider_neutral_model_copy():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+def test_report_detail_uses_reference_excerpt_field():
+    js = read_static_file("report-detail.js")
 
-    assert "AI 面试官" in html
-    assert "模型：自动" in html
-    assert "GPT-4o" not in html
-
-
-def test_styles_target_current_nav_markup():
-    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-
-    assert ".nav-item" in css
-    assert ".nav a" not in css
-    assert ".kb-config.readonly" in css
-
-
-def test_styles_include_report_center_layout():
-    css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-
-    assert ".report-center" in css
-    assert ".report-list" in css
-    assert ".report-list-item" in css
-    assert ".report-center-actions" in css
+    assert "reference.excerpt" in js
+    assert "reference.content" not in js

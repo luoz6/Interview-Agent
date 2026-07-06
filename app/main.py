@@ -17,5 +17,25 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
-def index():
-    return FileResponse(STATIC_DIR / "index.html")
+def root():
+    return FileResponse(BASE_DIR / "test4.html")
+
+
+@app.get("/prep")
+def prep_page():
+    return FileResponse(BASE_DIR / "test4.html")
+
+
+@app.get("/interview")
+def interview_page():
+    return FileResponse(BASE_DIR / "test3.html")
+
+
+@app.get("/report-processing")
+def report_processing_page():
+    return FileResponse(BASE_DIR / "test2.html")
+
+
+@app.get("/report-detail")
+def report_detail_page():
+    return FileResponse(BASE_DIR / "test1.html")
