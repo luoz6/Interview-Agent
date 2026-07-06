@@ -65,3 +65,17 @@ def test_interface_requirements_documents_deepseek_json_fallback():
     assert "raw JSON fallback" in doc
     assert "本机单用户" in doc
     assert "当前已实现的 HTML 页面路由" in doc
+
+
+def test_interface_requirements_describes_current_four_page_runtime_without_stale_next_stage_language():
+    doc = read_text("docs/interface-requirements.md")
+
+    assert "当前已实现的 HTML 页面路由" in doc
+    assert "`GET` | `/` 或 `/prep`" in doc
+    assert "`GET` | `/interview?session_id=...`" in doc
+    assert "`GET` | `/report-processing?session_id=...`" in doc
+    assert "`GET` | `/report-detail?session_id=...`" in doc
+    assert "登录、用户隔离和跨设备同步不纳入本机部署范围" in doc
+    assert "当前 FastAPI `/` 仍返回旧 `app/static/index.html`" not in doc
+    assert "下一阶段用四个页面路由替代旧单页" not in doc
+    assert "下一阶段前端目标是不再保留" not in doc
