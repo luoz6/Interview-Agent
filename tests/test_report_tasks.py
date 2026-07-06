@@ -399,6 +399,29 @@ def test_generate_report_for_session_saves_failed_record_when_retrieval_is_unava
     assert record.report is None
 
 
+def test_generate_report_for_session_saves_failed_record_when_knowledge_store_is_unconfigured(
+    monkeypatch,
+):
+    import app.services.report_tasks as report_tasks
+
+    monkeypatch.setattr(
+        report_tasks,
+        "get_knowledge_store",
+        lambda: (_ for _ in ()).throw(KeyError("POSTGRES_DSN")),
+    )
+    store = InterviewSessionStore(llm=ReportLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    generate_report_for_session(session.session_id, store)
+
+    record = store.get_report_record(session.session_id)
+    assert record.status == "failed"
+    assert "POSTGRES_DSN" in record.error
+    assert record.report is None
+
+
 def test_generate_report_for_session_saves_completed_fallback_when_evidence_is_insufficient():
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):

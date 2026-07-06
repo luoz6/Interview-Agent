@@ -52,11 +52,17 @@ def generate_report_for_session(
     session_id: str,
     store: InterviewSessionStore,
 ) -> None:
+    try:
+        vector_store = get_knowledge_store()
+    except Exception as exc:
+        store.fail_report(session_id, str(exc))
+        return
+
     run_report_generation(
         session_id=session_id,
         store=store,
         llm=_resolve_llm(store),
-        vector_store=get_knowledge_store(),
+        vector_store=vector_store,
     )
 
 
