@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "build:prototype-css": "tailwindcss -i ./app/static/prototype-source.css -o ./app/static/prototype.css --minify --content \"./app/test*.html\" \"./app/static/*.js\""
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}
