@@ -72,20 +72,81 @@ class OpenAIInterviewLLM:
     def generate_plan(self, job_description: str, resume_text: str):
         from app.services.prep import InterviewPlan
 
-        prompt = (
-            "浣犳槸涓€涓弗鏍肩殑鎶€鏈潰璇曞畼銆傝鏍规嵁鍊欓€変汉鐨?JD 鍜岀畝鍘嗙敓鎴愪竴浠界粨鏋勫寲闈㈣瘯澶х翰銆俓n"
-            "瑕佹眰锛歕n"
-            "1. 鑷冲皯鍖呭惈椤圭洰棰樸€佹妧鏈繁鎸栭銆佺郴缁熻璁￠涓夌被闂銆俓n"
-            "2. 闂蹇呴』璐村悎鍊欓€変汉鐨勭湡瀹炵粡鍘嗭紝涓嶈鐢熸垚娉涙硾鑰岃皥鐨勯棶棰樸€俓n"
-            "3. 杈撳嚭蹇呴』涓ユ牸绗﹀悎 InterviewPlan 鐨勭粨鏋勫寲瀛楁銆俓n\n"
-            f"JD:\n{job_description}\n\n"
-            f"绠€鍘?\n{resume_text}"
+        prompt = self._build_plan_prompt(
+            job_description=job_description,
+            resume_text=resume_text,
         )
+        try:
+            return self._invoke_structured_plan(prompt, InterviewPlan)
+        except Exception as exc:
+            logger.warning(
+                "Structured interview plan output failed, trying raw JSON path",
+                extra={"reason": str(exc)},
+            )
+
+        payload = self._invoke_raw_json_plan(prompt)
+        try:
+            return InterviewPlan.model_validate(payload)
+        except ValidationError as exc:
+            raise ValueError(f"raw interview plan JSON schema validation failed: {exc}") from exc
+
+    def _build_plan_prompt(self, *, job_description: str, resume_text: str) -> str:
+        expected_shape = {
+            "title": "Backend interview plan",
+            "questions": [
+                {
+                    "id": "q1",
+                    "kind": "project",
+                    "prompt": "Ask one concrete interview question.",
+                    "focus": "What this question evaluates.",
+                },
+                {
+                    "id": "q2",
+                    "kind": "technical",
+                    "prompt": "Ask one concrete interview question.",
+                    "focus": "What this question evaluates.",
+                },
+                {
+                    "id": "q3",
+                    "kind": "system-design",
+                    "prompt": "Ask one concrete interview question.",
+                    "focus": "What this question evaluates.",
+                },
+            ],
+        }
+        return (
+            "You are a senior technical interviewer.\n"
+            "Create a focused mock interview plan from the job description and resume.\n"
+            "Return exactly 3 to 5 questions.\n"
+            "Each question kind must be one of: project, technical, system-design, behavioral.\n"
+            "Use stable ids q1, q2, q3, and continue in order if more questions are needed.\n"
+            "Questions should be specific to the candidate's resume and the target job.\n"
+            "Return valid JSON only. Do not return markdown.\n"
+            "Use this JSON shape exactly:\n"
+            f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
+            f"Job description:\n{job_description}\n\n"
+            f"Resume:\n{resume_text}"
+        )
+
+    def _invoke_structured_plan(self, prompt: str, schema):
         structured_model = self.chat_model.with_structured_output(
-            InterviewPlan,
+            schema,
             method="json_schema",
         )
-        return structured_model.invoke(prompt)
+        result = structured_model.invoke(prompt)
+        if isinstance(result, schema):
+            return result
+        return schema.model_validate(result)
+
+    def _invoke_raw_json_plan(self, prompt: str) -> dict[str, Any]:
+        fallback_prompt = (
+            f"{prompt}\n\n"
+            "Return valid JSON only. Use the JSON shape exactly. "
+            "Do not wrap the JSON in markdown code fences."
+        )
+        message = self.chat_model.invoke(fallback_prompt)
+        content = str(getattr(message, "content", message)).strip()
+        return self._parse_raw_json_payload(content)
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         prompt = _build_followup_prompt(context)
@@ -247,7 +308,7 @@ class OpenAIInterviewLLM:
             return json.loads(_extract_json_object(content))
         except (json.JSONDecodeError, ValueError) as exc:
             raise ReportOutputFormatError(
-                f"raw report JSON schema validation failed: {exc}"
+                f"raw LLM JSON response parsing failed: {exc}"
             ) from exc
 
     def _normalize_and_assemble_report(
@@ -344,13 +405,12 @@ def _build_followup_prompt(context: list[dict[str, str]]) -> str:
         f"{item['role']}: {item['content']}" for item in context if item.get("content")
     )
     return (
-        "浣犳槸涓€涓湁鍘嬭揩鎰熶絾涓撲笟鐨勬妧鏈潰璇曞畼銆傝鏍规嵁涓嬮潰鏈€杩戝嚑杞潰璇曚笂涓嬫枃锛?"
-        "鍙敓鎴愪竴涓皷閿愮殑杩介棶銆俓n"
-        "瑕佹眰锛歕n"
-        "1. 杩介棶蹇呴』鍩轰簬鍊欓€変汉鍒氭墠鐨勫洖绛斻€俓n"
-        "2. 浼樺厛杩介棶鍙栬垗銆佽竟鐣屾潯浠躲€佹晠闅滃厹搴曘€佹€ц兘鐡堕鎴栨簮鐮佸師鐞嗐€俓n"
-        "3. 涓嶈杈撳嚭瑙ｉ噴锛屼笉瑕佽緭鍑哄閬撻锛屽彧杈撳嚭杩介棶鏈韩銆俓n\n"
-        f"涓婁笅鏂?\n{transcript}"
+        "You are a professional technical interviewer.\n"
+        "Based on the recent interview context, ask exactly one sharp follow-up question.\n"
+        "The follow-up must be grounded in the candidate's latest answer.\n"
+        "Prefer tradeoffs, edge cases, fallback plans, performance bottlenecks, or source-code reasoning.\n"
+        "Return only the follow-up question, without explanation.\n\n"
+        f"Recent context:\n{transcript}"
     )
 
 
@@ -358,5 +418,5 @@ def _extract_json_object(content: str) -> str:
     start = content.find("{")
     end = content.rfind("}")
     if start == -1 or end == -1 or end < start:
-        raise ValueError("report response did not contain a JSON object")
+        raise ValueError("LLM response did not contain a JSON object")
     return content[start : end + 1]

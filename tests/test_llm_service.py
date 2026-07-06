@@ -58,6 +58,35 @@ class FakeChatModel:
         return FakeStructuredModel()
 
 
+class FailingPlanStructuredModel:
+    def invoke(self, prompt: str):
+        raise RuntimeError(
+            "Error code: 400 - {'error': {'message': 'This response_format type is unavailable now'}}"
+        )
+
+
+class FakeJsonMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class FallbackPlanChatModel:
+    def __init__(self, content: str):
+        self.content = content
+        self.schema = None
+        self.method = None
+        self.last_prompt = None
+
+    def with_structured_output(self, schema, method=None):
+        self.schema = schema
+        self.method = method
+        return FailingPlanStructuredModel()
+
+    def invoke(self, prompt: str):
+        self.last_prompt = prompt
+        return FakeJsonMessage(self.content)
+
+
 def test_openai_interview_llm_uses_structured_output_for_plan():
     chat_model = FakeChatModel()
     llm = OpenAIInterviewLLM(chat_model=chat_model)
@@ -67,6 +96,81 @@ def test_openai_interview_llm_uses_structured_output_for_plan():
     assert plan.title == "LLM generated mock interview"
     assert chat_model.schema is InterviewPlan
     assert chat_model.method == "json_schema"
+
+
+def test_openai_interview_llm_generate_plan_has_no_unreachable_legacy_prompt():
+    import inspect
+
+    source = inspect.getsource(OpenAIInterviewLLM.generate_plan)
+
+    assert "return structured_model.invoke(prompt)" not in source
+    assert "structured_model = self.chat_model.with_structured_output" not in source
+    assert "self._invoke_structured_plan(prompt, InterviewPlan)" in source
+    assert "self._invoke_raw_json_plan(prompt)" in source
+
+
+def test_openai_interview_llm_falls_back_to_json_for_plan_when_structured_output_fails():
+    chat_model = FallbackPlanChatModel(
+        """
+        ```json
+        {
+          "title": "DeepSeek compatible backend interview",
+          "questions": [
+            {
+              "id": "q1",
+              "kind": "project",
+              "prompt": "Explain your FastAPI backend project and your role.",
+              "focus": "project ownership"
+            },
+            {
+              "id": "q2",
+              "kind": "technical",
+              "prompt": "How do you keep Redis cache data consistent?",
+              "focus": "redis consistency"
+            },
+            {
+              "id": "q3",
+              "kind": "system-design",
+              "prompt": "How would you scale the service under 10x traffic?",
+              "focus": "system scalability"
+            }
+          ]
+        }
+        ```
+        """
+    )
+    llm = OpenAIInterviewLLM(chat_model=chat_model)
+
+    plan = llm.generate_plan("Backend JD", "FastAPI Redis resume")
+
+    assert plan.title == "DeepSeek compatible backend interview"
+    assert [question.id for question in plan.questions] == ["q1", "q2", "q3"]
+    assert chat_model.schema is InterviewPlan
+    assert chat_model.method == "json_schema"
+    assert "Return valid JSON only" in chat_model.last_prompt
+    assert "FastAPI Redis resume" in chat_model.last_prompt
+
+
+def test_openai_interview_llm_rejects_invalid_json_plan_fallback():
+    chat_model = FallbackPlanChatModel(
+        """
+        {
+          "title": "bad",
+          "questions": [
+            {
+              "id": "q1",
+              "kind": "invalid",
+              "prompt": "Explain a project.",
+              "focus": "project"
+            }
+          ]
+        }
+        """
+    )
+    llm = OpenAIInterviewLLM(chat_model=chat_model)
+
+    with pytest.raises(ValueError, match="raw interview plan JSON schema validation failed"):
+        llm.generate_plan("Backend JD", "FastAPI Redis resume")
 
 
 class FakeMessage:
