@@ -187,3 +187,30 @@ def test_report_detail_uses_reference_excerpt_field():
 
     assert "reference.excerpt" in js
     assert "reference.content" not in js
+
+
+def test_interview_page_disables_all_controls_without_session_id():
+    js = read_static_file("interview.js")
+
+    assert 'const sendAnswerButton = byId("sendAnswerButton")' in js
+    assert "function hasSession()" in js
+    assert "showNotice(interviewNotice, \"缺少 session_id，请从准备页开始面试\", \"danger\")" in js
+    assert "setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], true)" in js
+    assert "if (!hasSession()) return;" in js
+
+
+def test_report_processing_page_uses_safe_json_and_disables_view_without_session_id():
+    js = read_static_file("report-processing.js")
+
+    assert 'import { getJson, getSessionId, safeJson } from "./api.js";' in js
+    assert "viewReportButton.disabled = true" in js
+    assert "const body = await safeJson(reportResponse);" in js
+    assert "window.clearTimeout(timer)" in js
+
+
+def test_report_detail_page_disables_pdf_without_session_id_and_preserves_report_on_download_failure():
+    js = read_static_file("report-detail.js")
+
+    assert "downloadReportButton.disabled = true" in js
+    assert "showNotice(reportNotice, error.message, \"danger\")" in js
+    assert "renderReportError" not in js

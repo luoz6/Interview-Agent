@@ -6,15 +6,18 @@ const conversation = byId("conversation");
 const currentQuestion = byId("currentQuestion");
 const answerForm = byId("answerForm");
 const answerInput = byId("answerInput");
+const sendAnswerButton = byId("sendAnswerButton");
 const skipQuestionButton = byId("skipQuestionButton");
 const finishInterviewButton = byId("finishInterviewButton");
 const questionPlan = byId("questionPlan");
 const topicTags = byId("topicTags");
 const interviewNotice = byId("interviewNotice");
 
-if (!sessionId) {
+function hasSession() {
+  if (sessionId) return true;
   showNotice(interviewNotice, "缺少 session_id，请从准备页开始面试", "danger");
-  setBusy([answerInput, skipQuestionButton, finishInterviewButton], true);
+  setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], true);
+  return false;
 }
 
 function renderMessages(messages) {
@@ -79,6 +82,8 @@ async function loadSnapshot() {
 
 async function submitAnswer(event) {
   event.preventDefault();
+  if (!hasSession()) return;
+
   const answer = answerInput.value.trim();
   if (!answer) {
     showNotice(interviewNotice, "回答不能为空", "warning");
@@ -113,11 +118,13 @@ async function submitAnswer(event) {
 }
 
 async function skipQuestion() {
+  if (!hasSession()) return;
   await postJson(`/api/interviews/${sessionId}/skip`, {});
   await loadSnapshot();
 }
 
 async function finishInterview() {
+  if (!hasSession()) return;
   await postJson(`/api/interviews/${sessionId}/finish`, {});
   window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
 }
@@ -134,6 +141,6 @@ finishInterviewButton.addEventListener("click", () => {
   finishInterview().catch((error) => showNotice(interviewNotice, error.message, "danger"));
 });
 
-if (sessionId) {
+if (hasSession()) {
   loadSnapshot().catch((error) => showNotice(interviewNotice, error.message, "danger"));
 }

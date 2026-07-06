@@ -103,6 +103,7 @@ downloadReportButton.addEventListener("click", () => {
 });
 
 if (!sessionId) {
+  downloadReportButton.disabled = true;
   showNotice(reportNotice, "缺少 session_id，请从报告生成页进入", "danger");
 } else {
   loadReport().catch((error) => showNotice(reportNotice, error.message, "danger"));

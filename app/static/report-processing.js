@@ -1,4 +1,4 @@
-import { getJson, getSessionId } from "./api.js";
+import { getJson, getSessionId, safeJson } from "./api.js";
 import { byId, clear, createEl, formatPercent, renderEmptyState, setText, showNotice } from "./shared-ui.js";
 
 const sessionId = getSessionId();
@@ -9,6 +9,13 @@ const viewReportButton = byId("viewReportButton");
 const processingNotice = byId("processingNotice");
 
 let timer = null;
+
+function stopPolling() {
+  if (timer) {
+    window.clearTimeout(timer);
+    timer = null;
+  }
+}
 
 function renderProgress(progress) {
   if (!progress) {
@@ -45,11 +52,13 @@ async function poll() {
     return;
   }
   if (reportResponse.status === 404 || reportResponse.status === 409 || reportResponse.status >= 500) {
-    const body = await reportResponse.json().catch(() => ({}));
+    stopPolling();
+    const body = await safeJson(reportResponse);
     showNotice(processingNotice, body.detail || "报告暂不可用，请稍后重试。", "danger");
     return;
   }
   if (reportResponse.status !== 202) {
+    stopPolling();
     showNotice(processingNotice, "报告暂不可用，请稍后重试。", "danger");
     return;
   }
@@ -64,6 +73,7 @@ viewReportButton.addEventListener("click", () => {
 });
 
 if (!sessionId) {
+  viewReportButton.disabled = true;
   showNotice(processingNotice, "缺少 session_id，请从面试页进入", "danger");
 } else {
   poll().catch((error) => showNotice(processingNotice, error.message, "danger"));
