@@ -149,10 +149,18 @@ answerForm.addEventListener("submit", (event) => {
   submitAnswer(event).catch((error) => showNotice(interviewNotice, error.message, "danger"));
 });
 
+function submitAnswerFromKeyboard() {
+  if (typeof answerForm.requestSubmit === "function") {
+    answerForm.requestSubmit();
+    return;
+  }
+  sendAnswerButton.click();
+}
+
 answerInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
-    answerForm.requestSubmit();
+    submitAnswerFromKeyboard();
   }
 });
 
