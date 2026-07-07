@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable
-
 from app.graphs.interview_state import InterviewState
 from app.services.evaluator import build_evaluation_chunks, build_fallback_report
 from app.services.llm import InterviewLLM
@@ -71,10 +70,12 @@ class ExpertShadowEvaluator:
                     message="Analyzing question-level dimension scores.",
                     current_question_id=chunks[0].question_id if chunks else None,
                 )
-            )
+        )
 
         try:
-            report = self._llm.generate_report(
+            from app.agents.report_coach import ReportCoachAgent
+
+            report = ReportCoachAgent(llm=self._llm).generate_report(
                 plan=state["plan"],
                 evaluation_items=evaluation_items,
                 session_id=state["session_id"],

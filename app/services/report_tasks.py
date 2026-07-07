@@ -1,4 +1,5 @@
-from app.services.evaluator_ext import ExpertShadowEvaluator
+from app.agents.shadow_reviewer import ShadowReviewerAgent
+from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import ReportGenerationFailed, ReportGenerationTimeout
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import get_knowledge_store
@@ -17,12 +18,22 @@ def execute_report_generation(
     def publish_progress(progress):
         store.update_report_progress(session_id, progress)
 
-    evaluator = ExpertShadowEvaluator(
+    evaluator = ShadowReviewerAgent(
         llm=llm,
         vector_store=vector_store,
     )
     report = evaluator.evaluate(state, on_progress=publish_progress)
     store.save_report(session_id, report)
+    store.save_question_evaluations(
+        session_id,
+        [
+            question_evaluation_from_feedback(
+                session_id=session_id,
+                feedback=feedback,
+            )
+            for feedback in report.feedbacks
+        ],
+    )
     return report
 
 

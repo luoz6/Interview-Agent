@@ -11,7 +11,11 @@ from app.services.report import (
     ReportGenerationFailed,
     ReportGenerationTimeout,
 )
-from app.services.report_tasks import generate_report_for_session, run_report_generation
+from app.services.report_tasks import (
+    execute_report_generation,
+    generate_report_for_session,
+    run_report_generation,
+)
 from app.services.session import InterviewSessionStore
 
 
@@ -236,6 +240,7 @@ class FakeStore:
         self._state = state
         self.progress_updates: list[object] = []
         self.saved_report = None
+        self.saved_question_evaluations = []
         self.failed_error = None
 
     def get(self, session_id: str):
@@ -249,6 +254,10 @@ class FakeStore:
     def save_report(self, session_id: str, report) -> None:
         assert session_id == self._state["session_id"]
         self.saved_report = report
+
+    def save_question_evaluations(self, session_id: str, records) -> None:
+        assert session_id == self._state["session_id"]
+        self.saved_question_evaluations = records
 
     def fail_report(self, session_id: str, error: str) -> None:
         assert session_id == self._state["session_id"]
@@ -324,9 +333,32 @@ def test_run_report_generation_returns_report_and_persists_side_effects():
     assert report.session_id == "s1"
     assert report.overall_score == 88
     assert store.saved_report is report
+    assert store.saved_question_evaluations[0].question_id == "q1"
     assert store.failed_error is None
     assert store.progress_updates
     assert vector_store.search_calls
+
+
+def test_execute_report_generation_saves_question_evaluations():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    store = InterviewSessionStore()
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    report = execute_report_generation(
+        session_id=session.session_id,
+        store=store,
+        llm=ReportLLM(),
+        vector_store=FakeVectorStore(),
+    )
+
+    saved = store.list_question_evaluations(session.session_id)
+    assert report.feedbacks[0].question_id == saved[0].question_id
+    assert saved[0].status == "completed"
 
 
 def test_run_report_generation_marks_failed_status_when_execution_raises():
