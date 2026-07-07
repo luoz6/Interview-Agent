@@ -295,6 +295,17 @@
                     </div>
                 </div>
 
+                <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 overflow-hidden">
+                    <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-sm font-bold text-gray-800">逐题评估链路</h3>
+                            <p class="text-xs text-gray-400 mt-1">展示后台 QuestionEvaluationRecord，帮助追踪每题状态、评分依据与改进建议。</p>
+                        </div>
+                        <span id="questionEvaluationStatus" class="text-[12px] text-gray-400">等待加载</span>
+                    </div>
+                    <div id="questionEvaluationList" class="divide-y divide-gray-100"></div>
+                </section>
+
                 <div>
                     <h3 class="text-sm font-bold text-gray-800 mb-3">RAG 证据引用（部分）</h3>
                     <div id="evidenceList" class="relative grid grid-cols-3 gap-4">

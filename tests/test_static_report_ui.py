@@ -97,6 +97,14 @@ def test_report_detail_page_has_runtime_hooks():
     assert "/static/report-detail.js" in html
 
 
+def test_report_detail_page_has_question_evaluation_hooks():
+    html = read_app_file("test1.html")
+
+    assert 'id="questionEvaluationStatus"' in html
+    assert 'id="questionEvaluationList"' in html
+    assert "逐题评估链路" in html
+
+
 def test_shared_ui_maps_dimensions_to_chinese():
     js = read_static_file("shared-ui.js")
 
