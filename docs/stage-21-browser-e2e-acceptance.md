@@ -65,23 +65,39 @@ Out of scope: user login, account isolation, startup scripts, Playwright/browser
 | `npm run build:prototype-css` | Pass |
 | `F:\python3.11\python.exe -m pytest -q` | Pending |
 
-## Stage 24 Execution Notes
+## Stage 24 Carry-Forward
+
+Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run covers the same browser path plus built-in PostgreSQL defaults, worker-delayed report completion, service restart persistence, question evaluation trace, and PDF download.
+
+## Stage 25 RC Execution Notes
 
 | Item | Value |
 | --- | --- |
 | Execution date | 2026-07-07 |
 | Browser | Pending manual execution |
 | Server URL | `http://127.0.0.1:8000` |
-| Runtime store | PostgreSQL |
+| Runtime store | PostgreSQL with built-in local PostgreSQL defaults |
+| Database | `postgresql://postgres:postgres@127.0.0.1:5432/interview` |
 | LLM provider | DeepSeek-compatible OpenAI API |
 | Knowledge chunks | Pending database check |
-| Question evaluation UI | Pending manual execution |
+| Report worker | Pending manual execution |
+| Question evaluation trace | Pending manual execution |
+| PDF download | Pending manual execution |
 
-## Stage 24 Defect Log
+## Stage 25 RC Resilience Checklist
+
+| Step | Expected result | Result | Notes |
+| --- | --- | --- | --- |
+| Built-in local PostgreSQL defaults | Clearing `POSTGRES_DSN`, `INTERVIEW_RUNTIME_STORE`, `INTERVIEW_RUNTIME_TABLE_PREFIX`, and `PGVECTOR_TABLE` still resolves runtime stores to `postgresql://postgres:postgres@127.0.0.1:5432/interview` | Pending |  |
+| Worker-delayed report completion | Finishing an interview while the report worker is stopped leaves processing visible; starting the worker completes the report | Pending |  |
+| Service restart persistence | Restarting FastAPI after report completion still loads `/report-detail?session_id=...` from PostgreSQL | Pending |  |
+| Question evaluation trace | `/report-detail?session_id=...` shows saved question evaluation records loaded from `/api/interviews/{session_id}/question-evaluations` | Pending |  |
+
+## Stage 25 RC Defect Log
 
 | ID | Severity | Page/API | Symptom | Fix commit | Verification |
 | --- | --- | --- | --- | --- | --- |
-| None | - | - | No Stage 24 browser defects recorded; manual browser execution is still pending | - | Automated static checks passed |
+| None | - | - | No Stage 25 RC browser defects recorded yet | - | - |
 
 ## Final Status
 

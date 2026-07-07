@@ -142,3 +142,17 @@ def test_docs_describe_stage_25_local_v1_rc_acceptance():
     for phrase in expected_phrases:
         assert phrase in readme
         assert phrase in runbook
+
+
+def test_stage_25_acceptance_record_has_rc_sections():
+    record = read_text("docs/stage-21-browser-e2e-acceptance.md")
+
+    assert "## Stage 24 Carry-Forward" in record
+    assert "Stage 24 acceptance is superseded by Stage 25 RC acceptance" in record
+    assert "## Stage 25 RC Execution Notes" in record
+    assert "## Stage 25 RC Resilience Checklist" in record
+    assert "## Stage 25 RC Defect Log" in record
+    assert "worker-delayed report completion" in record
+    assert "service restart persistence" in record
+    assert "built-in local PostgreSQL defaults" in record
+    assert "No Stage 24 browser defects recorded; manual browser execution is still pending" not in record
