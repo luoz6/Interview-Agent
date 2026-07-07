@@ -228,6 +228,24 @@ def test_interview_page_disables_all_controls_without_session_id():
     assert "if (!hasSession()) return;" in js
 
 
+def test_interview_page_streams_followup_inside_conversation_and_enter_submits():
+    html = read_app_file("test3.html")
+    js = read_static_file("interview.js")
+
+    assert "按 Enter 提交，Shift+Enter 换行" in html
+    assert "function appendMessage(" in js
+    assert "function createStreamingAssistantMessage()" in js
+    assert "streamingBubble.textContent = streamedText" in js
+    assert "answerInput.addEventListener(\"keydown\"" in js
+    assert "event.key === \"Enter\"" in js
+    assert "event.shiftKey" in js
+    assert "event.isComposing" in js
+    assert "answerForm.requestSubmit()" in js
+
+    chunk_handler = js[js.index("chunk(data)") : js.index("done(data)")]
+    assert "showNotice(interviewNotice, streamedText" not in chunk_handler
+
+
 def test_report_processing_page_uses_safe_json_and_disables_view_without_session_id():
     js = read_static_file("report-processing.js")
 

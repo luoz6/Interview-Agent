@@ -27,12 +27,21 @@ function renderMessages(messages) {
     return;
   }
   for (const message of messages || []) {
-    const role = message.role || message.speaker || "system";
-    const item = createEl("article", `flex items-start gap-4 message-${role}`);
-    const bubble = createEl("div", "bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed", message.content || message.text || "");
-    item.appendChild(bubble);
-    conversation.appendChild(item);
+    appendMessage(message.role || message.speaker || "system", message.content || message.text || "");
   }
+}
+
+function appendMessage(role, text) {
+  const item = createEl("article", `flex items-start gap-4 message-${role}`);
+  const bubble = createEl("div", "bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed whitespace-pre-wrap", text || "");
+  item.appendChild(bubble);
+  conversation.appendChild(item);
+  conversation.scrollTop = conversation.scrollHeight;
+  return bubble;
+}
+
+function createStreamingAssistantMessage() {
+  return appendMessage("assistant", "");
 }
 
 function renderCurrentQuestion(question) {
@@ -90,7 +99,11 @@ async function submitAnswer(event) {
     return;
   }
 
-  setBusy([answerInput, skipQuestionButton, finishInterviewButton], true);
+  appendMessage("candidate", answer);
+  const streamingBubble = createStreamingAssistantMessage();
+  answerInput.value = "";
+
+  setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], true);
   try {
     const response = await fetch(`/api/interviews/${sessionId}/answer/stream`, {
       method: "POST",
@@ -101,10 +114,10 @@ async function submitAnswer(event) {
     await readSse(response, {
       chunk(data) {
         streamedText += data.delta || "";
-        showNotice(interviewNotice, streamedText, "info");
+        streamingBubble.textContent = streamedText;
+        conversation.scrollTop = conversation.scrollHeight;
       },
       done(data) {
-        answerInput.value = "";
         renderSnapshot(data);
       },
       error(data) {
@@ -112,8 +125,11 @@ async function submitAnswer(event) {
       },
     });
     await loadSnapshot();
+  } catch (error) {
+    answerInput.value = answer;
+    throw error;
   } finally {
-    setBusy([answerInput, skipQuestionButton, finishInterviewButton], false);
+    setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], false);
   }
 }
 
@@ -131,6 +147,13 @@ async function finishInterview() {
 
 answerForm.addEventListener("submit", (event) => {
   submitAnswer(event).catch((error) => showNotice(interviewNotice, error.message, "danger"));
+});
+
+answerInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    answerForm.requestSubmit();
+  }
 });
 
 skipQuestionButton.addEventListener("click", () => {
