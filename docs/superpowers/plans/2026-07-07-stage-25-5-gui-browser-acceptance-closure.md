@@ -193,7 +193,22 @@ Expected:
 - Worker remains running.
 - Worker logs do not show startup errors.
 
-- [ ] **Step 3: Confirm worker can see the default runtime tables**
+- [ ] **Step 3: Warm up the default session store schema**
+
+Before checking runtime tables, force the FastAPI process to instantiate `PostgresInterviewSessionStore`. The report worker initializes report job tables on startup, but session/message/question-evaluation tables are created when the session store is first constructed.
+
+Run:
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/reports'
+```
+
+Expected:
+
+- The request returns a JSON object with `items` and `total`.
+- This request initializes the default session store and creates `interview_sessions`, `interview_messages`, `interview_reports`, and `interview_question_evaluations` if they were not already present.
+
+- [ ] **Step 4: Confirm worker and server can see the default runtime tables**
 
 Run in a third PowerShell window:
 
@@ -407,7 +422,28 @@ Expected:
 
 Record `PDF download` as `Pass` or `Fail`.
 
-- [ ] **Step 11: Commit main browser-flow evidence**
+- [ ] **Step 11: Update Stage 25 RC execution notes**
+
+In `docs/stage-21-browser-e2e-acceptance.md`, update the `Stage 25 RC Execution Notes` table so the browser block is closed explicitly during the main GUI run.
+
+Use this shape, replacing `Chrome` with the actual browser if different:
+
+```markdown
+| Browser | Chrome |
+| Server URL | `http://127.0.0.1:8000` |
+| Runtime store | PostgreSQL with built-in local PostgreSQL defaults |
+| Report worker | Pass via default worker process |
+| Question evaluation trace | Pass via GUI and API: browser rendered records and `/question-evaluations` returned `total > 0` |
+| PDF download | Pass via GUI download |
+```
+
+Do not leave the old value:
+
+```markdown
+| Browser | Blocked: no GUI browser/control available in this tool session |
+```
+
+- [ ] **Step 12: Commit main browser-flow evidence**
 
 After updating the checklist rows in `docs/stage-21-browser-e2e-acceptance.md`, run:
 
