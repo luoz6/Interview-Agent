@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
+from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
-from app.services.report_tasks import generate_report_for_session
 from app.services.runtime_events import (
     InterviewStreamChunkEvent,
     InterviewStreamDoneEvent,
@@ -149,7 +149,13 @@ def submit_answer(
         turn = store.submit_answer(session_id, payload.answer)
     except ValueError as exc:
         _raise_value_error(exc)
-    _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+    enqueue_report_if_needed(
+        turn_status=turn.status,
+        session_id=session_id,
+        store=store,
+        job_store_factory=get_report_job_store,
+        background_tasks=background_tasks,
+    )
     return _turn_to_dict(turn)
 
 
@@ -182,7 +188,13 @@ def submit_answer_stream(
                 follow_up_text=follow_up_text,
             )
             turn = store._to_turn(finalized_state, follow_up=_extract_follow_up(finalized_state))
-            _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+            enqueue_report_if_needed(
+                turn_status=turn.status,
+                session_id=session_id,
+                store=store,
+                job_store_factory=get_report_job_store,
+                background_tasks=background_tasks,
+            )
             yield InterviewStreamDoneEvent(turn=_turn_to_dict(turn)).to_sse()
         except Exception as exc:  # pragma: no cover - defensive streaming boundary
             yield InterviewStreamErrorEvent(detail=str(exc)).to_sse()
@@ -208,7 +220,13 @@ def finish_interview(
         turn = store.finish(session_id)
     except ValueError as exc:
         _raise_value_error(exc)
-    _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+    enqueue_report_if_needed(
+        turn_status=turn.status,
+        session_id=session_id,
+        store=store,
+        job_store_factory=get_report_job_store,
+        background_tasks=background_tasks,
+    )
     return _turn_to_dict(turn)
 
 
@@ -222,7 +240,13 @@ def skip_interview_question(
         turn = store.skip(session_id)
     except ValueError as exc:
         _raise_value_error(exc)
-    _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
+    enqueue_report_if_needed(
+        turn_status=turn.status,
+        session_id=session_id,
+        store=store,
+        job_store_factory=get_report_job_store,
+        background_tasks=background_tasks,
+    )
     return _turn_to_dict(turn)
 
 
@@ -428,23 +452,6 @@ def _rag_progress_defaults() -> dict:
         "source_types": ["theory", "expert_benchmark"],
         "matched_chunks": None,
     }
-
-
-def _schedule_report_if_needed(
-    turn_status: str,
-    session_id: str,
-    background_tasks: BackgroundTasks,
-    store: InterviewSessionStore,
-) -> None:
-    if turn_status != "finished":
-        return
-    if store.get_report_record(session_id) is not None:
-        return
-    try:
-        get_report_job_store().enqueue_report_request(session_id)
-    except RuntimeError:
-        if store.mark_report_processing(session_id):
-            background_tasks.add_task(generate_report_for_session, session_id, store)
 
 
 def _extract_follow_up(state) -> str | None:
