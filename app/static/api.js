@@ -7,6 +7,10 @@ export async function getJson(url) {
   return parseJsonResponse(response);
 }
 
+export function getQuestionEvaluations(sessionId) {
+  return getJson(`/api/interviews/${sessionId}/question-evaluations`);
+}
+
 export async function postJson(url, payload = {}) {
   const response = await fetch(url, {
     method: "POST",

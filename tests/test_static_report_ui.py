@@ -165,6 +165,14 @@ def test_api_js_handles_non_json_error_bodies():
     assert "PDF download failed" in js
 
 
+def test_api_js_exposes_question_evaluation_helper():
+    js = read_static_file("api.js")
+
+    assert "export function getQuestionEvaluations(sessionId)" in js
+    assert "`/api/interviews/${sessionId}/question-evaluations`" in js
+    assert "return getJson(" in js
+
+
 def test_page_scripts_expose_busy_and_empty_states():
     combined = "\n".join(
         read_static_file(name)
