@@ -300,6 +300,22 @@ def get_interview_report_progress(
     )
 
 
+@router.get("/interviews/{session_id}/question-evaluations")
+def get_interview_question_evaluations(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+):
+    try:
+        records = store.list_question_evaluations(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+    return {
+        "session_id": session_id,
+        "items": [record.model_dump() for record in records],
+        "total": len(records),
+    }
+
+
 def _turn_to_dict(turn):
     return {
         "session_id": turn.session_id,

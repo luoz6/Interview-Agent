@@ -181,6 +181,34 @@ def test_report_endpoint_returns_404_for_unknown_session():
     assert response.status_code == 404
 
 
+def test_get_question_evaluations_returns_saved_records():
+    from app.services.question_evaluations import question_evaluation_from_feedback
+
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    feedback = InterviewFeedback(
+        question_id="q1",
+        question_text="Introduce a backend project.",
+        user_answer="The candidate built a backend cache service.",
+        score=80,
+        dimension_scores=make_dimension_scores(80),
+        rationale="Covered the basic pattern.",
+        critique="Needs more failure handling.",
+        better_answer="Add consistency and retry details.",
+        references=[],
+    )
+    store.save_question_evaluations(
+        session_id,
+        [question_evaluation_from_feedback(session_id=session_id, feedback=feedback)],
+    )
+
+    result = client.get(f"/api/interviews/{session_id}/question-evaluations")
+
+    assert result.status_code == 200
+    assert result.json()["items"][0]["question_id"] == "q1"
+    assert result.json()["items"][0]["feedback"]["score"] == 80
+
+
 def test_report_endpoint_rejects_active_interview():
     client, _, _, _ = make_client()
     session_id = start_interview(client)
