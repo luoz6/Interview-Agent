@@ -10,7 +10,7 @@ from app.services.report import (
     ReportOutputFormatError,
     ReportProgress,
 )
-from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
+from app.services.vector_store import KnowledgeChunk, KnowledgeSearchStore
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class ExpertShadowEvaluator:
     def __init__(
         self,
         llm: InterviewLLM,
-        vector_store: PgVectorKnowledgeStore,
+        vector_store: KnowledgeSearchStore,
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store

@@ -1,8 +1,22 @@
+from __future__ import annotations
+
 import json
 import os
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel
+
+
+class KnowledgeSearchStore(Protocol):
+    def search(
+        self,
+        query_text: str,
+        *,
+        job_tags: list[str],
+        source_types: list[str] | None = None,
+        limit: int = 5,
+    ) -> list["KnowledgeChunk" | dict]:
+        """Search role-relevant knowledge chunks for evaluation."""
 
 
 class KnowledgeChunk(BaseModel):
