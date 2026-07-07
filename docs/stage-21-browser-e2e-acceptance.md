@@ -75,7 +75,7 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | --- | --- |
 | Execution date | 2026-07-07 |
 | Browser | Blocked: no GUI browser/control available in this tool session |
-| Server URL | `http://127.0.0.1:8002` isolated run; `http://127.0.0.1:8000` was occupied by an unrelated stale listener |
+| Server URL | `http://127.0.0.1:8000` |
 | Runtime store | PostgreSQL with built-in local PostgreSQL defaults; isolated run used `INTERVIEW_RUNTIME_TABLE_PREFIX=stage25_rc_0707` |
 | Database | `postgresql://postgres:postgres@127.0.0.1:5432/interview` |
 | LLM provider | DeepSeek-compatible OpenAI API |
@@ -98,7 +98,7 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | ID | Severity | Page/API | Symptom | Fix commit | Verification |
 | --- | --- | --- | --- | --- | --- |
 | S25-ENV-1 | Blocking | Browser acceptance environment | Current tool session has no controllable GUI browser, no installed Playwright/Puppeteer/Selenium, and no browser command on PATH, so manual browser UI acceptance cannot be completed here | - | API/worker/resilience checks passed; manual GUI browser run still required |
-| S25-ENV-2 | Blocking | Local process environment | Stage 25.5 retry still found port 8000 occupied by an unrelated stale listener that does not expose the current `question-evaluations` route; PID 3598 appeared in `netstat`, but `Get-Process` could not see it and elevated `taskkill /PID 3598 /F` returned `process not found` | - | Blocked before GUI browser acceptance; clean or restart the local process environment, then rerun Stage 25.5 Task 1 |
+| S25-ENV-2 | Medium | Local process environment | Closed in Stage 25.5: stale 8000 listener was PID `35980` split across two lines in `netstat` output; the process was stopped and current FastAPI now owns `http://127.0.0.1:8000` | - | `/openapi.json` on 8000 includes `question-evaluations`; default runtime tables verified |
 
 ## Stage 25.5 Attempt Notes
 
@@ -106,10 +106,10 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | --- | --- |
 | Attempt date | 2026-07-07 |
 | Port 8000 health | Pass: `/api/health` returned `ok` |
-| Port 8000 current-route check | Fail: `/openapi.json` did not include `/api/interviews/{session_id}/question-evaluations` |
-| Stale listener PID | `3598` from `netstat -ano` |
-| Stop attempt | Failed: `Get-Process -Id 3598` returned no process; elevated `taskkill /PID 3598 /F` returned `process not found` |
-| Result | Blocked at Stage 25.5 Task 1; GUI browser acceptance was not started |
+| Port 8000 current-route check | Pass: `/openapi.json` includes `/api/interviews/{session_id}/question-evaluations` |
+| Stale listener PID | `35980`; earlier `netstat` wrapped it as `3598` plus `0` on the next line |
+| Stop attempt | Pass: `Stop-Process -Id 35980 -Force` released port 8000 |
+| Result | Stage 25.5 Task 1 unblocked; current FastAPI and report worker are running on the default runtime |
 
 ## Final Status
 
