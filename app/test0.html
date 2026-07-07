@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>报告中心 - 面试智能体</title>
+    <link rel="stylesheet" href="/static/prototype.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+    </style>
+</head>
+<body class="h-screen flex flex-col bg-[#f9fafb] text-gray-800 overflow-hidden">
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide">面试智能体</span>
+        </div>
+
+        <nav class="flex h-full text-sm">
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-house mr-2"></i>首页
+            </a>
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-microphone mr-2"></i>我的面试
+            </a>
+            <a href="/reports" class="px-6 h-full flex items-center text-blue-600 font-medium border-b-2 border-blue-600">
+                <i class="fa-solid fa-file-lines mr-2"></i>报告中心
+            </a>
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-regular fa-circle-question mr-2"></i>帮助
+            </a>
+        </nav>
+
+        <div class="flex items-center gap-3">
+            <button id="refreshReportsButton" type="button" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors flex items-center gap-2">
+                <i class="fa-solid fa-rotate-right text-gray-500"></i>刷新
+            </button>
+            <button id="startNewInterviewButton" type="button" class="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition-colors shadow-md shadow-blue-200 flex items-center gap-2">
+                <i class="fa-regular fa-clipboard"></i>再次模拟
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="flex items-end justify-between mb-6">
+                <div>
+                    <h1 class="text-2xl font-bold mb-1">报告中心</h1>
+                    <p class="text-xs text-gray-500">查看本地已生成、生成中或失败的面试报告。</p>
+                </div>
+                <span id="reportsStatus" class="text-[12px] text-gray-400">等待加载</span>
+            </div>
+
+            <section id="reportsList" class="space-y-4"></section>
+        </div>
+    </main>
+
+    <script type="module" src="/static/report-center.js?v=20260707-report-actions"></script>
+</body>
+</html>

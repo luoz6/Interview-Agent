@@ -9,6 +9,8 @@ const evidenceList = byId("evidenceList");
 const questionEvaluationStatus = byId("questionEvaluationStatus");
 const questionEvaluationList = byId("questionEvaluationList");
 const downloadReportButton = byId("downloadReportButton");
+const retryInterviewButton = byId("retryInterviewButton");
+const reportCenterButton = byId("reportCenterButton");
 const reportNotice = byId("reportNotice");
 
 function renderDimensions(scores) {
@@ -153,6 +155,14 @@ downloadReportButton.addEventListener("click", () => {
     `/api/interviews/${sessionId}/report.pdf`,
     `interview-report-${sessionId}.pdf`,
   ).catch((error) => showNotice(reportNotice, error.message, "danger"));
+});
+
+retryInterviewButton.addEventListener("click", () => {
+  window.location.href = "/prep";
+});
+
+reportCenterButton.addEventListener("click", () => {
+  window.location.href = "/reports";
 });
 
 if (!sessionId) {

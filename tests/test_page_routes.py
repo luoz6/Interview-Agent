@@ -39,3 +39,11 @@ def test_report_detail_route_serves_report_page():
 
     assert response.status_code == 200
     assert "结构化面评报告" in response.text
+
+
+def test_reports_route_serves_report_center_page():
+    response = client.get("/reports")
+
+    assert response.status_code == 200
+    assert "报告中心" in response.text
+    assert "/static/report-center.js" in response.text

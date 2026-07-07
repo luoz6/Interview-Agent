@@ -39,3 +39,8 @@ def report_processing_page():
 @app.get("/report-detail")
 def report_detail_page():
     return FileResponse(BASE_DIR / "test1.html")
+
+
+@app.get("/reports")
+def reports_page():
+    return FileResponse(BASE_DIR / "test0.html")

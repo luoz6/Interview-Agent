@@ -18,6 +18,7 @@ def test_four_runtime_html_pages_exist():
     assert (APP_DIR / "test3.html").exists()
     assert (APP_DIR / "test2.html").exists()
     assert (APP_DIR / "test1.html").exists()
+    assert (APP_DIR / "test0.html").exists()
 
 
 def test_old_static_index_is_not_the_runtime_contract():
@@ -91,10 +92,25 @@ def test_report_detail_page_has_runtime_hooks():
         "feedbackList",
         "evidenceList",
         "downloadReportButton",
+        "retryInterviewButton",
+        "reportCenterButton",
         "reportNotice",
     ):
         assert f'id="{element_id}"' in html
-    assert "/static/report-detail.js" in html
+    assert "/static/report-detail.js?v=20260707-report-actions" in html
+
+
+def test_report_center_page_has_runtime_hooks():
+    html = read_app_file("test0.html")
+
+    for element_id in (
+        "reportsStatus",
+        "reportsList",
+        "refreshReportsButton",
+        "startNewInterviewButton",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "/static/report-center.js?v=20260707-report-actions" in html
 
 
 def test_report_detail_page_has_question_evaluation_hooks():
@@ -124,6 +140,7 @@ def test_page_scripts_use_real_api_endpoints():
             "interview.js",
             "report-processing.js",
             "report-detail.js",
+            "report-center.js",
         )
     )
 
@@ -138,7 +155,7 @@ def test_page_scripts_use_real_api_endpoints():
 
 
 def test_runtime_pages_do_not_use_external_cdn_assets():
-    for page in ("test4.html", "test3.html", "test2.html", "test1.html"):
+    for page in ("test4.html", "test3.html", "test2.html", "test1.html", "test0.html"):
         html = read_app_file(page)
 
         assert "https://cdn.tailwindcss.com" not in html
@@ -264,3 +281,23 @@ def test_report_detail_page_disables_pdf_without_session_id_and_preserves_report
     assert "downloadReportButton.disabled = true" in js
     assert "showNotice(reportNotice, error.message, \"danger\")" in js
     assert "renderReportError" not in js
+
+
+def test_report_detail_action_buttons_navigate_to_prep_and_report_center():
+    js = read_static_file("report-detail.js")
+
+    assert 'const retryInterviewButton = byId("retryInterviewButton")' in js
+    assert 'const reportCenterButton = byId("reportCenterButton")' in js
+    assert 'window.location.href = "/prep"' in js
+    assert 'window.location.href = "/reports"' in js
+
+
+def test_report_center_loads_reports_and_links_to_details():
+    js = read_static_file("report-center.js")
+
+    assert 'import { getJson } from "./api.js";' in js
+    assert 'getJson("/api/reports")' in js
+    assert 'function renderReports(payload)' in js
+    assert '`/report-detail?session_id=${encodeURIComponent(report.session_id)}`' in js
+    assert '`/report-processing?session_id=${encodeURIComponent(report.session_id)}`' in js
+    assert 'window.location.href = "/prep"' in js
