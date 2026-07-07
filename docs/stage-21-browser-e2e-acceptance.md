@@ -98,7 +98,18 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | ID | Severity | Page/API | Symptom | Fix commit | Verification |
 | --- | --- | --- | --- | --- | --- |
 | S25-ENV-1 | Blocking | Browser acceptance environment | Current tool session has no controllable GUI browser, no installed Playwright/Puppeteer/Selenium, and no browser command on PATH, so manual browser UI acceptance cannot be completed here | - | API/worker/resilience checks passed; manual GUI browser run still required |
-| S25-ENV-2 | Medium | Local process environment | Port 8000 was occupied by an unrelated stale listener that did not expose the current `question-evaluations` route; controlled acceptance used port 8002 and isolated table prefix `stage25_rc_0707` | - | Isolated 8002 run exposed current routes and saved question evaluations |
+| S25-ENV-2 | Blocking | Local process environment | Stage 25.5 retry still found port 8000 occupied by an unrelated stale listener that does not expose the current `question-evaluations` route; PID 3598 appeared in `netstat`, but `Get-Process` could not see it and elevated `taskkill /PID 3598 /F` returned `process not found` | - | Blocked before GUI browser acceptance; clean or restart the local process environment, then rerun Stage 25.5 Task 1 |
+
+## Stage 25.5 Attempt Notes
+
+| Item | Value |
+| --- | --- |
+| Attempt date | 2026-07-07 |
+| Port 8000 health | Pass: `/api/health` returned `ok` |
+| Port 8000 current-route check | Fail: `/openapi.json` did not include `/api/interviews/{session_id}/question-evaluations` |
+| Stale listener PID | `3598` from `netstat -ano` |
+| Stop attempt | Failed: `Get-Process -Id 3598` returned no process; elevated `taskkill /PID 3598 /F` returned `process not found` |
+| Result | Blocked at Stage 25.5 Task 1; GUI browser acceptance was not started |
 
 ## Final Status
 
