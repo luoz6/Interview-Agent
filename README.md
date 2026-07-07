@@ -23,6 +23,8 @@ Stage 23 keeps Postgres report jobs as the Local V1 async boundary while adding 
 
 Report Detail shows per-question evaluation trace records. The visible trace chain is: `Report Worker -> ShadowReviewerAgent -> ReportCoachAgent -> QuestionEvaluationRecord -> Report Detail`.
 
+Stage 25 Local V1 RC acceptance is the release gate before Stage 26 architecture work. It verifies the built-in local PostgreSQL defaults, worker-delayed report completion, service restart persistence, and the Report Detail question evaluation trace with the real browser flow.
+
 ## Prerequisites
 
 - Python 3.11

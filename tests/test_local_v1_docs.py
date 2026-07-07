@@ -125,3 +125,20 @@ def test_docs_describe_visible_question_evaluation_trace():
     assert phrase in runbook
     assert chain in readme
     assert chain in runbook
+
+
+def test_docs_describe_stage_25_local_v1_rc_acceptance():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected_phrases = (
+        "Stage 25 Local V1 RC acceptance",
+        "built-in local PostgreSQL defaults",
+        "worker-delayed report completion",
+        "service restart persistence",
+        "question evaluation trace",
+    )
+
+    for phrase in expected_phrases:
+        assert phrase in readme
+        assert phrase in runbook
