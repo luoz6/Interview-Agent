@@ -39,6 +39,7 @@ def test_schema_initializes_runtime_tables():
         store.sessions_table,
         store.messages_table,
         store.reports_table,
+        store.question_evaluations_table,
     }
 
 
@@ -344,6 +345,43 @@ def test_list_reports_survives_store_reinstantiation():
     assert len(completed_reports) == 1
     assert completed_reports[0]["session_id"] == completed.session_id
     assert completed_reports[0]["record"].report.summary == "Solid interview."
+
+
+def test_postgres_store_persists_question_evaluations():
+    from app.services.question_evaluations import question_evaluation_from_feedback
+
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    feedback = InterviewFeedback(
+        question_id="q1",
+        question_text="Describe your backend project.",
+        user_answer="I built a FastAPI API.",
+        score=78,
+        dimension_scores=make_dimension_scores(78),
+        rationale="The answer gave implementation context.",
+        critique="Business impact was thin.",
+        better_answer="Tie the API work to latency and reliability outcomes.",
+        references=[],
+    )
+
+    store.save_question_evaluations(
+        turn.session_id,
+        [question_evaluation_from_feedback(session_id=turn.session_id, feedback=feedback)],
+    )
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    saved = recovered_store.list_question_evaluations(turn.session_id)
+    assert len(saved) == 1
+    assert saved[0].question_id == "q1"
+    assert saved[0].answer_state == "answered"
+    assert saved[0].feedback.score == 78
 
 
 def test_submit_answer_appends_new_messages_without_rewriting_existing_rows():

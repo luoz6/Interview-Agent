@@ -2,7 +2,13 @@ from typing import Any
 
 from app.graphs.interview_state import InterviewMessage, InterviewState
 from app.services.prep import InterviewPlan
-from app.services.report import InterviewReport, ReportProgress, ReportRecord
+from app.services.question_evaluations import QuestionEvaluationRecord
+from app.services.report import (
+    InterviewFeedback,
+    InterviewReport,
+    ReportProgress,
+    ReportRecord,
+)
 
 
 def session_row_from_state(state: InterviewState) -> dict[str, Any]:
@@ -105,4 +111,32 @@ def report_record_from_row(row: dict[str, Any]) -> ReportRecord:
         report=report,
         error=row.get("error"),
         finished_at=row.get("finished_at"),
+    )
+
+
+def question_evaluation_record_to_row(record: QuestionEvaluationRecord) -> dict:
+    return {
+        "session_id": record.session_id,
+        "question_id": record.question_id,
+        "answer_state": record.answer_state,
+        "status": record.status,
+        "feedback_json": record.feedback.model_dump(mode="json")
+        if record.feedback is not None
+        else None,
+        "error": record.error,
+        "created_at": record.created_at,
+    }
+
+
+def question_evaluation_record_from_row(row: dict) -> QuestionEvaluationRecord:
+    return QuestionEvaluationRecord(
+        session_id=row["session_id"],
+        question_id=row["question_id"],
+        answer_state=row["answer_state"],
+        status=row["status"],
+        feedback=InterviewFeedback.model_validate(row["feedback_json"])
+        if row["feedback_json"] is not None
+        else None,
+        error=row["error"],
+        created_at=row["created_at"],
     )

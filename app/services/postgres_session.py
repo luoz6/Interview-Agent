@@ -4,6 +4,7 @@ from uuid import uuid4
 from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan
+from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
 from app.services.session import (
@@ -15,6 +16,8 @@ from app.services.session import (
 )
 from app.services.session_serialization import (
     message_to_row,
+    question_evaluation_record_from_row,
+    question_evaluation_record_to_row,
     report_record_from_row,
     report_record_to_row,
     session_row_from_state,
@@ -36,6 +39,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         self.sessions_table = f"{table_prefix}_sessions"
         self.messages_table = f"{table_prefix}_messages"
         self.reports_table = f"{table_prefix}_reports"
+        self.question_evaluations_table = f"{table_prefix}_question_evaluations"
         self._ensure_schema()
 
     def list_runtime_tables(self) -> list[str]:
@@ -50,7 +54,14 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                       AND table_name = ANY(%s)
                     ORDER BY table_name
                     """,
-                    ([self.sessions_table, self.messages_table, self.reports_table],),
+                    (
+                        [
+                            self.sessions_table,
+                            self.messages_table,
+                            self.reports_table,
+                            self.question_evaluations_table,
+                        ],
+                    ),
                 )
                 return [row[0] for row in cursor.fetchall()]
 
@@ -342,6 +353,97 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             for row in rows
         ]
 
+    def save_question_evaluations(
+        self,
+        session_id: str,
+        records: list[QuestionEvaluationRecord],
+    ) -> None:
+        self.get(session_id)
+        psycopg2, sql = self._import_psycopg2()
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {question_evaluations} WHERE session_id = %s"
+                    ).format(
+                        question_evaluations=sql.Identifier(
+                            self.question_evaluations_table
+                        )
+                    ),
+                    (session_id,),
+                )
+                for record in records:
+                    row = question_evaluation_record_to_row(record)
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            INSERT INTO {question_evaluations} (
+                                session_id, question_id, answer_state, status,
+                                feedback_json, error, created_at
+                            )
+                            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+                            ON CONFLICT (session_id, question_id) DO UPDATE
+                            SET status = EXCLUDED.status,
+                                answer_state = EXCLUDED.answer_state,
+                                feedback_json = EXCLUDED.feedback_json,
+                                error = EXCLUDED.error,
+                                updated_at = NOW()
+                            """
+                        ).format(
+                            question_evaluations=sql.Identifier(
+                                self.question_evaluations_table
+                            )
+                        ),
+                        (
+                            row["session_id"],
+                            row["question_id"],
+                            row["answer_state"],
+                            row["status"],
+                            json.dumps(row["feedback_json"], ensure_ascii=False)
+                            if row["feedback_json"] is not None
+                            else None,
+                            row["error"],
+                            row["created_at"],
+                        ),
+                    )
+
+    def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
+        self.get(session_id)
+        psycopg2, sql = self._import_psycopg2()
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT session_id, question_id, answer_state, status,
+                               feedback_json, error, created_at
+                        FROM {question_evaluations}
+                        WHERE session_id = %s
+                        ORDER BY question_id
+                        """
+                    ).format(
+                        question_evaluations=sql.Identifier(
+                            self.question_evaluations_table
+                        )
+                    ),
+                    (session_id,),
+                )
+                rows = cursor.fetchall()
+        return [
+            question_evaluation_record_from_row(
+                {
+                    "session_id": row[0],
+                    "question_id": row[1],
+                    "answer_state": row[2],
+                    "status": row[3],
+                    "feedback_json": row[4],
+                    "error": row[5],
+                    "created_at": self._iso_timestamp(row[6]),
+                }
+            )
+            for row in rows
+        ]
+
     def _ensure_schema(self) -> None:
         psycopg2, sql = self._import_psycopg2()
         with psycopg2.connect(self.dsn) as connection:
@@ -425,6 +527,28 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         """
                     ).format(
                         reports=sql.Identifier(self.reports_table),
+                        sessions=sql.Identifier(self.sessions_table),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS {question_evaluations} (
+                            session_id TEXT NOT NULL REFERENCES {sessions}(session_id) ON DELETE CASCADE,
+                            question_id TEXT NOT NULL,
+                            answer_state TEXT NOT NULL CHECK (answer_state IN ('answered', 'skipped', 'unanswered')),
+                            status TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
+                            feedback_json JSONB,
+                            error TEXT,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            PRIMARY KEY (session_id, question_id)
+                        )
+                        """
+                    ).format(
+                        question_evaluations=sql.Identifier(
+                            self.question_evaluations_table
+                        ),
                         sessions=sql.Identifier(self.sessions_table),
                     )
                 )
