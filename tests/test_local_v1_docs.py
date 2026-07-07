@@ -91,3 +91,14 @@ def test_readme_and_runbook_point_to_current_browser_acceptance_record():
     assert current_record in runbook
     assert old_record not in readme
     assert old_record not in runbook
+
+
+def test_readme_and_runbook_document_report_worker_for_postgres_runtime():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    worker_command = "F:\\python3.11\\python.exe -m app.services.report_worker"
+
+    assert worker_command in readme
+    assert worker_command in runbook
+    assert "report worker" in readme.lower()
+    assert "report worker" in runbook.lower()

@@ -56,10 +56,18 @@ If `knowledge_chunks` is empty, run:
 F:\python3.11\python.exe scripts/load_knowledge.py
 ```
 
-## 4. Start Server
+## 4. Start Server And Report Worker
+
+Start the FastAPI web process:
 
 ```powershell
 F:\python3.11\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Start the report worker in a second PowerShell window. PostgreSQL mode stores report generation requests in `interview_report_jobs`; without this worker, `/report-processing` will remain in progress:
+
+```powershell
+F:\python3.11\python.exe -m app.services.report_worker
 ```
 
 ## 5. Automated Smoke

@@ -59,6 +59,8 @@ Expected result: `knowledge_chunks` contains theory and expert benchmark chunks,
 
 ## Start
 
+Start the FastAPI web process:
+
 ```powershell
 $env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
 $env:INTERVIEW_RUNTIME_STORE="postgres"
@@ -66,6 +68,18 @@ $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
 & 'F:\python3.11\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Start the report worker in a second PowerShell window. PostgreSQL mode queues report jobs, so `/report-processing` will stay in progress until this worker is running:
+
+```powershell
+$env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
+$env:PGVECTOR_TABLE="knowledge_chunks"
+$env:INTERVIEW_RUNTIME_STORE="postgres"
+$env:OPENAI_API_KEY="your-api-key"
+$env:OPENAI_BASE_URL="https://api.deepseek.com"
+$env:OPENAI_MODEL="deepseek-chat"
+F:\python3.11\python.exe -m app.services.report_worker
 ```
 
 Open:
