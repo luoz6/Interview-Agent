@@ -1,6 +1,5 @@
-import pytest
-
 from app.services.runtime import (
+    DEFAULT_POSTGRES_DSN,
     build_report_executor,
     build_report_job_store,
     build_session_store,
@@ -9,16 +8,30 @@ from app.services.runtime import (
     get_report_job_store,
     reset_runtime_for_tests,
 )
-from app.services.session import InterviewSessionStore
 
 
-def test_build_session_store_defaults_to_memory(monkeypatch):
+def test_build_session_store_defaults_to_local_postgres(monkeypatch):
     monkeypatch.delenv("POSTGRES_DSN", raising=False)
     monkeypatch.delenv("INTERVIEW_RUNTIME_STORE", raising=False)
 
+    created = {}
+
+    class FakePostgresStore:
+        def __init__(self, *, dsn, table_prefix="interview", llm=None):
+            created["dsn"] = dsn
+            created["table_prefix"] = table_prefix
+            created["llm"] = llm
+
+    monkeypatch.setattr(
+        "app.services.runtime.PostgresInterviewSessionStore",
+        FakePostgresStore,
+    )
+
     store = build_session_store()
 
-    assert isinstance(store, InterviewSessionStore)
+    assert isinstance(store, FakePostgresStore)
+    assert created["dsn"] == DEFAULT_POSTGRES_DSN
+    assert created["table_prefix"] == "interview"
 
 
 def test_build_session_store_uses_postgres_when_enabled(monkeypatch):
@@ -45,11 +58,51 @@ def test_build_session_store_uses_postgres_when_enabled(monkeypatch):
     assert created["table_prefix"] == "interview"
 
 
-def test_build_report_job_store_requires_postgres_dsn(monkeypatch):
+def test_build_session_store_uses_runtime_table_prefix_with_legacy_fallback(monkeypatch):
+    monkeypatch.delenv("INTERVIEW_RUNTIME_STORE", raising=False)
+    monkeypatch.setenv("INTERVIEW_TABLE_PREFIX", "legacy_prefix")
+    monkeypatch.delenv("INTERVIEW_RUNTIME_TABLE_PREFIX", raising=False)
+
+    created = {}
+
+    class FakePostgresStore:
+        def __init__(self, *, dsn, table_prefix="interview", llm=None):
+            created["table_prefix"] = table_prefix
+
+    monkeypatch.setattr(
+        "app.services.runtime.PostgresInterviewSessionStore",
+        FakePostgresStore,
+    )
+
+    build_session_store()
+    assert created["table_prefix"] == "legacy_prefix"
+
+    monkeypatch.setenv("INTERVIEW_RUNTIME_TABLE_PREFIX", "runtime_prefix")
+    build_session_store()
+    assert created["table_prefix"] == "runtime_prefix"
+
+
+def test_build_report_job_store_defaults_to_local_postgres_dsn(monkeypatch):
     monkeypatch.delenv("POSTGRES_DSN", raising=False)
 
-    with pytest.raises(RuntimeError, match="POSTGRES_DSN is required"):
-        build_report_job_store()
+    created = {}
+
+    class FakeReportJobStore:
+        def __init__(self, *, dsn, table_prefix="interview", lease_seconds=300):
+            created["dsn"] = dsn
+            created["table_prefix"] = table_prefix
+            created["lease_seconds"] = lease_seconds
+
+    monkeypatch.setattr(
+        "app.services.runtime.PostgresReportJobStore",
+        FakeReportJobStore,
+    )
+
+    store = build_report_job_store()
+
+    assert isinstance(store, FakeReportJobStore)
+    assert created["dsn"] == DEFAULT_POSTGRES_DSN
+    assert created["table_prefix"] == "interview"
 
 
 def test_build_report_job_store_uses_postgres_dsn_and_runtime_prefix(monkeypatch):

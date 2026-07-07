@@ -23,10 +23,13 @@ Report Detail shows per-question evaluation trace records. The visible trace cha
 
 ## 2. PowerShell Setup
 
+Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
+
 ```powershell
 $env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
 $env:PGVECTOR_TABLE="knowledge_chunks"
 $env:INTERVIEW_RUNTIME_STORE="postgres"
+$env:INTERVIEW_RUNTIME_TABLE_PREFIX="interview"
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
@@ -36,8 +39,8 @@ $env:OPENAI_MODEL="deepseek-chat"
 
 ```powershell
 @'
-import os, psycopg2
-conn = psycopg2.connect(os.environ["POSTGRES_DSN"])
+import psycopg2
+conn = psycopg2.connect("postgresql://postgres:postgres@127.0.0.1:5432/interview")
 cur = conn.cursor()
 cur.execute("select current_database(), current_user")
 print(cur.fetchone())

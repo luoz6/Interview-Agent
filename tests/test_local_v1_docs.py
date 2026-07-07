@@ -16,6 +16,7 @@ def test_env_example_documents_local_v1_runtime():
     assert "OPENAI_BASE_URL=https://api.deepseek.com" in env
     assert "OPENAI_MODEL=deepseek-chat" in env
     assert "INTERVIEW_RUNTIME_STORE=postgres" in env
+    assert "INTERVIEW_RUNTIME_TABLE_PREFIX=interview" in env
     assert "OPENAI_API_KEY=" in env
     assert "DEEPSEEK_API_KEY" not in env
 

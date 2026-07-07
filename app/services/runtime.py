@@ -1,6 +1,12 @@
 import os
 from dataclasses import dataclass
 
+from app.services.config import (
+    DEFAULT_POSTGRES_DSN,
+    get_postgres_dsn,
+    get_runtime_store,
+    get_runtime_table_prefix,
+)
 from app.services.drafts import AnonymousDraftStore
 from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
@@ -23,14 +29,11 @@ _draft_store = None
 
 
 def build_session_store(llm=None):
-    store_kind = os.getenv("INTERVIEW_RUNTIME_STORE", "memory").strip().lower()
+    store_kind = get_runtime_store()
     if store_kind == "postgres":
-        dsn = os.getenv("POSTGRES_DSN")
-        if not dsn:
-            raise RuntimeError("POSTGRES_DSN is required when INTERVIEW_RUNTIME_STORE=postgres")
         return PostgresInterviewSessionStore(
-            dsn=dsn,
-            table_prefix=os.getenv("INTERVIEW_RUNTIME_TABLE_PREFIX", "interview"),
+            dsn=get_postgres_dsn(),
+            table_prefix=get_runtime_table_prefix(),
             llm=llm,
         )
     if store_kind != "memory":
@@ -39,12 +42,9 @@ def build_session_store(llm=None):
 
 
 def build_report_job_store():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        raise RuntimeError("POSTGRES_DSN is required to build report job store")
     return PostgresReportJobStore(
-        dsn=dsn,
-        table_prefix=os.getenv("INTERVIEW_RUNTIME_TABLE_PREFIX", "interview"),
+        dsn=get_postgres_dsn(),
+        table_prefix=get_runtime_table_prefix(),
         lease_seconds=int(os.getenv("REPORT_JOB_LEASE_SECONDS", "300")),
     )
 

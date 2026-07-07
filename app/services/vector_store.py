@@ -6,6 +6,8 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
+from app.services.config import get_pgvector_table, get_postgres_dsn
+
 
 class KnowledgeSearchStore(Protocol):
     def search(
@@ -49,8 +51,8 @@ class PgVectorKnowledgeStore:
     @classmethod
     def from_env(cls) -> "PgVectorKnowledgeStore":
         return cls(
-            dsn=os.environ["POSTGRES_DSN"],
-            table_name=os.getenv("PGVECTOR_TABLE", "knowledge_chunks"),
+            dsn=get_postgres_dsn(),
+            table_name=get_pgvector_table(),
             embedding_model_name=os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3"),
             embedding_dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
         )

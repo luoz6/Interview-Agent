@@ -34,12 +34,20 @@ Report Detail shows per-question evaluation trace records. The visible trace cha
 
 ## Configure
 
-Copy `.env.example` values into your PowerShell session or local `.env` loader.
+The local PostgreSQL defaults are built into the code:
+
+- `POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/interview`
+- `PGVECTOR_TABLE=knowledge_chunks`
+- `INTERVIEW_RUNTIME_STORE=postgres`
+- `INTERVIEW_RUNTIME_TABLE_PREFIX=interview`
+
+Set environment variables only when you need to override those defaults or provide the LLM key:
 
 ```powershell
 $env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
 $env:PGVECTOR_TABLE="knowledge_chunks"
 $env:INTERVIEW_RUNTIME_STORE="postgres"
+$env:INTERVIEW_RUNTIME_TABLE_PREFIX="interview"
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
@@ -57,7 +65,6 @@ npm install
 ## Load Knowledge
 
 ```powershell
-$env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
 & 'F:\python3.11\python.exe' scripts/load_knowledge.py
 ```
 
@@ -68,8 +75,6 @@ Expected result: `knowledge_chunks` contains theory and expert benchmark chunks,
 Start the FastAPI web process:
 
 ```powershell
-$env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
-$env:INTERVIEW_RUNTIME_STORE="postgres"
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
@@ -79,9 +84,6 @@ $env:OPENAI_MODEL="deepseek-chat"
 Start the report worker in a second PowerShell window. PostgreSQL mode queues report jobs, so `/report-processing` will stay in progress until this worker is running:
 
 ```powershell
-$env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
-$env:PGVECTOR_TABLE="knowledge_chunks"
-$env:INTERVIEW_RUNTIME_STORE="postgres"
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"

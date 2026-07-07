@@ -2,6 +2,7 @@ import os
 
 import pytest
 
+from app.services.config import DEFAULT_POSTGRES_DSN
 from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
 
 
@@ -52,6 +53,16 @@ def test_vector_literal_format_is_pgvector_compatible():
     literal = PgVectorKnowledgeStore._to_vector_literal([0.1, 0.2, 0.3])
 
     assert literal == "[0.10000000,0.20000000,0.30000000]"
+
+
+def test_from_env_defaults_to_local_postgres(monkeypatch):
+    monkeypatch.delenv("POSTGRES_DSN", raising=False)
+    monkeypatch.delenv("PGVECTOR_TABLE", raising=False)
+
+    store = PgVectorKnowledgeStore.from_env()
+
+    assert store.dsn == DEFAULT_POSTGRES_DSN
+    assert store.table_name == "knowledge_chunks"
 
 
 @pytest.mark.pgvector

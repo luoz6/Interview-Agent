@@ -58,6 +58,7 @@ def drop_runtime_tables(dsn: str, table_prefix: str) -> None:
     table_names = [
         f"{table_prefix}_report_jobs",
         f"{table_prefix}_reports",
+        f"{table_prefix}_question_evaluations",
         f"{table_prefix}_messages",
         f"{table_prefix}_sessions",
     ]
