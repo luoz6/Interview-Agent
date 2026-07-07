@@ -209,6 +209,15 @@ def test_get_question_evaluations_returns_saved_records():
     assert result.json()["items"][0]["feedback"]["score"] == 80
 
 
+def test_question_evaluations_endpoint_returns_404_for_unknown_session():
+    client, _, _, _ = make_client()
+
+    response = client.get("/api/interviews/missing/question-evaluations")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "session not found"
+
+
 def test_report_endpoint_rejects_active_interview():
     client, _, _, _ = make_client()
     session_id = start_interview(client)
