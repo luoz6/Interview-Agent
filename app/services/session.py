@@ -16,6 +16,7 @@ from app.graphs.interview_state import (
 )
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
 
@@ -38,6 +39,7 @@ class InterviewSessionStore:
     def __init__(self, llm: InterviewLLM | None = None) -> None:
         self._sessions: Dict[str, InterviewState] = {}
         self._reports: Dict[str, ReportRecord] = {}
+        self._question_evaluations: Dict[str, list[QuestionEvaluationRecord]] = {}
         self._llm = llm
         self._runner = InterviewGraphRunner(llm=llm)
 
@@ -246,6 +248,18 @@ class InterviewSessionStore:
         for item in items:
             item.pop("_index", None)
         return items[:limit]
+
+    def save_question_evaluations(
+        self,
+        session_id: str,
+        records: list[QuestionEvaluationRecord],
+    ) -> None:
+        self.get(session_id)
+        self._question_evaluations[session_id] = list(records)
+
+    def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
+        self.get(session_id)
+        return list(self._question_evaluations.get(session_id, []))
 
     def _to_turn(self, state: InterviewState, follow_up: Optional[str]) -> InterviewTurn:
         current_question = None if state["status"] == "finished" else get_current_question(state)
