@@ -37,7 +37,7 @@ This stage does not:
 - Modify: `tests/test_local_v1_docs.py`
   - Add regression checks that README/runbook/acceptance docs describe Stage 25 RC acceptance and built-in Postgres defaults.
 - Modify: `docs/stage-21-browser-e2e-acceptance.md`
-  - Convert pending Stage 24 acceptance evidence into Stage 25 RC acceptance sections and final result.
+  - Replace pending Stage 24 acceptance evidence with an explicit Stage 24 carry-forward note, then add Stage 25 RC acceptance sections and final result.
 - Modify: `docs/local-v1-runbook.md`
   - Add RC-specific checks for worker-delayed completion and service restart persistence.
 - Modify: `README.md`
@@ -158,12 +158,15 @@ Append this test to `tests/test_local_v1_docs.py`:
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 
+    assert "## Stage 24 Carry-Forward" in record
+    assert "Stage 24 acceptance is superseded by Stage 25 RC acceptance" in record
     assert "## Stage 25 RC Execution Notes" in record
     assert "## Stage 25 RC Resilience Checklist" in record
     assert "## Stage 25 RC Defect Log" in record
     assert "worker-delayed report completion" in record
     assert "service restart persistence" in record
     assert "built-in local PostgreSQL defaults" in record
+    assert "No Stage 24 browser defects recorded; manual browser execution is still pending" not in record
 ```
 
 - [ ] **Step 2: Run the focused test and verify it fails**
@@ -178,9 +181,15 @@ Expected: FAIL because the Stage 25 RC sections do not exist yet.
 
 - [ ] **Step 3: Insert the Stage 25 RC sections**
 
-In `docs/stage-21-browser-e2e-acceptance.md`, insert this block before `## Final Status`:
+In `docs/stage-21-browser-e2e-acceptance.md`, replace the existing block that starts with `## Stage 24 Execution Notes` and ends immediately before `## Final Status` with this block.
+
+If the Stage 24 block is not present because another worker already cleaned it up, insert this block immediately before `## Final Status` and do not recreate any Stage 24 Pending rows:
 
 ```markdown
+## Stage 24 Carry-Forward
+
+Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run covers the same browser path plus built-in PostgreSQL defaults, worker-delayed report completion, service restart persistence, question evaluation trace, and PDF download.
+
 ## Stage 25 RC Execution Notes
 
 | Item | Value |
@@ -398,7 +407,7 @@ M	docs/stage-21-browser-e2e-acceptance.md
 
 - [ ] **Step 1: Confirm the LLM key is present without printing it**
 
-Run:
+Run in the current shell:
 
 ```powershell
 if (-not $env:OPENAI_API_KEY) { throw "OPENAI_API_KEY must be set before Stage 25 browser acceptance" }
@@ -408,11 +417,16 @@ $env:OPENAI_MODEL="deepseek-chat"
 
 Expected: command completes without printing the key.
 
+PowerShell environment variables set in this shell are not automatically available in a newly opened PowerShell window. Repeat the LLM environment setup in every server and worker window before starting the process.
+
 - [ ] **Step 2: Start FastAPI**
 
 Start the server in a dedicated PowerShell window:
 
 ```powershell
+if (-not $env:OPENAI_API_KEY) { throw "OPENAI_API_KEY must be set in this server window before Stage 25 browser acceptance" }
+$env:OPENAI_BASE_URL="https://api.deepseek.com"
+$env:OPENAI_MODEL="deepseek-chat"
 F:\python3.11\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -420,12 +434,16 @@ Expected:
 
 - Server starts on `http://127.0.0.1:8000`.
 - No startup exception.
+- Server process inherits `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` from the same PowerShell window.
 
 - [ ] **Step 3: Start the report worker**
 
 Start the worker in a second PowerShell window:
 
 ```powershell
+if (-not $env:OPENAI_API_KEY) { throw "OPENAI_API_KEY must be set in this worker window before Stage 25 browser acceptance" }
+$env:OPENAI_BASE_URL="https://api.deepseek.com"
+$env:OPENAI_MODEL="deepseek-chat"
 F:\python3.11\python.exe -m app.services.report_worker
 ```
 
@@ -433,6 +451,7 @@ Expected:
 
 - Worker stays running.
 - Worker can claim report jobs when the browser flow finishes an interview.
+- Worker process inherits `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` from the same PowerShell window.
 
 - [ ] **Step 4: Open the prep page**
 
@@ -626,6 +645,9 @@ Actions:
 6. Start the worker again:
 
 ```powershell
+if (-not $env:OPENAI_API_KEY) { throw "OPENAI_API_KEY must be set in this worker window before restarting the report worker" }
+$env:OPENAI_BASE_URL="https://api.deepseek.com"
+$env:OPENAI_MODEL="deepseek-chat"
 F:\python3.11\python.exe -m app.services.report_worker
 ```
 
@@ -646,6 +668,9 @@ Actions:
 3. Start FastAPI again:
 
 ```powershell
+if (-not $env:OPENAI_API_KEY) { throw "OPENAI_API_KEY must be set in this server window before restarting FastAPI" }
+$env:OPENAI_BASE_URL="https://api.deepseek.com"
+$env:OPENAI_MODEL="deepseek-chat"
 F:\python3.11\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
