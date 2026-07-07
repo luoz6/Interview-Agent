@@ -102,3 +102,13 @@ def test_readme_and_runbook_document_report_worker_for_postgres_runtime():
     assert worker_command in runbook
     assert "report worker" in readme.lower()
     assert "report worker" in runbook.lower()
+
+
+def test_docs_describe_stage_23_architecture_position():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 23 keeps Postgres report jobs as the Local V1 async boundary"
+    assert expected in readme
+    assert expected in runbook
+    assert "Redis, Celery, WebSocket, and LangGraph remain future architecture upgrades" in readme

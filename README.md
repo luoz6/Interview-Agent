@@ -17,6 +17,10 @@ This project is designed for local single-user deployment. It does not include l
 - pgvector knowledge retrieval through `knowledge_chunks`.
 - PDF report download.
 
+## Current Architecture Position
+
+Stage 23 keeps Postgres report jobs as the Local V1 async boundary while adding explicit agent boundaries and per-question evaluation records. Redis, Celery, WebSocket, and LangGraph remain future architecture upgrades rather than Local V1 runtime dependencies.
+
 ## Prerequisites
 
 - Python 3.11

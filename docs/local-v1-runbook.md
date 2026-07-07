@@ -15,6 +15,10 @@ Expected local services:
 | pgvector table | `knowledge_chunks` |
 | LLM provider | DeepSeek-compatible OpenAI API |
 
+## 1.1 Architecture Position
+
+Stage 23 keeps Postgres report jobs as the Local V1 async boundary while adding explicit agent boundaries and per-question evaluation records. This runbook continues to verify the local single-user runtime, not the future Redis/Celery/WebSocket/LangGraph deployment shape.
+
 ## 2. PowerShell Setup
 
 ```powershell
