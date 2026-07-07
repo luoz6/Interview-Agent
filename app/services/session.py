@@ -161,23 +161,10 @@ class InterviewSessionStore:
         fallback_text = decision.get("follow_up") if decision else None
         if not fallback_text and question is not None:
             fallback_text = fallback_followup(question.focus)
-        try:
-            llm = self._llm
-            if llm is None:
-                from app.services.llm import OpenAIInterviewLLM
-
-                llm = OpenAIInterviewLLM()
-            emitted = False
-            for chunk in llm.stream_followup(_build_followup_context(state)):
-                if not chunk:
-                    continue
-                emitted = True
-                yield chunk
-        except Exception:
-            if fallback_text:
-                yield fallback_text
-            return
-
+        emitted = False
+        for chunk in self._runner.stream_followup(state):
+            emitted = True
+            yield chunk
         if not emitted and fallback_text:
             yield fallback_text
 

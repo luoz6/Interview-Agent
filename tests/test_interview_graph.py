@@ -162,6 +162,37 @@ def test_runner_submit_answer_generates_followup_decision():
     }
 
 
+def test_runner_accepts_examiner_agent_boundary():
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            assert focus == "project"
+            return "Agent-generated follow-up."
+
+    runner = InterviewGraphRunner(examiner=Agent())
+    state = runner.start(**make_start_kwargs())
+
+    new_state = runner.submit_answer(state, "I improved cache consistency.")
+
+    assert new_state["pending_output"] == "Agent-generated follow-up."
+
+
+def test_runner_streams_followup_through_same_examiner_boundary():
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            raise AssertionError("streaming path should call stream_followup")
+
+        def stream_followup(self, *, context: list[dict[str, str]], focus: str):
+            assert focus == "project"
+            yield "streamed "
+            yield "follow-up"
+
+    runner = InterviewGraphRunner(examiner=Agent())
+    state = runner.start(**make_start_kwargs())
+    prepared = runner.prepare_answer(state, "I improved cache consistency.")
+
+    assert list(runner.stream_followup(prepared)) == ["streamed ", "follow-up"]
+
+
 def test_runner_prepare_answer_defers_followup_text_for_streaming():
     runner = InterviewGraphRunner(llm=FakeLLM())
     state = runner.start(**make_start_kwargs())

@@ -1,5 +1,9 @@
 from copy import deepcopy
 
+from app.agents.examiner import (
+    ExaminerAgent,
+    fallback_followup as examiner_fallback_followup,
+)
 from app.graphs.interview_state import (
     InterviewState,
     build_initial_state,
@@ -13,8 +17,9 @@ INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
 
 class InterviewGraphRunner:
-    def __init__(self, llm: InterviewLLM | None = None) -> None:
+    def __init__(self, llm: InterviewLLM | None = None, examiner=None) -> None:
         self._llm = llm
+        self._examiner = examiner or ExaminerAgent(llm=llm)
 
     def start(
         self,
@@ -34,12 +39,17 @@ class InterviewGraphRunner:
 
     def submit_answer(self, state: InterviewState, answer: str) -> InterviewState:
         next_state = _append_candidate_answer(state, answer)
-        next_state = brain_node(next_state, self._llm)
+        next_state = brain_node(next_state, self._llm, examiner=self._examiner)
         return speaker_node(next_state)
 
     def prepare_answer(self, state: InterviewState, answer: str) -> InterviewState:
         next_state = _append_candidate_answer(state, answer)
-        return brain_node(next_state, self._llm, generate_followup_text=False)
+        return brain_node(
+            next_state,
+            self._llm,
+            examiner=self._examiner,
+            generate_followup_text=False,
+        )
 
     def finalize_prepared_answer(
         self,
@@ -52,11 +62,20 @@ class InterviewGraphRunner:
             next_state["decision"]["follow_up"] = follow_up
         return speaker_node(next_state)
 
+    def stream_followup(self, state: InterviewState):
+        question = get_current_question(state)
+        focus = question.focus if question is not None else "current question"
+        yield from self._examiner.stream_followup(
+            context=_build_followup_context(state),
+            focus=focus,
+        )
+
 
 def brain_node(
     state: InterviewState,
     llm: InterviewLLM | None,
     *,
+    examiner=None,
     generate_followup_text: bool = True,
 ) -> InterviewState:
     question = get_current_question(state)
@@ -87,14 +106,11 @@ def brain_node(
 
     follow_up = None
     if generate_followup_text:
-        try:
-            if llm is None:
-                from app.services.llm import OpenAIInterviewLLM
-
-                llm = OpenAIInterviewLLM()
-            follow_up = llm.generate_followup(_build_followup_context(state))
-        except Exception:
-            follow_up = fallback_followup(question.focus)
+        resolved_examiner = examiner or ExaminerAgent(llm=llm)
+        follow_up = resolved_examiner.generate_followup(
+            context=_build_followup_context(state),
+            focus=question.focus,
+        )
 
     state["decision"] = {
         "action": "follow_up",
@@ -153,7 +169,7 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
 
 def fallback_followup(focus: str) -> str:
-    return f"请继续深挖 {focus}：你当时做了什么取舍，为什么这样选？"
+    return examiner_fallback_followup(focus)
 
 
 def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewState:

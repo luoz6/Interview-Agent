@@ -28,8 +28,12 @@ def prepare_interview(
     resume_text = _require_text("resume_text", resume_text)
 
     try:
-        llm = llm or _build_default_llm()
-        return llm.generate_plan(job_description, resume_text)
+        from app.agents.knowledge import KnowledgeAgent
+
+        return KnowledgeAgent(llm=llm).generate_plan(
+            job_description=job_description,
+            resume_text=resume_text,
+        )
     except Exception:
         return fallback_interview_plan()
 
@@ -65,8 +69,3 @@ def _require_text(field_name: str, value: str) -> str:
         raise ValueError(f"{field_name} is required")
     return value.strip()
 
-
-def _build_default_llm() -> InterviewLLM:
-    from app.services.llm import OpenAIInterviewLLM
-
-    return OpenAIInterviewLLM()
