@@ -205,6 +205,19 @@ def test_report_detail_uses_reference_excerpt_field():
     assert "reference.content" not in js
 
 
+def test_report_detail_renders_question_evaluation_records():
+    js = read_static_file("report-detail.js")
+
+    assert 'import { downloadPdf, getQuestionEvaluations, getSessionId, parseJsonResponse } from "./api.js";' in js
+    assert 'const questionEvaluationStatus = byId("questionEvaluationStatus")' in js
+    assert 'const questionEvaluationList = byId("questionEvaluationList")' in js
+    assert "function renderQuestionEvaluations(payload)" in js
+    assert "record.answer_state" in js
+    assert "feedback.better_answer" in js
+    assert "getQuestionEvaluations(sessionId)" in js
+    assert "if (!sessionId) return;" in js
+
+
 def test_interview_page_disables_all_controls_without_session_id():
     js = read_static_file("interview.js")
 
