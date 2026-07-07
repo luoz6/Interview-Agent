@@ -55,7 +55,7 @@ Out of scope: user login, account isolation, startup scripts, Playwright/browser
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_page_routes.py tests/test_local_v1_docs.py -q` | Pass: 35 passed |
+| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_page_routes.py tests/test_local_v1_docs.py -q` | Pass: 37 passed |
 | `node --check app/static/api.js` | Pass |
 | `node --check app/static/shared-ui.js` | Pass |
 | `node --check app/static/prep.js` | Pass |
@@ -63,7 +63,7 @@ Out of scope: user login, account isolation, startup scripts, Playwright/browser
 | `node --check app/static/report-processing.js` | Pass |
 | `node --check app/static/report-detail.js` | Pass |
 | `npm run build:prototype-css` | Pass |
-| `F:\python3.11\python.exe -m pytest -q` | Pending |
+| `F:\python3.11\python.exe -m pytest -q` | Pass: 256 passed, 21 skipped |
 
 ## Stage 24 Carry-Forward
 
@@ -79,7 +79,7 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | Runtime store | PostgreSQL with built-in local PostgreSQL defaults |
 | Database | `postgresql://postgres:postgres@127.0.0.1:5432/interview` |
 | LLM provider | DeepSeek-compatible OpenAI API |
-| Knowledge chunks | Pending database check |
+| Knowledge chunks | 10 |
 | Report worker | Pending manual execution |
 | Question evaluation trace | Pending manual execution |
 | PDF download | Pending manual execution |
@@ -88,7 +88,7 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 
 | Step | Expected result | Result | Notes |
 | --- | --- | --- | --- |
-| Built-in local PostgreSQL defaults | Clearing `POSTGRES_DSN`, `INTERVIEW_RUNTIME_STORE`, `INTERVIEW_RUNTIME_TABLE_PREFIX`, and `PGVECTOR_TABLE` still resolves runtime stores to `postgresql://postgres:postgres@127.0.0.1:5432/interview` | Pending |  |
+| Built-in local PostgreSQL defaults | Clearing `POSTGRES_DSN`, `INTERVIEW_RUNTIME_STORE`, `INTERVIEW_RUNTIME_TABLE_PREFIX`, and `PGVECTOR_TABLE` still resolves runtime stores to `postgresql://postgres:postgres@127.0.0.1:5432/interview` | Pass | Session store, report job store, and knowledge store resolved to the built-in DSN |
 | Worker-delayed report completion | Finishing an interview while the report worker is stopped leaves processing visible; starting the worker completes the report | Pending |  |
 | Service restart persistence | Restarting FastAPI after report completion still loads `/report-detail?session_id=...` from PostgreSQL | Pending |  |
 | Question evaluation trace | `/report-detail?session_id=...` shows saved question evaluation records loaded from `/api/interviews/{session_id}/question-evaluations` | Pending |  |
