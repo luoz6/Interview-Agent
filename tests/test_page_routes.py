@@ -47,3 +47,10 @@ def test_reports_route_serves_report_center_page():
     assert response.status_code == 200
     assert "报告中心" in response.text
     assert "/static/report-center.js" in response.text
+
+
+def test_help_route_serves_help_page():
+    response = client.get("/help")
+
+    assert response.status_code == 200
+    assert "帮助" in response.text

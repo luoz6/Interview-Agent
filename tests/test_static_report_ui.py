@@ -113,6 +113,19 @@ def test_report_center_page_has_runtime_hooks():
     assert "/static/report-center.js?v=20260707-report-actions" in html
 
 
+def test_runtime_top_navigation_uses_real_routes():
+    for page in ("test4.html", "test3.html", "test2.html", "test1.html", "test0.html"):
+        html = read_app_file(page)
+
+        nav_start = html.index("<nav")
+        nav_end = html.index("</nav>", nav_start)
+        nav = html[nav_start:nav_end]
+        assert 'href="/prep"' in nav
+        assert 'href="/reports"' in nav
+        assert 'href="/help"' in nav
+        assert 'href="#"' not in nav
+
+
 def test_report_detail_page_has_question_evaluation_hooks():
     html = read_app_file("test1.html")
 

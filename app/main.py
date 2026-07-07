@@ -44,3 +44,8 @@ def report_detail_page():
 @app.get("/reports")
 def reports_page():
     return FileResponse(BASE_DIR / "test0.html")
+
+
+@app.get("/help")
+def help_page():
+    return FileResponse(BASE_DIR / "test-help.html")

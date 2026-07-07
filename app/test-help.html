@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>帮助 - 面试智能体</title>
+    <link rel="stylesheet" href="/static/prototype.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    </style>
+</head>
+<body class="h-screen flex flex-col bg-[#f9fafb] text-gray-800 overflow-hidden">
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide">面试智能体</span>
+        </div>
+
+        <nav class="flex h-full text-sm">
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-house mr-2"></i>首页
+            </a>
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-microphone mr-2"></i>我的面试
+            </a>
+            <a href="/reports" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-file-lines mr-2"></i>报告中心
+            </a>
+            <a href="/help" class="px-6 h-full flex items-center text-blue-600 font-medium border-b-2 border-blue-600">
+                <i class="fa-regular fa-circle-question mr-2"></i>帮助
+            </a>
+        </nav>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+        <section class="max-w-4xl mx-auto bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h1 class="text-2xl font-bold mb-2">帮助</h1>
+            <p class="text-sm text-gray-500 leading-relaxed mb-6">按流程完成准备、模拟面试、报告生成和复盘。面试页按 Enter 提交回答，Shift+Enter 换行。</p>
+
+            <div class="grid grid-cols-3 gap-4">
+                <a href="/prep" class="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <div class="text-sm font-bold text-gray-800 mb-1">开始模拟</div>
+                    <p class="text-xs text-gray-500 leading-relaxed">填写 JD 与简历，生成面试计划。</p>
+                </a>
+                <a href="/reports" class="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <div class="text-sm font-bold text-gray-800 mb-1">查看报告</div>
+                    <p class="text-xs text-gray-500 leading-relaxed">进入报告中心查看历史报告与生成状态。</p>
+                </a>
+                <a href="/prep" class="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <div class="text-sm font-bold text-gray-800 mb-1">再次练习</div>
+                    <p class="text-xs text-gray-500 leading-relaxed">重新开始一次新的模拟面试。</p>
+                </a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
