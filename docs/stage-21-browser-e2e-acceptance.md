@@ -28,28 +28,28 @@ Out of scope: user login, account isolation, startup scripts, Playwright/browser
 
 | Step | Expected result | Result | Notes |
 | --- | --- | --- | --- |
-| Open `/prep` | Prep page renders with JD/resume inputs and empty tags | Pending |  |
-| Generate plan | `/api/prep` returns questions and tags render | Pending |  |
-| Save draft | Draft saves and browser keeps `interviewDraftId` | Pending |  |
-| Restore draft | JD/resume/tags restore from anonymous draft | Pending |  |
-| Start interview | Browser navigates to `/interview?session_id=...` | Pending |  |
-| Submit streamed answer | SSE chunks or final turn render; question navigation refreshes | Pending |  |
-| Skip question | Question state changes to skipped or session finishes | Pending |  |
-| Finish interview | Browser navigates to `/report-processing?session_id=...` | Pending |  |
-| Report processing | Progress/status/RAG summary render until report is available | Pending |  |
-| Report detail | Score, summary, five dimensions, feedbacks, evidence render | Pending |  |
-| PDF download | PDF downloads and visible report content remains on screen | Pending |  |
+| Open `/prep` | Prep page renders with JD/resume inputs and empty tags | Blocked | GUI browser not available in this tool session; page shell was verified by HTTP/static checks |
+| Generate plan | `/api/prep` returns questions and tags render | Pass via API | Real LLM `/api/prep` returned 4 questions and tags `python`, `fastapi`, `redis`, `postgresql` |
+| Save draft | Draft saves and browser keeps `interviewDraftId` | Pass via API | `/api/interview-drafts` saved draft `draft_f370c8a46256`; browser localStorage was not observable |
+| Restore draft | JD/resume/tags restore from anonymous draft | Pass via API | Draft restore endpoint returned saved payload |
+| Start interview | Browser navigates to `/interview?session_id=...` | Pass via API | Isolated session `26c8c528-10c0-4b1e-9e9f-13efbafb681f` created |
+| Submit streamed answer | SSE chunks or final turn render; question navigation refreshes | Not run | API flow used non-streaming `/answer`; browser SSE UX still needs manual verification |
+| Skip question | Question state changes to skipped or session finishes | Pass via API | `/skip` returned `200` in the isolated flow |
+| Finish interview | Browser navigates to `/report-processing?session_id=...` | Pass via API | `/finish` returned `200` and queued report generation |
+| Report processing | Progress/status/RAG summary render until report is available | Pass via API | Polling observed `retrieving`, `analyzing`, and completed report states |
+| Report detail | Score, summary, five dimensions, feedbacks, evidence render | Pass via API/HTML shell | Report API returned score 31 and 5 feedbacks; `/report-detail?session_id=...` returned HTML shell |
+| PDF download | PDF downloads and visible report content remains on screen | Pass via API | `/report.pdf` returned `application/pdf`, 14894 bytes; browser download behavior was not observable |
 
 ## Error-State Checklist
 
 | URL or action | Expected result | Result | Notes |
 | --- | --- | --- | --- |
-| `/interview` without `session_id` | Shows missing-session error and disables answer controls | Pending |  |
-| `/report-processing` without `session_id` | Shows missing-session error and disables view-report button | Pending |  |
-| `/report-detail` without `session_id` | Shows missing-session error and disables PDF button | Pending |  |
-| `/report-detail?session_id=bad` | Shows API error without breaking page shell | Pending |  |
-| PDF download failure | Shows local notice and does not clear rendered report | Pending |  |
-| Report generation failure | Shows report unavailable/failure notice on processing page | Pending |  |
+| `/interview` without `session_id` | Shows missing-session error and disables answer controls | Pass via HTTP shell | Route returned `200 text/html`; browser control state still needs manual observation |
+| `/report-processing` without `session_id` | Shows missing-session error and disables view-report button | Pass via HTTP shell | Route returned `200 text/html`; browser control state still needs manual observation |
+| `/report-detail` without `session_id` | Shows missing-session error and disables PDF button | Pass via HTTP shell | Route returned `200 text/html`; browser control state still needs manual observation |
+| `/report-detail?session_id=bad` | Shows API error without breaking page shell | Pass via HTTP shell | Route returned `200 text/html`; browser error rendering still needs manual observation |
+| PDF download failure | Shows local notice and does not clear rendered report | Not run | Requires browser-side failure injection |
+| Report generation failure | Shows report unavailable/failure notice on processing page | Not run | Requires forced report failure in a browser session |
 
 ## Automated Verification
 
@@ -74,31 +74,32 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | Item | Value |
 | --- | --- |
 | Execution date | 2026-07-07 |
-| Browser | Pending manual execution |
-| Server URL | `http://127.0.0.1:8000` |
-| Runtime store | PostgreSQL with built-in local PostgreSQL defaults |
+| Browser | Blocked: no GUI browser/control available in this tool session |
+| Server URL | `http://127.0.0.1:8002` isolated run; `http://127.0.0.1:8000` was occupied by an unrelated stale listener |
+| Runtime store | PostgreSQL with built-in local PostgreSQL defaults; isolated run used `INTERVIEW_RUNTIME_TABLE_PREFIX=stage25_rc_0707` |
 | Database | `postgresql://postgres:postgres@127.0.0.1:5432/interview` |
 | LLM provider | DeepSeek-compatible OpenAI API |
 | Knowledge chunks | 10 |
-| Report worker | Pending manual execution |
-| Question evaluation trace | Pending manual execution |
-| PDF download | Pending manual execution |
+| Report worker | Pass via isolated worker process |
+| Question evaluation trace | Pass via API: `evaluations_total=5` |
+| PDF download | Pass via API: `application/pdf`, 14894 bytes |
 
 ## Stage 25 RC Resilience Checklist
 
 | Step | Expected result | Result | Notes |
 | --- | --- | --- | --- |
 | Built-in local PostgreSQL defaults | Clearing `POSTGRES_DSN`, `INTERVIEW_RUNTIME_STORE`, `INTERVIEW_RUNTIME_TABLE_PREFIX`, and `PGVECTOR_TABLE` still resolves runtime stores to `postgresql://postgres:postgres@127.0.0.1:5432/interview` | Pass | Session store, report job store, and knowledge store resolved to the built-in DSN |
-| Worker-delayed report completion | Finishing an interview while the report worker is stopped leaves processing visible; starting the worker completes the report | Pending |  |
-| Service restart persistence | Restarting FastAPI after report completion still loads `/report-detail?session_id=...` from PostgreSQL | Pending |  |
-| Question evaluation trace | `/report-detail?session_id=...` shows saved question evaluation records loaded from `/api/interviews/{session_id}/question-evaluations` | Pending |  |
+| Worker-delayed report completion | Finishing an interview while the report worker is stopped leaves processing visible; starting the worker completes the report | Pass | Worker stopped for 30 seconds: report stayed `202 processing`; restarted worker completed session `5541309c-dce3-44dd-ae85-801f67385af5` |
+| Service restart persistence | Restarting FastAPI after report completion still loads `/report-detail?session_id=...` from PostgreSQL | Pass | Restarted isolated FastAPI and reloaded report API, question evaluations, and report-detail HTML shell |
+| Question evaluation trace | `/report-detail?session_id=...` shows saved question evaluation records loaded from `/api/interviews/{session_id}/question-evaluations` | Pass via API | Main isolated session returned `evaluations_total=5`; delayed worker session returned `evaluations_total=4` |
 
 ## Stage 25 RC Defect Log
 
 | ID | Severity | Page/API | Symptom | Fix commit | Verification |
 | --- | --- | --- | --- | --- | --- |
-| None | - | - | No Stage 25 RC browser defects recorded yet | - | - |
+| S25-ENV-1 | Blocking | Browser acceptance environment | Current tool session has no controllable GUI browser, no installed Playwright/Puppeteer/Selenium, and no browser command on PATH, so manual browser UI acceptance cannot be completed here | - | API/worker/resilience checks passed; manual GUI browser run still required |
+| S25-ENV-2 | Medium | Local process environment | Port 8000 was occupied by an unrelated stale listener that did not expose the current `question-evaluations` route; controlled acceptance used port 8002 and isolated table prefix `stage25_rc_0707` | - | Isolated 8002 run exposed current routes and saved question evaluations |
 
 ## Final Status
 
-Pending manual browser execution.
+Not accepted as Local V1 RC. API, worker, PostgreSQL, LLM, question-evaluation persistence, PDF generation, worker-delayed completion, and service restart persistence passed in an isolated run, but blocking manual GUI browser acceptance remains.
