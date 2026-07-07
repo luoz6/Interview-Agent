@@ -55,15 +55,33 @@ Out of scope: user login, account isolation, startup scripts, Playwright/browser
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_page_routes.py tests/test_local_v1_docs.py -q` | Pending |
-| `node --check app/static/api.js` | Pending |
-| `node --check app/static/shared-ui.js` | Pending |
-| `node --check app/static/prep.js` | Pending |
-| `node --check app/static/interview.js` | Pending |
-| `node --check app/static/report-processing.js` | Pending |
-| `node --check app/static/report-detail.js` | Pending |
-| `npm run build:prototype-css` | Pending |
+| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_page_routes.py tests/test_local_v1_docs.py -q` | Pass: 35 passed |
+| `node --check app/static/api.js` | Pass |
+| `node --check app/static/shared-ui.js` | Pass |
+| `node --check app/static/prep.js` | Pass |
+| `node --check app/static/interview.js` | Pass |
+| `node --check app/static/report-processing.js` | Pass |
+| `node --check app/static/report-detail.js` | Pass |
+| `npm run build:prototype-css` | Pass |
 | `F:\python3.11\python.exe -m pytest -q` | Pending |
+
+## Stage 24 Execution Notes
+
+| Item | Value |
+| --- | --- |
+| Execution date | 2026-07-07 |
+| Browser | Pending manual execution |
+| Server URL | `http://127.0.0.1:8000` |
+| Runtime store | PostgreSQL |
+| LLM provider | DeepSeek-compatible OpenAI API |
+| Knowledge chunks | Pending database check |
+| Question evaluation UI | Pending manual execution |
+
+## Stage 24 Defect Log
+
+| ID | Severity | Page/API | Symptom | Fix commit | Verification |
+| --- | --- | --- | --- | --- | --- |
+| None | - | - | No Stage 24 browser defects recorded; manual browser execution is still pending | - | Automated static checks passed |
 
 ## Final Status
 
