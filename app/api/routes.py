@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -9,6 +8,11 @@ from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
 from app.services.report_pdf import build_report_pdf
 from app.services.report_tasks import generate_report_for_session
+from app.services.runtime_events import (
+    InterviewStreamChunkEvent,
+    InterviewStreamDoneEvent,
+    InterviewStreamErrorEvent,
+)
 from app.services.runtime import get_draft_store, get_report_job_store, get_session_store
 from app.services.session import InterviewSessionStore
 
@@ -167,7 +171,7 @@ def submit_answer_stream(
                 chunks: list[str] = []
                 for chunk in store.stream_followup(session_id):
                     chunks.append(chunk)
-                    yield _sse_event("chunk", {"delta": chunk})
+                    yield InterviewStreamChunkEvent(delta=chunk).to_sse()
                 follow_up_text = "".join(chunks).strip()
             else:
                 decision = prepared.state["decision"]
@@ -179,9 +183,9 @@ def submit_answer_stream(
             )
             turn = store._to_turn(finalized_state, follow_up=_extract_follow_up(finalized_state))
             _schedule_report_if_needed(turn.status, session_id, background_tasks, store)
-            yield _sse_event("done", _turn_to_dict(turn))
+            yield InterviewStreamDoneEvent(turn=_turn_to_dict(turn)).to_sse()
         except Exception as exc:  # pragma: no cover - defensive streaming boundary
-            yield _sse_event("error", {"detail": str(exc)})
+            yield InterviewStreamErrorEvent(detail=str(exc)).to_sse()
 
     return StreamingResponse(
         event_stream(),
@@ -325,10 +329,6 @@ def _turn_to_dict(turn):
         "follow_up": turn.follow_up,
         "status": turn.status,
     }
-
-
-def _sse_event(event: str, payload: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def _report_job_id_for_session(session_id: str) -> str | None:
