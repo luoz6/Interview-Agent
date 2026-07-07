@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the Local V1 RC browser acceptance record, then introduce explicit runtime ports and service boundaries without replacing the current PostgreSQL worker runtime.
+**Goal:** Close the lightweight Stage 25.6 browser-fix acceptance record as a pre-flight gate, then introduce Stage 26 runtime ports and service boundaries without replacing the current PostgreSQL worker runtime.
 
-**Architecture:** Stage 25.6 is a documentation and acceptance closure stage for the browser defects fixed after Stage 25.5. Stage 26 adds typed ports, shared runtime event schemas, and a report enqueue boundary so FastAPI depends on stable service contracts instead of worker internals. The current PostgreSQL session store, PostgreSQL report job store, SSE answer stream, polling report progress, pgvector knowledge store, and report worker remain the default runtime.
+**Architecture:** Stage 25.6 is intentionally included as Task 1 because it is documentation-only closure for defects already fixed during manual browser use, and Stage 26 should not start while the RC record still implies those defects are open. The commits remain separate: Task 1 commits Stage 25.6 evidence, while Tasks 2-7 commit Stage 26 architecture work. Stage 26 adds typed ports, shared runtime event schemas, and a report enqueue boundary so FastAPI depends on stable service contracts instead of worker internals. The current PostgreSQL session store, PostgreSQL report job store, SSE answer stream, polling report progress, pgvector knowledge store, and report worker remain the default runtime.
 
 **Tech Stack:** FastAPI, Pydantic v2, Python `typing.Protocol`, PostgreSQL 5432, pgvector, vanilla ES modules, static HTML, pytest, Node syntax checks, PowerShell on Windows.
 
@@ -21,6 +21,7 @@ This plan does:
   - top navigation links route to `/prep`, `/reports`, and `/help`;
   - `/reports` and `/help` pages are available.
 - Add runtime port protocols that describe the current store, queue, publisher, LLM, and knowledge-store contracts.
+- Split store protocols by responsibility and keep `InterviewSessionRepository` only as the current Local V1 aggregate protocol. Later stages can replace it with separate `SessionCommandRepository`, `ReportRepository`, and `QuestionEvaluationRepository` adapters.
 - Add canonical event schemas for interview streaming and report progress.
 - Move report enqueue scheduling out of `app/api/routes.py` into a service boundary.
 - Add tests that prevent API routes from importing worker execution internals.
@@ -34,6 +35,11 @@ This plan does not:
 - Redesign the frontend.
 - Rename existing database tables.
 
+## Preconditions
+
+- `app/static/report-center.js` and `app/test0.html` must already exist from the report-center fix commit `e288a99`.
+- If either file is missing, stop and restore/apply the report-center fix before running this plan; Task 1 and Task 7 intentionally include `node --check app/static/report-center.js` to catch that gap.
+
 ## File Structure
 
 - Modify: `docs/stage-21-browser-e2e-acceptance.md`
@@ -43,7 +49,9 @@ This plan does not:
 - Create: `app/ports/__init__.py`
   - Package marker for runtime ports.
 - Create: `app/ports/runtime.py`
-  - Protocol definitions for session store, report queue, question evaluations, knowledge store, event publisher, and LLM provider.
+  - Protocol definitions for session commands, report repository, question evaluations, report queue, knowledge store, event publisher, and LLM provider.
+- Create: `app/services/event_publisher.py`
+  - No-op runtime event publisher used to make the Local V1 publisher boundary explicit.
 - Create: `app/services/runtime_events.py`
   - Pydantic event schemas shared by API, frontend contracts, and future WebSocket adapters.
 - Create: `app/services/report_enqueue.py`
@@ -183,6 +191,7 @@ git commit -m "docs: record stage 25.6 browser fix closure"
 **Files:**
 - Create: `app/ports/__init__.py`
 - Create: `app/ports/runtime.py`
+- Create: `app/services/event_publisher.py`
 - Create: `tests/test_runtime_ports.py`
 
 - [ ] **Step 1: Write failing protocol conformance tests**
@@ -190,51 +199,75 @@ git commit -m "docs: record stage 25.6 browser fix closure"
 Create `tests/test_runtime_ports.py`:
 
 ```python
-from typing import runtime_checkable
-
 from app.ports.runtime import (
     InterviewSessionRepository,
     KnowledgeRepository,
+    QuestionEvaluationRepository,
     ReportJobQueue,
+    ReportRepository,
+    RuntimeEventPublisher,
     RuntimeLLMProvider,
+    SessionCommandRepository,
 )
+from app.services.event_publisher import NoopRuntimeEventPublisher
 from app.services.llm import OpenAIInterviewLLM
+from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import PgVectorKnowledgeStore
 
 
 def test_runtime_protocols_are_runtime_checkable():
-    assert getattr(InterviewSessionRepository, "_is_runtime_protocol", False)
-    assert getattr(ReportJobQueue, "_is_runtime_protocol", False)
-    assert getattr(KnowledgeRepository, "_is_runtime_protocol", False)
-    assert getattr(RuntimeLLMProvider, "_is_runtime_protocol", False)
+    for protocol in (
+        SessionCommandRepository,
+        ReportRepository,
+        QuestionEvaluationRepository,
+        InterviewSessionRepository,
+        ReportJobQueue,
+        KnowledgeRepository,
+        RuntimeLLMProvider,
+        RuntimeEventPublisher,
+    ):
+        assert getattr(protocol, "_is_runtime_protocol", False)
 
 
-def test_memory_session_store_matches_session_repository_protocol():
+def test_memory_session_store_matches_split_repository_protocols():
     store = InterviewSessionStore()
 
+    assert isinstance(store, SessionCommandRepository)
+    assert isinstance(store, ReportRepository)
+    assert isinstance(store, QuestionEvaluationRepository)
     assert isinstance(store, InterviewSessionRepository)
 
 
-def test_postgres_job_store_exposes_report_queue_contract_without_connecting():
-    required_methods = {
-        "enqueue_report_request",
-        "claim_next",
-        "mark_completed",
-        "mark_failed",
-        "mark_retryable_failure",
-        "repair_orphan_processing_reports",
-        "get_job_by_session",
-    }
+def test_postgres_session_store_matches_split_repository_protocols_without_connecting():
+    store = object.__new__(PostgresInterviewSessionStore)
 
-    for method_name in required_methods:
-        assert hasattr(PostgresReportJobStore, method_name)
+    assert isinstance(store, SessionCommandRepository)
+    assert isinstance(store, ReportRepository)
+    assert isinstance(store, QuestionEvaluationRepository)
+    assert isinstance(store, InterviewSessionRepository)
+
+
+def test_postgres_job_store_matches_report_queue_protocol_without_connecting():
+    queue = object.__new__(PostgresReportJobStore)
+
+    assert isinstance(queue, ReportJobQueue)
+
+
+def test_noop_event_publisher_makes_local_v1_publisher_boundary_explicit():
+    publisher = NoopRuntimeEventPublisher()
+
+    assert isinstance(publisher, RuntimeEventPublisher)
+    assert publisher.publish({"event": "ignored"}) is None
 
 
 def test_vector_store_and_llm_expose_runtime_contracts_without_network_calls():
-    assert hasattr(PgVectorKnowledgeStore, "search")
-    assert hasattr(OpenAIInterviewLLM, "stream_followup")
+    vector_store = object.__new__(PgVectorKnowledgeStore)
+    llm = object.__new__(OpenAIInterviewLLM)
+
+    assert isinstance(vector_store, KnowledgeRepository)
+    assert isinstance(llm, RuntimeLLMProvider)
 ```
 
 - [ ] **Step 2: Run the protocol tests and verify they fail**
@@ -245,7 +278,7 @@ Run:
 F:\python3.11\python.exe -m pytest tests/test_runtime_ports.py -q
 ```
 
-Expected: FAIL because `app.ports.runtime` does not exist.
+Expected: FAIL because `app.ports.runtime` and `app.services.event_publisher` do not exist.
 
 - [ ] **Step 3: Create the ports package marker**
 
@@ -260,7 +293,7 @@ Create `app/ports/__init__.py`:
 Create `app/ports/runtime.py`:
 
 ```python
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Iterator
 from typing import Any, Protocol, runtime_checkable
 
 from app.graphs.interview_state import InterviewState
@@ -278,12 +311,19 @@ class RuntimeLLMProvider(Protocol):
 
 @runtime_checkable
 class KnowledgeRepository(Protocol):
-    def search(self, query: str, *, top_k: int = 5, filters: dict[str, Any] | None = None) -> list[Any]:
+    def search(
+        self,
+        query_text: str,
+        *,
+        job_tags: list[str],
+        source_types: list[str] | None = None,
+        limit: int = 5,
+    ) -> list[Any]:
         ...
 
 
 @runtime_checkable
-class InterviewSessionRepository(Protocol):
+class SessionCommandRepository(Protocol):
     @property
     def llm(self) -> RuntimeLLMProvider | None:
         ...
@@ -322,6 +362,9 @@ class InterviewSessionRepository(Protocol):
     def finish(self, session_id: str) -> InterviewTurn:
         ...
 
+
+@runtime_checkable
+class ReportRepository(Protocol):
     def mark_report_processing(self, session_id: str) -> bool:
         ...
 
@@ -340,11 +383,28 @@ class InterviewSessionRepository(Protocol):
     def list_reports(self, *, status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         ...
 
+
+@runtime_checkable
+class QuestionEvaluationRepository(Protocol):
     def save_question_evaluations(self, session_id: str, records: list[QuestionEvaluationRecord]) -> None:
         ...
 
     def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
         ...
+
+
+@runtime_checkable
+class InterviewSessionRepository(
+    SessionCommandRepository,
+    ReportRepository,
+    QuestionEvaluationRepository,
+    Protocol,
+):
+    """Current Local V1 aggregate protocol.
+
+    Later stages can inject the smaller SessionCommandRepository,
+    ReportRepository, and QuestionEvaluationRepository ports separately.
+    """
 
 
 @runtime_checkable
@@ -377,7 +437,27 @@ class RuntimeEventPublisher(Protocol):
         ...
 ```
 
-- [ ] **Step 5: Run the protocol tests and verify they pass**
+- [ ] **Step 5: Create the Local V1 no-op event publisher**
+
+Create `app/services/event_publisher.py`:
+
+```python
+from typing import Any
+
+
+class NoopRuntimeEventPublisher:
+    """Local V1 publisher boundary.
+
+    The current runtime performs direct function calls, SSE streaming, and
+    polling. Future adapters can replace this with Redis, WebSocket, or another
+    event fanout implementation while satisfying RuntimeEventPublisher.
+    """
+
+    def publish(self, event: Any) -> None:
+        return None
+```
+
+- [ ] **Step 6: Run the protocol tests and verify they pass**
 
 Run:
 
@@ -387,12 +467,12 @@ F:\python3.11\python.exe -m pytest tests/test_runtime_ports.py -q
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 Run:
 
 ```powershell
-git add app/ports tests/test_runtime_ports.py
+git add app/ports app/services/event_publisher.py tests/test_runtime_ports.py
 git commit -m "feat: define runtime port protocols"
 ```
 
@@ -415,7 +495,6 @@ from app.services.runtime_events import (
     InterviewStreamDoneEvent,
     InterviewStreamErrorEvent,
     ReportProgressEvent,
-    sse_event,
 )
 
 
@@ -424,7 +503,7 @@ def test_interview_stream_chunk_event_serializes_for_sse():
 
     assert event.event == "chunk"
     assert event.model_dump() == {"event": "chunk", "delta": "hello"}
-    assert sse_event(event) == 'event: chunk\ndata: {"delta": "hello"}\n\n'
+    assert event.to_sse() == 'event: chunk\ndata: {"delta": "hello"}\n\n'
 
 
 def test_interview_stream_done_event_serializes_without_event_field_in_data():
@@ -432,14 +511,27 @@ def test_interview_stream_done_event_serializes_without_event_field_in_data():
     event = InterviewStreamDoneEvent(turn=payload)
 
     assert event.event == "done"
-    assert sse_event(event) == 'event: done\ndata: {"session_id": "s1", "status": "active", "follow_up": "next"}\n\n'
+    assert event.to_sse() == 'event: done\ndata: {"session_id": "s1", "status": "active", "follow_up": "next"}\n\n'
 
 
 def test_interview_stream_error_event_serializes_detail():
     event = InterviewStreamErrorEvent(detail="failed")
 
     assert event.event == "error"
-    assert sse_event(event) == 'event: error\ndata: {"detail": "failed"}\n\n'
+    assert event.to_sse() == 'event: error\ndata: {"detail": "failed"}\n\n'
+
+
+def test_new_sse_events_exactly_match_legacy_sse_strings():
+    turn = {
+        "session_id": "s1",
+        "current_question": None,
+        "follow_up": "next",
+        "status": "active",
+    }
+
+    assert InterviewStreamChunkEvent(delta="abc").to_sse() == _legacy_sse_event("chunk", {"delta": "abc"})
+    assert InterviewStreamDoneEvent(turn=turn).to_sse() == _legacy_sse_event("done", turn)
+    assert InterviewStreamErrorEvent(detail="failed").to_sse() == _legacy_sse_event("error", {"detail": "failed"})
 
 
 def test_report_progress_event_uses_current_polling_shape():
@@ -457,6 +549,12 @@ def test_report_progress_event_uses_current_polling_shape():
 
     assert event.model_dump()["status"] == "processing"
     assert event.model_dump()["rag"]["top_k"] == 5
+
+
+def _legacy_sse_event(event: str, payload: dict) -> str:
+    import json
+
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 ```
 
 - [ ] **Step 2: Run event tests and verify they fail**
@@ -484,15 +582,28 @@ class InterviewStreamChunkEvent(BaseModel):
     event: Literal["chunk"] = "chunk"
     delta: str
 
+    def to_sse(self) -> str:
+        payload = self.model_dump()
+        event_name = payload.pop("event")
+        return _format_sse(event_name, payload)
+
 
 class InterviewStreamDoneEvent(BaseModel):
     event: Literal["done"] = "done"
     turn: dict[str, Any]
 
+    def to_sse(self) -> str:
+        return _format_sse(self.event, self.turn)
+
 
 class InterviewStreamErrorEvent(BaseModel):
     event: Literal["error"] = "error"
     detail: str
+
+    def to_sse(self) -> str:
+        payload = self.model_dump()
+        event_name = payload.pop("event")
+        return _format_sse(event_name, payload)
 
 
 class ReportProgressEvent(BaseModel):
@@ -507,11 +618,7 @@ class ReportProgressEvent(BaseModel):
     rag: dict[str, Any] = Field(default_factory=dict)
 
 
-def sse_event(event: InterviewStreamChunkEvent | InterviewStreamDoneEvent | InterviewStreamErrorEvent) -> str:
-    payload = event.model_dump()
-    event_name = payload.pop("event")
-    if event_name == "done":
-        payload = payload["turn"]
+def _format_sse(event_name: str, payload: dict[str, Any]) -> str:
     return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 ```
 
@@ -534,7 +641,6 @@ from app.services.runtime_events import (
     InterviewStreamChunkEvent,
     InterviewStreamDoneEvent,
     InterviewStreamErrorEvent,
-    sse_event,
 )
 ```
 
@@ -547,7 +653,7 @@ yield _sse_event("chunk", {"delta": chunk})
 with:
 
 ```python
-yield sse_event(InterviewStreamChunkEvent(delta=chunk))
+yield InterviewStreamChunkEvent(delta=chunk).to_sse()
 ```
 
 Replace:
@@ -559,7 +665,7 @@ yield _sse_event("done", _turn_to_dict(turn))
 with:
 
 ```python
-yield sse_event(InterviewStreamDoneEvent(turn=_turn_to_dict(turn)))
+yield InterviewStreamDoneEvent(turn=_turn_to_dict(turn)).to_sse()
 ```
 
 Replace:
@@ -571,7 +677,7 @@ yield _sse_event("error", {"detail": str(exc)})
 with:
 
 ```python
-yield sse_event(InterviewStreamErrorEvent(detail=str(exc)))
+yield InterviewStreamErrorEvent(detail=str(exc)).to_sse()
 ```
 
 Then delete the private `_sse_event()` function and remove `import json` if it is unused.
@@ -628,13 +734,13 @@ class FakeStore:
 
 
 class FakeJobStore:
-    def __init__(self, *, raises=False):
-        self.raises = raises
+    def __init__(self, *, error=None):
+        self.error = error
         self.enqueued = []
 
     def enqueue_report_request(self, session_id):
-        if self.raises:
-            raise RuntimeError("postgres queue unavailable")
+        if self.error is not None:
+            raise self.error
         self.enqueued.append(session_id)
         return {"session_id": session_id, "status": "queued"}
 
@@ -701,7 +807,7 @@ def test_enqueue_report_uses_job_store_for_finished_sessions():
 
 def test_enqueue_report_falls_back_to_background_task_when_queue_unavailable():
     store = FakeStore()
-    job_store = FakeJobStore(raises=True)
+    job_store = FakeJobStore(error=RuntimeError("postgres queue unavailable"))
     background_tasks = FakeBackgroundTasks()
 
     enqueue_report_if_needed(
@@ -717,6 +823,23 @@ def test_enqueue_report_falls_back_to_background_task_when_queue_unavailable():
     task_func, task_args = background_tasks.tasks[0]
     assert task_func.__name__ == "generate_report_for_session"
     assert task_args == ("s1", store)
+
+
+def test_enqueue_report_falls_back_for_database_style_exceptions():
+    store = FakeStore()
+    job_store = FakeJobStore(error=ConnectionError("database unavailable"))
+    background_tasks = FakeBackgroundTasks()
+
+    enqueue_report_if_needed(
+        turn_status="finished",
+        session_id="s1",
+        store=store,
+        job_store=job_store,
+        background_tasks=background_tasks,
+    )
+
+    assert store.marked == ["s1"]
+    assert len(background_tasks.tasks) == 1
 ```
 
 - [ ] **Step 2: Run service-boundary tests and verify they fail**
@@ -736,7 +859,7 @@ Create `app/services/report_enqueue.py`:
 ```python
 from fastapi import BackgroundTasks
 
-from app.ports.runtime import InterviewSessionRepository, ReportJobQueue
+from app.ports.runtime import ReportJobQueue, ReportRepository
 from app.services.report_tasks import generate_report_for_session
 
 
@@ -744,7 +867,7 @@ def enqueue_report_if_needed(
     *,
     turn_status: str,
     session_id: str,
-    store: InterviewSessionRepository,
+    store: ReportRepository,
     job_store: ReportJobQueue,
     background_tasks: BackgroundTasks | None,
 ) -> None:
@@ -754,7 +877,7 @@ def enqueue_report_if_needed(
         return
     try:
         job_store.enqueue_report_request(session_id)
-    except RuntimeError:
+    except Exception:
         if background_tasks is not None and store.mark_report_processing(session_id):
             background_tasks.add_task(generate_report_for_session, session_id, store)
 ```
@@ -769,7 +892,31 @@ F:\python3.11\python.exe -m pytest tests/test_report_enqueue.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Refactor API routes to use the service boundary**
+- [ ] **Step 5: Confirm the report job dependency provider already exists**
+
+Run:
+
+```powershell
+Select-String -Path app/services/runtime.py -Pattern "def get_report_job_store"
+Select-String -Path app/api/routes.py -Pattern "get_report_job_store"
+```
+
+Expected:
+
+- `app/services/runtime.py` contains `def get_report_job_store`.
+- `app/api/routes.py` already imports `get_report_job_store` from `app.services.runtime`.
+
+If either check fails, add `get_report_job_store` to `app/services/runtime.py` before continuing:
+
+```python
+def get_report_job_store():
+    global _report_job_store
+    if _report_job_store is None:
+        _report_job_store = build_report_job_store()
+    return _report_job_store
+```
+
+- [ ] **Step 6: Refactor API routes to use the service boundary**
 
 Modify imports in `app/api/routes.py`.
 
@@ -824,7 +971,7 @@ Apply the same dependency and replacement in:
 
 Delete the private `_schedule_report_if_needed()` function from `app/api/routes.py`.
 
-- [ ] **Step 6: Add a regression that API routes do not import report task execution**
+- [ ] **Step 7: Add a regression that API routes do not import report task execution**
 
 Append this test to `tests/test_report_enqueue.py`:
 
@@ -840,7 +987,7 @@ def test_api_routes_do_not_import_report_task_executor_directly():
     assert "enqueue_report_if_needed" in routes_source
 ```
 
-- [ ] **Step 7: Run API and enqueue regression tests**
+- [ ] **Step 8: Run API and enqueue regression tests**
 
 Run:
 
@@ -850,7 +997,7 @@ F:\python3.11\python.exe -m pytest tests/test_report_enqueue.py tests/test_api.p
 
 Expected: PASS. If `test_finish_interview_enqueues_report_job` has a different exact name, run `F:\python3.11\python.exe -m pytest tests/test_report_api.py -q` and keep all report API tests passing.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 Run:
 
@@ -890,7 +1037,12 @@ def test_runtime_boundary_endpoint_reports_local_v1_components():
     assert body["report_job_store"] == "PostgresReportJobStore"
     assert body["report_worker"] == "external_process"
     assert body["event_transport"] == {"interview": "sse", "report_progress": "polling"}
-    assert body["future_adapters"] == ["redis", "celery", "websocket", "langgraph"]
+    assert body["capabilities"] == {
+        "redis": False,
+        "celery": False,
+        "websocket": False,
+        "langgraph": False,
+    }
     assert "postgres:postgres" not in str(body)
 ```
 
@@ -929,7 +1081,12 @@ def runtime_boundary(
             "interview": "sse",
             "report_progress": "polling",
         },
-        "future_adapters": ["redis", "celery", "websocket", "langgraph"],
+        "capabilities": {
+            "redis": False,
+            "celery": False,
+            "websocket": False,
+            "langgraph": False,
+        },
     }
 ```
 
@@ -970,13 +1127,18 @@ def test_stage_26_runtime_boundary_doc_exists_and_names_ports():
     doc = read_doc("stage-26-runtime-boundary.md")
 
     assert "Stage 26 Runtime Boundary" in doc
+    assert "SessionCommandRepository" in doc
+    assert "ReportRepository" in doc
+    assert "QuestionEvaluationRepository" in doc
     assert "InterviewSessionRepository" in doc
     assert "ReportJobQueue" in doc
     assert "KnowledgeRepository" in doc
     assert "RuntimeEventPublisher" in doc
+    assert "InterviewSessionRepository is the current Local V1 aggregate protocol" in doc
     assert "SSE remains the Local V1 interview stream transport" in doc
     assert "Report progress remains polling in Local V1" in doc
     assert "Redis, Celery, WebSocket, and LangGraph are future adapters" in doc
+    assert "RuntimeEventPublisher is implemented by NoopRuntimeEventPublisher in Local V1" in doc
 
 
 def test_runbook_mentions_runtime_boundary_endpoint():
@@ -1009,11 +1171,16 @@ Stage 26 defines explicit Local V1 runtime boundaries without changing the deplo
 
 | Port | Default Local V1 implementation | Responsibility |
 | --- | --- | --- |
-| `InterviewSessionRepository` | `InterviewSessionStore`, `PostgresInterviewSessionStore` | session state, answers, reports, question evaluations |
+| `SessionCommandRepository` | `InterviewSessionStore`, `PostgresInterviewSessionStore` | session state, answers, skip, finish, snapshots, and streamed follow-up control |
+| `ReportRepository` | `InterviewSessionStore`, `PostgresInterviewSessionStore` | report records, report progress, report success/failure, and report listing |
+| `QuestionEvaluationRepository` | `InterviewSessionStore`, `PostgresInterviewSessionStore` | save and list per-question evaluation records |
+| `InterviewSessionRepository` | `InterviewSessionStore`, `PostgresInterviewSessionStore` | current Local V1 aggregate protocol over session commands, reports, and question evaluations |
 | `ReportJobQueue` | `PostgresReportJobStore` | enqueue, lease, retry, and complete report jobs |
 | `KnowledgeRepository` | `PgVectorKnowledgeStore` | retrieve local knowledge chunks for grounded evaluation |
 | `RuntimeLLMProvider` | `OpenAIInterviewLLM` | generate follow-ups and report content |
-| `RuntimeEventPublisher` | no-op/local call boundary in Local V1 | future event fanout boundary |
+| `RuntimeEventPublisher` | `NoopRuntimeEventPublisher` | future event fanout boundary |
+
+InterviewSessionRepository is the current Local V1 aggregate protocol. Later stages should inject `SessionCommandRepository`, `ReportRepository`, and `QuestionEvaluationRepository` separately when those responsibilities split into different services.
 
 ## Event Transport
 
@@ -1022,6 +1189,8 @@ SSE remains the Local V1 interview stream transport.
 Report progress remains polling in Local V1.
 
 The canonical event shapes live in `app/services/runtime_events.py`, so future adapters can reuse the same payloads.
+
+RuntimeEventPublisher is implemented by NoopRuntimeEventPublisher in Local V1 because the current runtime uses direct calls, SSE, and polling rather than a shared event bus.
 
 ## API And Worker Boundary
 
@@ -1167,6 +1336,7 @@ Expected:
 
 - `/api/health` returns `{"status": "ok"}`.
 - `/api/runtime` names `PostgresInterviewSessionStore`, `PostgresReportJobStore`, `sse`, and `polling`.
+- `/api/runtime` returns `capabilities` with `redis`, `celery`, `websocket`, and `langgraph` all set to `false`.
 - `/api/runtime` does not include `postgres:postgres`.
 
 - [ ] **Step 7: Commit verification documentation if any evidence files changed**
@@ -1184,5 +1354,5 @@ git commit -m "docs: record stage 26 verification"
 
 - Spec coverage: Task 1 closes Stage 25.6 acceptance documentation. Tasks 2-5 create runtime ports, event schemas, API/worker enqueue separation, and runtime diagnostics. Task 6 documents the architecture boundary. Task 7 verifies the result.
 - Placeholder scan: The plan contains no banned placeholder markers or unspecified implementation steps. Code snippets and exact commands are included for each implementation task.
-- Type consistency: Protocol names used in docs and tests match `app/ports/runtime.py`: `InterviewSessionRepository`, `ReportJobQueue`, `KnowledgeRepository`, `RuntimeLLMProvider`, and `RuntimeEventPublisher`. Event schema names used in tests match `app/services/runtime_events.py`.
+- Type consistency: Protocol names used in docs and tests match `app/ports/runtime.py`: `SessionCommandRepository`, `ReportRepository`, `QuestionEvaluationRepository`, `InterviewSessionRepository`, `ReportJobQueue`, `KnowledgeRepository`, `RuntimeLLMProvider`, and `RuntimeEventPublisher`. Event schema names used in tests match `app/services/runtime_events.py`, and Local V1 publisher tests use `NoopRuntimeEventPublisher`.
 - Scope check: Redis, Celery, WebSocket, and LangGraph are named only as future adapters and are not implemented in this plan.
