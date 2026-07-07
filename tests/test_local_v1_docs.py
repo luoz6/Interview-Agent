@@ -112,3 +112,15 @@ def test_docs_describe_stage_23_architecture_position():
     assert expected in readme
     assert expected in runbook
     assert "Redis, Celery, WebSocket, and LangGraph remain future architecture upgrades" in readme
+
+
+def test_docs_describe_visible_question_evaluation_trace():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    phrase = "Report Detail shows per-question evaluation trace records"
+    chain = "Report Worker -> ShadowReviewerAgent -> ReportCoachAgent -> QuestionEvaluationRecord -> Report Detail"
+    assert phrase in readme
+    assert phrase in runbook
+    assert chain in readme
+    assert chain in runbook

@@ -19,6 +19,8 @@ Expected local services:
 
 Stage 23 keeps Postgres report jobs as the Local V1 async boundary while adding explicit agent boundaries and per-question evaluation records. This runbook continues to verify the local single-user runtime, not the future Redis/Celery/WebSocket/LangGraph deployment shape.
 
+Report Detail shows per-question evaluation trace records. The visible trace chain is: `Report Worker -> ShadowReviewerAgent -> ReportCoachAgent -> QuestionEvaluationRecord -> Report Detail`.
+
 ## 2. PowerShell Setup
 
 ```powershell
@@ -109,7 +111,8 @@ PowerShell 5.1 note: run each command separately instead of joining commands wit
 15. Confirm report-processing page shows progress.
 16. Wait for report-detail page.
 17. Confirm total score, five dimensions, feedback, and evidence excerpts render.
-18. Download PDF and confirm the file opens.
+18. Confirm the `逐题评估链路` section renders at least one question evaluation record after report completion.
+19. Download PDF and confirm the file opens.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
