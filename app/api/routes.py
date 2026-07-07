@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
+from app.services.config import get_runtime_store
 from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
 from app.services.runtime_events import (
@@ -47,6 +48,32 @@ class DraftRequest(BaseModel):
 @router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@router.get("/runtime")
+def runtime_boundary():
+    runtime_store = get_runtime_store()
+    session_store = (
+        "PostgresInterviewSessionStore"
+        if runtime_store == "postgres"
+        else "InterviewSessionStore"
+    )
+    return {
+        "runtime_store": runtime_store,
+        "session_store": session_store,
+        "report_job_store": "PostgresReportJobStore",
+        "report_worker": "external_process",
+        "event_transport": {
+            "interview": "sse",
+            "report_progress": "polling",
+        },
+        "capabilities": {
+            "redis": False,
+            "celery": False,
+            "websocket": False,
+            "langgraph": False,
+        },
+    }
 
 
 @router.post("/prep")
