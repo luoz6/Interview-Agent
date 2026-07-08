@@ -48,6 +48,15 @@ function createCommandId() {
   return `browser-command-${Date.now()}-${commandSequence}`;
 }
 
+function isVersionConflict(error) {
+  return error && error.status === 409;
+}
+
+async function recoverFromVersionConflict() {
+  await loadSnapshot();
+  showNotice(interviewNotice, "会话状态已刷新，请检查最新题目后继续。", "warning");
+}
+
 function renderMessages(messages) {
   clear(conversation);
   if (!messages || !messages.length) {
@@ -146,8 +155,8 @@ async function submitAnswer(event) {
         streamingBubble.textContent = streamedText;
         conversation.scrollTop = conversation.scrollHeight;
       },
-      done(data) {
-        renderSnapshot(data);
+      done() {
+        // The SSE done payload is an InterviewTurn, not a full session snapshot.
       },
       error(data) {
         showNotice(interviewNotice, data.detail || "提交失败", "danger");
@@ -156,6 +165,10 @@ async function submitAnswer(event) {
     await loadSnapshot();
   } catch (error) {
     answerInput.value = answer;
+    if (isVersionConflict(error)) {
+      await recoverFromVersionConflict();
+      return;
+    }
     throw error;
   } finally {
     setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], false);
@@ -164,13 +177,29 @@ async function submitAnswer(event) {
 
 async function skipQuestion() {
   if (!hasSession()) return;
-  await postJson(`/api/interviews/${sessionId}/skip`, createCommandPayload());
+  try {
+    await postJson(`/api/interviews/${sessionId}/skip`, createCommandPayload());
+  } catch (error) {
+    if (isVersionConflict(error)) {
+      await recoverFromVersionConflict();
+      return;
+    }
+    throw error;
+  }
   await loadSnapshot();
 }
 
 async function finishInterview() {
   if (!hasSession()) return;
-  await postJson(`/api/interviews/${sessionId}/finish`, createCommandPayload());
+  try {
+    await postJson(`/api/interviews/${sessionId}/finish`, createCommandPayload());
+  } catch (error) {
+    if (isVersionConflict(error)) {
+      await recoverFromVersionConflict();
+      return;
+    }
+    throw error;
+  }
   window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
 }
 

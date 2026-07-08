@@ -303,6 +303,26 @@ def test_interview_page_sends_versioned_command_payloads():
     assert "postJson(`/api/interviews/${sessionId}/finish`, createCommandPayload())" in js
 
 
+def test_interview_page_recovers_from_version_conflicts():
+    js = read_static_file("interview.js")
+
+    assert "function isVersionConflict(error)" in js
+    assert "error.status === 409" in js
+    assert "async function recoverFromVersionConflict()" in js
+    assert "await loadSnapshot()" in js
+    assert "会话状态已刷新" in js
+    assert "if (isVersionConflict(error))" in js
+    assert "answerInput.value = answer" in js
+
+
+def test_interview_page_does_not_render_partial_turn_payload_after_sse_done():
+    js = read_static_file("interview.js")
+
+    assert "renderSnapshot(data)" not in js
+    assert "SSE done payload is an InterviewTurn" in js
+    assert "await loadSnapshot();" in js
+
+
 def test_report_processing_page_uses_safe_json_and_disables_view_without_session_id():
     js = read_static_file("report-processing.js")
 
