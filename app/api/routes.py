@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from copy import deepcopy
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
 from app.services.config import get_runtime_event_backend, get_runtime_store
+from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
 from app.services.runtime_events import (
@@ -14,7 +16,12 @@ from app.services.runtime_events import (
     InterviewStreamDoneEvent,
     InterviewStreamErrorEvent,
 )
-from app.services.runtime import get_draft_store, get_report_job_store, get_session_store
+from app.services.runtime import (
+    get_draft_store,
+    get_event_publisher,
+    get_report_job_store,
+    get_session_store,
+)
 from app.services.session import InterviewSessionStore
 
 
@@ -173,11 +180,15 @@ def submit_answer(
     payload: AnswerRequest,
     background_tasks: BackgroundTasks,
     store: InterviewSessionStore = Depends(get_session_store),
+    publisher=Depends(get_event_publisher),
 ):
     try:
+        before_state = _snapshot_session_state(store, session_id)
         turn = store.submit_answer(session_id, payload.answer)
+        after_state = _snapshot_session_state(store, session_id)
     except ValueError as exc:
         _raise_value_error(exc)
+    _publish_round_closed_event(publisher, before_state, after_state)
     enqueue_report_if_needed(
         turn_status=turn.status,
         session_id=session_id,
@@ -194,8 +205,10 @@ def submit_answer_stream(
     payload: AnswerRequest,
     background_tasks: BackgroundTasks,
     store: InterviewSessionStore = Depends(get_session_store),
+    publisher=Depends(get_event_publisher),
 ):
     try:
+        before_state = _snapshot_session_state(store, session_id)
         prepared = store.prepare_streaming_answer(session_id, payload.answer)
     except ValueError as exc:
         _raise_value_error(exc)
@@ -216,6 +229,8 @@ def submit_answer_stream(
                 session_id,
                 follow_up_text=follow_up_text,
             )
+            after_state = deepcopy(finalized_state)
+            _publish_round_closed_event(publisher, before_state, after_state)
             turn = store._to_turn(finalized_state, follow_up=_extract_follow_up(finalized_state))
             enqueue_report_if_needed(
                 turn_status=turn.status,
@@ -244,11 +259,15 @@ def finish_interview(
     session_id: str,
     background_tasks: BackgroundTasks,
     store: InterviewSessionStore = Depends(get_session_store),
+    publisher=Depends(get_event_publisher),
 ):
     try:
+        before_state = _snapshot_session_state(store, session_id)
         turn = store.finish(session_id)
+        after_state = _snapshot_session_state(store, session_id)
     except ValueError as exc:
         _raise_value_error(exc)
+    _publish_round_closed_event(publisher, before_state, after_state)
     enqueue_report_if_needed(
         turn_status=turn.status,
         session_id=session_id,
@@ -264,11 +283,15 @@ def skip_interview_question(
     session_id: str,
     background_tasks: BackgroundTasks,
     store: InterviewSessionStore = Depends(get_session_store),
+    publisher=Depends(get_event_publisher),
 ):
     try:
+        before_state = _snapshot_session_state(store, session_id)
         turn = store.skip(session_id)
+        after_state = _snapshot_session_state(store, session_id)
     except ValueError as exc:
         _raise_value_error(exc)
+    _publish_round_closed_event(publisher, before_state, after_state)
     enqueue_report_if_needed(
         turn_status=turn.status,
         session_id=session_id,
@@ -490,6 +513,23 @@ def _extract_follow_up(state) -> str | None:
     if state["status"] == "finished":
         return state["pending_output"]
     return None
+
+
+def _snapshot_session_state(
+    store: InterviewSessionStore,
+    session_id: str,
+):
+    return deepcopy(store.get(session_id))
+
+
+def _publish_round_closed_event(
+    publisher,
+    before_state,
+    after_state,
+) -> None:
+    event = round_closed_event_from_transition(before_state, after_state)
+    if event is not None:
+        publisher.publish(event)
 
 
 def _raise_value_error(exc: ValueError) -> None:

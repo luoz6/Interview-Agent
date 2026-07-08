@@ -407,3 +407,65 @@ def test_interview_moves_to_next_question_after_followup_answer():
     assert second_answer["follow_up"] is None
     assert second_answer["current_question"]["id"] == "q2"
     assert second_answer["status"] == "active"
+
+
+def test_answer_route_publishes_round_closed_event_only_when_question_closes():
+    published = []
+
+    class FakePublisher:
+        def publish(self, event):
+            published.append(event)
+
+    app.dependency_overrides[route_module.get_event_publisher] = lambda: FakePublisher()
+    client = make_client()
+
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    session_id = start_response.json()["session_id"]
+
+    first = client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I used Redis to cache hot records."},
+    )
+    second = client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I added delayed double delete."},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(published) == 1
+    assert published[0].question_id == "q1"
+    assert published[0].answer_state == "answered"
+
+
+def test_skip_route_publishes_round_closed_event():
+    published = []
+
+    class FakePublisher:
+        def publish(self, event):
+            published.append(event)
+
+    app.dependency_overrides[route_module.get_event_publisher] = lambda: FakePublisher()
+    client = make_client()
+
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    session_id = start_response.json()["session_id"]
+
+    response = client.post(f"/api/interviews/{session_id}/skip")
+
+    assert response.status_code == 200
+    assert len(published) == 1
+    assert published[0].question_id == "q1"
+    assert published[0].answer_state == "skipped"
