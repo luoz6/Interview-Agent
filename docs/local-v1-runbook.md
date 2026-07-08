@@ -25,6 +25,10 @@ Stage 25 Local V1 RC acceptance is the release gate before Stage 26 architecture
 
 Stage 26A adds an opt-in Redis/Celery round-review event backend. Closed interview rounds can be published as `round_closed` events and reviewed asynchronously during the interview. Interim round-review rows are merged by question id instead of session-wide replace, the Postgres final-report worker remains authoritative for the completed report, and the Local V1 UI remains final-report-first.
 
+Stage 29 adds a LangGraph-powered orchestrator and a versioned HTTP resume contract. Local verification should now treat `GET /api/interviews/{session_id}` as the resume handshake and should pass `expected_version` plus a caller-generated `command_id` when retry-safe command behavior needs to be validated.
+
+Stage 30 wires the browser interview page into the versioned HTTP resume contract. The frontend should read `state_version` from `GET /api/interviews/{session_id}`, send `expected_version` plus a browser-generated `command_id` on answer, skip, and finish commands, and recover from `409` conflicts by reloading the session snapshot instead of leaving stale UI state on screen.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -107,6 +111,15 @@ npm run build:prototype-css
 
 PowerShell 5.1 note: run each command separately instead of joining commands with `&&`.
 
+Example versioned answer request:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/interviews/<session_id>/answer" `
+  -ContentType "application/json" `
+  -Body '{"answer":"I used Redis cache-aside.","expected_version":1,"command_id":"cmd-001"}'
+```
+
 ## 6. 真实浏览器验收
 
 1. Open `http://127.0.0.1:8000/prep`.
@@ -128,6 +141,15 @@ PowerShell 5.1 note: run each command separately instead of joining commands wit
 17. Confirm total score, five dimensions, feedback, and evidence excerpts render.
 18. Confirm the `逐题评估链路` section renders at least one question evaluation record after report completion.
 19. Download PDF and confirm the file opens.
+
+Stage 30 versioned resume checks:
+
+1. Open `/prep`, create an interview, and land on `/interview?session_id=...`.
+2. Confirm `GET /api/interviews/{session_id}` returns `state_version`.
+3. Submit a streamed answer and confirm the request payload includes `expected_version` and `command_id`.
+4. Refresh `/interview?session_id=...` and confirm the latest messages and question state are restored.
+5. Continue the interview after refresh and confirm the next mutating request uses the refreshed `state_version`.
+6. Simulate or trigger a stale request that returns `409`, then confirm the page reloads `GET /api/interviews/{session_id}` and keeps the user's typed answer available for retry. Do not expect the page to auto-retry `skip` or `finish`; the intended behavior is refresh plus user retry.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 

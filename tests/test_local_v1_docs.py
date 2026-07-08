@@ -165,6 +165,30 @@ def test_docs_describe_stage_26a_event_backend_position():
     assert worker_command in runbook
 
 
+def test_docs_describe_stage_29_orchestrator_resume_contract():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 29 adds a LangGraph-powered orchestrator and a versioned HTTP resume contract"
+    assert expected in readme
+    assert expected in runbook
+    assert "expected_version" in runbook
+    assert "command_id" in runbook
+
+
+def test_docs_describe_stage_30_frontend_versioned_resume_acceptance():
+    runbook = read_text("docs/local-v1-runbook.md")
+    acceptance = read_text("docs/stage-30-browser-versioned-resume-acceptance.md")
+
+    expected = "Stage 30 wires the browser interview page into the versioned HTTP resume contract"
+    assert expected in runbook
+    assert expected in acceptance
+    assert "expected_version" in acceptance
+    assert "command_id" in acceptance
+    assert "409" in acceptance
+    assert "GET /api/interviews/{session_id}" in acceptance
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 
