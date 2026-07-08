@@ -228,3 +228,14 @@ def load_all_cases() -> list[dict]:
     for path in sorted(GOLDEN_DIR.glob("*_cases.json")):
         cases.extend(load_case(path.name))
     return cases
+
+
+def report_snapshot(report: InterviewReport) -> dict:
+    feedback = report.feedbacks[0]
+    return {
+        "overall_score": report.overall_score,
+        "summary": report.summary,
+        "highlights": report.highlights,
+        "feedback": feedback.model_dump(exclude={"references"}),
+        "reference_ids": [reference.chunk_id for reference in feedback.references],
+    }
