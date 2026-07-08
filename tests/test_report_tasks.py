@@ -4,6 +4,7 @@ import pytest
 
 from app.services.llm import OpenAIInterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
     InterviewFeedback,
@@ -244,6 +245,26 @@ def make_plan() -> InterviewPlan:
     )
 
 
+def make_feedback(
+    *,
+    question_id: str = "q1",
+    score: int = 81,
+    answer_state: str = "answered",
+) -> InterviewFeedback:
+    return InterviewFeedback(
+        question_id=question_id,
+        question_text=f"Introduce a project for {question_id}.",
+        user_answer=f"I answered {question_id}.",
+        answer_state=answer_state,
+        score=score,
+        dimension_scores=make_dimension_scores(score),
+        rationale=VALID_RATIONALE,
+        critique=VALID_CRITIQUE,
+        better_answer=VALID_BETTER_ANSWER,
+        references=[],
+    )
+
+
 def start_session(store: InterviewSessionStore):
     return store.start(
         make_plan(),
@@ -390,6 +411,49 @@ def test_execute_report_generation_saves_question_evaluations():
     saved = store.list_question_evaluations(session.session_id)
     assert report.feedbacks[0].question_id == saved[0].question_id
     assert saved[0].status == "completed"
+
+
+def test_execute_report_generation_overwrites_matching_question_evaluations_without_clearing_other_rows():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    store = InterviewSessionStore()
+    session = start_session(store)
+    q1_initial = question_evaluation_from_feedback(
+        session_id=session.session_id,
+        feedback=make_feedback(question_id="q1", score=55),
+    )
+    q2_initial = question_evaluation_from_feedback(
+        session_id=session.session_id,
+        feedback=make_feedback(question_id="q2", score=67),
+    )
+
+    store.upsert_question_evaluation(session.session_id, q1_initial)
+    store.upsert_question_evaluation(session.session_id, q2_initial)
+    q1_created_at = {
+        record.question_id: record.created_at
+        for record in store.list_question_evaluations(session.session_id)
+    }["q1"]
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    report = execute_report_generation(
+        session_id=session.session_id,
+        store=store,
+        llm=ReportLLM(),
+        vector_store=FakeVectorStore(),
+    )
+
+    saved = {
+        record.question_id: record
+        for record in store.list_question_evaluations(session.session_id)
+    }
+    assert report.feedbacks[0].question_id == "q1"
+    assert set(saved) == {"q1", "q2"}
+    assert saved["q1"].feedback.score == 81
+    assert saved["q2"].feedback.score == 67
+    assert saved["q1"].created_at == q1_created_at
 
 
 def test_execute_report_generation_raises_report_quality_failed_for_invalid_grounded_report():

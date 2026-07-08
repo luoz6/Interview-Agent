@@ -5,6 +5,7 @@ import pytest
 
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
     InterviewFeedback,
@@ -87,6 +88,26 @@ def make_report(session_id: str) -> InterviewReport:
                 references=[],
             )
         ],
+    )
+
+
+def make_feedback(
+    *,
+    question_id: str = "q1",
+    score: int = 78,
+    answer_state: str = "answered",
+) -> InterviewFeedback:
+    return InterviewFeedback(
+        question_id=question_id,
+        question_text=f"Describe work for {question_id}.",
+        user_answer=f"I answered {question_id}.",
+        answer_state=answer_state,
+        score=score,
+        dimension_scores=make_dimension_scores(score),
+        rationale="The answer gave implementation context.",
+        critique="Business impact was thin.",
+        better_answer="Tie the API work to latency and reliability outcomes.",
+        references=[],
     )
 
 
@@ -347,9 +368,7 @@ def test_list_reports_survives_store_reinstantiation():
     assert completed_reports[0]["record"].report.summary == "Solid interview."
 
 
-def test_postgres_store_persists_question_evaluations():
-    from app.services.question_evaluations import question_evaluation_from_feedback
-
+def test_postgres_store_upserts_single_question_evaluation():
     dsn = require_dsn()
     table_prefix = make_table_prefix()
     store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
@@ -359,29 +378,68 @@ def test_postgres_store_persists_question_evaluations():
         resume_text="Built FastAPI services",
         job_tags=["python", "fastapi"],
     )
-    feedback = InterviewFeedback(
-        question_id="q1",
-        question_text="Describe your backend project.",
-        user_answer="I built a FastAPI API.",
-        score=78,
-        dimension_scores=make_dimension_scores(78),
-        rationale="The answer gave implementation context.",
-        critique="Business impact was thin.",
-        better_answer="Tie the API work to latency and reliability outcomes.",
-        references=[],
+    first = question_evaluation_from_feedback(
+        session_id=turn.session_id,
+        feedback=make_feedback(score=78),
+    )
+    replacement = question_evaluation_from_feedback(
+        session_id=turn.session_id,
+        feedback=make_feedback(score=91),
     )
 
-    store.save_question_evaluations(
-        turn.session_id,
-        [question_evaluation_from_feedback(session_id=turn.session_id, feedback=feedback)],
-    )
+    store.upsert_question_evaluation(turn.session_id, first)
+    initial_created_at = store.list_question_evaluations(turn.session_id)[0].created_at
+    store.upsert_question_evaluation(turn.session_id, replacement)
 
     recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
     saved = recovered_store.list_question_evaluations(turn.session_id)
     assert len(saved) == 1
     assert saved[0].question_id == "q1"
     assert saved[0].answer_state == "answered"
-    assert saved[0].feedback.score == 78
+    assert saved[0].feedback.score == 91
+    assert saved[0].created_at == initial_created_at
+
+
+def test_postgres_store_bulk_save_merges_existing_question_evaluations():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    q1_initial = question_evaluation_from_feedback(
+        session_id=turn.session_id,
+        feedback=make_feedback(question_id="q1", score=71),
+    )
+    q2_initial = question_evaluation_from_feedback(
+        session_id=turn.session_id,
+        feedback=make_feedback(question_id="q2", score=64),
+    )
+    q1_final = question_evaluation_from_feedback(
+        session_id=turn.session_id,
+        feedback=make_feedback(question_id="q1", score=90),
+    )
+
+    store.upsert_question_evaluation(turn.session_id, q1_initial)
+    store.upsert_question_evaluation(turn.session_id, q2_initial)
+    q1_created_at = {
+        record.question_id: record.created_at
+        for record in store.list_question_evaluations(turn.session_id)
+    }["q1"]
+    store.save_question_evaluations(turn.session_id, [q1_final])
+
+    recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    saved = {
+        record.question_id: record
+        for record in recovered_store.list_question_evaluations(turn.session_id)
+    }
+    assert set(saved) == {"q1", "q2"}
+    assert saved["q1"].feedback.score == 90
+    assert saved["q2"].feedback.score == 64
+    assert saved["q1"].created_at == q1_created_at
 
 
 def test_submit_answer_appends_new_messages_without_rewriting_existing_rows():

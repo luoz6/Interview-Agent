@@ -91,6 +91,9 @@ class ReportRepository(Protocol):
 
 @runtime_checkable
 class QuestionEvaluationRepository(Protocol):
+    def upsert_question_evaluation(self, session_id: str, record: QuestionEvaluationRecord) -> None:
+        ...
+
     def save_question_evaluations(self, session_id: str, records: list[QuestionEvaluationRecord]) -> None:
         ...
 

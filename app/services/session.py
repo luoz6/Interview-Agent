@@ -255,7 +255,23 @@ class InterviewSessionStore:
         records: list[QuestionEvaluationRecord],
     ) -> None:
         self.get(session_id)
-        self._question_evaluations[session_id] = list(records)
+        existing_records = self._question_evaluations.get(session_id, [])
+        self._question_evaluations[session_id] = _merge_question_evaluation_records(
+            existing_records,
+            records,
+        )
+
+    def upsert_question_evaluation(
+        self,
+        session_id: str,
+        record: QuestionEvaluationRecord,
+    ) -> None:
+        self.get(session_id)
+        existing_records = self._question_evaluations.get(session_id, [])
+        self._question_evaluations[session_id] = _merge_question_evaluation_records(
+            existing_records,
+            [record],
+        )
 
     def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
         self.get(session_id)
@@ -405,3 +421,26 @@ def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:
         {"role": message["role"], "content": message["content"]}
         for message in state["messages"][-4:]
     ]
+
+
+def _merge_question_evaluation_records(
+    existing_records: list[QuestionEvaluationRecord],
+    new_records: list[QuestionEvaluationRecord],
+) -> list[QuestionEvaluationRecord]:
+    merged_by_question_id: dict[str, QuestionEvaluationRecord] = {}
+    ordered_question_ids: list[str] = []
+
+    for record in existing_records:
+        if record.question_id not in merged_by_question_id:
+            ordered_question_ids.append(record.question_id)
+        merged_by_question_id[record.question_id] = record
+
+    for record in new_records:
+        existing = merged_by_question_id.get(record.question_id)
+        if existing is not None:
+            record = record.model_copy(update={"created_at": existing.created_at})
+        elif record.question_id not in merged_by_question_id:
+            ordered_question_ids.append(record.question_id)
+        merged_by_question_id[record.question_id] = record
+
+    return [merged_by_question_id[question_id] for question_id in ordered_question_ids]

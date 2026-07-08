@@ -27,11 +27,12 @@ def question_evaluation_from_feedback(
     *,
     session_id: str,
     feedback: InterviewFeedback,
+    answer_state: Literal["answered", "skipped", "unanswered"] | None = None,
 ) -> QuestionEvaluationRecord:
     return QuestionEvaluationRecord(
         session_id=session_id,
         question_id=feedback.question_id,
-        answer_state=feedback.answer_state,
+        answer_state=answer_state or feedback.answer_state,
         status="completed",
         feedback=feedback,
     )

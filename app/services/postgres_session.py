@@ -362,50 +362,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         psycopg2, sql = self._import_psycopg2()
         with psycopg2.connect(self.dsn) as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL(
-                        "DELETE FROM {question_evaluations} WHERE session_id = %s"
-                    ).format(
-                        question_evaluations=sql.Identifier(
-                            self.question_evaluations_table
-                        )
-                    ),
-                    (session_id,),
-                )
                 for record in records:
-                    row = question_evaluation_record_to_row(record)
-                    cursor.execute(
-                        sql.SQL(
-                            """
-                            INSERT INTO {question_evaluations} (
-                                session_id, question_id, answer_state, status,
-                                feedback_json, error, created_at
-                            )
-                            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
-                            ON CONFLICT (session_id, question_id) DO UPDATE
-                            SET status = EXCLUDED.status,
-                                answer_state = EXCLUDED.answer_state,
-                                feedback_json = EXCLUDED.feedback_json,
-                                error = EXCLUDED.error,
-                                updated_at = NOW()
-                            """
-                        ).format(
-                            question_evaluations=sql.Identifier(
-                                self.question_evaluations_table
-                            )
-                        ),
-                        (
-                            row["session_id"],
-                            row["question_id"],
-                            row["answer_state"],
-                            row["status"],
-                            json.dumps(row["feedback_json"], ensure_ascii=False)
-                            if row["feedback_json"] is not None
-                            else None,
-                            row["error"],
-                            row["created_at"],
-                        ),
-                    )
+                    self._upsert_question_evaluation_row(cursor, sql, record)
+
+    def upsert_question_evaluation(
+        self,
+        session_id: str,
+        record: QuestionEvaluationRecord,
+    ) -> None:
+        self.get(session_id)
+        psycopg2, sql = self._import_psycopg2()
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                self._upsert_question_evaluation_row(cursor, sql, record)
 
     def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
         self.get(session_id)
@@ -779,6 +748,46 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         failed_finished_at,
                     ),
                 )
+
+    def _upsert_question_evaluation_row(
+        self,
+        cursor,
+        sql,
+        record: QuestionEvaluationRecord,
+    ) -> None:
+        row = question_evaluation_record_to_row(record)
+        cursor.execute(
+            sql.SQL(
+                """
+                INSERT INTO {question_evaluations} (
+                    session_id, question_id, answer_state, status,
+                    feedback_json, error, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+                ON CONFLICT (session_id, question_id) DO UPDATE
+                SET status = EXCLUDED.status,
+                    answer_state = EXCLUDED.answer_state,
+                    feedback_json = EXCLUDED.feedback_json,
+                    error = EXCLUDED.error,
+                    updated_at = NOW()
+                """
+            ).format(
+                question_evaluations=sql.Identifier(
+                    self.question_evaluations_table
+                )
+            ),
+            (
+                row["session_id"],
+                row["question_id"],
+                row["answer_state"],
+                row["status"],
+                json.dumps(row["feedback_json"], ensure_ascii=False)
+                if row["feedback_json"] is not None
+                else None,
+                row["error"],
+                row["created_at"],
+            ),
+        )
 
     @staticmethod
     def _session_row_from_db(row) -> dict:
