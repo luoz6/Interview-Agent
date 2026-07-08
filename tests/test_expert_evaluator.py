@@ -162,6 +162,24 @@ def test_expert_evaluator_keeps_rationale_aligned_with_references():
     assert "delete-after-write" in feedback.rationale.lower()
 
 
+def test_expert_evaluator_zeroes_skipped_question_feedback():
+    state = make_state()
+    state["skipped_question_ids"] = ["q1"]
+    state["messages"] = [
+        message
+        for message in state["messages"]
+        if message["role"] != "candidate"
+    ]
+    evaluator = ExpertShadowEvaluator(llm=FakeExpertLLM(), vector_store=FakeVectorStore())
+
+    report = evaluator.evaluate(state)
+
+    feedback = report.feedbacks[0]
+    assert feedback.answer_state == "skipped"
+    assert feedback.score == 0
+    assert feedback.user_answer == "候选人跳过了这道题。"
+
+
 def test_expert_evaluator_fails_when_retrieval_infrastructure_fails():
     llm = FakeExpertLLM()
     evaluator = ExpertShadowEvaluator(llm=llm, vector_store=FailingVectorStore())

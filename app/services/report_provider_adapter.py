@@ -229,7 +229,7 @@ def _collect_reference_chunk_ids(
 
 def _build_user_answer(evaluation_item: dict[str, Any]) -> str:
     if evaluation_item.get("answer_state") == "skipped":
-        return "Question was skipped by the candidate."
+        return "候选人跳过了这道题。"
     messages = evaluation_item.get("messages", [])
     answers = [
         str(message.get("content", "")).strip()
@@ -238,7 +238,7 @@ def _build_user_answer(evaluation_item: dict[str, Any]) -> str:
     ]
     if answers:
         return " ".join(answers)
-    return "No candidate answer was recorded for this question."
+    return "这道题没有记录到候选人的有效作答。"
 
 
 def _build_rationale(item: dict[str, Any]) -> str:
@@ -254,10 +254,10 @@ def _build_rationale(item: dict[str, Any]) -> str:
     ]
     parts: list[str] = []
     if strengths:
-        parts.append("Strengths: " + " ".join(strengths))
+        parts.append("优点：" + " ".join(strengths))
     if weaknesses:
-        parts.append("Weaknesses: " + " ".join(weaknesses))
-    return " ".join(parts) or "Provider response did not include rationale."
+        parts.append("不足：" + " ".join(weaknesses))
+    return " ".join(parts) or "模型输出未提供评分依据。"
 
 
 def _build_critique(item: dict[str, Any]) -> str:
@@ -268,10 +268,10 @@ def _build_critique(item: dict[str, Any]) -> str:
     ]
     if weaknesses:
         return weaknesses[0]
-    rationale = str(item.get("rationale") or "").strip()
-    if rationale:
-        return rationale
-    return _build_rationale(item)
+    critique = str(item.get("critique") or "").strip()
+    if critique:
+        return critique
+    return "模型输出未提供明确问题点。"
 
 
 def _build_better_answer(
@@ -289,7 +289,7 @@ def _build_better_answer(
         excerpt = str(reference_lookup.get(chunk_id, {}).get("excerpt") or "").strip()
         if excerpt:
             return excerpt
-    return "Add explicit fallback, consistency, and mitigation details."
+    return "补充回退策略、一致性取舍和风险缓解细节。"
 
 
 def _normalize_reference(reference: dict[str, Any]) -> dict[str, str] | None:

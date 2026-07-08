@@ -78,10 +78,9 @@ def build_fallback_report(
         overall_score=60,
         overall_dimension_scores=_default_dimension_scores(),
         summary=(
-            "AI evaluation could not generate a complete report. "
-            "Review the original answers manually."
+            "AI 评估未能生成完整报告，请结合原始回答继续复盘。"
         ),
-        highlights=["Completed the mock interview"],
+        highlights=["已完成本次模拟面试"],
         is_fallback=True,
         feedbacks=[
             InterviewFeedback(
@@ -92,13 +91,11 @@ def build_fallback_report(
                 score=60,
                 dimension_scores=_default_dimension_scores(),
                 rationale=(
-                    "Fallback report: structured expert evaluation was unavailable "
-                    "for this question."
+                    "兜底报告：本题未能生成稳定的结构化专家评估。"
                 ),
-                critique="AI evaluation could not parse stable feedback for this question.",
+                critique="AI 评估未能解析出稳定的逐题反馈。",
                 better_answer=(
-                    "Rebuild the answer around context, task, action, and result, "
-                    "then add concrete technical tradeoffs."
+                    "请按背景、动作、取舍、结果四段式重构回答，并补充可量化指标。"
                 ),
                 references=[],
             )
@@ -151,20 +148,20 @@ def _empty_answer_feedback(chunk: EvaluationChunk) -> InterviewFeedback:
         question_id=chunk.question_id,
         question_text=chunk.question_text,
         user_answer=(
-            "Question was skipped by the candidate."
+            "候选人跳过了这道题。"
             if skipped
-            else "No candidate answer was recorded for this question."
+            else "这道题没有记录到候选人的有效作答。"
         ),
         answer_state=chunk.answer_state,
         score=0,
         dimension_scores=_default_dimension_scores(0),
         rationale=(
-            "The candidate skipped this question."
+            "候选人跳过了这道题。"
             if skipped
-            else "No candidate answer was recorded for this question."
+            else "这道题没有记录到候选人的有效作答。"
         ),
-        critique="No answer was available to evaluate.",
-        better_answer="Answer the question with context, action, tradeoffs, and measurable results.",
+        critique="当前没有可评估的候选人回答。",
+        better_answer="请补充题目背景、关键动作、技术取舍和量化结果。",
         references=[],
     )
 
@@ -202,12 +199,12 @@ def _messages_for_question(
 
 def _summarize_candidate_answers(chunk: EvaluationChunk) -> str:
     if chunk.answer_state == "skipped":
-        return "Question was skipped by the candidate."
+        return "候选人跳过了这道题。"
     answers = [
         message["content"].strip()
         for message in chunk.messages
         if message["role"] == "candidate" and message["content"].strip()
     ]
     if not answers:
-        return "No candidate answer was recorded for this question."
+        return "这道题没有记录到候选人的有效作答。"
     return " ".join(answers)

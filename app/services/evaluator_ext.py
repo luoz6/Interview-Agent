@@ -1,7 +1,12 @@
 import logging
 from collections.abc import Callable
+
 from app.graphs.interview_state import InterviewState
-from app.services.evaluator import build_evaluation_chunks, build_fallback_report
+from app.services.evaluator import (
+    _apply_answer_state_overrides,
+    build_evaluation_chunks,
+    build_fallback_report,
+)
 from app.services.llm import InterviewLLM
 from app.services.report import (
     InterviewReport,
@@ -70,7 +75,7 @@ class ExpertShadowEvaluator:
                     message="Analyzing question-level dimension scores.",
                     current_question_id=chunks[0].question_id if chunks else None,
                 )
-        )
+            )
 
         try:
             from app.agents.report_coach import ReportCoachAgent
@@ -80,6 +85,7 @@ class ExpertShadowEvaluator:
                 evaluation_items=evaluation_items,
                 session_id=state["session_id"],
             )
+            report = _apply_answer_state_overrides(report, chunks)
         except ReportOutputFormatError as exc:
             logger.warning(
                 "Falling back to heuristic interview report",
@@ -90,6 +96,7 @@ class ExpertShadowEvaluator:
                 },
             )
             report = build_fallback_report(state, chunks)
+            report = _apply_answer_state_overrides(report, chunks)
 
         if on_progress is not None:
             on_progress(

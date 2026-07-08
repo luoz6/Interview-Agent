@@ -132,6 +132,9 @@ def test_generate_report_uses_question_result_schema_and_assembles_report():
     assert "session_id: s1" in chat_model.structured_model.last_prompt
     assert "reference_chunk_ids" in chat_model.structured_model.last_prompt
     assert "Do not return overall_score" in chat_model.structured_model.last_prompt
+    assert "All user-facing fields must be written in Simplified Chinese." in (
+        chat_model.structured_model.last_prompt
+    )
     assert report.overall_dimension_scores.depth == 84
     assert report.feedbacks[0].references[0].chunk_id == "redis-1"
 
@@ -455,10 +458,7 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
     assert report.overall_dimension_scores.depth == 82
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
     assert report.feedbacks[0].dimension_scores.engineering == 81
-    assert (
-        report.feedbacks[0].critique
-        == "The candidate covered cache invalidation basics but did not mention delayed double delete."
-    )
+    assert report.feedbacks[0].critique == "模型输出未提供明确问题点。"
     assert (
         report.feedbacks[0].better_answer
         == "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."

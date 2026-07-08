@@ -260,6 +260,8 @@ class OpenAIInterviewLLM:
             "You are a strict technical interview coach.\n"
             "Return valid JSON only. Do not return markdown.\n"
             "Return exactly one question_results item for each evaluation item.\n"
+            "All user-facing fields must be written in Simplified Chinese.\n"
+            "Keep literal identifiers like Redis, Kafka, MySQL, p95, and API names unchanged when needed.\n"
             "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
             "Do not invent new chunk ids.\n"
             "Do not return overall_score, overall_dimension_scores, summary, or reference objects.\n"
