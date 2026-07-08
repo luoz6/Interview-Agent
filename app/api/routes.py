@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview
-from app.services.config import get_runtime_store
+from app.services.config import get_runtime_event_backend, get_runtime_store
 from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
 from app.services.runtime_events import (
@@ -53,6 +53,7 @@ def health():
 @router.get("/runtime")
 def runtime_boundary():
     runtime_store = get_runtime_store()
+    event_backend = get_runtime_event_backend()
     session_store = (
         "PostgresInterviewSessionStore"
         if runtime_store == "postgres"
@@ -67,9 +68,10 @@ def runtime_boundary():
             "interview": "sse",
             "report_progress": "polling",
         },
+        "event_backend": event_backend,
         "capabilities": {
-            "redis": False,
-            "celery": False,
+            "redis": event_backend == "celery",
+            "celery": event_backend == "celery",
             "websocket": False,
             "langgraph": False,
         },

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_postgres_dsn,
+    get_runtime_event_backend,
     get_runtime_store,
     get_runtime_table_prefix,
 )
@@ -26,6 +27,7 @@ _session_store = None
 _report_job_store = None
 _report_executor = None
 _draft_store = None
+_event_publisher = None
 
 
 def build_session_store(llm=None):
@@ -51,6 +53,24 @@ def build_report_job_store():
 
 def build_draft_store():
     return AnonymousDraftStore()
+
+
+def build_event_publisher():
+    from app.services.event_publisher import NoopRuntimeEventPublisher
+
+    backend = get_runtime_event_backend()
+    if backend == "noop":
+        return NoopRuntimeEventPublisher()
+    if backend == "celery":
+        try:
+            from app.services.celery_app import celery_app
+            from app.services.event_publisher import CeleryRuntimeEventPublisher
+        except ImportError as exc:  # pragma: no cover - exercised after Task 2 lands
+            raise RuntimeError(
+                "INTERVIEW_EVENT_BACKEND=celery requires Stage 26A Task 2 runtime event components"
+            ) from exc
+        return CeleryRuntimeEventPublisher(celery_app=celery_app)
+    raise RuntimeError(f"unsupported INTERVIEW_EVENT_BACKEND: {backend}")
 
 
 def build_report_executor(
@@ -90,6 +110,13 @@ def get_draft_store():
     return _draft_store
 
 
+def get_event_publisher():
+    global _event_publisher
+    if _event_publisher is None:
+        _event_publisher = build_event_publisher()
+    return _event_publisher
+
+
 def get_report_executor():
     global _report_executor
     if _report_executor is None:
@@ -98,8 +125,9 @@ def get_report_executor():
 
 
 def reset_runtime_for_tests() -> None:
-    global _session_store, _report_job_store, _report_executor, _draft_store
+    global _session_store, _report_job_store, _report_executor, _draft_store, _event_publisher
     _session_store = None
     _report_job_store = None
     _report_executor = None
     _draft_store = None
+    _event_publisher = None

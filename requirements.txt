@@ -10,3 +10,5 @@ pgvector>=0.3.5
 sentence-transformers>=3.0.0
 langchain-huggingface>=0.1.0
 reportlab>=4.2.0
+celery>=5.4.0
+redis>=5.0.7
