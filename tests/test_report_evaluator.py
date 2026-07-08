@@ -235,7 +235,7 @@ def test_evaluator_includes_unanswered_questions_in_fallback():
     q2_feedback = next(
         feedback for feedback in report.feedbacks if feedback.question_id == "q2"
     )
-    assert q2_feedback.user_answer == "这道题没有记录到候选人的有效作答。"
+    assert q2_feedback.user_answer == "候选人未作答这道题。"
 
 
 def test_evaluator_marks_skipped_question_in_evaluation_items():
@@ -278,7 +278,7 @@ def test_evaluator_marks_finished_missing_answer_as_unanswered():
     assert q2_item["answer_state"] == "unanswered"
     assert q2_feedback.answer_state == "unanswered"
     assert q2_feedback.score == 0
-    assert q2_feedback.user_answer == "这道题没有记录到候选人的有效作答。"
+    assert q2_feedback.user_answer == "候选人未作答这道题。"
     assert q2_feedback.critique == "当前没有可评估的候选人回答。"
 
 

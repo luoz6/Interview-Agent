@@ -238,7 +238,7 @@ def _build_user_answer(evaluation_item: dict[str, Any]) -> str:
     ]
     if answers:
         return " ".join(answers)
-    return "这道题没有记录到候选人的有效作答。"
+    return "候选人未作答这道题。"
 
 
 def _build_rationale(item: dict[str, Any]) -> str:

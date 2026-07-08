@@ -132,7 +132,7 @@ def _apply_answer_state_overrides(
         if chunk is None or chunk.answer_state == "answered":
             feedbacks.append(feedback)
             continue
-        feedbacks.append(_empty_answer_feedback(chunk))
+        feedbacks.append(_empty_answer_feedback(chunk, references=feedback.references))
     return report.model_copy(
         update={
             "feedbacks": feedbacks,
@@ -142,7 +142,11 @@ def _apply_answer_state_overrides(
     )
 
 
-def _empty_answer_feedback(chunk: EvaluationChunk) -> InterviewFeedback:
+def _empty_answer_feedback(
+    chunk: EvaluationChunk,
+    *,
+    references=None,
+) -> InterviewFeedback:
     skipped = chunk.answer_state == "skipped"
     return InterviewFeedback(
         question_id=chunk.question_id,
@@ -150,7 +154,7 @@ def _empty_answer_feedback(chunk: EvaluationChunk) -> InterviewFeedback:
         user_answer=(
             "候选人跳过了这道题。"
             if skipped
-            else "这道题没有记录到候选人的有效作答。"
+            else "候选人未作答这道题。"
         ),
         answer_state=chunk.answer_state,
         score=0,
@@ -158,11 +162,11 @@ def _empty_answer_feedback(chunk: EvaluationChunk) -> InterviewFeedback:
         rationale=(
             "候选人跳过了这道题。"
             if skipped
-            else "这道题没有记录到候选人的有效作答。"
+            else "候选人未作答这道题。"
         ),
         critique="当前没有可评估的候选人回答。",
         better_answer="请补充题目背景、关键动作、技术取舍和量化结果。",
-        references=[],
+        references=list(references or []),
     )
 
 
@@ -206,5 +210,5 @@ def _summarize_candidate_answers(chunk: EvaluationChunk) -> str:
         if message["role"] == "candidate" and message["content"].strip()
     ]
     if not answers:
-        return "这道题没有记录到候选人的有效作答。"
+        return "候选人未作答这道题。"
     return " ".join(answers)

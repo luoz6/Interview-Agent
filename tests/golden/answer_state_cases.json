@@ -1,0 +1,20 @@
+[
+  {
+    "id": "redis-skipped",
+    "domain": "redis",
+    "job_tags": ["backend", "redis"],
+    "question": "Explain Redis cache invalidation.",
+    "focus": "Redis reliability",
+    "answer_state": "skipped",
+    "expected_reference_chunk": "redis-1"
+  },
+  {
+    "id": "system-design-unanswered",
+    "domain": "system-design",
+    "job_tags": ["backend", "system-design"],
+    "question": "How do you design failure isolation between services?",
+    "focus": "Failure isolation and latency tradeoffs",
+    "answer_state": "unanswered",
+    "expected_reference_chunk": "system-design-1"
+  }
+]
