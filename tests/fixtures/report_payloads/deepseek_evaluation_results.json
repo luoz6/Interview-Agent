@@ -6,7 +6,7 @@
         "question_id": "q1",
         "question_text": "Explain Redis cache invalidation.",
         "score": 75,
-        "rationale": "The candidate explained cache-aside, update-then-delete, and measurable latency improvement.",
+        "rationale": "回答说明了 cache-aside、update-then-delete 和可量化的延迟收益。",
         "references": [
           "redis-1",
           "redis-2"
@@ -19,8 +19,8 @@
           "communication": 75
         },
         "highlights": [
-          "Mentioned p95 latency reduction.",
-          "Described update-then-delete pattern."
+          "提到了 p95 延迟下降。",
+          "说明了 update-then-delete 主路径。"
         ]
       }
     ]
@@ -40,7 +40,7 @@
           "chunk_id": "redis-1",
           "title": "Redis cache consistency",
           "source_type": "theory",
-          "excerpt": "Delete cache after database updates."
+          "excerpt": "在数据库更新后删除缓存，并处理竞争窗口。"
         }
       ],
       "answer_references": [
@@ -48,7 +48,7 @@
           "chunk_id": "redis-2",
           "title": "High-score Redis answer",
           "source_type": "answer",
-          "excerpt": "Use delayed double delete."
+          "excerpt": "建议补充延迟双删策略。"
         }
       ]
     }

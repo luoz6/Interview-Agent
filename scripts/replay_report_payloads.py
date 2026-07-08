@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.report_replay import replay_fixture
+from app.services.report_replay import replay_fixture_with_quality
 
 
 def iter_fixture_paths(target: str | None) -> list[Path]:
@@ -23,21 +23,28 @@ def iter_fixture_paths(target: str | None) -> list[Path]:
 
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
-    target = args[0] if args else None
+    strict = "--strict" in args
+    filtered_args = [arg for arg in args if arg != "--strict"]
+    target = filtered_args[0] if filtered_args else None
     fixture_paths = iter_fixture_paths(target)
     if not fixture_paths:
         print("No replay fixtures found.")
         return 1
 
+    has_issue = False
     for fixture_path in fixture_paths:
-        report = replay_fixture(str(fixture_path))
-        first_feedback_reference_count = len(report.feedbacks[0].references) if report.feedbacks else 0
+        report, issues = replay_fixture_with_quality(str(fixture_path))
         print(
             f"{fixture_path.name} "
             f"is_fallback={report.is_fallback} "
             f"overall_score={report.overall_score} "
-            f"first_feedback_reference_count={first_feedback_reference_count}"
+            f"quality_issues={len(issues)}"
         )
+        for issue in issues:
+            has_issue = True
+            print(f"  - {issue}")
+    if strict and has_issue:
+        return 1
     return 0
 
 

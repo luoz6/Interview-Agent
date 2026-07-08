@@ -13,28 +13,28 @@
         "question_id": "q1",
         "question_text": "Explain Redis cache invalidation.",
         "strengths": [
-          "Identified cache-aside pattern with Redis and PostgreSQL.",
-          "Provided measurable p95 latency improvement."
+          "识别了 Redis + PostgreSQL 的 cache-aside 模式。",
+          "给出了可量化的 p95 延迟收益。"
         ],
         "weaknesses": [
-          "No cache invalidation race-window mitigation.",
-          "No cache breakdown protection."
+          "没有解释缓存失效竞争窗口的处理方式。",
+          "没有说明缓存击穿保护。"
         ],
         "gaps": [
           {
             "reference_chunk_id": "redis-1",
-            "missing": "Did not mention delete-after-write ordering."
+            "missing": "没有提到 delete-after-write 顺序。"
           },
           {
             "reference_chunk_id": "redis-2",
-            "missing": "Did not mention delayed double delete."
+            "missing": "没有提到延迟双删。"
           }
         ],
-        "suggested_improvements": "Explain delete-after-write ordering and delayed double delete."
+        "suggested_improvements": "补充 delete-after-write 顺序、延迟双删和降级策略。"
       }
     ],
     "highlights": [
-      "Measured latency improvement with Redis cache-aside."
+      "回答提到了基于 Redis cache-aside 的延迟收益。"
     ],
     "references": [
       "redis-1",
@@ -56,7 +56,7 @@
           "chunk_id": "redis-1",
           "title": "Redis cache consistency",
           "source_type": "theory",
-          "excerpt": "Delete cache after database updates."
+          "excerpt": "在数据库更新后删除缓存，并处理竞争窗口。"
         }
       ],
       "answer_references": [
@@ -64,7 +64,7 @@
           "chunk_id": "redis-2",
           "title": "High-score Redis answer",
           "source_type": "answer",
-          "excerpt": "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."
+          "excerpt": "建议说明延迟双删或基于 binlog 的失效策略，以缩短脏读窗口。"
         }
       ]
     }
