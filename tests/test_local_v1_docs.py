@@ -144,6 +144,27 @@ def test_docs_describe_stage_25_local_v1_rc_acceptance():
         assert phrase in runbook
 
 
+def test_docs_describe_stage_26a_event_backend_position():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 26A adds an opt-in Redis/Celery round-review event backend"
+    merge_phrase = "Interim round-review rows are merged by question id"
+    authoritative_phrase = "the Postgres final-report worker remains authoritative"
+    ui_phrase = "the Local V1 UI remains final-report-first"
+    worker_command = "celery -A app.services.celery_app.celery_app worker --loglevel=info"
+
+    assert expected in readme
+    assert expected in runbook
+    assert merge_phrase in readme
+    assert merge_phrase in runbook
+    assert authoritative_phrase in readme
+    assert authoritative_phrase in runbook
+    assert ui_phrase in readme
+    assert ui_phrase in runbook
+    assert worker_command in runbook
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 
