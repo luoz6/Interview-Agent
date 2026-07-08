@@ -121,6 +121,7 @@ class OpenAIInterviewLLM:
             "Each question kind must be one of: project, technical, system-design, behavioral.\n"
             "Use stable ids q1, q2, q3, and continue in order if more questions are needed.\n"
             "Questions should be specific to the candidate's resume and the target job.\n"
+            "Do not generate prep_context; the service enriches the plan with Knowledge Agent metadata locally.\n"
             "Return valid JSON only. Do not return markdown.\n"
             "Use this JSON shape exactly:\n"
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"

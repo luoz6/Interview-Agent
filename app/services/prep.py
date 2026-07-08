@@ -57,7 +57,14 @@ def prepare_interview(
             resume_text=resume_text,
         )
     except Exception:
-        return fallback_interview_plan()
+        from app.services.job_tags import extract_job_tags
+
+        return attach_prep_context(
+            fallback_interview_plan(),
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=extract_job_tags(job_description),
+        )
 
 
 def fallback_interview_plan() -> InterviewPlan:

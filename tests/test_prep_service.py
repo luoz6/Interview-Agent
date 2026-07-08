@@ -186,3 +186,35 @@ def test_build_prep_context_uses_general_topic_when_tags_are_empty():
     assert [topic.id for topic in context.topics] == ["topic-general"]
     assert context.topics[0].label == "通用后端能力"
     assert context.question_hints[0].topic_ids == ["topic-general"]
+
+
+def test_prepare_interview_attaches_prep_context_to_llm_plan():
+    plan = prepare_interview(
+        job_description="后端岗位，要求 Python、FastAPI、Redis、MySQL。",
+        resume_text="做过 FastAPI 服务，使用 Redis 缓存和 MySQL 索引。",
+        llm=FakePlanLLM(),
+    )
+
+    assert plan.prep_context is not None
+    assert plan.prep_context.summary == "Knowledge Agent 预热了 4 个岗位考点，并为 3 道题生成追问线索。"
+    assert [topic.label for topic in plan.prep_context.topics] == [
+        "Python",
+        "FastAPI",
+        "Redis",
+        "MySQL",
+    ]
+    assert plan.prep_context.question_hints[1].question_id == "q2"
+    assert "topic-redis" in plan.prep_context.question_hints[1].topic_ids
+
+
+def test_prepare_interview_attaches_prep_context_to_fallback_plan():
+    plan = prepare_interview(
+        job_description="后端岗位，要求 Redis。",
+        resume_text="做过缓存项目。",
+        llm=FailingPlanLLM(),
+    )
+
+    assert plan.title == "基础模拟面试"
+    assert plan.prep_context is not None
+    assert [topic.label for topic in plan.prep_context.topics] == ["Redis"]
+    assert len(plan.prep_context.question_hints) == len(plan.questions)
