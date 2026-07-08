@@ -13,11 +13,39 @@ const questionPlan = byId("questionPlan");
 const topicTags = byId("topicTags");
 const interviewNotice = byId("interviewNotice");
 
+let latestStateVersion = null;
+let commandSequence = 0;
+
 function hasSession() {
   if (sessionId) return true;
   showNotice(interviewNotice, "缺少 session_id，请从准备页开始面试", "danger");
   setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], true);
   return false;
+}
+
+function rememberResumeMetadata(snapshot) {
+  if (snapshot && Number.isInteger(snapshot.state_version)) {
+    latestStateVersion = snapshot.state_version;
+  }
+}
+
+function createCommandPayload(extra = {}) {
+  const payload = {
+    ...extra,
+    command_id: createCommandId(),
+  };
+  if (Number.isInteger(latestStateVersion)) {
+    payload.expected_version = latestStateVersion;
+  }
+  return payload;
+}
+
+function createCommandId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  commandSequence += 1;
+  return `browser-command-${Date.now()}-${commandSequence}`;
 }
 
 function renderMessages(messages) {
@@ -74,6 +102,7 @@ function renderQuestions(questions) {
 }
 
 function renderSnapshot(snapshot) {
+  rememberResumeMetadata(snapshot);
   setText("sessionStatus", snapshot.status || "unknown");
   renderTags(topicTags, snapshot.job_tags || []);
   renderMessages(snapshot.messages || []);
@@ -108,7 +137,7 @@ async function submitAnswer(event) {
     const response = await fetch(`/api/interviews/${sessionId}/answer/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answer }),
+      body: JSON.stringify(createCommandPayload({ answer })),
     });
     let streamedText = "";
     await readSse(response, {
@@ -135,13 +164,13 @@ async function submitAnswer(event) {
 
 async function skipQuestion() {
   if (!hasSession()) return;
-  await postJson(`/api/interviews/${sessionId}/skip`, {});
+  await postJson(`/api/interviews/${sessionId}/skip`, createCommandPayload());
   await loadSnapshot();
 }
 
 async function finishInterview() {
   if (!hasSession()) return;
-  await postJson(`/api/interviews/${sessionId}/finish`, {});
+  await postJson(`/api/interviews/${sessionId}/finish`, createCommandPayload());
   window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
 }
 

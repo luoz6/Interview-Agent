@@ -289,6 +289,20 @@ def test_interview_page_streams_followup_inside_conversation_and_enter_submits()
     assert "showNotice(interviewNotice, streamedText" not in chunk_handler
 
 
+def test_interview_page_sends_versioned_command_payloads():
+    js = read_static_file("interview.js")
+
+    assert "let latestStateVersion = null" in js
+    assert "function rememberResumeMetadata(snapshot)" in js
+    assert "function createCommandPayload(extra = {})" in js
+    assert "expected_version" in js
+    assert "command_id" in js
+    assert "crypto.randomUUID" in js
+    assert "JSON.stringify(createCommandPayload({ answer }))" in js
+    assert "postJson(`/api/interviews/${sessionId}/skip`, createCommandPayload())" in js
+    assert "postJson(`/api/interviews/${sessionId}/finish`, createCommandPayload())" in js
+
+
 def test_report_processing_page_uses_safe_json_and_disables_view_without_session_id():
     js = read_static_file("report-processing.js")
 
