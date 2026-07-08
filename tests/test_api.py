@@ -105,6 +105,28 @@ def test_prepare_endpoint_returns_job_tags_without_session_store():
     body = response.json()
     assert len(body["questions"]) >= 1
     assert body["job_tags"] == ["python", "fastapi", "redis", "postgresql"]
+    assert body["prep_context"]["summary"].startswith("Knowledge Agent 预热了")
+    assert body["prep_context"]["topics"]
+    assert body["prep_context"]["question_hints"]
+    assert body["prep_context"]["topics"][0]["id"].startswith("topic-")
+
+
+def test_start_interview_persists_plan_prep_context_in_session_snapshot():
+    client = make_client()
+    started = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python, FastAPI, Redis, and PostgreSQL.",
+            "resume_text": "Built a FastAPI service with Redis cache.",
+        },
+    ).json()
+
+    response = client.get(f"/api/interviews/{started['session_id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["questions"][1]["id"] == "q2"
+    assert body["messages"][0]["role"] == "interviewer"
 
 
 def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
@@ -283,6 +305,7 @@ def test_get_interview_session_returns_snapshot():
     assert body["completed_questions"] == 0
     assert body["job_tags"] == ["python", "fastapi", "redis", "postgresql"]
     assert body["current_question"]["id"] == "q1"
+    assert body["questions"][0]["id"] == "q1"
     assert [question["state"] for question in body["questions"]] == [
         "current",
         "pending",
