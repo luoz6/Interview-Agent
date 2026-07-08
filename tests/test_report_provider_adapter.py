@@ -54,4 +54,4 @@ def test_replay_fixture_returns_grounded_report_for_deepseek_adjacent():
         "redis-2",
     ]
     assert report.feedbacks[0].references[1].source_type == "answer"
-    assert "delayed double delete" in report.feedbacks[0].references[1].excerpt
+    assert "延迟双删" in report.feedbacks[0].references[1].excerpt
