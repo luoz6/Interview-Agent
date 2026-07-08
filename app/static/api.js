@@ -1,3 +1,12 @@
+export class HttpError extends Error {
+  constructor(message, { status, body } = {}) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.body = body || {};
+  }
+}
+
 export function getSessionId() {
   return new URLSearchParams(window.location.search).get("session_id");
 }
@@ -23,7 +32,10 @@ export async function postJson(url, payload = {}) {
 export async function parseJsonResponse(response) {
   const body = await safeJson(response);
   if (!response.ok) {
-    throw new Error(body.detail || response.statusText || `Request failed with ${response.status}`);
+    throw new HttpError(
+      body.detail || response.statusText || `Request failed with ${response.status}`,
+      { status: response.status, body },
+    );
   }
   return body;
 }
@@ -41,7 +53,10 @@ export async function safeJson(response) {
 export async function readSse(response, handlers) {
   if (!response.ok) {
     const body = await safeJson(response);
-    throw new Error(body.detail || response.statusText || `Request failed with ${response.status}`);
+    throw new HttpError(
+      body.detail || response.statusText || `Request failed with ${response.status}`,
+      { status: response.status, body },
+    );
   }
 
   const reader = response.body.getReader();
@@ -80,7 +95,10 @@ export async function downloadPdf(url, filename) {
   const response = await fetch(url);
   if (!response.ok) {
     const body = await safeJson(response);
-    throw new Error(body.detail || response.statusText || "PDF download failed");
+    throw new HttpError(
+      body.detail || response.statusText || "PDF download failed",
+      { status: response.status, body },
+    );
   }
   const blob = await response.blob();
   const objectUrl = URL.createObjectURL(blob);

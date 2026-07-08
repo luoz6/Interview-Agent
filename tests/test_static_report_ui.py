@@ -203,6 +203,16 @@ def test_api_js_handles_non_json_error_bodies():
     assert "PDF download failed" in js
 
 
+def test_api_js_exports_http_error_with_status_and_body():
+    js = read_static_file("api.js")
+
+    assert "export class HttpError extends Error" in js
+    assert "this.status = status" in js
+    assert "this.body = body" in js
+    assert "throw new HttpError(" in js
+    assert "response.status" in js
+
+
 def test_api_js_exposes_question_evaluation_helper():
     js = read_static_file("api.js")
 
