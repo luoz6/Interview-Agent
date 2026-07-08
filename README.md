@@ -27,6 +27,10 @@ Stage 25 Local V1 RC acceptance is the release gate before Stage 26 architecture
 
 Stage 26A adds an opt-in Redis/Celery round-review event backend. Closed interview rounds can be published as `round_closed` events and reviewed asynchronously during the interview. Interim round-review rows are merged by question id instead of session-wide replace, the Postgres final-report worker remains authoritative for the completed report, and the Local V1 UI remains final-report-first.
 
+Stage 29 adds a LangGraph-powered orchestrator and a versioned HTTP resume contract. The runtime now tracks explicit phase metadata (`interview` / `review`), persists `state_version` plus `checkpoint_version`, accepts `expected_version` and `command_id` on mutating interview commands, and uses `GET /api/interviews/{session_id}` as the HTTP resume handshake. Transport remains SSE plus polling in Local V1; Stage 29 still does not add WebSocket or Redis checkpoints.
+
+Stage 31 makes Knowledge Agent preheat visible during interview preparation. `/api/prep` now returns an optional `prep_context` with deterministic role topics, per-question follow-up hints, and evidence summaries derived from the JD, resume, and generated plan. This stage improves explainability of question selection and prepares a future Examiner hint path, but it does not add WebSocket or Redis checkpoints.
+
 ## Prerequisites
 
 - Python 3.11

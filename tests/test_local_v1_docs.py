@@ -189,6 +189,18 @@ def test_docs_describe_stage_30_frontend_versioned_resume_acceptance():
     assert "GET /api/interviews/{session_id}" in acceptance
 
 
+def test_docs_describe_stage_31_knowledge_prepgraph_preheat():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 31 makes Knowledge Agent preheat visible during interview preparation"
+    assert expected in readme
+    assert expected in runbook
+    assert "prep_context" in readme
+    assert "prep_context" in runbook
+    assert "does not add WebSocket or Redis checkpoints" in readme
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 

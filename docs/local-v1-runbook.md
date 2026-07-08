@@ -29,6 +29,8 @@ Stage 29 adds a LangGraph-powered orchestrator and a versioned HTTP resume contr
 
 Stage 30 wires the browser interview page into the versioned HTTP resume contract. The frontend should read `state_version` from `GET /api/interviews/{session_id}`, send `expected_version` plus a browser-generated `command_id` on answer, skip, and finish commands, and recover from `409` conflicts by reloading the session snapshot instead of leaving stale UI state on screen.
 
+Stage 31 makes Knowledge Agent preheat visible during interview preparation. Local verification should confirm `/api/prep` returns `prep_context.summary`, `prep_context.topics`, and `prep_context.question_hints`, and that the prep page renders those fields before the interview starts.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -150,6 +152,13 @@ Stage 30 versioned resume checks:
 4. Refresh `/interview?session_id=...` and confirm the latest messages and question state are restored.
 5. Continue the interview after refresh and confirm the next mutating request uses the refreshed `state_version`.
 6. Simulate or trigger a stale request that returns `409`, then confirm the page reloads `GET /api/interviews/{session_id}` and keeps the user's typed answer available for retry. Do not expect the page to auto-retry `skip` or `finish`; the intended behavior is refresh plus user retry.
+
+Stage 31 Knowledge Agent preheat checks:
+
+1. Generate a plan from a JD and resume that mention Redis, MySQL/PostgreSQL, FastAPI, and system design.
+2. Confirm `/api/prep` returns `prep_context.summary`, at least one topic, and at least one question hint.
+3. Confirm the prep page renders Knowledge Agent preheat topics and per-question follow-up hints.
+4. Confirm starting the interview still works without requiring Redis, WebSocket, or a new persistence service.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
