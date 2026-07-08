@@ -6,6 +6,7 @@ from app.services.report import (
     ReportQualityFailed,
 )
 from app.services.report_runtime_quality import evaluate_runtime_report_quality
+from app.services.runtime import resolve_runtime_llm
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import get_knowledge_store
 
@@ -86,18 +87,9 @@ def generate_report_for_session(
     run_report_generation(
         session_id=session_id,
         store=store,
-        llm=_resolve_llm(store),
+        llm=resolve_runtime_llm(store),
         vector_store=vector_store,
     )
-
-
-def _resolve_llm(store: InterviewSessionStore):
-    if store.llm is not None:
-        return store.llm
-
-    from app.services.llm import OpenAIInterviewLLM
-
-    return OpenAIInterviewLLM()
 
 
 def _record_runtime_quality_warning(session_id: str, warning_issues: list[str]) -> None:

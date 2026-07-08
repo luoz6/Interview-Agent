@@ -80,13 +80,20 @@ def build_report_executor(
     vector_store: PgVectorKnowledgeStore | None = None,
 ) -> ReportExecutor:
     resolved_store = store or get_session_store()
-    resolved_llm = llm or resolved_store.llm or OpenAIInterviewLLM()
+    resolved_llm = resolve_runtime_llm(resolved_store, llm)
     resolved_vector_store = vector_store or get_knowledge_store()
     return ReportExecutor(
         store=resolved_store,
         llm=resolved_llm,
         vector_store=resolved_vector_store,
     )
+
+
+def resolve_runtime_llm(
+    store: InterviewSessionStore,
+    llm: InterviewLLM | None = None,
+) -> InterviewLLM:
+    return llm or store.llm or OpenAIInterviewLLM()
 
 
 def get_session_store():
