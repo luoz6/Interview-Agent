@@ -46,6 +46,28 @@ def test_prep_page_has_runtime_hooks():
     assert "/static/prep.js" in html
 
 
+def test_prep_page_has_knowledge_preheat_runtime_hooks():
+    html = read_app_file("test4.html")
+
+    for element_id in (
+        "prepContextSummary",
+        "prepContextTopics",
+        "prepQuestionHints",
+    ):
+        assert f'id="{element_id}"' in html
+
+
+def test_prep_js_renders_knowledge_preheat_context():
+    js = read_static_file("prep.js")
+
+    assert 'const prepContextSummary = byId("prepContextSummary")' in js
+    assert 'const prepContextTopics = byId("prepContextTopics")' in js
+    assert 'const prepQuestionHints = byId("prepQuestionHints")' in js
+    assert "function renderPrepContext(prepContext)" in js
+    assert "prepContext.topics" in js
+    assert "prepContext.question_hints" in js
+
+
 def test_interview_page_has_runtime_hooks():
     html = read_app_file("test3.html")
 

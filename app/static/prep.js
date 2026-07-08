@@ -10,6 +10,9 @@ const startButton = byId("startButton");
 const topicTags = byId("topicTags");
 const planQuestions = byId("planQuestions");
 const prepStatus = byId("prepStatus");
+const prepContextSummary = byId("prepContextSummary");
+const prepContextTopics = byId("prepContextTopics");
+const prepQuestionHints = byId("prepQuestionHints");
 
 let currentTags = [];
 let latestPlan = null;
@@ -38,6 +41,41 @@ function setCurrentTags(tags) {
   renderTags(topicTags, currentTags);
 }
 
+function renderPrepContext(prepContext) {
+  clear(prepContextTopics);
+  clear(prepQuestionHints);
+  if (!prepContext) {
+    if (prepContextSummary) {
+      prepContextSummary.textContent = "等待生成面试计划后展示考点预热结果。";
+    }
+    return;
+  }
+
+  if (prepContextSummary) {
+    prepContextSummary.textContent = prepContext.summary || "Knowledge Agent 已完成考点预热。";
+  }
+
+  for (const topic of prepContext.topics || []) {
+    const label = topic.label || topic.id || "考点";
+    const item = createEl("span", "px-2.5 py-1 bg-blue-50 text-blue-600 text-[12px] rounded border border-blue-100", label);
+    item.title = topic.evidence || "";
+    if (prepContextTopics) {
+      prepContextTopics.appendChild(item);
+    }
+  }
+
+  for (const hint of prepContext.question_hints || []) {
+    const item = createEl("li", "bg-gray-50 border border-gray-100 rounded-lg p-3");
+    const title = createEl("div", "font-medium text-gray-700 mb-1", `${hint.question_id || "Q"} 追问线索`);
+    const body = createEl("div", "leading-relaxed text-gray-500", (hint.follow_up_hints || []).join(" "));
+    item.appendChild(title);
+    item.appendChild(body);
+    if (prepQuestionHints) {
+      prepQuestionHints.appendChild(item);
+    }
+  }
+}
+
 function renderPlan(plan) {
   latestPlan = plan;
   setText("planTitle", plan.title || "面试计划");
@@ -53,6 +91,7 @@ function renderPlan(plan) {
     planQuestions.appendChild(item);
   }
   setCurrentTags(plan.job_tags || []);
+  renderPrepContext(plan.prep_context);
 }
 
 async function saveDraft() {
@@ -125,3 +164,4 @@ startButton.addEventListener("click", () => {
 });
 
 setCurrentTags([]);
+renderPrepContext(null);
