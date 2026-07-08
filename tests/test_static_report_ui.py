@@ -285,7 +285,7 @@ def test_interview_page_streams_followup_inside_conversation_and_enter_submits()
     assert "answerForm.requestSubmit()" in js
     assert "sendAnswerButton.click()" in js
 
-    chunk_handler = js[js.index("chunk(data)") : js.index("done(data)")]
+    chunk_handler = js[js.index("chunk(data)") : js.index("done()")]
     assert "showNotice(interviewNotice, streamedText" not in chunk_handler
 
 
