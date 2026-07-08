@@ -469,3 +469,79 @@ def test_skip_route_publishes_round_closed_event():
     assert len(published) == 1
     assert published[0].question_id == "q1"
     assert published[0].answer_state == "skipped"
+
+
+def test_answer_route_succeeds_when_round_closed_publish_fails():
+    attempts = []
+
+    class FailingPublisher:
+        def publish(self, event):
+            attempts.append(event)
+            raise RuntimeError("broker down")
+
+    app.dependency_overrides[route_module.get_event_publisher] = (
+        lambda: FailingPublisher()
+    )
+    client = make_client()
+
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    session_id = start_response.json()["session_id"]
+
+    first = client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I used Redis to cache hot records."},
+    )
+    second = client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I added delayed double delete."},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["current_question"]["id"] == "q2"
+    assert len(attempts) == 1
+
+
+def test_answer_stream_returns_done_when_round_closed_publish_fails():
+    attempts = []
+
+    class FailingPublisher:
+        def publish(self, event):
+            attempts.append(event)
+            raise RuntimeError("broker down")
+
+    app.dependency_overrides[route_module.get_event_publisher] = (
+        lambda: FailingPublisher()
+    )
+    client = make_client()
+
+    start_response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    session_id = start_response.json()["session_id"]
+
+    client.post(
+        f"/api/interviews/{session_id}/answer",
+        json={"answer": "I used Redis to cache hot records."},
+    )
+    with client.stream(
+        "POST",
+        f"/api/interviews/{session_id}/answer/stream",
+        json={"answer": "I added delayed double delete."},
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: done" in body
+    assert "event: error" not in body
+    assert len(attempts) == 1

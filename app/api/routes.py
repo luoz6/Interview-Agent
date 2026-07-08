@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterator
 from copy import deepcopy
 
@@ -26,6 +27,7 @@ from app.services.session import InterviewSessionStore
 
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 class PrepRequest(BaseModel):
@@ -529,7 +531,18 @@ def _publish_round_closed_event(
 ) -> None:
     event = round_closed_event_from_transition(before_state, after_state)
     if event is not None:
-        publisher.publish(event)
+        try:
+            publisher.publish(event)
+        except Exception as exc:
+            logger.warning(
+                "round_closed event publish failed",
+                extra={
+                    "session_id": event.session_id,
+                    "question_id": event.question_id,
+                    "event_backend": get_runtime_event_backend(),
+                },
+                exc_info=exc,
+            )
 
 
 def _raise_value_error(exc: ValueError) -> None:
