@@ -1,6 +1,11 @@
 import pytest
 
-from app.services.prep import InterviewPlan, InterviewQuestion, prepare_interview
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    build_prep_context,
+    prepare_interview,
+)
 from app.services.report import InterviewReport
 
 
@@ -111,3 +116,73 @@ def test_prepare_interview_rejects_empty_inputs():
 
     with pytest.raises(ValueError, match="resume_text"):
         prepare_interview(job_description="后端岗位。", resume_text=" ", llm=FakePlanLLM())
+
+
+def test_build_prep_context_extracts_topics_and_question_hints():
+    plan = InterviewPlan(
+        title="Backend interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis cache invalidation.",
+                focus="Redis reliability",
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="system-design",
+                prompt="Design a scalable FastAPI service.",
+                focus="system design",
+            ),
+        ],
+    )
+
+    context = build_prep_context(
+        job_description="Backend role using Python, FastAPI, Redis, MySQL, and Kafka.",
+        resume_text="Built a FastAPI API with Redis cache and MySQL indexes.",
+        job_tags=["python", "fastapi", "redis", "mysql", "kafka"],
+        plan=plan,
+    )
+
+    assert context.summary == "Knowledge Agent 预热了 5 个岗位考点，并为 2 道题生成追问线索。"
+    assert [topic.id for topic in context.topics] == [
+        "topic-python",
+        "topic-fastapi",
+        "topic-redis",
+        "topic-mysql",
+        "topic-kafka",
+    ]
+    redis_topic = context.topics[2]
+    assert redis_topic.label == "Redis"
+    assert redis_topic.evidence == "JD 和简历同时命中 Redis，适合作为缓存一致性、穿透保护和高并发追问依据。"
+    assert redis_topic.source == "jd_resume_keyword"
+    assert context.question_hints[0].question_id == "q1"
+    assert "topic-redis" in context.question_hints[0].topic_ids
+    assert "追问缓存一致性、失效时机、穿透保护和降级兜底。" in context.question_hints[0].follow_up_hints
+    assert context.question_hints[1].question_id == "q2"
+    assert context.question_hints[1].topic_ids
+
+
+def test_build_prep_context_uses_general_topic_when_tags_are_empty():
+    plan = InterviewPlan(
+        title="General interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="project",
+                prompt="Introduce your project.",
+                focus="project depth",
+            )
+        ],
+    )
+
+    context = build_prep_context(
+        job_description="Backend role.",
+        resume_text="Built internal tools.",
+        job_tags=[],
+        plan=plan,
+    )
+
+    assert [topic.id for topic in context.topics] == ["topic-general"]
+    assert context.topics[0].label == "通用后端能力"
+    assert context.question_hints[0].topic_ids == ["topic-general"]
