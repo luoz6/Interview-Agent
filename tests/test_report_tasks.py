@@ -10,6 +10,7 @@ from app.services.report import (
     InterviewReport,
     ReportGenerationFailed,
     ReportGenerationTimeout,
+    ReportQualityFailed,
 )
 from app.services.report_tasks import (
     execute_report_generation,
@@ -17,6 +18,25 @@ from app.services.report_tasks import (
     run_report_generation,
 )
 from app.services.session import InterviewSessionStore
+
+
+VALID_SUMMARY = (
+    "\u56de\u7b54\u4e3b\u7ebf\u6e05\u6670\uff0c\u8865\u5145\u4e86 Redis "
+    "\u7f13\u5b58\u5931\u6548\u3001\u56de\u9000\u548c p95 \u76d1\u63a7\u601d\u8def\u3002"
+)
+VALID_HIGHLIGHT = "\u89e3\u91ca\u4e86 Redis \u4e00\u81f4\u6027\u548c\u56de\u9000\u53d6\u820d"
+VALID_RATIONALE = (
+    "\u7b54\u6848\u8bf4\u6e05\u4e86 cache-aside \u6d41\u7a0b\uff0c"
+    "\u4e5f\u8865\u5145\u4e86\u7ade\u4e89\u7a97\u53e3\u548c\u964d\u7ea7\u8def\u5f84\u3002"
+)
+VALID_CRITIQUE = (
+    "\u4f46\u8fd8\u53ef\u4ee5\u7ee7\u7eed\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001"
+    "\u544a\u8b66\u6307\u6807\u548c\u91cf\u5316\u7ed3\u679c\u3002"
+)
+VALID_BETTER_ANSWER = (
+    "\u6700\u597d\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001Redis \u5f02\u5e38\u56de\u9000"
+    "\u3001\u76d1\u63a7\u6307\u6807\u4e0e p95 \u4f18\u5316\u6570\u636e\u3002"
+)
 
 
 class ReportLLM:
@@ -42,8 +62,8 @@ class ReportLLM:
             session_id=session_id,
             overall_score=self.report_score,
             overall_dimension_scores=make_dimension_scores(self.report_score),
-            summary="Strong backend fundamentals.",
-            highlights=["Explained tradeoffs"],
+            summary=VALID_SUMMARY,
+            highlights=[VALID_HIGHLIGHT],
             feedbacks=[
                 InterviewFeedback(
                     question_id="q1",
@@ -51,9 +71,9 @@ class ReportLLM:
                     user_answer="I built a cache service.",
                     score=self.report_score,
                     dimension_scores=make_dimension_scores(self.report_score),
-                    rationale="The answer showed practical implementation detail.",
-                    critique="Needs sharper metrics.",
-                    better_answer="I reduced p95 latency with Redis and fallback.",
+                    rationale=VALID_RATIONALE,
+                    critique=VALID_CRITIQUE,
+                    better_answer=VALID_BETTER_ANSWER,
                     references=[],
                 )
             ],
@@ -117,11 +137,22 @@ class MinimalQuestionResultStructuredModel:
                         "engineering": 84,
                         "communication": 81,
                     },
-                    "rationale": "The answer covered cache invalidation and fallback.",
-                    "critique": "It missed delayed double delete.",
-                    "better_answer": "Add delayed double delete and explicit Redis outage fallback.",
+                    "rationale": (
+                        "\u7b54\u6848\u8986\u76d6\u4e86\u7f13\u5b58\u5931\u6548\u548c"
+                        "\u964d\u7ea7\u56de\u9000\u4e3b\u8def\u5f84\u3002"
+                    ),
+                    "critique": (
+                        "\u4f46\u8fd8\u7f3a\u5c11\u5ef6\u8fdf\u53cc\u5220\u548c"
+                        " Redis \u6545\u969c\u65f6\u7684\u4fdd\u5e95\u7ec6\u8282\u3002"
+                    ),
+                    "better_answer": (
+                        "\u5efa\u8bae\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001"
+                        "\u9650\u6d41\u4fdd\u62a4\u548c p95 \u76d1\u63a7\u6539\u5584\u6570\u636e\u3002"
+                    ),
                     "reference_chunk_ids": ["redis-1", "redis-2"],
-                    "highlights": ["Explained Redis fallback"],
+                    "highlights": [
+                        "\u8bf4\u6e05\u4e86 Redis \u56de\u9000\u548c\u4e00\u81f4\u6027\u53d6\u820d"
+                    ],
                 }
             ],
         }
@@ -154,7 +185,7 @@ class WrappedJsonFallbackChatModel:
                 "communication": 88
               },
               "summary": "Clear backend tradeoff explanation.",
-              "highlights": ["Explained Redis consistency"],
+                  "highlights": ["\u8bf4\u6e05\u4e86 Redis \u4e00\u81f4\u6027\u4e0e\u964d\u7ea7\u53d6\u820d"],
               "feedbacks": [
                 {
                   "question_id": "q1",
@@ -168,9 +199,9 @@ class WrappedJsonFallbackChatModel:
                     "engineering": 88,
                     "communication": 88
                   },
-                  "rationale": "The answer showed practical implementation detail.",
-                  "critique": "Needs sharper metrics.",
-                  "better_answer": "I reduced p95 latency with Redis and fallback.",
+                  "rationale": "\u7b54\u6848\u8bf4\u660e\u4e86 Redis \u7f13\u5b58\u4e00\u81f4\u6027\u548c\u56de\u9000\u7b56\u7565\u3002",
+                  "critique": "\u4f46\u662f\u8fd8\u9700\u8981\u8865\u5145\u7ade\u4e89\u7a97\u53e3\u548c\u76d1\u63a7\u6307\u6807\u3002",
+                  "better_answer": "\u5efa\u8bae\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001\u7194\u65ad\u964d\u7ea7\u548c p95 \u4f18\u5316\u7ed3\u679c\u3002",
                   "references": []
                 }
               ],
@@ -359,6 +390,141 @@ def test_execute_report_generation_saves_question_evaluations():
     saved = store.list_question_evaluations(session.session_id)
     assert report.feedbacks[0].question_id == saved[0].question_id
     assert saved[0].status == "completed"
+
+
+def test_execute_report_generation_raises_report_quality_failed_for_invalid_grounded_report():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    class InvalidGroundedReportLLM(ReportLLM):
+        def generate_report(
+            self,
+            plan: InterviewPlan,
+            evaluation_items: list[dict],
+            session_id: str,
+        ) -> InterviewReport:
+            return InterviewReport(
+                session_id=session_id,
+                overall_score=81,
+                overall_dimension_scores=make_dimension_scores(81),
+                summary="Strong backend fundamentals.",
+                highlights=["Explained tradeoffs"],
+                feedbacks=[
+                    InterviewFeedback(
+                        question_id="q1",
+                        question_text="Introduce a project.",
+                        user_answer="I built a cache service.",
+                        score=81,
+                        dimension_scores=make_dimension_scores(81),
+                        rationale="Good answer.",
+                        critique="Needs more details.",
+                        better_answer="Add more details.",
+                        references=[],
+                    )
+                ],
+            )
+
+    invalid_llm = InvalidGroundedReportLLM()
+    store = InterviewSessionStore(llm=invalid_llm)
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    with pytest.raises(ReportQualityFailed, match="runtime report quality check failed"):
+        execute_report_generation(
+            session_id=session.session_id,
+            store=store,
+            llm=invalid_llm,
+            vector_store=FakeVectorStore(),
+        )
+
+    assert store.get_report_record(session.session_id).status == "processing"
+    assert store.list_question_evaluations(session.session_id) == []
+
+
+def test_run_report_generation_marks_failed_for_invalid_grounded_report():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    class InvalidGroundedReportLLM(ReportLLM):
+        def generate_report(
+            self,
+            plan: InterviewPlan,
+            evaluation_items: list[dict],
+            session_id: str,
+        ) -> InterviewReport:
+            return InterviewReport(
+                session_id=session_id,
+                overall_score=81,
+                overall_dimension_scores=make_dimension_scores(81),
+                summary="Strong backend fundamentals.",
+                highlights=["Explained tradeoffs"],
+                feedbacks=[
+                    InterviewFeedback(
+                        question_id="q1",
+                        question_text="Introduce a project.",
+                        user_answer="I built a cache service.",
+                        score=81,
+                        dimension_scores=make_dimension_scores(81),
+                        rationale="Good answer.",
+                        critique="Needs more details.",
+                        better_answer="Add more details.",
+                        references=[],
+                    )
+                ],
+            )
+
+    invalid_llm = InvalidGroundedReportLLM()
+    store = InterviewSessionStore(llm=invalid_llm)
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    report = run_report_generation(
+        session_id=session.session_id,
+        store=store,
+        llm=invalid_llm,
+        vector_store=FakeVectorStore(),
+    )
+
+    assert report is None
+    record = store.get_report_record(session.session_id)
+    assert record.status == "failed"
+    assert "runtime report quality check failed" in record.error
+    assert record.report is None
+    assert store.list_question_evaluations(session.session_id) == []
+
+
+def test_execute_report_generation_records_warning_for_fallback_quality_bypass(
+    tmp_path,
+    monkeypatch,
+):
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    monkeypatch.setenv("REPORT_TRACE_DIR", str(tmp_path))
+    store = InterviewSessionStore(llm=FallbackReportLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    report = execute_report_generation(
+        session_id=session.session_id,
+        store=store,
+        llm=store.llm,
+        vector_store=FakeVectorStore(),
+    )
+
+    trace_files = sorted((tmp_path / session.session_id).glob("*_runtime_quality.json"))
+    assert report.is_fallback is True
+    assert trace_files
+    assert (
+        "fallback report bypassed runtime quality enforcement"
+        in trace_files[0].read_text(encoding="utf-8")
+    )
 
 
 def test_run_report_generation_marks_failed_status_when_execution_raises():

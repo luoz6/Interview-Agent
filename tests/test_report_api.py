@@ -47,8 +47,14 @@ class ReportApiLLM:
             session_id=session_id,
             overall_score=81,
             overall_dimension_scores=make_dimension_scores(81),
-            summary="Clear project story with practical tradeoffs.",
-            highlights=["Explained tradeoffs"],
+            summary=(
+                "\u56de\u7b54\u4e3b\u7ebf\u6e05\u6670\uff0c\u80fd\u8bf4\u6e05 Redis "
+                "\u7f13\u5b58\u4e00\u81f4\u6027\u3001\u6570\u636e\u5e93\u4fdd\u62a4"
+                "\u548c\u964d\u7ea7\u7b56\u7565\u3002"
+            ),
+            highlights=[
+                "\u8bf4\u6e05\u4e86 Redis \u53d6\u820d\u3001\u56de\u9000\u548c\u76d1\u63a7\u601d\u8def"
+            ],
             feedbacks=[
                 InterviewFeedback(
                     question_id="q1",
@@ -56,9 +62,18 @@ class ReportApiLLM:
                     user_answer="The candidate built a backend cache service.",
                     score=81,
                     dimension_scores=make_dimension_scores(81),
-                    rationale="The answer covered implementation tradeoffs clearly.",
-                    critique="Needs stronger business metrics.",
-                    better_answer="I reduced p95 latency using cache-aside Redis.",
+                    rationale=(
+                        "\u7b54\u6848\u8bf4\u6e05\u4e86 cache-aside \u6d41\u7a0b\uff0c"
+                        "\u4e5f\u63d0\u5230\u4e86\u7f13\u5b58\u5931\u6548\u540e\u7684\u4fdd\u5e95\u5904\u7406\u3002"
+                    ),
+                    critique=(
+                        "\u4f46\u8fd8\u53ef\u4ee5\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001"
+                        "\u544a\u8b66\u6307\u6807\u548c\u91cf\u5316\u6536\u76ca\u3002"
+                    ),
+                    better_answer=(
+                        "\u5efa\u8bae\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001Redis \u5f02\u5e38\u964d\u7ea7"
+                        "\u3001p95 \u4f18\u5316\u6570\u636e\u548c\u76d1\u63a7\u95ed\u73af\u3002"
+                    ),
                     references=[],
                 )
             ],
@@ -601,6 +616,25 @@ def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
 
     assert response.status_code == 500
     assert response.json()["detail"] == "pgvector knowledge store is unavailable"
+
+
+def test_report_endpoint_returns_quality_failure_detail():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+    store.fail_report(
+        session_id,
+        "runtime report quality check failed: summary must include Simplified Chinese text",
+    )
+
+    response = client.get(f"/api/interviews/{session_id}/report")
+
+    assert response.status_code == 500
+    assert (
+        response.json()["detail"]
+        == "runtime report quality check failed: summary must include Simplified Chinese text"
+    )
 
 
 def test_report_endpoint_returns_fallback_report_for_evidence_insufficient():

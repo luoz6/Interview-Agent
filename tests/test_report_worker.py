@@ -14,6 +14,7 @@ from app.services.report import (
     InterviewReport,
     ReportGenerationFailed,
     ReportGenerationTimeout,
+    ReportQualityFailed,
 )
 from app.services.report_worker import run_one_job
 
@@ -260,6 +261,41 @@ def test_run_one_job_marks_terminal_failure_for_non_retryable_report_error(monke
     assert job_store.retry_calls == []
     assert job_store.failed_calls == [("job-1", "interview is not finished")]
     assert store.failed_reports == [("s1", "interview is not finished")]
+
+
+def test_run_one_job_marks_terminal_failure_for_runtime_quality_failure(monkeypatch):
+    def raise_quality_failure(**kwargs):
+        raise ReportQualityFailed(
+            "runtime report quality check failed: summary must include Simplified Chinese text"
+        )
+
+    monkeypatch.setattr(
+        "app.services.report_worker.execute_report_generation",
+        raise_quality_failure,
+    )
+    job_store = FakeJobStore(claimed_job={"job_id": "job-1", "session_id": "s1"})
+    store = FakeStore()
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(store),
+        worker_id="worker-1",
+    )
+
+    assert result["status"] == "failed"
+    assert job_store.retry_calls == []
+    assert job_store.failed_calls == [
+        (
+            "job-1",
+            "runtime report quality check failed: summary must include Simplified Chinese text",
+        )
+    ]
+    assert store.failed_reports == [
+        (
+            "s1",
+            "runtime report quality check failed: summary must include Simplified Chinese text",
+        )
+    ]
 
 
 def require_dsn():

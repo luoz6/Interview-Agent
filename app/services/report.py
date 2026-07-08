@@ -12,6 +12,10 @@ class ReportGenerationTimeout(ReportGenerationFailed):
     """Raised when report generation times out."""
 
 
+class ReportQualityFailed(ReportGenerationFailed):
+    """Raised when a generated report violates blocking runtime quality rules."""
+
+
 class ReportOutputFormatError(ValueError):
     """Raised when a provider response cannot be validated as InterviewReport."""
 

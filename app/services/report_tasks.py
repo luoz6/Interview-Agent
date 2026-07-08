@@ -1,6 +1,11 @@
 from app.agents.shadow_reviewer import ShadowReviewerAgent
 from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import ReportGenerationFailed, ReportGenerationTimeout
+from app.services.report import (
+    ReportGenerationFailed,
+    ReportGenerationTimeout,
+    ReportQualityFailed,
+)
+from app.services.report_runtime_quality import evaluate_runtime_report_quality
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import get_knowledge_store
 
@@ -23,6 +28,15 @@ def execute_report_generation(
         vector_store=vector_store,
     )
     report = evaluator.evaluate(state, on_progress=publish_progress)
+    quality = evaluate_runtime_report_quality(
+        report,
+        expected_question_count=len(state["plan"].questions),
+    )
+    _record_runtime_quality_warning(session_id, quality.warning_issues)
+    if quality.blocking_issues:
+        raise ReportQualityFailed(
+            "runtime report quality check failed: " + "; ".join(quality.blocking_issues)
+        )
     store.save_report(session_id, report)
     store.save_question_evaluations(
         session_id,
@@ -84,3 +98,16 @@ def _resolve_llm(store: InterviewSessionStore):
     from app.services.llm import OpenAIInterviewLLM
 
     return OpenAIInterviewLLM()
+
+
+def _record_runtime_quality_warning(session_id: str, warning_issues: list[str]) -> None:
+    if not warning_issues:
+        return
+
+    from app.services.report_trace import ReportTraceRecorder
+
+    ReportTraceRecorder.from_env().record(
+        session_id=session_id,
+        stage="runtime_quality",
+        payload={"warning_issues": warning_issues},
+    )

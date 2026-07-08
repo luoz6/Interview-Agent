@@ -9,7 +9,9 @@ from app.services.report import (
     InterviewFeedback,
     InterviewReport,
     ReportProgress,
+    ReportQualityFailed,
     ReportRecord,
+    ReportGenerationFailed,
 )
 
 
@@ -160,3 +162,10 @@ def test_report_record_rejects_invalid_state_combinations():
 
     with pytest.raises(ValidationError):
         ReportRecord(status="failed")
+
+
+def test_report_quality_failed_is_a_report_generation_failure():
+    error = ReportQualityFailed("summary must include Simplified Chinese text")
+
+    assert isinstance(error, ReportGenerationFailed)
+    assert "summary must include Simplified Chinese text" in str(error)
