@@ -49,22 +49,55 @@ class SessionCommandRepository(Protocol):
     def snapshot(self, session_id: str) -> dict[str, Any]:
         ...
 
-    def submit_answer(self, session_id: str, answer: str) -> InterviewTurn:
+    def submit_answer(
+        self,
+        session_id: str,
+        answer: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewTurn:
         ...
 
-    def prepare_streaming_answer(self, session_id: str, answer: str) -> PreparedInterviewTurn:
+    def prepare_streaming_answer(
+        self,
+        session_id: str,
+        answer: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> PreparedInterviewTurn:
         ...
 
-    def complete_streaming_answer(self, session_id: str, *, follow_up_text: str | None = None) -> InterviewState:
+    def complete_streaming_answer(
+        self,
+        session_id: str,
+        *,
+        follow_up_text: str | None = None,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewState:
         ...
 
     def stream_followup(self, session_id: str) -> Iterator[str]:
         ...
 
-    def skip(self, session_id: str) -> InterviewTurn:
+    def skip(
+        self,
+        session_id: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewTurn:
         ...
 
-    def finish(self, session_id: str) -> InterviewTurn:
+    def finish(
+        self,
+        session_id: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewTurn:
         ...
 
 

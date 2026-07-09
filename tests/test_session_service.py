@@ -1,7 +1,10 @@
+import pytest
+
 from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import InterviewReport
 from app.services.session import InterviewSessionStore
+from app.services.session_errors import SessionVersionConflict
 
 
 class FakeInterviewLLM:
@@ -143,6 +146,46 @@ def test_submit_answer_falls_back_when_llm_followup_fails():
     assert response.follow_up == "请继续深挖 project：你当时做了什么取舍，为什么这样选？"
 
 
+def test_submit_answer_rejects_stale_expected_version():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    with pytest.raises(SessionVersionConflict) as exc:
+        store.submit_answer(
+            session.session_id,
+            "I used Redis.",
+            expected_version=0,
+            command_id="cmd-1",
+        )
+
+    assert exc.value.expected_version == 0
+    assert exc.value.actual_version == 1
+
+
+def test_submit_answer_is_idempotent_for_duplicate_command_id():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    first = store.submit_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-1",
+    )
+    duplicate = store.submit_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-1",
+    )
+    snapshot = store.snapshot(session.session_id)
+
+    assert duplicate.follow_up == first.follow_up
+    assert snapshot["state_version"] == 2
+    assert len([m for m in snapshot["messages"] if m["role"] == "candidate"]) == 1
+    assert snapshot["last_command_id"] == "cmd-1"
+
+
 def test_prepare_and_complete_streaming_answer_persists_followup():
     llm = FakeInterviewLLM()
     store = InterviewSessionStore(llm=llm)
@@ -169,6 +212,68 @@ def test_prepare_and_complete_streaming_answer_persists_followup():
         "You mentioned caching. Please explain how you protect the database "
         "when the cache becomes invalid."
     )
+
+
+def test_complete_streaming_answer_advances_version_without_replacing_user_command_id():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    store.prepare_streaming_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-stream",
+    )
+    finalized = store.complete_streaming_answer(
+        session.session_id,
+        follow_up_text="Please explain cache invalidation.",
+        expected_version=2,
+        command_id="cmd-stream",
+    )
+    snapshot = store.snapshot(session.session_id)
+
+    assert finalized["state_version"] == 3
+    assert snapshot["state_version"] == 3
+    assert snapshot["checkpoint_version"] == 3
+    assert snapshot["last_command_id"] == "cmd-stream"
+    assert snapshot["messages"][-1]["role"] == "interviewer"
+    assert snapshot["messages"][-1]["content"] == "Please explain cache invalidation."
+
+
+def test_complete_streaming_answer_is_structurally_idempotent_after_finalization():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    store.prepare_streaming_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-stream",
+    )
+    first = store.complete_streaming_answer(
+        session.session_id,
+        follow_up_text="Please explain cache invalidation.",
+        expected_version=2,
+        command_id="cmd-stream",
+    )
+    duplicate = store.complete_streaming_answer(
+        session.session_id,
+        follow_up_text="Please explain cache invalidation.",
+        expected_version=2,
+        command_id="cmd-stream",
+    )
+    snapshot = store.snapshot(session.session_id)
+
+    assert duplicate == first
+    assert snapshot["state_version"] == 3
+    assert len(
+        [
+            message
+            for message in snapshot["messages"]
+            if message["role"] == "interviewer"
+            and message["content"] == "Please explain cache invalidation."
+        ]
+    ) == 1
 
 
 def test_submit_answer_advances_after_followup():
@@ -391,3 +496,19 @@ def test_skip_finished_session_is_idempotent():
     snapshot = store.snapshot(session.session_id)
     assert snapshot["status"] == "finished"
     assert len(snapshot["messages"]) == message_count
+
+
+def test_mark_report_processing_moves_session_into_review_phase():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+    store.finish(session.session_id, expected_version=1, command_id="cmd-finish")
+
+    assert store.mark_report_processing(session.session_id) is True
+
+    snapshot = store.snapshot(session.session_id)
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "active"
+    assert snapshot["review_status"] == "processing"
+    assert snapshot["state_version"] == 3
+    assert snapshot["checkpoint_version"] == 3
+    assert snapshot["last_command_id"] == "cmd-finish"
