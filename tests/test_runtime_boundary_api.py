@@ -22,7 +22,7 @@ def test_runtime_boundary_endpoint_reports_local_v1_components(monkeypatch):
         "interview": "sse",
         "report_progress": "polling",
     }
-    assert body["event_backend"] == "noop"
+    assert body["event_backend"] == "local"
     assert body["capabilities"] == {
         "redis": False,
         "celery": False,
@@ -47,3 +47,20 @@ def test_runtime_boundary_endpoint_reports_celery_round_review_mode(monkeypatch)
         "websocket": False,
         "langgraph": False,
     }
+
+def test_runtime_boundary_endpoint_reports_noop_event_mode(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_EVENT_BACKEND", "noop")
+    client = TestClient(app)
+
+    response = client.get("/api/runtime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["event_backend"] == "noop"
+    assert body["capabilities"] == {
+        "redis": False,
+        "celery": False,
+        "websocket": False,
+        "langgraph": False,
+    }
+
