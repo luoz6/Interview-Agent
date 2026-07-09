@@ -79,6 +79,18 @@ def test_build_initial_state_records_job_context():
     assert state["job_tags"] == ["python", "redis"]
 
 
+def test_build_initial_state_records_phase_review_and_version_metadata():
+    state = build_initial_state(**make_start_kwargs())
+
+    assert state["phase"] == "interview"
+    assert state["phase_status"] == "active"
+    assert state["review_status"] == "idle"
+    assert state["state_version"] == 1
+    assert state["checkpoint_version"] == 1
+    assert state["last_checkpoint_at"] == state["started_at"]
+    assert state["last_command_id"] is None
+
+
 def test_state_types_accept_decision_and_message_shapes():
     message: InterviewMessage = {
         "role": "candidate",
