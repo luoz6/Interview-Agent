@@ -21,9 +21,12 @@ except ModuleNotFoundError:
 
 from app.graphs.interview_state import build_initial_state
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.round_review import build_single_question_review_state
+from app.services.round_review_runner import run_round_review_event
 from app.services.round_review_tasks import run_closed_round_review
+from app.services.runtime_domain_events import RoundClosedEvent
 
 
 def make_plan():
@@ -112,6 +115,217 @@ def test_build_single_question_review_state_restores_prompt_as_first_message():
     assert all(message["question_id"] == "q1" for message in review_state["messages"])
 
 
+def make_round_closed_event(answer_state: str = "answered") -> RoundClosedEvent:
+    return RoundClosedEvent(
+        session_id="s1",
+        question_id="q1",
+        answer_state=answer_state,
+        job_tags=["python", "redis"],
+    )
+
+
+def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch):
+    class FakeStore:
+        def __init__(self):
+            self.llm = object()
+            self.saved = []
+
+        def get(self, session_id: str):
+            assert session_id == "s1"
+            return make_state()
+
+        def upsert_question_evaluation(self, session_id: str, record):
+            self.saved.append((session_id, record))
+
+    class FakeAgent:
+        def __init__(self, *, llm, vector_store):
+            self.llm = llm
+            self.vector_store = vector_store
+
+        def evaluate(self, state, on_progress=None):
+            return InterviewReport(
+                session_id="s1",
+                overall_score=90,
+                overall_dimension_scores=make_dimension_scores(90),
+                summary="ignored",
+                highlights=["ignored"],
+                feedbacks=[
+                    InterviewFeedback(
+                        question_id="q1",
+                        question_text="Explain Redis cache invalidation.",
+                        user_answer="I delete cache after the database update.",
+                        answer_state="answered",
+                        score=90,
+                        dimension_scores=make_dimension_scores(90),
+                        rationale="Good invalidation sequence.",
+                        critique="Needs race-condition handling.",
+                        better_answer="Mention delayed double delete and retry.",
+                        references=[],
+                    )
+                ],
+            )
+
+    store = FakeStore()
+
+    record = run_round_review_event(
+        make_round_closed_event(),
+        store=store,
+        llm=store.llm,
+        vector_store=object(),
+        reviewer_factory=FakeAgent,
+    )
+
+    assert record.status == "completed"
+    assert record.question_id == "q1"
+    assert record.feedback.score == 90
+    assert store.saved == [("s1", record)]
+
+
+def test_run_round_review_event_saves_failed_record_when_reviewer_raises():
+    class FakeStore:
+        def __init__(self):
+            self.llm = object()
+            self.saved = []
+
+        def get(self, session_id: str):
+            return make_state()
+
+        def upsert_question_evaluation(self, session_id: str, record):
+            self.saved.append((session_id, record))
+
+    class FailingAgent:
+        def __init__(self, *, llm, vector_store):
+            pass
+
+        def evaluate(self, state, on_progress=None):
+            raise RuntimeError("review model unavailable")
+
+    store = FakeStore()
+
+    record = run_round_review_event(
+        make_round_closed_event(answer_state="skipped"),
+        store=store,
+        llm=store.llm,
+        vector_store=object(),
+        reviewer_factory=FailingAgent,
+    )
+
+    assert record == store.saved[0][1]
+    assert record.status == "failed"
+    assert record.session_id == "s1"
+    assert record.question_id == "q1"
+    assert record.answer_state == "skipped"
+    assert record.feedback is None
+    assert "review model unavailable" in record.error
+
+
+def test_run_round_review_event_selects_matching_feedback_when_report_has_extra_feedback():
+    class FakeStore:
+        def __init__(self):
+            self.llm = object()
+            self.saved = []
+
+        def get(self, session_id: str):
+            return make_state()
+
+        def upsert_question_evaluation(self, session_id: str, record):
+            self.saved.append((session_id, record))
+
+    class FakeAgent:
+        def __init__(self, *, llm, vector_store):
+            pass
+
+        def evaluate(self, state, on_progress=None):
+            return InterviewReport(
+                session_id="s1",
+                overall_score=82,
+                overall_dimension_scores=make_dimension_scores(82),
+                summary="ignored",
+                highlights=["ignored"],
+                feedbacks=[
+                    InterviewFeedback(
+                        question_id="q2",
+                        question_text="Design the service.",
+                        user_answer="Wrong feedback first.",
+                        answer_state="answered",
+                        score=10,
+                        dimension_scores=make_dimension_scores(10),
+                        rationale="Wrong question.",
+                        critique="Wrong question.",
+                        better_answer="Wrong question.",
+                        references=[],
+                    ),
+                    InterviewFeedback(
+                        question_id="q1",
+                        question_text="Explain Redis cache invalidation.",
+                        user_answer="I delete cache after the database update.",
+                        answer_state="answered",
+                        score=82,
+                        dimension_scores=make_dimension_scores(82),
+                        rationale="Matched the closed round.",
+                        critique="Needs race-condition detail.",
+                        better_answer="Add delayed double delete and retry details.",
+                        references=[],
+                    ),
+                ],
+            )
+
+    store = FakeStore()
+
+    record = run_round_review_event(
+        make_round_closed_event(),
+        store=store,
+        llm=store.llm,
+        vector_store=object(),
+        reviewer_factory=FakeAgent,
+    )
+
+    assert record.question_id == "q1"
+    assert record.feedback.score == 82
+    assert record.feedback.rationale == "Matched the closed round."
+
+
+def test_run_closed_round_review_delegates_to_runner(monkeypatch):
+    calls = []
+
+    def fake_runner(payload):
+        calls.append(payload)
+        return QuestionEvaluationRecord(
+            session_id=payload["session_id"],
+            question_id=payload["question_id"],
+            answer_state=payload["answer_state"],
+            status="failed",
+            error="delegated",
+        )
+
+    monkeypatch.setattr(
+        "app.services.round_review_tasks.run_round_review_event_payload",
+        fake_runner,
+    )
+
+    run_closed_round_review(
+        {
+            "event_type": "round_closed",
+            "session_id": "s1",
+            "question_id": "q1",
+            "answer_state": "answered",
+            "job_tags": ["python", "redis"],
+            "emitted_at": "2026-07-09T00:00:00Z",
+        }
+    )
+
+    assert calls == [
+        {
+            "event_type": "round_closed",
+            "session_id": "s1",
+            "question_id": "q1",
+            "answer_state": "answered",
+            "job_tags": ["python", "redis"],
+            "emitted_at": "2026-07-09T00:00:00Z",
+        }
+    ]
+
+
 def test_run_closed_round_review_saves_one_question_evaluation(monkeypatch):
     class FakeStore:
         def __init__(self):
@@ -155,18 +369,18 @@ def test_run_closed_round_review_saves_one_question_evaluation(monkeypatch):
 
     store = FakeStore()
     monkeypatch.setattr(
-        "app.services.round_review_tasks.get_session_store",
+        "app.services.round_review_runner.get_session_store",
         lambda: store,
     )
     monkeypatch.setattr(
-        "app.services.round_review_tasks.get_knowledge_store",
+        "app.services.round_review_runner.get_knowledge_store",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "app.services.round_review_tasks.resolve_runtime_llm",
+        "app.services.round_review_runner.resolve_runtime_llm",
         lambda store: store.llm,
     )
-    monkeypatch.setattr("app.services.round_review_tasks.ShadowReviewerAgent", FakeAgent)
+    monkeypatch.setattr("app.services.round_review_runner.ShadowReviewerAgent", FakeAgent)
 
     run_closed_round_review(
         {
@@ -228,18 +442,18 @@ def test_run_closed_round_review_uses_event_answer_state(monkeypatch):
 
     store = FakeStore()
     monkeypatch.setattr(
-        "app.services.round_review_tasks.get_session_store",
+        "app.services.round_review_runner.get_session_store",
         lambda: store,
     )
     monkeypatch.setattr(
-        "app.services.round_review_tasks.get_knowledge_store",
+        "app.services.round_review_runner.get_knowledge_store",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "app.services.round_review_tasks.resolve_runtime_llm",
+        "app.services.round_review_runner.resolve_runtime_llm",
         lambda store: store.llm,
     )
-    monkeypatch.setattr("app.services.round_review_tasks.ShadowReviewerAgent", FakeAgent)
+    monkeypatch.setattr("app.services.round_review_runner.ShadowReviewerAgent", FakeAgent)
 
     run_closed_round_review(
         {
