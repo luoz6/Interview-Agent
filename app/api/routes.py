@@ -448,6 +448,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "message": "Waiting for report generation to start.",
             "events": [],
             "rag": _rag_progress_defaults(),
+            "metadata": {},
         }
 
     if record.status == "completed":
@@ -460,6 +461,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "message": "Report completed.",
             "events": [{"stage": "completed", "message": "Report completed."}],
             "rag": _rag_progress_defaults(),
+            "metadata": {},
         }
 
     if record.status == "failed":
@@ -473,6 +475,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "message": message,
             "events": [{"stage": "failed", "message": message}],
             "rag": _rag_progress_defaults(),
+            "metadata": {},
         }
 
     progress = record.progress
@@ -486,6 +489,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
         percent = progress.percent
         message = progress.message
         current_question_id = progress.current_question_id
+    metadata = progress.metadata if progress is not None else {}
 
     return {
         "session_id": session_id,
@@ -497,6 +501,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
         "current_question_id": current_question_id,
         "events": [{"stage": stage, "message": message}],
         "rag": _rag_progress_defaults(),
+        "metadata": metadata,
     }
 
 

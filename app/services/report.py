@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -64,6 +64,7 @@ class ReportProgress(BaseModel):
     percent: int = Field(ge=0, le=100)
     message: str
     current_question_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def utc_now_iso() -> str:

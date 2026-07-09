@@ -8,6 +8,7 @@ from app.services.report import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
+    ReportProgress,
 )
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import KnowledgeChunk
@@ -397,6 +398,36 @@ def test_report_progress_endpoint_returns_processing_detail():
     ]
     assert body["rag"]["top_k"] == 5
     assert body["rag"]["source_types"] == ["theory", "expert_benchmark"]
+
+
+def test_report_progress_endpoint_includes_progress_metadata():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+    store.update_report_progress(
+        session_id,
+        ReportProgress(
+            stage="analyzing",
+            percent=60,
+            message="Reusing question-level review scores.",
+            current_question_id="q1",
+            metadata={
+                "report_path": "microbatch",
+                "microbatch_total_questions": 2,
+                "microbatch_reused_questions": 1,
+                "microbatch_rerun_questions": 1,
+                "microbatch_failed_questions": 0,
+            },
+        ),
+    )
+
+    response = client.get(f"/api/interviews/{session_id}/report/progress")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metadata"]["report_path"] == "microbatch"
+    assert body["metadata"]["microbatch_rerun_questions"] == 1
 
 
 def test_report_progress_endpoint_returns_report_job_id_after_finish_enqueue():

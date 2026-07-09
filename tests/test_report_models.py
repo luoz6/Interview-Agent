@@ -101,6 +101,26 @@ def test_report_progress_validates_percent_and_stage():
         ReportProgress(stage="retrieving", percent=101, message="bad")
 
 
+def test_report_progress_accepts_metadata_for_observability():
+    progress = ReportProgress(
+        stage="analyzing",
+        percent=60,
+        message="Reusing question reviews.",
+        current_question_id="q1",
+        metadata={
+            "report_path": "microbatch",
+            "microbatch_total_questions": 2,
+            "microbatch_reused_questions": 1,
+            "microbatch_rerun_questions": 1,
+            "microbatch_failed_questions": 0,
+        },
+    )
+
+    assert progress.metadata["report_path"] == "microbatch"
+    assert progress.metadata["microbatch_rerun_questions"] == 1
+    assert progress.model_dump()["metadata"]["microbatch_total_questions"] == 2
+
+
 def test_report_record_accepts_processing_with_progress():
     report = InterviewReport(
         session_id="s1",

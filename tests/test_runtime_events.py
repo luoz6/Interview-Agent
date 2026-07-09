@@ -53,10 +53,12 @@ def test_report_progress_event_uses_current_polling_shape():
         current_question_id="q1",
         events=[{"stage": "analyzing", "message": "Analyzing answers."}],
         rag={"top_k": 5, "source_types": ["theory"], "matched_chunks": None},
+        metadata={"report_path": "microbatch"},
     )
 
     assert event.model_dump()["status"] == "processing"
     assert event.model_dump()["rag"]["top_k"] == 5
+    assert event.model_dump()["metadata"]["report_path"] == "microbatch"
 
 
 def _legacy_sse_event(event: str, payload: dict) -> str:

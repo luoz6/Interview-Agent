@@ -42,6 +42,7 @@ class ReportProgressEvent(BaseModel):
     current_question_id: str | None = None
     events: list[dict[str, Any]] = Field(default_factory=list)
     rag: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def _format_sse(event_name: str, payload: dict[str, Any]) -> str:
