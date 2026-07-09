@@ -212,6 +212,27 @@ def test_openai_interview_llm_generates_followup_from_context():
     assert "我用 Redis 缓存热点数据" in chat_model.last_prompt
 
 
+def test_openai_interview_llm_followup_prompt_includes_knowledge_guidance():
+    chat_model = FakeFollowupChatModel()
+    llm = OpenAIInterviewLLM(chat_model=chat_model)
+    context = [
+        {"role": "interviewer", "content": "Explain Redis cache invalidation."},
+        {"role": "candidate", "content": "I delete cache after DB writes."},
+        {
+            "role": "knowledge_agent",
+            "content": "Prep guidance for q1: focus topics Redis. Suggested follow-up angles: 追问缓存一致性。",
+        },
+    ]
+
+    llm.generate_followup(context)
+
+    assert "knowledge_agent: Prep guidance for q1" in chat_model.last_prompt
+    assert (
+        "Use knowledge_agent entries as interview guidance, not as candidate answers."
+        in chat_model.last_prompt
+    )
+
+
 def test_openai_interview_llm_streams_followup_from_context():
     chat_model = FakeFollowupChatModel()
     llm = OpenAIInterviewLLM(chat_model=chat_model)

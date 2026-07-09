@@ -411,6 +411,7 @@ def _build_followup_prompt(context: list[dict[str, str]]) -> str:
         "You are a professional technical interviewer.\n"
         "Based on the recent interview context, ask exactly one sharp follow-up question.\n"
         "The follow-up must be grounded in the candidate's latest answer.\n"
+        "Use knowledge_agent entries as interview guidance, not as candidate answers.\n"
         "Prefer tradeoffs, edge cases, fallback plans, performance bottlenecks, or source-code reasoning.\n"
         "Return only the follow-up question, without explanation.\n\n"
         f"Recent context:\n{transcript}"
