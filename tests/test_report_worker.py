@@ -82,7 +82,7 @@ def make_report(session_id: str = "s1") -> InterviewReport:
             engineering=81,
             communication=81,
         ),
-        summary="Strong backend fundamentals.",
+        summary="候选人展示了扎实的后端基础，并能说明缓存与数据库兜底的核心取舍。",
         highlights=["Explained tradeoffs"],
         feedbacks=[
             InterviewFeedback(
@@ -97,9 +97,9 @@ def make_report(session_id: str = "s1") -> InterviewReport:
                     engineering=81,
                     communication=81,
                 ),
-                rationale="The answer showed practical implementation detail.",
-                critique="Needs sharper metrics.",
-                better_answer="I reduced p95 latency with Redis and fallback.",
+                rationale="回答说明了缓存服务的实现细节，并覆盖了 Redis 与数据库兜底路径。",
+                critique="还需要补充更清晰的线上指标，例如延迟、错误率和恢复时间。",
+                better_answer="我通过 Redis 缓存和数据库兜底降低 p95 延迟，并监控缓存失效时的降级表现。",
                 references=[],
             )
         ],
@@ -312,6 +312,7 @@ def make_table_prefix() -> str:
 def drop_runtime_tables(dsn: str, table_prefix: str) -> None:
     psycopg2, sql = PostgresReportJobStore._import_psycopg2()
     table_names = [
+        f"{table_prefix}_question_evaluations",
         f"{table_prefix}_report_jobs",
         f"{table_prefix}_reports",
         f"{table_prefix}_messages",
@@ -321,7 +322,7 @@ def drop_runtime_tables(dsn: str, table_prefix: str) -> None:
         with connection.cursor() as cursor:
             for table_name in table_names:
                 cursor.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {table}").format(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
                         table=sql.Identifier(table_name)
                     )
                 )
