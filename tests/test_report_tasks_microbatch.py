@@ -139,3 +139,77 @@ def test_execute_report_generation_falls_back_to_full_session_when_microbatch_un
     assert report.overall_score == 71
     assert report.summary == "\u56de\u9000\u5230\u6574\u573a Shadow Reviewer \u62a5\u544a\u3002"
     assert store.get_report_record(turn.session_id).status == "completed"
+
+
+def test_execute_report_generation_records_microbatch_trace(monkeypatch, tmp_path):
+    store = InterviewSessionStore()
+    turn = start_finished_session(store)
+    store.upsert_question_evaluation(
+        turn.session_id,
+        question_evaluation_from_feedback(
+            session_id=turn.session_id,
+            feedback=make_feedback(question_id="q1", score=84),
+        ),
+    )
+    monkeypatch.setenv("REPORT_TRACE_DIR", str(tmp_path))
+
+    report = execute_report_generation(
+        session_id=turn.session_id,
+        store=store,
+        llm=CapturingReportLLM(),
+        vector_store=object(),
+    )
+
+    assert report.overall_score == 84
+    trace_files = sorted((tmp_path / turn.session_id).glob("*_report_path.json"))
+    assert trace_files
+    payload = trace_files[0].read_text(encoding="utf-8")
+    assert '"report_path": "microbatch"' in payload
+    assert '"microbatch_reused_questions": 1' in payload
+
+
+def test_execute_report_generation_records_fallback_trace_with_microbatch_stats(monkeypatch, tmp_path):
+    import app.services.report_tasks as report_tasks
+    from app.services.report_microbatch import ReportMicrobatchStats
+
+    store = InterviewSessionStore()
+    turn = start_finished_session(store)
+    stats = ReportMicrobatchStats(
+        total_questions=1,
+        reused_questions=0,
+        rerun_questions=1,
+        failed_questions=1,
+        question_ids=["q1"],
+        rerun_question_ids=["q1"],
+        failed_question_ids=["q1"],
+    )
+
+    def raise_microbatch_unavailable(*args, **kwargs):
+        on_microbatch_stats = kwargs.get("on_microbatch_stats")
+        if on_microbatch_stats is not None:
+            on_microbatch_stats(stats)
+        raise MicrobatchReportUnavailable("missing q1")
+
+    monkeypatch.setenv("REPORT_TRACE_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        report_tasks,
+        "generate_microbatch_report",
+        raise_microbatch_unavailable,
+    )
+    monkeypatch.setattr(report_tasks, "ShadowReviewerAgent", FullSessionReviewer)
+
+    report = execute_report_generation(
+        session_id=turn.session_id,
+        store=store,
+        llm=CapturingReportLLM(),
+        vector_store=object(),
+    )
+
+    assert report.overall_score == 71
+    trace_files = sorted((tmp_path / turn.session_id).glob("*_report_path.json"))
+    assert trace_files
+    payload = trace_files[0].read_text(encoding="utf-8")
+    assert '"report_path": "full_session_fallback"' in payload
+    assert '"fallback_reason": "missing q1"' in payload
+    assert '"microbatch_failed_questions": 1' in payload
+    assert '"failed_question_ids": [' in payload

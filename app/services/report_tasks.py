@@ -30,6 +30,12 @@ def execute_report_generation(
         store.update_report_progress(session_id, progress)
 
     if _supports_question_evaluation_microbatches(store):
+        microbatch_stats = None
+
+        def capture_microbatch_stats(stats):
+            nonlocal microbatch_stats
+            microbatch_stats = stats
+
         try:
             report = generate_microbatch_report(
                 state,
@@ -37,8 +43,30 @@ def execute_report_generation(
                 llm=llm,
                 vector_store=vector_store,
                 on_progress=publish_progress,
+                on_microbatch_stats=capture_microbatch_stats,
             )
-        except (MicrobatchReportUnavailable, ReportOutputFormatError):
+            _record_report_path_trace(
+                session_id,
+                {
+                    "report_path": "microbatch",
+                    **(
+                        microbatch_stats.to_metadata()
+                        if microbatch_stats is not None
+                        else {}
+                    ),
+                },
+            )
+        except (MicrobatchReportUnavailable, ReportOutputFormatError) as exc:
+            if microbatch_stats is None:
+                microbatch_stats = getattr(exc, "stats", None)
+            fallback_payload = {
+                "report_path": "full_session_fallback",
+                "fallback_reason": str(exc),
+            }
+            if microbatch_stats is not None:
+                fallback_payload.update(microbatch_stats.to_metadata())
+                fallback_payload["report_path"] = "full_session_fallback"
+            _record_report_path_trace(session_id, fallback_payload)
             report = _evaluate_full_session(
                 state,
                 llm=llm,
@@ -125,6 +153,16 @@ def _record_runtime_quality_warning(session_id: str, warning_issues: list[str]) 
         session_id=session_id,
         stage="runtime_quality",
         payload={"warning_issues": warning_issues},
+    )
+
+
+def _record_report_path_trace(session_id: str, payload: dict) -> None:
+    from app.services.report_trace import ReportTraceRecorder
+
+    ReportTraceRecorder.from_env().record(
+        session_id=session_id,
+        stage="report_path",
+        payload=payload,
     )
 
 

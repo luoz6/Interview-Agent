@@ -324,3 +324,69 @@ def test_generate_microbatch_report_calls_report_coach_with_microbatch_items():
         "aggregating",
         "completed",
     ]
+
+
+def test_generate_microbatch_report_reports_reuse_stats():
+    state = make_state()
+    store = FakeStore(
+        state,
+        [completed_record("s1", "q1", 78)],
+    )
+    llm = CapturingReportLLM()
+    captured_stats = []
+    FakeReviewer.calls = []
+
+    report = generate_microbatch_report(
+        state,
+        store=store,
+        llm=llm,
+        vector_store=object(),
+        on_progress=lambda progress: None,
+        on_microbatch_stats=captured_stats.append,
+        reviewer_factory=FakeReviewer,
+    )
+
+    assert report.overall_score == 80
+    assert FakeReviewer.calls == ["q2"]
+    assert len(captured_stats) == 1
+    stats = captured_stats[0]
+    assert stats.total_questions == 2
+    assert stats.reused_questions == 1
+    assert stats.rerun_questions == 1
+    assert stats.failed_questions == 0
+    assert stats.question_ids == ["q1", "q2"]
+    assert stats.rerun_question_ids == ["q2"]
+    assert stats.to_metadata()["report_path"] == "microbatch"
+    assert stats.to_metadata()["microbatch_rerun_questions"] == 1
+
+
+def test_generate_microbatch_report_reports_failed_stats_before_raising():
+    class FailingReviewer:
+        def __init__(self, *, llm, vector_store):
+            pass
+
+        def evaluate(self, state, on_progress=None):
+            raise RuntimeError("round review still unavailable")
+
+    state = make_state()
+    store = FakeStore(state, [completed_record("s1", "q1", 78)])
+    captured_stats = []
+
+    with pytest.raises(MicrobatchReportUnavailable, match="q2"):
+        generate_microbatch_report(
+            state,
+            store=store,
+            llm=CapturingReportLLM(),
+            vector_store=object(),
+            on_microbatch_stats=captured_stats.append,
+            reviewer_factory=FailingReviewer,
+        )
+
+    assert len(captured_stats) == 1
+    stats = captured_stats[0]
+    assert stats.total_questions == 2
+    assert stats.reused_questions == 1
+    assert stats.rerun_questions == 1
+    assert stats.failed_questions == 1
+    assert stats.rerun_question_ids == ["q2"]
+    assert stats.failed_question_ids == ["q2"]

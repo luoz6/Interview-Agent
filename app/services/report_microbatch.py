@@ -1,6 +1,8 @@
 import logging
 from typing import Literal, cast
 
+from pydantic import BaseModel, Field
+
 from app.agents.report_coach import ReportCoachAgent
 from app.services.evaluator import build_evaluation_chunks
 from app.services.question_evaluations import QuestionEvaluationRecord
@@ -13,8 +15,42 @@ AnswerState = Literal["answered", "skipped", "unanswered"]
 logger = logging.getLogger(__name__)
 
 
+class ReportMicrobatchStats(BaseModel):
+    report_path: str = "microbatch"
+    total_questions: int = 0
+    reused_questions: int = 0
+    rerun_questions: int = 0
+    failed_questions: int = 0
+    question_ids: list[str] = Field(default_factory=list)
+    reused_question_ids: list[str] = Field(default_factory=list)
+    rerun_question_ids: list[str] = Field(default_factory=list)
+    failed_question_ids: list[str] = Field(default_factory=list)
+
+    def to_metadata(self) -> dict:
+        return {
+            "report_path": self.report_path,
+            "microbatch_total_questions": self.total_questions,
+            "microbatch_reused_questions": self.reused_questions,
+            "microbatch_rerun_questions": self.rerun_questions,
+            "microbatch_failed_questions": self.failed_questions,
+            "question_ids": list(self.question_ids),
+            "reused_question_ids": list(self.reused_question_ids),
+            "rerun_question_ids": list(self.rerun_question_ids),
+            "failed_question_ids": list(self.failed_question_ids),
+        }
+
+
 class MicrobatchReportUnavailable(RuntimeError):
     """Raised when question-level microbatches cannot produce a complete report input."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stats: ReportMicrobatchStats | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.stats = stats
 
 
 def generate_microbatch_report(
@@ -24,6 +60,7 @@ def generate_microbatch_report(
     llm,
     vector_store,
     on_progress=None,
+    on_microbatch_stats=None,
     reviewer_factory=None,
 ):
     if on_progress is not None:
@@ -35,13 +72,25 @@ def generate_microbatch_report(
             )
         )
 
-    records = ensure_completed_question_evaluations_for_report(
-        state,
-        store=store,
-        llm=llm,
-        vector_store=vector_store,
-        reviewer_factory=reviewer_factory,
-    )
+    stats = ReportMicrobatchStats()
+    try:
+        records = ensure_completed_question_evaluations_for_report(
+            state,
+            store=store,
+            llm=llm,
+            vector_store=vector_store,
+            reviewer_factory=reviewer_factory,
+            stats=stats,
+        )
+    except MicrobatchReportUnavailable as exc:
+        if exc.stats is None:
+            exc.stats = stats
+        if on_microbatch_stats is not None:
+            on_microbatch_stats(stats)
+        raise
+    else:
+        if on_microbatch_stats is not None:
+            on_microbatch_stats(stats)
 
     if on_progress is not None:
         on_progress(
@@ -50,6 +99,7 @@ def generate_microbatch_report(
                 percent=60,
                 message="Reusing completed question-level review scores.",
                 current_question_id=records[0].question_id if records else None,
+                metadata=stats.to_metadata(),
             )
         )
 
@@ -86,6 +136,7 @@ def ensure_completed_question_evaluations_for_report(
     llm,
     vector_store,
     reviewer_factory=None,
+    stats: ReportMicrobatchStats | None = None,
 ) -> list[QuestionEvaluationRecord]:
     session_id = state["session_id"]
     existing_by_question_id = {
@@ -93,14 +144,23 @@ def ensure_completed_question_evaluations_for_report(
         for record in store.list_question_evaluations(session_id)
     }
     chunks = build_evaluation_chunks(state)
+    if stats is not None:
+        stats.total_questions = len(chunks)
+        stats.question_ids = [chunk.question_id for chunk in chunks]
     records: list[QuestionEvaluationRecord] = []
 
     for chunk in chunks:
         record = existing_by_question_id.get(chunk.question_id)
         if _is_completed_record(record):
+            if stats is not None:
+                stats.reused_questions += 1
+                stats.reused_question_ids.append(chunk.question_id)
             records.append(record)
             continue
 
+        if stats is not None:
+            stats.rerun_questions += 1
+            stats.rerun_question_ids.append(chunk.question_id)
         reviewed = run_round_review_event_from_state(
             RoundClosedEvent(
                 session_id=session_id,
@@ -116,13 +176,17 @@ def ensure_completed_question_evaluations_for_report(
         )
         if not _is_completed_record(reviewed):
             reason = reviewed.error if reviewed is not None else "missing feedback"
+            if stats is not None:
+                stats.failed_questions += 1
+                stats.failed_question_ids.append(chunk.question_id)
             raise MicrobatchReportUnavailable(
-                f"question review unavailable for {chunk.question_id}: {reason}"
+                f"question review unavailable for {chunk.question_id}: {reason}",
+                stats=stats,
             )
         records.append(reviewed)
 
     if not records:
-        raise MicrobatchReportUnavailable("no question evaluations available")
+        raise MicrobatchReportUnavailable("no question evaluations available", stats=stats)
     return records
 
 
