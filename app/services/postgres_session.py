@@ -11,9 +11,14 @@ from app.services.session import (
     InterviewSessionStore,
     InterviewTurn,
     PreparedInterviewTurn,
-    finish_interview_state,
-    skip_interview_question_state,
+    _advance_state_metadata,
+    _already_finalized_streaming_answer,
+    _ensure_expected_version,
+    _extract_follow_up,
+    _is_duplicate_command,
+    _should_stream_follow_up,
 )
+from app.services.session_errors import SessionVersionConflict
 from app.services.session_serialization import (
     message_to_row,
     question_evaluation_record_from_row,
@@ -119,9 +124,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     sql.SQL(
                         """
                         SELECT session_id, plan_json, current_index, status,
+                               phase, phase_status, review_status,
                                job_description, resume_text, job_tags,
                                decision_json, pending_output, skipped_question_ids,
-                               started_at, finished_at
+                               started_at, finished_at, state_version,
+                               checkpoint_version, last_checkpoint_at, last_command_id
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -154,43 +161,105 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 ]
         return state_from_rows(session_row, message_rows)
 
-    def submit_answer(self, session_id: str, answer: str) -> InterviewTurn:
+    def submit_answer(
+        self,
+        session_id: str,
+        answer: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewTurn:
         if not answer or not answer.strip():
             raise ValueError("answer is required")
         state = self.get(session_id)
-        new_state = self._runner.submit_answer(state, answer)
-        self._replace_state(new_state)
-        return self._to_turn(new_state, follow_up=self._extract_follow_up(new_state))
+        if _is_duplicate_command(state, command_id):
+            return self._to_turn(state, follow_up=_extract_follow_up(state))
+        _ensure_expected_version(state, expected_version)
+        previous_version = state["state_version"]
+        new_state = self._orchestrator.apply_command(
+            state,
+            {"kind": "answer", "answer": answer},
+        )
+        new_state = _advance_state_metadata(new_state, command_id=command_id)
+        self._replace_state(new_state, expected_previous_version=previous_version)
+        return self._to_turn(new_state, follow_up=_extract_follow_up(new_state))
 
-    def finish(self, session_id: str) -> InterviewTurn:
+    def finish(
+        self,
+        session_id: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewTurn:
         state = self.get(session_id)
-        finished_state = finish_interview_state(state)
-        self._replace_state(finished_state)
+        if _is_duplicate_command(state, command_id):
+            return self._to_turn(state, follow_up=_extract_follow_up(state))
+        _ensure_expected_version(state, expected_version)
+        previous_version = state["state_version"]
+        finished_state = self._orchestrator.apply_command(state, {"kind": "finish"})
+        finished_state = _advance_state_metadata(
+            finished_state,
+            command_id=command_id,
+        )
+        self._replace_state(finished_state, expected_previous_version=previous_version)
         return self._to_turn(
             finished_state,
-            follow_up=self._extract_follow_up(finished_state),
+            follow_up=_extract_follow_up(finished_state),
         )
 
-    def skip(self, session_id: str) -> InterviewTurn:
+    def skip(
+        self,
+        session_id: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> InterviewTurn:
         state = self.get(session_id)
-        skipped_state = skip_interview_question_state(state)
-        self._replace_state(skipped_state)
+        if _is_duplicate_command(state, command_id):
+            return self._to_turn(state, follow_up=_extract_follow_up(state))
+        _ensure_expected_version(state, expected_version)
+        previous_version = state["state_version"]
+        skipped_state = self._orchestrator.apply_command(state, {"kind": "skip"})
+        skipped_state = _advance_state_metadata(
+            skipped_state,
+            command_id=command_id,
+        )
+        self._replace_state(skipped_state, expected_previous_version=previous_version)
         return self._to_turn(
             skipped_state,
-            follow_up=self._extract_follow_up(skipped_state),
+            follow_up=_extract_follow_up(skipped_state),
         )
 
-    def prepare_streaming_answer(self, session_id: str, answer: str) -> PreparedInterviewTurn:
+    def prepare_streaming_answer(
+        self,
+        session_id: str,
+        answer: str,
+        *,
+        expected_version: int | None = None,
+        command_id: str | None = None,
+    ) -> PreparedInterviewTurn:
         if not answer or not answer.strip():
             raise ValueError("answer is required")
         state = self.get(session_id)
-        prepared_state = self._runner.prepare_answer(state, answer)
-        self._replace_state(prepared_state)
-        decision = prepared_state["decision"]
-        should_stream = bool(decision and decision["action"] == "follow_up")
+        if _is_duplicate_command(state, command_id):
+            return PreparedInterviewTurn(
+                state=state,
+                stream_follow_up=_should_stream_follow_up(state),
+            )
+        _ensure_expected_version(state, expected_version)
+        previous_version = state["state_version"]
+        prepared_state = self._orchestrator.apply_command(
+            state,
+            {"kind": "prepare_stream", "answer": answer},
+        )
+        prepared_state = _advance_state_metadata(
+            prepared_state,
+            command_id=command_id,
+        )
+        self._replace_state(prepared_state, expected_previous_version=previous_version)
         return PreparedInterviewTurn(
             state=prepared_state,
-            stream_follow_up=should_stream,
+            stream_follow_up=_should_stream_follow_up(prepared_state),
         )
 
     def complete_streaming_answer(
@@ -198,15 +267,27 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         session_id: str,
         *,
         follow_up_text: str | None = None,
+        expected_version: int | None = None,
+        command_id: str | None = None,
     ) -> InterviewState:
         prepared_state = self.get(session_id)
-        if self._already_completed_streaming_followup(prepared_state, follow_up_text):
+        if _already_finalized_streaming_answer(prepared_state):
             return prepared_state
-        finalized_state = self._runner.finalize_prepared_answer(
+        _ensure_expected_version(prepared_state, expected_version)
+        previous_version = prepared_state["state_version"]
+        finalized_state = self._orchestrator.apply_command(
             prepared_state,
-            follow_up=follow_up_text,
+            {
+                "kind": "complete_stream",
+                "follow_up_text": follow_up_text,
+            },
         )
-        self._replace_state(finalized_state)
+        finalized_state = _advance_state_metadata(
+            finalized_state,
+            command_id=command_id,
+            record_command_id=False,
+        )
+        self._replace_state(finalized_state, expected_previous_version=previous_version)
         return finalized_state
 
     def mark_report_processing(self, session_id: str) -> bool:
@@ -215,15 +296,27 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             raise ValueError("interview is not finished")
         if self.get_report_record(session_id) is not None:
             return False
-        record = ReportRecord(
-            status="processing",
-            progress=ReportProgress(
-                stage="retrieving",
-                percent=20,
-                message="Retrieving role-specific knowledge references.",
+        previous_version = state["state_version"]
+        state["phase"] = "review"
+        state["phase_status"] = "active"
+        state["review_status"] = "processing"
+        state = _advance_state_metadata(
+            state,
+            command_id=None,
+            record_command_id=False,
+        )
+        self._replace_state(state, expected_previous_version=previous_version)
+        self._upsert_report_record(
+            session_id,
+            ReportRecord(
+                status="processing",
+                progress=ReportProgress(
+                    stage="retrieving",
+                    percent=20,
+                    message="Retrieving role-specific knowledge references.",
+                ),
             ),
         )
-        self._upsert_report_record(session_id, record)
         return True
 
     def update_report_progress(
@@ -247,9 +340,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         )
 
     def save_report(self, session_id: str, report: InterviewReport) -> None:
-        self.get(session_id)
+        state = self.get(session_id)
         existing = self.get_report_record(session_id)
         created_at = existing.created_at if existing is not None else report_utc_now_iso()
+        previous_version = state["state_version"]
+        state["phase"] = "review"
+        state["phase_status"] = "completed"
+        state["review_status"] = "completed"
+        state = _advance_state_metadata(
+            state,
+            command_id=None,
+            record_command_id=False,
+        )
+        self._replace_state(state, expected_previous_version=previous_version)
         self._upsert_report_record(
             session_id,
             ReportRecord(
@@ -261,9 +364,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         )
 
     def fail_report(self, session_id: str, error: str) -> None:
-        self.get(session_id)
+        state = self.get(session_id)
         existing = self.get_report_record(session_id)
         created_at = existing.created_at if existing is not None else report_utc_now_iso()
+        previous_version = state["state_version"]
+        state["phase"] = "review"
+        state["phase_status"] = "failed"
+        state["review_status"] = "failed"
+        state = _advance_state_metadata(
+            state,
+            command_id=None,
+            record_command_id=False,
+        )
+        self._replace_state(state, expected_previous_version=previous_version)
         self._upsert_report_record(
             session_id,
             ReportRecord(
@@ -451,6 +564,41 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 )
                 cursor.execute(
                     sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'interview'"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS phase_status TEXT NOT NULL DEFAULT 'active'"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'idle'"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS state_version INTEGER NOT NULL DEFAULT 1"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS checkpoint_version INTEGER NOT NULL DEFAULT 1"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS last_checkpoint_at TIMESTAMPTZ"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS last_command_id TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
                         """
                         CREATE TABLE IF NOT EXISTS {messages} (
                             id BIGSERIAL PRIMARY KEY,
@@ -532,15 +680,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         """
                         INSERT INTO {sessions} (
                             session_id, plan_json, current_index, status,
+                            phase, phase_status, review_status,
                             job_description, resume_text, job_tags,
                             decision_json, pending_output, skipped_question_ids,
-                            started_at, finished_at
+                            started_at, finished_at, state_version,
+                            checkpoint_version, last_checkpoint_at, last_command_id
                         )
                         VALUES (
                             %s, %s::jsonb, %s, %s,
+                            %s, %s, %s,
                             %s, %s, %s::jsonb,
                             %s::jsonb, %s, %s::jsonb,
-                            %s, %s
+                            %s, %s, %s,
+                            %s, %s, %s
                         )
                         """
                     ).format(sessions=sql.Identifier(self.sessions_table)),
@@ -549,6 +701,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         json.dumps(session_row["plan_json"], ensure_ascii=False),
                         session_row["current_index"],
                         session_row["status"],
+                        session_row["phase"],
+                        session_row["phase_status"],
+                        session_row["review_status"],
                         session_row["job_description"],
                         session_row["resume_text"],
                         json.dumps(session_row["job_tags"], ensure_ascii=False),
@@ -562,6 +717,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         ),
                         session_row["started_at"],
                         session_row["finished_at"],
+                        session_row["state_version"],
+                        session_row["checkpoint_version"],
+                        session_row["last_checkpoint_at"],
+                        session_row["last_command_id"],
                     ),
                 )
                 for index, message in enumerate(state["messages"], start=1):
@@ -584,9 +743,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         ),
                     )
 
-    def _replace_state(self, state: InterviewState) -> None:
+    def _replace_state(
+        self,
+        state: InterviewState,
+        *,
+        expected_previous_version: int | None = None,
+    ) -> None:
         psycopg2, sql = self._import_psycopg2()
         session_row = session_row_from_state(state)
+        where_clause = sql.SQL("WHERE session_id = %s")
+        update_params_suffix = [session_row["session_id"]]
+        if expected_previous_version is not None:
+            where_clause = sql.SQL("WHERE session_id = %s AND state_version = %s")
+            update_params_suffix.append(expected_previous_version)
         with psycopg2.connect(self.dsn) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -653,6 +822,33 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             message_row["question_id"],
                         ),
                     )
+                update_params = [
+                    json.dumps(session_row["plan_json"], ensure_ascii=False),
+                    session_row["current_index"],
+                    session_row["status"],
+                    session_row["phase"],
+                    session_row["phase_status"],
+                    session_row["review_status"],
+                    session_row["job_description"],
+                    session_row["resume_text"],
+                    json.dumps(session_row["job_tags"], ensure_ascii=False),
+                    json.dumps(session_row["decision_json"], ensure_ascii=False)
+                    if session_row["decision_json"] is not None
+                    else None,
+                    session_row["pending_output"],
+                    json.dumps(
+                        session_row["skipped_question_ids"],
+                        ensure_ascii=False,
+                    ),
+                    session_row["started_at"],
+                    session_row["state_version"],
+                    session_row["checkpoint_version"],
+                    session_row["last_checkpoint_at"],
+                    session_row["last_command_id"],
+                    session_row["status"],
+                    session_row["finished_at"],
+                    *update_params_suffix,
+                ]
                 cursor.execute(
                     sql.SQL(
                         """
@@ -660,6 +856,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         SET plan_json = %s::jsonb,
                             current_index = %s,
                             status = %s,
+                            phase = %s,
+                            phase_status = %s,
+                            review_status = %s,
                             job_description = %s,
                             resume_text = %s,
                             job_tags = %s::jsonb,
@@ -667,35 +866,41 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             pending_output = %s,
                             skipped_question_ids = %s::jsonb,
                             started_at = %s,
+                            state_version = %s,
+                            checkpoint_version = %s,
+                            last_checkpoint_at = %s,
+                            last_command_id = %s,
                             updated_at = NOW(),
                             finished_at = CASE
                                 WHEN %s = 'finished' THEN COALESCE(finished_at, %s)
                                 ELSE finished_at
                             END
-                        WHERE session_id = %s
+                        {where_clause}
                         """
-                    ).format(sessions=sql.Identifier(self.sessions_table)),
-                    (
-                        json.dumps(session_row["plan_json"], ensure_ascii=False),
-                        session_row["current_index"],
-                        session_row["status"],
-                        session_row["job_description"],
-                        session_row["resume_text"],
-                        json.dumps(session_row["job_tags"], ensure_ascii=False),
-                        json.dumps(session_row["decision_json"], ensure_ascii=False)
-                        if session_row["decision_json"] is not None
-                        else None,
-                        session_row["pending_output"],
-                        json.dumps(
-                            session_row["skipped_question_ids"],
-                            ensure_ascii=False,
-                        ),
-                        session_row["started_at"],
-                        session_row["status"],
-                        session_row["finished_at"],
-                        session_row["session_id"],
+                    ).format(
+                        sessions=sql.Identifier(self.sessions_table),
+                        where_clause=where_clause,
                     ),
+                    tuple(update_params),
                 )
+                if expected_previous_version is not None and cursor.rowcount == 0:
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT state_version
+                            FROM {sessions}
+                            WHERE session_id = %s
+                            """
+                        ).format(sessions=sql.Identifier(self.sessions_table)),
+                        (session_row["session_id"],),
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise ValueError("session not found")
+                    raise SessionVersionConflict(
+                        expected_version=expected_previous_version,
+                        actual_version=row[0],
+                    )
 
     def _upsert_report_record(self, session_id: str, record: ReportRecord) -> None:
         psycopg2, sql = self._import_psycopg2()
@@ -796,14 +1001,21 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "plan_json": row[1],
             "current_index": row[2],
             "status": row[3],
-            "job_description": row[4],
-            "resume_text": row[5],
-            "job_tags": row[6],
-            "decision_json": row[7],
-            "pending_output": row[8],
-            "skipped_question_ids": row[9],
-            "started_at": row[10].isoformat().replace("+00:00", "Z") if row[10] else "",
-            "finished_at": row[11].isoformat().replace("+00:00", "Z") if row[11] else None,
+            "phase": row[4],
+            "phase_status": row[5],
+            "review_status": row[6],
+            "job_description": row[7],
+            "resume_text": row[8],
+            "job_tags": row[9],
+            "decision_json": row[10],
+            "pending_output": row[11],
+            "skipped_question_ids": row[12],
+            "started_at": PostgresInterviewSessionStore._iso_timestamp(row[13]) or "",
+            "finished_at": PostgresInterviewSessionStore._iso_timestamp(row[14]),
+            "state_version": row[15],
+            "checkpoint_version": row[16],
+            "last_checkpoint_at": PostgresInterviewSessionStore._iso_timestamp(row[17]),
+            "last_command_id": row[18],
         }
 
     @staticmethod
@@ -813,25 +1025,6 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if isinstance(value, str):
             return value
         return value.isoformat().replace("+00:00", "Z")
-
-    @staticmethod
-    def _extract_follow_up(state: InterviewState) -> str | None:
-        decision = state["decision"]
-        if decision and decision["action"] == "follow_up":
-            return state["pending_output"]
-        if state["status"] == "finished":
-            return state["pending_output"]
-        return None
-
-    @staticmethod
-    def _already_completed_streaming_followup(
-        state: InterviewState,
-        follow_up_text: str | None,
-    ) -> bool:
-        if not follow_up_text or not state["messages"]:
-            return False
-        last = state["messages"][-1]
-        return last["role"] == "interviewer" and last["content"] == follow_up_text
 
     @staticmethod
     def _import_psycopg2():

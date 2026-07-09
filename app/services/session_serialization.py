@@ -17,6 +17,9 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "plan_json": state["plan"].model_dump(mode="json"),
         "current_index": state["current_index"],
         "status": state["status"],
+        "phase": state["phase"],
+        "phase_status": state["phase_status"],
+        "review_status": state["review_status"],
         "job_description": state["job_description"],
         "resume_text": state["resume_text"],
         "job_tags": list(state["job_tags"]),
@@ -25,6 +28,10 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "skipped_question_ids": list(state.get("skipped_question_ids", [])),
         "started_at": state.get("started_at"),
         "finished_at": state.get("finished_at"),
+        "state_version": state["state_version"],
+        "checkpoint_version": state["checkpoint_version"],
+        "last_checkpoint_at": state.get("last_checkpoint_at"),
+        "last_command_id": state.get("last_command_id"),
     }
 
 
@@ -61,12 +68,19 @@ def state_from_rows(
         "decision": session_row.get("decision_json"),
         "pending_output": session_row.get("pending_output"),
         "status": session_row["status"],
+        "phase": session_row.get("phase", "interview"),
+        "phase_status": session_row.get("phase_status", "active"),
+        "review_status": session_row.get("review_status", "idle"),
         "job_description": session_row["job_description"],
         "resume_text": session_row["resume_text"],
         "job_tags": list(session_row["job_tags"]),
         "skipped_question_ids": list(session_row.get("skipped_question_ids") or []),
         "started_at": session_row.get("started_at") or "",
         "finished_at": session_row.get("finished_at"),
+        "state_version": int(session_row.get("state_version", 1)),
+        "checkpoint_version": int(session_row.get("checkpoint_version", 1)),
+        "last_checkpoint_at": session_row.get("last_checkpoint_at"),
+        "last_command_id": session_row.get("last_command_id"),
     }
 
 

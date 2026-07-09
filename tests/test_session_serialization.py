@@ -122,6 +122,35 @@ def test_session_serialization_preserves_skip_and_timing_metadata():
     assert restored["finished_at"] == "2026-07-04T10:00:00Z"
 
 
+def test_session_serialization_round_trips_orchestration_metadata():
+    state = make_state()
+    state["phase"] = "review"
+    state["phase_status"] = "completed"
+    state["review_status"] = "completed"
+    state["state_version"] = 6
+    state["checkpoint_version"] = 6
+    state["last_checkpoint_at"] = "2026-07-08T10:00:00Z"
+    state["last_command_id"] = "cmd-2"
+
+    row = session_row_from_state(state)
+    restored = state_from_rows(row, [])
+
+    assert row["phase"] == "review"
+    assert row["phase_status"] == "completed"
+    assert row["review_status"] == "completed"
+    assert row["state_version"] == 6
+    assert row["checkpoint_version"] == 6
+    assert row["last_checkpoint_at"] == "2026-07-08T10:00:00Z"
+    assert row["last_command_id"] == "cmd-2"
+    assert restored["phase"] == "review"
+    assert restored["phase_status"] == "completed"
+    assert restored["review_status"] == "completed"
+    assert restored["state_version"] == 6
+    assert restored["checkpoint_version"] == 6
+    assert restored["last_checkpoint_at"] == "2026-07-08T10:00:00Z"
+    assert restored["last_command_id"] == "cmd-2"
+
+
 def test_report_record_round_trips_from_row():
     record = make_report_record()
     row = report_record_to_row(record)

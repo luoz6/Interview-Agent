@@ -12,6 +12,7 @@ from app.services.report import (
     InterviewReport,
     ReportProgress,
 )
+from app.services.session_errors import SessionVersionConflict
 
 
 pytestmark = pytest.mark.pg_runtime
@@ -281,6 +282,121 @@ def test_streaming_prepare_and_complete_are_persisted_once():
     assert recovered["messages"][-1]["content"] == "Which failure mode did you handle?"
 
 
+def test_complete_streaming_answer_advances_version_after_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    store.prepare_streaming_answer(
+        turn.session_id,
+        "I built a FastAPI API.",
+        expected_version=1,
+        command_id="cmd-stream",
+    )
+    recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    finalized = recovered.complete_streaming_answer(
+        turn.session_id,
+        follow_up_text="Please describe the API boundaries.",
+        expected_version=2,
+        command_id="cmd-stream",
+    )
+    duplicate = recovered.complete_streaming_answer(
+        turn.session_id,
+        follow_up_text="Please describe the API boundaries.",
+        expected_version=2,
+        command_id="cmd-stream",
+    )
+    snapshot = recovered.snapshot(turn.session_id)
+
+    assert duplicate == finalized
+    assert snapshot["state_version"] == 3
+    assert snapshot["checkpoint_version"] == 3
+    assert snapshot["last_command_id"] == "cmd-stream"
+    assert len(
+        [
+            message
+            for message in snapshot["messages"]
+            if message["role"] == "interviewer"
+            and message["content"] == "Please describe the API boundaries."
+        ]
+    ) == 1
+
+
+def test_duplicate_command_id_is_idempotent_after_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    first = store.submit_answer(
+        turn.session_id,
+        "I built a FastAPI API.",
+        expected_version=1,
+        command_id="cmd-1",
+    )
+
+    recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    duplicate = recovered.submit_answer(
+        turn.session_id,
+        "I built a FastAPI API.",
+        expected_version=1,
+        command_id="cmd-1",
+    )
+    snapshot = recovered.snapshot(turn.session_id)
+
+    assert duplicate.follow_up == first.follow_up
+    assert snapshot["state_version"] == 2
+    assert snapshot["checkpoint_version"] == 2
+    assert snapshot["last_command_id"] == "cmd-1"
+    assert len([m for m in snapshot["messages"] if m["role"] == "candidate"]) == 1
+
+
+def test_replace_state_rejects_stale_previous_version():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    stale_state = store.get(turn.session_id)
+    store.submit_answer(
+        turn.session_id,
+        "I built a FastAPI API.",
+        expected_version=1,
+        command_id="cmd-1",
+    )
+    stale_state["messages"].append(
+        {
+            "role": "candidate",
+            "content": "This stale write must not win.",
+            "question_id": "q1",
+        }
+    )
+    stale_state["state_version"] = 2
+    stale_state["checkpoint_version"] = 2
+
+    with pytest.raises(SessionVersionConflict) as exc:
+        store._replace_state(stale_state, expected_previous_version=1)
+
+    assert exc.value.expected_version == 1
+    assert exc.value.actual_version == 2
+
+
 def finish_session(store, session_id):
     store.submit_answer(session_id, "First answer.")
     store.submit_answer(session_id, "Second answer.")
@@ -326,6 +442,76 @@ def test_report_lifecycle_survives_store_reinstantiation():
     assert failed is not None
     assert failed.status == "failed"
     assert failed.error == "retrieval unavailable"
+
+
+def test_phase_metadata_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    store.finish(turn.session_id, expected_version=1, command_id="cmd-finish")
+    store.mark_report_processing(turn.session_id)
+
+    recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    snapshot = recovered.snapshot(turn.session_id)
+
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "active"
+    assert snapshot["review_status"] == "processing"
+    assert snapshot["state_version"] == 3
+    assert snapshot["checkpoint_version"] == 3
+    assert snapshot["last_command_id"] == "cmd-finish"
+
+
+def test_postgres_save_report_updates_review_phase_completed():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    store.finish(turn.session_id, expected_version=1, command_id="cmd-finish")
+    store.mark_report_processing(turn.session_id)
+    store.save_report(turn.session_id, make_report(turn.session_id))
+
+    recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    snapshot = recovered.snapshot(turn.session_id)
+
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "completed"
+    assert snapshot["review_status"] == "completed"
+    assert snapshot["last_command_id"] == "cmd-finish"
+
+
+def test_postgres_fail_report_updates_review_phase_failed():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    store.finish(turn.session_id, expected_version=1, command_id="cmd-finish")
+    store.mark_report_processing(turn.session_id)
+    store.fail_report(turn.session_id, "retrieval unavailable")
+
+    recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    snapshot = recovered.snapshot(turn.session_id)
+
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "failed"
+    assert snapshot["review_status"] == "failed"
+    assert snapshot["last_command_id"] == "cmd-finish"
 
 
 def test_list_reports_survives_store_reinstantiation():
