@@ -111,6 +111,34 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | Stop attempt | Pass: `Stop-Process -Id 35980 -Force` released port 8000 |
 | Result | Stage 25.5 Task 1 unblocked; current FastAPI and report worker are running on the default runtime |
 
+## Stage 38 Postgres Runtime Acceptance
+
+| Item | Value |
+| --- | --- |
+| Execution date | 2026-07-09 |
+| Runtime store | PostgreSQL with isolated Stage 38 table prefixes |
+| Acceptance script | `scripts/stage38_postgres_runtime_acceptance.py` |
+| Evidence JSON | `tmp/stage-38-postgres-runtime-acceptance.json` disposable run artifact; not committed |
+| Browser status | manual GUI browser acceptance remains blocked in this tool session |
+
+### Stage 38 Automated Contract Results
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `schema_initializes_isolated_tables` | Pass | Isolated Postgres runtime tables were created for the Stage 38 prefix |
+| `stale_expected_version_rejected` | Pass | Stale `expected_version=0` raised `SessionVersionConflict` with actual version `1` |
+| `duplicate_command_id_is_idempotent` | Pass | Repeating `cmd-answer` did not append a duplicate candidate message |
+| `stream_completion_advances_version_once` | Pass | Streaming prepare plus completion advanced `state_version` to `3` and preserved `last_command_id=cmd-stream` |
+| `report_lifecycle_preserves_user_command_id` | Pass | Report processing/completion advanced versions without replacing `last_command_id=cmd-finish` |
+| `postgres_reinstantiation_preserves_state` | Pass | A new Postgres store instance loaded the completed report state and metadata |
+
+### Stage 38 Verification Commands
+
+| Command | Result |
+| --- | --- |
+| `F:\python3.11\python.exe scripts/stage38_postgres_runtime_acceptance.py --table-prefix stage38_acceptance --write-json tmp/stage-38-postgres-runtime-acceptance.json` | Pass |
+| `F:\python3.11\python.exe -m pytest tests/test_stage38_postgres_api_contract.py tests/test_postgres_session_store.py -q` | Pass with `POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/interview` |
+
 ## Final Status
 
 Not accepted as Local V1 RC. API, worker, PostgreSQL, LLM, question-evaluation persistence, PDF generation, worker-delayed completion, and service restart persistence passed in an isolated run, but blocking manual GUI browser acceptance remains.

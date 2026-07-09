@@ -271,6 +271,20 @@ def test_docs_describe_stage_37_postgres_runtime_contract_cleanup():
     assert "phase_status" in runbook
 
 
+def test_docs_describe_stage_38_postgres_runtime_acceptance():
+    record = read_text("docs/stage-21-browser-e2e-acceptance.md")
+
+    assert "## Stage 38 Postgres Runtime Acceptance" in record
+    assert "scripts/stage38_postgres_runtime_acceptance.py" in record
+    assert "tmp/stage-38-postgres-runtime-acceptance.json" in record
+    assert "disposable run artifact" in record
+    assert "stale_expected_version_rejected" in record
+    assert "duplicate_command_id_is_idempotent" in record
+    assert "stream_completion_advances_version_once" in record
+    assert "report_lifecycle_preserves_user_command_id" in record
+    assert "manual GUI browser acceptance remains blocked" in record
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 
