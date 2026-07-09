@@ -37,6 +37,8 @@ Stage 33 turns round_closed events into local asynchronous round review microbat
 
 Stage 34 makes final report generation reuse completed round review microbatches. Local verification should confirm completed `QuestionEvaluationRecord` rows from `GET /api/interviews/{session_id}/question-evaluations` are consumed by the final report worker, while missing or failed rows are re-reviewed before report completion. The final report keeps Report Coach summary/highlights but preserves Shadow Reviewer question scores from the microbatch rows. If microbatch reuse cannot complete, the worker falls back to the full-session ShadowReviewerAgent path.
 
+Stage 35 makes the review pipeline observable. When `REPORT_TRACE_DIR` is set, local verification should confirm a `report_path` trace file is written for final report generation and includes either microbatch reuse counters or `full_session_fallback` with a fallback reason. The report-processing page should show the same metadata from `/api/interviews/{session_id}/report/progress`, and shutdown coverage should continue to call `LocalRoundReviewEventPublisher.shutdown` through FastAPI lifespan/runtime reset paths.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -189,6 +191,15 @@ Stage 34 final report microbatch reuse checks:
 4. Finish the interview and run the report worker.
 5. Confirm the final report completes and the question evaluation rows remain available.
 6. Confirm a session with a failed or missing microbatch row still completes by re-reviewing the question or falling back to the full-session ShadowReviewerAgent path.
+
+Stage 35 review pipeline observability checks:
+
+1. Set `REPORT_TRACE_DIR` to a temporary directory.
+2. Finish an interview that already has at least one completed `QuestionEvaluationRecord`.
+3. Poll `/api/interviews/{session_id}/report/progress` and confirm `metadata.report_path` is `microbatch`.
+4. Confirm the progress metadata includes `microbatch_reused_questions` and `microbatch_rerun_questions`.
+5. Force or simulate a microbatch-unavailable path and confirm progress or trace metadata records `full_session_fallback`.
+6. Stop the FastAPI process and confirm runtime shutdown does not leave local round-review executor errors in logs.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 

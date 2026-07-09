@@ -240,6 +240,20 @@ def test_docs_describe_stage_34_final_report_microbatch_reuse():
     assert "GET /api/interviews/{session_id}/question-evaluations" in runbook
 
 
+def test_docs_describe_stage_35_review_pipeline_observability():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 35 makes the review pipeline observable"
+    assert expected in readme
+    assert expected in runbook
+    assert "report_path" in readme
+    assert "microbatch_reused_questions" in readme
+    assert "REPORT_TRACE_DIR" in runbook
+    assert "full_session_fallback" in runbook
+    assert "LocalRoundReviewEventPublisher.shutdown" in runbook
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 

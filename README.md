@@ -37,6 +37,8 @@ Stage 33 turns round_closed events into local asynchronous round review microbat
 
 Stage 34 makes final report generation reuse completed round review microbatches. The report worker now loads completed `QuestionEvaluationRecord` rows in plan order, re-runs missing or failed question reviews before final aggregation, and sends microbatch feedback into Report Coach as report input. Report Coach does not overwrite Shadow Reviewer question scores; the final report keeps Report Coach summary/highlights while locking per-question feedbacks and scores to the microbatch records. If the microbatch set cannot be completed, `MicrobatchReportUnavailable` triggers fallback and the worker falls back to the full-session ShadowReviewerAgent path, so the final report remains authoritative.
 
+Stage 35 makes the review pipeline observable. Report progress now carries `metadata` such as `report_path`, `microbatch_reused_questions`, `microbatch_rerun_questions`, and fallback reason fields so `/report-processing` can show whether the final report reused round-review microbatches or used `full_session_fallback`. Report trace files written through `REPORT_TRACE_DIR` record the same path choice for offline debugging, while existing `LocalRoundReviewEventPublisher.shutdown` lifecycle coverage protects local async review tasks during runtime shutdown.
+
 ## Prerequisites
 
 - Python 3.11
