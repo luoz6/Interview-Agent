@@ -32,6 +32,25 @@ def run_round_review_event(
     reviewer_factory: Callable | None = None,
 ) -> QuestionEvaluationRecord:
     state = store.get(event.session_id)
+    return run_round_review_event_from_state(
+        event,
+        state=state,
+        store=store,
+        llm=llm,
+        vector_store=vector_store,
+        reviewer_factory=reviewer_factory,
+    )
+
+
+def run_round_review_event_from_state(
+    event: RoundClosedEvent,
+    *,
+    state,
+    store,
+    llm,
+    vector_store,
+    reviewer_factory: Callable | None = None,
+) -> QuestionEvaluationRecord:
     try:
         review_state = build_single_question_review_state(state, event.question_id)
         reviewer = (reviewer_factory or ShadowReviewerAgent)(
