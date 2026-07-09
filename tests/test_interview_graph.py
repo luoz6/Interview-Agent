@@ -5,7 +5,13 @@ from app.graphs.interview_state import (
     build_initial_state,
     get_current_question,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    PrepContext,
+    PrepKnowledgeTopic,
+    PrepQuestionHint,
+)
 from app.services.report import InterviewReport
 
 
@@ -191,6 +197,109 @@ def test_runner_streams_followup_through_same_examiner_boundary():
     prepared = runner.prepare_answer(state, "I improved cache consistency.")
 
     assert list(runner.stream_followup(prepared)) == ["streamed ", "follow-up"]
+
+
+def make_plan_with_redis_prep_context():
+    return InterviewPlan(
+        title="Backend mock interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis cache invalidation.",
+                focus="Redis consistency",
+            )
+        ],
+        prep_context=PrepContext(
+            summary="Knowledge Agent 预热了 1 个岗位考点，并为 1 道题生成追问线索。",
+            topics=[
+                PrepKnowledgeTopic(
+                    id="topic-redis",
+                    label="Redis",
+                    source="jd_resume_keyword",
+                    evidence="JD 和简历同时命中 Redis，适合追问缓存一致性。",
+                    tags=["redis"],
+                )
+            ],
+            question_hints=[
+                PrepQuestionHint(
+                    question_id="q1",
+                    topic_ids=["topic-redis"],
+                    follow_up_hints=[
+                        "追问缓存一致性、失效时机、穿透保护和降级兜底。"
+                    ],
+                    evidence_titles=["Redis"],
+                )
+            ],
+        ),
+    )
+
+
+def test_runner_adds_prep_context_to_examiner_followup_context():
+    captured_context = []
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            captured_context.extend(context)
+            return "How do you prevent cache stampede?"
+
+    runner = InterviewGraphRunner(examiner=Agent())
+    state = runner.start(
+        session_id="s-prep",
+        plan=make_plan_with_redis_prep_context(),
+        job_description="Backend role using Redis.",
+        resume_text="Built Redis cache.",
+        job_tags=["redis"],
+    )
+
+    new_state = runner.submit_answer(state, "I delete cache after writing the database.")
+
+    assert new_state["pending_output"] == "How do you prevent cache stampede?"
+    prep_messages = [item for item in captured_context if item["role"] == "knowledge_agent"]
+    assert len(prep_messages) == 1
+    assert "Redis" in prep_messages[0]["content"]
+    assert "追问缓存一致性" in prep_messages[0]["content"]
+
+
+def test_runner_stream_followup_uses_prep_context():
+    captured_context = []
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            raise AssertionError("streaming path should call stream_followup")
+
+        def stream_followup(self, *, context: list[dict[str, str]], focus: str):
+            captured_context.extend(context)
+            yield "streamed prep follow-up"
+
+    runner = InterviewGraphRunner(examiner=Agent())
+    state = runner.start(
+        session_id="s-prep-stream",
+        plan=make_plan_with_redis_prep_context(),
+        job_description="Backend role using Redis.",
+        resume_text="Built Redis cache.",
+        job_tags=["redis"],
+    )
+    prepared = runner.prepare_answer(state, "I delete cache after DB writes.")
+
+    assert list(runner.stream_followup(prepared)) == ["streamed prep follow-up"]
+    assert any(item["role"] == "knowledge_agent" for item in captured_context)
+
+
+def test_runner_preserves_followup_context_without_prep_context():
+    captured_context = []
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            captured_context.extend(context)
+            return "Plain follow-up."
+
+    runner = InterviewGraphRunner(examiner=Agent())
+    state = runner.start(**make_start_kwargs())
+
+    runner.submit_answer(state, "I used Redis.")
+
+    assert [item["role"] for item in captured_context] == ["interviewer", "candidate"]
 
 
 def test_runner_prepare_answer_defers_followup_text_for_streaming():

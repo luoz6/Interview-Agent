@@ -12,6 +12,7 @@ from app.graphs.interview_state import (
 )
 from app.services.llm import InterviewLLM
 from app.services.prep import InterviewPlan
+from app.services.prep_context import build_question_prep_context_messages
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
@@ -196,7 +197,13 @@ def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewSta
 
 
 def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:
-    return [
+    recent_messages = [
         {"role": message["role"], "content": message["content"]}
         for message in state["messages"][-4:]
     ]
+    question = get_current_question(state)
+    question_id = question.id if question is not None else None
+    return recent_messages + build_question_prep_context_messages(
+        state["plan"],
+        question_id,
+    )
