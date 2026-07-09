@@ -314,6 +314,29 @@ def test_get_interview_session_returns_snapshot():
     assert body["messages"][0]["role"] == "interviewer"
 
 
+def test_get_interview_session_returns_resume_metadata():
+    client = make_client()
+    started = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    ).json()
+
+    response = client.get(f"/api/interviews/{started['session_id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["phase"] == "interview"
+    assert body["phase_status"] == "active"
+    assert body["review_status"] == "idle"
+    assert body["state_version"] == 1
+    assert body["checkpoint_version"] == 1
+    assert body["last_checkpoint_at"]
+    assert body["last_command_id"] is None
+
+
 def test_get_interview_session_returns_skip_and_timing_metadata():
     client = make_client()
     start_response = client.post(
@@ -381,6 +404,33 @@ def test_answer_missing_session_returns_404():
     assert response.json()["detail"] == "session not found"
 
 
+def test_answer_route_returns_409_for_version_conflict():
+    client = make_client()
+    started = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/interviews/{started['session_id']}/answer",
+        json={
+            "answer": "I used Redis.",
+            "expected_version": 0,
+            "command_id": "cmd-1",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "session version conflict",
+        "expected_version": 0,
+        "actual_version": 1,
+    }
+
+
 def test_interview_answer_stream_flow():
     client = make_client()
     start_response = client.post(
@@ -395,13 +445,21 @@ def test_interview_answer_stream_flow():
     with client.stream(
         "POST",
         f"/api/interviews/{started['session_id']}/answer/stream",
-        json={"answer": "I used Redis to cache frequently requested records."},
+        json={
+            "answer": "I used Redis to cache frequently requested records.",
+            "expected_version": 1,
+            "command_id": "cmd-stream",
+        },
     ) as response:
         assert response.status_code == 200
         body = "".join(response.iter_text())
+    snapshot = client.get(f"/api/interviews/{started['session_id']}").json()
 
     assert "event: chunk" in body
     assert "event: done" in body
+    assert snapshot["state_version"] == 3
+    assert snapshot["checkpoint_version"] == 3
+    assert snapshot["last_command_id"] == "cmd-stream"
     assert "请继续说明" in body
     assert "缓存失效时" in body
 
@@ -568,3 +626,39 @@ def test_answer_stream_returns_done_when_round_closed_publish_fails():
     assert "event: done" in body
     assert "event: error" not in body
     assert len(attempts) == 1
+
+
+def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_question():
+    published = []
+
+    class FakePublisher:
+        def publish(self, event):
+            published.append(event)
+
+    app.dependency_overrides[route_module.get_event_publisher] = lambda: FakePublisher()
+    client = make_client()
+
+    started = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    ).json()
+
+    client.post(
+        f"/api/interviews/{started['session_id']}/answer",
+        json={"answer": "I used Redis to cache hot records."},
+    )
+    with client.stream(
+        "POST",
+        f"/api/interviews/{started['session_id']}/answer/stream",
+        json={"answer": "I added delayed double delete."},
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: done" in body
+    assert len(published) == 1
+    assert published[0].question_id == "q1"
+    assert published[0].answer_state == "answered"

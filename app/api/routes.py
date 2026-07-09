@@ -23,6 +23,7 @@ from app.services.runtime import (
     get_report_job_store,
     get_session_store,
 )
+from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
 
 
@@ -37,6 +38,13 @@ class PrepRequest(BaseModel):
 
 class AnswerRequest(BaseModel):
     answer: str
+    expected_version: int | None = None
+    command_id: str | None = None
+
+
+class SessionCommandRequest(BaseModel):
+    expected_version: int | None = None
+    command_id: str | None = None
 
 
 class DraftRequest(BaseModel):
@@ -82,7 +90,12 @@ def runtime_boundary():
             "redis": event_backend == "celery",
             "celery": event_backend == "celery",
             "websocket": False,
-            "langgraph": False,
+            "langgraph": True,
+        },
+        "orchestration": {
+            "engine": "langgraph",
+            "phase_aware": True,
+            "resume_contract": "versioned_http",
         },
     }
 
@@ -186,8 +199,15 @@ def submit_answer(
 ):
     try:
         before_state = _snapshot_session_state(store, session_id)
-        turn = store.submit_answer(session_id, payload.answer)
+        turn = store.submit_answer(
+            session_id,
+            payload.answer,
+            expected_version=payload.expected_version,
+            command_id=payload.command_id,
+        )
         after_state = _snapshot_session_state(store, session_id)
+    except SessionVersionConflict as exc:
+        return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
     _publish_round_closed_event(publisher, before_state, after_state)
@@ -211,7 +231,14 @@ def submit_answer_stream(
 ):
     try:
         before_state = _snapshot_session_state(store, session_id)
-        prepared = store.prepare_streaming_answer(session_id, payload.answer)
+        prepared = store.prepare_streaming_answer(
+            session_id,
+            payload.answer,
+            expected_version=payload.expected_version,
+            command_id=payload.command_id,
+        )
+    except SessionVersionConflict as exc:
+        return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
 
@@ -230,6 +257,8 @@ def submit_answer_stream(
             finalized_state = store.complete_streaming_answer(
                 session_id,
                 follow_up_text=follow_up_text,
+                expected_version=prepared.state["state_version"],
+                command_id=payload.command_id,
             )
             after_state = deepcopy(finalized_state)
             _publish_round_closed_event(publisher, before_state, after_state)
@@ -260,13 +289,21 @@ def submit_answer_stream(
 def finish_interview(
     session_id: str,
     background_tasks: BackgroundTasks,
+    payload: SessionCommandRequest | None = None,
     store: InterviewSessionStore = Depends(get_session_store),
     publisher=Depends(get_event_publisher),
 ):
+    payload = payload or SessionCommandRequest()
     try:
         before_state = _snapshot_session_state(store, session_id)
-        turn = store.finish(session_id)
+        turn = store.finish(
+            session_id,
+            expected_version=payload.expected_version,
+            command_id=payload.command_id,
+        )
         after_state = _snapshot_session_state(store, session_id)
+    except SessionVersionConflict as exc:
+        return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
     _publish_round_closed_event(publisher, before_state, after_state)
@@ -284,13 +321,21 @@ def finish_interview(
 def skip_interview_question(
     session_id: str,
     background_tasks: BackgroundTasks,
+    payload: SessionCommandRequest | None = None,
     store: InterviewSessionStore = Depends(get_session_store),
     publisher=Depends(get_event_publisher),
 ):
+    payload = payload or SessionCommandRequest()
     try:
         before_state = _snapshot_session_state(store, session_id)
-        turn = store.skip(session_id)
+        turn = store.skip(
+            session_id,
+            expected_version=payload.expected_version,
+            command_id=payload.command_id,
+        )
         after_state = _snapshot_session_state(store, session_id)
+    except SessionVersionConflict as exc:
+        return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
     _publish_round_closed_event(publisher, before_state, after_state)
@@ -554,3 +599,14 @@ def _raise_value_error(exc: ValueError) -> None:
     detail = str(exc)
     status_code = 404 if detail == "session not found" else 400
     raise HTTPException(status_code=status_code, detail=detail)
+
+
+def _version_conflict_response(exc: SessionVersionConflict) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "session version conflict",
+            "expected_version": exc.expected_version,
+            "actual_version": exc.actual_version,
+        },
+    )

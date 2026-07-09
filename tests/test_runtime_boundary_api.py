@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_runtime_boundary_endpoint_reports_local_v1_components(monkeypatch):
+def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
     monkeypatch.delenv("INTERVIEW_EVENT_BACKEND", raising=False)
     client = TestClient(app)
 
@@ -27,12 +27,16 @@ def test_runtime_boundary_endpoint_reports_local_v1_components(monkeypatch):
         "redis": False,
         "celery": False,
         "websocket": False,
-        "langgraph": False,
+        "langgraph": True,
     }
-    assert "postgres:postgres" not in str(body)
+    assert body["orchestration"] == {
+        "engine": "langgraph",
+        "phase_aware": True,
+        "resume_contract": "versioned_http",
+    }
 
 
-def test_runtime_boundary_endpoint_reports_celery_round_review_mode(monkeypatch):
+def test_runtime_boundary_endpoint_reports_stage_29_celery_mode(monkeypatch):
     monkeypatch.setenv("INTERVIEW_EVENT_BACKEND", "celery")
     client = TestClient(app)
 
@@ -45,8 +49,10 @@ def test_runtime_boundary_endpoint_reports_celery_round_review_mode(monkeypatch)
         "redis": True,
         "celery": True,
         "websocket": False,
-        "langgraph": False,
+        "langgraph": True,
     }
+    assert body["orchestration"]["engine"] == "langgraph"
+
 
 def test_runtime_boundary_endpoint_reports_noop_event_mode(monkeypatch):
     monkeypatch.setenv("INTERVIEW_EVENT_BACKEND", "noop")
@@ -61,6 +67,5 @@ def test_runtime_boundary_endpoint_reports_noop_event_mode(monkeypatch):
         "redis": False,
         "celery": False,
         "websocket": False,
-        "langgraph": False,
+        "langgraph": True,
     }
-
