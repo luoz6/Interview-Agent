@@ -35,6 +35,8 @@ Stage 32 uses prep_context to guide follow-up generation. The interview graph no
 
 Stage 33 turns round_closed events into local asynchronous round review microbatches. The default `INTERVIEW_EVENT_BACKEND=local` uses `LocalRoundReviewEventPublisher` to schedule each closed question for Shadow Reviewer evaluation outside the direct answer response path, then persists a `QuestionEvaluationRecord` through the existing session store. `INTERVIEW_EVENT_BACKEND=noop` remains available for disabling runtime events, and `INTERVIEW_EVENT_BACKEND=celery` remains the external worker path. This stage does not add WebSocket or Redis checkpoints.
 
+Stage 34 makes final report generation reuse completed round review microbatches. The report worker now loads completed `QuestionEvaluationRecord` rows in plan order, re-runs missing or failed question reviews before final aggregation, and sends microbatch feedback into Report Coach as report input. Report Coach does not overwrite Shadow Reviewer question scores; the final report keeps Report Coach summary/highlights while locking per-question feedbacks and scores to the microbatch records. If the microbatch set cannot be completed, `MicrobatchReportUnavailable` triggers fallback and the worker falls back to the full-session ShadowReviewerAgent path, so the final report remains authoritative.
+
 ## Prerequisites
 
 - Python 3.11

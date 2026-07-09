@@ -35,6 +35,8 @@ Stage 32 uses prep_context to guide follow-up generation. Local verification sho
 
 Stage 33 turns round_closed events into local asynchronous round review microbatches. In the default local mode, a closed question should eventually appear from `GET /api/interviews/{session_id}/question-evaluations` as a `QuestionEvaluationRecord`. Use `INTERVIEW_EVENT_BACKEND=noop` only when runtime event side effects should be disabled, and use `INTERVIEW_EVENT_BACKEND=celery` when validating the external worker path.
 
+Stage 34 makes final report generation reuse completed round review microbatches. Local verification should confirm completed `QuestionEvaluationRecord` rows from `GET /api/interviews/{session_id}/question-evaluations` are consumed by the final report worker, while missing or failed rows are re-reviewed before report completion. The final report keeps Report Coach summary/highlights but preserves Shadow Reviewer question scores from the microbatch rows. If microbatch reuse cannot complete, the worker falls back to the full-session ShadowReviewerAgent path.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -178,6 +180,15 @@ Stage 33 round review checks:
 3. Poll `GET /api/interviews/{session_id}/question-evaluations`.
 4. Confirm the closed question eventually has one `QuestionEvaluationRecord`.
 5. Confirm failed Shadow Reviewer execution is recorded as `status="failed"` instead of breaking the answer response.
+
+Stage 34 final report microbatch reuse checks:
+
+1. Start an interview with `INTERVIEW_EVENT_BACKEND=local`.
+2. Answer or skip enough turns to close at least one question.
+3. Poll `GET /api/interviews/{session_id}/question-evaluations` until a completed row appears.
+4. Finish the interview and run the report worker.
+5. Confirm the final report completes and the question evaluation rows remain available.
+6. Confirm a session with a failed or missing microbatch row still completes by re-reviewing the question or falling back to the full-session ShadowReviewerAgent path.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 

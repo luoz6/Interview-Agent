@@ -226,6 +226,20 @@ def test_docs_describe_stage_33_round_review_microbatch():
     assert "does not add WebSocket or Redis checkpoints" in readme
 
 
+def test_docs_describe_stage_34_final_report_microbatch_reuse():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 34 makes final report generation reuse completed round review microbatches"
+    assert expected in readme
+    assert expected in runbook
+    assert "QuestionEvaluationRecord" in readme
+    assert "MicrobatchReportUnavailable" in readme
+    assert "Report Coach does not overwrite Shadow Reviewer question scores" in readme
+    assert "falls back to the full-session ShadowReviewerAgent path" in readme
+    assert "GET /api/interviews/{session_id}/question-evaluations" in runbook
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 
