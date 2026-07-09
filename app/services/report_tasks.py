@@ -3,7 +3,12 @@ from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     ReportGenerationFailed,
     ReportGenerationTimeout,
+    ReportOutputFormatError,
     ReportQualityFailed,
+)
+from app.services.report_microbatch import (
+    MicrobatchReportUnavailable,
+    generate_microbatch_report,
 )
 from app.services.report_runtime_quality import evaluate_runtime_report_quality
 from app.services.runtime import resolve_runtime_llm
@@ -24,11 +29,29 @@ def execute_report_generation(
     def publish_progress(progress):
         store.update_report_progress(session_id, progress)
 
-    evaluator = ShadowReviewerAgent(
-        llm=llm,
-        vector_store=vector_store,
-    )
-    report = evaluator.evaluate(state, on_progress=publish_progress)
+    if _supports_question_evaluation_microbatches(store):
+        try:
+            report = generate_microbatch_report(
+                state,
+                store=store,
+                llm=llm,
+                vector_store=vector_store,
+                on_progress=publish_progress,
+            )
+        except (MicrobatchReportUnavailable, ReportOutputFormatError):
+            report = _evaluate_full_session(
+                state,
+                llm=llm,
+                vector_store=vector_store,
+                on_progress=publish_progress,
+            )
+    else:
+        report = _evaluate_full_session(
+            state,
+            llm=llm,
+            vector_store=vector_store,
+            on_progress=publish_progress,
+        )
     quality = evaluate_runtime_report_quality(
         report,
         expected_question_count=len(state["plan"].questions),
@@ -103,3 +126,21 @@ def _record_runtime_quality_warning(session_id: str, warning_issues: list[str]) 
         stage="runtime_quality",
         payload={"warning_issues": warning_issues},
     )
+
+
+def _supports_question_evaluation_microbatches(store) -> bool:
+    return all(
+        hasattr(store, name)
+        for name in (
+            "list_question_evaluations",
+            "upsert_question_evaluation",
+        )
+    )
+
+
+def _evaluate_full_session(state, *, llm, vector_store, on_progress):
+    evaluator = ShadowReviewerAgent(
+        llm=llm,
+        vector_store=vector_store,
+    )
+    return evaluator.evaluate(state, on_progress=on_progress)

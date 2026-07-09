@@ -413,7 +413,7 @@ def test_execute_report_generation_saves_question_evaluations():
     assert saved[0].status == "completed"
 
 
-def test_execute_report_generation_overwrites_matching_question_evaluations_without_clearing_other_rows():
+def test_execute_report_generation_preserves_matching_microbatch_question_evaluations():
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
@@ -451,7 +451,7 @@ def test_execute_report_generation_overwrites_matching_question_evaluations_with
     }
     assert report.feedbacks[0].question_id == "q1"
     assert set(saved) == {"q1", "q2"}
-    assert saved["q1"].feedback.score == 81
+    assert saved["q1"].feedback.score == 55
     assert saved["q2"].feedback.score == 67
     assert saved["q1"].created_at == q1_created_at
 
@@ -504,7 +504,9 @@ def test_execute_report_generation_raises_report_quality_failed_for_invalid_grou
         )
 
     assert store.get_report_record(session.session_id).status == "processing"
-    assert store.list_question_evaluations(session.session_id) == []
+    saved = store.list_question_evaluations(session.session_id)
+    assert len(saved) == 1
+    assert saved[0].question_id == "q1"
 
 
 def test_run_report_generation_marks_failed_for_invalid_grounded_report():
@@ -558,7 +560,9 @@ def test_run_report_generation_marks_failed_for_invalid_grounded_report():
     assert record.status == "failed"
     assert "runtime report quality check failed" in record.error
     assert record.report is None
-    assert store.list_question_evaluations(session.session_id) == []
+    saved = store.list_question_evaluations(session.session_id)
+    assert len(saved) == 1
+    assert saved[0].question_id == "q1"
 
 
 def test_execute_report_generation_records_warning_for_fallback_quality_bypass(
