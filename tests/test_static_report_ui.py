@@ -354,6 +354,20 @@ def test_report_processing_page_uses_safe_json_and_disables_view_without_session
     assert "window.clearTimeout(timer)" in js
 
 
+def test_report_processing_page_renders_report_path_metadata():
+    js = read_static_file("report-processing.js")
+
+    assert "function renderReportMetadata(progress)" in js
+    assert "progress.metadata || {}" in js
+    assert "const metadataDetails = renderReportMetadata(progress)" in js
+    assert "const eventItems = progress.events || []" in js
+    assert "if (!eventItems.length && !metadataDetails.length)" in js
+    assert "report_path" in js
+    assert "microbatch_reused_questions" in js
+    assert "microbatch_rerun_questions" in js
+    assert "full_session_fallback" in js
+
+
 def test_report_detail_page_disables_pdf_without_session_id_and_preserves_report_on_download_failure():
     js = read_static_file("report-detail.js")
 

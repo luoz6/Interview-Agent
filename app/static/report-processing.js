@@ -17,6 +17,21 @@ function stopPolling() {
   }
 }
 
+function renderReportMetadata(progress) {
+  const metadata = progress.metadata || {};
+  const details = [];
+  if (metadata.report_path === "microbatch") {
+    details.push(`path: microbatch reuse`);
+    details.push(`reused: ${metadata.microbatch_reused_questions ?? 0}`);
+    details.push(`rerun attempted: ${metadata.microbatch_rerun_questions ?? 0}`);
+    details.push(`rerun failed: ${metadata.microbatch_failed_questions ?? 0}`);
+  } else if (metadata.report_path === "full_session_fallback") {
+    details.push(`path: full_session_fallback`);
+    details.push(`reason: ${metadata.fallback_reason || "unknown"}`);
+  }
+  return details;
+}
+
 function renderProgress(progress) {
   if (!progress) {
     showNotice(processingNotice, "报告生成尚未开始。", "warning");
@@ -28,11 +43,16 @@ function renderProgress(progress) {
   setText("reportJobId", progress.report_job_id || "暂无任务 ID");
 
   clear(reportEvents);
-  if (!progress.events || !progress.events.length) {
+  const eventItems = progress.events || [];
+  const metadataDetails = renderReportMetadata(progress);
+  if (!eventItems.length && !metadataDetails.length) {
     renderEmptyState(reportEvents, "暂无生成事件。");
   }
-  for (const event of progress.events || []) {
+  for (const event of eventItems) {
     reportEvents.appendChild(createEl("p", "text-[13px] text-gray-700 mb-2", `${event.stage}: ${event.message}`));
+  }
+  for (const detail of metadataDetails) {
+    reportEvents.appendChild(createEl("p", "text-[12px] text-gray-500 mb-1", detail));
   }
 
   clear(reportRagSummary);
