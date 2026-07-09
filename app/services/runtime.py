@@ -56,18 +56,23 @@ def build_draft_store():
 
 
 def build_event_publisher():
-    from app.services.event_publisher import NoopRuntimeEventPublisher
+    from app.services.event_publisher import (
+        LocalRoundReviewEventPublisher,
+        NoopRuntimeEventPublisher,
+    )
 
     backend = get_runtime_event_backend()
+    if backend == "local":
+        return LocalRoundReviewEventPublisher()
     if backend == "noop":
         return NoopRuntimeEventPublisher()
     if backend == "celery":
         try:
             from app.services.celery_app import celery_app
             from app.services.event_publisher import CeleryRuntimeEventPublisher
-        except ImportError as exc:  # pragma: no cover - exercised after Task 2 lands
+        except ImportError as exc:
             raise RuntimeError(
-                "INTERVIEW_EVENT_BACKEND=celery requires Stage 26A Task 2 runtime event components"
+                "INTERVIEW_EVENT_BACKEND=celery requires runtime event components"
             ) from exc
         return CeleryRuntimeEventPublisher(celery_app=celery_app)
     raise RuntimeError(f"unsupported INTERVIEW_EVENT_BACKEND: {backend}")
@@ -131,10 +136,23 @@ def get_report_executor():
     return _report_executor
 
 
-def reset_runtime_for_tests() -> None:
+def shutdown_runtime(*, wait: bool = True) -> None:
     global _session_store, _report_job_store, _report_executor, _draft_store, _event_publisher
+    _shutdown_cached_publisher(_event_publisher, wait=wait)
     _session_store = None
     _report_job_store = None
     _report_executor = None
     _draft_store = None
     _event_publisher = None
+
+
+def reset_runtime_for_tests() -> None:
+    shutdown_runtime(wait=False)
+
+
+def _shutdown_cached_publisher(publisher, *, wait: bool) -> None:
+    if publisher is None:
+        return
+    shutdown = getattr(publisher, "shutdown", None)
+    if shutdown is not None:
+        shutdown(wait=wait)

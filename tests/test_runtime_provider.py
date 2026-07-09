@@ -9,6 +9,7 @@ from app.services.runtime import (
     get_report_executor,
     get_report_job_store,
     reset_runtime_for_tests,
+    shutdown_runtime,
 )
 
 
@@ -143,14 +144,24 @@ def test_config_exposes_event_backend_and_redis_defaults(monkeypatch):
         get_runtime_event_backend,
     )
 
-    assert DEFAULT_RUNTIME_EVENT_BACKEND == "noop"
+    assert DEFAULT_RUNTIME_EVENT_BACKEND == "local"
     assert DEFAULT_REDIS_URL == "redis://127.0.0.1:6379/0"
-    assert get_runtime_event_backend() == "noop"
+    assert get_runtime_event_backend() == "local"
     assert get_redis_url() == "redis://127.0.0.1:6379/0"
 
 
-def test_build_event_publisher_defaults_to_noop(monkeypatch):
+def test_build_event_publisher_defaults_to_local_round_review(monkeypatch):
     monkeypatch.delenv("INTERVIEW_EVENT_BACKEND", raising=False)
+
+    from app.services.event_publisher import LocalRoundReviewEventPublisher
+
+    publisher = build_event_publisher()
+
+    assert isinstance(publisher, LocalRoundReviewEventPublisher)
+
+
+def test_build_event_publisher_supports_explicit_noop(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_EVENT_BACKEND", "noop")
 
     from app.services.event_publisher import NoopRuntimeEventPublisher
 
@@ -267,6 +278,38 @@ def test_get_event_publisher_caches_until_reset(monkeypatch):
 
     assert third is not first
     assert len(created) == 2
+
+
+def test_shutdown_runtime_drains_cached_event_publisher(monkeypatch):
+    closed = []
+
+    class FakePublisher:
+        def shutdown(self, *, wait=True):
+            closed.append(wait)
+
+    reset_runtime_for_tests()
+    monkeypatch.setattr("app.services.runtime.build_event_publisher", lambda: FakePublisher())
+
+    get_event_publisher()
+    shutdown_runtime(wait=True)
+
+    assert closed == [True]
+
+
+def test_reset_runtime_for_tests_shuts_down_cached_event_publisher(monkeypatch):
+    closed = []
+
+    class FakePublisher:
+        def shutdown(self, *, wait=True):
+            closed.append(wait)
+
+    reset_runtime_for_tests()
+    monkeypatch.setattr("app.services.runtime.build_event_publisher", lambda: FakePublisher())
+
+    get_event_publisher()
+    reset_runtime_for_tests()
+
+    assert closed == [False]
 
 
 def test_get_draft_store_caches_until_reset():

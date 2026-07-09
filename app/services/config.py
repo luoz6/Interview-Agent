@@ -5,7 +5,7 @@ DEFAULT_POSTGRES_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/interview"
 DEFAULT_RUNTIME_STORE = "postgres"
 DEFAULT_RUNTIME_TABLE_PREFIX = "interview"
 DEFAULT_PGVECTOR_TABLE = "knowledge_chunks"
-DEFAULT_RUNTIME_EVENT_BACKEND = "noop"
+DEFAULT_RUNTIME_EVENT_BACKEND = "local"
 DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0"
 
 
