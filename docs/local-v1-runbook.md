@@ -39,6 +39,8 @@ Stage 34 makes final report generation reuse completed round review microbatches
 
 Stage 35 makes the review pipeline observable. When `REPORT_TRACE_DIR` is set, local verification should confirm a `report_path` trace file is written for final report generation and includes either microbatch reuse counters or `full_session_fallback` with a fallback reason. The report-processing page should show the same metadata from `/api/interviews/{session_id}/report/progress`, and shutdown coverage should continue to call `LocalRoundReviewEventPublisher.shutdown` through FastAPI lifespan/runtime reset paths.
 
+Stage 37 cleans up the Postgres runtime contract. Local verification should compare memory and Postgres behavior for `expected_version`, `command_id`, `state_version`, `checkpoint_version`, `phase_status`, and `review_status`. In Local V1, `checkpoint_version` mirrors `state_version` until an external checkpoint store exists. `last_command_id` is the last user command id; streaming completion and report lifecycle updates advance version metadata without overwriting it. A stale command should return HTTP 409 with the actual version, a duplicate command id should not append duplicate candidate messages, and service restart checks should confirm Postgres preserves version and phase metadata.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -200,6 +202,17 @@ Stage 35 review pipeline observability checks:
 4. Confirm the progress metadata includes `microbatch_reused_questions` and `microbatch_rerun_questions`.
 5. Force or simulate a microbatch-unavailable path and confirm progress or trace metadata records `full_session_fallback`.
 6. Stop the FastAPI process and confirm runtime shutdown does not leave local round-review executor errors in logs.
+
+Stage 37 Postgres runtime contract checks:
+
+1. Start an interview and call `GET /api/interviews/{session_id}`.
+2. Confirm the snapshot includes `state_version`, `checkpoint_version`, `phase`, `phase_status`, and `review_status`.
+3. Send an answer with stale `expected_version` and confirm HTTP 409.
+4. Send the same `command_id` twice and confirm the second call does not duplicate candidate messages.
+5. Submit a streaming answer and confirm completion advances `state_version` while preserving the original `last_command_id`.
+6. Finish an interview, trigger report processing, and confirm report lifecycle updates do not replace the last user command id.
+7. Repeat the version/idempotency checks with `INTERVIEW_RUNTIME_STORE=postgres`.
+8. Restart the store or process and confirm Postgres still returns the latest version and phase metadata.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 

@@ -254,6 +254,23 @@ def test_docs_describe_stage_35_review_pipeline_observability():
     assert "LocalRoundReviewEventPublisher.shutdown" in runbook
 
 
+def test_docs_describe_stage_37_postgres_runtime_contract_cleanup():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 37 cleans up the Postgres runtime contract"
+    assert expected in readme
+    assert expected in runbook
+    assert "SessionVersionConflict" in readme
+    assert "expected_version" in readme
+    assert "command_id" in readme
+    assert "state_version" in runbook
+    assert "checkpoint_version" in runbook
+    assert "checkpoint_version` mirrors `state_version" in runbook
+    assert "last user command id" in runbook
+    assert "phase_status" in runbook
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 

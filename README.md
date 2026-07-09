@@ -39,6 +39,8 @@ Stage 34 makes final report generation reuse completed round review microbatches
 
 Stage 35 makes the review pipeline observable. Report progress now carries `metadata` such as `report_path`, `microbatch_reused_questions`, `microbatch_rerun_questions`, and fallback reason fields so `/report-processing` can show whether the final report reused round-review microbatches or used `full_session_fallback`. Report trace files written through `REPORT_TRACE_DIR` record the same path choice for offline debugging, while existing `LocalRoundReviewEventPublisher.shutdown` lifecycle coverage protects local async review tasks during runtime shutdown.
 
+Stage 37 cleans up the Postgres runtime contract. Memory and Postgres session stores now share the same versioned command behavior: mutating user commands accept `expected_version` plus `command_id`, stale commands raise `SessionVersionConflict` and return HTTP 409, duplicate `command_id` calls are idempotent, and snapshots expose `state_version`, `checkpoint_version`, `phase`, `phase_status`, and `review_status`. Streaming answer completion and report lifecycle updates advance version metadata without replacing the last user command id. The LangGraph orchestrator remains an internal phase router; Local V1 transport is still HTTP/SSE/polling.
+
 ## Prerequisites
 
 - Python 3.11
