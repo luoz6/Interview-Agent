@@ -31,6 +31,8 @@ Stage 29 adds a LangGraph-powered orchestrator and a versioned HTTP resume contr
 
 Stage 31 makes Knowledge Agent preheat visible during interview preparation. `/api/prep` now returns an optional `prep_context` with deterministic role topics, per-question follow-up hints, and evidence summaries derived from the JD, resume, and generated plan. This stage improves explainability of question selection and prepares a future Examiner hint path, but it does not add WebSocket or Redis checkpoints.
 
+Stage 32 uses prep_context to guide follow-up generation. The interview graph now converts the current question's `prep_context.question_hints` into a `knowledge_agent` context message before calling the Examiner/LLM follow-up boundary, so generated follow-ups can target the role topics and evidence prepared during `/api/prep`. This improves continuity between preparation and live interview behavior, but it does not add WebSocket, Redis checkpoints, or a new persistence table.
+
 ## Prerequisites
 
 - Python 3.11

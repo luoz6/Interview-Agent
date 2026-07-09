@@ -31,6 +31,8 @@ Stage 30 wires the browser interview page into the versioned HTTP resume contrac
 
 Stage 31 makes Knowledge Agent preheat visible during interview preparation. Local verification should confirm `/api/prep` returns `prep_context.summary`, `prep_context.topics`, and `prep_context.question_hints`, and that the prep page renders those fields before the interview starts.
 
+Stage 32 uses prep_context to guide follow-up generation. Local verification should confirm the first follow-up request can include a `knowledge_agent` context entry derived from `prep_context.question_hints`, while interviews without `prep_context` continue to use the plain transcript-only follow-up path.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -159,6 +161,13 @@ Stage 31 Knowledge Agent preheat checks:
 2. Confirm `/api/prep` returns `prep_context.summary`, at least one topic, and at least one question hint.
 3. Confirm the prep page renders Knowledge Agent preheat topics and per-question follow-up hints.
 4. Confirm starting the interview still works without requiring Redis, WebSocket, or a new persistence service.
+
+Stage 32 knowledge-guided follow-up checks:
+
+1. Generate a prep plan whose `prep_context.question_hints` includes Redis or FastAPI follow-up hints.
+2. Start the interview and answer the matching question with a partial answer.
+3. Confirm the follow-up remains grounded in the user's answer while targeting the preheated topic.
+4. Confirm a session created from a plan without `prep_context` still produces a normal fallback or LLM follow-up.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
