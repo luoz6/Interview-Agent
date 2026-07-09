@@ -33,6 +33,8 @@ Stage 31 makes Knowledge Agent preheat visible during interview preparation. `/a
 
 Stage 32 uses prep_context to guide follow-up generation. The interview graph now converts the current question's `prep_context.question_hints` into a `knowledge_agent` context message before calling the Examiner/LLM follow-up boundary, so generated follow-ups can target the role topics and evidence prepared during `/api/prep`. This improves continuity between preparation and live interview behavior, but it does not add WebSocket, Redis checkpoints, or a new persistence table.
 
+Stage 33 turns round_closed events into local asynchronous round review microbatches. The default `INTERVIEW_EVENT_BACKEND=local` uses `LocalRoundReviewEventPublisher` to schedule each closed question for Shadow Reviewer evaluation outside the direct answer response path, then persists a `QuestionEvaluationRecord` through the existing session store. `INTERVIEW_EVENT_BACKEND=noop` remains available for disabling runtime events, and `INTERVIEW_EVENT_BACKEND=celery` remains the external worker path. This stage does not add WebSocket or Redis checkpoints.
+
 ## Prerequisites
 
 - Python 3.11

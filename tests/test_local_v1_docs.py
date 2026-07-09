@@ -213,6 +213,19 @@ def test_docs_describe_stage_32_knowledge_guided_followup():
     assert "does not add WebSocket, Redis checkpoints, or a new persistence table" in readme
 
 
+def test_docs_describe_stage_33_round_review_microbatch():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    expected = "Stage 33 turns round_closed events into local asynchronous round review microbatches"
+    assert expected in readme
+    assert expected in runbook
+    assert "LocalRoundReviewEventPublisher" in readme
+    assert "QuestionEvaluationRecord" in readme
+    assert "INTERVIEW_EVENT_BACKEND=noop" in runbook
+    assert "does not add WebSocket or Redis checkpoints" in readme
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 

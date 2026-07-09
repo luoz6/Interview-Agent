@@ -33,6 +33,8 @@ Stage 31 makes Knowledge Agent preheat visible during interview preparation. Loc
 
 Stage 32 uses prep_context to guide follow-up generation. Local verification should confirm the first follow-up request can include a `knowledge_agent` context entry derived from `prep_context.question_hints`, while interviews without `prep_context` continue to use the plain transcript-only follow-up path.
 
+Stage 33 turns round_closed events into local asynchronous round review microbatches. In the default local mode, a closed question should eventually appear from `GET /api/interviews/{session_id}/question-evaluations` as a `QuestionEvaluationRecord`. Use `INTERVIEW_EVENT_BACKEND=noop` only when runtime event side effects should be disabled, and use `INTERVIEW_EVENT_BACKEND=celery` when validating the external worker path.
+
 ## 2. PowerShell Setup
 
 Local PostgreSQL defaults are built into the code. Set these variables only when overriding the local defaults or providing the LLM key:
@@ -168,6 +170,14 @@ Stage 32 knowledge-guided follow-up checks:
 2. Start the interview and answer the matching question with a partial answer.
 3. Confirm the follow-up remains grounded in the user's answer while targeting the preheated topic.
 4. Confirm a session created from a plan without `prep_context` still produces a normal fallback or LLM follow-up.
+
+Stage 33 round review checks:
+
+1. Start an interview with the default `INTERVIEW_EVENT_BACKEND=local`.
+2. Answer or skip enough turns to close one question.
+3. Poll `GET /api/interviews/{session_id}/question-evaluations`.
+4. Confirm the closed question eventually has one `QuestionEvaluationRecord`.
+5. Confirm failed Shadow Reviewer execution is recorded as `status="failed"` instead of breaking the answer response.
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
