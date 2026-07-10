@@ -42,6 +42,8 @@ class InterviewFeedback(BaseModel):
     answer_state: Literal["answered", "skipped", "unanswered"] = "answered"
     score: int = Field(ge=0, le=100, description="Question score from 0 to 100")
     dimension_scores: DimensionScores
+    applicable_dimensions: list[str] = Field(default_factory=list)
+    dimension_evidence: list[dict[str, Any]] = Field(default_factory=list)
     rationale: str = Field(description="Why the score was assigned")
     critique: str = Field(description="Main flaw or critique")
     better_answer: str = Field(description="Improved answer to practice")

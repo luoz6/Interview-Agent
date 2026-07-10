@@ -197,3 +197,67 @@ def test_processing_report_record_round_trips_from_row():
     assert restored.status == "processing"
     assert restored.progress is not None
     assert restored.progress.percent == 20
+
+
+def test_question_feedback_serializes_rule_scoring_metadata():
+    from app.services.question_evaluations import question_evaluation_from_feedback
+    from app.services.report import (
+        DimensionScores,
+        FeedbackReference,
+        InterviewFeedback,
+    )
+    from app.services.session_serialization import (
+        question_evaluation_record_from_row,
+        question_evaluation_record_to_row,
+    )
+
+    feedback = InterviewFeedback(
+        question_id="q1",
+        question_text="如何设计高并发秒杀系统？",
+        user_answer="我会做库存预扣、MQ 补偿和降级。",
+        score=80,
+        dimension_scores=DimensionScores(
+            breadth=0,
+            depth=75,
+            architecture=85,
+            engineering=80,
+            communication=80,
+        ),
+        applicable_dimensions=[
+            "architecture",
+            "engineering",
+            "depth",
+            "communication",
+        ],
+        dimension_evidence=[
+            {
+                "dimension": "architecture",
+                "observed": ["说明了库存预扣和服务边界。"],
+                "missing": ["容量估算不足。"],
+                "quality_signals": ["concrete_steps", "tradeoff", "risk"],
+            }
+        ],
+        rationale="回答覆盖了系统设计主路径，但容量估算不足。",
+        critique="缺少容量估算。",
+        better_answer="补充容量、限流和降级策略。",
+        references=[
+            FeedbackReference(
+                chunk_id="system-1",
+                title="System design benchmark",
+                source_type="theory",
+                excerpt="高并发系统需要容量估算、限流和降级。",
+            )
+        ],
+    )
+
+    record = question_evaluation_from_feedback(session_id="s1", feedback=feedback)
+    row = question_evaluation_record_to_row(record)
+    restored = question_evaluation_record_from_row(row)
+
+    assert restored.feedback.applicable_dimensions == [
+        "architecture",
+        "engineering",
+        "depth",
+        "communication",
+    ]
+    assert restored.feedback.dimension_evidence[0]["dimension"] == "architecture"
