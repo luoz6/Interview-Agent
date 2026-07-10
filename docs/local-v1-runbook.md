@@ -214,6 +214,15 @@ Stage 37 Postgres runtime contract checks:
 7. Repeat the version/idempotency checks with `INTERVIEW_RUNTIME_STORE=postgres`.
 8. Restart the store or process and confirm Postgres still returns the latest version and phase metadata.
 
+Stage 39 browser RC checks:
+
+1. Confirm `/prep`, `/interview`, `/report-processing`, and `/report-detail` show readable Chinese with no mojibake in navigation, buttons, notices, empty states, and report sections.
+2. Confirm the browser answer flow still sends `expected_version` and `command_id`.
+3. Trigger or simulate a stale `expected_version` and confirm the page shows `会话状态已刷新，请检查最新题目后继续。`.
+4. Confirm report-processing shows readable progress metadata and does not show `暂无生成事件。` when metadata details are present.
+5. Confirm report-detail shows `逐题评估链路` with at least one question evaluation record.
+6. Download the PDF and confirm the browser keeps the report visible after download.
+
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
 ## 7. Troubleshooting

@@ -285,6 +285,19 @@ def test_docs_describe_stage_38_postgres_runtime_acceptance():
     assert "manual GUI browser acceptance remains blocked" in record
 
 
+def test_docs_describe_stage_39_browser_rc_acceptance():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    record = read_text("docs/stage-21-browser-e2e-acceptance.md")
+
+    assert "不包含登录" in readme
+    assert "## 6. 真实浏览器验收" in runbook
+    assert "Stage 39 browser RC checks" in runbook
+    assert "会话状态已刷新，请检查最新题目后继续。" in runbook
+    assert "## Stage 39 Browser RC Acceptance" in record
+    assert "tests/test_utf8_text_contract.py" in record
+
+
 def test_stage_25_acceptance_record_has_rc_sections():
     record = read_text("docs/stage-21-browser-e2e-acceptance.md")
 

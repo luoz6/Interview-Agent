@@ -139,6 +139,46 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | `F:\python3.11\python.exe scripts/stage38_postgres_runtime_acceptance.py --table-prefix stage38_acceptance --write-json tmp/stage-38-postgres-runtime-acceptance.json` | Pass |
 | `F:\python3.11\python.exe -m pytest tests/test_stage38_postgres_api_contract.py tests/test_postgres_session_store.py -q` | Pass with `POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/interview` |
 
+## Stage 39 Browser RC Acceptance
+
+| Item | Value |
+| --- | --- |
+| Execution date | 2026-07-10 |
+| Scope | UTF-8 guardrail plus Local V1 browser RC validation |
+| Runtime store | PostgreSQL local runtime after readiness check |
+| UTF-8 guardrail | `tests/test_utf8_text_contract.py` |
+| Browser status | Not run yet in this stage |
+
+### Stage 39 Automated Results
+
+| Command | Result |
+| --- | --- |
+| `F:\python3.11\python.exe -m pytest tests/test_utf8_text_contract.py -q` | Not run |
+| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_local_v1_docs.py -q` | Not run |
+| `node --check app/static/api.js` | Not run |
+| `node --check app/static/shared-ui.js` | Not run |
+| `node --check app/static/prep.js` | Not run |
+| `node --check app/static/interview.js` | Not run |
+| `node --check app/static/report-processing.js` | Not run |
+| `node --check app/static/report-detail.js` | Not run |
+
+### Stage 39 Browser RC Checklist
+
+| Step | Expected result | Result | Notes |
+| --- | --- | --- | --- |
+| PostgreSQL readiness | `interview` database accepts connections, `vector` extension exists, `knowledge_chunks` count is greater than zero | Not run |  |
+| Open `/prep` | Page renders readable Chinese navigation, labels, draft buttons, Knowledge Agent section, and no mojibake | Not run |  |
+| Generate plan | `/api/prep` returns questions, tags, and prep context; page text remains readable | Not run |  |
+| Save and restore draft | Draft saves to localStorage-backed `interviewDraftId` and restores JD/resume | Not run |  |
+| Start interview | Browser navigates to `/interview?session_id=...`; interview shell has readable Chinese | Not run |  |
+| Submit streamed answer | SSE answer flow renders candidate answer plus streamed assistant text; latest snapshot reloads cleanly | Not run |  |
+| Version conflict recovery | Stale command shows `会话状态已刷新，请检查最新题目后继续。` and keeps typed answer available for retry | Not run |  |
+| Skip question | Skip uses versioned command payload and reloads readable question state | Not run |  |
+| Finish interview | Browser navigates to `/report-processing?session_id=...` | Not run |  |
+| Report processing | Progress, metadata, events, and unavailable states are readable Chinese | Not run |  |
+| Report detail | Score, dimensions, feedback, evidence, and `逐题评估链路` render readable Chinese | Not run |  |
+| PDF download | PDF downloads and report page remains visible | Not run |  |
+
 ## Final Status
 
 Not accepted as Local V1 RC. API, worker, PostgreSQL, LLM, question-evaluation persistence, PDF generation, worker-delayed completion, and service restart persistence passed in an isolated run, but blocking manual GUI browser acceptance remains.
