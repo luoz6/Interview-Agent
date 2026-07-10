@@ -4,6 +4,10 @@ from pydantic import BaseModel, Field
 
 from app.services.report import DimensionScores
 from app.services.report_contract import CanonicalQuestionResult
+from app.services.report_rule_score import (
+    DimensionEvidence,
+    score_question_from_evidence,
+)
 
 
 class ProviderQuestionResult(BaseModel):
@@ -11,6 +15,7 @@ class ProviderQuestionResult(BaseModel):
     question_text: str | None = None
     score: int | None = None
     dimension_scores: dict[str, int] | None = None
+    dimension_evidence: list[DimensionEvidence] = Field(default_factory=list)
     rationale: str | None = None
     critique: str | None = None
     better_answer: str | None = None
@@ -145,12 +150,23 @@ def _normalize_question_result(
         ),
         {},
     )
-    dimension_scores = (
-        item.get("dimension_scores")
-        or default_dimension_scores
-        or _fallback_dimension_scores(item)
-    )
-    score = item.get("score") or round(sum(dimension_scores.values()) / len(dimension_scores))
+    evidence_items = _normalize_dimension_evidence(item)
+    if evidence_items:
+        scoring = score_question_from_evidence(evaluation_item, evidence_items)
+        dimension_scores = scoring.dimension_scores
+        score = scoring.score
+        applicable_dimensions = list(scoring.applicable_dimensions)
+    else:
+        dimension_scores_dict = (
+            item.get("dimension_scores")
+            or default_dimension_scores
+            or _fallback_dimension_scores(item)
+        )
+        dimension_scores = DimensionScores(**dimension_scores_dict)
+        score = item.get("score") or round(
+            sum(dimension_scores_dict.values()) / len(dimension_scores_dict)
+        )
+        applicable_dimensions = []
     reference_chunk_ids = _collect_reference_chunk_ids(
         item,
         evaluation_item,
@@ -168,7 +184,9 @@ def _normalize_question_result(
         or item["question_id"],
         user_answer=_build_user_answer(evaluation_item),
         score=score,
-        dimension_scores=DimensionScores(**dimension_scores),
+        dimension_scores=dimension_scores,
+        applicable_dimensions=applicable_dimensions,
+        dimension_evidence=[evidence.model_dump() for evidence in evidence_items],
         rationale=item.get("rationale") or _build_rationale(item),
         critique=item.get("critique") or _build_critique(item),
         better_answer=item.get("better_answer")
@@ -177,6 +195,19 @@ def _normalize_question_result(
         reference_chunk_ids=reference_chunk_ids,
         highlights=highlights,
     )
+
+
+def _normalize_dimension_evidence(item: dict[str, Any]) -> list[DimensionEvidence]:
+    evidence_items = item.get("dimension_evidence") or []
+    normalized: list[DimensionEvidence] = []
+    for evidence in evidence_items:
+        if isinstance(evidence, DimensionEvidence):
+            normalized.append(evidence)
+            continue
+        if not isinstance(evidence, dict):
+            continue
+        normalized.append(DimensionEvidence.model_validate(evidence))
+    return normalized
 
 
 def _fallback_dimension_scores(item: dict[str, Any]) -> dict[str, int]:

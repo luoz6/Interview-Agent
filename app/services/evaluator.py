@@ -11,6 +11,7 @@ from app.services.report import (
     ReportGenerationTimeout,
     ReportOutputFormatError,
 )
+from app.services.report_rule_score import aggregate_feedback_scores
 
 
 class EvaluationChunk(BaseModel):
@@ -135,11 +136,12 @@ def _apply_answer_state_overrides(
             feedbacks.append(feedback)
             continue
         feedbacks.append(_empty_answer_feedback(chunk, references=feedback.references))
+    overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
     return report.model_copy(
         update={
             "feedbacks": feedbacks,
-            "overall_score": _average_score(feedbacks),
-            "overall_dimension_scores": _average_dimension_scores(feedbacks),
+            "overall_score": overall_score,
+            "overall_dimension_scores": overall_dimension_scores,
         }
     )
 

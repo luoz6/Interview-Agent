@@ -7,6 +7,7 @@ from app.agents.report_coach import ReportCoachAgent
 from app.services.evaluator import build_evaluation_chunks
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import DimensionScores, InterviewReport, ReportProgress
+from app.services.report_rule_score import aggregate_feedback_scores
 from app.services.round_review_runner import run_round_review_event_from_state
 from app.services.runtime_domain_events import RoundClosedEvent
 
@@ -208,11 +209,12 @@ def finalize_report_with_microbatch_feedback(
     ]
     if len(feedbacks) != len(records):
         raise MicrobatchReportUnavailable("microbatch report feedback is incomplete")
+    overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
     return report.model_copy(
         update={
             "feedbacks": feedbacks,
-            "overall_score": _average_score(feedbacks),
-            "overall_dimension_scores": _average_dimension_scores(feedbacks),
+            "overall_score": overall_score,
+            "overall_dimension_scores": overall_dimension_scores,
         }
     )
 

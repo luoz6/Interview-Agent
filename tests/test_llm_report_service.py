@@ -404,6 +404,96 @@ class EvaluationResultsJsonChatModel:
         )
 
 
+class RuleEvidenceJsonChatModel:
+    def with_structured_output(self, schema, method=None):
+        return FailingStructuredModel()
+
+    def invoke(self, prompt: str):
+        return FakeJsonMessage(
+            """
+            {
+              "session_id": "s1",
+              "question_results": [
+                {
+                  "question_id": "q1",
+                  "score": 99,
+                  "dimension_scores": {
+                    "breadth": 99,
+                    "depth": 99,
+                    "architecture": 99,
+                    "engineering": 99,
+                    "communication": 99
+                  },
+                  "dimension_evidence": [
+                    {
+                      "dimension": "depth",
+                      "observed": ["候选人说明了先更新数据库再删除缓存。"],
+                      "missing": ["没有说明并发窗口。"],
+                      "quality_signals": ["concrete_steps"]
+                    },
+                    {
+                      "dimension": "engineering",
+                      "observed": ["候选人提到了 p95 监控。"],
+                      "missing": [],
+                      "quality_signals": ["concept", "metric"]
+                    }
+                  ],
+                  "rationale": "回答包含部分缓存一致性步骤和监控意识。",
+                  "critique": "缺少并发窗口和失败补偿。",
+                  "better_answer": "补充延迟双删、binlog 失效和降级读取。",
+                  "references": ["redis-1"]
+                }
+              ],
+              "references": ["redis-1"]
+            }
+            """
+        )
+
+
+def test_generate_report_ignores_provider_scores_and_uses_rule_evidence():
+    llm = OpenAIInterviewLLM(chat_model=RuleEvidenceJsonChatModel())
+
+    report = llm.generate_report(
+        plan=make_plan(),
+        evaluation_items=[
+            {
+                "question_id": "q1",
+                "question_text": "Explain Redis cache invalidation.",
+                "question_kind": "technical",
+                "focus": "Redis 缓存一致性",
+                "messages": [
+                    {
+                        "role": "candidate",
+                        "content": "I delete cache after database writes and monitor p95.",
+                    }
+                ],
+                "scoring_references": [
+                    {
+                        "chunk_id": "redis-1",
+                        "title": "Redis cache consistency",
+                        "source_type": "theory",
+                        "excerpt": "删除缓存后需要处理并发窗口。",
+                    }
+                ],
+                "answer_references": [],
+            }
+        ],
+        session_id="s1",
+    )
+
+    assert report.overall_score != 99
+    assert report.feedbacks[0].score == 42
+    assert report.feedbacks[0].dimension_scores.depth == 55
+    assert report.feedbacks[0].dimension_scores.engineering == 50
+    assert report.feedbacks[0].dimension_scores.architecture == 0
+    assert report.feedbacks[0].applicable_dimensions == [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication",
+    ]
+
+
 def test_generate_report_parses_json_wrapped_in_prose_and_code_fences():
     llm = OpenAIInterviewLLM(chat_model=ProseWrappedJsonChatModel())
 

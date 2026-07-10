@@ -10,6 +10,8 @@ def make_question_result(
     question_id: str = "q1",
     score: int = 78,
     dimension_scores: DimensionScores | None = None,
+    applicable_dimensions: list[str] | None = None,
+    dimension_evidence: list[dict] | None = None,
     rationale: str = "The answer covered cache-aside and latency improvements.",
     critique: str = "It missed delayed double delete.",
     reference_chunk_ids: list[str] | None = None,
@@ -24,10 +26,13 @@ def make_question_result(
         or DimensionScores(
             breadth=80,
             depth=72,
-            architecture=78,
+            architecture=0,
             engineering=82,
             communication=76,
         ),
+        applicable_dimensions=applicable_dimensions
+        or ["breadth", "depth", "engineering", "communication"],
+        dimension_evidence=dimension_evidence or [],
         rationale=rationale,
         critique=critique,
         better_answer="Add delayed double delete and fallback behavior.",
@@ -50,6 +55,12 @@ def test_assemble_interview_report_averages_scores_and_resolves_references():
                     engineering=82,
                     communication=76,
                 ),
+                applicable_dimensions=[
+                    "breadth",
+                    "depth",
+                    "engineering",
+                    "communication",
+                ],
                 reference_chunk_ids=["redis-1", "redis-2", "missing"],
                 highlights=["Covered cache-aside tradeoffs"],
             ),
@@ -63,6 +74,12 @@ def test_assemble_interview_report_averages_scores_and_resolves_references():
                     engineering=74,
                     communication=88,
                 ),
+                applicable_dimensions=[
+                    "depth",
+                    "architecture",
+                    "engineering",
+                    "communication",
+                ],
                 reference_chunk_ids=["redis-2"],
                 highlights=["Named delayed double delete"],
             ),
@@ -86,9 +103,9 @@ def test_assemble_interview_report_averages_scores_and_resolves_references():
     assert report.is_fallback is False
     assert report.overall_score == 80
     assert report.overall_dimension_scores == DimensionScores(
-        breadth=70,
+        breadth=80,
         depth=70,
-        architecture=74,
+        architecture=70,
         engineering=78,
         communication=82,
     )

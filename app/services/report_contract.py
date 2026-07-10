@@ -6,6 +6,7 @@ from app.services.report import (
     InterviewFeedback,
     InterviewReport,
 )
+from app.services.report_rule_score import aggregate_feedback_scores
 
 
 class CanonicalQuestionResult(BaseModel):
@@ -14,6 +15,8 @@ class CanonicalQuestionResult(BaseModel):
     user_answer: str
     score: int = Field(ge=0, le=100)
     dimension_scores: DimensionScores
+    applicable_dimensions: list[str] = Field(default_factory=list)
+    dimension_evidence: list[dict] = Field(default_factory=list)
     rationale: str
     critique: str
     better_answer: str
@@ -37,6 +40,8 @@ def assemble_interview_report(
             user_answer=result.user_answer,
             score=result.score,
             dimension_scores=result.dimension_scores,
+            applicable_dimensions=result.applicable_dimensions,
+            dimension_evidence=result.dimension_evidence,
             rationale=result.rationale,
             critique=result.critique,
             better_answer=result.better_answer,
@@ -49,31 +54,7 @@ def assemble_interview_report(
         for result in question_results
     ]
 
-    overall_score = round(
-        sum(result.score for result in question_results) / len(question_results)
-    )
-    overall_dimension_scores = DimensionScores(
-        breadth=round(
-            sum(result.dimension_scores.breadth for result in question_results)
-            / len(question_results)
-        ),
-        depth=round(
-            sum(result.dimension_scores.depth for result in question_results)
-            / len(question_results)
-        ),
-        architecture=round(
-            sum(result.dimension_scores.architecture for result in question_results)
-            / len(question_results)
-        ),
-        engineering=round(
-            sum(result.dimension_scores.engineering for result in question_results)
-            / len(question_results)
-        ),
-        communication=round(
-            sum(result.dimension_scores.communication for result in question_results)
-            / len(question_results)
-        ),
-    )
+    overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
 
     highlights = _build_highlights(question_results)
     summary = _build_summary(question_results, highlights)
