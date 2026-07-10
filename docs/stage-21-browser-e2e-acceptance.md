@@ -145,40 +145,46 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | --- | --- |
 | Execution date | 2026-07-10 |
 | Scope | UTF-8 guardrail plus Local V1 browser RC validation |
-| Runtime store | PostgreSQL local runtime after readiness check |
+| Runtime store | PostgreSQL Docker runtime with isolated `stage39_rc` table prefix |
 | UTF-8 guardrail | `tests/test_utf8_text_contract.py` |
-| Browser status | Not run yet in this stage |
+| Browser status | HTTP/API acceptance passed; manual GUI browser observation remains pending |
+| Environment probe | Docker container `postgres` uses image `pgvector/pgvector:pg16` and maps `0.0.0.0:5432->5432/tcp`; DSN `postgresql://postgres:postgres@127.0.0.1:5432/interview` connected successfully |
+| Evidence JSON | `tmp/stage39-http-acceptance-continue.json` disposable run artifact; not committed |
+| Session id | `3652f448-3f86-444c-b8cf-7b6a446410e6` |
+| Draft id | `draft_65d47ec1f298` |
 
 ### Stage 39 Automated Results
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe -m pytest tests/test_utf8_text_contract.py -q` | Not run |
-| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_local_v1_docs.py -q` | Not run |
-| `node --check app/static/api.js` | Not run |
-| `node --check app/static/shared-ui.js` | Not run |
-| `node --check app/static/prep.js` | Not run |
-| `node --check app/static/interview.js` | Not run |
-| `node --check app/static/report-processing.js` | Not run |
-| `node --check app/static/report-detail.js` | Not run |
+| `F:\python3.11\python.exe -m pytest tests/test_utf8_text_contract.py -q` | Pass: 2 passed |
+| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_local_v1_docs.py -q` | Pass: 54 passed |
+| `F:\python3.11\python.exe -m pytest tests/test_utf8_text_contract.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q` | Pass: 57 passed |
+| `node --check app/static/api.js` | Pass |
+| `node --check app/static/shared-ui.js` | Pass |
+| `node --check app/static/prep.js` | Pass |
+| `node --check app/static/interview.js` | Pass |
+| `node --check app/static/report-processing.js` | Pass |
+| `node --check app/static/report-detail.js` | Pass |
+| `npm run build:prototype-css` | Pass |
 
 ### Stage 39 Browser RC Checklist
 
 | Step | Expected result | Result | Notes |
 | --- | --- | --- | --- |
-| PostgreSQL readiness | `interview` database accepts connections, `vector` extension exists, `knowledge_chunks` count is greater than zero | Not run |  |
-| Open `/prep` | Page renders readable Chinese navigation, labels, draft buttons, Knowledge Agent section, and no mojibake | Not run |  |
-| Generate plan | `/api/prep` returns questions, tags, and prep context; page text remains readable | Not run |  |
-| Save and restore draft | Draft saves to localStorage-backed `interviewDraftId` and restores JD/resume | Not run |  |
-| Start interview | Browser navigates to `/interview?session_id=...`; interview shell has readable Chinese | Not run |  |
-| Submit streamed answer | SSE answer flow renders candidate answer plus streamed assistant text; latest snapshot reloads cleanly | Not run |  |
-| Version conflict recovery | Stale command shows `会话状态已刷新，请检查最新题目后继续。` and keeps typed answer available for retry | Not run |  |
-| Skip question | Skip uses versioned command payload and reloads readable question state | Not run |  |
-| Finish interview | Browser navigates to `/report-processing?session_id=...` | Not run |  |
-| Report processing | Progress, metadata, events, and unavailable states are readable Chinese | Not run |  |
-| Report detail | Score, dimensions, feedback, evidence, and `逐题评估链路` render readable Chinese | Not run |  |
-| PDF download | PDF downloads and report page remains visible | Not run |  |
+| PostgreSQL readiness | `interview` database accepts connections, `vector` extension exists, `knowledge_chunks` count is greater than zero | Pass | `('interview', 'postgres')`, `('vector',)`, `knowledge_chunks=10` |
+| Open `/prep` | Page renders readable Chinese navigation, labels, draft buttons, Knowledge Agent section, and no mojibake | Pass via HTTP shell | HTML shell contained readable Chinese anchors including `面试智能体`, `岗位 JD`, `简历内容`, `生成面试计划`, and `Knowledge Agent 预热` |
+| Generate plan | `/api/prep` returns questions, tags, and prep context; page text remains readable | Pass via API | Returned 5 questions and tags `fastapi`, `redis`, `postgresql` |
+| Save and restore draft | Draft saves to localStorage-backed `interviewDraftId` and restores JD/resume | Pass via API | Draft `draft_65d47ec1f298` restored the JD and resume; browser localStorage was not observable |
+| Start interview | Browser navigates to `/interview?session_id=...`; interview shell has readable Chinese | Pass via API/HTTP shell | Session `3652f448-3f86-444c-b8cf-7b6a446410e6`; interview HTML contained readable Chinese anchors |
+| Submit streamed answer | SSE answer flow renders candidate answer plus streamed assistant text; latest snapshot reloads cleanly | Pass via API | `/answer/stream` returned `text/event-stream`; refreshed snapshot advanced to `state_version=3` |
+| Version conflict recovery | Stale command shows `会话状态已刷新，请检查最新题目后继续。` and keeps typed answer available for retry | Partial via API | Stale skip returned HTTP 409 with `actual_version=3`; browser notice was not GUI-observed |
+| Skip question | Skip uses versioned command payload and reloads readable question state | Pass via API | Versioned skip advanced snapshot to `state_version=4` |
+| Finish interview | Browser navigates to `/report-processing?session_id=...` | Pass via API/HTTP shell | Versioned finish returned `status=finished`; report-processing HTML shell was readable |
+| Report processing | Progress, metadata, events, and unavailable states are readable Chinese | Pass via API/HTTP shell | Worker progressed to `completed` with `Report completed.` |
+| Report detail | Score, dimensions, feedback, evidence, and `逐题评估链路` render readable Chinese | Pass via API/HTTP shell | Final report score `12`; question evaluation endpoint returned 4 records |
+| PDF download | PDF downloads and report page remains visible | Pass via API | `/report.pdf` returned `application/pdf`, 10344 bytes; browser download behavior was not GUI-observed |
 
 ## Final Status
 
-Not accepted as Local V1 RC. API, worker, PostgreSQL, LLM, question-evaluation persistence, PDF generation, worker-delayed completion, and service restart persistence passed in an isolated run, but blocking manual GUI browser acceptance remains.
+Not accepted as Local V1 RC. Stage 39 automated UTF-8, static UI, docs, JavaScript syntax, CSS build, PostgreSQL readiness, HTTP page-shell checks, API interview flow, SSE answer streaming, version-conflict API behavior, report worker completion, question evaluation trace, and PDF generation passed. Manual GUI browser observation remains pending because this tool session has no controllable browser automation.
