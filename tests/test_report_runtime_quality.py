@@ -27,6 +27,21 @@ def make_feedback(
             engineering=score,
             communication=score,
         ),
+        applicable_dimensions=[
+            "breadth",
+            "depth",
+            "architecture",
+            "engineering",
+            "communication",
+        ],
+        dimension_evidence=[
+            {
+                "dimension": "depth",
+                "observed": ["候选人说明了缓存失效主路径。"],
+                "missing": ["还可以补充监控闭环。"],
+                "quality_signals": ["concept", "concrete_steps"],
+            }
+        ],
         rationale=rationale,
         critique=critique,
         better_answer=better_answer,

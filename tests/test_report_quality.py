@@ -24,6 +24,21 @@ def make_feedback(
             engineering=score,
             communication=score,
         ),
+        applicable_dimensions=[
+            "breadth",
+            "depth",
+            "architecture",
+            "engineering",
+            "communication",
+        ],
+        dimension_evidence=[
+            {
+                "dimension": "depth",
+                "observed": ["候选人说明了缓存删除时机。"],
+                "missing": ["还缺少一致性窗口分析。"],
+                "quality_signals": ["concept", "concrete_steps"],
+            }
+        ],
         rationale=rationale,
         critique=critique,
         better_answer=better_answer,
@@ -94,3 +109,45 @@ def test_report_quality_accepts_valid_chinese_report():
     )
 
     assert collect_report_quality_issues(report, expected_question_count=1) == []
+
+
+def test_report_quality_rejects_answered_feedback_without_rule_evidence():
+    report = make_report(
+        summary="回答主线完整，但还需要补充风险和指标。",
+        feedbacks=[
+            make_feedback(
+                score=82,
+                rationale="回答说明了缓存主路径。",
+                critique="缺少并发窗口。",
+                better_answer="补充延迟双删和降级读取。",
+            )
+        ],
+    )
+    report.feedbacks[0].applicable_dimensions = ["depth", "engineering"]
+    report.feedbacks[0].dimension_evidence = []
+
+    issues = collect_report_quality_issues(report, expected_question_count=1)
+
+    assert "feedback[q1].dimension_evidence must not be empty for answered questions" in issues
+
+
+def test_report_quality_rejects_report_aggregate_mismatch():
+    feedback = make_feedback(score=60)
+    feedback.applicable_dimensions = ["depth", "engineering", "communication"]
+    feedback.dimension_evidence = [
+        {
+            "dimension": "depth",
+            "observed": ["候选人说明了缓存删除顺序。"],
+            "missing": ["缺少失败补偿。"],
+            "quality_signals": ["concrete_steps"],
+        }
+    ]
+    report = make_report(
+        summary="回答覆盖了部分技术路径。",
+        feedbacks=[feedback],
+    )
+    report.overall_score = 99
+
+    issues = collect_report_quality_issues(report, expected_question_count=1)
+
+    assert "overall_score must equal backend aggregate score" in issues

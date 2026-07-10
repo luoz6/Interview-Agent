@@ -1,4 +1,5 @@
 from app.services.report import InterviewFeedback, InterviewReport
+from app.services.report_rule_score import aggregate_feedback_scores
 
 
 _PLACEHOLDER_TEXTS = {
@@ -25,6 +26,13 @@ def collect_report_quality_issues(
         return issues
     if not _contains_chinese(report.summary):
         issues.append("summary must include Simplified Chinese text")
+    expected_score, expected_dimensions = aggregate_feedback_scores(report.feedbacks)
+    if report.overall_score != expected_score:
+        issues.append("overall_score must equal backend aggregate score")
+    if report.overall_dimension_scores != expected_dimensions:
+        issues.append(
+            "overall_dimension_scores must equal backend aggregate dimension scores"
+        )
     for feedback in report.feedbacks:
         issues.extend(_feedback_quality_issues(feedback))
     return issues
@@ -44,6 +52,15 @@ def _feedback_quality_issues(feedback: InterviewFeedback) -> list[str]:
         if _is_placeholder_text(value):
             issues.append(f"{prefix}.{field_name} must not be placeholder text")
 
+    if feedback.answer_state == "answered":
+        if not feedback.applicable_dimensions:
+            issues.append(
+                f"{prefix}.applicable_dimensions must not be empty for answered questions"
+            )
+        if not feedback.dimension_evidence:
+            issues.append(
+                f"{prefix}.dimension_evidence must not be empty for answered questions"
+            )
     if feedback.answer_state != "answered" and feedback.score != 0:
         issues.append(
             f"{prefix}.score must be 0 when answer_state is {feedback.answer_state}"
