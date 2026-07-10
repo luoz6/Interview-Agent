@@ -139,6 +139,23 @@ def test_generate_report_uses_question_result_schema_and_assembles_report():
     assert report.feedbacks[0].references[0].chunk_id == "redis-1"
 
 
+def test_generate_report_prompt_requests_evidence_not_scores():
+    chat_model = FakeReportChatModel()
+    llm = OpenAIInterviewLLM(chat_model=chat_model)
+
+    llm.generate_report(
+        plan=make_plan(),
+        evaluation_items=make_items(),
+        session_id="s1",
+    )
+
+    prompt = chat_model.structured_model.last_prompt
+    assert "Do not return score or dimension_scores" in prompt
+    assert "dimension_evidence" in prompt
+    assert "quality_signals" in prompt
+    assert "The backend computes all numeric scores from evidence" in prompt
+
+
 class FailingStructuredModel:
     def invoke(self, prompt: str):
         raise RuntimeError(

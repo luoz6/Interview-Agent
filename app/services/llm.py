@@ -241,17 +241,31 @@ class OpenAIInterviewLLM:
             "question_results": [
                 {
                     "question_id": "q1",
-                    "score": 81,
-                    "dimension_scores": {
-                        "breadth": 80,
-                        "depth": 78,
-                        "architecture": 82,
-                        "engineering": 84,
-                        "communication": 81,
-                    },
-                    "rationale": "Tie the score to the candidate's actual answer and cited evidence.",
-                    "critique": "State the biggest missing point.",
-                    "better_answer": "Give a concise improved answer.",
+                    "dimension_evidence": [
+                        {
+                            "dimension": "depth",
+                            "observed": [
+                                "Candidate explained the concrete mechanism present in their answer."
+                            ],
+                            "missing": [
+                                "Candidate did not explain the failure mode."
+                            ],
+                            "quality_signals": [
+                                "concept",
+                                "concrete_steps",
+                                "tradeoff",
+                                "risk",
+                                "fallback",
+                                "metric",
+                                "production",
+                                "code_or_api",
+                                "clarity",
+                            ],
+                        }
+                    ],
+                    "rationale": "Explain the evidence in Simplified Chinese.",
+                    "critique": "State the biggest missing point in Simplified Chinese.",
+                    "better_answer": "Give a concise improved answer in Simplified Chinese.",
                     "reference_chunk_ids": ["redis-1", "redis-2"],
                     "highlights": ["Mentioned cache-aside tradeoffs."],
                 }
@@ -265,7 +279,13 @@ class OpenAIInterviewLLM:
             "Keep literal identifiers like Redis, Kafka, MySQL, p95, and API names unchanged when needed.\n"
             "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
             "Do not invent new chunk ids.\n"
+            "The backend computes all numeric scores from evidence.\n"
+            "Do not return score or dimension_scores for any question.\n"
             "Do not return overall_score, overall_dimension_scores, summary, or reference objects.\n"
+            "For each question, return dimension_evidence only for dimensions supported by the candidate answer.\n"
+            "Each observed item must quote or paraphrase something the candidate actually said.\n"
+            "Do not award evidence from the question text, job description, reference answer, or benchmark alone.\n"
+            "quality_signals must use only: concept, concrete_steps, tradeoff, risk, fallback, metric, production, code_or_api, clarity.\n"
             "Use this JSON shape exactly:\n"
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
             f"session_id: {session_id}\n\n"
