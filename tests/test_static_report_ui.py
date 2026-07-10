@@ -80,6 +80,7 @@ def test_interview_page_has_runtime_hooks():
         "skipQuestionButton",
         "finishInterviewButton",
         "questionPlan",
+        "toggleQuestionPlanButton",
         "topicTags",
         "sessionStatus",
     ):
@@ -295,7 +296,7 @@ def test_interview_page_streams_followup_inside_conversation_and_enter_submits()
     js = read_static_file("interview.js")
 
     assert "按 Enter 提交，Shift+Enter 换行" in html
-    assert "/static/interview.js?v=20260707-stream-chat" in html
+    assert "/static/interview.js?v=20260710-question-toggle" in html
     assert "function appendMessage(" in js
     assert "function createStreamingAssistantMessage()" in js
     assert "function submitAnswerFromKeyboard()" in js
@@ -343,6 +344,23 @@ def test_interview_page_does_not_render_partial_turn_payload_after_sse_done():
     assert "renderSnapshot(data)" not in js
     assert "SSE done payload is an InterviewTurn" in js
     assert "await loadSnapshot();" in js
+
+
+def test_interview_page_toggles_full_question_plan():
+    html = read_app_file("test3.html")
+    js = read_static_file("interview.js")
+
+    assert 'id="toggleQuestionPlanButton"' in html
+    assert 'const toggleQuestionPlanButton = byId("toggleQuestionPlanButton")' in js
+    assert "let latestQuestions = []" in js
+    assert "let showAllQuestions = false" in js
+    assert "const collapsedQuestionLimit = 6" in js
+    assert "latestQuestions.slice(0, collapsedQuestionLimit)" in js
+    assert "function updateQuestionPlanToggle(totalQuestions)" in js
+    assert 'toggleQuestionPlanButton.addEventListener("click"' in js
+    assert "showAllQuestions = !showAllQuestions" in js
+    assert "`查看全部 ${totalQuestions} 题`" in js
+    assert '"收起题目"' in js
 
 
 def test_report_processing_page_uses_safe_json_and_disables_view_without_session_id():

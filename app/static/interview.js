@@ -10,11 +10,16 @@ const sendAnswerButton = byId("sendAnswerButton");
 const skipQuestionButton = byId("skipQuestionButton");
 const finishInterviewButton = byId("finishInterviewButton");
 const questionPlan = byId("questionPlan");
+const toggleQuestionPlanButton = byId("toggleQuestionPlanButton");
 const topicTags = byId("topicTags");
 const interviewNotice = byId("interviewNotice");
 
 let latestStateVersion = null;
 let commandSequence = 0;
+let latestQuestions = [];
+let showAllQuestions = false;
+
+const collapsedQuestionLimit = 6;
 
 function hasSession() {
   if (sessionId) return true;
@@ -93,12 +98,15 @@ function renderCurrentQuestion(question) {
 }
 
 function renderQuestions(questions) {
+  latestQuestions = Array.isArray(questions) ? questions : [];
   clear(questionPlan);
-  if (!questions || !questions.length) {
+  if (!latestQuestions.length) {
     renderEmptyState(questionPlan, "暂无题目导航。");
+    updateQuestionPlanToggle(0);
     return;
   }
-  for (const question of questions || []) {
+  const visibleQuestions = showAllQuestions ? latestQuestions : latestQuestions.slice(0, collapsedQuestionLimit);
+  for (const question of visibleQuestions) {
     const state = question.state || "pending";
     const item = createEl("li", `question-${state} flex items-start justify-between gap-2`);
     const body = createEl("div", "flex items-start gap-2");
@@ -108,6 +116,17 @@ function renderQuestions(questions) {
     item.appendChild(createEl("span", "text-[11px] text-blue-500 bg-blue-50 px-1.5 rounded shrink-0", questionStateLabels[state] || state));
     questionPlan.appendChild(item);
   }
+  updateQuestionPlanToggle(latestQuestions.length);
+}
+
+function updateQuestionPlanToggle(totalQuestions) {
+  if (!toggleQuestionPlanButton) return;
+  if (totalQuestions <= collapsedQuestionLimit) {
+    toggleQuestionPlanButton.hidden = true;
+    return;
+  }
+  toggleQuestionPlanButton.hidden = false;
+  toggleQuestionPlanButton.textContent = showAllQuestions ? "收起题目" : `查看全部 ${totalQuestions} 题`;
 }
 
 function renderSnapshot(snapshot) {
@@ -229,6 +248,13 @@ skipQuestionButton.addEventListener("click", () => {
 finishInterviewButton.addEventListener("click", () => {
   finishInterview().catch((error) => showNotice(interviewNotice, error.message, "danger"));
 });
+
+if (toggleQuestionPlanButton) {
+  toggleQuestionPlanButton.addEventListener("click", () => {
+    showAllQuestions = !showAllQuestions;
+    renderQuestions(latestQuestions);
+  });
+}
 
 if (hasSession()) {
   loadSnapshot().catch((error) => showNotice(interviewNotice, error.message, "danger"));
