@@ -19,7 +19,7 @@ The repository already contains deterministic question scoring, provider evidenc
 Use a dedicated evaluation harness plus offline contract tests.
 
 - Normal `pytest` remains network-free and validates dataset structure, scorer behavior, metric calculation, artifacts, resume behavior, and browser bindings.
-- A separate CLI performs approximately 50 real DeepSeek calls per full evaluation run.
+- A separate CLI targets 40 completed evaluation attempts and enforces a hard budget of 50 actual provider invocations. Structured-output failure followed by raw-JSON fallback consumes two provider invocations.
 - Raw responses and normalized results are saved after every call.
 - Interrupted runs resume from their persisted manifest instead of repeating successful calls.
 - The CLI calculates quality metrics, applies release gates, and emits JSON and Markdown reports.
@@ -30,9 +30,9 @@ Use a dedicated evaluation harness plus offline contract tests.
 
 - Finish the evidence-only provider contract and deterministic backend scoring migration.
 - Version the scoring rubric and report-evidence prompt.
-- Add a 20-25 case benchmark grouped by question and answer quality.
+- Add an exact 20-case benchmark grouped by question and answer quality.
 - Cover Redis, MySQL, Kafka, system design, and project engineering experience.
-- Run every case twice by default, targeting approximately 50 DeepSeek calls.
+- Run every case twice by default, producing 40 target attempts for the 20-case dataset while allowing at most 50 actual provider invocations per command.
 - Measure ranking accuracy, evidence grounding, score stability, fallback rate, forbidden claims, invalid-answer handling, and aggregate consistency.
 - Generate resumable run artifacts plus machine-readable and human-readable reports.
 - Add Report Detail scoring explanations using existing report fields.
@@ -95,9 +95,11 @@ Each group contains an ordered subset of:
 4. `off_topic`: meaningful text that does not answer the question;
 5. `empty`: empty, placeholder, or negligible-information answer.
 
-Every group contains at least strong, medium, and incorrect cases. The complete dataset contains off-topic and empty cases and totals 20-25 cases across the five required domains.
+Every group contains strong, medium, incorrect, and one off-topic or empty case. The complete dataset contains exactly 20 cases across the five required domains.
 
 ## 7. Real-Model Evaluation Runtime
+
+The CLI explicitly selects a `raw_only` report-output mode on `OpenAIInterviewLLM`, using the existing raw-JSON normalization path so the normal case consumes one provider invocation per target attempt. Production runtime retains the current `structured_first` default and raw fallback behavior.
 
 Default command:
 
@@ -114,12 +116,12 @@ Controls:
 - `--resume` continues an existing run directory;
 - `--case-id` and `--group-id` select focused runs;
 - `--runs-per-case` defaults to 2;
-- `--max-calls` prevents cost overruns;
+- `--max-provider-invocations` prevents cost overruns across structured calls, raw fallbacks, and retries;
 - `--out` selects the artifact root.
 
-Every attempt writes its raw provider payload and normalized result before the next request. The manifest records run timestamps, dataset version and digest, rubric and prompt versions, model, base URL host, requested and completed attempts, latency, scores, evidence, fallback state, and errors. Secrets and full API URLs are not written.
+Every attempt keeps the complete trace directory written by an explicitly injected `ReportTraceRecorder`, then writes a normalized attempt artifact. The manifest records run timestamps, dataset version and digest, rubric and prompt versions, model, base URL host, target and completed attempts, actual provider invocation count, latency, scores, evidence, fallback state, and errors. Secrets and full API URLs are not written.
 
-Transient transport and rate-limit failures receive up to two retries with bounded exponential backoff. Failed real-model attempts are never silently replaced with fixtures. Heuristic fallbacks remain visible and count toward fallback rate.
+Transient transport and rate-limit failures receive up to two retries with bounded exponential backoff, but every retry and structured-to-raw fallback consumes the same provider-invocation budget. Budget exhaustion leaves remaining attempts pending for `--resume`. Failed real-model attempts are never silently replaced with fixtures. Heuristic fallbacks remain visible and count toward fallback rate.
 
 ## 8. Quality Metrics and Gates
 
@@ -156,6 +158,7 @@ Gate: `fallback_rate <= 0.05`.
 - Applicable dimensions equal the dataset expectation.
 - Report aggregates equal a fresh backend-rule recomputation.
 - Provider-authored score fields cannot change results.
+- All 40 target attempts are complete before a run can pass.
 
 ## 9. Artifacts
 
@@ -164,10 +167,11 @@ Each run produces:
 ```text
 reports/stage40/<run-id>/
 |-- manifest.json
-|-- attempts/<case-id>/run-1-raw.json
-|-- attempts/<case-id>/run-1-normalized.json
-|-- attempts/<case-id>/run-2-raw.json
-|-- attempts/<case-id>/run-2-normalized.json
+|-- attempts/<case-id>/run-1/normalized.json
+|-- attempts/<case-id>/run-1/<session-id>/*_structured_payload.json
+|-- attempts/<case-id>/run-1/<session-id>/*_raw_json.json
+|-- attempts/<case-id>/run-1/<session-id>/*_normalized_payload.json
+|-- attempts/<case-id>/run-2/normalized.json
 |-- metrics.json
 `-- report.md
 ```
@@ -200,8 +204,8 @@ Real-model validation is executed separately and is required for Stage 40 accept
 Stage 40 is accepted when:
 
 1. The deterministic rule-scoring migration is complete and all offline tests pass.
-2. The benchmark contains 20-25 valid cases across five required domains.
-3. A full run completes approximately 50 real DeepSeek calls without exceeding the call cap.
+2. The benchmark contains exactly 20 valid cases across five required domains.
+3. A full run completes all 40 target attempts without exceeding 50 actual provider invocations in a single command; an exhausted budget can be resumed without repeating completed attempts.
 4. The run resumes without repeating completed attempts.
 5. JSON and Markdown artifacts contain the required run and failure information.
 6. Ranking accuracy is at least 85%.

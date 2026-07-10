@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete deterministic evidence-based scoring, evaluate it with approximately 50 real DeepSeek calls, enforce measurable release gates, and explain every question score in Report Detail.
+**Goal:** Complete deterministic evidence-based scoring, produce 40 real-model evaluation attempts under a 50-provider-invocation command budget, enforce measurable release gates, and explain every question score in Report Detail.
 
 **Architecture:** Keep normal `pytest` offline. Add a versioned benchmark, pure metric functions, resumable artifact storage, and an injected real-model runner behind a standalone CLI. Reuse the existing `OpenAIInterviewLLM`, provider adapter, backend scorer, and serialized `InterviewFeedback` evidence fields; do not add a new API or retrieval architecture.
 
@@ -17,6 +17,7 @@
 - Create `app/services/report_eval_metrics.py`: calculate gates and blocking failures.
 - Create `app/services/report_eval_artifacts.py`: persist manifests and attempt artifacts atomically.
 - Create `app/services/report_eval_runner.py`: execute, retry, cap, and resume attempts.
+- Create `app/services/report_eval_case_builder.py`: construct production `InterviewPlan` and `evaluation_items` inputs without importing test helpers or graph state.
 - Create `scripts/evaluate_report_quality.py`: real DeepSeek CLI.
 - Create `tests/golden/report_quality_v1.json`: 20-case grouped benchmark.
 - Add focused dataset, metric, artifact, runner, and CLI tests.
@@ -47,17 +48,39 @@ Add to `tests/test_llm_report_service.py`:
 
 ```python
 from app.services.llm import REPORT_EVIDENCE_PROMPT_VERSION, OpenAIInterviewLLM
+from app.services.prep import InterviewPlan, InterviewQuestion
 
 
 def test_report_prompt_has_stable_evidence_version():
     llm = OpenAIInterviewLLM.__new__(OpenAIInterviewLLM)
+    plan = InterviewPlan(
+        title="Stage 40 prompt contract",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain cache consistency.",
+                focus="Redis consistency",
+            )
+        ],
+    )
     prompt = llm._build_report_prompt(
-        plan={"questions": []}, evaluation_items=[], session_id="stage40-version-test"
+        plan=plan, evaluation_items=[], session_id="stage40-version-test"
     )
     assert REPORT_EVIDENCE_PROMPT_VERSION == "stage40-evidence-v1"
     assert "stage40-evidence-v1" in prompt
-    assert "Do not return score" in prompt
+    assert "The backend computes all numeric scores from evidence." in prompt
+
+
+def test_raw_only_report_mode_skips_structured_output():
+    chat_model = RuleEvidenceJsonChatModel()
+    llm = OpenAIInterviewLLM(chat_model=chat_model, report_output_mode="raw_only")
+    llm.generate_report(make_plan(), make_items(), "stage40-raw-only")
+    assert chat_model.structured_output_calls == 0
+    assert chat_model.invoke_calls == 1
 ```
+
+Extend the existing `RuleEvidenceJsonChatModel` in the same test file with `structured_output_calls` and `invoke_calls` counters. Increment the first in `with_structured_output` and the second in `invoke`; preserve its existing provider payload.
 
 - [ ] **Step 2: Run tests and verify failure**
 
@@ -81,12 +104,21 @@ Add to `app/services/llm.py`:
 REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
 ```
 
-Include these exact lines in `_build_report_prompt`:
+Extend `OpenAIInterviewLLM.__init__` with:
+
+```python
+report_output_mode: Literal["structured_first", "raw_only"] = "structured_first"
+```
+
+Store the mode. In `generate_report`, `raw_only` must call `_invoke_raw_json_report` directly and then `_normalize_and_assemble_report`; the default retains the current structured-first then raw-fallback behavior.
+
+Prefix the existing evidence-oriented prompt with this version marker:
 
 ```python
 f"Evidence prompt version: {REPORT_EVIDENCE_PROMPT_VERSION}.\n"
-"Do not return score, dimension_scores, overall_score, or overall_dimension_scores.\n"
 ```
+
+Do not duplicate or rewrite the existing evidence constraints. Preserve the existing instructions that prohibit question and overall scores and state that the backend computes numeric scores.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -94,7 +126,15 @@ f"Evidence prompt version: {REPORT_EVIDENCE_PROMPT_VERSION}.\n"
 F:\python3.11\python.exe -m pytest tests/test_report_rule_score.py tests/test_report_provider_adapter_scoring.py tests/test_llm_report_service.py -q
 ```
 
-Expected: PASS.
+Expected: PASS, including proof that `raw_only` never requests structured output and performs one raw provider invocation.
+
+Also run:
+
+```powershell
+rg -n "_fallback_dimension_scores|_derive_score_from_dimension_scores|default_dimension_scores" app tests -g "*.py"
+```
+
+Expected: no references to the two deleted provider-adapter helpers or its removed `default_dimension_scores` argument. The unrelated local helper `_default_dimension_scores` in `app/services/evaluator.py` may remain because it belongs to heuristic report construction.
 
 - [ ] **Step 5: Commit**
 
@@ -125,8 +165,8 @@ DATASET_PATH = Path("tests/golden/report_quality_v1.json")
 def test_stage40_dataset_has_required_shape_and_budget():
     dataset = load_evaluation_dataset(DATASET_PATH)
     assert dataset.version == "report-quality-v1"
-    assert 20 <= len(dataset.cases) <= 25
-    assert dataset.call_budget(runs_per_case=2) <= 50
+    assert len(dataset.cases) == 20
+    assert dataset.target_attempt_count(runs_per_case=2) == 40
     assert {case.domain for case in dataset.cases} == {
         "redis", "mysql", "kafka", "system-design", "project"
     }
@@ -149,10 +189,25 @@ def test_duplicate_case_id_is_rejected():
         "expected_applicable_dimensions": ["depth"],
         "required_observations": [], "required_missing_points": [],
         "forbidden_claims": [],
+        "reference": {
+            "chunk_id": "redis-1", "title": "Redis reference",
+            "content": "Cache consistency reference.", "source_type": "theory",
+            "domain": "redis", "tags": ["redis"], "metadata": {}, "score": 0.9,
+        },
     }
     with pytest.raises(ValueError, match="duplicate case_id"):
         EvaluationDataset.model_validate({"version": "report-quality-v1", "cases": [case, case]})
+
+
+def test_score_range_requires_exactly_two_ordered_values():
+    case = valid_case_payload()
+    with pytest.raises(ValueError):
+        EvaluationCase.model_validate({**case, "expected_score_range": [80, 95, 100]})
+    with pytest.raises(ValueError, match="ordered values"):
+        EvaluationCase.model_validate({**case, "expected_score_range": [95, 80]})
 ```
+
+Define `valid_case_payload()` once in the test file and reuse it in duplicate-id and score-range tests so all unrelated required fields remain valid.
 
 - [ ] **Step 2: Run tests and verify failure**
 
@@ -176,6 +231,17 @@ from pydantic import BaseModel, Field, model_validator
 QualityLevel = Literal["strong", "medium", "incorrect", "off_topic", "empty"]
 
 
+class EvaluationReference(BaseModel):
+    chunk_id: str
+    title: str
+    content: str
+    source_type: str
+    domain: str
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+    score: float
+
+
 class EvaluationCase(BaseModel):
     case_id: str
     group_id: str
@@ -190,8 +256,14 @@ class EvaluationCase(BaseModel):
     required_observations: list[str] = Field(default_factory=list)
     required_missing_points: list[str] = Field(default_factory=list)
     forbidden_claims: list[str] = Field(default_factory=list)
+    reference: EvaluationReference
 
-
+    @model_validator(mode="after")
+    def validate_score_range(self):
+        low, high = self.expected_score_range
+        if not 0 <= low <= high <= 100:
+            raise ValueError("expected_score_range must contain two ordered values from 0 to 100")
+        return self
 class EvaluationDataset(BaseModel):
     version: str
     cases: list[EvaluationCase]
@@ -209,13 +281,15 @@ class EvaluationDataset(BaseModel):
             grouped[case.group_id].append(case)
         return dict(grouped)
 
-    def call_budget(self, *, runs_per_case: int) -> int:
+    def target_attempt_count(self, *, runs_per_case: int) -> int:
         return len(self.cases) * runs_per_case
 
 
 def load_evaluation_dataset(path: Path) -> EvaluationDataset:
     return EvaluationDataset.model_validate(json.loads(path.read_text(encoding="utf-8")))
 ```
+
+Although Pydantic coerces a two-item JSON array into `tuple[int, int]`, retain the explicit ordered-range validator and add a test that `[80, 95, 100]` and `[95, 80]` are rejected.
 
 - [ ] **Step 4: Create the exact 20-case dataset**
 
@@ -229,7 +303,7 @@ Create `tests/golden/report_quality_v1.json` with four complete Chinese answers 
 | `system-design-job-queue` | strong: API, durable queue, leases, idempotency key, retry/backoff, DLQ, observability, capacity; medium: queue and workers; incorrect: in-memory list as durable multi-node queue; empty: empty string |
 | `project-incident-review` | strong: incident, diagnosis, rollback, measured result, prevention; medium: bug and fix without metrics; incorrect: zero-failure claim without verification; off_topic: Redis definition |
 
-Use score ranges `80-95`, `45-75`, `0-40`, and `0-10`. Set applicable dimensions exactly as returned by `applicable_dimensions_for_item`. Do not use ellipses, `TODO`, or template prose in the JSON.
+Use score ranges `80-95`, `45-75`, `0-40`, and `0-10`. Set applicable dimensions exactly as returned by `applicable_dimensions_for_item`. Add one deterministic `reference` object to each case; cases in the same group may share the same reference content. Do not use ellipses or template prose in the JSON.
 
 - [ ] **Step 5: Run and commit**
 
@@ -257,7 +331,7 @@ def test_balanced_gate_passes_for_ordered_grounded_attempts():
         make_attempt("s", "g", "strong", 90, observed=["answer"]),
         make_attempt("m", "g", "medium", 65, observed=["answer"]),
         make_attempt("i", "g", "incorrect", 20, observed=["answer"]),
-    ])
+    ], expected_attempt_count=3)
     assert metrics.ranking_accuracy == 1.0
     assert metrics.evidence_grounding_rate == 1.0
     assert metrics.passed is True
@@ -267,7 +341,7 @@ def test_score_delta_over_eight_blocks_release():
     metrics = calculate_metrics([
         make_attempt("s", "g", "strong", 90, run_number=1),
         make_attempt("s", "g", "strong", 70, run_number=2),
-    ])
+    ], expected_attempt_count=2)
     assert metrics.max_score_delta == 20
     assert "score_stability" in metrics.failed_gates
 
@@ -276,7 +350,7 @@ def test_forbidden_claim_is_blocking():
     item = make_attempt("s", "g", "strong", 90)
     item.forbidden_claims = ["invented metric"]
     item.output_text = "invented metric"
-    metrics = calculate_metrics([item])
+    metrics = calculate_metrics([item], expected_attempt_count=1)
     assert metrics.blocking_failures[0]["type"] == "forbidden_claim"
 ```
 
@@ -300,11 +374,11 @@ def normalize_text(value: str) -> str:
     return re.sub(r"[^\w\u4e00-\u9fff]+", "", value.lower())
 ```
 
-`calculate_metrics()` must average scores by case, count strict ordered pairs within groups, ground observations by substring/shared required term, calculate two-run deltas and fallback rate, and emit blocking failures for forbidden claims, dimension mismatch, and non-zero empty answers. Apply gates `0.85`, `0.90`, `8`, and `0.05`.
+`calculate_metrics(attempts, *, expected_attempt_count)` must average scores by case, count strict ordered pairs within groups, ground observations by substring/shared required term, calculate two-run deltas and fallback rate, and emit blocking failures for forbidden claims, dimension mismatch, non-zero empty answers, and `len(attempts) != expected_attempt_count`. Apply gates `0.85`, `0.90`, `8`, and `0.05`; incomplete attempts always make `passed=False`.
 
 - [ ] **Step 4: Add edge-case tests**
 
-Add tests for ranking ties, no observed evidence on a strong answer, fallback rate above 5%, dimension mismatch, and an empty answer scoring above zero.
+Add tests for ranking ties, no observed evidence on a strong answer, fallback rate above 5%, dimension mismatch, an empty answer scoring above zero, and 39 completed attempts when 40 are expected.
 
 - [ ] **Step 5: Run and commit**
 
@@ -341,7 +415,9 @@ def test_attempt_is_saved_and_removed_from_pending(tmp_path):
             "base_url": "https://api.example.com/v1",
         },
     )
-    store.write_attempt("c1", 1, raw={"content": "raw"}, normalized={"score": 80})
+    attempt_dir = store.attempt_directory("c1", 1)
+    assert attempt_dir == store.run_dir / "attempts/c1/run-1"
+    store.write_attempt("c1", 1, normalized={"score": 80})
     assert store.pending_attempts(["c1"], runs_per_case=2) == [("c1", 2)]
     manifest = json.loads((store.run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["base_url_host"] == "api.example.com"
@@ -350,11 +426,15 @@ def test_attempt_is_saved_and_removed_from_pending(tmp_path):
 
 def test_atomic_json_files_are_valid_after_each_write(tmp_path):
     store = EvaluationArtifactStore.create(root=tmp_path, run_id="run-1", manifest={})
-    store.write_attempt("c1", 1, raw={"content": "raw"}, normalized={"score": 80})
-    raw_path = store.run_dir / "attempts/c1/run-1-raw.json"
-    normalized_path = store.run_dir / "attempts/c1/run-1-normalized.json"
-    assert json.loads(raw_path.read_text(encoding="utf-8")) == {"content": "raw"}
+    store.write_attempt("c1", 1, normalized={"score": 80})
+    normalized_path = store.run_dir / "attempts/c1/run-1/normalized.json"
     assert json.loads(normalized_path.read_text(encoding="utf-8")) == {"score": 80}
+
+
+def test_error_artifact_does_not_mark_attempt_complete(tmp_path):
+    store = EvaluationArtifactStore.create(root=tmp_path, run_id="run-1", manifest={})
+    store.write_error("c1", 1, {"error_type": "ValueError", "message": "bad payload"})
+    assert store.pending_attempts(["c1"], runs_per_case=1) == [("c1", 1)]
 ```
 
 - [ ] **Step 2: Run tests and verify failure**
@@ -391,26 +471,29 @@ class EvaluationArtifactStore:
         return store
 
     def attempt_directory(self, case_id: str, run_number: int) -> Path:
-        path = self.run_dir / "attempts" / case_id / f"run-{run_number}-trace"
+        path = self.run_dir / "attempts" / case_id / f"run-{run_number}"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def write_attempt(self, case_id: str, run_number: int, *, raw: dict, normalized: dict):
-        directory = self.run_dir / "attempts" / case_id
-        self._write_json(directory / f"run-{run_number}-raw.json", raw)
-        self._write_json(directory / f"run-{run_number}-normalized.json", normalized)
+    def write_attempt(self, case_id: str, run_number: int, *, normalized: dict):
+        directory = self.attempt_directory(case_id, run_number)
+        self._write_json(directory / "normalized.json", normalized)
+
+    def write_error(self, case_id: str, run_number: int, payload: dict):
+        directory = self.attempt_directory(case_id, run_number)
+        self._write_json(directory / "error.json", payload)
 
     def pending_attempts(self, case_ids: list[str], *, runs_per_case: int):
         pending = []
         for case_id in case_ids:
             for run_number in range(1, runs_per_case + 1):
-                path = self.run_dir / "attempts" / case_id / f"run-{run_number}-normalized.json"
+                path = self.run_dir / "attempts" / case_id / f"run-{run_number}" / "normalized.json"
                 if not path.exists():
                     pending.append((case_id, run_number))
         return pending
 
     def load_normalized_attempts(self) -> list[dict]:
-        return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(self.run_dir.glob("attempts/*/run-*-normalized.json"))]
+        return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(self.run_dir.glob("attempts/*/run-*/normalized.json"))]
 
     def write_metrics(self, payload: dict):
         self._write_json(self.run_dir / "metrics.json", payload)
@@ -443,15 +526,89 @@ git add app/services/report_eval_artifacts.py tests/test_report_eval_artifacts.p
 git commit -m "feat: persist resumable report eval artifacts"
 ```
 
+The injected `ReportTraceRecorder(root_dir=attempt_dir)` writes timestamped `structured_payload`, `raw_json`, `raw_payload`, `normalized_payload`, and error traces under `attempts/<case-id>/run-<n>/<session-id>/`. `write_attempt` owns only the stable `normalized.json`; it must not duplicate or relabel trace payloads.
+
 Expected: artifact tests PASS.
 
-### Task 5: Implement the Injected Evaluation Runner
+### Task 5: Build Production Inputs and the Resumable Runner
 
 **Files:**
+- Create: `app/services/report_eval_case_builder.py`
 - Create: `app/services/report_eval_runner.py`
+- Create: `tests/test_report_eval_case_builder.py`
 - Create: `tests/test_report_eval_runner.py`
 
-- [ ] **Step 1: Write fake-evaluator tests**
+- [ ] **Step 1: Write production input-builder tests**
+
+Create `tests/test_report_eval_case_builder.py`:
+
+```python
+from app.services.report_eval_case_builder import build_report_evaluation_input
+
+
+def test_builder_returns_real_plan_and_provider_evaluation_item(redis_case):
+    plan, items = build_report_evaluation_input(redis_case)
+
+    assert plan.title == "Stage 40: redis-cache-consistency"
+    assert plan.questions[0].id == redis_case.case_id
+    assert plan.questions[0].kind == redis_case.question_kind
+    assert items == [{
+        "question_id": redis_case.case_id,
+        "question_text": redis_case.question,
+        "question_kind": redis_case.question_kind,
+        "focus": redis_case.focus,
+        "messages": [{
+            "role": "candidate",
+            "content": redis_case.answer,
+            "question_id": redis_case.case_id,
+        }],
+        "scoring_references": [redis_case.reference.model_dump()],
+        "answer_references": [redis_case.reference.model_dump()],
+    }]
+```
+
+Use the production `EvaluationReference` field defined in Task 2. Each of the five dataset groups has its own deterministic reference object; do not import `REFERENCE_FIXTURES` or any code from `tests.eval_support`.
+
+- [ ] **Step 2: Implement the production input builder**
+
+Create `app/services/report_eval_case_builder.py`:
+
+```python
+from app.services.prep import InterviewPlan, InterviewQuestion
+
+
+def build_report_evaluation_input(case):
+    plan = InterviewPlan(
+        title=f"Stage 40: {case.group_id}",
+        questions=[
+            InterviewQuestion(
+                id=case.case_id,
+                kind=case.question_kind,
+                prompt=case.question,
+                focus=case.focus,
+            )
+        ],
+    )
+    reference = case.reference.model_dump(mode="json")
+    evaluation_item = {
+        "question_id": case.case_id,
+        "question_text": case.question,
+        "question_kind": case.question_kind,
+        "focus": case.focus,
+        "messages": [{
+            "role": "candidate",
+            "content": case.answer,
+            "question_id": case.case_id,
+        }],
+        "scoring_references": [reference],
+        "answer_references": [reference],
+    }
+    return plan, [evaluation_item]
+```
+
+This module is production code. It must not import `tests.eval_support`, `build_initial_state`, `InterviewState`, `ShadowReviewerAgent`, or a vector store.
+
+- [ ] **Step 3: Write fake-evaluator runner tests**
 
 Create `tests/test_report_eval_runner.py` with fixtures that build one `EvaluationCase`, one `EvaluationDataset`, and an `EvaluationArtifactStore`. Add:
 
@@ -463,42 +620,39 @@ class FakeEvaluator:
     def evaluate_case(self, case, *, session_id, run_number, trace_dir):
         self.calls.append((case.case_id, run_number))
         return {
-            "raw": {"question_results": []},
-            "normalized": {
-                "case_id": case.case_id,
-                "group_id": case.group_id,
-                "quality_level": case.quality_level,
-                "run_number": run_number,
-                "score": case.expected_score_range[0],
-                "answer": case.answer,
-                "observed": case.required_observations,
-                "required_observations": case.required_observations,
-                "forbidden_claims": case.forbidden_claims,
-                "applicable_dimensions": case.expected_applicable_dimensions,
-                "expected_applicable_dimensions": case.expected_applicable_dimensions,
-                "fallback": False,
-                "output_text": "",
-            },
+            "case_id": case.case_id,
+            "group_id": case.group_id,
+            "quality_level": case.quality_level,
+            "run_number": run_number,
+            "score": case.expected_score_range[0],
+            "answer": case.answer,
+            "observed": case.required_observations,
+            "required_observations": case.required_observations,
+            "forbidden_claims": case.forbidden_claims,
+            "applicable_dimensions": case.expected_applicable_dimensions,
+            "expected_applicable_dimensions": case.expected_applicable_dimensions,
+            "fallback": False,
+            "output_text": "",
         }
 
 
-def test_runner_obeys_call_cap_and_resume(dataset, artifact_store):
+def test_runner_obeys_attempt_cap_and_resume(dataset, artifact_store):
     evaluator = FakeEvaluator()
     runner = EvaluationRunner(evaluator=evaluator, artifact_store=artifact_store, sleep=lambda _: None)
-    runner.run(dataset=dataset, runs_per_case=2, max_calls=1)
-    runner.run(dataset=dataset, runs_per_case=2, max_calls=1)
+    runner.run(dataset=dataset, runs_per_case=2, max_attempts=1)
+    runner.run(dataset=dataset, runs_per_case=2, max_attempts=1)
     assert evaluator.calls == [("c1", 1), ("c1", 2)]
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [ ] **Step 4: Run tests and verify failure**
 
 ```powershell
-F:\python3.11\python.exe -m pytest tests/test_report_eval_runner.py -q
+F:\python3.11\python.exe -m pytest tests/test_report_eval_case_builder.py tests/test_report_eval_runner.py -q
 ```
 
-Expected: FAIL because the runner is absent.
+Expected: FAIL because the builder and runner are absent.
 
-- [ ] **Step 3: Implement capped resumable execution**
+- [ ] **Step 5: Implement capped resumable execution**
 
 Create `app/services/report_eval_runner.py`:
 
@@ -513,21 +667,25 @@ class EvaluationRunner:
         self.artifact_store = artifact_store
         self.sleep = sleep
 
-    def run(self, *, dataset, runs_per_case: int, max_calls: int):
+    def run(self, *, dataset, runs_per_case: int, max_attempts: int):
         lookup = {case.case_id: case for case in dataset.cases}
         pending = self.artifact_store.pending_attempts(list(lookup), runs_per_case=runs_per_case)
         completed = []
-        for case_id, run_number in pending[:max_calls]:
+        for case_id, run_number in pending[:max_attempts]:
             case = lookup[case_id]
             session_id = f"stage40-{case_id}-{run_number}"
             trace_dir = self.artifact_store.attempt_directory(case_id, run_number)
-            result = self._evaluate_with_retry(
-                case, session_id=session_id, run_number=run_number, trace_dir=trace_dir
-            )
-            self.artifact_store.write_attempt(
-                case_id, run_number, raw=result["raw"], normalized=result["normalized"]
-            )
-            completed.append(result["normalized"])
+            try:
+                normalized = self._evaluate_with_retry(
+                    case, session_id=session_id, run_number=run_number, trace_dir=trace_dir
+                )
+            except Exception as exc:
+                self.artifact_store.write_error(case_id, run_number, {
+                    "error_type": type(exc).__name__, "message": str(exc)
+                })
+                raise
+            self.artifact_store.write_attempt(case_id, run_number, normalized=normalized)
+            completed.append(normalized)
         return completed
 
     def _evaluate_with_retry(self, case, *, session_id, run_number, trace_dir):
@@ -550,15 +708,15 @@ def _is_transient(exc: Exception) -> bool:
     ))
 ```
 
-- [ ] **Step 4: Test transient and permanent failures**
+- [ ] **Step 6: Test transient and permanent failures**
 
 Add an evaluator that raises `RuntimeError("429 rate limit")` once and then succeeds, and one that always raises `ValueError("invalid provider payload")`. Assert two calls for the transient evaluator and one for the permanent evaluator.
 
-- [ ] **Step 5: Run and commit**
+- [ ] **Step 7: Run and commit**
 
 ```powershell
-F:\python3.11\python.exe -m pytest tests/test_report_eval_runner.py -q
-git add app/services/report_eval_runner.py tests/test_report_eval_runner.py
+F:\python3.11\python.exe -m pytest tests/test_report_eval_case_builder.py tests/test_report_eval_runner.py -q
+git add app/services/report_eval_case_builder.py app/services/report_eval_runner.py tests/test_report_eval_case_builder.py tests/test_report_eval_runner.py app/services/report_eval_dataset.py tests/golden/report_quality_v1.json
 git commit -m "feat: add resumable real model eval runner"
 ```
 
@@ -582,7 +740,7 @@ from scripts.evaluate_report_quality import build_parser, render_markdown
 def test_cli_defaults_to_two_runs_and_fifty_call_cap():
     args = build_parser().parse_args([])
     assert args.runs_per_case == 2
-    assert args.max_calls == 50
+    assert args.max_provider_invocations == 50
     assert args.provider == "deepseek"
 
 
@@ -618,25 +776,57 @@ parser.add_argument("--run-id")
 parser.add_argument("--resume", action="store_true")
 parser.add_argument("--case-id")
 parser.add_argument("--group-id")
-parser.add_argument("--max-calls", type=int, default=50)
+parser.add_argument("--max-provider-invocations", type=int, default=50)
 ```
+
+Implement a `ProviderInvocationBudget` with `limit`, `used`, and `consume()`. `consume()` raises `ProviderInvocationBudgetExhausted` before a provider request when `used >= limit`.
+
+Implement `BudgetedChatModel` as a transparent proxy around the real chat model:
+
+```python
+class BudgetedChatModel:
+    def __init__(self, inner, budget):
+        self.inner = inner
+        self.budget = budget
+
+    def invoke(self, *args, **kwargs):
+        self.budget.consume()
+        return self.inner.invoke(*args, **kwargs)
+
+    def with_structured_output(self, *args, **kwargs):
+        structured = self.inner.with_structured_output(*args, **kwargs)
+        return BudgetedChatModel(structured, self.budget)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+```
+
+Add tests proving one raw-only report call consumes one invocation, a separately constructed structured-first failure plus raw fallback consumes two, and retry consumes additional invocations without exceeding the limit.
 
 Implement `DeepSeekCaseEvaluator.evaluate_case()` by:
 
-1. setting `REPORT_TRACE_DIR` to `trace_dir` for the call and restoring the old value in `finally`;
-2. constructing `ShadowReviewerAgent(llm=OpenAIInterviewLLM(), vector_store=GoldenVectorStore())`;
-3. converting the benchmark case into the exact input shape accepted by `tests.eval_support.make_state`;
-4. returning the provider trace payload as `raw`, not the final report mislabeled as raw;
-5. flattening `feedback.dimension_evidence[*].observed` into normalized evidence;
-6. storing score, dimensions, fallback, answer, required terms, forbidden claims, and combined rationale/critique/better-answer text.
+1. calling `build_report_evaluation_input(case)` from production code;
+2. creating `ReportTraceRecorder(root_dir=trace_dir)` explicitly;
+3. building the real chat model once with `OpenAIInterviewLLM._build_chat_model(config)`, wrapping it in `BudgetedChatModel`, and passing it plus the trace recorder to `OpenAIInterviewLLM(chat_model=budgeted_model, trace_recorder=trace_recorder, report_output_mode="raw_only")`;
+4. calling `llm.generate_report(plan, evaluation_items, session_id)` directly;
+5. flattening `feedback.dimension_evidence[*].observed` into the normalized result;
+6. storing score, dimensions, fallback, answer, required terms, forbidden claims, output text, latency, and the budget's invocation count after the attempt.
 
-Implement `main()` to validate `OPENAI_API_KEY`, filter by case/group, calculate the dataset SHA-256, create or resume the artifact store, run pending attempts, load all normalized attempts into `AttemptResult`, calculate metrics, write `metrics.json` and `report.md`, print the run id, and return `0` for pass or `1` for gate failure. A new full run must reject a requested budget above `--max-calls` before any provider call.
+Catch `ReportOutputFormatError` inside `DeepSeekCaseEvaluator` and return a completed normalized fallback attempt with score `0`, empty observed evidence, expected applicable dimensions, `fallback=True`, and the error text in `output_text`. Do not retry format errors. This makes `fallback_rate` measure provider format failures while keeping all 40 target slots countable. Transport/rate-limit errors remain retryable; budget exhaustion remains pending for resume.
+
+Do not import `ShadowReviewerAgent`, `GoldenVectorStore`, `tests.eval_support`, `InterviewState`, or `make_state` in `scripts/evaluate_report_quality.py`.
+
+Implement `main()` to validate `OPENAI_API_KEY`, filter by case/group, calculate the dataset SHA-256, create or resume the artifact store, instantiate one command-scoped provider budget, run pending attempts until the budget is exhausted, load completed normalized attempts into `AttemptResult`, calculate metrics, write `metrics.json` and `report.md`, print the run id and provider-invocation count, and return:
+
+- `0` only when all target attempts are complete and all gates pass;
+- `1` when all target attempts are complete but gates fail;
+- `2` when the provider budget is exhausted with attempts still pending, so the user can resume.
 
 Implement `render_markdown()` with a release decision, four metrics, failed gates, blocking failures, ranking inversions, unstable cases, fallbacks, and focused rerun commands.
 
 - [ ] **Step 4: Test trace selection and redaction**
 
-Extend CLI/artifact tests with a temporary trace directory containing `raw_json` and `normalized_report` JSON files. Assert the raw artifact selects provider content, manifest contains only the base URL host, and neither `OPENAI_API_KEY` nor the full URL path appears in any persisted file.
+Extend CLI/artifact tests with a temporary trace directory containing timestamped `structured_payload`, `raw_json`, `raw_payload`, and `normalized_payload` files. Assert they stay under the attempt directory, the manifest contains only the base URL host, and neither `OPENAI_API_KEY` nor the full URL path appears in any persisted file.
 
 - [ ] **Step 5: Run focused checks**
 
@@ -645,7 +835,7 @@ F:\python3.11\python.exe -m pytest tests/test_report_eval_cli.py tests/test_repo
 F:\python3.11\python.exe -m scripts.evaluate_report_quality --help
 ```
 
-Expected: tests PASS and help lists resume, focused selection, and call-cap options.
+Expected: tests PASS and help lists resume, focused selection, and provider-invocation budget options.
 
 - [ ] **Step 6: Commit**
 
@@ -660,6 +850,8 @@ git commit -m "feat: add deepseek report quality eval cli"
 - Modify: `app/static/report-detail.js`
 - Modify: `app/test1.html`
 - Modify: `tests/test_static_report_ui.py`
+
+The current working tree already data-binds the top score cards through `renderTopDimensionCards` and initializes their HTML values to `0`. Preserve that implementation. Task 7 adds only per-question evidence explanation and the scoring-ownership notice; it must not recreate score-card bindings or replace `toDimensionLabel`.
 
 - [ ] **Step 1: Add failing static UI assertions**
 
@@ -702,14 +894,6 @@ Add above the feedback table in `app/test1.html`:
 Add to `app/static/report-detail.js`:
 
 ```javascript
-const dimensionLabels = {
-  breadth: "\u77e5\u8bc6\u5e7f\u5ea6",
-  depth: "\u6280\u672f\u6df1\u5ea6",
-  architecture: "\u67b6\u6784\u8bbe\u8ba1",
-  engineering: "\u5de5\u7a0b\u5b9e\u8df5",
-  communication: "\u8868\u8fbe\u6c9f\u901a",
-};
-
 const legacyScoringEvidenceMessage = "\u65e7\u7248\u62a5\u544a\u6682\u65e0\u7ed3\u6784\u5316\u8bc4\u5206\u8bc1\u636e\u3002";
 
 function renderScoringEvidence(feedback) {
@@ -722,14 +906,14 @@ function renderScoringEvidence(feedback) {
   const dimensions = Array.isArray(feedback.applicable_dimensions) ? feedback.applicable_dimensions : [];
   panel.appendChild(createEl(
     "p", "mb-2 font-medium text-gray-800",
-    `\u9002\u7528\u7ef4\u5ea6\uff1a${dimensions.map((item) => dimensionLabels[item] || item).join("\u3001")}`
+    `\u9002\u7528\u7ef4\u5ea6\uff1a${dimensions.map(toDimensionLabel).join("\u3001")}`
   ));
   for (const evidence of evidenceItems) {
     const section = createEl("section", "mt-3 border-t border-gray-200 pt-3");
     const score = feedback.dimension_scores?.[evidence.dimension] ?? 0;
     section.appendChild(createEl(
       "h4", "font-medium text-gray-900",
-      `${dimensionLabels[evidence.dimension] || evidence.dimension} ${score}/100`
+      `${toDimensionLabel(evidence.dimension)} ${score}/100`
     ));
     section.appendChild(renderEvidenceList("\u547d\u4e2d\u8bc1\u636e", evidence.observed, "text-green-700"));
     section.appendChild(renderEvidenceList("\u7f3a\u5931\u9879", evidence.missing, "text-orange-700"));
@@ -784,23 +968,23 @@ Add to `.env.example`:
 ```dotenv
 # Stage 40 evaluation uses the existing OPENAI-compatible provider settings.
 # Generated artifacts never contain this key.
-STAGE40_MAX_CALLS=50
+STAGE40_MAX_PROVIDER_INVOCATIONS=50
 ```
 
 Add a `Stage 40 scoring trust loop` section to `docs/local-v1-runbook.md`:
 
 ```powershell
 # Focused two-call run
-F:\python3.11\python.exe -m scripts.evaluate_report_quality --case-id redis-cache-consistency-strong --runs-per-case 2 --max-calls 2
+F:\python3.11\python.exe -m scripts.evaluate_report_quality --case-id redis-cache-consistency-strong --runs-per-case 2 --max-provider-invocations 4
 
 # One complete group
-F:\python3.11\python.exe -m scripts.evaluate_report_quality --group-id redis-cache-consistency --runs-per-case 2 --max-calls 8
+F:\python3.11\python.exe -m scripts.evaluate_report_quality --group-id redis-cache-consistency --runs-per-case 2 --max-provider-invocations 12
 
-# Full release run: 40 calls for the exact 20-case v1 dataset
-F:\python3.11\python.exe -m scripts.evaluate_report_quality --runs-per-case 2 --max-calls 50
+# Full release run: 40 target attempts, at most 50 provider invocations in this command
+F:\python3.11\python.exe -m scripts.evaluate_report_quality --runs-per-case 2 --max-provider-invocations 50
 
 # Resume an interrupted run
-F:\python3.11\python.exe -m scripts.evaluate_report_quality --resume --run-id <printed-run-id> --max-calls 50
+F:\python3.11\python.exe -m scripts.evaluate_report_quality --resume --run-id <printed-run-id> --max-provider-invocations 50
 ```
 
 Document the four thresholds, blocking assertions, artifact locations, and the rule that Stage 40 acceptance requires a real-model PASS while normal `pytest` stays offline.
@@ -821,7 +1005,8 @@ Create `docs/stage-40-real-model-acceptance.md`:
 - Model:
 - Prompt version: `stage40-evidence-v1`
 - Rubric version: `stage40-rubric-v1`
-- Completed calls:
+- Completed target attempts:
+- Actual provider invocations:
 
 ## Release Gates
 
@@ -874,7 +1059,7 @@ Expected: documentation tests PASS.
 - [ ] **Step 1: Run all offline validation**
 
 ```powershell
-F:\python3.11\python.exe -m pytest tests/test_report_rule_score.py tests/test_report_provider_adapter_scoring.py tests/test_report_eval_dataset.py tests/test_report_eval_metrics.py tests/test_report_eval_artifacts.py tests/test_report_eval_runner.py tests/test_report_eval_cli.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q
+F:\python3.11\python.exe -m pytest tests/test_report_rule_score.py tests/test_report_provider_adapter_scoring.py tests/test_report_eval_dataset.py tests/test_report_eval_metrics.py tests/test_report_eval_artifacts.py tests/test_report_eval_case_builder.py tests/test_report_eval_runner.py tests/test_report_eval_cli.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q
 F:\python3.11\python.exe -m pytest -q
 node --check app/static/report-detail.js
 npm run build:prototype-css
@@ -885,18 +1070,18 @@ Expected: focused and full tests PASS with only declared environment-dependent s
 - [ ] **Step 2: Run a focused real-model group**
 
 ```powershell
-F:\python3.11\python.exe -m scripts.evaluate_report_quality --group-id redis-cache-consistency --runs-per-case 2 --max-calls 8
+F:\python3.11\python.exe -m scripts.evaluate_report_quality --group-id redis-cache-consistency --runs-per-case 2 --max-provider-invocations 12
 ```
 
-Expected: eight attempts are written, `--resume` repeats none, and UTF-8 `metrics.json` plus `report.md` are generated.
+Expected: eight target attempts are written when the provider budget is sufficient; otherwise exit code 2 leaves only unfinished attempts pending. `--resume` repeats none, and UTF-8 `metrics.json` plus `report.md` are generated.
 
 - [ ] **Step 3: Run the complete release evaluation**
 
 ```powershell
-F:\python3.11\python.exe -m scripts.evaluate_report_quality --runs-per-case 2 --max-calls 50
+F:\python3.11\python.exe -m scripts.evaluate_report_quality --runs-per-case 2 --max-provider-invocations 50
 ```
 
-Expected: 40 calls for the exact 20-case dataset, exit code 0, and all balanced gates pass.
+Expected: all 40 target attempts complete. If structured-to-raw fallback or retry exhausts 50 provider invocations, resume the printed run id with another bounded command. Final acceptance requires exit code 0 after all attempts exist and all balanced gates pass.
 
 - [ ] **Step 4: Diagnose failures only from saved artifacts**
 
@@ -922,7 +1107,7 @@ git commit -m "docs: record stage 40 scoring acceptance"
 
 - [ ] Provider output is evidence-only and score ownership remains in backend rules.
 - [ ] Rubric and prompt versions appear in artifacts.
-- [ ] Dataset has 20-25 cases, five domains, and at most 50 default calls.
+- [ ] Dataset has 20 cases, five domains, 40 target attempts, and a 50-provider-invocation command cap.
 - [ ] Resume never repeats a completed normalized attempt.
 - [ ] Raw provider traces are separate from normalized reports.
 - [ ] Ranking accuracy is at least 85%.
