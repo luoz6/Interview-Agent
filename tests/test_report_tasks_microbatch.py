@@ -102,6 +102,7 @@ def test_execute_report_generation_reuses_completed_microbatch_without_full_sess
         "q1 \u7684\u56de\u7b54\u8986\u76d6\u4e86\u6838\u5fc3\u94fe\u8def\u548c\u4e3b\u8981\u53d6\u820d\u3002"
     )
     assert llm.evaluation_items[0]["source"] == "question_evaluation_record"
+    assert llm.evaluation_items[0]["question_kind"] == "project"
     assert llm.evaluation_items[0]["microbatch_score"] == 84
     record = store.get_report_record(turn.session_id)
     assert record.status == "completed"

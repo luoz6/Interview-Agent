@@ -60,6 +60,7 @@ class ExpertShadowEvaluator:
                 {
                     "question_id": chunk.question_id,
                     "question_text": chunk.question_text,
+                    "question_kind": chunk.question_kind,
                     "focus": chunk.focus,
                     "messages": chunk.model_dump()["messages"],
                     "scoring_references": reference_dicts,

@@ -16,6 +16,7 @@ from app.services.report import (
 class EvaluationChunk(BaseModel):
     question_id: str
     question_text: str
+    question_kind: str
     focus: str
     answer_state: str
     messages: list[dict[str, str]]
@@ -50,6 +51,7 @@ def build_evaluation_chunks(state: InterviewState) -> list[EvaluationChunk]:
         EvaluationChunk(
             question_id=question.id,
             question_text=question.prompt,
+            question_kind=question.kind,
             focus=question.focus,
             answer_state=_answer_state_for_question(state, question),
             messages=_messages_for_question(state, question),

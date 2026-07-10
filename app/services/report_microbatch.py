@@ -103,9 +103,16 @@ def generate_microbatch_report(
             )
         )
 
+    chunks_by_question_id = {
+        chunk.question_id: chunk
+        for chunk in build_evaluation_chunks(state)
+    }
     coach_report = ReportCoachAgent(llm=llm).generate_report(
         plan=state["plan"],
-        evaluation_items=build_report_coach_items_from_question_evaluations(records),
+        evaluation_items=build_report_coach_items_from_question_evaluations(
+            records,
+            chunks_by_question_id=chunks_by_question_id,
+        ),
         session_id=state["session_id"],
     )
     report = finalize_report_with_microbatch_feedback(coach_report, records)
@@ -212,6 +219,7 @@ def finalize_report_with_microbatch_feedback(
 
 def build_report_coach_items_from_question_evaluations(
     records: list[QuestionEvaluationRecord],
+    chunks_by_question_id: dict[str, object] | None = None,
 ) -> list[dict]:
     items = []
     for record in records:
@@ -221,11 +229,14 @@ def build_report_coach_items_from_question_evaluations(
             )
         feedback = record.feedback
         references = [reference.model_dump() for reference in feedback.references]
+        chunk = (chunks_by_question_id or {}).get(feedback.question_id)
+        question_kind = getattr(chunk, "question_kind", "")
         items.append(
             {
                 "source": "question_evaluation_record",
                 "question_id": feedback.question_id,
                 "question_text": feedback.question_text,
+                "question_kind": question_kind,
                 "answer_state": record.answer_state,
                 "user_answer": feedback.user_answer,
                 "microbatch_score": feedback.score,
