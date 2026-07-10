@@ -73,7 +73,7 @@ The versioned JSON benchmark is organized into quality-ranked groups. Each case 
   "question_kind": "technical",
   "question": "How do you keep Redis cache and database state consistent?",
   "focus": "Redis cache consistency",
-  "answer": "...",
+  "answer": "I delete the cache after the database transaction commits, handle race windows, and monitor fallback latency.",
   "expected_score_range": [80, 95],
   "expected_applicable_dimensions": [
     "depth",
