@@ -203,6 +203,30 @@ class GoldenLLM:
                         engineering=score,
                         communication=score,
                     ),
+                    applicable_dimensions=[
+                        "breadth",
+                        "depth",
+                        "architecture",
+                        "engineering",
+                        "communication",
+                    ],
+                    dimension_evidence=[
+                        {
+                            "dimension": "depth",
+                            "observed": [
+                                f"候选人回答与 {reference['title']} 的核心要点相关。"
+                            ],
+                            "missing": [] if strong else domain_signals["missing_terms"],
+                            "quality_signals": [
+                                "concept",
+                                "concrete_steps",
+                                "fallback",
+                                "metric",
+                            ]
+                            if strong
+                            else ["concept"],
+                        }
+                    ],
                     rationale=rationale,
                     critique=critique,
                     better_answer=domain_signals["better_answer"],
@@ -236,6 +260,8 @@ def report_snapshot(report: InterviewReport) -> dict:
         "overall_score": report.overall_score,
         "summary": report.summary,
         "highlights": report.highlights,
-        "feedback": feedback.model_dump(exclude={"references"}),
+        "feedback": feedback.model_dump(
+            exclude={"references", "applicable_dimensions", "dimension_evidence"}
+        ),
         "reference_ids": [reference.chunk_id for reference in feedback.references],
     }

@@ -66,17 +66,7 @@ class ReportLLM:
             summary=VALID_SUMMARY,
             highlights=[VALID_HIGHLIGHT],
             feedbacks=[
-                InterviewFeedback(
-                    question_id="q1",
-                    question_text="Introduce a project.",
-                    user_answer="I built a cache service.",
-                    score=self.report_score,
-                    dimension_scores=make_dimension_scores(self.report_score),
-                    rationale=VALID_RATIONALE,
-                    critique=VALID_CRITIQUE,
-                    better_answer=VALID_BETTER_ANSWER,
-                    references=[],
-                )
+                make_feedback(score=self.report_score)
             ],
         )
 
@@ -130,14 +120,26 @@ class MinimalQuestionResultStructuredModel:
             "question_results": [
                 {
                     "question_id": "q1",
-                    "score": 81,
-                    "dimension_scores": {
-                        "breadth": 80,
-                        "depth": 78,
-                        "architecture": 82,
-                        "engineering": 84,
-                        "communication": 81,
-                    },
+                    "dimension_evidence": [
+                        {
+                            "dimension": "engineering",
+                            "observed": ["候选人说明了缓存服务的落地路径。"],
+                            "missing": [],
+                            "quality_signals": ["concrete_steps", "tradeoff", "risk", "metric"]
+                        },
+                        {
+                            "dimension": "depth",
+                            "observed": ["候选人说明了缓存失效和降级回退。"],
+                            "missing": [],
+                            "quality_signals": ["concrete_steps", "tradeoff", "risk", "metric"]
+                        },
+                        {
+                            "dimension": "communication",
+                            "observed": ["候选人回答结构清晰。"],
+                            "missing": [],
+                            "quality_signals": ["concrete_steps", "tradeoff"]
+                        }
+                    ],
                     "rationale": (
                         "\u7b54\u6848\u8986\u76d6\u4e86\u7f13\u5b58\u5931\u6548\u548c"
                         "\u964d\u7ea7\u56de\u9000\u4e3b\u8def\u5f84\u3002"
@@ -177,33 +179,37 @@ class WrappedJsonFallbackChatModel:
             Final answer:
             {
               "session_id": "s1",
-              "overall_score": 88,
-              "overall_dimension_scores": {
-                "breadth": 88,
-                "depth": 88,
-                "architecture": 88,
-                "engineering": 88,
-                "communication": 88
-              },
               "summary": "Clear backend tradeoff explanation.",
                   "highlights": ["\u8bf4\u6e05\u4e86 Redis \u4e00\u81f4\u6027\u4e0e\u964d\u7ea7\u53d6\u820d"],
-              "feedbacks": [
+              "question_results": [
                 {
                   "question_id": "q1",
                   "question_text": "Introduce a project.",
                   "user_answer": "I built a cache service.",
-                  "score": 88,
-                  "dimension_scores": {
-                    "breadth": 88,
-                    "depth": 88,
-                    "architecture": 88,
-                    "engineering": 88,
-                    "communication": 88
-                  },
+                  "dimension_evidence": [
+                    {
+                      "dimension": "engineering",
+                      "observed": ["候选人说明了 Redis 缓存一致性和回退策略。"],
+                      "missing": [],
+                      "quality_signals": ["concrete_steps", "tradeoff", "risk", "metric"]
+                    },
+                    {
+                      "dimension": "depth",
+                      "observed": ["候选人补充了竞争窗口和监控指标。"],
+                      "missing": [],
+                      "quality_signals": ["concrete_steps", "tradeoff", "risk", "metric"]
+                    },
+                    {
+                      "dimension": "communication",
+                      "observed": ["候选人回答结构清晰。"],
+                      "missing": [],
+                      "quality_signals": ["concrete_steps", "tradeoff"]
+                    }
+                  ],
                   "rationale": "\u7b54\u6848\u8bf4\u660e\u4e86 Redis \u7f13\u5b58\u4e00\u81f4\u6027\u548c\u56de\u9000\u7b56\u7565\u3002",
                   "critique": "\u4f46\u662f\u8fd8\u9700\u8981\u8865\u5145\u7ade\u4e89\u7a97\u53e3\u548c\u76d1\u63a7\u6307\u6807\u3002",
                   "better_answer": "\u5efa\u8bae\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u3001\u7194\u65ad\u964d\u7ea7\u548c p95 \u4f18\u5316\u7ed3\u679c\u3002",
-                  "references": []
+                  "reference_chunk_ids": []
                 }
               ],
               "status": "completed",
@@ -258,6 +264,21 @@ def make_feedback(
         answer_state=answer_state,
         score=score,
         dimension_scores=make_dimension_scores(score),
+        applicable_dimensions=[
+            "breadth",
+            "depth",
+            "architecture",
+            "engineering",
+            "communication",
+        ],
+        dimension_evidence=[
+            {
+                "dimension": "engineering",
+                "observed": [f"候选人回答了 {question_id} 的核心实现路径。"],
+                "missing": ["还可以补充边界条件和量化结果。"],
+                "quality_signals": ["concept", "concrete_steps"],
+            }
+        ],
         rationale=VALID_RATIONALE,
         critique=VALID_CRITIQUE,
         better_answer=VALID_BETTER_ANSWER,
@@ -411,6 +432,29 @@ def test_execute_report_generation_saves_question_evaluations():
     saved = store.list_question_evaluations(session.session_id)
     assert report.feedbacks[0].question_id == saved[0].question_id
     assert saved[0].status == "completed"
+
+
+def test_execute_report_generation_marks_review_phase_completed():
+    class FakeVectorStore:
+        def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
+            return []
+
+    store = InterviewSessionStore(llm=ReportLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+
+    execute_report_generation(
+        session_id=session.session_id,
+        store=store,
+        llm=ReportLLM(),
+        vector_store=FakeVectorStore(),
+    )
+
+    snapshot = store.snapshot(session.session_id)
+    assert snapshot["phase"] == "review"
+    assert snapshot["phase_status"] == "completed"
+    assert snapshot["review_status"] == "completed"
 
 
 def test_execute_report_generation_preserves_matching_microbatch_question_evaluations():

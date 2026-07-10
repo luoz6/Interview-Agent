@@ -1,14 +1,6 @@
 {
   "provider_payload": {
     "session_id": "s1",
-    "overall_score": 82,
-    "dimension_scores": {
-      "breadth": 80,
-      "depth": 82,
-      "architecture": 78,
-      "engineering": 81,
-      "communication": 84
-    },
     "highlights": [
       "回答说明了 delete-after-write，但遗漏了并发竞争窗口。"
     ],
@@ -16,7 +8,26 @@
       {
         "question_id": "q1",
         "question_text": "Explain Redis cache invalidation.",
-        "score": 82,
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": ["候选人说明了 delete-after-write 主路径。"],
+            "missing": ["没有说明并发竞争窗口。"],
+            "quality_signals": ["concept", "concrete_steps"]
+          },
+          {
+            "dimension": "engineering",
+            "observed": ["候选人把缓存失效和数据库写入顺序关联起来。"],
+            "missing": ["没有说明延迟双删或 binlog 失效。"],
+            "quality_signals": ["concept", "concrete_steps"]
+          },
+          {
+            "dimension": "communication",
+            "observed": ["候选人回答能表达主流程。"],
+            "missing": [],
+            "quality_signals": ["clarity"]
+          }
+        ],
         "rationale": "回答覆盖了缓存失效主流程，但没有补充延迟双删。",
         "references": [
           "redis-1",
@@ -43,6 +54,7 @@
     {
       "question_id": "q1",
       "question_text": "Explain Redis cache invalidation.",
+      "question_kind": "technical",
       "messages": [
         {
           "role": "candidate",

@@ -47,8 +47,17 @@ def test_replay_fixture_returns_grounded_report_for_deepseek_adjacent():
     assert isinstance(report, InterviewReport)
     assert report.session_id == "s1"
     assert report.is_fallback is False
-    assert report.overall_score == 82
+    assert report.overall_score == 48
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
+    assert report.feedbacks[0].dimension_scores.depth == 55
+    assert report.feedbacks[0].dimension_scores.engineering == 55
+    assert report.feedbacks[0].applicable_dimensions == [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication",
+    ]
+    assert report.feedbacks[0].dimension_evidence
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",

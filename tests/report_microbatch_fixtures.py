@@ -59,6 +59,21 @@ def make_feedback(*, question_id: str, score: int = 80) -> InterviewFeedback:
         answer_state="answered",
         score=score,
         dimension_scores=make_dimension_scores(score),
+        applicable_dimensions=[
+            "breadth",
+            "depth",
+            "architecture",
+            "engineering",
+            "communication",
+        ],
+        dimension_evidence=[
+            {
+                "dimension": "engineering",
+                "observed": [f"候选人回答了 {question_id} 的核心思路。"],
+                "missing": ["还需要补充边界条件和量化结果。"],
+                "quality_signals": ["concept", "concrete_steps"],
+            }
+        ],
         rationale=f"{question_id} \u7684\u56de\u7b54\u8986\u76d6\u4e86\u6838\u5fc3\u94fe\u8def\u548c\u4e3b\u8981\u53d6\u820d\u3002",
         critique=f"{question_id} \u7684\u56de\u7b54\u8fd8\u9700\u8981\u8865\u5145\u8fb9\u754c\u6761\u4ef6\u548c\u91cf\u5316\u7ed3\u679c\u3002",
         better_answer=f"{question_id} \u53ef\u4ee5\u8865\u5145\u6545\u969c\u515c\u5e95\u3001\u76d1\u63a7\u6307\u6807\u548c\u6027\u80fd\u6570\u636e\u3002",

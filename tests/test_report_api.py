@@ -63,6 +63,25 @@ class ReportApiLLM:
                     user_answer="The candidate built a backend cache service.",
                     score=81,
                     dimension_scores=make_dimension_scores(81),
+                    applicable_dimensions=[
+                        "breadth",
+                        "depth",
+                        "architecture",
+                        "engineering",
+                        "communication",
+                    ],
+                    dimension_evidence=[
+                        {
+                            "dimension": "engineering",
+                            "observed": [
+                                "\u5019\u9009\u4eba\u8bf4\u660e\u4e86 cache-aside \u6d41\u7a0b\u548c\u7f13\u5b58\u5931\u6548\u4fdd\u5e95\u5904\u7406\u3002"
+                            ],
+                            "missing": [
+                                "\u8fd8\u9700\u8865\u5145\u5ef6\u8fdf\u53cc\u5220\u548c\u91cf\u5316\u6536\u76ca\u3002"
+                            ],
+                            "quality_signals": ["concept", "concrete_steps"],
+                        }
+                    ],
                     rationale=(
                         "\u7b54\u6848\u8bf4\u6e05\u4e86 cache-aside \u6d41\u7a0b\uff0c"
                         "\u4e5f\u63d0\u5230\u4e86\u7f13\u5b58\u5931\u6548\u540e\u7684\u4fdd\u5e95\u5904\u7406\u3002"

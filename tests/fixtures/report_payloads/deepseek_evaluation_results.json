@@ -5,19 +5,31 @@
       {
         "question_id": "q1",
         "question_text": "Explain Redis cache invalidation.",
-        "score": 75,
         "rationale": "回答说明了 cache-aside、update-then-delete 和可量化的延迟收益。",
         "references": [
           "redis-1",
           "redis-2"
         ],
-        "dimension_scores": {
-          "breadth": 80,
-          "depth": 70,
-          "architecture": 75,
-          "engineering": 85,
-          "communication": 75
-        },
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": ["候选人说明了 cache-aside 和 update-then-delete 主路径。"],
+            "missing": ["没有充分展开竞争窗口。"],
+            "quality_signals": ["concept", "concrete_steps"]
+          },
+          {
+            "dimension": "engineering",
+            "observed": ["候选人提到了可量化的延迟收益。"],
+            "missing": ["没有说明失败补偿。"],
+            "quality_signals": ["concept", "metric"]
+          },
+          {
+            "dimension": "communication",
+            "observed": ["候选人回答结构清晰。"],
+            "missing": [],
+            "quality_signals": ["clarity"]
+          }
+        ],
         "highlights": [
           "提到了 p95 延迟下降。",
           "说明了 update-then-delete 主路径。"
@@ -29,6 +41,7 @@
     {
       "question_id": "q1",
       "question_text": "Explain Redis cache invalidation.",
+      "question_kind": "technical",
       "messages": [
         {
           "role": "candidate",

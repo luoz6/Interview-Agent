@@ -1,17 +1,30 @@
 {
   "provider_payload": {
     "session_id": "s1",
-    "dimension_scores": {
-      "breadth": 35,
-      "depth": 25,
-      "architecture": 45,
-      "engineering": 20,
-      "communication": 50
-    },
     "feedback_items": [
       {
         "question_id": "q1",
         "question_text": "Explain Redis cache invalidation.",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": ["候选人识别了 Redis + PostgreSQL 的 cache-aside 模式。"],
+            "missing": ["没有解释缓存失效竞争窗口的处理方式。"],
+            "quality_signals": ["concept"]
+          },
+          {
+            "dimension": "engineering",
+            "observed": ["候选人给出了 p95 延迟收益。"],
+            "missing": ["没有说明缓存击穿保护。"],
+            "quality_signals": ["concept", "metric"]
+          },
+          {
+            "dimension": "communication",
+            "observed": ["候选人回答能被理解。"],
+            "missing": [],
+            "quality_signals": ["clarity"]
+          }
+        ],
         "strengths": [
           "识别了 Redis + PostgreSQL 的 cache-aside 模式。",
           "给出了可量化的 p95 延迟收益。"
@@ -45,6 +58,7 @@
     {
       "question_id": "q1",
       "question_text": "Explain Redis cache invalidation.",
+      "question_kind": "technical",
       "messages": [
         {
           "role": "candidate",
