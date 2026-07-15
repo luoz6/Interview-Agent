@@ -5,12 +5,65 @@ from pydantic import BaseModel, Field
 from app.services.llm import InterviewLLM
 
 
+class RoleProfile(BaseModel):
+    role_title: str = ""
+    seniority: str = ""
+    canonical_tags: list[str] = Field(default_factory=list)
+    domains: list[str] = Field(default_factory=list)
+    technologies: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(default_factory=list)
+    resume_signals: list[str] = Field(default_factory=list)
+    uncovered_technologies: list[str] = Field(default_factory=list)
+    query_terms: list[str] = Field(default_factory=list)
+
+
+class KnowledgeEvidenceRef(BaseModel):
+    evidence_id: str
+    title: str
+    domain: str
+    source_type: str
+    score: float | None = None
+    content_sha256: str
+    corpus_manifest_sha256: str
+    candidate_summary: str
+
+
+class KnowledgeQuerySnapshot(BaseModel):
+    query_id: str
+    topic_id: str
+    filters: dict[str, list[str] | str | int | float | bool | None] = Field(
+        default_factory=dict
+    )
+    top_k: int = 5
+    hit_ids: list[str] = Field(default_factory=list)
+    hit_content_sha256: dict[str, str] = Field(default_factory=dict)
+    status: Literal["completed", "empty", "degraded"] = "completed"
+    degraded_reason: str | None = None
+
+
+class KnowledgeBindingSnapshot(BaseModel):
+    prep_run_id: str
+    corpus_manifest_sha256: str
+    queries: list[KnowledgeQuerySnapshot] = Field(default_factory=list)
+    status: Literal["completed", "empty", "degraded"]
+    degraded_reason: str | None = None
+
+
 class PrepKnowledgeTopic(BaseModel):
     id: str
     label: str
-    source: Literal["jd_keyword", "resume_keyword", "jd_resume_keyword", "fallback"]
+    source: Literal[
+        "jd_keyword",
+        "resume_keyword",
+        "jd_resume_keyword",
+        "fallback",
+        "retrieval",
+        "keyword_fallback",
+    ]
     evidence: str
     tags: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    candidate_summary: str = ""
 
 
 class PrepQuestionHint(BaseModel):
@@ -18,12 +71,20 @@ class PrepQuestionHint(BaseModel):
     topic_ids: list[str] = Field(default_factory=list)
     follow_up_hints: list[str] = Field(default_factory=list)
     evidence_titles: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class PrepContext(BaseModel):
     summary: str
+    schema_version: Literal["v1", "v2"] = "v1"
+    knowledge_status: Literal["keyword", "completed", "empty", "degraded"] = (
+        "keyword"
+    )
     topics: list[PrepKnowledgeTopic] = Field(default_factory=list)
     question_hints: list[PrepQuestionHint] = Field(default_factory=list)
+    role_profile: RoleProfile | None = None
+    evidence_refs: list[KnowledgeEvidenceRef] = Field(default_factory=list)
+    binding_snapshot: KnowledgeBindingSnapshot | None = None
 
 
 class InterviewQuestion(BaseModel):
@@ -39,6 +100,36 @@ class InterviewPlan(BaseModel):
     title: str
     questions: list[InterviewQuestion]
     prep_context: PrepContext | None = None
+
+
+def public_interview_plan_payload(plan: InterviewPlan) -> dict:
+    payload = plan.model_dump(mode="json", exclude_none=True)
+    context = payload.get("prep_context")
+    if not isinstance(context, dict):
+        return payload
+
+    public_evidence = []
+    for evidence in context.get("evidence_refs", []):
+        public_evidence.append(
+            {
+                key: evidence[key]
+                for key in (
+                    "evidence_id",
+                    "title",
+                    "domain",
+                    "source_type",
+                    "candidate_summary",
+                )
+                if key in evidence
+            }
+        )
+    context["evidence_refs"] = public_evidence
+    context.pop("binding_snapshot", None)
+
+    role_profile = context.get("role_profile")
+    if isinstance(role_profile, dict):
+        role_profile.pop("resume_signals", None)
+    return payload
 
 
 def prepare_interview(

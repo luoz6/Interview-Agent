@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
-from app.services.prep import prepare_interview
+from app.services.prep import prepare_interview, public_interview_plan_payload
 from app.services.config import get_runtime_event_backend, get_runtime_store
 from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.report_enqueue import enqueue_report_if_needed
@@ -109,7 +109,7 @@ def prep_interview(payload: PrepRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    response = plan.model_dump()
+    response = public_interview_plan_payload(plan)
     response["job_tags"] = extract_job_tags(payload.job_description)
     return response
 

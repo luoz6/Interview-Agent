@@ -4,7 +4,16 @@ from uuid import uuid4
 import pytest
 
 from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    KnowledgeEvidenceRef,
+    KnowledgeQuerySnapshot,
+    PrepContext,
+    PrepQuestionHint,
+    RoleProfile,
+)
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
@@ -56,6 +65,65 @@ def make_plan():
                 focus="Project depth",
             )
         ],
+    )
+
+
+def make_v2_plan():
+    content_hash = "a" * 64
+    manifest_hash = "b" * 64
+    return InterviewPlan(
+        title="Grounded Backend Interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis consistency.",
+                focus="Redis consistency",
+            )
+        ],
+        prep_context=PrepContext(
+            schema_version="v2",
+            summary="Retrieved one grounded topic.",
+            knowledge_status="completed",
+            role_profile=RoleProfile(
+                role_title="Backend Engineer",
+                canonical_tags=["redis"],
+                technologies=["Redis"],
+            ),
+            evidence_refs=[
+                KnowledgeEvidenceRef(
+                    evidence_id="redis-consistency",
+                    title="Redis consistency",
+                    domain="redis",
+                    source_type="theory",
+                    score=0.91,
+                    content_sha256=content_hash,
+                    corpus_manifest_sha256=manifest_hash,
+                    candidate_summary="Grounding for cache consistency trade-offs.",
+                )
+            ],
+            question_hints=[
+                PrepQuestionHint(
+                    question_id="q1",
+                    evidence_ids=["redis-consistency"],
+                )
+            ],
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id="prep-postgres-round-trip",
+                corpus_manifest_sha256=manifest_hash,
+                status="completed",
+                queries=[
+                    KnowledgeQuerySnapshot(
+                        query_id="query-redis",
+                        topic_id="topic-redis",
+                        filters={"tags": ["redis"]},
+                        top_k=3,
+                        hit_ids=["redis-consistency"],
+                        hit_content_sha256={"redis-consistency": content_hash},
+                    )
+                ],
+            ),
+        ),
     )
 
 
@@ -132,6 +200,32 @@ def test_started_session_survives_store_reinstantiation():
     assert state["messages"][0]["role"] == "interviewer"
     assert state["messages"][0]["content"] == "Describe your backend project."
     assert state["job_tags"] == ["python", "fastapi"]
+
+
+def test_v2_knowledge_binding_survives_store_reinstantiation():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+
+    turn = store.start(
+        make_v2_plan(),
+        job_description="Redis backend role",
+        resume_text="Built cache services",
+        job_tags=["redis"],
+    )
+
+    recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix).get(
+        turn.session_id
+    )
+    context = recovered["plan"].prep_context
+
+    assert context.schema_version == "v2"
+    assert context.evidence_refs[0].content_sha256 == "a" * 64
+    assert context.evidence_refs[0].corpus_manifest_sha256 == "b" * 64
+    assert context.binding_snapshot.prep_run_id == "prep-postgres-round-trip"
+    assert context.binding_snapshot.queries[0].hit_content_sha256 == {
+        "redis-consistency": "a" * 64
+    }
 
 
 def test_snapshot_survives_store_reinstantiation():

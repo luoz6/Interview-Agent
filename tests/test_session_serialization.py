@@ -1,5 +1,14 @@
 from app.graphs.interview_state import build_initial_state
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    KnowledgeEvidenceRef,
+    KnowledgeQuerySnapshot,
+    PrepContext,
+    PrepQuestionHint,
+    RoleProfile,
+)
 from app.services.report import (
     DimensionScores,
     FeedbackReference,
@@ -28,6 +37,64 @@ def make_plan():
                 focus="Project depth",
             )
         ],
+    )
+
+
+def make_v2_plan():
+    return InterviewPlan(
+        title="Grounded Backend Interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis consistency.",
+                focus="Redis consistency",
+            )
+        ],
+        prep_context=PrepContext(
+            schema_version="v2",
+            summary="Retrieved one grounded topic.",
+            knowledge_status="completed",
+            role_profile=RoleProfile(
+                role_title="Backend Engineer",
+                canonical_tags=["redis"],
+                technologies=["Redis"],
+                resume_signals=["Built cache-aside services"],
+            ),
+            evidence_refs=[
+                KnowledgeEvidenceRef(
+                    evidence_id="redis-consistency",
+                    title="Redis consistency",
+                    domain="redis",
+                    source_type="theory",
+                    score=0.91,
+                    content_sha256="a" * 64,
+                    corpus_manifest_sha256="b" * 64,
+                    candidate_summary="用于验证缓存一致性取舍。",
+                )
+            ],
+            question_hints=[
+                PrepQuestionHint(
+                    question_id="q1",
+                    evidence_ids=["redis-consistency"],
+                )
+            ],
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id="prep-1",
+                corpus_manifest_sha256="b" * 64,
+                status="completed",
+                queries=[
+                    KnowledgeQuerySnapshot(
+                        query_id="query-redis",
+                        topic_id="topic-redis",
+                        filters={"tags": ["redis"]},
+                        top_k=3,
+                        hit_ids=["redis-consistency"],
+                        hit_content_sha256={"redis-consistency": "a" * 64},
+                    )
+                ],
+            ),
+        ),
     )
 
 
@@ -98,6 +165,32 @@ def test_state_round_trips_from_session_and_message_rows():
     assert restored["plan"].questions[0].prompt == "Describe your backend project."
     assert restored["messages"] == state["messages"]
     assert restored["job_tags"] == ["python", "fastapi"]
+
+
+def test_legacy_plan_defaults_to_v1_prep_contract():
+    plan = InterviewPlan.model_validate(make_plan().model_dump(mode="json"))
+
+    assert plan.prep_context is None
+
+
+def test_v2_plan_round_trip_preserves_evidence_hashes_and_binding_snapshot():
+    state = build_initial_state(
+        session_id="s-v2",
+        plan=make_v2_plan(),
+        job_description="Redis backend role",
+        resume_text="Built cache services",
+        job_tags=["redis"],
+    )
+
+    row = session_row_from_state(state)
+    restored = state_from_rows(row, [])
+    context = restored["plan"].prep_context
+
+    assert row["plan_json"]["prep_context"]["schema_version"] == "v2"
+    assert context.evidence_refs[0].content_sha256 == "a" * 64
+    assert context.binding_snapshot.queries[0].hit_content_sha256 == {
+        "redis-consistency": "a" * 64
+    }
 
 
 def test_session_serialization_preserves_skip_and_timing_metadata():

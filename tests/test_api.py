@@ -4,7 +4,13 @@ import app.api.routes as route_module
 from app.api.routes import get_session_store
 from app.main import app
 from app.services.drafts import AnonymousDraftStore
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    KnowledgeEvidenceRef,
+    PrepContext,
+)
 from app.services.report import InterviewReport
 from app.services.runtime import get_draft_store
 from app.services.session import InterviewSessionStore
@@ -84,6 +90,63 @@ def test_prepare_endpoint_returns_questions():
     assert response.status_code == 200
     body = response.json()
     assert len(body["questions"]) >= 3
+
+
+def test_prepare_endpoint_hides_internal_knowledge_hashes_and_binding_snapshot(monkeypatch):
+    plan = InterviewPlan(
+        title="Grounded plan",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis consistency.",
+                focus="Redis",
+            )
+        ],
+        prep_context=PrepContext(
+            schema_version="v2",
+            summary="Grounded prep.",
+            knowledge_status="completed",
+            evidence_refs=[
+                KnowledgeEvidenceRef(
+                    evidence_id="redis-consistency",
+                    title="Redis consistency",
+                    domain="redis",
+                    source_type="theory",
+                    score=0.93,
+                    content_sha256="a" * 64,
+                    corpus_manifest_sha256="b" * 64,
+                    candidate_summary="用于说明缓存一致性考点。",
+                )
+            ],
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id="prep-secret-run",
+                corpus_manifest_sha256="b" * 64,
+                status="completed",
+            ),
+        ),
+    )
+    monkeypatch.setattr(route_module, "prepare_interview", lambda *_args, **_kwargs: plan)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/prep",
+        json={"job_description": "Redis role", "resume_text": "Redis project"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    evidence = body["prep_context"]["evidence_refs"][0]
+    assert evidence == {
+        "evidence_id": "redis-consistency",
+        "title": "Redis consistency",
+        "domain": "redis",
+        "source_type": "theory",
+        "candidate_summary": "用于说明缓存一致性考点。",
+    }
+    assert "binding_snapshot" not in body["prep_context"]
+    assert "content_sha256" not in response.text
+    assert "prep-secret-run" not in response.text
 
 
 def test_prepare_endpoint_returns_job_tags_without_session_store():
