@@ -129,28 +129,45 @@ def report_record_from_row(row: dict[str, Any]) -> ReportRecord:
 
 
 def question_evaluation_record_to_row(record: QuestionEvaluationRecord) -> dict:
+    feedback_json = None
+    if record.feedback is not None:
+        feedback_json = {
+            "feedback": record.feedback.model_dump(mode="json"),
+            "record_metadata": {
+                "retrieval_path": record.retrieval_path,
+                "degraded_reason": record.degraded_reason,
+                "evidence_content_sha256": record.evidence_content_sha256,
+            },
+        }
     return {
         "session_id": record.session_id,
         "question_id": record.question_id,
         "answer_state": record.answer_state,
         "status": record.status,
-        "feedback_json": record.feedback.model_dump(mode="json")
-        if record.feedback is not None
-        else None,
+        "feedback_json": feedback_json,
         "error": record.error,
         "created_at": record.created_at,
     }
 
 
 def question_evaluation_record_from_row(row: dict) -> QuestionEvaluationRecord:
+    feedback_payload = row["feedback_json"]
+    if isinstance(feedback_payload, dict) and "feedback" in feedback_payload:
+        metadata = feedback_payload.get("record_metadata") or {}
+        feedback_payload = feedback_payload["feedback"]
+    else:
+        metadata = {}
     return QuestionEvaluationRecord(
         session_id=row["session_id"],
         question_id=row["question_id"],
         answer_state=row["answer_state"],
         status=row["status"],
-        feedback=InterviewFeedback.model_validate(row["feedback_json"])
-        if row["feedback_json"] is not None
+        feedback=InterviewFeedback.model_validate(feedback_payload)
+        if feedback_payload is not None
         else None,
+        retrieval_path=metadata.get("retrieval_path"),
+        degraded_reason=metadata.get("degraded_reason"),
+        evidence_content_sha256=metadata.get("evidence_content_sha256") or {},
         error=row["error"],
         created_at=row["created_at"],
     )

@@ -12,6 +12,9 @@ class QuestionEvaluationRecord(BaseModel):
     status: Literal["completed", "failed"]
     feedback: InterviewFeedback | None = None
     error: str | None = None
+    retrieval_path: str | None = None
+    degraded_reason: str | None = None
+    evidence_content_sha256: dict[str, str] = Field(default_factory=dict)
     created_at: str = Field(default_factory=utc_now_iso)
 
     @model_validator(mode="after")
@@ -28,6 +31,9 @@ def question_evaluation_from_feedback(
     session_id: str,
     feedback: InterviewFeedback,
     answer_state: Literal["answered", "skipped", "unanswered"] | None = None,
+    retrieval_path: str | None = None,
+    degraded_reason: str | None = None,
+    evidence_content_sha256: dict[str, str] | None = None,
 ) -> QuestionEvaluationRecord:
     return QuestionEvaluationRecord(
         session_id=session_id,
@@ -35,4 +41,7 @@ def question_evaluation_from_feedback(
         answer_state=answer_state or feedback.answer_state,
         status="completed",
         feedback=feedback,
+        retrieval_path=retrieval_path,
+        degraded_reason=degraded_reason,
+        evidence_content_sha256=dict(evidence_content_sha256 or {}),
     )

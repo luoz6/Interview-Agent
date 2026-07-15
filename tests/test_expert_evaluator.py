@@ -1,8 +1,17 @@
 import pytest
 
 from app.graphs.interview_state import build_initial_state
+from app.ports.runtime import KnowledgeLookupResult
 from app.services.evaluator_ext import ExpertShadowEvaluator
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    KnowledgeEvidenceRef,
+    PrepContext,
+    PrepKnowledgeTopic,
+    PrepQuestionHint,
+)
 from app.services.report import (
     DimensionScores,
     FeedbackReference,
@@ -47,6 +56,69 @@ def make_state():
     return state
 
 
+def make_v2_state():
+    plan = make_plan().model_copy(
+        update={
+            "prep_context": PrepContext(
+                schema_version="v2",
+                summary="Grounded",
+                knowledge_status="completed",
+                topics=[
+                    PrepKnowledgeTopic(
+                        id="topic-redis",
+                        label="Redis",
+                        source="retrieval",
+                        evidence="Redis safe summary",
+                        tags=["redis"],
+                        evidence_ids=["redis-1"],
+                    )
+                ],
+                evidence_refs=[
+                    KnowledgeEvidenceRef(
+                        evidence_id="redis-1",
+                        title="Redis cache consistency",
+                        domain="redis",
+                        source_type="theory",
+                        score=0.92,
+                        content_sha256="a" * 64,
+                        corpus_manifest_sha256="b" * 64,
+                        candidate_summary="Redis safe summary",
+                    )
+                ],
+                question_hints=[
+                    PrepQuestionHint(
+                        question_id="q1",
+                        topic_ids=["topic-redis"],
+                        evidence_ids=["redis-1"],
+                    )
+                ],
+                binding_snapshot=KnowledgeBindingSnapshot(
+                    prep_run_id="prep-v2",
+                    corpus_manifest_sha256="b" * 64,
+                    status="completed",
+                ),
+            )
+        }
+    )
+    state = build_initial_state(
+        session_id="s-v2",
+        plan=plan,
+        job_description="Redis role",
+        resume_text="Built Redis",
+        job_tags=["redis"],
+    )
+    state["messages"].append(
+        {
+            "role": "candidate",
+            "content": "I delete cache after the database update.",
+            "question_id": "q1",
+        }
+    )
+    state["status"] = "finished"
+    state["current_index"] = 1
+    return state
+
+
 class FakeVectorStore:
     def __init__(self):
         self.last_query = None
@@ -70,6 +142,38 @@ class FakeVectorStore:
 class FailingVectorStore:
     def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
         raise RuntimeError("db down")
+
+
+class V2VectorStore:
+    def __init__(self, *, content_hash: str = "a" * 64):
+        self.content_hash = content_hash
+        self.search_calls = 0
+        self.get_by_ids_calls = 0
+
+    def search(self, *args, **kwargs):
+        self.search_calls += 1
+        raise AssertionError("v2 reviewer must not use semantic search")
+
+    def get_by_ids(self, ids, *, expected_hashes=None):
+        self.get_by_ids_calls += 1
+        if expected_hashes != {"redis-1": "a" * 64}:
+            raise AssertionError("reviewer must use Prep hashes")
+        if self.content_hash != "a" * 64:
+            return KnowledgeLookupResult(version_mismatch=["redis-1"])
+        return KnowledgeLookupResult(
+            found=[
+                {
+                    "chunk_id": "redis-1",
+                    "title": "Redis cache consistency",
+                    "content": "Delete cache after database writes and handle race conditions.",
+                    "source_type": "theory",
+                    "domain": "redis",
+                    "tags": ["redis"],
+                    "metadata": {"content_sha256": "a" * 64},
+                    "score": None,
+                }
+            ]
+        )
 
 
 class FakeExpertLLM:
@@ -186,3 +290,63 @@ def test_expert_evaluator_fails_when_retrieval_infrastructure_fails():
 
     with pytest.raises(ReportGenerationFailed, match="pgvector knowledge store is unavailable"):
         evaluator.evaluate(make_state())
+
+
+def test_v2_evaluator_reuses_bound_ids_without_semantic_search():
+    llm = FakeExpertLLM()
+    vector_store = V2VectorStore()
+    evaluator = ExpertShadowEvaluator(llm=llm, vector_store=vector_store)
+
+    report = evaluator.evaluate(make_v2_state())
+
+    assert vector_store.get_by_ids_calls == 1
+    assert vector_store.search_calls == 0
+    assert llm.last_items[0]["retrieval_path"] == "bound_evidence_ids"
+    assert llm.last_items[0]["scoring_references"][0]["chunk_id"] == "redis-1"
+    assert report.feedbacks[0].references[0].chunk_id == "redis-1"
+    assert evaluator.last_retrieval_by_question["q1"] == {
+        "retrieval_path": "bound_evidence_ids",
+        "degraded_reason": None,
+        "evidence_content_sha256": {"redis-1": "a" * 64},
+    }
+
+
+def test_v2_evaluator_drops_provider_references_outside_prep_binding():
+    class MaliciousLLM(FakeExpertLLM):
+        def generate_report(self, plan, evaluation_items, session_id):
+            report = super().generate_report(plan, evaluation_items, session_id)
+            feedback = report.feedbacks[0].model_copy(
+                update={
+                    "references": [
+                        FeedbackReference(
+                            chunk_id="invented-id",
+                            title="Invented",
+                            source_type="theory",
+                            excerpt="Invented reference",
+                        )
+                    ]
+                }
+            )
+            return report.model_copy(update={"feedbacks": [feedback]})
+
+    report = ExpertShadowEvaluator(
+        llm=MaliciousLLM(),
+        vector_store=V2VectorStore(),
+    ).evaluate(make_v2_state())
+
+    assert report.feedbacks[0].references == []
+
+
+def test_v2_evaluator_hash_mismatch_degrades_without_searching():
+    llm = FakeExpertLLM()
+    vector_store = V2VectorStore(content_hash="changed")
+
+    report = ExpertShadowEvaluator(llm=llm, vector_store=vector_store).evaluate(
+        make_v2_state()
+    )
+
+    assert vector_store.search_calls == 0
+    assert llm.last_items[0]["retrieval_path"] == "degraded"
+    assert llm.last_items[0]["degraded_reason"] == "evidence_version_mismatch"
+    assert llm.last_items[0]["scoring_references"] == []
+    assert report.feedbacks[0].references == []

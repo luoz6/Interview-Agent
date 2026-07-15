@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from app.graphs.interview_state import InterviewState
 from app.services.evaluator import (
@@ -8,7 +9,9 @@ from app.services.evaluator import (
     build_fallback_report,
 )
 from app.services.llm import InterviewLLM
+from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.report import (
+    FeedbackReference,
     InterviewReport,
     ReportGenerationFailed,
     ReportOutputFormatError,
@@ -19,6 +22,46 @@ from app.services.vector_store import KnowledgeChunk, KnowledgeSearchStore
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ReviewerReferenceResolution:
+    references: list[KnowledgeChunk | dict] = field(default_factory=list)
+    retrieval_path: str = "legacy_semantic_search"
+    degraded_reason: str | None = None
+
+
+def resolve_reviewer_references(
+    state: InterviewState,
+    chunk,
+    vector_store: KnowledgeSearchStore,
+) -> ReviewerReferenceResolution:
+    context = state["plan"].prep_context
+    if context is not None and context.schema_version == "v2":
+        binding = KnowledgeBindingResolver(vector_store).resolve(
+            state["plan"],
+            chunk.question_id,
+        )
+        return ReviewerReferenceResolution(
+            references=list(binding.references),
+            retrieval_path=binding.retrieval_path,
+            degraded_reason=binding.degraded_reason,
+        )
+
+    references = vector_store.search(
+        ExpertShadowEvaluator._build_query_text(
+            chunk.question_text,
+            chunk.focus,
+            chunk.messages,
+        ),
+        job_tags=state["job_tags"],
+        source_types=["theory", "expert_benchmark"],
+        limit=5,
+    )
+    return ReviewerReferenceResolution(
+        references=list(references),
+        retrieval_path="legacy_semantic_search",
+    )
+
+
 class ExpertShadowEvaluator:
     def __init__(
         self,
@@ -27,6 +70,7 @@ class ExpertShadowEvaluator:
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store
+        self.last_retrieval_by_question: dict[str, dict] = {}
 
     def evaluate(
         self,
@@ -44,18 +88,33 @@ class ExpertShadowEvaluator:
             )
 
         evaluation_items: list[dict] = []
+        self.last_retrieval_by_question = {}
         for chunk in chunks:
             try:
-                references = self._vector_store.search(
-                    self._build_query_text(chunk.question_text, chunk.focus, chunk.messages),
-                    job_tags=state["job_tags"],
-                    source_types=["theory", "expert_benchmark"],
-                    limit=5,
+                retrieval = resolve_reviewer_references(
+                    state,
+                    chunk,
+                    self._vector_store,
                 )
             except Exception as exc:
                 raise ReportGenerationFailed("pgvector knowledge store is unavailable") from exc
 
-            reference_dicts = [self._reference_to_dict(reference) for reference in references]
+            reference_dicts = [
+                self._reference_to_dict(reference)
+                for reference in retrieval.references
+            ]
+            self.last_retrieval_by_question[chunk.question_id] = {
+                "retrieval_path": retrieval.retrieval_path,
+                "degraded_reason": retrieval.degraded_reason,
+                "evidence_content_sha256": {
+                    reference["chunk_id"]: reference.get("metadata", {}).get(
+                        "content_sha256"
+                    )
+                    for reference in reference_dicts
+                    if reference.get("chunk_id")
+                    and reference.get("metadata", {}).get("content_sha256")
+                },
+            }
             evaluation_items.append(
                 {
                     "question_id": chunk.question_id,
@@ -65,6 +124,8 @@ class ExpertShadowEvaluator:
                     "messages": chunk.model_dump()["messages"],
                     "scoring_references": reference_dicts,
                     "answer_references": reference_dicts,
+                    "retrieval_path": retrieval.retrieval_path,
+                    "degraded_reason": retrieval.degraded_reason,
                 }
             )
 
@@ -99,6 +160,12 @@ class ExpertShadowEvaluator:
             report = build_fallback_report(state, chunks)
             report = _apply_answer_state_overrides(report, chunks)
 
+        report = _enforce_v2_report_references(
+            report,
+            state["plan"],
+            evaluation_items,
+        )
+
         if on_progress is not None:
             on_progress(
                 ReportProgress(
@@ -130,3 +197,39 @@ class ExpertShadowEvaluator:
         if isinstance(reference, dict):
             return reference
         return reference.model_dump()
+
+
+def _enforce_v2_report_references(
+    report: InterviewReport,
+    plan,
+    evaluation_items: list[dict],
+) -> InterviewReport:
+    context = plan.prep_context
+    if context is None or context.schema_version != "v2":
+        return report
+    trusted_by_question = {
+        item["question_id"]: {
+            reference["chunk_id"]: reference
+            for reference in item.get("scoring_references", [])
+            if reference.get("chunk_id")
+        }
+        for item in evaluation_items
+    }
+    feedbacks = []
+    for feedback in report.feedbacks:
+        trusted = trusted_by_question.get(feedback.question_id, {})
+        references = []
+        for provider_reference in feedback.references:
+            source = trusted.get(provider_reference.chunk_id)
+            if source is None:
+                continue
+            references.append(
+                FeedbackReference(
+                    chunk_id=source["chunk_id"],
+                    title=source.get("title") or source["chunk_id"],
+                    source_type=source.get("source_type") or "knowledge",
+                    excerpt=source.get("content") or "",
+                )
+            )
+        feedbacks.append(feedback.model_copy(update={"references": references}))
+    return report.model_copy(update={"feedbacks": feedbacks})

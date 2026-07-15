@@ -343,7 +343,12 @@ def test_question_feedback_serializes_rule_scoring_metadata():
         ],
     )
 
-    record = question_evaluation_from_feedback(session_id="s1", feedback=feedback)
+    record = question_evaluation_from_feedback(
+        session_id="s1",
+        feedback=feedback,
+        retrieval_path="bound_evidence_ids",
+        evidence_content_sha256={"system-1": "a" * 64},
+    )
     row = question_evaluation_record_to_row(record)
     restored = question_evaluation_record_from_row(row)
 
@@ -354,3 +359,5 @@ def test_question_feedback_serializes_rule_scoring_metadata():
         "communication",
     ]
     assert restored.feedback.dimension_evidence[0]["dimension"] == "architecture"
+    assert restored.retrieval_path == "bound_evidence_ids"
+    assert restored.evidence_content_sha256 == {"system-1": "a" * 64}

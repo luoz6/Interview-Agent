@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.services.prep import InterviewPlan
 from app.services.prep_context import (
@@ -25,6 +25,7 @@ RetrievalPath = Literal[
 class KnowledgeBindingResolution:
     messages: list[dict[str, str]] = field(default_factory=list)
     evidence_ids: list[str] = field(default_factory=list)
+    references: list[Any] = field(default_factory=list)
     retrieval_path: RetrievalPath = "legacy_no_context"
     degraded_reason: str | None = None
 
@@ -89,7 +90,7 @@ class KnowledgeBindingResolver:
             return self._degraded(plan, question_id, "evidence_version_mismatch")
         if lookup.missing:
             return self._degraded(plan, question_id, "evidence_missing")
-        found_lookup = {chunk.chunk_id: chunk for chunk in lookup.found}
+        found_lookup = {_chunk_value(chunk, "chunk_id"): chunk for chunk in lookup.found}
         if any(evidence_id not in found_lookup for evidence_id in hint.evidence_ids):
             return self._degraded(plan, question_id, "evidence_missing")
 
@@ -100,8 +101,8 @@ class KnowledgeBindingResolver:
                 "content": (
                     f"Evidence for {question_id} "
                     f"[id={evidence_id}] "
-                    f"[source={found_lookup[evidence_id].source_type}]:\n"
-                    f"{found_lookup[evidence_id].content}"
+                    f"[source={_chunk_value(found_lookup[evidence_id], 'source_type')}]:\n"
+                    f"{_chunk_value(found_lookup[evidence_id], 'content')}"
                 ),
             }
             for evidence_id in hint.evidence_ids
@@ -110,6 +111,7 @@ class KnowledgeBindingResolver:
             KnowledgeBindingResolution(
                 messages=[*guidance, *evidence_messages],
                 evidence_ids=list(hint.evidence_ids),
+                references=[found_lookup[evidence_id] for evidence_id in hint.evidence_ids],
                 retrieval_path="bound_evidence_ids",
             )
         )
@@ -140,3 +142,9 @@ class KnowledgeBindingResolver:
         from app.services.vector_store import get_knowledge_store
 
         return get_knowledge_store()
+
+
+def _chunk_value(chunk: Any, key: str):
+    if isinstance(chunk, dict):
+        return chunk.get(key)
+    return getattr(chunk, key, None)

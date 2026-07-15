@@ -59,10 +59,20 @@ def run_round_review_event_from_state(
         )
         report = reviewer.evaluate(review_state)
         feedback = _select_feedback(report.feedbacks, event.question_id)
+        retrieval_metadata = getattr(
+            getattr(reviewer, "_evaluator", None),
+            "last_retrieval_by_question",
+            {},
+        ).get(event.question_id, {})
         record = question_evaluation_from_feedback(
             session_id=event.session_id,
             feedback=feedback,
             answer_state=event.answer_state,
+            retrieval_path=retrieval_metadata.get("retrieval_path"),
+            degraded_reason=retrieval_metadata.get("degraded_reason"),
+            evidence_content_sha256=retrieval_metadata.get(
+                "evidence_content_sha256"
+            ),
         )
     except Exception as exc:
         record = _failed_question_evaluation(
