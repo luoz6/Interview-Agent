@@ -98,6 +98,27 @@ def test_openai_interview_llm_uses_structured_output_for_plan():
     assert chat_model.method == "json_schema"
 
 
+def test_openai_plan_prompt_accepts_safe_knowledge_context():
+    llm = OpenAIInterviewLLM(chat_model=FakeChatModel())
+
+    prompt = llm._build_plan_prompt(
+        job_description="Backend JD",
+        resume_text="Backend resume",
+        knowledge_context=[
+            {
+                "evidence_id": "redis_consistency",
+                "title": "Redis Cache Consistency",
+                "candidate_summary": "Consistency mechanism interview evidence.",
+            }
+        ],
+    )
+
+    assert "Trusted knowledge candidates" in prompt
+    assert "redis_consistency" in prompt
+    assert "Redis Cache Consistency" in prompt
+    assert "do not invent evidence IDs" in prompt
+
+
 def test_openai_interview_llm_generate_plan_has_no_unreachable_legacy_prompt():
     import inspect
 

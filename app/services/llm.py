@@ -40,7 +40,12 @@ class LLMConfig:
 
 
 class InterviewLLM(Protocol):
-    def generate_plan(self, job_description: str, resume_text: str):
+    def generate_plan(
+        self,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None = None,
+    ):
         """Generate the interview plan from JD and resume."""
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
@@ -73,12 +78,18 @@ class OpenAIInterviewLLM:
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
         self.report_output_mode = report_output_mode
 
-    def generate_plan(self, job_description: str, resume_text: str):
+    def generate_plan(
+        self,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None = None,
+    ):
         from app.services.prep import InterviewPlan
 
         prompt = self._build_plan_prompt(
             job_description=job_description,
             resume_text=resume_text,
+            knowledge_context=knowledge_context,
         )
         try:
             return self._invoke_structured_plan(prompt, InterviewPlan)
@@ -94,7 +105,13 @@ class OpenAIInterviewLLM:
         except ValidationError as exc:
             raise ValueError(f"raw interview plan JSON schema validation failed: {exc}") from exc
 
-    def _build_plan_prompt(self, *, job_description: str, resume_text: str) -> str:
+    def _build_plan_prompt(
+        self,
+        *,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None = None,
+    ) -> str:
         expected_shape = {
             "title": "Backend interview plan",
             "questions": [
@@ -118,6 +135,14 @@ class OpenAIInterviewLLM:
                 },
             ],
         }
+        knowledge_section = ""
+        if knowledge_context:
+            knowledge_section = (
+                "\n\nTrusted knowledge candidates (safe metadata only):\n"
+                f"{json.dumps(knowledge_context, ensure_ascii=False, indent=2)}\n"
+                "Use these candidates to make questions more specific. Do not copy a "
+                "benchmark answer into a question and do not invent evidence IDs."
+            )
         return (
             "You are a senior technical interviewer.\n"
             "Create a focused mock interview plan from the job description and resume.\n"
@@ -131,6 +156,7 @@ class OpenAIInterviewLLM:
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
             f"Job description:\n{job_description}\n\n"
             f"Resume:\n{resume_text}"
+            f"{knowledge_section}"
         )
 
     def _invoke_structured_plan(self, prompt: str, schema):

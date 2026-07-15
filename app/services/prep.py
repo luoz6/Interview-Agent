@@ -1,8 +1,11 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
 from app.services.llm import InterviewLLM
+
+if TYPE_CHECKING:
+    from app.ports.runtime import KnowledgeRepository
 
 
 class RoleProfile(BaseModel):
@@ -136,6 +139,7 @@ def prepare_interview(
     job_description: str,
     resume_text: str,
     llm: InterviewLLM | None = None,
+    knowledge_store: "KnowledgeRepository | None" = None,
 ) -> InterviewPlan:
     job_description = _require_text("job_description", job_description)
     resume_text = _require_text("resume_text", resume_text)
@@ -143,7 +147,7 @@ def prepare_interview(
     try:
         from app.agents.knowledge import KnowledgeAgent
 
-        return KnowledgeAgent(llm=llm).generate_plan(
+        return KnowledgeAgent(llm=llm, vector_store=knowledge_store).generate_plan(
             job_description=job_description,
             resume_text=resume_text,
         )
@@ -211,6 +215,10 @@ _TOPIC_HINTS = {
     "system-design": "追问容量估算、瓶颈定位、故障隔离和演进方案。",
     "general": "追问项目背景、职责边界、技术取舍和量化结果。",
 }
+
+
+def deterministic_follow_up_hint(tag: str) -> str:
+    return _TOPIC_HINTS.get(tag, _TOPIC_HINTS["general"])
 
 
 def build_prep_context(
