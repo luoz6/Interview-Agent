@@ -22,6 +22,10 @@ from app.services.report import (
     ReportProgress,
 )
 from app.services.session_errors import SessionVersionConflict
+from tests.test_knowledge_binding_resolver import (
+    make_repository as make_binding_repository,
+    make_v2_plan as make_bound_v2_plan,
+)
 
 
 pytestmark = pytest.mark.pg_runtime
@@ -226,6 +230,51 @@ def test_v2_knowledge_binding_survives_store_reinstantiation():
     assert context.binding_snapshot.queries[0].hit_content_sha256 == {
         "redis-consistency": "a" * 64
     }
+
+
+def test_v2_examiner_uses_same_bound_ids_after_postgres_store_reinstantiation():
+    class CapturingLLM:
+        def __init__(self):
+            self.context = None
+
+        def generate_followup(self, context):
+            self.context = context
+            return "How do you handle the concurrent read race?"
+
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    repository = make_binding_repository()
+    store = PostgresInterviewSessionStore(
+        dsn=dsn,
+        table_prefix=table_prefix,
+        knowledge_repository=repository,
+    )
+    turn = store.start(
+        make_bound_v2_plan(),
+        job_description="Redis and Kafka role",
+        resume_text="Built Redis and Kafka services",
+        job_tags=["redis", "kafka"],
+    )
+    llm = CapturingLLM()
+
+    recovered = PostgresInterviewSessionStore(
+        dsn=dsn,
+        table_prefix=table_prefix,
+        llm=llm,
+        knowledge_repository=repository,
+    )
+    answered = recovered.submit_answer(
+        turn.session_id,
+        "I update the database and delete the cache.",
+    )
+
+    assert answered.follow_up == "How do you handle the concurrent read race?"
+    assert repository.get_by_ids_calls == [
+        {"ids": ["redis_consistency"], "expected_hashes": {"redis_consistency": "a" * 64}}
+    ]
+    assert repository.search_calls == 0
+    assert any(item["role"] == "knowledge_evidence" for item in llm.context)
+    assert "Kafka internal delivery evidence" not in str(llm.context)
 
 
 def test_snapshot_survives_store_reinstantiation():

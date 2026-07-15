@@ -21,6 +21,7 @@ from app.graphs.interview_transitions import (
     skip_interview_question_state,
 )
 from app.services.llm import InterviewLLM
+from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
@@ -43,12 +44,21 @@ class PreparedInterviewTurn:
 
 
 class InterviewSessionStore:
-    def __init__(self, llm: InterviewLLM | None = None) -> None:
+    def __init__(
+        self,
+        llm: InterviewLLM | None = None,
+        knowledge_repository=None,
+    ) -> None:
         self._sessions: Dict[str, InterviewState] = {}
         self._reports: Dict[str, ReportRecord] = {}
         self._question_evaluations: Dict[str, list[QuestionEvaluationRecord]] = {}
         self._llm = llm
-        self._runner = InterviewGraphRunner(llm=llm)
+        self._runner = InterviewGraphRunner(
+            llm=llm,
+            knowledge_binding_resolver=KnowledgeBindingResolver(
+                knowledge_repository
+            ),
+        )
         self._orchestrator = OrchestratorAgent(
             llm=llm,
             interview_runner=self._runner,

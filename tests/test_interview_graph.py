@@ -12,7 +12,9 @@ from app.services.prep import (
     PrepKnowledgeTopic,
     PrepQuestionHint,
 )
+from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.report import InterviewReport
+from tests.test_knowledge_binding_resolver import make_repository, make_v2_plan
 
 
 def make_plan():
@@ -312,6 +314,112 @@ def test_runner_preserves_followup_context_without_prep_context():
     runner.submit_answer(state, "I used Redis.")
 
     assert [item["role"] for item in captured_context] == ["interviewer", "candidate"]
+
+
+def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles():
+    captured_context = []
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            captured_context.extend(context)
+            return "How do concurrent reads affect the cache?"
+
+    repository = make_repository()
+    resolver = KnowledgeBindingResolver(repository)
+    runner = InterviewGraphRunner(
+        examiner=Agent(),
+        knowledge_binding_resolver=resolver,
+    )
+    state = runner.start(
+        session_id="s-v2-evidence",
+        plan=make_v2_plan(),
+        job_description="Redis and Kafka role",
+        resume_text="Built Redis and Kafka services",
+        job_tags=["redis", "kafka"],
+    )
+
+    result = runner.submit_answer(state, "I update the database and delete the cache.")
+
+    assert result["pending_output"] == "How do concurrent reads affect the cache?"
+    assert [item["role"] for item in captured_context] == [
+        "interviewer",
+        "candidate",
+        "knowledge_agent",
+        "knowledge_evidence",
+    ]
+    assert captured_context[1]["content"] == (
+        "I update the database and delete the cache."
+    )
+    assert "Redis internal consistency evidence" in captured_context[3]["content"]
+    assert "Kafka internal delivery evidence" not in str(captured_context)
+    assert resolver.last_resolution.retrieval_path == "bound_evidence_ids"
+    assert repository.search_calls == 0
+
+
+def test_v2_streaming_runner_uses_same_bound_evidence_resolution():
+    captured_context = []
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            raise AssertionError("streaming path should not call generate_followup")
+
+        def stream_followup(self, *, context: list[dict[str, str]], focus: str):
+            captured_context.extend(context)
+            yield "streamed grounded follow-up"
+
+    repository = make_repository()
+    resolver = KnowledgeBindingResolver(repository)
+    runner = InterviewGraphRunner(
+        examiner=Agent(),
+        knowledge_binding_resolver=resolver,
+    )
+    state = runner.start(
+        session_id="s-v2-stream",
+        plan=make_v2_plan(),
+        job_description="Redis role",
+        resume_text="Built Redis",
+        job_tags=["redis"],
+    )
+    prepared = runner.prepare_answer(state, "I delete cache after commit.")
+
+    assert list(runner.stream_followup(prepared)) == ["streamed grounded follow-up"]
+    assert any(item["role"] == "knowledge_evidence" for item in captured_context)
+    assert repository.search_calls == 0
+
+
+def test_v2_repository_failure_does_not_fail_answer_flow():
+    captured_context = []
+
+    class FailingRepository:
+        def get_by_ids(self, ids, *, expected_hashes=None):
+            raise RuntimeError("database unavailable")
+
+        def search(self, *args, **kwargs):
+            raise AssertionError("v2 path must not search")
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            captured_context.extend(context)
+            return "Fallback guided follow-up."
+
+    resolver = KnowledgeBindingResolver(FailingRepository())
+    runner = InterviewGraphRunner(
+        examiner=Agent(),
+        knowledge_binding_resolver=resolver,
+    )
+    state = runner.start(
+        session_id="s-v2-degraded",
+        plan=make_v2_plan(),
+        job_description="Redis role",
+        resume_text="Built Redis",
+        job_tags=["redis"],
+    )
+
+    result = runner.submit_answer(state, "I used cache-aside.")
+
+    assert result["pending_output"] == "Fallback guided follow-up."
+    assert resolver.last_resolution.degraded_reason == "knowledge_unavailable"
+    assert not any(item["role"] == "knowledge_evidence" for item in captured_context)
 
 
 def test_runner_prepare_answer_defers_followup_text_for_streaming():

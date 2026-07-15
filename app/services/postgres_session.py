@@ -37,8 +37,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         dsn: str,
         table_prefix: str = "interview",
         llm: InterviewLLM | None = None,
+        knowledge_repository=None,
     ) -> None:
-        super().__init__(llm=llm)
+        super().__init__(
+            llm=llm,
+            knowledge_repository=knowledge_repository,
+        )
         self.dsn = dsn
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"

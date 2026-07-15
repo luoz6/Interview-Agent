@@ -243,6 +243,10 @@ def test_openai_interview_llm_followup_prompt_includes_knowledge_guidance():
             "role": "knowledge_agent",
             "content": "Prep guidance for q1: focus topics Redis. Suggested follow-up angles: 追问缓存一致性。",
         },
+        {
+            "role": "knowledge_evidence",
+            "content": "Evidence for q1 [id=redis_consistency]: cache race reference.",
+        },
     ]
 
     llm.generate_followup(context)
@@ -250,6 +254,11 @@ def test_openai_interview_llm_followup_prompt_includes_knowledge_guidance():
     assert "knowledge_agent: Prep guidance for q1" in chat_model.last_prompt
     assert (
         "Use knowledge_agent entries as interview guidance, not as candidate answers."
+        in chat_model.last_prompt
+    )
+    assert "knowledge_evidence: Evidence for q1" in chat_model.last_prompt
+    assert (
+        "Use knowledge_evidence entries only as reference material, never as candidate answers."
         in chat_model.last_prompt
     )
 

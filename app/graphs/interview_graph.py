@@ -11,16 +11,24 @@ from app.graphs.interview_state import (
     get_current_question,
 )
 from app.services.llm import InterviewLLM
+from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import InterviewPlan
-from app.services.prep_context import build_question_prep_context_messages
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
 
 class InterviewGraphRunner:
-    def __init__(self, llm: InterviewLLM | None = None, examiner=None) -> None:
+    def __init__(
+        self,
+        llm: InterviewLLM | None = None,
+        examiner=None,
+        knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+    ) -> None:
         self._llm = llm
         self._examiner = examiner or ExaminerAgent(llm=llm)
+        self._knowledge_binding_resolver = (
+            knowledge_binding_resolver or KnowledgeBindingResolver()
+        )
 
     def start(
         self,
@@ -40,7 +48,12 @@ class InterviewGraphRunner:
 
     def submit_answer(self, state: InterviewState, answer: str) -> InterviewState:
         next_state = _append_candidate_answer(state, answer)
-        next_state = brain_node(next_state, self._llm, examiner=self._examiner)
+        next_state = brain_node(
+            next_state,
+            self._llm,
+            examiner=self._examiner,
+            knowledge_binding_resolver=self._knowledge_binding_resolver,
+        )
         return speaker_node(next_state)
 
     def prepare_answer(self, state: InterviewState, answer: str) -> InterviewState:
@@ -49,6 +62,7 @@ class InterviewGraphRunner:
             next_state,
             self._llm,
             examiner=self._examiner,
+            knowledge_binding_resolver=self._knowledge_binding_resolver,
             generate_followup_text=False,
         )
 
@@ -67,7 +81,10 @@ class InterviewGraphRunner:
         question = get_current_question(state)
         focus = question.focus if question is not None else "current question"
         yield from self._examiner.stream_followup(
-            context=_build_followup_context(state),
+            context=_build_followup_context(
+                state,
+                self._knowledge_binding_resolver,
+            ),
             focus=focus,
         )
 
@@ -77,6 +94,7 @@ def brain_node(
     llm: InterviewLLM | None,
     *,
     examiner=None,
+    knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
     generate_followup_text: bool = True,
 ) -> InterviewState:
     question = get_current_question(state)
@@ -109,7 +127,7 @@ def brain_node(
     if generate_followup_text:
         resolved_examiner = examiner or ExaminerAgent(llm=llm)
         follow_up = resolved_examiner.generate_followup(
-            context=_build_followup_context(state),
+            context=_build_followup_context(state, knowledge_binding_resolver),
             focus=question.focus,
         )
 
@@ -196,14 +214,16 @@ def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewSta
     return next_state
 
 
-def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:
+def _build_followup_context(
+    state: InterviewState,
+    knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+) -> list[dict[str, str]]:
     recent_messages = [
         {"role": message["role"], "content": message["content"]}
         for message in state["messages"][-4:]
     ]
     question = get_current_question(state)
     question_id = question.id if question is not None else None
-    return recent_messages + build_question_prep_context_messages(
-        state["plan"],
-        question_id,
-    )
+    resolver = knowledge_binding_resolver or KnowledgeBindingResolver()
+    resolution = resolver.resolve(state["plan"], question_id)
+    return recent_messages + resolution.messages
