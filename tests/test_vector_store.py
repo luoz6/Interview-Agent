@@ -19,6 +19,7 @@ def make_store() -> PgVectorKnowledgeStore:
         embedding_model_name="BAAI/bge-m3",
         embedding_dimension=3,
         embedding_model=FakeEmbeddingModel(),
+        minimum_score=0.35,
     )
 
 
@@ -63,6 +64,26 @@ def test_from_env_defaults_to_local_postgres(monkeypatch):
 
     assert store.dsn == DEFAULT_POSTGRES_DSN
     assert store.table_name == "knowledge_chunks"
+    assert store.minimum_score == 0.35
+
+
+def test_repository_errors_do_not_expose_dsn_credentials():
+    dsn = "postgresql://secret-user:secret-pass@127.0.0.1:1/private-db"
+    store = PgVectorKnowledgeStore(
+        dsn=dsn,
+        table_name="knowledge_chunks",
+        embedding_model_name="unused",
+        embedding_dimension=3,
+        embedding_model=FakeEmbeddingModel(),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        store.get_by_ids(["redis-1"])
+
+    message = str(exc.value)
+    assert "secret-user" not in message
+    assert "secret-pass" not in message
+    assert "private-db" not in message
 
 
 @pytest.mark.pgvector

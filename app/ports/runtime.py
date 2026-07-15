@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from app.graphs.interview_state import InterviewState
@@ -14,6 +15,13 @@ class RuntimeLLMProvider(Protocol):
         ...
 
 
+@dataclass
+class KnowledgeLookupResult:
+    found: list[Any] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    version_mismatch: list[str] = field(default_factory=list)
+
+
 @runtime_checkable
 class KnowledgeRepository(Protocol):
     def search(
@@ -24,6 +32,14 @@ class KnowledgeRepository(Protocol):
         source_types: list[str] | None = None,
         limit: int = 5,
     ) -> list[Any]:
+        ...
+
+    def get_by_ids(
+        self,
+        ids: list[str],
+        *,
+        expected_hashes: dict[str, str] | None = None,
+    ) -> KnowledgeLookupResult:
         ...
 
 

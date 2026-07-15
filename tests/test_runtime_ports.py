@@ -14,6 +14,7 @@ from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import PgVectorKnowledgeStore
+from app.services.vector_store import KnowledgeSearchStore
 
 
 def test_runtime_protocols_are_runtime_checkable():
@@ -68,3 +69,22 @@ def test_vector_store_and_llm_expose_runtime_contracts_without_network_calls():
 
     assert isinstance(vector_store, KnowledgeRepository)
     assert isinstance(llm, RuntimeLLMProvider)
+
+
+def test_legacy_knowledge_search_protocol_is_canonical_repository_alias():
+    assert KnowledgeSearchStore is KnowledgeRepository
+
+
+def test_search_only_fake_does_not_claim_v2_repository_contract():
+    class SearchOnlyFake:
+        def search(
+            self,
+            query_text: str,
+            *,
+            job_tags: list[str],
+            source_types=None,
+            limit=5,
+        ):
+            return []
+
+    assert not isinstance(SearchOnlyFake(), KnowledgeRepository)
