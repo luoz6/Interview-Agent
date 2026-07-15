@@ -142,6 +142,27 @@ def test_ensure_completed_question_evaluations_reuses_existing_completed_records
     assert store.upserted == []
 
 
+def test_ensure_completed_question_evaluations_reruns_incomplete_answered_record():
+    state = make_state()
+    incomplete = completed_record("s1", "q1", 78)
+    incomplete.feedback.applicable_dimensions = []
+    incomplete.feedback.dimension_evidence = []
+    store = FakeStore(state, [incomplete, completed_record("s1", "q2", 82)])
+    FakeReviewer.calls = []
+
+    result = ensure_completed_question_evaluations_for_report(
+        state,
+        store=store,
+        llm=object(),
+        vector_store=object(),
+        reviewer_factory=FakeReviewer,
+    )
+
+    assert FakeReviewer.calls == ["q1"]
+    assert result[0].feedback.applicable_dimensions
+    assert result[0].feedback.dimension_evidence
+
+
 def test_ensure_completed_question_evaluations_reviews_missing_records():
     state = make_state()
     store = FakeStore(state, [completed_record("s1", "q1", 78)])
@@ -259,6 +280,22 @@ def test_finalize_report_with_microbatch_feedback_locks_scores_to_shadow_reviewe
     assert report.feedbacks[0].rationale == (
         "q1 \u7684\u56de\u7b54\u8986\u76d6\u4e86\u6838\u5fc3\u94fe\u8def\u548c\u4e3b\u8981\u53d6\u820d\u3002"
     )
+
+
+def test_finalize_report_replaces_non_chinese_coach_summary_with_deterministic_summary():
+    records = [completed_record("s1", "q1", 78), completed_record("s1", "q2", 82)]
+    coach_report = InterviewReport(
+        session_id="s1",
+        overall_score=99,
+        overall_dimension_scores=make_dimension_scores(99),
+        summary="Strong Redis and PostgreSQL performance.",
+        highlights=["Strong Redis and PostgreSQL performance."],
+        feedbacks=[make_feedback(question_id="q1"), make_feedback(question_id="q2")],
+    )
+
+    report = finalize_report_with_microbatch_feedback(coach_report, records)
+
+    assert report.summary == "本次面试共评估 2 道题，后端规则聚合得分为 80 分。"
 
 
 def test_ensure_completed_question_evaluations_logs_unknown_answer_state(caplog):

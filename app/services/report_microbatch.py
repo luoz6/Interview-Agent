@@ -210,8 +210,15 @@ def finalize_report_with_microbatch_feedback(
     if len(feedbacks) != len(records):
         raise MicrobatchReportUnavailable("microbatch report feedback is incomplete")
     overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
+    summary = report.summary
+    if not any("\u4e00" <= char <= "\u9fff" for char in summary):
+        summary = (
+            f"本次面试共评估 {len(feedbacks)} 道题，"
+            f"后端规则聚合得分为 {overall_score} 分。"
+        )
     return report.model_copy(
         update={
+            "summary": summary,
             "feedbacks": feedbacks,
             "overall_score": overall_score,
             "overall_dimension_scores": overall_dimension_scores,
@@ -260,10 +267,13 @@ def build_report_coach_items_from_question_evaluations(
 
 
 def _is_completed_record(record: QuestionEvaluationRecord | None) -> bool:
-    return (
-        record is not None
-        and record.status == "completed"
-        and record.feedback is not None
+    if record is None or record.status != "completed" or record.feedback is None:
+        return False
+    if record.answer_state != "answered":
+        return True
+    return bool(
+        record.feedback.applicable_dimensions
+        and record.feedback.dimension_evidence
     )
 
 

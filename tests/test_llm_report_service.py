@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.llm import OpenAIInterviewLLM
+from app.services.llm import REPORT_EVIDENCE_PROMPT_VERSION, OpenAIInterviewLLM
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import (
     DimensionScores,
@@ -32,6 +32,7 @@ def make_items() -> list[dict]:
         {
             "question_id": "q1",
             "question_text": "Explain Redis cache invalidation.",
+            "question_kind": "technical",
             "focus": "Redis reliability",
             "messages": [
                 {
@@ -79,14 +80,30 @@ class FakeReportStructuredModel:
                 {
                     "question_id": "q1",
                     "question_text": "Explain Redis cache invalidation.",
-                    "score": 84,
-                    "dimension_scores": {
-                        "breadth": 84,
-                        "depth": 84,
-                        "architecture": 84,
-                        "engineering": 84,
-                        "communication": 84,
-                    },
+                    "dimension_evidence": [
+                        {
+                            "dimension": "depth",
+                            "observed": [
+                                "Candidate said they delete cache after database writes."
+                            ],
+                            "missing": ["The answer does not cover race-window handling."],
+                            "quality_signals": ["concept", "concrete_steps"],
+                        },
+                        {
+                            "dimension": "engineering",
+                            "observed": [
+                                "Candidate connected database writes with cache invalidation."
+                            ],
+                            "missing": ["The answer does not describe retries or fallback."],
+                            "quality_signals": ["concept", "concrete_steps"],
+                        },
+                        {
+                            "dimension": "communication",
+                            "observed": ["The answer is understandable but brief."],
+                            "missing": [],
+                            "quality_signals": ["clarity"],
+                        },
+                    ],
                     "rationale": "The answer covered the main cache strategy.",
                     "critique": "The answer needs clearer metrics.",
                     "better_answer": (
@@ -123,7 +140,7 @@ def test_generate_report_uses_question_result_schema_and_assembles_report():
         session_id="s1",
     )
 
-    assert report.overall_score == 84
+    assert report.overall_score == 44
     assert chat_model.schema is ProviderQuestionResultsEnvelope
     assert chat_model.method == "json_schema"
     assert "Backend interview" in chat_model.structured_model.last_prompt
@@ -135,7 +152,7 @@ def test_generate_report_uses_question_result_schema_and_assembles_report():
     assert "All user-facing fields must be written in Simplified Chinese." in (
         chat_model.structured_model.last_prompt
     )
-    assert report.overall_dimension_scores.depth == 84
+    assert report.overall_dimension_scores.depth == 45
     assert report.feedbacks[0].references[0].chunk_id == "redis-1"
 
 
@@ -152,8 +169,12 @@ def test_generate_report_prompt_requests_evidence_not_scores():
     prompt = chat_model.structured_model.last_prompt
     assert "Do not return score or dimension_scores" in prompt
     assert "dimension_evidence" in prompt
-    assert "quality_signals" in prompt
+    assert "Always return quality_signals as an empty list" in prompt
     assert "The backend computes all numeric scores from evidence" in prompt
+    assert "exactly one dimension_evidence item for every applicable dimension" in prompt
+    assert "Do not merge evidence for several dimensions" in prompt
+    assert "short continuous excerpt copied from the candidate answer" in prompt
+    assert "Do not put evaluator judgments" in prompt
 
 
 class FailingStructuredModel:
@@ -189,14 +210,26 @@ class FallbackReportChatModel:
                 {
                   "question_id": "q1",
                   "question_text": "Explain Redis cache invalidation.",
-                  "score": 84,
-                  "dimension_scores": {
-                    "breadth": 84,
-                    "depth": 84,
-                    "architecture": 84,
-                    "engineering": 84,
-                    "communication": 84
-                  },
+                  "dimension_evidence": [
+                    {
+                      "dimension": "depth",
+                      "observed": ["Candidate said they delete cache after database writes."],
+                      "missing": ["The answer does not cover race-window handling."],
+                      "quality_signals": ["concept", "concrete_steps"]
+                    },
+                    {
+                      "dimension": "engineering",
+                      "observed": ["Candidate connected database writes with cache invalidation."],
+                      "missing": ["The answer does not describe retries or fallback."],
+                      "quality_signals": ["concept", "concrete_steps"]
+                    },
+                    {
+                      "dimension": "communication",
+                      "observed": ["The answer is understandable but brief."],
+                      "missing": [],
+                      "quality_signals": ["clarity"]
+                    }
+                  ],
                   "rationale": "The answer covered the main cache strategy.",
                   "critique": "The answer needs clearer metrics.",
                   "better_answer": "I built a FastAPI API with Redis cache and measured p95 latency.",
@@ -220,7 +253,7 @@ def test_generate_report_falls_back_to_json_prompt_when_structured_output_is_una
         session_id="s1",
     )
 
-    assert report.overall_score == 84
+    assert report.overall_score == 44
     assert chat_model.schema is ProviderQuestionResultsEnvelope
     assert chat_model.method == "json_schema"
     assert "Return valid JSON only" in chat_model.last_prompt
@@ -422,10 +455,16 @@ class EvaluationResultsJsonChatModel:
 
 
 class RuleEvidenceJsonChatModel:
+    def __init__(self):
+        self.structured_output_calls = 0
+        self.invoke_calls = 0
+
     def with_structured_output(self, schema, method=None):
+        self.structured_output_calls += 1
         return FailingStructuredModel()
 
     def invoke(self, prompt: str):
+        self.invoke_calls += 1
         return FakeJsonMessage(
             """
             {
@@ -467,6 +506,41 @@ class RuleEvidenceJsonChatModel:
         )
 
 
+def test_report_prompt_has_stable_evidence_version():
+    llm = OpenAIInterviewLLM.__new__(OpenAIInterviewLLM)
+    plan = InterviewPlan(
+        title="Stage 40 prompt contract",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain cache consistency.",
+                focus="Redis consistency",
+            )
+        ],
+    )
+
+    prompt = llm._build_report_prompt(
+        plan=plan,
+        evaluation_items=[],
+        session_id="stage40-version-test",
+    )
+
+    assert REPORT_EVIDENCE_PROMPT_VERSION == "stage40-evidence-v1"
+    assert "stage40-evidence-v1" in prompt
+    assert "The backend computes all numeric scores from evidence." in prompt
+
+
+def test_raw_only_report_mode_skips_structured_output():
+    chat_model = RuleEvidenceJsonChatModel()
+    llm = OpenAIInterviewLLM(chat_model=chat_model, report_output_mode="raw_only")
+
+    llm.generate_report(make_plan(), make_items(), "stage40-raw-only")
+
+    assert chat_model.structured_output_calls == 0
+    assert chat_model.invoke_calls == 1
+
+
 def test_generate_report_ignores_provider_scores_and_uses_rule_evidence():
     llm = OpenAIInterviewLLM(chat_model=RuleEvidenceJsonChatModel())
 
@@ -499,9 +573,11 @@ def test_generate_report_ignores_provider_scores_and_uses_rule_evidence():
     )
 
     assert report.overall_score != 99
-    assert report.feedbacks[0].score == 42
+    assert report.feedbacks[0].score == 56
     assert report.feedbacks[0].dimension_scores.depth == 55
-    assert report.feedbacks[0].dimension_scores.engineering == 50
+    assert report.feedbacks[0].dimension_scores.engineering == 65
+    assert report.feedbacks[0].dimension_scores.breadth == 40
+    assert report.feedbacks[0].dimension_scores.communication == 45
     assert report.feedbacks[0].dimension_scores.architecture == 0
     assert report.feedbacks[0].applicable_dimensions == [
         "depth",
@@ -562,9 +638,10 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
     assert report.summary == "Explained delete-after-write but missed race-window handling."
-    assert report.overall_dimension_scores.depth == 82
+    assert report.overall_score == 0
+    assert report.overall_dimension_scores.depth == 0
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
-    assert report.feedbacks[0].dimension_scores.engineering == 81
+    assert report.feedbacks[0].dimension_scores.engineering == 0
     assert report.feedbacks[0].critique == "模型输出未提供明确问题点。"
     assert (
         report.feedbacks[0].better_answer
@@ -588,9 +665,9 @@ def test_generate_report_normalizes_sparse_deepseek_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 35
+    assert report.overall_score == 0
     assert report.summary == "Measured latency improvement with Redis cache-aside."
-    assert report.feedbacks[0].score == 35
+    assert report.feedbacks[0].score == 0
     assert "cache-aside pattern" in report.feedbacks[0].rationale
     assert report.feedbacks[0].critique == "No cache invalidation race-window mitigation."
     assert (
@@ -614,15 +691,15 @@ def test_generate_report_normalizes_evaluation_results_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 75
-    assert report.overall_dimension_scores.engineering == 85
+    assert report.overall_score == 0
+    assert report.overall_dimension_scores.engineering == 0
     assert report.summary == "Mentioned p95 latency reduction. Described update-then-delete pattern."
     assert report.highlights == [
         "Mentioned p95 latency reduction.",
         "Described update-then-delete pattern.",
     ]
-    assert report.feedbacks[0].score == 75
-    assert report.feedbacks[0].dimension_scores.depth == 70
+    assert report.feedbacks[0].score == 0
+    assert report.feedbacks[0].dimension_scores.depth == 0
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",

@@ -76,14 +76,14 @@ The code reads `OPENAI_API_KEY` even when the provider is DeepSeek-compatible. F
 ## Install
 
 ```powershell
-& 'F:\python3.11\python.exe' -m pip install -r requirements.txt
-npm install
+python -m pip install --require-hashes -r requirements.lock.txt
+npm ci
 ```
 
 ## Load Knowledge
 
 ```powershell
-& 'F:\python3.11\python.exe' scripts/load_knowledge.py
+python scripts/load_knowledge.py
 ```
 
 Expected result: `knowledge_chunks` contains theory and expert benchmark chunks, with 1024-dimension embeddings.
@@ -96,7 +96,7 @@ Start the FastAPI web process:
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
-& 'F:\python3.11\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Start the report worker in a second PowerShell window. PostgreSQL mode queues report jobs, so `/report-processing` will stay in progress until this worker is running:
@@ -105,7 +105,7 @@ Start the report worker in a second PowerShell window. PostgreSQL mode queues re
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
-F:\python3.11\python.exe -m app.services.report_worker
+python -m app.services.report_worker
 ```
 
 Open:
@@ -117,7 +117,7 @@ http://127.0.0.1:8000/prep
 ## Verify
 
 ```powershell
-F:\python3.11\python.exe -m pytest -q
+python -m pytest -q
 node --check app/static/api.js
 node --check app/static/shared-ui.js
 node --check app/static/prep.js
@@ -126,6 +126,38 @@ node --check app/static/report-processing.js
 node --check app/static/report-detail.js
 npm run build:prototype-css
 ```
+
+## Stage 41 Reproducible Release Checks
+
+Supported runtimes are Python 3.11 and Node.js 20 or 22 LTS. Activate a Python
+3.11 virtual environment first; every command below intentionally uses the
+environment-independent `python`, `npm`, or `npx` executable name.
+
+```powershell
+python -m pip install --require-hashes -r requirements.lock.txt
+python -m pip check
+npm ci
+npx playwright install chromium
+python -m scripts.runtime_preflight --profile core
+python -m scripts.init_local_runtime --check
+npm run test:browser
+python -m scripts.audit_stage40_artifacts
+```
+
+The default `local` event backend does not require Redis. To declare the optional
+Celery profile healthy, configure an authenticated `REDIS_URL`, start the worker,
+and run the persisted event acceptance:
+
+```powershell
+python -m celery -A app.services.celery_app.celery_app worker --loglevel=info --pool=solo
+python -m scripts.runtime_preflight --profile celery
+python -m scripts.celery_acceptance --timeout 150
+```
+
+Playwright uses deterministic test doubles for repeatable browser regression.
+A fresh provider smoke remains a separate release gate; the saved Stage 40 real
+model evidence may only support `PASS_WITH_PROVIDER_RECHECK` under the documented
+external-provider failure policy.
 
 Run real browser acceptance with `docs/local-v1-runbook.md` and record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 

@@ -300,7 +300,10 @@ def finish_session(store: InterviewSessionStore, session_id: str) -> None:
     state["messages"].append(
         {
             "role": "candidate",
-            "content": "I built a cache service.",
+            "content": (
+                "I built a Redis cache service with write-through invalidation, "
+                "fallback handling, and p95 latency monitoring."
+            ),
             "question_id": "q1",
         }
     )
@@ -815,7 +818,7 @@ def test_run_report_generation_persists_grounded_report_from_minimal_question_re
 
     assert report is not None
     assert report.is_fallback is False
-    assert report.overall_score == 81
+    assert report.overall_score == 74
     assert report.feedbacks[0].references == []
     assert store.get_report_record(session.session_id).report is report
 

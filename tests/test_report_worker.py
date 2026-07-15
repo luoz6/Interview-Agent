@@ -97,6 +97,15 @@ def make_report(session_id: str = "s1") -> InterviewReport:
                     engineering=81,
                     communication=81,
                 ),
+                applicable_dimensions=["engineering", "depth", "communication"],
+                dimension_evidence=[
+                    {
+                        "dimension": "engineering",
+                        "observed": ["I built a cache service."],
+                        "missing": ["Production latency and recovery metrics."],
+                        "quality_signals": ["concept", "code_or_api"],
+                    }
+                ],
                 rationale="回答说明了缓存服务的实现细节，并覆盖了 Redis 与数据库兜底路径。",
                 critique="还需要补充更清晰的线上指标，例如延迟、错误率和恢复时间。",
                 better_answer="我通过 Redis 缓存和数据库兜底降低 p95 延迟，并监控缓存失效时的降级表现。",
@@ -398,7 +407,7 @@ def test_run_one_job_completes_postgres_job_and_report():
         )
 
         assert result is not None
-        assert result["status"] == "completed"
+        assert result["status"] == "completed", result
         assert job_store.get_job(queued_job["job_id"])["status"] == "completed"
         report_record = store.get_report_record(turn.session_id)
         assert report_record is not None

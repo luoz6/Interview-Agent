@@ -1,0 +1,77 @@
+{
+  "session_id": "stage40-kafka-reliability-off_topic-2",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "kafka-reliability-off_topic",
+        "question_text": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+        "user_answer": "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。这能提升页面加载速度，但没有回答 Kafka 可靠性。",
+        "score": 0,
+        "dimension_scores": {
+          "breadth": 0,
+          "depth": 0,
+          "architecture": 0,
+          "engineering": 0,
+          "communication": 0
+        },
+        "applicable_dimensions": [
+          "depth",
+          "engineering",
+          "breadth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "回答未涉及 Kafka 消息可靠性或重复消费的任何机制或细节。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "回答没有提供任何关于 Kafka 生产端或消费端的工程实现或配置细节。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [],
+            "missing": [
+              "回答完全偏离主题，没有涉及消息链路中的不同层面（如生产、消费、重试、死信队列等）。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [],
+            "missing": [
+              "回答没有就 Kafka 可靠性主题进行清晰的沟通，而是讨论了前端性能优化，与问题无关。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人回答完全偏离主题，讨论了前端性能优化（图片压缩、缓存、CDN），但未对 Kafka 消息可靠性和重复消费提供任何解释或解决方案。没有回答所问的技术问题。",
+        "critique": "最大的缺失是完全未提及 Kafka 相关的任何概念或设计，回答与问题无关。",
+        "better_answer": "为保证 Kafka 消息可靠，生产端应启用幂等性、设置 acks=all 并配置合理的重试机制；消费端需要实现业务幂等，通过唯一键去重，并使用手动提交 offset 确保不丢失。同时，通过死信队列处理重试失败的消息，监控消费延迟和积压。处理重复消费可在消费端记录已处理的消息 ID 或进行幂等操作。",
+        "reference_chunk_ids": [
+          "kafka-reliability-reference"
+        ],
+        "highlights": []
+      }
+    ],
+    "reference_lookup": {
+      "kafka-reliability-reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "source_type": "benchmark",
+        "excerpt": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

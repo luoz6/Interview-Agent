@@ -1,0 +1,27 @@
+{
+  "case_id": "mysql-index-transaction-empty",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "empty",
+  "run_number": 1,
+  "score": 0,
+  "answer": "1",
+  "observed": [],
+  "required_observations": [],
+  "forbidden_claims": [],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人的回答仅为 '1'，没有任何关于联合索引设计与事务隔离、锁范围的实质性内容，无法从任何维度提取有效证据。 回答完全空白，需从头构建包含联合索引最左前缀、EXPLAIN 验证、隔离级别选择、锁范围控制及异常处理的全流程说明。 联合索引设计应依据查询条件顺序遵循最左前缀原则，并用 EXPLAIN 验证执行计划。事务方面，选择 READ COMMITTED 降低间隙锁范围，或在可重复读下评估唯一索引减少间隙锁；同时缩短事务时间，明确回滚边界，对高并发热点使用 SELECT ... FOR UPDATE 限定行锁，避免全表扫描导致锁升级，并监控 information_schema.innodb_locks 检查锁争用。",
+  "latency_seconds": 11.507,
+  "provider_invocations": 1
+}

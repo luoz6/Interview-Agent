@@ -1,0 +1,44 @@
+{
+  "case_id": "mysql-index-transaction-medium",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "medium",
+  "run_number": 2,
+  "score": 49,
+  "answer": "MySQL 联合索引底层是 B+Tree，我会把常用过滤字段放前面并遵循最左前缀，然后用 EXPLAIN 查看是否命中索引和扫描行数。事务中尽量减少无关逻辑。",
+  "observed": [
+    "MySQL 联合索引底层是 B+Tree",
+    "把常用过滤字段放前面并遵循最左前缀",
+    "用 EXPLAIN 查看是否命中索引和扫描行数",
+    "我会把常用过滤字段放前面并遵循最左前缀",
+    "用 EXPLAIN 查看是否命中索引和扫描行数",
+    "事务中尽量减少无关逻辑",
+    "MySQL 联合索引底层是 B+Tree",
+    "事务中尽量减少无关逻辑",
+    "MySQL 联合索引底层是 B+Tree，我会把常用过滤字段放前面并遵循最左前缀，然后用 EXPLAIN 查看是否命中索引和扫描行数。",
+    "事务中尽量减少无关逻辑。"
+  ],
+  "required_observations": [
+    "B+Tree",
+    "最左前缀",
+    "EXPLAIN"
+  ],
+  "forbidden_claims": [
+    "所有索引都提升写入"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人简要提到了联合索引的最左前缀和EXPLAIN验证，表明掌握基础索引设计方法；事务方面只提到减少无关逻辑，缺乏隔离级别、锁类型、回滚等深层讨论。整体回答停留在表面，未展开工程细节和边界场景。 最大的缺失是完全没有提及事务隔离级别与锁范围的关联，这是问题的另一半核心要求。 设计联合索引时，首先分析查询条件中的等值、范围以及排序/分组字段，优先将等值过滤且选择性高的列放在前面，利用最左前缀避免回表和文件排序。使用EXPLAIN验证key、rows、Using index/Using filesort，必要时通过覆盖索引或索引下推优化。事务方面，根据业务一致性需求选择合适隔离级别（如RR），注意InnoDB的临键锁机制会扩大锁范围；缩短事务中查询到更新的窗口，避免长事务和间隙锁导致的并发瓶颈；对可能冲突的路径使用SELECT FOR UPDATE并明确锁定的主键，提前规划回滚和重试，确保在保证正确性的前提下最小化锁持有时间。",
+  "latency_seconds": 30.048,
+  "provider_invocations": 1
+}

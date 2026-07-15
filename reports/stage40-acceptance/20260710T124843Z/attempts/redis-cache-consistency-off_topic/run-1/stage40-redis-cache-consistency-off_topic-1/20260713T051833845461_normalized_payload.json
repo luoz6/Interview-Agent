@@ -1,0 +1,77 @@
+{
+  "session_id": "stage40-redis-cache-consistency-off_topic-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "redis-cache-consistency-off_topic",
+        "question_text": "在高并发业务中，如何处理 Redis 缓存与数据库之间的一致性？",
+        "user_answer": "我会调整页面 CSS 网格布局，统一按钮圆角、阴影和主题色，再通过媒体查询优化移动端展示。这能改善前端体验，但没有回答缓存与数据库一致性。",
+        "score": 0,
+        "dimension_scores": {
+          "breadth": 0,
+          "depth": 0,
+          "architecture": 0,
+          "engineering": 0,
+          "communication": 0
+        },
+        "applicable_dimensions": [
+          "depth",
+          "engineering",
+          "breadth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "未阐述任何缓存一致性策略，如 Cache-Aside、Read/Write Through、Write Behind 等模式，也未说明缓存更新或删除的机制。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "未提供工程落地细节，例如删除缓存失败后的重试机制、消息补偿、双删方案，或对命中率、回源量等监控指标的讨论。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [],
+            "missing": [
+              "未涉及不同一致性方案的比较，也未讨论延迟双删、分布式锁或最终一致性的边界与取舍。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [],
+            "missing": [
+              "回答完全偏离缓存一致性主题，仅描述了前端 CSS 布局调整，未能对问题进行直接、有效的回应。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人回答完全围绕前端 CSS 布局展开，未提及任何与 Redis 缓存或数据库一致性相关的内容，属于完全跑题的回应。",
+        "critique": "最大的缺失是答案完全没有涉及主题，未给出任何技术内容，导致评估缓存一致性能力时无有效证据。",
+        "better_answer": "在高并发下，通常采用 Cache-Aside 模式：写操作先更新数据库，成功后删除缓存；删除失败可通过重试或消息队列补偿。读操作缓存未命中时从数据库加载并写入缓存。同时需设置合理的过期时间，并监控命中率与延迟，必要时引入延迟双删或分布式锁以应对并发写带来的不一致。",
+        "reference_chunk_ids": [
+          "redis-cache-consistency-reference"
+        ],
+        "highlights": []
+      }
+    ],
+    "reference_lookup": {
+      "redis-cache-consistency-reference": {
+        "chunk_id": "redis-cache-consistency-reference",
+        "title": "Redis 缓存一致性参考资料",
+        "source_type": "benchmark",
+        "excerpt": "Cache-aside 应在数据库成功后删除缓存，并通过重试或消息补偿处理删除失败，同时监控命中率、回源量和接口 p95。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

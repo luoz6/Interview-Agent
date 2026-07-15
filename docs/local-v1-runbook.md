@@ -8,7 +8,8 @@ Expected local services:
 
 | Item | Value |
 | --- | --- |
-| Python | `F:\python3.11\python.exe` |
+| Python | Python 3.11 from an activated virtual environment |
+| Node.js | Node.js 20 or 22 LTS |
 | PostgreSQL | `127.0.0.1:5432` |
 | Database | `interview` |
 | User/password | `postgres` / `postgres` |
@@ -69,7 +70,7 @@ print(cur.fetchone())
 cur.execute("select count(*) from knowledge_chunks")
 print(cur.fetchone())
 conn.close()
-'@ | F:\python3.11\python.exe -
+'@ | python -
 ```
 
 Expected:
@@ -82,7 +83,7 @@ Expected:
 If `knowledge_chunks` is empty, run:
 
 ```powershell
-F:\python3.11\python.exe scripts/load_knowledge.py
+python scripts/load_knowledge.py
 ```
 
 ## 4. Start Server And Report Worker
@@ -90,13 +91,13 @@ F:\python3.11\python.exe scripts/load_knowledge.py
 Start the FastAPI web process:
 
 ```powershell
-F:\python3.11\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Start the report worker in a second PowerShell window. PostgreSQL mode stores report generation requests in `interview_report_jobs`; without this worker, `/report-processing` will remain in progress:
 
 ```powershell
-F:\python3.11\python.exe -m app.services.report_worker
+python -m app.services.report_worker
 ```
 
 Optional Stage 26A round-review worker:
@@ -110,8 +111,8 @@ celery -A app.services.celery_app.celery_app worker --loglevel=info
 ## 5. Automated Smoke
 
 ```powershell
-F:\python3.11\python.exe -m pytest tests/test_page_routes.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q
-F:\python3.11\python.exe -m pytest -q
+python -m pytest tests/test_page_routes.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q
+python -m pytest -q
 node --check app/static/api.js
 node --check app/static/shared-ui.js
 node --check app/static/prep.js
@@ -225,7 +226,22 @@ Stage 39 browser RC checks:
 
 Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
-## 7. Troubleshooting
+## 7. Stage 40 Scoring Trust Loop
+
+Stage 40 real-model acceptance runs 20 cases twice: **40 target attempts**. `--max-provider-invocations 50` is a separate retry-inclusive provider budget. Generated artifacts must never contain the API key.
+
+```powershell
+python -m scripts.evaluate_report_quality --case-id redis-cache-consistency-strong --runs-per-case 2 --max-provider-invocations 4
+python -m scripts.evaluate_report_quality --group-id redis-cache-consistency --runs-per-case 2 --max-provider-invocations 12
+python -m scripts.evaluate_report_quality --runs-per-case 2 --max-provider-invocations 50
+python -m scripts.evaluate_report_quality --resume --run-id <printed-run-id> --max-provider-invocations 50
+```
+
+Exit codes are `0` for complete PASS, `1` for complete gate/assertion failure, and `2` when the provider budget is exhausted with attempts pending. Gates: `ranking_accuracy >= 0.85`, `evidence_grounding_rate >= 0.90`, `score_delta <= 8`, and `fallback_rate <= 0.05`. Blocking assertions cover zero-scored negligible answers, forbidden claims, applicable dimensions, aggregate recomputation, and ignored provider-supplied score fields.
+
+Keep the run directory, `metrics.json`, attempt artifacts, traces, hashes, model and version metadata. Record them in `docs/stage-40-real-model-acceptance.md` without secrets. Normal `pytest` remains offline; Stage 40 acceptance requires a complete real-model run returning exit code `0`. The record remains `PENDING` until then.
+
+## 8. Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
@@ -234,3 +250,43 @@ Record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 | First report generation is slow | SentenceTransformer model loading and embedding cache warm-up |
 | Static page is unstyled | Run `npm run build:prototype-css` |
 | Browser cannot find session | Confirm URL contains `session_id` and runtime store did not reset |
+
+## 9. Stage 41 Clean-Environment Release Gate
+
+Use Python 3.11 and Node.js 20 or 22 LTS. From a fresh checkout, create and
+activate a Python 3.11 virtual environment, then run:
+
+```powershell
+python -m pip install --require-hashes -r requirements.lock.txt
+python -m pip check
+npm ci
+npx playwright install chromium
+python -m scripts.runtime_preflight --profile core
+python -m scripts.init_local_runtime
+python -m scripts.init_local_runtime --check
+npm run test:browser
+python -m pytest -q
+python -m scripts.audit_stage40_artifacts
+```
+
+`python -m scripts.init_local_runtime --check` is read-only. Use
+`python -m scripts.init_local_runtime --seed-knowledge` only when the knowledge
+table must be loaded. Use a unique `INTERVIEW_RUNTIME_TABLE_PREFIX` and
+`PGVECTOR_TABLE` for acceptance runs.
+
+The optional Redis/Celery profile requires both the Redis data-path smoke and a
+persisted `round_closed` event:
+
+```powershell
+$env:REDIS_URL="redis://:your-password@127.0.0.1:6379/0"
+python -m scripts.runtime_preflight --profile celery
+python -m celery -A app.services.celery_app.celery_app worker --loglevel=info --pool=solo
+python -m scripts.celery_acceptance --timeout 150
+```
+
+Do not claim Celery support unless both commands pass. The default core profile
+uses `INTERVIEW_EVENT_BACKEND=local` and remains usable when Redis is unavailable.
+Playwright regression is deterministic and offline; provider smoke is recorded
+separately. Saved real-model evidence is valid for 30 days, and can only produce
+`PASS_WITH_PROVIDER_RECHECK` after a documented external API failure. A final
+release still requires a fresh provider smoke.

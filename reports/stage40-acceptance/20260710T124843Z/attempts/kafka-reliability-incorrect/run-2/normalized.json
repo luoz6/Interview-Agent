@@ -1,0 +1,39 @@
+{
+  "case_id": "kafka-reliability-incorrect",
+  "group_id": "kafka-reliability",
+  "quality_level": "incorrect",
+  "run_number": 2,
+  "score": 35,
+  "answer": "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。失败消息可以无限重试，不需要死信队列。",
+  "observed": [
+    "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息",
+    "所以无需消费幂等，也不用关心 offset 提交时机",
+    "失败消息可以无限重试，不需要死信队列",
+    "只要开启 Kafka exactly-once",
+    "失败消息可以无限重试，不需要死信队列",
+    "消费者就绝对不会收到重复消息",
+    "无需消费幂等，也不用关心 offset 提交时机"
+  ],
+  "required_observations": [
+    "开启 Kafka 的 exactly-once"
+  ],
+  "forbidden_claims": [
+    "无需消费幂等"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人错误地将 Kafka exactly-once 理解为消费者侧绝对无重复，忽略了生产端幂等与事务的配合，且完全否定了消费幂等、offset 控制、死信队列等工程实践。所有维度均存在明显缺失。 最大的错误是宣称 exactly-once 让消费者绝对无重复，从而完全忽略了消费幂等和 offset 提交，这是对 Kafka 语义的根本误解。 Kafka 的可靠性需要端到端保障：生产端开启幂等或事务、设置 acks=all 并合理重试；消费端仍需实现业务幂等，控制 offset 提交时机（如手动提交），并配置重试次数与死信队列，结合监控应对积压。",
+  "latency_seconds": 20.539,
+  "provider_invocations": 1
+}

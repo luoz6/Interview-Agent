@@ -85,3 +85,79 @@
 .question-pending {
   color: rgb(107 114 128);
 }
+
+@media (max-width: 767px) {
+  body {
+    height: auto !important;
+    min-height: 100vh;
+    overflow: auto !important;
+  }
+
+  body > header {
+    height: 3.5rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  body > header nav,
+  body > header > div:last-child,
+  body > div > aside {
+    display: none !important;
+  }
+
+  body > div.flex.flex-1.overflow-hidden.relative {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  body > div > main {
+    min-height: calc(100vh - 3.5rem);
+    padding: 0.75rem !important;
+    overflow: visible !important;
+  }
+
+  body > div > main > div.flex.flex-1.gap-6 {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  body > div > main > div.flex.gap-8.flex-1 {
+    display: block !important;
+  }
+
+  body > div > main > div.flex.gap-8.flex-1 > div:last-child {
+    display: none !important;
+  }
+
+  body > div > main > div.flex.flex-1.gap-6 > div:last-child {
+    display: none !important;
+  }
+
+  #conversation {
+    min-height: 14rem;
+    max-height: 42vh;
+  }
+
+  #answerForm > div:last-child {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  #answerForm > div:last-child > div:last-child {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem !important;
+  }
+
+  #answerForm button {
+    justify-content: center;
+    min-width: 0;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  #sendAnswerButton {
+    grid-column: 1 / -1;
+  }
+}

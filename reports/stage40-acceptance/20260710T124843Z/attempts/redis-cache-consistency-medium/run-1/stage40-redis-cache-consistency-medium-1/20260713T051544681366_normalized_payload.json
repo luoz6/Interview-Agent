@@ -1,0 +1,97 @@
+{
+  "session_id": "stage40-redis-cache-consistency-medium-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "redis-cache-consistency-medium",
+        "question_text": "在高并发业务中，如何处理 Redis 缓存与数据库之间的一致性？",
+        "user_answer": "我会使用 cache-aside，先更新数据库，事务提交成功后删除 Redis 缓存。下一次读取未命中时查询数据库并回填，同时设置合理过期时间。这能满足多数允许短暂不一致的业务。",
+        "score": 49,
+        "dimension_scores": {
+          "breadth": 50,
+          "depth": 50,
+          "architecture": 0,
+          "engineering": 50,
+          "communication": 40
+        },
+        "applicable_dimensions": [
+          "depth",
+          "engineering",
+          "breadth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "我会使用 cache-aside，先更新数据库，事务提交成功后删除 Redis 缓存。下一次读取未命中时查询数据库并回填，同时设置合理过期时间。"
+            ],
+            "missing": [
+              "未解释为何先更新数据库后删除缓存，而不是先删缓存或延迟双删；未分析删除缓存失败导致的长周期不一致；未讨论并发读写下的一致性窗口与读写竞态。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "同时设置合理过期时间"
+            ],
+            "missing": [
+              "未涉及缓存删除失败的重试机制、MQ 补偿或分布式事务；未提出监控命中率、回源量、p95 延迟等生产指标；未讨论缓存穿透、击穿、雪崩的工程防护。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "我会使用 cache-aside"
+            ],
+            "missing": [
+              "仅提出 Cache-Aside 一种模式，未提及其他缓存一致性方案（如 Write-Through、Write-Behind、订阅 Binlog 刷新、先删后更等）；未对比不同业务场景下强一致与最终一致的选择。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "我会使用 cache-aside，先更新数据库，事务提交成功后删除 Redis 缓存。下一次读取未命中时查询数据库并回填，同时设置合理过期时间。这能满足多数允许短暂不一致的业务。"
+            ],
+            "missing": [
+              "回答虽然流畅，但缺少从问题分析、方案选型到实现细节的层次分解；未用结构化语言总结一致性的保障边界。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选回答准确描述了Cache-Aside的基础流程，表述清晰。但深度局限于基本操作顺序，未剖析删除失败、并发窗口等根本性挑战；工程实践仅提到过期时间，缺少补偿、监控和容灾设计；广度上未与其他模式比较，方案单一；沟通简洁却未展现层次化拆解技术问题的能力。",
+        "critique": "最大缺失是完全没有涉及缓存删除失败时的补偿与最终一致性保障机制，例如重试、MQ 异步补偿或引入分布式事务，这在高并发生产环境中是关键不可回避的问题。",
+        "better_answer": "在高并发下，我会优先采用Cache-Aside模式，更新数据库事务提交成功后删除对应缓存。为防止删除失败导致长周期不一致，删除操作需加入重试队列（如本地消息表 + Kafka），必要时配合延迟双删以覆盖读写并发。同时，缓存设置合理TTL作为兜底，结合Binlog订阅做异步刷新。监控侧要关注缓存命中率、回源QPS与接口p95延迟，并针对热点Key做击穿保护（如互斥锁/逻辑过期）。对于严格强一致的场景，则需引入分布式事务或让读操作直接穿透读库，缓存仅做加速。",
+        "reference_chunk_ids": [
+          "redis-cache-consistency-reference"
+        ],
+        "highlights": [
+          "准确描述了 Cache-Aside 的更新后删除缓存和读取回填流程",
+          "提到了使用缓存过期时间作为一致性兜底"
+        ]
+      }
+    ],
+    "reference_lookup": {
+      "redis-cache-consistency-reference": {
+        "chunk_id": "redis-cache-consistency-reference",
+        "title": "Redis 缓存一致性参考资料",
+        "source_type": "benchmark",
+        "excerpt": "Cache-aside 应在数据库成功后删除缓存，并通过重试或消息补偿处理删除失败，同时监控命中率、回源量和接口 p95。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

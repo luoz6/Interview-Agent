@@ -34,6 +34,8 @@ def test_gitignore_excludes_local_runtime_artifacts():
         "tmp-*.log",
         "tmp-*.pid",
         "node_modules/",
+        ".idea/",
+        ".claude/",
     ):
         assert pattern in gitignore
     assert "package-lock.json" not in gitignore
@@ -97,7 +99,7 @@ def test_readme_and_runbook_point_to_current_browser_acceptance_record():
 def test_readme_and_runbook_document_report_worker_for_postgres_runtime():
     readme = read_text("README.md")
     runbook = read_text("docs/local-v1-runbook.md")
-    worker_command = "F:\\python3.11\\python.exe -m app.services.report_worker"
+    worker_command = "python -m app.services.report_worker"
 
     assert worker_command in readme
     assert worker_command in runbook
@@ -310,3 +312,54 @@ def test_stage_25_acceptance_record_has_rc_sections():
     assert "service restart persistence" in record
     assert "built-in local PostgreSQL defaults" in record
     assert "No Stage 24 browser defects recorded; manual browser execution is still pending" not in record
+
+
+def test_docs_describe_stage_40_real_model_scoring_acceptance():
+    env = read_text(".env.example")
+    runbook = read_text("docs/local-v1-runbook.md")
+    record = read_text("docs/stage-40-real-model-acceptance.md")
+    assert "STAGE40_MAX_PROVIDER_INVOCATIONS=50" in env
+    for expected in ("evaluate_report_quality", "40 target attempts", "--max-provider-invocations 50", "--resume", "--run-id <printed-run-id>", "ranking_accuracy", "evidence_grounding_rate", "score_delta", "fallback_rate", "provider-supplied score fields"):
+        assert expected in runbook
+    assert "exit code `0`" in runbook
+    assert "# Stage 40 Real-Model Acceptance" in record
+    assert "40 target attempts" in record
+    assert "50 provider invocations" in record
+    assert "## Release Gates" in record
+    assert "## Blocking Assertions" in record
+    assert "`PASS`" in record
+    assert "Completed target attempts: `40/40`" in record
+    assert "Actual provider invocations: `40`" in record
+
+
+def test_stage_41_docs_are_machine_independent_and_reproducible():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    combined = readme + runbook
+
+    assert "F:\\python3.11\\python.exe" not in combined
+    for expected in (
+        "Python 3.11",
+        "Node.js 20 or 22 LTS",
+        "requirements.lock.txt",
+        "npm ci",
+        "npx playwright install chromium",
+        "npm run test:browser",
+        "python -m scripts.runtime_preflight --profile core",
+        "python -m scripts.init_local_runtime --check",
+        "python -m scripts.celery_acceptance --timeout 150",
+        "python -m scripts.audit_stage40_artifacts",
+    ):
+        assert expected in combined
+
+
+def test_stage_41_artifact_and_browser_outputs_are_ignored():
+    gitignore = read_text(".gitignore")
+
+    for pattern in (
+        "test-results/",
+        "playwright-report/",
+        "reports/stage40-group*/",
+        "reports/stage40-smoke*/",
+    ):
+        assert pattern in gitignore

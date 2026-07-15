@@ -16,6 +16,12 @@ class FakeCeleryApp:
         self.calls.append((name, args or [], kwargs or {}))
 
 
+def test_celery_worker_imports_round_review_task():
+    from app.services.celery_app import celery_app
+
+    assert "app.services.round_review_tasks" in celery_app.conf.include
+
+
 class FakeExecutor:
     def __init__(self):
         self.calls = []

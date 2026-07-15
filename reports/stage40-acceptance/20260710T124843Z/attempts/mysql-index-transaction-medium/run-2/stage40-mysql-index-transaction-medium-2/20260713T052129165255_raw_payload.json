@@ -1,0 +1,76 @@
+{
+  "session_id": "stage40-mysql-index-transaction-medium-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-mysql-index-transaction-medium-2",
+    "question_results": [
+      {
+        "question_id": "mysql-index-transaction-medium",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "MySQL 联合索引底层是 B+Tree",
+              "把常用过滤字段放前面并遵循最左前缀",
+              "用 EXPLAIN 查看是否命中索引和扫描行数"
+            ],
+            "missing": [
+              "未解释联合索引字段顺序背后的选择性原则与回表代价",
+              "未提及索引条件下推、覆盖索引等优化机制",
+              "未讨论事务隔离级别的实现原理、MVCC 以及记录锁/间隙锁/临键锁的区别"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "我会把常用过滤字段放前面并遵循最左前缀",
+              "用 EXPLAIN 查看是否命中索引和扫描行数",
+              "事务中尽量减少无关逻辑"
+            ],
+            "missing": [
+              "未给出基于具体查询模式（如WHERE、ORDER BY、GROUP BY组合）设计联合索引的工程方法",
+              "未提供缩短持锁时间的技巧（如先更新后查询、拆分事务）",
+              "未提及死锁预防、事务超时与重试机制在工程中的应用"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "MySQL 联合索引底层是 B+Tree",
+              "事务中尽量减少无关逻辑"
+            ],
+            "missing": [
+              "未涉及不同隔离级别对锁范围的影响（如RR下的间隙锁）",
+              "未讨论范围查询导致后续索引列失效的场景",
+              "未提及索引维护代价、在线DDL或不同存储引擎的差异"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "MySQL 联合索引底层是 B+Tree，我会把常用过滤字段放前面并遵循最左前缀，然后用 EXPLAIN 查看是否命中索引和扫描行数。",
+              "事务中尽量减少无关逻辑。"
+            ],
+            "missing": [
+              "回答过于概括，缺少具体查询例子和场景对比，难以展示完整的思考过程"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人简要提到了联合索引的最左前缀和EXPLAIN验证，表明掌握基础索引设计方法；事务方面只提到减少无关逻辑，缺乏隔离级别、锁类型、回滚等深层讨论。整体回答停留在表面，未展开工程细节和边界场景。",
+        "critique": "最大的缺失是完全没有提及事务隔离级别与锁范围的关联，这是问题的另一半核心要求。",
+        "better_answer": "设计联合索引时，首先分析查询条件中的等值、范围以及排序/分组字段，优先将等值过滤且选择性高的列放在前面，利用最左前缀避免回表和文件排序。使用EXPLAIN验证key、rows、Using index/Using filesort，必要时通过覆盖索引或索引下推优化。事务方面，根据业务一致性需求选择合适隔离级别（如RR），注意InnoDB的临键锁机制会扩大锁范围；缩短事务中查询到更新的窗口，避免长事务和间隙锁导致的并发瓶颈；对可能冲突的路径使用SELECT FOR UPDATE并明确锁定的主键，提前规划回滚和重试，确保在保证正确性的前提下最小化锁持有时间。",
+        "reference_chunk_ids": [
+          "mysql-index-transaction-reference"
+        ],
+        "highlights": [
+          "明确指出使用EXPLAIN检查索引命中与扫描行数",
+          "将联合索引与最左前缀结合技术点"
+        ]
+      }
+    ]
+  }
+}

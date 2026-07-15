@@ -1,0 +1,37 @@
+{
+  "case_id": "kafka-reliability-incorrect",
+  "group_id": "kafka-reliability",
+  "quality_level": "incorrect",
+  "run_number": 1,
+  "score": 35,
+  "answer": "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。失败消息可以无限重试，不需要死信队列。",
+  "observed": [
+    "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。",
+    "失败消息可以无限重试，不需要死信队列。",
+    "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。",
+    "失败消息可以无限重试，不需要死信队列。",
+    "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息"
+  ],
+  "required_observations": [
+    "开启 Kafka 的 exactly-once"
+  ],
+  "forbidden_claims": [
+    "无需消费幂等"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人声称开启 exactly-once 即可完全避免重复消费，忽略了 Kafka 事务仅在 consume-transform-produce 场景下保证端到端精确一次，而消费者在仅读取消息时仍需通过业务幂等和受控 offset 提交来消除重复。此外，无限重试不加死信队列不符合生产实践。回答缺少对生产端配置、消费端设计以及监控机制的覆盖，深度与广度不足。 最大缺失点是错把 Kafka exactly-once 语义理解为消费者绝不会接收到重复数据，且认为无需消费端幂等和死信队列。 要保障 Kafka 消息链路可靠：生产端启用幂等（enable.idempotence=true）、设置 acks=all、合理配置 retries 与 min.insync.replicas。消费端即使配合事务，仍需消费者自身实现业务幂等（如通过唯一键去重），手动提交 offset 并保证提交与业务操作原子性，配置重试上限和死信队列处理最终失败的消息，同时监控 lag 和异常。",
+  "latency_seconds": 27.993,
+  "provider_invocations": 1
+}

@@ -1,0 +1,39 @@
+{
+  "case_id": "kafka-reliability-medium",
+  "group_id": "kafka-reliability",
+  "quality_level": "medium",
+  "run_number": 2,
+  "score": 49,
+  "answer": "生产者设置 acks=all 并配置重试，副本同步后再确认。消费者处理成功后提交 offset，失败时重新消费。这样能减少消息丢失，但还要限制重试次数。",
+  "observed": [
+    "生产者设置 acks=all 并配置重试，副本同步后再确认。",
+    "消费者处理成功后提交 offset，失败时重新消费。",
+    "还要限制重试次数。",
+    "这样能减少消息丢失，但还要限制重试次数。",
+    "生产者设置 acks=all 并配置重试，副本同步后再确认。消费者处理成功后提交 offset，失败时重新消费。"
+  ],
+  "required_observations": [
+    "acks=all",
+    "重试",
+    "提交 offset"
+  ],
+  "forbidden_claims": [
+    "无需消费幂等"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选回答给出了生产端 acks=all 与重试、消费端按成功提交 offset 的基本可靠性机制，并意识到需限制重试次数，体现了对消息丢失的初步理解。但在深度上，未解释幂等生产者如何杜绝重复、未提及 min.insync.replicas 与事务；在工程上，未给出消费端幂等的具体方案、死信队列和重试策略；广度上，缺失 Broker 端配置、消费者组重平衡影响、积压监控等环节；表达上，未能结构化地将重复消费问题拆解为生产幂等和消费幂两个层面。整体缺乏对“重复消费”这一核心问题的明确解决方案。 最大缺失是完全没有说明消费端如何实现业务幂等以及使用死信队列兜底，这使得‘处理重复消费’这一关键要求落空。 保证 Kafka 消息链路可靠需从生产、Broker、消费三端入手。生产端：启用幂等（enable.idempotence）并设置 acks=all 配合 min.insync.replicas ≥ 2，必要时使用事务保证跨分区原子性；配置合理重试与重试间隔。Broker 端：设置 unclean.leader.election.enable=false 避免数据丢失。消费端：实现业务幂等，例如通过唯一消息 ID 去重表或数据库主键约束；手动提交 offset（处理成功后提交），并在消费逻辑中加入重试机制；将重试仍失败的消息发送到死信队列，避免阻塞分区。最后，建立积压与延迟监控，快速发现异常。这样既能避免消息丢失，又能系统性处理重复消费。",
+  "latency_seconds": 31.581,
+  "provider_invocations": 1
+}

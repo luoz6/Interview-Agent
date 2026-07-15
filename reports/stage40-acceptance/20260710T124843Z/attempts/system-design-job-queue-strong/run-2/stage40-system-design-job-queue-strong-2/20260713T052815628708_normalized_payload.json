@@ -1,0 +1,114 @@
+{
+  "session_id": "stage40-system-design-job-queue-strong-2",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "system-design-job-queue-strong",
+        "question_text": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+        "user_answer": "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。失败采用指数退避和次数限制，最终进入 DLQ。容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。",
+        "score": 54,
+        "dimension_scores": {
+          "breadth": 0,
+          "depth": 60,
+          "architecture": 50,
+          "engineering": 60,
+          "communication": 40
+        },
+        "applicable_dimensions": [
+          "architecture",
+          "engineering",
+          "depth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "architecture",
+            "observed": [
+              "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。",
+              "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+              "失败采用指数退避和次数限制，最终进入 DLQ。"
+            ],
+            "missing": [
+              "未说明持久化存储与消息队列的技术选型和可靠性保证。",
+              "未提及死信队列（DLQ）的监控与重放机制。",
+              "缺少任务状态流转的完整定义。"
+            ],
+            "quality_signals": [
+              "concept",
+              "metric"
+            ]
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。"
+            ],
+            "missing": [
+              "未给出基于数据的容量推算示例。",
+              "未讨论水平扩容与积压自动处理的策略。",
+              "可观测性中缺少日志和分布式追踪的具体设计。"
+            ],
+            "quality_signals": [
+              "concept",
+              "metric",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "depth",
+            "observed": [
+              "生成幂等键",
+              "Worker 通过租约领取任务并续约，节点失联后可重新分配",
+              "指数退避和次数限制，最终进入 DLQ"
+            ],
+            "missing": [
+              "未解释幂等键的生成方式及碰撞风险。",
+              "未深入租约续约的边界条件、超时与脑裂处理。",
+              "DLQ 的后续处理策略（人工干预、自动重试）未说明。"
+            ],
+            "quality_signals": [
+              "concept",
+              "metric",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。",
+              "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+              "失败采用指数退避和次数限制，最终进入 DLQ。",
+              "容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。"
+            ],
+            "missing": [
+              "未主动询问系统需求或期望的 SLA。",
+              "未使用图表或分步骤阐述来辅助说明。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人的回答涵盖了任务队列的核心组件：入口 API 校验、幂等键生成、持久化存储与队列、Worker 租约机制、失败重试策略、死信队列，以及容量估算和监控指标。架构层面给出了完整的端到端流程，工程层面触及了容量规划和可观测性指标，深度上提到了幂等、租约续约和指数退避，沟通上用简洁的线性叙述展示了系统全貌。但缺乏底层选型理由、具体故障场景处理和扩容策略等细节。",
+        "critique": "最大的缺失点是未能具体化死信队列的后续管理和租约机制的故障恢复细节，使设计停留在概要层面。",
+        "better_answer": "可以这样改进：'API 层接收任务后计算 SHA256(业务类型+业务ID) 作为幂等键，先写入 MySQL 记录任务状态为 pending，再发布到 Kafka 分区队列。Worker 通过 SELECT FOR UPDATE 获取任务并租约，使用 Redis 锁续约，若 Worker 崩溃，超时后任务重新分配。重试采用指数退避（1s, 2s, 4s... 上限 10 次），最终转入 MySQL 死信表并告警。容量假设日均 100 万任务，峰值 200 QPS，执行中位数 3 秒，配置 50 个 Worker。可观测性通过 Prometheus 指标记录排队时长、成功率、重试率，并通过 ELK 收集执行日志。' 这样补充了具体技术栈、处理细节和容量推算。",
+        "reference_chunk_ids": [
+          "system-design-job-queue-reference"
+        ],
+        "highlights": [
+          "完整描述了任务从入口到持久化、Worker领取、失败退避到DLQ的流程",
+          "提到了幂等键、租约续约和可观测性指标",
+          "涵盖了容量估算维度和关键监控项"
+        ]
+      }
+    ],
+    "reference_lookup": {
+      "system-design-job-queue-reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "source_type": "benchmark",
+        "excerpt": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator, Protocol
+from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
 
 from pydantic import ValidationError
 
@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from app.services.report import InterviewReport
 
 logger = logging.getLogger(__name__)
+
+REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
 
 
 class MissingLLMConfigError(RuntimeError):
@@ -62,12 +64,14 @@ class OpenAIInterviewLLM:
         config: LLMConfig | None = None,
         chat_model=None,
         trace_recorder=None,
+        report_output_mode: Literal["structured_first", "raw_only"] = "structured_first",
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
         self.config = config
         self.chat_model = chat_model or self._build_chat_model(config or LLMConfig.from_env())
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
+        self.report_output_mode = report_output_mode
 
     def generate_plan(self, job_description: str, resume_text: str):
         from app.services.prep import InterviewPlan
@@ -176,38 +180,39 @@ class OpenAIInterviewLLM:
             session_id=session_id,
         )
         structured_error: Exception | None = None
-        try:
-            provider_payload = self._invoke_structured_report(
-                prompt,
-                ProviderQuestionResultsEnvelope,
-            )
-            return self._normalize_and_assemble_report(
-                provider_payload,
-                evaluation_items,
-                session_id=session_id,
-            )
-        except ReportOutputFormatError as exc:
-            structured_error = exc
-            self._record_trace(
-                session_id,
-                "structured_output_error",
-                {"error": str(exc), "error_type": type(exc).__name__},
-            )
-            logger.warning(
-                "Structured report output was invalid",
-                extra={"session_id": session_id, "reason": str(exc)},
-            )
-        except Exception as exc:
-            structured_error = exc
-            self._record_trace(
-                session_id,
-                "structured_output_error",
-                {"error": str(exc), "error_type": type(exc).__name__},
-            )
-            logger.warning(
-                "Structured report output failed, trying raw JSON path",
-                extra={"session_id": session_id, "reason": str(exc)},
-            )
+        if self.report_output_mode == "structured_first":
+            try:
+                provider_payload = self._invoke_structured_report(
+                    prompt,
+                    ProviderQuestionResultsEnvelope,
+                )
+                return self._normalize_and_assemble_report(
+                    provider_payload,
+                    evaluation_items,
+                    session_id=session_id,
+                )
+            except ReportOutputFormatError as exc:
+                structured_error = exc
+                self._record_trace(
+                    session_id,
+                    "structured_output_error",
+                    {"error": str(exc), "error_type": type(exc).__name__},
+                )
+                logger.warning(
+                    "Structured report output was invalid",
+                    extra={"session_id": session_id, "reason": str(exc)},
+                )
+            except Exception as exc:
+                structured_error = exc
+                self._record_trace(
+                    session_id,
+                    "structured_output_error",
+                    {"error": str(exc), "error_type": type(exc).__name__},
+                )
+                logger.warning(
+                    "Structured report output failed, trying raw JSON path",
+                    extra={"session_id": session_id, "reason": str(exc)},
+                )
 
         try:
             provider_payload = self._invoke_raw_json_report(
@@ -250,17 +255,7 @@ class OpenAIInterviewLLM:
                             "missing": [
                                 "Candidate did not explain the failure mode."
                             ],
-                            "quality_signals": [
-                                "concept",
-                                "concrete_steps",
-                                "tradeoff",
-                                "risk",
-                                "fallback",
-                                "metric",
-                                "production",
-                                "code_or_api",
-                                "clarity",
-                            ],
+                            "quality_signals": [],
                         }
                     ],
                     "rationale": "Explain the evidence in Simplified Chinese.",
@@ -272,6 +267,7 @@ class OpenAIInterviewLLM:
             ],
         }
         return (
+            f"Evidence prompt version: {REPORT_EVIDENCE_PROMPT_VERSION}.\n"
             "You are a strict technical interview coach.\n"
             "Return valid JSON only. Do not return markdown.\n"
             "Return exactly one question_results item for each evaluation item.\n"
@@ -282,10 +278,14 @@ class OpenAIInterviewLLM:
             "The backend computes all numeric scores from evidence.\n"
             "Do not return score or dimension_scores for any question.\n"
             "Do not return overall_score, overall_dimension_scores, summary, or reference objects.\n"
-            "For each question, return dimension_evidence only for dimensions supported by the candidate answer.\n"
-            "Each observed item must quote or paraphrase something the candidate actually said.\n"
+            "For each question, return exactly one dimension_evidence item for every applicable dimension listed in the evaluation item context.\n"
+            "If an applicable dimension has no support, return observed as an empty list and explain the missing evidence in missing.\n"
+            "Do not merge evidence for several dimensions into one dimension item.\n"
+            "Each observed item must be a short continuous excerpt copied from the candidate answer.\n"
+            "Do not prefix observed excerpts with phrases like candidate said, candidate explained, or the answer is clear.\n"
+            "Do not put evaluator judgments, communication-quality summaries, or inferred capabilities in observed; put those only in rationale.\n"
             "Do not award evidence from the question text, job description, reference answer, or benchmark alone.\n"
-            "quality_signals must use only: concept, concrete_steps, tradeoff, risk, fallback, metric, production, code_or_api, clarity.\n"
+            "Always return quality_signals as an empty list; the backend derives scoring signals deterministically from the candidate answer.\n"
             "Use this JSON shape exactly:\n"
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
             f"session_id: {session_id}\n\n"

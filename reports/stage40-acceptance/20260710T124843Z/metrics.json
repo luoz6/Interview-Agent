@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "ranking_accuracy": 1.0,
+  "evidence_grounding_rate": 1.0,
+  "max_score_delta": 0.0,
+  "fallback_rate": 0.0,
+  "completed_attempt_count": 40,
+  "expected_attempt_count": 40,
+  "failed_gates": [],
+  "blocking_failures": []
+}

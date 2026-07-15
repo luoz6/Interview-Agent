@@ -1,0 +1,36 @@
+{
+  "case_id": "system-design-job-queue-incorrect",
+  "group_id": "system-design-job-queue",
+  "quality_level": "incorrect",
+  "run_number": 1,
+  "score": 40,
+  "answer": "我会在每个节点维护 Python 内存列表作为可靠队列。多个节点天然共享这份列表，进程重启任务也不会丢失，所以不需要数据库、消息队列、租约或幂等设计。",
+  "observed": [
+    "我会在每个节点维护 Python 内存列表作为可靠队列。多个节点天然共享这份列表，进程重启任务也不会丢失，所以不需要数据库、消息队列、租约或幂等设计。",
+    "进程重启任务也不会丢失",
+    "我会在每个节点维护 Python 内存列表作为可靠队列。",
+    "我会在每个节点维护 Python 内存列表作为可靠队列。多个节点天然共享这份列表，进程重启任务也不会丢失，所以不需要数据库、消息队列、租约或幂等设计。"
+  ],
+  "required_observations": [
+    "Python 内存列表"
+  ],
+  "forbidden_claims": [
+    "多个节点天然共享"
+  ],
+  "applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人提出了基于 Python 内存列表的方案，声称可以满足需求，但设计完全忽视了分布式任务队列的核心要素：持久化存储、消息可靠投递、节点协调、租约、失败重试和可观测性。内存列表无法跨节点共享，进程重启必然丢失数据，该方案在真实分布式环境中不可行。 最大的问题是完全没有引入持久化消息队列或数据库，导致任务丢失不可避免，也无法实现多节点协调和可靠重试。 我会设计一个包含 API 网关、持久化消息队列（如 Kafka 或 Redis Streams）、多个 worker 节点和可观测性后台的系统。API 接收任务后写入消息队列，worker 通过拉取模式消费任务，执行前获取租约以避免重复，完成后确认删除。失败的任务按指数退避重试，超过上限则转入死信队列。所有组件暴露 Prometheus 指标，采用结构化日志和分布式追踪实现可观测性。同时补充容量估算，例如消息队列的吞吐量和 worker 实例的并发数。",
+  "latency_seconds": 37.747,
+  "provider_invocations": 1
+}

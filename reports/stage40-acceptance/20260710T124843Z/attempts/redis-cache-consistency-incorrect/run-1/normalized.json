@@ -1,0 +1,35 @@
+{
+  "case_id": "redis-cache-consistency-incorrect",
+  "group_id": "redis-cache-consistency",
+  "quality_level": "incorrect",
+  "run_number": 1,
+  "score": 35,
+  "answer": "为了避免缓存失效，我会先更新 Redis，再提交数据库事务，并认为两次写入后天然强一致。即使数据库提交失败也不用处理，因为读请求始终以缓存为准。",
+  "observed": [
+    "我会先更新 Redis，再提交数据库事务，并认为两次写入后天然强一致。",
+    "为了避免缓存失效，我会先更新 Redis，再提交数据库事务，并认为两次写入后天然强一致。即使数据库提交失败也不用处理，因为读请求始终以缓存为准。",
+    "为了避免缓存失效，我会先更新 Redis，再提交数据库事务，并认为两次写入后天然强一致。即使数据库提交失败也不用处理，因为读请求始终以缓存为准。"
+  ],
+  "required_observations": [
+    "先更新 Redis"
+  ],
+  "forbidden_claims": [
+    "天然强一致"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人提出了“先更新Redis再提交数据库事务”的方案，并声称这样可达成强一致性，这一理解是错误的：若数据库提交失败，Redis 中已有写入的数据会成为脏数据，后续读请求全部读到错误数据，且无任何纠正手段。回答中该方案是唯一的操作描述，深度不足，完全未涉及缓存-数据库一致性的根本挑战（如原子性、并发冲突、失效/更新选择）。工程层面没有提及删除失败的重试或消息补偿，也没有任何可观测性设计。在广度上，候选人只局限于这一种有缺陷的实现，未列举行业标准模式（如 Cache-aside、Write-through），也未说明不同场景下的权衡。沟通表达虽流畅，但缺少关键术语和自省，容易传递错误信息。 最大的缺失是完全误解了缓存一致性的目标与原理，提出的方案不仅无法保证强一致性，反而会引入严重脏数据，并且对失败处理毫无意识，反映出对 Redis 缓存一致性缺乏基础知识。 高并发下推荐使用 Cache-aside 模式：先更新数据库，成功后删除缓存。若删除失败，可引入消息队列异步重试或利用数据库 binlog 订阅（如 Canal）来二次删除，确保最终一致性。同时要监控缓存命中率、回源量及接口 p95 延迟，以便及早发现异常。对于强一致性场景可考虑分布式事务或先写数据库再通过 TCC 协调删除，但通常业务可接受短暂不一致。",
+  "latency_seconds": 64.488,
+  "provider_invocations": 1
+}

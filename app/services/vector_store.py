@@ -206,6 +206,30 @@ class PgVectorKnowledgeStore:
             )
         return normalized
 
+    def ensure_schema(self) -> None:
+        psycopg2, _ = self._import_psycopg2()
+        try:
+            with psycopg2.connect(self.dsn) as connection:
+                self._ensure_schema(connection)
+        except Exception as exc:
+            raise RuntimeError('pgvector knowledge store is unavailable') from exc
+
+    def count_chunks(self) -> int:
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with psycopg2.connect(self.dsn) as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        sql.SQL('SELECT COUNT(*) FROM {table}').format(
+                            table=sql.Identifier(self.table_name)
+                        )
+                    )
+                    row = cursor.fetchone()
+        except Exception as exc:
+            raise RuntimeError('pgvector knowledge store is unavailable') from exc
+        return int(row[0]) if row is not None else 0
+
     def _get_embedding_model(self):
         if self._embedding_model is None:
             try:

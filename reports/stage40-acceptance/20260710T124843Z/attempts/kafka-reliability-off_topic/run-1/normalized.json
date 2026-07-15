@@ -1,0 +1,29 @@
+{
+  "case_id": "kafka-reliability-off_topic",
+  "group_id": "kafka-reliability",
+  "quality_level": "off_topic",
+  "run_number": 1,
+  "score": 0,
+  "answer": "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。这能提升页面加载速度，但没有回答 Kafka 可靠性。",
+  "observed": [
+    "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。"
+  ],
+  "required_observations": [],
+  "forbidden_claims": [],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人的回答围绕前端性能优化（图片压缩、缓存、CDN）展开，与 Kafka 消息可靠性完全无关，因此在深度、工程、广度三个维度均未提供任何相关证据；沟通维度仅表明表达流畅，但内容严重偏题。 最大的缺失点是完全没有回答 Kafka 可靠性的任何方面，导致所有相关维度均无实质内容。 要保证 Kafka 消息链路可靠，首先在生产者端需启用幂等性（enable.idempotence）并选择合适的 acks 级别（如 acks=all），设置合理的重试机制与超时时间，防止消息丢失或乱序。其次，消费者端需实现业务幂等（如根据唯一键去重），采用手动提交 offset 并在处理成功后提交，结合重试与死信队列处理可重试失败的消息。同时监控消费者组积压（lag），配置告警。对于重复消费，可在消费逻辑中使用数据库唯一约束或 Redis 幂等标记，将重复消息识别并丢弃。全链路还需考虑 Broker 端的副本因子、min.insync.replicas 及磁盘可靠性配置。",
+  "latency_seconds": 14.332,
+  "provider_invocations": 1
+}

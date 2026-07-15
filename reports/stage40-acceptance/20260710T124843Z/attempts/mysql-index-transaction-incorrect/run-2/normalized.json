@@ -1,0 +1,37 @@
+{
+  "case_id": "mysql-index-transaction-incorrect",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "incorrect",
+  "run_number": 2,
+  "score": 35,
+  "answer": "我会给表中每一列都建立索引，因为所有索引都提升写入速度。事务统一持有最长时间的锁，也不用分析执行计划，只要存在索引 MySQL 就一定使用。",
+  "observed": [
+    "我会给表中每一列都建立索引，因为所有索引都提升写入速度。",
+    "事务统一持有最长时间的锁，也不用分析执行计划，只要存在索引 MySQL 就一定使用。",
+    "不用分析执行计划",
+    "只要存在索引 MySQL 就一定使用",
+    "我会给表中每一列都建立索引，因为所有索引都提升写入速度。"
+  ],
+  "required_observations": [
+    "每一列都建立索引"
+  ],
+  "forbidden_claims": [
+    "所有索引都提升写入速度"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人的回答暴露出对 MySQL 索引和事务的核心误解：错误认为索引能提升写入速度，坚持全表每列索引，忽视最左前缀和执行计划验证；事务方面主张长时间持锁，且未提及隔离级别和锁范围。所有维度均缺乏正确实践和理解，故需要明确指出缺失点。 最大的缺失是完全忽略了索引对写入的负面影响以及联合索引的最左前缀规则，同时没有考虑事务隔离级别和锁范围，导致方案在实际生产中不可行。 设计联合索引时应首先分析查询的 WHERE、JOIN、ORDER BY 和 GROUP BY 条件，遵循最左前缀原则安排列顺序；使用 EXPLAIN 验证索引实际被使用和效率。对于事务，根据一致性需求选择适当的隔离级别（如 READ-COMMITTED），尽量缩短事务时间，避免长事务持有锁；留意范围查询可能导致的间隙锁，必要时合理设计索引减少锁定范围，并明确回滚路径。",
+  "latency_seconds": 31.909,
+  "provider_invocations": 1
+}

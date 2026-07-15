@@ -1,0 +1,45 @@
+{
+  "case_id": "mysql-index-transaction-strong",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "strong",
+  "run_number": 2,
+  "score": 69,
+  "answer": "我会根据真实 SQL 的等值、范围和排序条件设计联合索引，遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra。事务按一致性需求选择隔离级别，把外部调用移出事务以缩短持锁时间，确认范围查询的 next-key lock，并准备回滚。上线后比较慢查询 p95、扫描行数和锁等待。",
+  "observed": [
+    "遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra。",
+    "确认范围查询的 next-key lock，并准备回滚。",
+    "把外部调用移出事务以缩短持锁时间，",
+    "上线后比较慢查询 p95、扫描行数和锁等待。",
+    "设计联合索引，遵循最左前缀",
+    "按一致性需求选择隔离级别",
+    "确认范围查询的 next-key lock",
+    "上线后比较慢查询 p95、扫描行数和锁等待",
+    "我会根据真实 SQL 的等值、范围和排序条件设计联合索引，遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra。事务按一致性需求选择隔离级别，把外部调用移出事务以缩短持锁时间，确认范围查询的 next-key lock，并准备回滚。上线后比较慢查询 p95、扫描行数和锁等待。"
+  ],
+  "required_observations": [
+    "最左前缀",
+    "EXPLAIN",
+    "隔离级别",
+    "回滚",
+    "慢查询 p95"
+  ],
+  "forbidden_claims": [
+    "所有索引都提升写入"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "回答提到了联合索引最左前缀原则和 EXPLAIN 验证，对索引设计有基本理解；事务方面指出了隔离级别选择、缩短持锁时间、next-key lock 和回滚，覆盖了关键点；工程上提及上线后的监控指标。但深度上缺乏对索引内部机制和锁行为的细致剖析，工程层面未给出具体的诊断工具和优化细节，广度上缺少覆盖索引、死锁等内容，沟通可结合示例进一步增强。 最大的缺失是未结合具体 SQL 演示联合索引的列顺序选择，也未说明 InnoDB 在 REPEATABLE READ 下间隙锁与 next-key lock 的实际影响，整段回答停留在概要层面。 我会先写出真实 SQL，例如 WHERE status = 'active' AND created_at > '2024-01-01' ORDER BY updated_at，然后设计 (status, created_at, updated_at) 联合索引，利用最左前缀匹配等值和范围，同时避免 filesort。再用 EXPLAIN 确认 type 为 range、key 使用该索引且 Extra 无 Using filesort。事务上，若只需已提交读，采用 READ COMMITTED 避免间隙锁以减少锁范围；若需可重复读，需注意范围条件的 next-key lock 会锁定间隙，可通过缩小事务、尽早提交或拆分批处理来缩短持锁时间。还会通过 SELECT ... FOR UPDATE 锁定必要行，并设置 innodb_lock_wait_timeout 和死锁检测，必要时查询 performance_schema.data_locks 分析锁等待。上线后监控慢查询 p95、rows_examined 和锁等待次数，持续优化索引和事务策略。",
+  "latency_seconds": 42.626,
+  "provider_invocations": 1
+}

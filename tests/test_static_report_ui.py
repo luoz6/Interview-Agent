@@ -109,6 +109,12 @@ def test_report_detail_page_has_runtime_hooks():
     for element_id in (
         "reportStatus",
         "reportScore",
+        "reportScoreHint",
+        "reportScoreBadge",
+        "reportTechnicalScore",
+        "reportArchitectureScore",
+        "reportCommunicationScore",
+        "reportEngineeringScore",
         "reportSummary",
         "dimensionScores",
         "reportHighlights",
@@ -120,7 +126,51 @@ def test_report_detail_page_has_runtime_hooks():
         "reportNotice",
     ):
         assert f'id="{element_id}"' in html
-    assert "/static/report-detail.js?v=20260707-report-actions" in html
+    assert "/static/report-detail.js?v=20260710-score-cards" in html
+
+
+def test_report_detail_top_score_cards_are_data_bound_not_mock_values():
+    html = read_app_file("test1.html")
+    js = read_static_file("report-detail.js")
+
+    assert 'id="reportTechnicalScore"' in html
+    assert 'id="reportArchitectureScore"' in html
+    assert 'id="reportCommunicationScore"' in html
+    assert 'id="reportEngineeringScore"' in html
+    assert ">86</span>" not in html
+    assert ">82</span>" not in html
+    assert ">80</span>" not in html
+    assert ">88</span>" not in html
+    assert "超过 76% 的候选人" not in html
+    assert "表现良好" not in html
+    assert 'const reportScoreHint = byId("reportScoreHint")' in js
+    assert 'const reportScoreBadge = byId("reportScoreBadge")' in js
+    assert "function renderScoreSummary(score)" in js
+    assert "renderScoreSummary(report.overall_score)" in js
+    assert 'const reportTechnicalScore = byId("reportTechnicalScore")' in js
+    assert "function renderTopDimensionCards(scores)" in js
+    assert "safeScores.depth ?? 0" in js
+    assert "safeScores.architecture ?? 0" in js
+    assert "safeScores.communication ?? 0" in js
+    assert "safeScores.engineering ?? 0" in js
+    assert "renderTopDimensionCards(report.overall_dimension_scores || {})" in js
+
+
+def test_report_detail_renders_backend_scoring_evidence():
+    html = read_app_file("test1.html")
+    js = read_static_file("report-detail.js")
+
+    assert 'id="scoringOwnershipNotice"' in html
+    assert "function renderScoringEvidence(feedback)" in js
+    assert "applicable_dimensions" in js
+    assert "dimension_evidence" in js
+    assert "observed" in js
+    assert "missing" in js
+    assert "quality_signals" in js
+    assert "legacyScoringEvidenceMessage" in js
+    assert "toDimensionLabel" in js
+    assert "dimensionLabels" not in js
+    assert "innerHTML" not in js
 
 
 def test_report_center_page_has_runtime_hooks():
