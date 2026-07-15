@@ -199,7 +199,7 @@ Python、FastAPI、Redis、MySQL、SQLAlchemy、Docker、Git、Kafka、Linux</te
 
                     <p id="prepStatus" class="text-[12px] text-gray-500" hidden></p>
 
-                    <div class="flex gap-4 pt-2">
+                    <div id="prepActions" class="flex gap-4 pt-2">
                         <button id="restoreDraftButton" type="button" class="px-7 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-[14px] font-medium transition-colors flex items-center gap-2 shadow-sm">
                             <i class="fa-solid fa-rotate-left text-gray-500"></i> 恢复草稿
                         </button>
@@ -300,8 +300,9 @@ Python、FastAPI、Redis、MySQL、SQLAlchemy、Docker、Git、Kafka、Linux</te
                         </div>
 
                         <div class="pt-6 border-t border-gray-100 mt-6">
-                            <div class="text-[14px] font-bold text-gray-800 mb-3 flex items-center gap-2">
-                                <i class="fa-solid fa-brain text-gray-400"></i> Knowledge Agent 预热
+                            <div class="text-[14px] font-bold text-gray-800 mb-3 flex items-center justify-between gap-2">
+                                <span class="flex items-center gap-2"><i class="fa-solid fa-brain text-gray-400"></i> Knowledge Agent 预热</span>
+                                <span id="prepKnowledgeStatus" class="px-2 py-0.5 rounded border text-[11px] font-medium" hidden></span>
                             </div>
                             <p id="prepContextSummary" class="text-[12px] text-gray-500 leading-relaxed mb-4">等待生成面试计划后展示考点预热结果。</p>
                             <div id="prepContextTopics" class="flex flex-wrap gap-2 mb-4"></div>

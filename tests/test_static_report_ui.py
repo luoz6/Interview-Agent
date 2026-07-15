@@ -51,6 +51,7 @@ def test_prep_page_has_knowledge_preheat_runtime_hooks():
 
     for element_id in (
         "prepContextSummary",
+        "prepKnowledgeStatus",
         "prepContextTopics",
         "prepQuestionHints",
     ):
@@ -61,11 +62,33 @@ def test_prep_js_renders_knowledge_preheat_context():
     js = read_static_file("prep.js")
 
     assert 'const prepContextSummary = byId("prepContextSummary")' in js
+    assert 'const prepKnowledgeStatus = byId("prepKnowledgeStatus")' in js
     assert 'const prepContextTopics = byId("prepContextTopics")' in js
     assert 'const prepQuestionHints = byId("prepQuestionHints")' in js
     assert "function renderPrepContext(prepContext)" in js
     assert "prepContext.topics" in js
     assert "prepContext.question_hints" in js
+    assert "function renderQuestionEvidence" in js
+    assert "candidate_summary" in js
+    assert "evidence_refs" in js
+    assert "提问依据" in js
+    assert "knowledge_status" in js
+    assert "content_sha256" not in js
+    assert "corpus_manifest_sha256" not in js
+
+
+def test_prep_mobile_keeps_plan_and_evidence_preview_visible():
+    html = read_app_file("test4.html")
+    css = read_static_file("prototype-source.css")
+
+    assert 'id="prepActions"' in html
+    assert (
+        "body > div > main > div.flex.gap-8.flex-1 > div:last-child {\n"
+        "    display: block !important;"
+    ) in css
+    assert "width: 100% !important;" in css
+    assert "overflow-wrap: anywhere;" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
 
 
 def test_interview_page_has_runtime_hooks():

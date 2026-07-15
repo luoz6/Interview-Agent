@@ -9,14 +9,30 @@ async function startInterview(page) {
   await page.locator("#resumeText").fill(resume);
   await page.locator("#prepButton").click();
   await expect(page.locator("#planQuestions li")).toHaveCount(3);
+  await expect(page.locator("#prepKnowledgeStatus")).toHaveText("知识检索完成");
+  await expect(page.locator('[data-evidence-id="redis_consistency"]').first()).toBeVisible();
+  const prepEvidenceIds = await page.locator("[data-evidence-id]").evaluateAll((items) => (
+    [...new Set(items.map((item) => item.dataset.evidenceId))].sort()
+  ));
   await page.locator("#startButton").click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
   await expect(page.locator("#sessionStatus")).toHaveText("active");
-  return new URL(page.url()).searchParams.get("session_id");
+  return {
+    sessionId: new URL(page.url()).searchParams.get("session_id"),
+    prepEvidenceIds,
+  };
 }
 
 test("prep, SSE answer, refresh, conflict recovery, report and PDF", async ({ page, request }) => {
-  const sessionId = await startInterview(page);
+  const { sessionId, prepEvidenceIds } = await startInterview(page);
+
+  const persistedPrep = await request.get(`/api/interviews/${sessionId}`);
+  const persistedBody = await persistedPrep.json();
+  const persistedEvidenceIds = persistedBody.prep_context.evidence_refs
+    .map((item) => item.evidence_id)
+    .sort();
+  expect(persistedEvidenceIds).toEqual(prepEvidenceIds);
+  expect(JSON.stringify(persistedBody.prep_context)).not.toContain("content_sha256");
 
   await page.locator("#answerInput").fill("I used cache-aside and database fallback.");
   await page.locator("#sendAnswerButton").click();
@@ -44,6 +60,33 @@ test("prep, SSE answer, refresh, conflict recovery, report and PDF", async ({ pa
   expect(pdf.status()).toBe(200);
   expect(pdf.headers()["content-type"]).toContain("application/pdf");
   expect((await pdf.body()).length).toBeGreaterThan(1000);
+});
+
+test("prep evidence remains visible and bounded on mobile", async ({ page }) => {
+  await page.goto("/prep");
+  await page.locator("#jobDescription").fill(jd);
+  await page.locator("#resumeText").fill(resume);
+  await page.locator("#prepButton").click();
+
+  await expect(page.locator("#prepKnowledgeStatus")).toHaveText("知识检索完成");
+  await expect(page.locator('[data-evidence-id="redis_consistency"]').first()).toBeVisible();
+  const widths = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+  await expect(page.locator("body")).not.toContainText("Internal benchmark answer");
+});
+
+test("degraded prep is explicit and creates no evidence references", async ({ page }) => {
+  await page.goto("/prep");
+  await page.locator("#jobDescription").fill("Backend Redis role simulate degraded");
+  await page.locator("#resumeText").fill("Built Redis APIs");
+  await page.locator("#prepButton").click();
+
+  await expect(page.locator("#prepKnowledgeStatus")).toHaveText("知识检索降级");
+  await expect(page.locator("#planQuestions")).toContainText("本题未附加可信知识依据");
+  await expect(page.locator("[data-evidence-id]")).toHaveCount(0);
 });
 
 test("missing session pages expose safe errors", async ({ page }) => {

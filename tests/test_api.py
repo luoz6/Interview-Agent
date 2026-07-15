@@ -10,6 +10,7 @@ from app.services.prep import (
     KnowledgeBindingSnapshot,
     KnowledgeEvidenceRef,
     PrepContext,
+    PrepQuestionHint,
 )
 from app.services.report import InterviewReport
 from app.services.runtime import get_draft_store
@@ -190,6 +191,73 @@ def test_start_interview_persists_plan_prep_context_in_session_snapshot():
     body = response.json()
     assert body["questions"][1]["id"] == "q2"
     assert body["messages"][0]["role"] == "interviewer"
+
+
+def test_session_snapshot_restores_safe_public_evidence_binding(monkeypatch):
+    plan = InterviewPlan(
+        title="Grounded persisted plan",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis consistency.",
+                focus="Redis",
+            )
+        ],
+        prep_context=PrepContext(
+            schema_version="v2",
+            summary="Grounded prep.",
+            knowledge_status="completed",
+            evidence_refs=[
+                KnowledgeEvidenceRef(
+                    evidence_id="redis_consistency",
+                    title="Redis Cache Consistency",
+                    domain="redis",
+                    source_type="theory",
+                    score=0.91,
+                    content_sha256="a" * 64,
+                    corpus_manifest_sha256="b" * 64,
+                    candidate_summary="缓存一致性机制提问依据。",
+                )
+            ],
+            question_hints=[
+                PrepQuestionHint(
+                    question_id="q1",
+                    evidence_ids=["redis_consistency"],
+                    evidence_titles=["Redis Cache Consistency"],
+                )
+            ],
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id="private-prep-run",
+                corpus_manifest_sha256="b" * 64,
+                status="completed",
+            ),
+        ),
+    )
+    monkeypatch.setattr(route_module, "prepare_interview", lambda *_args, **_kwargs: plan)
+    client = make_client()
+
+    started = client.post(
+        "/api/interviews",
+        json={"job_description": "Redis role", "resume_text": "Redis project"},
+    ).json()
+    response = client.get(f"/api/interviews/{started['session_id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["prep_context"]["knowledge_status"] == "completed"
+    assert body["prep_context"]["question_hints"][0]["evidence_ids"] == [
+        "redis_consistency"
+    ]
+    assert body["prep_context"]["evidence_refs"][0] == {
+        "evidence_id": "redis_consistency",
+        "title": "Redis Cache Consistency",
+        "domain": "redis",
+        "source_type": "theory",
+        "candidate_summary": "缓存一致性机制提问依据。",
+    }
+    assert "content_sha256" not in response.text
+    assert "private-prep-run" not in response.text
 
 
 def test_prepare_endpoint_does_not_require_session_store(monkeypatch):

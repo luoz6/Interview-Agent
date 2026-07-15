@@ -1,7 +1,15 @@
 import app.api.routes as route_module
 from app.main import app
 from app.services.event_publisher import NoopRuntimeEventPublisher
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    KnowledgeEvidenceRef,
+    PrepContext,
+    PrepKnowledgeTopic,
+    PrepQuestionHint,
+)
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.session import InterviewSessionStore
@@ -117,9 +125,107 @@ browser_llm = BrowserTestLLM()
 
 
 def prepare_browser_interview(job_description, resume_text, llm=None):
-    return (llm or browser_llm).generate_plan(
+    plan = (llm or browser_llm).generate_plan(
         job_description,
         resume_text,
+    )
+    if "simulate degraded" in job_description.lower():
+        return plan.model_copy(
+            update={
+                "prep_context": PrepContext(
+                    schema_version="v2",
+                    summary="知识检索已降级，Provider 生成的面试计划仍可使用。",
+                    knowledge_status="degraded",
+                    question_hints=[
+                        PrepQuestionHint(question_id=question.id)
+                        for question in plan.questions
+                    ],
+                    binding_snapshot=KnowledgeBindingSnapshot(
+                        prep_run_id="browser-degraded",
+                        corpus_manifest_sha256="",
+                        status="degraded",
+                        degraded_reason="knowledge_unavailable",
+                    ),
+                )
+            }
+        )
+
+    manifest_hash = "b" * 64
+    evidence = [
+        KnowledgeEvidenceRef(
+            evidence_id="redis_consistency",
+            title="Redis Cache Consistency",
+            domain="redis",
+            source_type="theory",
+            score=0.91,
+            content_sha256="a" * 64,
+            corpus_manifest_sha256=manifest_hash,
+            candidate_summary="缓存一致性机制与并发读写取舍。",
+        ),
+        KnowledgeEvidenceRef(
+            evidence_id="system_design_backend",
+            title="Backend System Design Benchmark",
+            domain="system-design",
+            source_type="expert_benchmark",
+            score=0.88,
+            content_sha256="c" * 64,
+            corpus_manifest_sha256=manifest_hash,
+            candidate_summary="容量、故障隔离与降级边界。",
+        ),
+    ]
+    hints = [
+        PrepQuestionHint(
+            question_id="q1",
+            topic_ids=["topic-redis"],
+            evidence_ids=["redis_consistency"],
+            evidence_titles=["Redis Cache Consistency"],
+        ),
+        PrepQuestionHint(
+            question_id="q2",
+            topic_ids=["topic-redis"],
+            evidence_ids=["redis_consistency"],
+            evidence_titles=["Redis Cache Consistency"],
+        ),
+        PrepQuestionHint(
+            question_id="q3",
+            topic_ids=["topic-system-design"],
+            evidence_ids=["system_design_backend"],
+            evidence_titles=["Backend System Design Benchmark"],
+        ),
+    ]
+    return plan.model_copy(
+        update={
+            "prep_context": PrepContext(
+                schema_version="v2",
+                summary="Knowledge Agent 预热了 2 条可信知识证据，并为 3 道题绑定了提问依据。",
+                knowledge_status="completed",
+                topics=[
+                    PrepKnowledgeTopic(
+                        id="topic-redis",
+                        label="Redis",
+                        source="retrieval",
+                        evidence="Redis trusted evidence",
+                        tags=["redis"],
+                        evidence_ids=["redis_consistency"],
+                    ),
+                    PrepKnowledgeTopic(
+                        id="topic-system-design",
+                        label="系统设计",
+                        source="retrieval",
+                        evidence="System design trusted evidence",
+                        tags=["system-design"],
+                        evidence_ids=["system_design_backend"],
+                    ),
+                ],
+                question_hints=hints,
+                evidence_refs=evidence,
+                binding_snapshot=KnowledgeBindingSnapshot(
+                    prep_run_id="browser-completed",
+                    corpus_manifest_sha256=manifest_hash,
+                    status="completed",
+                ),
+            )
+        }
     )
 
 

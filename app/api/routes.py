@@ -184,7 +184,11 @@ def get_interview_session(
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
-        return store.snapshot(session_id)
+        snapshot = store.snapshot(session_id)
+        state = store.get(session_id)
+        public_plan = public_interview_plan_payload(state["plan"])
+        snapshot["prep_context"] = public_plan.get("prep_context")
+        return snapshot
     except ValueError as exc:
         _raise_value_error(exc)
 
