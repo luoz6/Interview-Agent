@@ -64,7 +64,7 @@ def test_from_env_defaults_to_local_postgres(monkeypatch):
 
     assert store.dsn == DEFAULT_POSTGRES_DSN
     assert store.table_name == "knowledge_chunks"
-    assert store.minimum_score == 0.35
+    assert store.minimum_score == 0.45
 
 
 def test_repository_errors_do_not_expose_dsn_credentials():

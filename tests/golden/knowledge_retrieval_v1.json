@@ -1,0 +1,240 @@
+{
+  "version": "stage42-knowledge-retrieval-v1",
+  "cases": [
+    {
+      "case_id": "redis-consistency-mechanism",
+      "category": "relevant",
+      "domain": "redis",
+      "query_text": "cache-aside database update then cache delete race consistency",
+      "canonical_tags": ["redis"],
+      "relevant_chunk_ids": ["redis_consistency"]
+    },
+    {
+      "case_id": "redis-hot-key-breakdown",
+      "category": "relevant",
+      "domain": "redis",
+      "query_text": "hot key expires concurrent cache misses single flight database overload",
+      "canonical_tags": ["redis"],
+      "relevant_chunk_ids": ["cache_breakdown"]
+    },
+    {
+      "case_id": "redis-production-operations",
+      "category": "relevant",
+      "domain": "redis",
+      "query_text": "redis eviction blocked clients hit ratio replication lag production monitoring",
+      "canonical_tags": ["redis"],
+      "relevant_chunk_ids": ["redis_operations"]
+    },
+    {
+      "case_id": "redis-lock-safety",
+      "category": "relevant",
+      "domain": "redis",
+      "query_text": "distributed lock owner token atomic release lease expiry fencing token",
+      "canonical_tags": ["redis"],
+      "relevant_chunk_ids": ["redis_distributed_lock"]
+    },
+    {
+      "case_id": "fastapi-request-lifecycle",
+      "category": "relevant",
+      "domain": "fastapi",
+      "query_text": "FastAPI ASGI dependency validation handler response cleanup request lifecycle",
+      "canonical_tags": ["fastapi"],
+      "relevant_chunk_ids": ["fastapi_request_lifecycle"]
+    },
+    {
+      "case_id": "fastapi-blocking-io",
+      "category": "relevant",
+      "domain": "fastapi",
+      "query_text": "blocking synchronous SDK inside async endpoint event loop tail latency",
+      "canonical_tags": ["fastapi"],
+      "relevant_chunk_ids": ["fastapi_blocking_io"]
+    },
+    {
+      "case_id": "fastapi-production-engineering",
+      "category": "relevant",
+      "domain": "fastapi",
+      "query_text": "FastAPI timeout budgets readiness graceful shutdown load test observability",
+      "canonical_tags": ["fastapi"],
+      "relevant_chunk_ids": ["fastapi_production"]
+    },
+    {
+      "case_id": "fastapi-dependency-scope",
+      "category": "relevant",
+      "domain": "fastapi",
+      "query_text": "yield dependency per request cache lifespan startup shared client cleanup",
+      "canonical_tags": ["fastapi"],
+      "relevant_chunk_ids": ["fastapi_dependency_lifecycle"]
+    },
+    {
+      "case_id": "mysql-covering-index",
+      "category": "relevant",
+      "domain": "mysql",
+      "query_text": "MySQL leftmost prefix covering index EXPLAIN scanned rows query optimization",
+      "canonical_tags": ["mysql"],
+      "relevant_chunk_ids": ["mysql_indexing"]
+    },
+    {
+      "case_id": "mysql-deadlock-failure",
+      "category": "relevant",
+      "domain": "mysql",
+      "query_text": "InnoDB deadlock lock cycle consistent row order bounded transaction retry",
+      "canonical_tags": ["mysql"],
+      "relevant_chunk_ids": ["mysql_deadlocks"]
+    },
+    {
+      "case_id": "mysql-online-schema-change",
+      "category": "relevant",
+      "domain": "mysql",
+      "query_text": "online schema migration dual compatible code backfill replication lag throttle",
+      "canonical_tags": ["mysql"],
+      "relevant_chunk_ids": ["mysql_online_migration"]
+    },
+    {
+      "case_id": "mysql-transaction-isolation",
+      "category": "relevant",
+      "domain": "mysql",
+      "query_text": "InnoDB repeatable read snapshot next key locks read committed anomalies",
+      "canonical_tags": ["mysql"],
+      "relevant_chunk_ids": ["mysql_isolation"]
+    },
+    {
+      "case_id": "kafka-delivery-semantics",
+      "category": "relevant",
+      "domain": "kafka",
+      "query_text": "Kafka at least once consumer idempotent side effects partition ordering delivery",
+      "canonical_tags": ["kafka"],
+      "relevant_chunk_ids": ["kafka_delivery"]
+    },
+    {
+      "case_id": "kafka-poison-message",
+      "category": "relevant",
+      "domain": "kafka",
+      "query_text": "poison message deterministic failure bounded retry dead letter topic replay",
+      "canonical_tags": ["kafka"],
+      "relevant_chunk_ids": ["kafka_poison_messages"]
+    },
+    {
+      "case_id": "kafka-consumer-operations",
+      "category": "relevant",
+      "domain": "kafka",
+      "query_text": "consumer lag drain time retry volume rebalance count operations runbook",
+      "canonical_tags": ["kafka"],
+      "relevant_chunk_ids": ["kafka_operations"]
+    },
+    {
+      "case_id": "kafka-group-rebalancing",
+      "category": "relevant",
+      "domain": "kafka",
+      "query_text": "consumer group rebalance partition assignment max poll revoke commit offsets",
+      "canonical_tags": ["kafka"],
+      "relevant_chunk_ids": ["kafka_rebalancing"]
+    },
+    {
+      "case_id": "system-stateless-scaling",
+      "category": "relevant",
+      "domain": "system-design",
+      "query_text": "stateless horizontal service scaling shared database cache queue bottlenecks",
+      "canonical_tags": ["system-design"],
+      "relevant_chunk_ids": ["service_scaling"]
+    },
+    {
+      "case_id": "system-cascading-failure",
+      "category": "relevant",
+      "domain": "system-design",
+      "query_text": "slow dependency retry storm queue saturation circuit breaker load shedding",
+      "canonical_tags": ["system-design"],
+      "relevant_chunk_ids": ["cascading_failures"]
+    },
+    {
+      "case_id": "system-capacity-planning",
+      "category": "relevant",
+      "domain": "system-design",
+      "query_text": "peak request rate storage growth concurrency headroom capacity estimate load test",
+      "canonical_tags": ["system-design"],
+      "relevant_chunk_ids": ["capacity_planning"]
+    },
+    {
+      "case_id": "system-queue-backpressure",
+      "category": "relevant",
+      "domain": "system-design",
+      "query_text": "queue arrival rate exceeds service rate backlog age admission control backpressure",
+      "canonical_tags": ["system-design"],
+      "relevant_chunk_ids": ["queue_backpressure"]
+    },
+    {
+      "case_id": "weak-redis-hotspot",
+      "category": "weak_keyword",
+      "domain": "redis",
+      "query_text": "热点缓存同时失效时怎样避免请求一起打到数据库",
+      "canonical_tags": ["redis"],
+      "relevant_chunk_ids": ["cache_breakdown"]
+    },
+    {
+      "case_id": "weak-fastapi-sync-call",
+      "category": "weak_keyword",
+      "domain": "fastapi",
+      "query_text": "ASGI 接口里调用同步客户端后其他请求都变慢",
+      "canonical_tags": ["fastapi"],
+      "relevant_chunk_ids": ["fastapi_blocking_io"]
+    },
+    {
+      "case_id": "weak-mysql-large-table-change",
+      "category": "weak_keyword",
+      "domain": "mysql",
+      "query_text": "不停机给线上大表加字段并逐步补历史数据",
+      "canonical_tags": ["mysql"],
+      "relevant_chunk_ids": ["mysql_online_migration"]
+    },
+    {
+      "case_id": "weak-kafka-bad-record",
+      "category": "weak_keyword",
+      "domain": "kafka",
+      "query_text": "一条坏消息反复失败导致整个分区消费卡住",
+      "canonical_tags": ["kafka"],
+      "relevant_chunk_ids": ["kafka_poison_messages"]
+    },
+    {
+      "case_id": "weak-system-downstream-slow",
+      "category": "weak_keyword",
+      "domain": "system-design",
+      "query_text": "下游变慢以后重试越来越多最终拖垮整条调用链",
+      "canonical_tags": ["system-design"],
+      "relevant_chunk_ids": ["cascading_failures"]
+    },
+    {
+      "case_id": "negative-redis-hr",
+      "category": "negative",
+      "domain": "redis",
+      "query_text": "employee vacation approval payroll and annual leave policy",
+      "canonical_tags": ["redis"]
+    },
+    {
+      "case_id": "negative-fastapi-design",
+      "category": "negative",
+      "domain": "fastapi",
+      "query_text": "graphic design typography brand colors and poster layout",
+      "canonical_tags": ["fastapi"]
+    },
+    {
+      "case_id": "negative-mysql-recipe",
+      "category": "negative",
+      "domain": "mysql",
+      "query_text": "bread recipe baking temperature flour butter and yeast",
+      "canonical_tags": ["mysql"]
+    },
+    {
+      "case_id": "negative-kafka-travel",
+      "category": "negative",
+      "domain": "kafka",
+      "query_text": "hotel itinerary passport visa and airport travel planning",
+      "canonical_tags": ["kafka"]
+    },
+    {
+      "case_id": "negative-system-music",
+      "category": "negative",
+      "domain": "system-design",
+      "query_text": "classical piano chord progression harmony and music practice",
+      "canonical_tags": ["system-design"]
+    }
+  ]
+}

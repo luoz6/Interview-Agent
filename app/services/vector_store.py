@@ -12,6 +12,7 @@ from app.services.config import get_pgvector_table, get_postgres_dsn
 
 
 KnowledgeSearchStore = KnowledgeRepository
+DEFAULT_KNOWLEDGE_MIN_SCORE = 0.45
 
 
 class KnowledgeChunk(BaseModel):
@@ -34,7 +35,7 @@ class PgVectorKnowledgeStore:
         embedding_model_name: str,
         embedding_dimension: int,
         embedding_model=None,
-        minimum_score: float = 0.35,
+        minimum_score: float = DEFAULT_KNOWLEDGE_MIN_SCORE,
     ) -> None:
         self.dsn = dsn
         self.table_name = table_name
@@ -52,7 +53,9 @@ class PgVectorKnowledgeStore:
             table_name=get_pgvector_table(),
             embedding_model_name=os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3"),
             embedding_dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
-            minimum_score=float(os.getenv("KNOWLEDGE_MIN_SCORE", "0.35")),
+            minimum_score=float(
+                os.getenv("KNOWLEDGE_MIN_SCORE", str(DEFAULT_KNOWLEDGE_MIN_SCORE))
+            ),
         )
 
     def upsert_chunks(self, chunks: list[KnowledgeChunk]) -> None:
