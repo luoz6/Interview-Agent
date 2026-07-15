@@ -1,6 +1,8 @@
 ---
+id: mysql_backend
 domain: mysql
 source_type: expert_benchmark
+content_kind: benchmark
 tags: [mysql, backend, database]
 title: MySQL Backend Project Benchmark
 ---

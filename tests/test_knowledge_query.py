@@ -61,5 +61,9 @@ def test_query_text_is_normalized_and_bounded():
         "backend engineer | senior | redis | cache | interview evidence"
     )
     assert query.top_k == 5
-    assert query.source_types == ["theory", "expert_benchmark"]
+    assert query.source_types == [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark",
+    ]
     assert len(query.query_text) <= 240

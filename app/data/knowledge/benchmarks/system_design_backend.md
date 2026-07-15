@@ -1,6 +1,8 @@
 ---
+id: system_design_backend
 domain: system-design
 source_type: expert_benchmark
+content_kind: benchmark
 tags: [system-design, backend, architecture]
 title: Backend System Design Benchmark
 ---

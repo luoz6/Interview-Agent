@@ -1,6 +1,8 @@
 ---
+id: cache_breakdown
 domain: redis
 source_type: theory
+content_kind: failure_mode
 tags: [redis, cache, hotkey]
 title: Cache Breakdown
 ---

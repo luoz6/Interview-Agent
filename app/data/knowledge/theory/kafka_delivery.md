@@ -1,6 +1,8 @@
 ---
+id: kafka_delivery
 domain: kafka
 source_type: theory
+content_kind: mechanism
 tags: [kafka, delivery, consumer]
 title: Kafka Delivery Semantics
 ---

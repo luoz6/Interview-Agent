@@ -1,6 +1,8 @@
 ---
+id: service_scaling
 domain: system-design
 source_type: theory
+content_kind: mechanism
 tags: [system-design, scaling, architecture]
 title: Service Scaling
 ---

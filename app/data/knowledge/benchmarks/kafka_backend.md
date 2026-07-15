@@ -1,6 +1,8 @@
 ---
+id: kafka_backend
 domain: kafka
 source_type: expert_benchmark
+content_kind: benchmark
 tags: [kafka, backend, messaging]
 title: Kafka Backend Project Benchmark
 ---

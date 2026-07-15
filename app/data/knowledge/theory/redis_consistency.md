@@ -1,6 +1,8 @@
 ---
+id: redis_consistency
 domain: redis
 source_type: theory
+content_kind: mechanism
 tags: [redis, consistency, cache]
 title: Redis Cache Consistency
 ---

@@ -1,6 +1,8 @@
 ---
+id: redis_backend
 domain: redis
 source_type: expert_benchmark
+content_kind: benchmark
 tags: [redis, backend, cache]
 title: Redis Backend Project Benchmark
 ---

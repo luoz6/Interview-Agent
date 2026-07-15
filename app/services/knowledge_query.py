@@ -11,7 +11,7 @@ from app.services.prep import RoleProfile
 
 
 QUERYABLE_TOPIC_TAGS = {"fastapi", "redis", "mysql", "kafka", "system-design"}
-DEFAULT_SOURCE_TYPES = ["theory", "expert_benchmark"]
+DEFAULT_SOURCE_TYPES = ["theory", "engineering_guide", "expert_benchmark"]
 
 
 class KnowledgeQuery(BaseModel):

@@ -1,0 +1,358 @@
+{
+  "chunk_count": 25,
+  "chunks": [
+    {
+      "chunk_id": "cache_breakdown",
+      "content_kind": "failure_mode",
+      "content_sha256": "ff7841e6af6ca7c15d4c226add7a1eda2e5bad7b6b76c6ff9deff409a36dad02",
+      "domain": "redis",
+      "source_path": "theory/cache_breakdown.md",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "cache",
+        "hotkey"
+      ],
+      "title": "Cache Breakdown"
+    },
+    {
+      "chunk_id": "capacity_planning",
+      "content_kind": "engineering_practice",
+      "content_sha256": "7a29a44539a597e42483cadb00b217048f84c7accb90d309c89ed8226f407d7f",
+      "domain": "system-design",
+      "source_path": "practices/capacity_planning.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "system-design",
+        "capacity",
+        "performance"
+      ],
+      "title": "Service Capacity Planning"
+    },
+    {
+      "chunk_id": "cascading_failures",
+      "content_kind": "failure_mode",
+      "content_sha256": "c327453f909efc24dd660cb843d8cecc98568d42a04c65f8473e1dcaa4932ef4",
+      "domain": "system-design",
+      "source_path": "theory/cascading_failures.md",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "resilience",
+        "overload"
+      ],
+      "title": "Cascading Service Failures"
+    },
+    {
+      "chunk_id": "fastapi_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "7f9c8cc5db83e831333cceaaed01c1629b12b132672933121392bb8dbc215da0",
+      "domain": "fastapi",
+      "source_path": "benchmarks/fastapi_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "fastapi",
+        "backend",
+        "python"
+      ],
+      "title": "FastAPI Backend Project Benchmark"
+    },
+    {
+      "chunk_id": "fastapi_blocking_io",
+      "content_kind": "failure_mode",
+      "content_sha256": "274e504600d9fd69286c3bf0f73de5ee9995ff096f8033dec30ed2b9649401fd",
+      "domain": "fastapi",
+      "source_path": "theory/fastapi_blocking_io.md",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "latency"
+      ],
+      "title": "FastAPI Blocking I/O Failure Mode"
+    },
+    {
+      "chunk_id": "fastapi_dependency_lifecycle",
+      "content_kind": "hard_negative",
+      "content_sha256": "f421429dd4adb8dae0252986ece2616aba392cfa2b5e8f8e51deda8c756f5f39",
+      "domain": "fastapi",
+      "source_path": "theory/fastapi_dependency_lifecycle.md",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "dependency-injection",
+        "lifecycle"
+      ],
+      "title": "FastAPI Dependency Lifecycle Boundaries"
+    },
+    {
+      "chunk_id": "fastapi_production",
+      "content_kind": "engineering_practice",
+      "content_sha256": "71cb521f39f894d2d0de80f05001fd43ca0be1551d96bad662bde729c99e3326",
+      "domain": "fastapi",
+      "source_path": "practices/fastapi_production.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "fastapi",
+        "testing",
+        "observability"
+      ],
+      "title": "FastAPI Production Engineering"
+    },
+    {
+      "chunk_id": "fastapi_request_lifecycle",
+      "content_kind": "mechanism",
+      "content_sha256": "6ec7979678658a7046053e63c717df8f5d9a44bbb2102be184e9cd67b4aceb13",
+      "domain": "fastapi",
+      "source_path": "theory/fastapi_request_lifecycle.md",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "async"
+      ],
+      "title": "FastAPI Request Lifecycle"
+    },
+    {
+      "chunk_id": "kafka_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "6b73b0bf062c9b7e5b4f524f84378c7dc18c4f7ec6c7a9fb421f0b7c226eceee",
+      "domain": "kafka",
+      "source_path": "benchmarks/kafka_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "kafka",
+        "backend",
+        "messaging"
+      ],
+      "title": "Kafka Backend Project Benchmark"
+    },
+    {
+      "chunk_id": "kafka_delivery",
+      "content_kind": "mechanism",
+      "content_sha256": "a8c4adc998e60d1eb26acc3d6181ef0457abbaf52b2289ae62936f0a2db474be",
+      "domain": "kafka",
+      "source_path": "theory/kafka_delivery.md",
+      "source_type": "theory",
+      "tags": [
+        "kafka",
+        "delivery",
+        "consumer"
+      ],
+      "title": "Kafka Delivery Semantics"
+    },
+    {
+      "chunk_id": "kafka_operations",
+      "content_kind": "engineering_practice",
+      "content_sha256": "83cd0c6fc77208d50761a9280c7aabec89fa96f8212a0aa063009ed7e047fded",
+      "domain": "kafka",
+      "source_path": "practices/kafka_operations.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "kafka",
+        "observability",
+        "capacity"
+      ],
+      "title": "Kafka Consumer Operations"
+    },
+    {
+      "chunk_id": "kafka_poison_messages",
+      "content_kind": "failure_mode",
+      "content_sha256": "b82865499677b90b84b914a7aa55dad9efec24bef8a4f96876b747c718198e5e",
+      "domain": "kafka",
+      "source_path": "theory/kafka_poison_messages.md",
+      "source_type": "theory",
+      "tags": [
+        "kafka",
+        "consumer",
+        "retry"
+      ],
+      "title": "Kafka Poison Messages"
+    },
+    {
+      "chunk_id": "kafka_rebalancing",
+      "content_kind": "hard_negative",
+      "content_sha256": "2be567e972f199bac4c9b1229e5d57ffab4ac63e795592afa658c0ff6527ba88",
+      "domain": "kafka",
+      "source_path": "theory/kafka_rebalancing.md",
+      "source_type": "theory",
+      "tags": [
+        "kafka",
+        "consumer-group",
+        "rebalancing"
+      ],
+      "title": "Kafka Consumer Group Rebalancing"
+    },
+    {
+      "chunk_id": "mysql_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "57e9aba4b746d859ea07c73d74a9d044350112b3720964f1152ae3689bd36041",
+      "domain": "mysql",
+      "source_path": "benchmarks/mysql_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "mysql",
+        "backend",
+        "database"
+      ],
+      "title": "MySQL Backend Project Benchmark"
+    },
+    {
+      "chunk_id": "mysql_deadlocks",
+      "content_kind": "failure_mode",
+      "content_sha256": "77755d7199a733516d507ebd44c1283cedfb162e6740fc2e4380ae2a4ccee154",
+      "domain": "mysql",
+      "source_path": "theory/mysql_deadlocks.md",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "transaction",
+        "locking"
+      ],
+      "title": "MySQL Deadlocks"
+    },
+    {
+      "chunk_id": "mysql_indexing",
+      "content_kind": "mechanism",
+      "content_sha256": "2a171daa806ded5421f48df4c36392b3d7441278638767e38055eed60ebced90",
+      "domain": "mysql",
+      "source_path": "theory/mysql_indexing.md",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "indexing",
+        "query"
+      ],
+      "title": "MySQL Indexing"
+    },
+    {
+      "chunk_id": "mysql_isolation",
+      "content_kind": "hard_negative",
+      "content_sha256": "e5f02a92911b77fd37dff94c8360b997e5f60de7db3ce937931431858ef35e52",
+      "domain": "mysql",
+      "source_path": "theory/mysql_isolation.md",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "transaction",
+        "isolation"
+      ],
+      "title": "MySQL Transaction Isolation"
+    },
+    {
+      "chunk_id": "mysql_online_migration",
+      "content_kind": "engineering_practice",
+      "content_sha256": "d74ea9725b8a0b66cdc1109352f0c5d2214709d35ac6b8df2b60b11cbe8bba87",
+      "domain": "mysql",
+      "source_path": "practices/mysql_online_migration.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "mysql",
+        "schema",
+        "migration"
+      ],
+      "title": "MySQL Online Schema Migration"
+    },
+    {
+      "chunk_id": "queue_backpressure",
+      "content_kind": "hard_negative",
+      "content_sha256": "c406be04a8371ffaa8304f59483d0a1526eef3c4db1619d6426841aa516c40d5",
+      "domain": "system-design",
+      "source_path": "theory/queue_backpressure.md",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "queue",
+        "backpressure"
+      ],
+      "title": "Queue Backpressure"
+    },
+    {
+      "chunk_id": "redis_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "4df3598c5df322dd6dbdacb4302a88687c1d4a3c025418f83cab8a916c8882e3",
+      "domain": "redis",
+      "source_path": "benchmarks/redis_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "redis",
+        "backend",
+        "cache"
+      ],
+      "title": "Redis Backend Project Benchmark"
+    },
+    {
+      "chunk_id": "redis_consistency",
+      "content_kind": "mechanism",
+      "content_sha256": "f49035500c8fd6f00785820555a7f6e66934d0d3d9cf10c1fd2f4f2366fc7ddc",
+      "domain": "redis",
+      "source_path": "theory/redis_consistency.md",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "consistency",
+        "cache"
+      ],
+      "title": "Redis Cache Consistency"
+    },
+    {
+      "chunk_id": "redis_distributed_lock",
+      "content_kind": "hard_negative",
+      "content_sha256": "1619cf26cce7f0f1cb803483977da23c445c77cb2f15389e615a0e47aff22cb6",
+      "domain": "redis",
+      "source_path": "theory/redis_distributed_lock.md",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "locking",
+        "concurrency"
+      ],
+      "title": "Redis Distributed Lock Safety"
+    },
+    {
+      "chunk_id": "redis_operations",
+      "content_kind": "engineering_practice",
+      "content_sha256": "f397ee71c3e1dba23e03751c1ac36ae959d9494aba46ab8fbdc4cf54ff7ce236",
+      "domain": "redis",
+      "source_path": "practices/redis_operations.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "redis",
+        "cache",
+        "observability"
+      ],
+      "title": "Redis Production Operations"
+    },
+    {
+      "chunk_id": "service_scaling",
+      "content_kind": "mechanism",
+      "content_sha256": "f1520b5f2e0a7417687a03639c53dd04cd0ff4567cc462d6653e643b2325df1d",
+      "domain": "system-design",
+      "source_path": "theory/service_scaling.md",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "scaling",
+        "architecture"
+      ],
+      "title": "Service Scaling"
+    },
+    {
+      "chunk_id": "system_design_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "610f819d56d10b612be526b26fde2e3bbe83c55d17281a5bd100f97216da1bb2",
+      "domain": "system-design",
+      "source_path": "benchmarks/system_design_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "system-design",
+        "backend",
+        "architecture"
+      ],
+      "title": "Backend System Design Benchmark"
+    }
+  ],
+  "corpus_manifest_sha256": "ad0948a6dc15af835247eb95b8fad4a069bece865779060e19c708f829eb9320",
+  "corpus_version": "stage42-v1",
+  "manifest_schema_version": 1
+}

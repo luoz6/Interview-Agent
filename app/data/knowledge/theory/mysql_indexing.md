@@ -1,6 +1,8 @@
 ---
+id: mysql_indexing
 domain: mysql
 source_type: theory
+content_kind: mechanism
 tags: [mysql, indexing, query]
 title: MySQL Indexing
 ---

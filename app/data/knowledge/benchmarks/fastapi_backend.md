@@ -1,6 +1,8 @@
 ---
+id: fastapi_backend
 domain: fastapi
 source_type: expert_benchmark
+content_kind: benchmark
 tags: [fastapi, backend, python]
 title: FastAPI Backend Project Benchmark
 ---

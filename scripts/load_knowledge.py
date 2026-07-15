@@ -13,32 +13,59 @@ from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore, ge
 KNOWLEDGE_ROOT = Path("app/data/knowledge")
 
 
-def iter_markdown_files() -> list[Path]:
-    return sorted(KNOWLEDGE_ROOT.rglob("*.md"))
+def iter_markdown_files(knowledge_root: Path | str = KNOWLEDGE_ROOT) -> list[Path]:
+    return sorted(Path(knowledge_root).rglob("*.md"))
 
 
-def build_chunks() -> list[KnowledgeChunk]:
+def build_chunks(knowledge_root: Path | str = KNOWLEDGE_ROOT) -> list[KnowledgeChunk]:
+    from scripts.build_knowledge_manifest import build_manifest
+
+    root = Path(knowledge_root)
+    manifest = build_manifest(root)
+    manifest_by_id = {item["chunk_id"]: item for item in manifest["chunks"]}
     chunks: list[KnowledgeChunk] = []
-    for path in iter_markdown_files():
+    for path in iter_markdown_files(root):
         raw = path.read_text(encoding="utf-8").strip()
         metadata, content = parse_front_matter(raw)
         if not content:
             continue
+        chunk_id = resolve_chunk_id(metadata=metadata, path=path)
         domain = resolve_domain(metadata=metadata, path=path, content=content)
         source_type = resolve_source_type(metadata=metadata, path=path)
         tags = resolve_tags(metadata=metadata, domain=domain)
+        manifest_entry = manifest_by_id[chunk_id]
+        chunk_metadata = build_chunk_metadata(
+            metadata=metadata,
+            path=path,
+            knowledge_root=root,
+        )
+        chunk_metadata.update(
+            {
+                "content_sha256": manifest_entry["content_sha256"],
+                "corpus_manifest_sha256": manifest["corpus_manifest_sha256"],
+                "corpus_version": manifest["corpus_version"],
+                "content_kind": manifest_entry["content_kind"],
+            }
+        )
         chunks.append(
             KnowledgeChunk(
-                chunk_id=path.stem,
+                chunk_id=chunk_id,
                 title=resolve_title(metadata=metadata, path=path),
                 content=content,
                 source_type=source_type,
                 domain=domain,
                 tags=tags,
-                metadata=build_chunk_metadata(metadata=metadata, path=path),
+                metadata=chunk_metadata,
             )
         )
     return chunks
+
+
+def resolve_chunk_id(*, metadata: dict[str, object], path: Path) -> str:
+    chunk_id = metadata.get("id")
+    if isinstance(chunk_id, str) and chunk_id.strip():
+        return chunk_id.strip()
+    return path.stem
 
 
 def parse_front_matter(raw: str) -> tuple[dict[str, object], str]:
@@ -90,9 +117,17 @@ def resolve_title(*, metadata: dict[str, object], path: Path) -> str:
     return path.stem.replace("_", " ").title()
 
 
-def build_chunk_metadata(*, metadata: dict[str, object], path: Path) -> dict[str, str]:
-    chunk_metadata: dict[str, str] = {"source_path": str(path)}
-    for key in ("domain", "source_type", "title"):
+def build_chunk_metadata(
+    *,
+    metadata: dict[str, object],
+    path: Path,
+    knowledge_root: Path | str = KNOWLEDGE_ROOT,
+) -> dict[str, str]:
+    root = Path(knowledge_root)
+    chunk_metadata: dict[str, str] = {
+        "source_path": path.relative_to(root).as_posix()
+    }
+    for key in ("id", "domain", "source_type", "content_kind", "title"):
         value = metadata.get(key)
         if isinstance(value, str) and value.strip():
             chunk_metadata[key] = value.strip()
