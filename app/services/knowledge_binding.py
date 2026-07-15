@@ -93,6 +93,14 @@ class KnowledgeBindingResolver:
         found_lookup = {_chunk_value(chunk, "chunk_id"): chunk for chunk in lookup.found}
         if any(evidence_id not in found_lookup for evidence_id in hint.evidence_ids):
             return self._degraded(plan, question_id, "evidence_missing")
+        if snapshot_hash and any(
+            (_chunk_value(found_lookup[evidence_id], "metadata") or {}).get(
+                "corpus_manifest_sha256"
+            )
+            != snapshot_hash
+            for evidence_id in hint.evidence_ids
+        ):
+            return self._degraded(plan, question_id, "corpus_manifest_mismatch")
 
         guidance = build_question_prep_context_messages(plan, question_id)
         evidence_messages = [

@@ -64,6 +64,19 @@ function setNodeText(node, value) {
   }
 }
 
+function toRetrievalStatusLabel(record) {
+  if (record.retrieval_path === "bound_evidence_ids") {
+    return "Knowledge evidence: Prep binding reused";
+  }
+  if (record.retrieval_path === "degraded") {
+    return `Knowledge evidence: degraded (${record.degraded_reason || "unknown"})`;
+  }
+  if (record.retrieval_path) {
+    return `Knowledge evidence: ${record.retrieval_path}`;
+  }
+  return "";
+}
+
 function renderHighlights(highlights) {
   clear(reportHighlights);
   if (!highlights || !highlights.length) {
@@ -200,6 +213,14 @@ function renderQuestionEvaluations(payload) {
     meta.appendChild(createEl("div", "", toAnswerStateLabel(record.answer_state)));
     meta.appendChild(createEl("div", "", record.status || "unknown"));
     meta.appendChild(createEl("div", "text-blue-600 font-bold", `${feedback.score ?? ""}/100`));
+    const retrievalStatus = toRetrievalStatusLabel(record);
+    if (retrievalStatus) {
+      meta.appendChild(createEl(
+        "div",
+        record.retrieval_path === "degraded" ? "text-orange-600" : "text-green-700",
+        retrievalStatus,
+      ));
+    }
 
     const body = createEl("div", "space-y-3 text-[13px] text-gray-600 leading-relaxed");
     body.appendChild(createEl("p", "font-medium text-gray-800", feedback.question_text || "未记录题目文本"));

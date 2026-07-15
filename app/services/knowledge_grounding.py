@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Literal
 from uuid import uuid4
 
@@ -30,6 +31,7 @@ class QueryRetrieval:
     chunks: list[KnowledgeChunk] = field(default_factory=list)
     status: RetrievalStatus = "empty"
     degraded_reason: str | None = None
+    latency_ms: float = 0.0
 
 
 @dataclass
@@ -58,6 +60,7 @@ def retrieve_grounding(
     overall_degraded_reason: str | None = None
 
     for query in queries:
+        started_at = perf_counter()
         try:
             raw_chunks = repository.search(
                 query.query_text,
@@ -71,6 +74,7 @@ def retrieve_grounding(
                     query=query,
                     status="degraded",
                     degraded_reason="knowledge_unavailable",
+                    latency_ms=round((perf_counter() - started_at) * 1000, 3),
                 )
             )
             overall_degraded_reason = overall_degraded_reason or "knowledge_unavailable"
@@ -121,6 +125,7 @@ def retrieve_grounding(
                 chunks=trusted,
                 status=status,
                 degraded_reason=query_degraded_reason,
+                latency_ms=round((perf_counter() - started_at) * 1000, 3),
             )
         )
 

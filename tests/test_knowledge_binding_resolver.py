@@ -182,6 +182,52 @@ def test_v2_hash_mismatch_degrades_without_using_replaced_content():
     assert repository.search_calls == 0
 
 
+def test_v2_manifest_mismatch_degrades_before_repository_reads():
+    plan = make_v2_plan()
+    plan.prep_context.evidence_refs[0].corpus_manifest_sha256 = "c" * 64
+    repository = make_repository()
+
+    resolution = KnowledgeBindingResolver(repository).resolve(plan, "q1")
+
+    assert resolution.retrieval_path == "degraded"
+    assert resolution.degraded_reason == "corpus_manifest_mismatch"
+    assert repository.get_by_ids_calls == []
+    assert repository.search_calls == 0
+
+
+def test_v2_repository_manifest_drift_degrades_even_when_content_hash_matches():
+    repository = make_repository()
+    repository.chunks[0] = repository.chunks[0].model_copy(
+        update={
+            "metadata": {
+                **repository.chunks[0].metadata,
+                "corpus_manifest_sha256": "d" * 64,
+            }
+        }
+    )
+
+    resolution = KnowledgeBindingResolver(repository).resolve(make_v2_plan(), "q1")
+
+    assert resolution.retrieval_path == "degraded"
+    assert resolution.degraded_reason == "corpus_manifest_mismatch"
+    assert resolution.evidence_ids == []
+    assert repository.search_calls == 0
+
+
+def test_v2_deleted_chunk_degrades_without_semantic_search():
+    repository = make_repository()
+    repository.chunks = [
+        chunk for chunk in repository.chunks if chunk.chunk_id != "redis_consistency"
+    ]
+
+    resolution = KnowledgeBindingResolver(repository).resolve(make_v2_plan(), "q1")
+
+    assert resolution.retrieval_path == "degraded"
+    assert resolution.degraded_reason == "evidence_missing"
+    assert resolution.evidence_ids == []
+    assert repository.search_calls == 0
+
+
 def test_v2_missing_binding_degrades_without_semantic_search():
     plan = make_v2_plan()
     plan.prep_context.question_hints[0].evidence_ids = []

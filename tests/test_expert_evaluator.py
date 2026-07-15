@@ -169,7 +169,10 @@ class V2VectorStore:
                     "source_type": "theory",
                     "domain": "redis",
                     "tags": ["redis"],
-                    "metadata": {"content_sha256": "a" * 64},
+                    "metadata": {
+                        "content_sha256": "a" * 64,
+                        "corpus_manifest_sha256": "b" * 64,
+                    },
                     "score": None,
                 }
             ]

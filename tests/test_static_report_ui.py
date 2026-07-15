@@ -354,6 +354,16 @@ def test_report_detail_renders_question_evaluation_records():
     assert "if (!sessionId) return;" in js
 
 
+def test_report_detail_renders_knowledge_retrieval_status_without_internal_hashes():
+    js = read_static_file("report-detail.js")
+
+    assert "function toRetrievalStatusLabel(record)" in js
+    assert 'record.retrieval_path === "bound_evidence_ids"' in js
+    assert 'record.retrieval_path === "degraded"' in js
+    assert "record.degraded_reason" in js
+    assert "evidence_content_sha256" not in js
+
+
 def test_interview_page_disables_all_controls_without_session_id():
     js = read_static_file("interview.js")
 

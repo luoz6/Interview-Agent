@@ -48,11 +48,13 @@ class KnowledgeAgent:
             resume_text=resume_text,
             knowledge_context=provider_knowledge_context(grounding),
         )
-        return attach_grounded_prep_context(
+        grounded_plan = attach_grounded_prep_context(
             plan,
             role_profile=role_profile,
             result=grounding,
         )
+        self._record_grounding_trace(grounded_plan, grounding)
+        return grounded_plan
 
     @staticmethod
     def _generate_provider_plan(
@@ -83,6 +85,46 @@ class KnowledgeAgent:
         from app.services.vector_store import get_knowledge_store
 
         return get_knowledge_store()
+
+    @staticmethod
+    def _record_grounding_trace(plan: InterviewPlan, grounding) -> None:
+        snapshot = plan.prep_context.binding_snapshot if plan.prep_context else None
+        if snapshot is None:
+            return
+        try:
+            from app.services.knowledge_trace import KnowledgeTraceRecorder
+
+            KnowledgeTraceRecorder.from_env().record(
+                prep_run_id=snapshot.prep_run_id,
+                stage="prep_retrieval",
+                payload={
+                    "status": grounding.status,
+                    "degraded_reason": grounding.degraded_reason,
+                    "queries": [
+                        {
+                            "query_id": retrieval.query.query_id,
+                            "topic_id": retrieval.query.topic_id,
+                            "query_text": retrieval.query.query_text,
+                            "filters": retrieval.query.filters,
+                            "source_types": retrieval.query.source_types,
+                            "top_k": retrieval.query.top_k,
+                            "latency_ms": retrieval.latency_ms,
+                            "hit_ids": [
+                                chunk.chunk_id for chunk in retrieval.chunks
+                            ],
+                            "scores": {
+                                chunk.chunk_id: chunk.score
+                                for chunk in retrieval.chunks
+                            },
+                            "status": retrieval.status,
+                            "degraded_reason": retrieval.degraded_reason,
+                        }
+                        for retrieval in grounding.retrievals
+                    ],
+                },
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _default_llm() -> InterviewLLM:

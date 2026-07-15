@@ -12,7 +12,8 @@ from app.services.prep import (
     PrepContext,
     PrepQuestionHint,
 )
-from app.services.report import InterviewReport
+from app.services.question_evaluations import question_evaluation_from_feedback
+from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.runtime import get_draft_store
 from app.services.session import InterviewSessionStore
 
@@ -258,6 +259,63 @@ def test_session_snapshot_restores_safe_public_evidence_binding(monkeypatch):
     }
     assert "content_sha256" not in response.text
     assert "private-prep-run" not in response.text
+
+
+def test_question_evaluation_api_hides_internal_evidence_hashes():
+    store = InterviewSessionStore(llm=FakeApiLLM())
+    turn = store.start(
+        InterviewPlan(
+            title="Evaluation plan",
+            questions=[
+                InterviewQuestion(
+                    id="q1",
+                    kind="technical",
+                    prompt="Explain Redis.",
+                    focus="Redis",
+                )
+            ],
+        ),
+        job_description="Redis role",
+        resume_text="Redis project",
+        job_tags=["redis"],
+    )
+    feedback = InterviewFeedback(
+        question_id="q1",
+        question_text="Explain Redis.",
+        user_answer="Cache aside.",
+        score=80,
+        dimension_scores=DimensionScores(
+            breadth=80,
+            depth=80,
+            architecture=80,
+            engineering=80,
+            communication=80,
+        ),
+        rationale="Grounded evaluation.",
+        critique="Add failure details.",
+        better_answer="Explain fallback.",
+        references=[],
+    )
+    record = question_evaluation_from_feedback(
+        session_id=turn.session_id,
+        feedback=feedback,
+        retrieval_path="bound_evidence_ids",
+        degraded_reason=None,
+        evidence_content_sha256={"redis_consistency": "a" * 64},
+    )
+    store.upsert_question_evaluation(turn.session_id, record)
+    app.dependency_overrides[get_session_store] = lambda: store
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/interviews/{turn.session_id}/question-evaluations"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["retrieval_path"] == "bound_evidence_ids"
+    assert "evidence_content_sha256" not in response.text
+    assert "redis_consistency" not in response.text
 
 
 def test_prepare_endpoint_does_not_require_session_store(monkeypatch):

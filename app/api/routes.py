@@ -442,7 +442,10 @@ def get_interview_question_evaluations(
         _raise_value_error(exc)
     return {
         "session_id": session_id,
-        "items": [record.model_dump() for record in records],
+        "items": [
+            record.model_dump(exclude={"evidence_content_sha256"})
+            for record in records
+        ],
         "total": len(records),
     }
 
