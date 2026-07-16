@@ -186,6 +186,34 @@ def test_submit_answer_is_idempotent_for_duplicate_command_id():
     assert snapshot["last_command_id"] == "cmd-1"
 
 
+def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+    captured_commands = []
+    apply_command = store._orchestrator.apply_command
+
+    def capture_command(state, command):
+        captured_commands.append(command.copy())
+        return apply_command(state, command)
+
+    monkeypatch.setattr(store._orchestrator, "apply_command", capture_command)
+
+    store.submit_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-current",
+    )
+
+    assert captured_commands == [
+        {
+            "kind": "answer",
+            "answer": "I used Redis.",
+            "command_id": "cmd-current",
+        }
+    ]
+
+
 def test_prepare_and_complete_streaming_answer_persists_followup():
     llm = FakeInterviewLLM()
     store = InterviewSessionStore(llm=llm)

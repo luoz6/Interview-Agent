@@ -389,6 +389,43 @@ def test_submit_answer_persists_candidate_and_followup_messages():
     assert state["messages"][2]["content"] == answered.follow_up
 
 
+def test_submit_answer_passes_current_command_id_to_orchestrator(monkeypatch):
+    dsn = require_dsn()
+    store = PostgresInterviewSessionStore(
+        dsn=dsn,
+        table_prefix=make_table_prefix(),
+    )
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    captured_commands = []
+    apply_command = store._orchestrator.apply_command
+
+    def capture_command(state, command):
+        captured_commands.append(command.copy())
+        return apply_command(state, command)
+
+    monkeypatch.setattr(store._orchestrator, "apply_command", capture_command)
+
+    store.submit_answer(
+        turn.session_id,
+        "I built a FastAPI API.",
+        expected_version=1,
+        command_id="cmd-current",
+    )
+
+    assert captured_commands == [
+        {
+            "kind": "answer",
+            "answer": "I built a FastAPI API.",
+            "command_id": "cmd-current",
+        }
+    ]
+
+
 def test_streaming_prepare_and_complete_are_persisted_once():
     dsn = require_dsn()
     table_prefix = make_table_prefix()

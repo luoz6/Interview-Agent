@@ -19,6 +19,7 @@ class OrchestratorCommand(TypedDict, total=False):
     answer: str
     follow_up_text: str | None
     report_status: Literal["idle", "processing", "completed", "failed"]
+    command_id: str | None
 
 
 class OrchestratorGraphState(TypedDict):
@@ -61,9 +62,17 @@ def _run_interview_phase(
     kind = command["kind"]
 
     if kind == "answer":
-        next_state = interview_runner.submit_answer(state, command["answer"])
+        next_state = interview_runner.submit_answer(
+            state,
+            command["answer"],
+            command_id=command.get("command_id"),
+        )
     elif kind == "prepare_stream":
-        next_state = interview_runner.prepare_answer(state, command["answer"])
+        next_state = interview_runner.prepare_answer(
+            state,
+            command["answer"],
+            command_id=command.get("command_id"),
+        )
     elif kind == "complete_stream":
         next_state = interview_runner.finalize_prepared_answer(
             state,

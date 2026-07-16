@@ -182,7 +182,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         previous_version = state["state_version"]
         new_state = self._orchestrator.apply_command(
             state,
-            {"kind": "answer", "answer": answer},
+            {"kind": "answer", "answer": answer, "command_id": command_id},
         )
         new_state = _advance_state_metadata(new_state, command_id=command_id)
         self._replace_state(new_state, expected_previous_version=previous_version)
@@ -200,7 +200,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
         previous_version = state["state_version"]
-        finished_state = self._orchestrator.apply_command(state, {"kind": "finish"})
+        finished_state = self._orchestrator.apply_command(
+            state,
+            {"kind": "finish", "command_id": command_id},
+        )
         finished_state = _advance_state_metadata(
             finished_state,
             command_id=command_id,
@@ -223,7 +226,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
         previous_version = state["state_version"]
-        skipped_state = self._orchestrator.apply_command(state, {"kind": "skip"})
+        skipped_state = self._orchestrator.apply_command(
+            state,
+            {"kind": "skip", "command_id": command_id},
+        )
         skipped_state = _advance_state_metadata(
             skipped_state,
             command_id=command_id,
@@ -254,7 +260,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         previous_version = state["state_version"]
         prepared_state = self._orchestrator.apply_command(
             state,
-            {"kind": "prepare_stream", "answer": answer},
+            {
+                "kind": "prepare_stream",
+                "answer": answer,
+                "command_id": command_id,
+            },
         )
         prepared_state = _advance_state_metadata(
             prepared_state,
@@ -284,6 +294,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             {
                 "kind": "complete_stream",
                 "follow_up_text": follow_up_text,
+                "command_id": command_id,
             },
         )
         finalized_state = _advance_state_metadata(
