@@ -3,6 +3,9 @@ from pydantic import ValidationError
 
 from app.services.agent_runtime import (
     AgentExecutionContext,
+    AgentExecutionRunner,
+    AgentFallback,
+    AgentOutcome,
     AgentRunRecord,
     correlation_id_from_plan,
     evidence_ids_for_question,
@@ -103,3 +106,102 @@ def test_agent_run_record_rejects_negative_latency():
             latency_ms=-1,
             output_type="InterviewReport",
         )
+
+
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
+
+
+def test_runner_records_completed_call():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    result = runner.run(make_context(), lambda: "report")
+
+    assert result == "report"
+    assert recorder.records[0].status == "completed"
+    assert recorder.records[0].output_type == "str"
+
+
+def test_runner_records_valid_degraded_output_from_classifier():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    result = runner.run(
+        make_context(),
+        lambda: "usable fallback plan",
+        classify=lambda output: AgentOutcome(
+            status="degraded",
+            reason="knowledge_unavailable",
+        ),
+    )
+
+    assert result == "usable fallback plan"
+    assert recorder.records[0].status == "degraded"
+    assert recorder.records[0].fallback_reason == "knowledge_unavailable"
+
+
+def test_runner_records_degraded_fallback_without_exception_text():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    result = runner.run(
+        make_context(),
+        lambda: (_ for _ in ()).throw(RuntimeError("provider secret")),
+        fallback=lambda exc: AgentFallback("fallback", "provider_error"),
+    )
+
+    assert result == "fallback"
+    assert recorder.records[0].status == "degraded"
+    assert recorder.records[0].fallback_reason == "provider_error"
+    assert "provider secret" not in recorder.records[0].model_dump_json()
+
+
+def test_runner_records_failed_call_and_reraises():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    with pytest.raises(ValueError, match="bad output"):
+        runner.run(
+            make_context(),
+            lambda: (_ for _ in ()).throw(ValueError("bad output")),
+        )
+
+    assert recorder.records[0].status == "failed"
+    assert recorder.records[0].error_code == "ValueError"
+
+
+def test_stream_runner_records_degraded_fallback():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    result = list(
+        runner.stream(
+            make_context(),
+            lambda: (_ for _ in ()).throw(RuntimeError("provider secret")),
+            fallback=lambda exc: AgentFallback(["fallback"], "provider_error"),
+        )
+    )
+
+    assert result == ["fallback"]
+    assert recorder.records[0].status == "degraded"
+    assert recorder.records[0].safe_metadata == {"emitted_chunks": 1}
+
+
+def test_stream_runner_records_cancelled_consumer():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+    stream = runner.stream(
+        make_context(),
+        lambda: iter(["one", "two"]),
+    )
+
+    assert next(stream) == "one"
+    stream.close()
+
+    assert recorder.records[0].status == "cancelled"
+    assert recorder.records[0].fallback_reason == "client_disconnected"
