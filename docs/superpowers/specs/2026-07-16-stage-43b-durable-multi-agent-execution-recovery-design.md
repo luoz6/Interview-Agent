@@ -111,7 +111,7 @@ The table name is <prefix>_runtime_outbox.
 | Column | Contract |
 | --- | --- |
 | event_id TEXT PRIMARY KEY | RuntimeEventEnvelope event identity. |
-| session_id TEXT NOT NULL | Cascading session foreign key. |
+| session_id TEXT NOT NULL | REFERENCES sessions(session_id) ON DELETE CASCADE. |
 | correlation_id TEXT NOT NULL | Prep or legacy session correlation. |
 | event_type TEXT NOT NULL | Initially round_closed. |
 | schema_version TEXT NOT NULL | Initially runtime-event-v1. |
@@ -133,7 +133,8 @@ Indexes cover (status, available_at), session_id, and correlation_id.
 The table name is <prefix>_runtime_event_receipts. Its primary key is
 (event_id, consumer_name). It stores:
 
-- Session, correlation, event type, and schema identifiers.
+- session_id with REFERENCES sessions(session_id) ON DELETE CASCADE.
+- Correlation, event type, and schema identifiers.
 - Status: running, retrying, completed, or dead_letter.
 - Attempt and maximum-attempt counters.
 - Available time, lease owner, and lease expiry.
@@ -148,6 +149,7 @@ may reset a dead-letter receipt.
 The table name is <prefix>_agent_runs. It stores sanitized AgentRunRecord data:
 
 - Run, correlation, causation, session, question, command, and evidence IDs.
+- session_id uses REFERENCES sessions(session_id) ON DELETE CASCADE.
 - Agent, operation, phase, status, output type, and schema version.
 - Start and finish timestamps, latency, fallback reason, and error code.
 - Safe metadata JSON and attempt_number.
@@ -166,7 +168,7 @@ Synchronous calls use 1. Async consumers inherit the receipt attempt.
 PostgresInterviewSessionStore already writes state and messages in one
 transaction. Command mutations will additionally:
 
-1. Retain pre-command state.
+1. Capture before_state inside the store before orchestration mutates state.
 2. Build post-command state and advance version metadata.
 3. Derive RoundClosedEvent from the existing before/after transition helper.
 4. Persist state and messages.
@@ -176,6 +178,39 @@ transaction. Command mutations will additionally:
 Optimistic update or outbox insertion failure rolls back everything. Duplicate
 commands return before mutation and create no second event. Report lifecycle
 updates do not emit round_closed.
+
+The persistence boundary is explicit:
+
+    def _replace_state(
+        self,
+        state: InterviewState,
+        *,
+        expected_previous_version: int | None = None,
+        outbox_event: RoundClosedEvent | None = None,
+    ) -> None:
+
+Each command method snapshots before_state, computes after_state, calls
+round_closed_event_from_transition(before_state, after_state), and passes the
+result into _replace_state. The outbox insert runs only after the optimistic
+session UPDATE succeeds and uses the same cursor and connection. A zero
+rowcount conflict raises SessionVersionConflict, causing message, session, and
+outbox changes in that connection to roll back together.
+
+Event-producing rules are:
+
+- submit_answer, finish, and skip pass the transition result.
+- prepare_streaming_answer always passes no outbox event.
+- complete_streaming_answer compares its persisted prepared state with the
+  finalized state. It writes an outbox row only when finalization advances from
+  the current question or finishes the interview. record_command_id=False
+  preserves the command ID already committed by prepare_stream for causation.
+- mark_report_processing, save_report, fail_report, progress updates, and other
+  review lifecycle mutations always pass no outbox event.
+
+The current streaming API publishes round_closed after
+complete_streaming_answer. Moving that event into the final _replace_state
+transaction preserves this behavior; excluding complete_stream would lose
+streaming round closures.
 
 The store exposes a read-only transactional-event capability. API routes skip
 direct post-commit publication for that capability. Memory stores keep their
@@ -204,7 +239,10 @@ by the receipt.
 Runtime modes:
 
 - Memory: unchanged direct publisher.
-- PostgreSQL and Local: FastAPI lifespan owns a lightweight dispatcher loop.
+- PostgreSQL and Local: FastAPI lifespan owns one background dispatcher thread.
+  It claims outbox work, invokes the receipt-controlled consumer directly,
+  persists the result, and then claims the next item. It replaces
+  LocalRoundReviewEventPublisher's ThreadPoolExecutor for this runtime mode.
 - PostgreSQL and Celery: a standalone outbox worker sends tasks.
 - Noop: explicitly disabled delivery; persisted outbox rows remain pending.
 
@@ -246,7 +284,7 @@ The shared classifier initially defines:
 | invalid_provider_output | no |
 | invalid_runtime_event | no |
 | domain_validation_failed | no |
-| unexpected_error | bounded by receipt attempts |
+| unexpected_error | retryable only within the receipt max_attempts |
 
 Raw exception text may go to application logs but not control tables, Celery
 results, Agent traces, APIs, or acceptance artifacts.
@@ -278,6 +316,12 @@ PostgresReportJobStore remains report workflow owner. Add:
 - requeue_failed(session_id), only for terminal failed jobs.
 - replay_count and stable last_error_code.
 - Receipt attempt propagation into async Reviewer and Report Coach contexts.
+
+requeue_failed updates report_jobs and reports in one transaction. The job
+returns to queued, clears its lease, terminal timestamps, and last error, and
+increments replay_count. The report row returns to processing, restores the
+standard queued progress payload, and clears report_json, error, completed_at,
+and failed_at. Unknown, active, retrying, and completed jobs are rejected.
 
 Existing lease reclaim, retry, maximum attempts, session uniqueness, and report
 state transitions remain unchanged.
@@ -332,6 +376,14 @@ GET /api/runtime adds non-sensitive fields for:
 
 It does not expose table names, DSNs, Redis URLs, worker IDs, lease owners, or
 trace paths.
+
+The existing agent_runtime object is extended with:
+
+    outbox_enabled
+    agent_ledger_enabled
+
+Both are booleans. Existing schema_version, event_schema_version, and
+trace_enabled fields remain unchanged.
 
 Environment settings cover batch size, poll interval, lease seconds, and
 maximum attempts. Defaults work without configuration and retries stay bounded.
