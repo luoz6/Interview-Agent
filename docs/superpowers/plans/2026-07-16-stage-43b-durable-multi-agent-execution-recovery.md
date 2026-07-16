@@ -445,9 +445,13 @@ def test_outbox_failure_rolls_back_state_and_messages(stores, monkeypatch):
     ) == []
 ~~~~
 
-Add two streaming tests: first-answer prepare/finalize writes no event; a second
-answer whose finalize advances the question writes exactly one event. Also
-assert report lifecycle mutations write no events.
+Add two streaming tests. For a first answer, prepare chooses follow_up without
+changing current_index and both prepare/finalize leave the outbox empty. For a
+second answer, assert prepare sets decision.action to next_question or finish
+but still leaves current_index/status unchanged and writes no event; complete
+then applies speaker_node, advances or finishes, and writes exactly one event.
+Also assert report lifecycle mutations write no events. These assertions lock
+the invariant that prepare_answer runs brain_node but not speaker_node.
 
 - [ ] **Step 2: Confirm failure**
 
@@ -482,7 +486,15 @@ def _replace_state(
 ) -> None:
 ~~~~
 
-After the optimistic UPDATE and conflict check:
+Keep this exact order inside the existing connection and cursor:
+
+1. Diff and DELETE/INSERT message rows.
+2. Run the optimistic session UPDATE.
+3. Check rowcount and raise SessionVersionConflict when it is zero.
+4. Insert the outbox event.
+5. Leave the connection context so session, messages, and event commit together.
+
+Never insert the outbox row before the version-conflict check. After that check:
 
 ~~~~python
 if outbox_event is not None:
@@ -506,9 +518,13 @@ self._replace_state(
 )
 ~~~~
 
-prepare_streaming_answer passes no event. complete_streaming_answer snapshots
-prepared_state, finalizes it, derives the transition, and passes the result.
-Review/report lifecycle writes pass None.
+prepare_streaming_answer passes no event because prepare_answer only records the
+answer and decision; it does not call speaker_node or close the question.
+complete_streaming_answer snapshots prepared_state, finalizes it through
+speaker_node, derives the prepared-to-finalized transition, and passes the
+result. If prepare_answer is ever changed to advance current_index/status, move
+event creation into the prepare transaction instead of carrying an in-memory
+pre-prepare snapshot into complete. Review/report lifecycle writes pass None.
 
 - [ ] **Step 6: Suppress duplicate route publication**
 
@@ -1013,8 +1029,10 @@ is included while abandoned Prep previews are excluded.
 - Create: tests/test_runtime_recovery.py
 - Modify: app/services/postgres_runtime_control.py
 - Modify: app/services/report_jobs.py
+- Modify: app/services/report_worker.py
 - Modify: tests/test_postgres_runtime_control.py
 - Modify: tests/test_report_jobs.py
+- Modify: tests/test_report_worker.py
 
 - [ ] **Step 1: Write failing recovery tests**
 
@@ -1053,6 +1071,17 @@ def test_report_requeue_updates_both_tables(stores):
     assert job["status"] == "queued"
     assert job["replay_count"] == 1
     assert report["status"] == "processing"
+
+
+def test_report_failure_persists_stable_error_code(stores):
+    session_id, job_id = seed_running_report(stores)
+    stores["jobs"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+    job = stores["jobs"].get_job_by_session(session_id)
+    assert job["last_error_code"] == "domain_validation_failed"
 ~~~~
 
 - [ ] **Step 2: Confirm failure**
@@ -1068,7 +1097,17 @@ receipts retrying.
 
 - [ ] **Step 4: Implement atomic report requeue**
 
-Add replay_count and last_error_code with ALTER TABLE IF NOT EXISTS. Use:
+Add replay_count and last_error_code with ALTER TABLE IF NOT EXISTS. Extend
+mark_retryable_failure and mark_failed with a keyword-only error_code and
+persist it in the same jobs UPDATE. Include last_error_code in private job-store
+rows, but expose only that stable code through recovery/status surfaces.
+
+Update report_worker catch branches without changing existing retryability:
+ReportGenerationTimeout uses provider_timeout; a retryable
+ReportGenerationFailed uses provider_unavailable; a non-retryable
+ReportGenerationFailed and ValueError use domain_validation_failed; the final
+Exception branch uses unexpected_error. Pass both the internal error text and
+stable code to the job store. Then implement requeue with:
 
 ~~~~sql
 WITH requeued AS (
@@ -1110,7 +1149,7 @@ timestamps, and stable codes. Invalid state exits 1 with a stable code.
 - [ ] **Step 6: Verify and commit**
 
     & 'F:\python3.11\python.exe' -m pytest tests/test_runtime_recovery.py tests/test_postgres_runtime_control.py tests/test_report_jobs.py tests/test_report_worker.py -q
-    git add scripts/runtime_recovery.py app/services/postgres_runtime_control.py app/services/report_jobs.py tests/test_runtime_recovery.py tests/test_postgres_runtime_control.py tests/test_report_jobs.py
+    git add scripts/runtime_recovery.py app/services/postgres_runtime_control.py app/services/report_jobs.py app/services/report_worker.py tests/test_runtime_recovery.py tests/test_postgres_runtime_control.py tests/test_report_jobs.py tests/test_report_worker.py
     git commit -m "feat: replay dead-letter runtime work"
 
 ### Task 9: Add Documentation, Privacy Audit, and Local Gates

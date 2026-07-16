@@ -212,6 +212,15 @@ complete_streaming_answer. Moving that event into the final _replace_state
 transaction preserves this behavior; excluding complete_stream would lose
 streaming round closures.
 
+This relies on an explicit graph invariant: prepare_answer appends the candidate
+answer and runs brain_node only. It may set decision.action to next_question or
+finish, but it does not call speaker_node and therefore cannot change
+current_index or status. finalize_prepared_answer calls speaker_node and applies
+that transition. Tests must lock this invariant. If prepare_answer is ever
+changed to apply speaker_node, event creation must move into the prepare
+transaction; carrying an in-memory pre-prepare snapshot into a later transaction
+would violate the atomic outbox guarantee.
+
 The store exposes a read-only transactional-event capability. API routes skip
 direct post-commit publication for that capability. Memory stores keep their
 existing direct Local or Noop publisher path.
@@ -322,6 +331,12 @@ returns to queued, clears its lease, terminal timestamps, and last error, and
 increments replay_count. The report row returns to processing, restores the
 standard queued progress payload, and clears report_json, error, completed_at,
 and failed_at. Unknown, active, retrying, and completed jobs are rejected.
+
+mark_retryable_failure and mark_failed persist a stable last_error_code beside
+the internal last_error text. The report worker preserves its existing
+retryability rules and maps timeout, provider availability, domain validation,
+and unexpected failures to stable codes at the catch boundary. Recovery and
+read-only APIs expose the stable code, never the raw error.
 
 Existing lease reclaim, retry, maximum attempts, session uniqueness, and report
 state transitions remain unchanged.
