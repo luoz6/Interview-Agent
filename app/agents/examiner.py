@@ -1,5 +1,11 @@
 from collections.abc import Iterator
+from uuid import uuid4
 
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    AgentFallback,
+)
 from app.services.llm import InterviewLLM
 
 
@@ -8,28 +14,45 @@ def fallback_followup(focus: str) -> str:
 
 
 class ExaminerAgent:
-    def __init__(self, llm: InterviewLLM | None = None) -> None:
+    def __init__(
+        self,
+        llm: InterviewLLM | None = None,
+        execution_runner: AgentExecutionRunner | None = None,
+    ) -> None:
         self.llm = llm
+        self._execution_runner = execution_runner or AgentExecutionRunner()
 
     def generate_followup(
         self,
         *,
         context: list[dict[str, str]],
         focus: str,
+        execution_context: AgentExecutionContext | None = None,
     ) -> str:
-        try:
-            llm = self.llm or self._default_llm()
-            return llm.generate_followup(context)
-        except Exception:
-            return fallback_followup(focus)
+        resolved_context = execution_context or self._standalone_context(
+            operation="generate_followup"
+        )
+        return self._execution_runner.run(
+            resolved_context,
+            lambda: (self.llm or self._default_llm()).generate_followup(context),
+            fallback=lambda exc: AgentFallback(
+                fallback_followup(focus),
+                "provider_error",
+            ),
+        )
 
     def stream_followup(
         self,
         *,
         context: list[dict[str, str]],
         focus: str,
+        execution_context: AgentExecutionContext | None = None,
     ) -> Iterator[str]:
-        try:
+        resolved_context = execution_context or self._standalone_context(
+            operation="stream_followup"
+        )
+
+        def provider_stream():
             llm = self.llm or self._default_llm()
             emitted = False
             for chunk in llm.stream_followup(context):
@@ -38,12 +61,34 @@ class ExaminerAgent:
                 emitted = True
                 yield chunk
             if not emitted:
-                yield fallback_followup(focus)
-        except Exception:
-            yield fallback_followup(focus)
+                raise _EmptyFollowupStream()
+
+        yield from self._execution_runner.stream(
+            resolved_context,
+            provider_stream,
+            fallback=lambda exc: AgentFallback(
+                [fallback_followup(focus)],
+                "empty_provider_stream"
+                if isinstance(exc, _EmptyFollowupStream)
+                else "provider_error",
+            ),
+        )
+
+    @staticmethod
+    def _standalone_context(*, operation: str) -> AgentExecutionContext:
+        return AgentExecutionContext(
+            correlation_id=f"standalone-{uuid4().hex}",
+            agent="examiner",
+            operation=operation,
+            phase="interview",
+        )
 
     @staticmethod
     def _default_llm() -> InterviewLLM:
         from app.services.llm import OpenAIInterviewLLM
 
         return OpenAIInterviewLLM()
+
+
+class _EmptyFollowupStream(RuntimeError):
+    pass

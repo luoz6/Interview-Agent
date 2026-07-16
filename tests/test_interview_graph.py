@@ -13,6 +13,7 @@ from app.services.prep import (
     PrepQuestionHint,
 )
 from app.services.knowledge_binding import KnowledgeBindingResolver
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.report import InterviewReport
 from tests.test_knowledge_binding_resolver import make_repository, make_v2_plan
 
@@ -354,6 +355,42 @@ def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles()
     assert "Kafka internal delivery evidence" not in str(captured_context)
     assert resolver.last_resolution.retrieval_path == "bound_evidence_ids"
     assert repository.search_calls == 0
+
+
+def test_examiner_trace_uses_current_command_not_previous_state_command():
+    class CapturingRecorder:
+        def __init__(self):
+            self.records = []
+
+        def record(self, record):
+            self.records.append(record)
+
+    recorder = CapturingRecorder()
+    repository = make_repository()
+    runner = InterviewGraphRunner(
+        llm=FakeLLM(),
+        knowledge_binding_resolver=KnowledgeBindingResolver(repository),
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    )
+    state = runner.start(
+        session_id="s-current-command",
+        plan=make_v2_plan(),
+        job_description="Redis role",
+        resume_text="Built Redis",
+        job_tags=["redis"],
+    )
+    state["last_command_id"] = "cmd-previous"
+
+    runner.submit_answer(
+        state,
+        "I update the database and invalidate the cache.",
+        command_id="cmd-current",
+    )
+
+    assert recorder.records[0].agent == "examiner"
+    assert recorder.records[0].command_id == "cmd-current"
+    assert recorder.records[0].causation_id == "cmd-current"
+    assert recorder.records[0].evidence_ids
 
 
 def test_v2_streaming_runner_uses_same_bound_evidence_resolution():

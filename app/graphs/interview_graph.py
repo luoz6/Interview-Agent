@@ -1,4 +1,5 @@
 from copy import deepcopy
+import inspect
 
 from app.agents.examiner import (
     ExaminerAgent,
@@ -11,6 +12,12 @@ from app.graphs.interview_state import (
     get_current_question,
 )
 from app.services.llm import InterviewLLM
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    correlation_id_from_plan,
+    evidence_ids_for_question,
+)
 from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import InterviewPlan
 
@@ -23,9 +30,13 @@ class InterviewGraphRunner:
         llm: InterviewLLM | None = None,
         examiner=None,
         knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+        execution_runner: AgentExecutionRunner | None = None,
     ) -> None:
         self._llm = llm
-        self._examiner = examiner or ExaminerAgent(llm=llm)
+        self._examiner = examiner or ExaminerAgent(
+            llm=llm,
+            execution_runner=execution_runner,
+        )
         self._knowledge_binding_resolver = (
             knowledge_binding_resolver or KnowledgeBindingResolver()
         )
@@ -46,17 +57,30 @@ class InterviewGraphRunner:
             job_tags=job_tags,
         )
 
-    def submit_answer(self, state: InterviewState, answer: str) -> InterviewState:
+    def submit_answer(
+        self,
+        state: InterviewState,
+        answer: str,
+        *,
+        command_id: str | None = None,
+    ) -> InterviewState:
         next_state = _append_candidate_answer(state, answer)
         next_state = brain_node(
             next_state,
             self._llm,
             examiner=self._examiner,
             knowledge_binding_resolver=self._knowledge_binding_resolver,
+            command_id=command_id,
         )
         return speaker_node(next_state)
 
-    def prepare_answer(self, state: InterviewState, answer: str) -> InterviewState:
+    def prepare_answer(
+        self,
+        state: InterviewState,
+        answer: str,
+        *,
+        command_id: str | None = None,
+    ) -> InterviewState:
         next_state = _append_candidate_answer(state, answer)
         return brain_node(
             next_state,
@@ -64,6 +88,7 @@ class InterviewGraphRunner:
             examiner=self._examiner,
             knowledge_binding_resolver=self._knowledge_binding_resolver,
             generate_followup_text=False,
+            command_id=command_id,
         )
 
     def finalize_prepared_answer(
@@ -80,12 +105,11 @@ class InterviewGraphRunner:
     def stream_followup(self, state: InterviewState):
         question = get_current_question(state)
         focus = question.focus if question is not None else "current question"
-        yield from self._examiner.stream_followup(
-            context=_build_followup_context(
-                state,
-                self._knowledge_binding_resolver,
-            ),
+        yield from _stream_examiner_followup(
+            self._examiner,
+            context=_build_followup_context(state, self._knowledge_binding_resolver),
             focus=focus,
+            execution_context=_examiner_execution_context(state),
         )
 
 
@@ -96,6 +120,7 @@ def brain_node(
     examiner=None,
     knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
     generate_followup_text: bool = True,
+    command_id: str | None = None,
 ) -> InterviewState:
     question = get_current_question(state)
     if question is None:
@@ -126,9 +151,14 @@ def brain_node(
     follow_up = None
     if generate_followup_text:
         resolved_examiner = examiner or ExaminerAgent(llm=llm)
-        follow_up = resolved_examiner.generate_followup(
+        follow_up = _generate_examiner_followup(
+            resolved_examiner,
             context=_build_followup_context(state, knowledge_binding_resolver),
             focus=question.focus,
+            execution_context=_examiner_execution_context(
+                state,
+                command_id=command_id,
+            ),
         )
 
     state["decision"] = {
@@ -227,3 +257,68 @@ def _build_followup_context(
     resolver = knowledge_binding_resolver or KnowledgeBindingResolver()
     resolution = resolver.resolve(state["plan"], question_id)
     return recent_messages + resolution.messages
+
+
+def _examiner_execution_context(
+    state: InterviewState,
+    *,
+    command_id: str | None = None,
+) -> AgentExecutionContext:
+    question = get_current_question(state)
+    question_id = question.id if question is not None else None
+    effective_command_id = (
+        command_id if command_id is not None else state.get("last_command_id")
+    )
+    return AgentExecutionContext(
+        correlation_id=correlation_id_from_plan(
+            state["plan"],
+            session_id=state["session_id"],
+        ),
+        causation_id=effective_command_id,
+        agent="examiner",
+        operation="generate_followup",
+        phase="interview",
+        session_id=state["session_id"],
+        question_id=question_id,
+        state_version=state["state_version"],
+        command_id=effective_command_id,
+        evidence_ids=evidence_ids_for_question(state["plan"], question_id),
+    )
+
+
+def _supports_execution_context(method) -> bool:
+    try:
+        parameters = inspect.signature(method).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == "execution_context"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _generate_examiner_followup(
+    examiner,
+    *,
+    context: list[dict[str, str]],
+    focus: str,
+    execution_context: AgentExecutionContext,
+) -> str:
+    kwargs = {"context": context, "focus": focus}
+    if _supports_execution_context(examiner.generate_followup):
+        kwargs["execution_context"] = execution_context
+    return examiner.generate_followup(**kwargs)
+
+
+def _stream_examiner_followup(
+    examiner,
+    *,
+    context: list[dict[str, str]],
+    focus: str,
+    execution_context: AgentExecutionContext,
+):
+    kwargs = {"context": context, "focus": focus}
+    if _supports_execution_context(examiner.stream_followup):
+        kwargs["execution_context"] = execution_context
+    yield from examiner.stream_followup(**kwargs)

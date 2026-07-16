@@ -1,9 +1,10 @@
-from app.agents.examiner import ExaminerAgent
+from app.agents.examiner import ExaminerAgent, fallback_followup
 from app.agents.knowledge import KnowledgeAgent
 from app.agents.report_coach import ReportCoachAgent
 from app.agents.shadow_reviewer import ShadowReviewerAgent
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
+from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 
 
 class FollowupLLM:
@@ -76,6 +77,29 @@ class VectorStore:
         return []
 
 
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
+
+
+def make_examiner_context() -> AgentExecutionContext:
+    return AgentExecutionContext(
+        correlation_id="prep-123",
+        causation_id="cmd-current",
+        agent="examiner",
+        operation="generate_followup",
+        phase="interview",
+        session_id="s1",
+        question_id="q1",
+        state_version=2,
+        command_id="cmd-current",
+        evidence_ids=["redis-1"],
+    )
+
+
 def test_examiner_agent_generates_followup_from_context():
     agent = ExaminerAgent(llm=FollowupLLM())
 
@@ -85,6 +109,24 @@ def test_examiner_agent_generates_followup_from_context():
     )
 
     assert follow_up == "Why did you choose delete-after-write instead of write-through?"
+
+
+def test_examiner_agent_records_completed_followup():
+    recorder = CapturingRecorder()
+    agent = ExaminerAgent(
+        llm=FollowupLLM(),
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    )
+
+    follow_up = agent.generate_followup(
+        context=[],
+        focus="Redis consistency",
+        execution_context=make_examiner_context(),
+    )
+
+    assert follow_up == "Why did you choose delete-after-write instead of write-through?"
+    assert recorder.records[0].status == "completed"
+    assert recorder.records[0].command_id == "cmd-current"
 
 
 def test_examiner_agent_falls_back_when_llm_fails():
@@ -97,6 +139,53 @@ def test_examiner_agent_falls_back_when_llm_fails():
     assert agent.generate_followup(context=[], focus="Redis consistency") == (
         "请继续深挖 Redis consistency：你当时做了什么取舍，为什么这样选？"
     )
+
+
+def test_examiner_agent_records_provider_fallback_as_degraded():
+    class FailingLLM(FollowupLLM):
+        def generate_followup(self, context: list[dict[str, str]]) -> str:
+            raise RuntimeError("provider down")
+
+    recorder = CapturingRecorder()
+    agent = ExaminerAgent(
+        llm=FailingLLM(),
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    )
+
+    follow_up = agent.generate_followup(
+        context=[],
+        focus="Redis consistency",
+        execution_context=make_examiner_context(),
+    )
+
+    assert follow_up == fallback_followup("Redis consistency")
+    assert recorder.records[0].status == "degraded"
+    assert recorder.records[0].fallback_reason == "provider_error"
+
+
+def test_examiner_agent_records_empty_stream_fallback_as_degraded():
+    class EmptyStreamLLM(FollowupLLM):
+        def stream_followup(self, context: list[dict[str, str]]):
+            if False:
+                yield "never"
+
+    recorder = CapturingRecorder()
+    agent = ExaminerAgent(
+        llm=EmptyStreamLLM(),
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    )
+
+    chunks = list(
+        agent.stream_followup(
+            context=[],
+            focus="Redis consistency",
+            execution_context=make_examiner_context(),
+        )
+    )
+
+    assert chunks == [fallback_followup("Redis consistency")]
+    assert recorder.records[0].status == "degraded"
+    assert recorder.records[0].fallback_reason == "empty_provider_stream"
 
 
 def test_knowledge_agent_generates_plan():
