@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
-from app.services.runtime import shutdown_runtime
+from app.services.runtime import shutdown_runtime, start_runtime
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -15,6 +15,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    start_runtime()
     try:
         yield
     finally:

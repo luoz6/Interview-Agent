@@ -1,10 +1,15 @@
 import os
+import socket
 from dataclasses import dataclass
+from uuid import uuid4
 
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_postgres_dsn,
     get_runtime_event_backend,
+    get_runtime_outbox_batch_size,
+    get_runtime_outbox_lease_seconds,
+    get_runtime_outbox_poll_seconds,
     get_runtime_store,
     get_runtime_table_prefix,
 )
@@ -12,6 +17,12 @@ from app.services.drafts import AnonymousDraftStore
 from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
+from app.services.runtime_outbox_dispatcher import (
+    CeleryRuntimeEventSink,
+    LocalRuntimeEventSink,
+    RuntimeOutboxDispatcher,
+    RuntimeOutboxService,
+)
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import PgVectorKnowledgeStore, get_knowledge_store
 
@@ -28,6 +39,8 @@ _report_job_store = None
 _report_executor = None
 _draft_store = None
 _event_publisher = None
+_runtime_control_store = None
+_runtime_outbox_service = None
 
 
 def build_session_store(llm=None):
@@ -129,6 +142,68 @@ def get_event_publisher():
     return _event_publisher
 
 
+def get_runtime_control_store():
+    global _runtime_control_store
+    if _runtime_control_store is None:
+        if get_runtime_store() != "postgres":
+            return None
+        session_store = get_session_store()
+        _runtime_control_store = session_store._runtime_control
+    return _runtime_control_store
+
+
+def build_runtime_outbox_service() -> RuntimeOutboxService:
+    control_store = get_runtime_control_store()
+    if control_store is None:
+        raise RuntimeError("runtime outbox requires PostgreSQL")
+    worker_id = _runtime_worker_id("local")
+    sink = LocalRuntimeEventSink(
+        control_store=control_store,
+        worker_id=f"{worker_id}:consumer",
+    )
+    return RuntimeOutboxService(
+        RuntimeOutboxDispatcher(
+            control_store,
+            sink,
+            batch_size=get_runtime_outbox_batch_size(),
+            lease_seconds=get_runtime_outbox_lease_seconds(),
+        ),
+        worker_id=worker_id,
+        poll_seconds=get_runtime_outbox_poll_seconds(),
+    )
+
+
+def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
+    from app.services.celery_app import celery_app
+
+    control_store = get_runtime_control_store()
+    if control_store is None:
+        raise RuntimeError("runtime outbox requires PostgreSQL")
+    worker_id = _runtime_worker_id("celery")
+    return RuntimeOutboxService(
+        RuntimeOutboxDispatcher(
+            control_store,
+            CeleryRuntimeEventSink(celery_app=celery_app),
+            batch_size=get_runtime_outbox_batch_size(),
+            lease_seconds=get_runtime_outbox_lease_seconds(),
+        ),
+        worker_id=worker_id,
+        poll_seconds=get_runtime_outbox_poll_seconds(),
+    )
+
+
+def start_runtime() -> None:
+    global _runtime_outbox_service
+    if (
+        get_runtime_store() != "postgres"
+        or get_runtime_event_backend() != "local"
+    ):
+        return
+    if _runtime_outbox_service is None:
+        _runtime_outbox_service = build_runtime_outbox_service()
+        _runtime_outbox_service.start()
+
+
 def get_report_executor():
     global _report_executor
     if _report_executor is None:
@@ -137,13 +212,18 @@ def get_report_executor():
 
 
 def shutdown_runtime(*, wait: bool = True) -> None:
-    global _session_store, _report_job_store, _report_executor, _draft_store, _event_publisher
+    global _session_store, _report_job_store, _report_executor, _draft_store
+    global _event_publisher, _runtime_control_store, _runtime_outbox_service
+    if _runtime_outbox_service is not None:
+        _runtime_outbox_service.shutdown(wait=wait)
     _shutdown_cached_publisher(_event_publisher, wait=wait)
     _session_store = None
     _report_job_store = None
     _report_executor = None
     _draft_store = None
     _event_publisher = None
+    _runtime_control_store = None
+    _runtime_outbox_service = None
 
 
 def reset_runtime_for_tests() -> None:
@@ -156,3 +236,10 @@ def _shutdown_cached_publisher(publisher, *, wait: bool) -> None:
     shutdown = getattr(publisher, "shutdown", None)
     if shutdown is not None:
         shutdown(wait=wait)
+
+
+def _runtime_worker_id(mode: str) -> str:
+    return (
+        f"runtime-{mode}@{socket.gethostname()}-"
+        f"{uuid4().hex[:12]}"
+    )

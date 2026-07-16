@@ -33,3 +33,33 @@ def get_runtime_event_backend() -> str:
 
 def get_redis_url() -> str:
     return os.getenv("REDIS_URL", DEFAULT_REDIS_URL).strip() or DEFAULT_REDIS_URL
+
+
+def get_runtime_outbox_batch_size() -> int:
+    return _positive_int("RUNTIME_OUTBOX_BATCH_SIZE", 20)
+
+
+def get_runtime_outbox_lease_seconds() -> int:
+    return _positive_int("RUNTIME_OUTBOX_LEASE_SECONDS", 60)
+
+
+def get_runtime_outbox_poll_seconds() -> float:
+    return _positive_float("RUNTIME_OUTBOX_POLL_SECONDS", 0.5)
+
+
+def get_runtime_receipt_lease_seconds() -> int:
+    return _positive_int("RUNTIME_RECEIPT_LEASE_SECONDS", 300)
+
+
+def _positive_int(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value < 1:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def _positive_float(name: str, default: float) -> float:
+    value = float(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
