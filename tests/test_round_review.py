@@ -20,6 +20,7 @@ except ModuleNotFoundError:
     sys.modules["celery"] = fake_celery
 
 from app.graphs.interview_state import build_initial_state
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -152,11 +153,22 @@ def test_build_single_question_review_state_restores_prompt_as_first_message():
 
 def make_round_closed_event(answer_state: str = "answered") -> RoundClosedEvent:
     return RoundClosedEvent(
+        event_id="event-1",
         session_id="s1",
+        correlation_id="prep-123",
+        state_version=3,
         question_id="q1",
         answer_state=answer_state,
         job_tags=["python", "redis"],
     )
+
+
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
 
 
 def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch):
@@ -208,6 +220,7 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
             )
 
     store = FakeStore()
+    recorder = CapturingRecorder()
 
     record = run_round_review_event(
         make_round_closed_event(),
@@ -215,6 +228,7 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
         llm=store.llm,
         vector_store=object(),
         reviewer_factory=FakeAgent,
+        execution_runner=AgentExecutionRunner(recorder=recorder),
     )
 
     assert record.status == "completed"
@@ -224,6 +238,14 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
     assert record.degraded_reason is None
     assert record.evidence_content_sha256 == {"redis-1": "a" * 64}
     assert store.saved == [("s1", record)]
+    trace = recorder.records[0]
+    assert trace.agent == "shadow_reviewer"
+    assert trace.operation == "evaluate_round"
+    assert trace.correlation_id == "prep-123"
+    assert trace.causation_id == "event-1"
+    assert trace.question_id == "q1"
+    assert trace.state_version == 3
+    assert trace.status == "completed"
 
 
 def test_run_round_review_event_saves_failed_record_when_reviewer_raises():
@@ -246,6 +268,7 @@ def test_run_round_review_event_saves_failed_record_when_reviewer_raises():
             raise RuntimeError("review model unavailable")
 
     store = FakeStore()
+    recorder = CapturingRecorder()
 
     record = run_round_review_event(
         make_round_closed_event(answer_state="skipped"),
@@ -253,6 +276,7 @@ def test_run_round_review_event_saves_failed_record_when_reviewer_raises():
         llm=store.llm,
         vector_store=object(),
         reviewer_factory=FailingAgent,
+        execution_runner=AgentExecutionRunner(recorder=recorder),
     )
 
     assert record == store.saved[0][1]
@@ -262,6 +286,9 @@ def test_run_round_review_event_saves_failed_record_when_reviewer_raises():
     assert record.answer_state == "skipped"
     assert record.feedback is None
     assert "review model unavailable" in record.error
+    trace = recorder.records[0]
+    assert trace.status == "failed"
+    assert trace.error_code == "RuntimeError"
 
 
 def test_run_round_review_event_selects_matching_feedback_when_report_has_extra_feedback():

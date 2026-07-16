@@ -1,4 +1,10 @@
 from app.agents.shadow_reviewer import ShadowReviewerAgent
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    correlation_id_from_plan,
+    evidence_ids_for_question,
+)
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     ReportGenerationFailed,
@@ -209,12 +215,43 @@ def _supports_question_evaluation_microbatches(store) -> bool:
     )
 
 
-def _evaluate_full_session(state, *, llm, vector_store, on_progress):
+def _evaluate_full_session(
+    state,
+    *,
+    llm,
+    vector_store,
+    on_progress,
+    execution_runner: AgentExecutionRunner | None = None,
+):
     evaluator = ShadowReviewerAgent(
         llm=llm,
         vector_store=vector_store,
     )
-    report = evaluator.evaluate(state, on_progress=on_progress)
+    command_id = state.get("last_command_id")
+    evidence_ids = [
+        evidence_id
+        for question in state["plan"].questions
+        for evidence_id in evidence_ids_for_question(state["plan"], question.id)
+    ]
+    context = AgentExecutionContext(
+        correlation_id=correlation_id_from_plan(
+            state["plan"],
+            session_id=state["session_id"],
+        ),
+        causation_id=command_id,
+        agent="shadow_reviewer",
+        operation="evaluate_full_session",
+        phase="review",
+        session_id=state["session_id"],
+        state_version=state.get("state_version"),
+        command_id=command_id,
+        evidence_ids=evidence_ids,
+    )
+    runner = execution_runner or AgentExecutionRunner()
+    report = runner.run(
+        context,
+        lambda: evaluator.evaluate(state, on_progress=on_progress),
+    )
     retrieval_metadata = getattr(
         evaluator,
         "last_retrieval_by_question",

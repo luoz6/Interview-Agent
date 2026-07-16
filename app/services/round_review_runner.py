@@ -2,6 +2,11 @@ from collections.abc import Callable
 from typing import Literal
 
 from app.agents.shadow_reviewer import ShadowReviewerAgent
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    evidence_ids_for_question,
+)
 from app.services.question_evaluations import (
     QuestionEvaluationRecord,
     question_evaluation_from_feedback,
@@ -12,7 +17,11 @@ from app.services.runtime_domain_events import RoundClosedEvent
 from app.services.vector_store import get_knowledge_store
 
 
-def run_round_review_event_payload(payload: dict) -> QuestionEvaluationRecord:
+def run_round_review_event_payload(
+    payload: dict,
+    *,
+    execution_runner: AgentExecutionRunner | None = None,
+) -> QuestionEvaluationRecord:
     event = RoundClosedEvent.model_validate(payload)
     store = get_session_store()
     return run_round_review_event(
@@ -20,6 +29,7 @@ def run_round_review_event_payload(payload: dict) -> QuestionEvaluationRecord:
         store=store,
         llm=resolve_runtime_llm(store),
         vector_store=get_knowledge_store(),
+        execution_runner=execution_runner,
     )
 
 
@@ -30,6 +40,7 @@ def run_round_review_event(
     llm,
     vector_store,
     reviewer_factory: Callable | None = None,
+    execution_runner: AgentExecutionRunner | None = None,
 ) -> QuestionEvaluationRecord:
     state = store.get(event.session_id)
     return run_round_review_event_from_state(
@@ -39,6 +50,7 @@ def run_round_review_event(
         llm=llm,
         vector_store=vector_store,
         reviewer_factory=reviewer_factory,
+        execution_runner=execution_runner,
     )
 
 
@@ -50,6 +62,7 @@ def run_round_review_event_from_state(
     llm,
     vector_store,
     reviewer_factory: Callable | None = None,
+    execution_runner: AgentExecutionRunner | None = None,
 ) -> QuestionEvaluationRecord:
     try:
         review_state = build_single_question_review_state(state, event.question_id)
@@ -57,7 +70,22 @@ def run_round_review_event_from_state(
             llm=llm,
             vector_store=vector_store,
         )
-        report = reviewer.evaluate(review_state)
+        runner = execution_runner or AgentExecutionRunner()
+        context = AgentExecutionContext(
+            correlation_id=event.correlation_id or event.session_id,
+            causation_id=event.event_id,
+            agent="shadow_reviewer",
+            operation="evaluate_round",
+            phase="review",
+            session_id=event.session_id,
+            question_id=event.question_id,
+            state_version=event.state_version,
+            evidence_ids=evidence_ids_for_question(
+                state["plan"],
+                event.question_id,
+            ),
+        )
+        report = runner.run(context, lambda: reviewer.evaluate(review_state))
         feedback = _select_feedback(report.feedbacks, event.question_id)
         retrieval_metadata = getattr(
             reviewer,

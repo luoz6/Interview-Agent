@@ -2,8 +2,14 @@ import logging
 
 import pytest
 
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.llm import OpenAIInterviewLLM
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    PrepContext,
+)
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
@@ -40,6 +46,14 @@ VALID_BETTER_ANSWER = (
 )
 
 
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
+
+
 def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeypatch):
     import app.services.report_tasks as report_tasks
 
@@ -51,6 +65,28 @@ def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeyp
             "evidence_content_sha256": {"redis-1": "sha256:redis-1"},
         }
     }
+    recorder = CapturingRecorder()
+    plan = InterviewPlan(
+        title="Backend interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis.",
+                focus="Redis",
+            )
+        ],
+        prep_context=PrepContext(
+            schema_version="v2",
+            summary="Grounded interview.",
+            knowledge_status="completed",
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id="prep-full-session-1",
+                corpus_manifest_sha256="a" * 64,
+                status="completed",
+            ),
+        ),
+    )
 
     class FakeExpertShadowEvaluator:
         def __init__(self, *, llm, vector_store):
@@ -66,14 +102,27 @@ def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeyp
     )
 
     report, retrieval_metadata = report_tasks._evaluate_full_session(
-        {"session_id": "s1"},
+        {
+            "session_id": "s1",
+            "plan": plan,
+            "state_version": 4,
+            "last_command_id": "cmd-finish",
+        },
         llm=object(),
         vector_store=object(),
         on_progress=None,
+        execution_runner=AgentExecutionRunner(recorder=recorder),
     )
 
     assert report is expected_report
     assert retrieval_metadata == expected_metadata
+    trace = recorder.records[0]
+    assert trace.agent == "shadow_reviewer"
+    assert trace.operation == "evaluate_full_session"
+    assert trace.correlation_id == "prep-full-session-1"
+    assert trace.causation_id == "cmd-finish"
+    assert trace.state_version == 4
+    assert trace.status == "completed"
 
 
 class ReportLLM:
