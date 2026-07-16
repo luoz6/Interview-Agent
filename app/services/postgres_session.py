@@ -1,8 +1,11 @@
 import json
+from copy import deepcopy
 from uuid import uuid4
 
 from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
+from app.services.interview_rounds import round_closed_event_from_transition
+from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.prep import InterviewPlan
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
@@ -19,6 +22,7 @@ from app.services.session import (
     _should_stream_follow_up,
 )
 from app.services.session_errors import SessionVersionConflict
+from app.services.runtime_domain_events import RoundClosedEvent
 from app.services.session_serialization import (
     message_to_row,
     question_evaluation_record_from_row,
@@ -50,6 +54,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         self.reports_table = f"{table_prefix}_reports"
         self.question_evaluations_table = f"{table_prefix}_question_evaluations"
         self._ensure_schema()
+        self._runtime_control = PostgresRuntimeControlStore(
+            dsn=dsn,
+            table_prefix=table_prefix,
+        )
+        self.runtime_event_delivery = "transactional_outbox"
 
     def list_runtime_tables(self) -> list[str]:
         psycopg2, _ = self._import_psycopg2()
@@ -179,13 +188,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if _is_duplicate_command(state, command_id):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
+        before_state = deepcopy(state)
         previous_version = state["state_version"]
         new_state = self._orchestrator.apply_command(
             state,
             {"kind": "answer", "answer": answer, "command_id": command_id},
         )
         new_state = _advance_state_metadata(new_state, command_id=command_id)
-        self._replace_state(new_state, expected_previous_version=previous_version)
+        event = round_closed_event_from_transition(before_state, new_state)
+        self._replace_state(
+            new_state,
+            expected_previous_version=previous_version,
+            outbox_event=event,
+        )
         return self._to_turn(new_state, follow_up=_extract_follow_up(new_state))
 
     def finish(
@@ -199,6 +214,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if _is_duplicate_command(state, command_id):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
+        before_state = deepcopy(state)
         previous_version = state["state_version"]
         finished_state = self._orchestrator.apply_command(
             state,
@@ -208,7 +224,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             finished_state,
             command_id=command_id,
         )
-        self._replace_state(finished_state, expected_previous_version=previous_version)
+        event = round_closed_event_from_transition(
+            before_state,
+            finished_state,
+        )
+        self._replace_state(
+            finished_state,
+            expected_previous_version=previous_version,
+            outbox_event=event,
+        )
         return self._to_turn(
             finished_state,
             follow_up=_extract_follow_up(finished_state),
@@ -225,6 +249,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if _is_duplicate_command(state, command_id):
             return self._to_turn(state, follow_up=_extract_follow_up(state))
         _ensure_expected_version(state, expected_version)
+        before_state = deepcopy(state)
         previous_version = state["state_version"]
         skipped_state = self._orchestrator.apply_command(
             state,
@@ -234,7 +259,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             skipped_state,
             command_id=command_id,
         )
-        self._replace_state(skipped_state, expected_previous_version=previous_version)
+        event = round_closed_event_from_transition(
+            before_state,
+            skipped_state,
+        )
+        self._replace_state(
+            skipped_state,
+            expected_previous_version=previous_version,
+            outbox_event=event,
+        )
         return self._to_turn(
             skipped_state,
             follow_up=_extract_follow_up(skipped_state),
@@ -288,6 +321,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if _already_finalized_streaming_answer(prepared_state):
             return prepared_state
         _ensure_expected_version(prepared_state, expected_version)
+        before_state = deepcopy(prepared_state)
         previous_version = prepared_state["state_version"]
         finalized_state = self._orchestrator.apply_command(
             prepared_state,
@@ -302,7 +336,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             command_id=command_id,
             record_command_id=False,
         )
-        self._replace_state(finalized_state, expected_previous_version=previous_version)
+        event = round_closed_event_from_transition(
+            before_state,
+            finalized_state,
+        )
+        self._replace_state(
+            finalized_state,
+            expected_previous_version=previous_version,
+            outbox_event=event,
+        )
         return finalized_state
 
     def mark_report_processing(self, session_id: str) -> bool:
@@ -765,6 +807,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         state: InterviewState,
         *,
         expected_previous_version: int | None = None,
+        outbox_event: RoundClosedEvent | None = None,
     ) -> None:
         psycopg2, sql = self._import_psycopg2()
         session_row = session_row_from_state(state)
@@ -918,6 +961,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         expected_version=expected_previous_version,
                         actual_version=row[0],
                     )
+                if outbox_event is not None:
+                    inserted = self._runtime_control.enqueue_event(
+                        cursor,
+                        outbox_event,
+                    )
+                    if not inserted:
+                        raise RuntimeError(
+                            "runtime event already exists for new transition"
+                        )
 
     def _upsert_report_record(self, session_id: str, record: ReportRecord) -> None:
         psycopg2, sql = self._import_psycopg2()

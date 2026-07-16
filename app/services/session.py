@@ -49,6 +49,7 @@ class InterviewSessionStore:
         llm: InterviewLLM | None = None,
         knowledge_repository=None,
     ) -> None:
+        self.runtime_event_delivery = "direct"
         self._sessions: Dict[str, InterviewState] = {}
         self._reports: Dict[str, ReportRecord] = {}
         self._question_evaluations: Dict[str, list[QuestionEvaluationRecord]] = {}

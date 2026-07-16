@@ -439,6 +439,9 @@ def test_streaming_prepare_and_complete_are_persisted_once():
 
     prepared = store.prepare_streaming_answer(turn.session_id, "I built APIs.")
     assert prepared.stream_follow_up is True
+    assert store._runtime_control.list_outbox(
+        session_id=turn.session_id
+    ) == []
 
     store.complete_streaming_answer(
         turn.session_id,
@@ -460,6 +463,125 @@ def test_streaming_prepare_and_complete_are_persisted_once():
         "interviewer",
     ]
     assert recovered["messages"][-1]["content"] == "Which failure mode did you handle?"
+    assert store._runtime_control.list_outbox(
+        session_id=turn.session_id
+    ) == []
+
+
+def test_closed_round_commits_one_outbox_event():
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+
+    store.skip(
+        turn.session_id,
+        expected_version=1,
+        command_id="cmd-skip",
+    )
+
+    events = store._runtime_control.list_outbox(
+        session_id=turn.session_id
+    )
+    assert len(events) == 1
+    assert events[0]["payload"]["causation_id"] == "cmd-skip"
+    assert events[0]["payload"]["state_version"] == 2
+    assert events[0]["payload"]["question_id"] == "q1"
+
+
+def test_outbox_failure_rolls_back_state_and_messages(monkeypatch):
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    original_messages = store.list_messages(turn.session_id)
+    monkeypatch.setattr(
+        store._runtime_control,
+        "enqueue_event",
+        lambda cursor, event: (_ for _ in ()).throw(
+            RuntimeError("insert failed")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        store.skip(
+            turn.session_id,
+            expected_version=1,
+            command_id="cmd-skip",
+        )
+
+    snapshot = store.snapshot(turn.session_id)
+    assert snapshot["state_version"] == 1
+    assert snapshot["status"] == "active"
+    assert store.list_messages(turn.session_id) == original_messages
+    assert store._runtime_control.list_outbox(
+        session_id=turn.session_id
+    ) == []
+
+
+def test_streaming_round_closes_only_during_complete():
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+    turn = store.start(
+        make_plan(),
+        job_description="Python backend role",
+        resume_text="Built FastAPI services",
+        job_tags=["python", "fastapi"],
+    )
+    first = store.prepare_streaming_answer(
+        turn.session_id,
+        "I built APIs.",
+        expected_version=1,
+        command_id="cmd-stream-first",
+    )
+    store.complete_streaming_answer(
+        turn.session_id,
+        follow_up_text="Which failure mode did you handle?",
+        expected_version=first.state["state_version"],
+        command_id="cmd-stream-first",
+    )
+
+    prepared = store.prepare_streaming_answer(
+        turn.session_id,
+        "I added retries and idempotency.",
+        expected_version=3,
+        command_id="cmd-stream-close",
+    )
+
+    assert prepared.state["decision"]["action"] == "finish"
+    assert prepared.state["current_index"] == 0
+    assert prepared.state["status"] == "active"
+    assert store._runtime_control.list_outbox(
+        session_id=turn.session_id
+    ) == []
+
+    finalized = store.complete_streaming_answer(
+        turn.session_id,
+        expected_version=prepared.state["state_version"],
+        command_id="cmd-stream-close",
+    )
+    events = store._runtime_control.list_outbox(
+        session_id=turn.session_id
+    )
+
+    assert finalized["status"] == "finished"
+    assert len(events) == 1
+    assert events[0]["payload"]["question_id"] == "q1"
+    assert events[0]["payload"]["causation_id"] == "cmd-stream-close"
 
 
 def test_complete_streaming_answer_advances_version_after_store_reinstantiation():

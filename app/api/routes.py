@@ -220,7 +220,12 @@ def submit_answer(
         return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
-    _publish_round_closed_event(publisher, before_state, after_state)
+    _publish_round_closed_event(
+        publisher,
+        store,
+        before_state,
+        after_state,
+    )
     enqueue_report_if_needed(
         turn_status=turn.status,
         session_id=session_id,
@@ -271,7 +276,12 @@ def submit_answer_stream(
                 command_id=payload.command_id,
             )
             after_state = deepcopy(finalized_state)
-            _publish_round_closed_event(publisher, before_state, after_state)
+            _publish_round_closed_event(
+                publisher,
+                store,
+                before_state,
+                after_state,
+            )
             turn = store._to_turn(finalized_state, follow_up=_extract_follow_up(finalized_state))
             enqueue_report_if_needed(
                 turn_status=turn.status,
@@ -316,7 +326,12 @@ def finish_interview(
         return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
-    _publish_round_closed_event(publisher, before_state, after_state)
+    _publish_round_closed_event(
+        publisher,
+        store,
+        before_state,
+        after_state,
+    )
     enqueue_report_if_needed(
         turn_status=turn.status,
         session_id=session_id,
@@ -348,7 +363,12 @@ def skip_interview_question(
         return _version_conflict_response(exc)
     except ValueError as exc:
         _raise_value_error(exc)
-    _publish_round_closed_event(publisher, before_state, after_state)
+    _publish_round_closed_event(
+        publisher,
+        store,
+        before_state,
+        after_state,
+    )
     enqueue_report_if_needed(
         turn_status=turn.status,
         session_id=session_id,
@@ -591,9 +611,15 @@ def _snapshot_session_state(
 
 def _publish_round_closed_event(
     publisher,
+    store,
     before_state,
     after_state,
 ) -> None:
+    if (
+        getattr(store, "runtime_event_delivery", "direct")
+        == "transactional_outbox"
+    ):
+        return
     event = round_closed_event_from_transition(before_state, after_state)
     if event is not None:
         try:

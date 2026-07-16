@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from fastapi.testclient import TestClient
 
 import app.api.routes as route_module
@@ -774,6 +776,45 @@ def test_skip_route_publishes_round_closed_event():
     assert published[0].answer_state == "skipped"
     assert published[0].state_version == snapshot["state_version"]
     assert published[0].causation_id == "cmd-skip"
+
+
+def test_transactional_outbox_store_suppresses_direct_event_publish():
+    published = []
+
+    class FakePublisher:
+        def publish(self, event):
+            published.append(event)
+
+    store = InterviewSessionStore(llm=FakeApiLLM())
+    store.runtime_event_delivery = "transactional_outbox"
+    turn = store.start(
+        InterviewPlan(
+            title="Backend interview",
+            questions=[
+                InterviewQuestion(
+                    id="q1",
+                    kind="technical",
+                    prompt="Explain Redis.",
+                    focus="Redis",
+                )
+            ],
+        ),
+        job_description="Backend role",
+        resume_text="Built APIs",
+        job_tags=["python"],
+    )
+    before = deepcopy(store.get(turn.session_id))
+    store.skip(turn.session_id, command_id="cmd-skip")
+    after = deepcopy(store.get(turn.session_id))
+
+    route_module._publish_round_closed_event(
+        FakePublisher(),
+        store,
+        before,
+        after,
+    )
+
+    assert published == []
 
 
 def test_answer_route_succeeds_when_round_closed_publish_fails():
