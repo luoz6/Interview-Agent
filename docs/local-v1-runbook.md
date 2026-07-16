@@ -322,3 +322,23 @@ python -m scripts.audit_stage42_artifacts --run-dir reports/stage42-acceptance/<
 The accepted directory contains only `manifest.json`, `metrics.json`,
 `report.md`, `retrieval-cases/**`, and `browser/**`. Do not create a passing
 manifest when the real-model browser gate has not passed.
+
+## 11. Stage 43A Multi-Agent Runtime Gate
+
+Stage 42 must already be PASS before declaring this gate. Enable Agent tracing
+for a deterministic or local runtime:
+
+    $env:AGENT_TRACE_DIR="reports-local\agent-traces"
+    npm run test:browser
+    python -m scripts.audit_agent_runtime $env:AGENT_TRACE_DIR
+
+Audit the single directory named by the persisted plan's prep_run_id, rather
+than a root that may contain abandoned Prep previews. Agent traces contain
+metadata and IDs only; they must not contain prompts, answers, resume or job
+description text, knowledge content, provider responses, secrets, DSNs, or
+absolute paths.
+
+Redis and WebSocket are not part of Stage 43A. The default Local event publisher
+and the optional Celery publisher must preserve the same runtime-event-v1
+envelope. Celery support may be declared only after the authenticated Celery
+preflight and persisted event acceptance pass.

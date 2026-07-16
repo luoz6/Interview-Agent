@@ -173,7 +173,7 @@ class ExpertShadowEvaluator:
                     operation="generate_full_session_report",
                     phase="review",
                     session_id=state["session_id"],
-                    state_version=state["state_version"],
+                    state_version=state.get("state_version"),
                     command_id=command_id,
                     evidence_ids=evidence_ids,
                 ),

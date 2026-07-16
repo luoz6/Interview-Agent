@@ -267,6 +267,22 @@ def test_expert_evaluator_injects_references_and_reports_progress():
     ]
 
 
+def test_expert_evaluator_accepts_round_review_state_without_version_metadata():
+    state = make_state()
+    state.pop("state_version")
+    recorder = CapturingRecorder()
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(),
+        vector_store=FakeVectorStore(),
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    )
+
+    report = evaluator.evaluate(state)
+
+    assert report.feedbacks[0].question_id == "q1"
+    assert recorder.records[0].state_version is None
+
+
 def test_expert_evaluator_keeps_rationale_aligned_with_references():
     llm = FakeExpertLLM()
     evaluator = ExpertShadowEvaluator(llm=llm, vector_store=FakeVectorStore())

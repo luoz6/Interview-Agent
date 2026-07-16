@@ -5,6 +5,7 @@ from app.main import app
 
 def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
     monkeypatch.delenv("INTERVIEW_EVENT_BACKEND", raising=False)
+    monkeypatch.delenv("AGENT_TRACE_DIR", raising=False)
     client = TestClient(app)
 
     response = client.get("/api/runtime")
@@ -33,6 +34,11 @@ def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
         "engine": "langgraph",
         "phase_aware": True,
         "resume_contract": "versioned_http",
+    }
+    assert body["agent_runtime"] == {
+        "schema_version": "agent-runtime-v1",
+        "event_schema_version": "runtime-event-v1",
+        "trace_enabled": False,
     }
 
 
@@ -69,3 +75,21 @@ def test_runtime_boundary_endpoint_reports_noop_event_mode(monkeypatch):
         "websocket": False,
         "langgraph": True,
     }
+
+
+def test_runtime_boundary_reports_agent_trace_enabled_without_exposing_path(
+    monkeypatch,
+):
+    monkeypatch.setenv("AGENT_TRACE_DIR", "C:\\private\\agent-traces")
+    client = TestClient(app)
+
+    response = client.get("/api/runtime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["agent_runtime"] == {
+        "schema_version": "agent-runtime-v1",
+        "event_schema_version": "runtime-event-v1",
+        "trace_enabled": True,
+    }
+    assert "C:\\private\\agent-traces" not in response.text

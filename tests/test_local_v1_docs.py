@@ -21,19 +21,38 @@ def test_env_example_documents_local_v1_runtime():
     assert "OPENAI_REQUEST_TIMEOUT_SECONDS=120" in env
     assert "OPENAI_MAX_RETRIES=1" in env
     assert "OPENAI_REPORT_OUTPUT_MODE=structured_first" in env
+    assert "AGENT_TRACE_DIR=" in env
     assert "DEEPSEEK_API_KEY" not in env
 
 
-def test_docs_record_stage42_pending_real_model_gate_and_artifact_audit():
+def test_docs_describe_stage43a_agent_runtime_audit():
+    env = read_text(".env.example")
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    acceptance = read_text("docs/stage-43a-multi-agent-runtime-acceptance.md")
+
+    for document in (readme, runbook):
+        assert 'AGENT_TRACE_DIR="reports-local\\agent-traces"' in document
+        assert "python -m scripts.audit_agent_runtime" in document
+        assert "metadata and IDs only" in document
+        assert "Stage 42" in document
+        assert "Redis and WebSocket are not part of Stage 43A" in document
+    assert "Tracing is disabled when unset" in env
+    assert "Status: `PENDING_CELERY_ACCEPTANCE`" in acceptance
+    assert "Five-Agent correlation continuity" in acceptance
+
+
+def test_docs_record_stage42_passed_real_model_gate_and_artifact_audit():
     runbook = read_text("docs/local-v1-runbook.md")
     record = read_text("docs/stage-42b-knowledge-continuity-acceptance.md")
 
     assert "RUN_REAL_BROWSER_SMOKE" in runbook
     assert "scripts.audit_stage42_artifacts" in runbook
     assert "reports/stage42-acceptance/<run-id>" in runbook
-    assert "PENDING_REAL_MODEL_RC" in record
+    assert "Status: `PASS`" in record
+    assert "20260716T062331Z-real-model-rc" in record
     assert "get_by_ids=1/search=0" in record
-    assert "No `reports/stage42-acceptance/<run-id>/` PASS directory" in record
+    assert "formal artifact audit both passed" in record
 
 
 def test_gitignore_excludes_local_runtime_artifacts():

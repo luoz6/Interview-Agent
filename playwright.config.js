@@ -1,6 +1,14 @@
 const { defineConfig, devices } = require("@playwright/test");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const python = process.env.STAGE41_PYTHON || "python";
+if (!process.env.AGENT_TRACE_DIR) {
+  process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
+    path.join(os.tmpdir(), "stage43-agent-traces-"),
+  );
+}
 
 module.exports = defineConfig({
   testDir: "./tests/browser",

@@ -11,6 +11,7 @@ from app.services.prep import (
     KnowledgeEvidenceRef,
     PrepContext,
     PrepQuestionHint,
+    prepare_interview as prepare_interview_service,
 )
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
@@ -79,7 +80,15 @@ def test_health_endpoint():
     assert response.json() == {"status": "ok"}
 
 
-def test_prepare_endpoint_returns_questions():
+def test_prepare_endpoint_returns_questions(monkeypatch):
+    monkeypatch.setattr(
+        route_module,
+        "prepare_interview",
+        lambda job_description, resume_text: FakeApiLLM().generate_plan(
+            job_description,
+            resume_text,
+        ),
+    )
     client = make_client()
     response = client.post(
         "/api/prep",
@@ -151,11 +160,20 @@ def test_prepare_endpoint_hides_internal_knowledge_hashes_and_binding_snapshot(m
     assert "prep-secret-run" not in response.text
 
 
-def test_prepare_endpoint_returns_job_tags_without_session_store():
+def test_prepare_endpoint_returns_job_tags_without_session_store(monkeypatch):
     def fail_session_store():
         raise RuntimeError("session store should not be used")
 
     app.dependency_overrides[get_session_store] = fail_session_store
+    monkeypatch.setattr(
+        route_module,
+        "prepare_interview",
+        lambda job_description, resume_text: prepare_interview_service(
+            job_description,
+            resume_text,
+            llm=FakeApiLLM(),
+        ),
+    )
     client = TestClient(app)
 
     response = client.post(

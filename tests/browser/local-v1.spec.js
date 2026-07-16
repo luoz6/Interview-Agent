@@ -1,4 +1,6 @@
 const { test, expect } = require("@playwright/test");
+const { spawnSync } = require("child_process");
+const path = require("path");
 
 const jd = "Backend role using Python, FastAPI, Redis, and PostgreSQL.";
 const resume = "Built a FastAPI service with Redis cache-aside and PostgreSQL.";
@@ -77,6 +79,27 @@ test("prep, SSE answer, refresh, conflict recovery, report and PDF", async ({ pa
   expect(pdf.status()).toBe(200);
   expect(pdf.headers()["content-type"]).toContain("application/pdf");
   expect((await pdf.body()).length).toBeGreaterThan(1000);
+
+  const prepRunResponse = await request.get(
+    `/test-support/interviews/${sessionId}/prep-run-id`,
+  );
+  expect(prepRunResponse.status()).toBe(200);
+  const { prep_run_id: prepRunId } = await prepRunResponse.json();
+  const correlationDir = path.join(process.env.AGENT_TRACE_DIR, prepRunId);
+  const audit = spawnSync(
+    process.env.STAGE41_PYTHON || "python",
+    ["-m", "scripts.audit_agent_runtime", correlationDir],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    },
+  );
+  expect(audit.status, audit.stdout + audit.stderr).toBe(0);
+  const auditResult = JSON.parse(audit.stdout);
+  expect(auditResult.status).toBe("PASS");
+  expect(auditResult.correlation_continuity_rate).toBe(1);
+  expect(auditResult.required_agents_present).toBe(true);
+  expect(auditResult.privacy_violations).toEqual([]);
 });
 
 test("prep evidence remains visible and bounded on mobile", async ({ page }) => {
@@ -110,7 +133,7 @@ test("degraded knowledge is explicit and still completes without references", as
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   await page.locator("#finishInterviewButton").click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 10_000 });
-  await expect(page.locator("body")).toContainText("Knowledge evidence: degraded (knowledge_unavailable)");
+  await expect(page.locator("body")).toContainText("Knowledge evidence: degraded (missing_evidence_binding)");
   await expect(page.locator("[data-evidence-id]")).toHaveCount(0);
 
   const reportResponse = await request.get(`/api/interviews/${sessionId}/report`);

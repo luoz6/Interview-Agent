@@ -161,6 +161,19 @@ external-provider failure policy.
 
 Run real browser acceptance with `docs/local-v1-runbook.md` and record the result in `docs/stage-21-browser-e2e-acceptance.md`.
 
+## Stage 43A Multi-Agent Runtime Audit
+
+Stage 43A requires the Stage 42 knowledge continuity gate to already be PASS.
+Enable sanitized Agent metadata traces and audit one correlation directory:
+
+    $env:AGENT_TRACE_DIR="reports-local\agent-traces"
+    python -m scripts.audit_agent_runtime $env:AGENT_TRACE_DIR
+
+Agent traces contain metadata and IDs only. They do not contain prompts,
+candidate answers, resumes, job descriptions, provider responses, secrets, or
+absolute paths. Redis and WebSocket are not part of Stage 43A; Local event
+delivery remains the default, while Celery is an optional acceptance profile.
+
 ## Current Non-Scope
 
 - 不包含登录。

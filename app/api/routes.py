@@ -1,4 +1,5 @@
 import logging
+import os
 from collections.abc import Iterator
 from copy import deepcopy
 
@@ -96,6 +97,11 @@ def runtime_boundary():
             "engine": "langgraph",
             "phase_aware": True,
             "resume_contract": "versioned_http",
+        },
+        "agent_runtime": {
+            "schema_version": "agent-runtime-v1",
+            "event_schema_version": "runtime-event-v1",
+            "trace_enabled": bool(os.getenv("AGENT_TRACE_DIR")),
         },
     }
 

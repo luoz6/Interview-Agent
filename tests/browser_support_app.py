@@ -1,5 +1,9 @@
+from uuid import uuid4
+
 import app.api.routes as route_module
 from app.main import app
+from app.ports.runtime import KnowledgeLookupResult
+from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.event_publisher import NoopRuntimeEventPublisher
 from app.services.prep import (
     InterviewPlan,
@@ -10,7 +14,6 @@ from app.services.prep import (
     PrepKnowledgeTopic,
     PrepQuestionHint,
 )
-from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
     FeedbackReference,
@@ -18,6 +21,7 @@ from app.services.report import (
     InterviewReport,
     ReportProgress,
 )
+from app.services.report_microbatch import generate_microbatch_report
 from app.services.session import InterviewSessionStore
 
 
@@ -119,49 +123,15 @@ class BrowserReportJobStore:
     def enqueue_report_request(self, session_id: str) -> dict:
         self.store.mark_report_processing(session_id)
         state = self.store.get(session_id)
-        context = state["plan"].prep_context
-        hint = next(
-            (
-                item
-                for item in (context.question_hints if context is not None else [])
-                if item.question_id == state["plan"].questions[0].id
+        report = generate_microbatch_report(
+            state,
+            store=self.store,
+            llm=browser_llm,
+            vector_store=BrowserKnowledgeStore(),
+            on_progress=lambda progress: self.store.update_report_progress(
+                session_id,
+                progress,
             ),
-            None,
-        )
-        evidence_id = hint.evidence_ids[0] if hint and hint.evidence_ids else None
-        evidence_lookup = {
-            item.evidence_id: item
-            for item in (context.evidence_refs if context is not None else [])
-        }
-        evidence_hashes = (
-            {evidence_id: evidence_lookup[evidence_id].content_sha256}
-            if evidence_id in evidence_lookup
-            else {}
-        )
-        degraded_reason = (
-            context.binding_snapshot.degraded_reason
-            if context is not None
-            and context.binding_snapshot is not None
-            and context.knowledge_status == "degraded"
-            else None
-        )
-        retrieval_path = "bound_evidence_ids" if evidence_id else "degraded"
-        report = make_report(
-            session_id,
-            state["plan"].questions[0],
-            evidence_id=evidence_id,
-        )
-        self.store.save_question_evaluations(
-            session_id,
-            [
-                question_evaluation_from_feedback(
-                    session_id=session_id,
-                    feedback=report.feedbacks[0],
-                    retrieval_path=retrieval_path,
-                    degraded_reason=degraded_reason,
-                    evidence_content_sha256=evidence_hashes,
-                )
-            ],
         )
         self.store.update_report_progress(
             session_id,
@@ -172,7 +142,9 @@ class BrowserReportJobStore:
                 metadata={
                     "report_path": "microbatch",
                     "knowledge_path": (
-                        "bound_evidence_reuse" if evidence_id else "degraded"
+                        "bound_evidence_reuse"
+                        if any(feedback.references for feedback in report.feedbacks)
+                        else "degraded"
                     ),
                 },
             ),
@@ -193,7 +165,63 @@ class BrowserReportJobStore:
 browser_llm = BrowserTestLLM()
 
 
+class BrowserKnowledgeStore:
+    def get_by_ids(self, ids, *, expected_hashes=None):
+        manifest_hash = "b" * 64
+        content_hashes = {
+            "redis_consistency": "a" * 64,
+            "system_design_backend": "c" * 64,
+        }
+        found = [
+            {
+                "chunk_id": evidence_id,
+                "title": evidence_id,
+                "content": "Deterministic internal evidence.",
+                "source_type": "theory",
+                "domain": "redis",
+                "metadata": {
+                    "content_sha256": content_hashes[evidence_id],
+                    "corpus_manifest_sha256": manifest_hash,
+                },
+            }
+            for evidence_id in ids
+        ]
+        return KnowledgeLookupResult(found=found)
+
+    def search(self, *args, **kwargs):
+        raise AssertionError("v2 browser acceptance must reuse bound evidence IDs")
+
+
 def prepare_browser_interview(job_description, resume_text, llm=None):
+    prep_run_id = f"browser-{uuid4().hex}"
+    runner = AgentExecutionRunner()
+    return runner.run(
+        AgentExecutionContext(
+            correlation_id=prep_run_id,
+            agent="knowledge",
+            operation="generate_plan",
+            phase="prep",
+        ),
+        lambda: _build_browser_interview(
+            job_description,
+            resume_text,
+            llm=llm,
+            prep_run_id=prep_run_id,
+        ),
+        metadata=lambda plan: {
+            "question_count": len(plan.questions),
+            "knowledge_status": plan.prep_context.knowledge_status,
+        },
+    )
+
+
+def _build_browser_interview(
+    job_description,
+    resume_text,
+    *,
+    llm=None,
+    prep_run_id,
+):
     plan = (llm or browser_llm).generate_plan(
         job_description,
         resume_text,
@@ -210,7 +238,7 @@ def prepare_browser_interview(job_description, resume_text, llm=None):
                         for question in plan.questions
                     ],
                     binding_snapshot=KnowledgeBindingSnapshot(
-                        prep_run_id="browser-degraded",
+                        prep_run_id=prep_run_id,
                         corpus_manifest_sha256="",
                         status="degraded",
                         degraded_reason="knowledge_unavailable",
@@ -289,7 +317,7 @@ def prepare_browser_interview(job_description, resume_text, llm=None):
                 question_hints=hints,
                 evidence_refs=evidence,
                 binding_snapshot=KnowledgeBindingSnapshot(
-                    prep_run_id="browser-completed",
+                    prep_run_id=prep_run_id,
                     corpus_manifest_sha256=manifest_hash,
                     status="completed",
                 ),
@@ -308,3 +336,11 @@ app.dependency_overrides[route_module.get_session_store] = lambda: store
 app.dependency_overrides[route_module.get_event_publisher] = lambda: publisher
 app.dependency_overrides[original_report_job_dependency] = lambda: job_store
 route_module.get_report_job_store = lambda: job_store
+
+
+@app.get("/test-support/interviews/{session_id}/prep-run-id")
+def browser_prep_run_id(session_id: str):
+    state = store.get(session_id)
+    return {
+        "prep_run_id": state["plan"].prep_context.binding_snapshot.prep_run_id,
+    }
