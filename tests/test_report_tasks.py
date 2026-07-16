@@ -9,6 +9,7 @@ from app.services.prep import (
     InterviewQuestion,
     KnowledgeBindingSnapshot,
     PrepContext,
+    PrepQuestionHint,
 )
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
@@ -74,12 +75,28 @@ def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeyp
                 kind="technical",
                 prompt="Explain Redis.",
                 focus="Redis",
-            )
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="system-design",
+                prompt="Design a cache service.",
+                focus="Redis architecture",
+            ),
         ],
         prep_context=PrepContext(
             schema_version="v2",
             summary="Grounded interview.",
             knowledge_status="completed",
+            question_hints=[
+                PrepQuestionHint(
+                    question_id="q1",
+                    evidence_ids=["redis-1", "redis-1"],
+                ),
+                PrepQuestionHint(
+                    question_id="q2",
+                    evidence_ids=["redis-1"],
+                ),
+            ],
             binding_snapshot=KnowledgeBindingSnapshot(
                 prep_run_id="prep-full-session-1",
                 corpus_manifest_sha256="a" * 64,
@@ -122,6 +139,7 @@ def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeyp
     assert trace.correlation_id == "prep-full-session-1"
     assert trace.causation_id == "cmd-finish"
     assert trace.state_version == 4
+    assert trace.evidence_ids == ["redis-1"]
     assert trace.status == "completed"
 
 
