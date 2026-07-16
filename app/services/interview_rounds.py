@@ -5,6 +5,7 @@ from app.graphs.interview_state import (
     count_candidate_answers_for_question,
     get_current_question,
 )
+from app.services.agent_runtime import correlation_id_from_plan
 from app.services.runtime_domain_events import RoundClosedEvent
 
 
@@ -29,6 +30,12 @@ def round_closed_event_from_transition(
 
     return RoundClosedEvent(
         session_id=after_state["session_id"],
+        correlation_id=correlation_id_from_plan(
+            after_state["plan"],
+            session_id=after_state["session_id"],
+        ),
+        causation_id=after_state.get("last_command_id"),
+        state_version=after_state["state_version"],
         question_id=closed_question.id,
         answer_state=_answer_state_for_question(after_state, closed_question.id),
         job_tags=list(after_state["job_tags"]),

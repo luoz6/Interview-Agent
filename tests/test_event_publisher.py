@@ -47,6 +47,9 @@ def test_local_round_review_event_publisher_schedules_round_closed_event():
     publisher.publish(
         RoundClosedEvent(
             session_id="s1",
+            correlation_id="prep-123",
+            causation_id="cmd-2",
+            state_version=3,
             question_id="q1",
             answer_state="answered",
             job_tags=["python", "redis"],
@@ -60,6 +63,27 @@ def test_local_round_review_event_publisher_schedules_round_closed_event():
     assert payload["session_id"] == "s1"
     assert payload["question_id"] == "q1"
     assert payload["answer_state"] == "answered"
+    assert payload["schema_version"] == "runtime-event-v1"
+    assert payload["event_id"].startswith("event-")
+    assert payload["correlation_id"] == "prep-123"
+    assert payload["causation_id"] == "cmd-2"
+    assert payload["state_version"] == 3
+
+
+def test_round_closed_event_accepts_legacy_payload_defaults():
+    event = RoundClosedEvent.model_validate(
+        {
+            "event_type": "round_closed",
+            "session_id": "s1",
+            "question_id": "q1",
+            "answer_state": "answered",
+        }
+    )
+
+    assert event.schema_version == "runtime-event-v1"
+    assert event.event_id.startswith("event-")
+    assert event.correlation_id == "s1"
+    assert event.state_version is None
 
 
 def test_local_round_review_event_publisher_rejects_unknown_event_type():
@@ -85,6 +109,9 @@ def test_celery_runtime_event_publisher_routes_round_closed_event():
     publisher.publish(
         RoundClosedEvent(
             session_id="s1",
+            correlation_id="prep-123",
+            causation_id="cmd-2",
+            state_version=3,
             question_id="q1",
             answer_state="answered",
             job_tags=["python", "redis"],
@@ -101,6 +128,11 @@ def test_celery_runtime_event_publisher_routes_round_closed_event():
     assert payload["question_id"] == "q1"
     assert payload["answer_state"] == "answered"
     assert payload["job_tags"] == ["python", "redis"]
+    assert payload["schema_version"] == "runtime-event-v1"
+    assert payload["event_id"].startswith("event-")
+    assert payload["correlation_id"] == "prep-123"
+    assert payload["causation_id"] == "cmd-2"
+    assert payload["state_version"] == 3
     assert isinstance(payload["emitted_at"], str)
     assert payload["emitted_at"].endswith("Z")
 

@@ -4,6 +4,7 @@ from typing import Literal, cast
 from pydantic import BaseModel, Field
 
 from app.agents.report_coach import ReportCoachAgent
+from app.services.agent_runtime import correlation_id_from_plan
 from app.services.evaluator import build_evaluation_chunks
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import DimensionScores, InterviewReport, ReportProgress
@@ -172,6 +173,12 @@ def ensure_completed_question_evaluations_for_report(
         reviewed = run_round_review_event_from_state(
             RoundClosedEvent(
                 session_id=session_id,
+                correlation_id=correlation_id_from_plan(
+                    state["plan"],
+                    session_id=session_id,
+                ),
+                causation_id=state.get("last_command_id"),
+                state_version=state["state_version"],
                 question_id=chunk.question_id,
                 answer_state=_coerce_answer_state(chunk.answer_state),
                 job_tags=list(state["job_tags"]),

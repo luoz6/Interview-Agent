@@ -700,18 +700,29 @@ def test_answer_route_publishes_round_closed_event_only_when_question_closes():
 
     first = client.post(
         f"/api/interviews/{session_id}/answer",
-        json={"answer": "I used Redis to cache hot records."},
+        json={
+            "answer": "I used Redis to cache hot records.",
+            "expected_version": 1,
+            "command_id": "cmd-first",
+        },
     )
     second = client.post(
         f"/api/interviews/{session_id}/answer",
-        json={"answer": "I added delayed double delete."},
+        json={
+            "answer": "I added delayed double delete.",
+            "expected_version": 2,
+            "command_id": "cmd-close",
+        },
     )
+    snapshot = client.get(f"/api/interviews/{session_id}").json()
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert len(published) == 1
     assert published[0].question_id == "q1"
     assert published[0].answer_state == "answered"
+    assert published[0].state_version == snapshot["state_version"]
+    assert published[0].causation_id == "cmd-close"
 
 
 def test_skip_route_publishes_round_closed_event():
@@ -733,12 +744,18 @@ def test_skip_route_publishes_round_closed_event():
     )
     session_id = start_response.json()["session_id"]
 
-    response = client.post(f"/api/interviews/{session_id}/skip")
+    response = client.post(
+        f"/api/interviews/{session_id}/skip",
+        json={"expected_version": 1, "command_id": "cmd-skip"},
+    )
+    snapshot = client.get(f"/api/interviews/{session_id}").json()
 
     assert response.status_code == 200
     assert len(published) == 1
     assert published[0].question_id == "q1"
     assert published[0].answer_state == "skipped"
+    assert published[0].state_version == snapshot["state_version"]
+    assert published[0].causation_id == "cmd-skip"
 
 
 def test_answer_route_succeeds_when_round_closed_publish_fails():
@@ -837,12 +854,20 @@ def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_
 
     client.post(
         f"/api/interviews/{started['session_id']}/answer",
-        json={"answer": "I used Redis to cache hot records."},
+        json={
+            "answer": "I used Redis to cache hot records.",
+            "expected_version": 1,
+            "command_id": "cmd-stream-first",
+        },
     )
     with client.stream(
         "POST",
         f"/api/interviews/{started['session_id']}/answer/stream",
-        json={"answer": "I added delayed double delete."},
+        json={
+            "answer": "I added delayed double delete.",
+            "expected_version": 2,
+            "command_id": "cmd-stream-close",
+        },
     ) as response:
         assert response.status_code == 200
         body = "".join(response.iter_text())
@@ -851,3 +876,8 @@ def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_
     assert len(published) == 1
     assert published[0].question_id == "q1"
     assert published[0].answer_state == "answered"
+    snapshot = client.get(
+        f"/api/interviews/{started['session_id']}"
+    ).json()
+    assert published[0].state_version == snapshot["state_version"]
+    assert published[0].causation_id == "cmd-stream-close"

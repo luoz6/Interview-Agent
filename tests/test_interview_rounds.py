@@ -2,7 +2,12 @@ from copy import deepcopy
 
 from app.graphs.interview_graph import InterviewGraphRunner
 from app.services.interview_rounds import round_closed_event_from_transition
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeBindingSnapshot,
+    PrepContext,
+)
 from app.services.report import InterviewReport
 from app.services.session import finish_interview_state, skip_interview_question_state
 
@@ -10,6 +15,15 @@ from app.services.session import finish_interview_state, skip_interview_question
 def make_plan():
     return InterviewPlan(
         title="Backend mock interview",
+        prep_context=PrepContext(
+            summary="Grounded prep context.",
+            schema_version="v2",
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id="prep-123",
+                corpus_manifest_sha256="manifest-123",
+                status="completed",
+            ),
+        ),
         questions=[
             InterviewQuestion(
                 id="q1",
@@ -69,6 +83,8 @@ def test_round_closed_event_is_emitted_when_question_advances():
     before = runner.start(**make_start_kwargs())
     followup_state = runner.submit_answer(before, "I improved cache consistency.")
     after = runner.submit_answer(followup_state, "I added delayed double delete.")
+    after["state_version"] = 3
+    after["last_command_id"] = "cmd-2"
 
     event = round_closed_event_from_transition(followup_state, after)
 
@@ -77,6 +93,11 @@ def test_round_closed_event_is_emitted_when_question_advances():
     assert event.question_id == "q1"
     assert event.answer_state == "answered"
     assert event.job_tags == ["python", "redis"]
+    assert event.schema_version == "runtime-event-v1"
+    assert event.event_id.startswith("event-")
+    assert event.correlation_id == "prep-123"
+    assert event.causation_id == "cmd-2"
+    assert event.state_version == 3
 
 
 def test_round_closed_event_is_emitted_for_skip():
