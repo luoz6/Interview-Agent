@@ -167,6 +167,7 @@ def attach_grounded_prep_context(
     *,
     role_profile: RoleProfile,
     result: GroundingResult,
+    prep_run_id: str | None = None,
 ) -> InterviewPlan:
     evidence_refs = [
         KnowledgeEvidenceRef(
@@ -189,7 +190,7 @@ def attach_grounded_prep_context(
         for question in plan.questions
     ]
     snapshot = KnowledgeBindingSnapshot(
-        prep_run_id=f"prep-{uuid4().hex}",
+        prep_run_id=prep_run_id or f"prep-{uuid4().hex}",
         corpus_manifest_sha256=result.corpus_manifest_sha256,
         queries=[_query_snapshot(retrieval) for retrieval in result.retrievals],
         status=result.status,

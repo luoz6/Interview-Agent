@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -140,26 +141,69 @@ def prepare_interview(
     resume_text: str,
     llm: InterviewLLM | None = None,
     knowledge_store: "KnowledgeRepository | None" = None,
+    execution_runner=None,
 ) -> InterviewPlan:
     job_description = _require_text("job_description", job_description)
     resume_text = _require_text("resume_text", resume_text)
 
-    try:
-        from app.agents.knowledge import KnowledgeAgent
+    from app.agents.knowledge import KnowledgeAgent
+    from app.services.agent_runtime import (
+        AgentExecutionContext,
+        AgentExecutionRunner,
+        AgentFallback,
+        AgentOutcome,
+    )
 
-        return KnowledgeAgent(llm=llm, vector_store=knowledge_store).generate_plan(
-            job_description=job_description,
-            resume_text=resume_text,
-        )
-    except Exception:
+    runner = execution_runner or AgentExecutionRunner()
+    correlation_id = f"prep-{uuid4().hex}"
+    context = AgentExecutionContext(
+        correlation_id=correlation_id,
+        agent="knowledge",
+        operation="generate_plan",
+        phase="prep",
+    )
+    agent = KnowledgeAgent(llm=llm, vector_store=knowledge_store)
+
+    def fallback_plan(_exc: Exception) -> AgentFallback[InterviewPlan]:
         from app.services.job_tags import extract_job_tags
 
-        return attach_prep_context(
+        plan = attach_prep_context(
             fallback_interview_plan(),
             job_description=job_description,
             resume_text=resume_text,
             job_tags=extract_job_tags(job_description),
         )
+        return AgentFallback(plan, "plan_generation_failed")
+
+    return runner.run(
+        context,
+        lambda: agent.generate_plan(
+            job_description=job_description,
+            resume_text=resume_text,
+            prep_run_id=correlation_id,
+        ),
+        fallback=fallback_plan,
+        metadata=lambda plan: {
+            "question_count": len(plan.questions),
+            "knowledge_status": (
+                plan.prep_context.knowledge_status if plan.prep_context else "legacy"
+            ),
+        },
+        classify=lambda plan: (
+            AgentOutcome(
+                status="degraded",
+                reason=(
+                    plan.prep_context.binding_snapshot.degraded_reason
+                    if plan.prep_context
+                    and plan.prep_context.binding_snapshot
+                    and plan.prep_context.binding_snapshot.degraded_reason
+                    else "knowledge_degraded"
+                ),
+            )
+            if plan.prep_context and plan.prep_context.knowledge_status == "degraded"
+            else AgentOutcome()
+        ),
+    )
 
 
 def fallback_interview_plan() -> InterviewPlan:

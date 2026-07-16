@@ -1,12 +1,15 @@
 import pytest
 
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
     build_prep_context,
+    fallback_interview_plan,
     prepare_interview,
 )
 from app.services.report import InterviewReport
+from tests.test_grounded_knowledge_agent import make_repository
 
 
 class FakePlanLLM:
@@ -70,6 +73,14 @@ class FailingPlanLLM:
         raise AssertionError("Prep tests do not generate reports")
 
 
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
+
+
 def test_prepare_interview_uses_llm_for_question_plan():
     llm = FakePlanLLM()
 
@@ -108,6 +119,61 @@ def test_prepare_interview_falls_back_when_llm_fails():
     assert plan.title == "基础模拟面试"
     assert len(plan.questions) == 3
     assert plan.questions[0].kind == "project"
+
+
+def test_prepare_interview_provider_failure_keeps_complete_v1_fallback():
+    expected = fallback_interview_plan()
+
+    plan = prepare_interview(
+        "Backend role using Redis",
+        "Built a Redis API",
+        llm=FailingPlanLLM(),
+        knowledge_store=make_repository(),
+    )
+
+    assert plan.title == expected.title
+    assert [question.id for question in plan.questions] == [
+        question.id for question in expected.questions
+    ]
+    assert plan.prep_context is not None
+    assert plan.prep_context.schema_version == "v1"
+    assert plan.prep_context.binding_snapshot is None
+
+
+def test_prepare_interview_correlates_knowledge_run_with_binding_snapshot():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    plan = prepare_interview(
+        "Backend role using Redis",
+        "Built a Redis API",
+        llm=FakePlanLLM(),
+        knowledge_store=make_repository(),
+        execution_runner=runner,
+    )
+
+    prep_run_id = plan.prep_context.binding_snapshot.prep_run_id
+    assert recorder.records[0].agent == "knowledge"
+    assert recorder.records[0].operation == "generate_plan"
+    assert recorder.records[0].correlation_id == prep_run_id
+    assert recorder.records[0].status == "completed"
+
+
+def test_prepare_interview_records_provider_fallback_as_degraded():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    plan = prepare_interview(
+        "Backend role using Redis",
+        "Built a Redis API",
+        llm=FailingPlanLLM(),
+        knowledge_store=make_repository(),
+        execution_runner=runner,
+    )
+
+    assert plan.prep_context.schema_version == "v1"
+    assert recorder.records[0].status == "degraded"
+    assert recorder.records[0].fallback_reason == "plan_generation_failed"
 
 
 def test_prepare_interview_rejects_empty_inputs():

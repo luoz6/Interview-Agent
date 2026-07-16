@@ -23,7 +23,13 @@ class KnowledgeAgent:
         self.llm = llm
         self.vector_store = vector_store
 
-    def generate_plan(self, *, job_description: str, resume_text: str) -> InterviewPlan:
+    def generate_plan(
+        self,
+        *,
+        job_description: str,
+        resume_text: str,
+        prep_run_id: str | None = None,
+    ) -> InterviewPlan:
         llm = self.llm or self._default_llm()
         vector_store = self.vector_store
         if vector_store is None and self.llm is not None:
@@ -52,6 +58,7 @@ class KnowledgeAgent:
             plan,
             role_profile=role_profile,
             result=grounding,
+            prep_run_id=prep_run_id,
         )
         self._record_grounding_trace(grounded_plan, grounding)
         return grounded_plan
