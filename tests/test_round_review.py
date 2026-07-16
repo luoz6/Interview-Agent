@@ -20,7 +20,12 @@ except ModuleNotFoundError:
     sys.modules["celery"] = fake_celery
 
 from app.graphs.interview_state import build_initial_state
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    PrepContext,
+    PrepQuestionHint,
+)
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.round_review import build_single_question_review_state
@@ -85,6 +90,36 @@ def test_build_single_question_review_state_filters_other_questions():
     assert all(message["question_id"] == "q1" for message in review_state["messages"])
 
 
+def test_build_single_question_review_state_preserves_v2_evidence_bindings():
+    state = make_state()
+    state["plan"] = state["plan"].model_copy(
+        update={
+            "prep_context": PrepContext(
+                schema_version="v2",
+                summary="Grounded Prep",
+                knowledge_status="completed",
+                question_hints=[
+                    PrepQuestionHint(
+                        question_id="q1",
+                        evidence_ids=["redis_consistency"],
+                    ),
+                    PrepQuestionHint(
+                        question_id="q2",
+                        evidence_ids=["system_scalability"],
+                    ),
+                ],
+            )
+        }
+    )
+
+    review_state = build_single_question_review_state(state, "q1")
+
+    assert review_state["plan"].prep_context.schema_version == "v2"
+    assert review_state["plan"].prep_context.question_hints[0].evidence_ids == [
+        "redis_consistency"
+    ]
+
+
 def test_build_single_question_review_state_restores_prompt_as_first_message():
     state = make_state()
     state["messages"] = [
@@ -141,6 +176,13 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
         def __init__(self, *, llm, vector_store):
             self.llm = llm
             self.vector_store = vector_store
+            self.last_retrieval_by_question = {
+                "q1": {
+                    "retrieval_path": "bound_evidence_ids",
+                    "degraded_reason": None,
+                    "evidence_content_sha256": {"redis-1": "a" * 64},
+                }
+            }
 
         def evaluate(self, state, on_progress=None):
             return InterviewReport(
@@ -178,6 +220,9 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
     assert record.status == "completed"
     assert record.question_id == "q1"
     assert record.feedback.score == 90
+    assert record.retrieval_path == "bound_evidence_ids"
+    assert record.degraded_reason is None
+    assert record.evidence_content_sha256 == {"redis-1": "a" * 64}
     assert store.saved == [("s1", record)]
 
 

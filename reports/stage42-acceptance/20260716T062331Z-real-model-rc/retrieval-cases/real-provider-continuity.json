@@ -1,0 +1,16 @@
+{
+  "case_id": "stage42-real-provider-continuity",
+  "session_ref": "fed5cec6520a7cb8",
+  "distinct_questions_answered": 2,
+  "follow_up_observed": true,
+  "retrieval_path": "bound_evidence_ids",
+  "evidence_ids": [
+    "fastapi_backend",
+    "fastapi_blocking_io",
+    "redis_backend",
+    "redis_consistency"
+  ],
+  "prep_to_report_continuity": true,
+  "report_to_pdf_continuity": true,
+  "invalid_references": []
+}

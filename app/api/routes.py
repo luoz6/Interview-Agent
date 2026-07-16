@@ -504,6 +504,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
         }
 
     if record.status == "completed":
+        metadata = record.progress.metadata if record.progress is not None else {}
         return {
             "session_id": session_id,
             "report_job_id": report_job_id,
@@ -513,11 +514,12 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "message": "Report completed.",
             "events": [{"stage": "completed", "message": "Report completed."}],
             "rag": _rag_progress_defaults(),
-            "metadata": {},
+            "metadata": metadata,
         }
 
     if record.status == "failed":
         message = record.error or "Report generation failed."
+        metadata = record.progress.metadata if record.progress is not None else {}
         return {
             "session_id": session_id,
             "report_job_id": report_job_id,
@@ -527,7 +529,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "message": message,
             "events": [{"stage": "failed", "message": message}],
             "rag": _rag_progress_defaults(),
-            "metadata": {},
+            "metadata": metadata,
         }
 
     progress = record.progress

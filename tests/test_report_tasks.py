@@ -40,6 +40,42 @@ VALID_BETTER_ANSWER = (
 )
 
 
+def test_evaluate_full_session_returns_retrieval_metadata_from_evaluator(monkeypatch):
+    import app.services.report_tasks as report_tasks
+
+    expected_report = object()
+    expected_metadata = {
+        "q1": {
+            "retrieval_path": "bound_evidence_ids",
+            "degraded_reason": "",
+            "evidence_content_sha256": {"redis-1": "sha256:redis-1"},
+        }
+    }
+
+    class FakeExpertShadowEvaluator:
+        def __init__(self, *, llm, vector_store):
+            self.last_retrieval_by_question = expected_metadata
+
+        def evaluate(self, state, on_progress=None):
+            return expected_report
+
+    monkeypatch.setattr(
+        report_tasks,
+        "ShadowReviewerAgent",
+        FakeExpertShadowEvaluator,
+    )
+
+    report, retrieval_metadata = report_tasks._evaluate_full_session(
+        {"session_id": "s1"},
+        llm=object(),
+        vector_store=object(),
+        on_progress=None,
+    )
+
+    assert report is expected_report
+    assert retrieval_metadata == expected_metadata
+
+
 class ReportLLM:
     def __init__(self, report_score: int = 81, should_timeout: bool = False) -> None:
         self.report_score = report_score
@@ -470,10 +506,14 @@ def test_execute_report_generation_preserves_matching_microbatch_question_evalua
     q1_initial = question_evaluation_from_feedback(
         session_id=session.session_id,
         feedback=make_feedback(question_id="q1", score=55),
+        retrieval_path="bound_evidence_ids",
+        evidence_content_sha256={"redis_consistency": "a" * 64},
     )
     q2_initial = question_evaluation_from_feedback(
         session_id=session.session_id,
         feedback=make_feedback(question_id="q2", score=67),
+        retrieval_path="degraded",
+        degraded_reason="evidence_missing",
     )
 
     store.upsert_question_evaluation(session.session_id, q1_initial)
@@ -501,6 +541,12 @@ def test_execute_report_generation_preserves_matching_microbatch_question_evalua
     assert saved["q1"].feedback.score == 55
     assert saved["q2"].feedback.score == 67
     assert saved["q1"].created_at == q1_created_at
+    assert saved["q1"].retrieval_path == "bound_evidence_ids"
+    assert saved["q1"].evidence_content_sha256 == {
+        "redis_consistency": "a" * 64
+    }
+    assert saved["q2"].retrieval_path == "degraded"
+    assert saved["q2"].degraded_reason == "evidence_missing"
 
 
 def test_execute_report_generation_raises_report_quality_failed_for_invalid_grounded_report():

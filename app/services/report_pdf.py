@@ -131,7 +131,8 @@ def _feedback_story(feedback: InterviewFeedback, styles: dict[str, ParagraphStyl
     for reference in feedback.references:
         blocks.append(
             Paragraph(
-                f"Reference: {reference.title} ({reference.source_type}) - {reference.excerpt}",
+                f"Reference [id={reference.chunk_id}]: "
+                f"{reference.title} ({reference.source_type}) - {reference.excerpt}",
                 styles["body"],
             )
         )

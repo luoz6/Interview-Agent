@@ -60,7 +60,7 @@ def run_round_review_event_from_state(
         report = reviewer.evaluate(review_state)
         feedback = _select_feedback(report.feedbacks, event.question_id)
         retrieval_metadata = getattr(
-            getattr(reviewer, "_evaluator", None),
+            reviewer,
             "last_retrieval_by_question",
             {},
         ).get(event.question_id, {})

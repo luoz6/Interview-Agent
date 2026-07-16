@@ -465,6 +465,19 @@ def test_report_progress_endpoint_returns_completed_detail():
     client, store, _, _ = make_client()
     session_id = start_interview(client)
     finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+    store.update_report_progress(
+        session_id,
+        ReportProgress(
+            stage="completed",
+            percent=100,
+            message="Bound evidence report completed.",
+            metadata={
+                "report_path": "microbatch",
+                "knowledge_path": "bound_evidence_reuse",
+            },
+        ),
+    )
     store.save_report(
         session_id,
         InterviewReport(
@@ -497,6 +510,10 @@ def test_report_progress_endpoint_returns_completed_detail():
     assert body["stage"] == "completed"
     assert body["percent"] == 100
     assert body["events"] == [{"stage": "completed", "message": "Report completed."}]
+    assert body["metadata"] == {
+        "report_path": "microbatch",
+        "knowledge_path": "bound_evidence_reuse",
+    }
 
 
 def test_report_pdf_endpoint_returns_pdf_for_completed_report():

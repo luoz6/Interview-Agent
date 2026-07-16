@@ -21,6 +21,10 @@ class ShadowReviewerAgent:
             vector_store=vector_store,
         )
 
+    @property
+    def last_retrieval_by_question(self) -> dict[str, dict]:
+        return self._evaluator.last_retrieval_by_question
+
     def evaluate(
         self,
         state: InterviewState,

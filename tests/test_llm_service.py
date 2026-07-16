@@ -1,3 +1,6 @@
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from app.services.llm import LLMConfig, MissingLLMConfigError, OpenAIInterviewLLM
@@ -12,6 +15,50 @@ def test_llm_config_reads_model_from_environment(monkeypatch):
 
     assert config.api_key == "test-key"
     assert config.model == "custom-model"
+
+
+def test_llm_config_reads_bounded_provider_request_settings(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "75")
+    monkeypatch.setenv("OPENAI_MAX_RETRIES", "0")
+
+    config = LLMConfig.from_env()
+
+    assert config.request_timeout_seconds == 75
+    assert config.max_retries == 0
+
+
+def test_chat_model_receives_timeout_and_retry_settings(monkeypatch):
+    captured = {}
+
+    def fake_chat_openai(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "langchain_openai",
+        SimpleNamespace(ChatOpenAI=fake_chat_openai),
+    )
+
+    OpenAIInterviewLLM._build_chat_model(
+        LLMConfig(
+            api_key="test-key",
+            request_timeout_seconds=45,
+            max_retries=0,
+        )
+    )
+
+    assert captured["timeout"] == 45
+    assert captured["max_retries"] == 0
+
+
+def test_report_output_mode_can_be_selected_from_environment(monkeypatch):
+    monkeypatch.setenv("OPENAI_REPORT_OUTPUT_MODE", "raw_only")
+
+    llm = OpenAIInterviewLLM(chat_model=FakeChatModel())
+
+    assert llm.report_output_mode == "raw_only"
 
 
 def test_llm_config_uses_deepseek_default_model(monkeypatch):

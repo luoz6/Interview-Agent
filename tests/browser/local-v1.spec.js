@@ -55,6 +55,23 @@ test("prep, SSE answer, refresh, conflict recovery, report and PDF", async ({ pa
   await page.locator("#finishInterviewButton").click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 10_000 });
   await expect(page.locator("body")).toContainText("82");
+  await expect(page.locator('[data-evidence-id="redis_consistency"]')).toBeVisible();
+  await expect(page.locator("body")).toContainText("Knowledge evidence: Prep binding reused");
+
+  const evaluations = await request.get(`/api/interviews/${sessionId}/question-evaluations`);
+  const evaluationBody = await evaluations.json();
+  expect(evaluationBody.items[0].retrieval_path).toBe("bound_evidence_ids");
+  expect(JSON.stringify(evaluationBody)).not.toContain("evidence_content_sha256");
+
+  const reportResponse = await request.get(`/api/interviews/${sessionId}/report`);
+  const reportBody = await reportResponse.json();
+  expect(reportBody.feedbacks[0].references.map((item) => item.chunk_id)).toEqual([
+    "redis_consistency",
+  ]);
+
+  const progressResponse = await request.get(`/api/interviews/${sessionId}/report/progress`);
+  const progressBody = await progressResponse.json();
+  expect(progressBody.metadata.knowledge_path).toBe("bound_evidence_reuse");
 
   const pdf = await request.get(`/api/interviews/${sessionId}/report.pdf`);
   expect(pdf.status()).toBe(200);
@@ -78,7 +95,7 @@ test("prep evidence remains visible and bounded on mobile", async ({ page }) => 
   await expect(page.locator("body")).not.toContainText("Internal benchmark answer");
 });
 
-test("degraded prep is explicit and creates no evidence references", async ({ page }) => {
+test("degraded knowledge is explicit and still completes without references", async ({ page, request }) => {
   await page.goto("/prep");
   await page.locator("#jobDescription").fill("Backend Redis role simulate degraded");
   await page.locator("#resumeText").fill("Built Redis APIs");
@@ -87,6 +104,18 @@ test("degraded prep is explicit and creates no evidence references", async ({ pa
   await expect(page.locator("#prepKnowledgeStatus")).toHaveText("知识检索降级");
   await expect(page.locator("#planQuestions")).toContainText("本题未附加可信知识依据");
   await expect(page.locator("[data-evidence-id]")).toHaveCount(0);
+
+  await page.locator("#startButton").click();
+  await expect(page).toHaveURL(/\/interview\?session_id=/);
+  const sessionId = new URL(page.url()).searchParams.get("session_id");
+  await page.locator("#finishInterviewButton").click();
+  await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 10_000 });
+  await expect(page.locator("body")).toContainText("Knowledge evidence: degraded (knowledge_unavailable)");
+  await expect(page.locator("[data-evidence-id]")).toHaveCount(0);
+
+  const reportResponse = await request.get(`/api/interviews/${sessionId}/report`);
+  const reportBody = await reportResponse.json();
+  expect(reportBody.feedbacks[0].references).toEqual([]);
 });
 
 test("missing session pages expose safe errors", async ({ page }) => {

@@ -11,7 +11,13 @@ from app.services.prep import (
     PrepQuestionHint,
 )
 from app.services.question_evaluations import question_evaluation_from_feedback
-from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
+from app.services.report import (
+    DimensionScores,
+    FeedbackReference,
+    InterviewFeedback,
+    InterviewReport,
+    ReportProgress,
+)
 from app.services.session import InterviewSessionStore
 
 
@@ -52,7 +58,11 @@ class BrowserTestLLM:
         return make_report(session_id, plan.questions[0])
 
 
-def make_report(session_id: str, question: InterviewQuestion) -> InterviewReport:
+def make_report(
+    session_id: str,
+    question: InterviewQuestion,
+    evidence_id: str | None = None,
+) -> InterviewReport:
     scores = DimensionScores(
         breadth=0,
         depth=82,
@@ -78,7 +88,18 @@ def make_report(session_id: str, question: InterviewQuestion) -> InterviewReport
         rationale="回答说明了缓存策略和数据库兜底路径。",
         critique="还需要补充生产指标和故障恢复时间。",
         better_answer="我使用 cache-aside，并通过数据库兜底、告警和 p95 指标验证效果。",
-        references=[],
+        references=(
+            [
+                FeedbackReference(
+                    chunk_id=evidence_id,
+                    title="Redis Cache Consistency",
+                    source_type="theory",
+                    excerpt="Cache-aside consistency and failure fallback evidence.",
+                )
+            ]
+            if evidence_id
+            else []
+        ),
     )
     return InterviewReport(
         session_id=session_id,
@@ -98,17 +119,65 @@ class BrowserReportJobStore:
     def enqueue_report_request(self, session_id: str) -> dict:
         self.store.mark_report_processing(session_id)
         state = self.store.get(session_id)
-        report = make_report(session_id, state["plan"].questions[0])
-        self.store.save_report(session_id, report)
+        context = state["plan"].prep_context
+        hint = next(
+            (
+                item
+                for item in (context.question_hints if context is not None else [])
+                if item.question_id == state["plan"].questions[0].id
+            ),
+            None,
+        )
+        evidence_id = hint.evidence_ids[0] if hint and hint.evidence_ids else None
+        evidence_lookup = {
+            item.evidence_id: item
+            for item in (context.evidence_refs if context is not None else [])
+        }
+        evidence_hashes = (
+            {evidence_id: evidence_lookup[evidence_id].content_sha256}
+            if evidence_id in evidence_lookup
+            else {}
+        )
+        degraded_reason = (
+            context.binding_snapshot.degraded_reason
+            if context is not None
+            and context.binding_snapshot is not None
+            and context.knowledge_status == "degraded"
+            else None
+        )
+        retrieval_path = "bound_evidence_ids" if evidence_id else "degraded"
+        report = make_report(
+            session_id,
+            state["plan"].questions[0],
+            evidence_id=evidence_id,
+        )
         self.store.save_question_evaluations(
             session_id,
             [
                 question_evaluation_from_feedback(
                     session_id=session_id,
                     feedback=report.feedbacks[0],
+                    retrieval_path=retrieval_path,
+                    degraded_reason=degraded_reason,
+                    evidence_content_sha256=evidence_hashes,
                 )
             ],
         )
+        self.store.update_report_progress(
+            session_id,
+            ReportProgress(
+                stage="completed",
+                percent=100,
+                message="Browser acceptance report completed.",
+                metadata={
+                    "report_path": "microbatch",
+                    "knowledge_path": (
+                        "bound_evidence_reuse" if evidence_id else "degraded"
+                    ),
+                },
+            ),
+        )
+        self.store.save_report(session_id, report)
         job = {
             "job_id": f"browser-job-{session_id}",
             "session_id": session_id,

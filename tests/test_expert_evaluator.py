@@ -18,6 +18,7 @@ from app.services.report import (
     InterviewFeedback,
     InterviewReport,
     ReportGenerationFailed,
+    ReportOutputFormatError,
     ReportProgress,
 )
 
@@ -337,7 +338,27 @@ def test_v2_evaluator_drops_provider_references_outside_prep_binding():
         vector_store=V2VectorStore(),
     ).evaluate(make_v2_state())
 
-    assert report.feedbacks[0].references == []
+    assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
+        "redis-1"
+    ]
+    assert report.feedbacks[0].references[0].excerpt == "Redis safe summary"
+
+
+def test_v2_evaluator_fallback_preserves_backend_bound_references():
+    class InvalidReportLLM(FakeExpertLLM):
+        def generate_report(self, plan, evaluation_items, session_id):
+            raise ReportOutputFormatError("invalid provider report")
+
+    report = ExpertShadowEvaluator(
+        llm=InvalidReportLLM(),
+        vector_store=V2VectorStore(),
+    ).evaluate(make_v2_state())
+
+    assert report.is_fallback is True
+    assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
+        "redis-1"
+    ]
+    assert report.feedbacks[0].references[0].excerpt == "Redis safe summary"
 
 
 def test_v2_evaluator_hash_mismatch_degrades_without_searching():

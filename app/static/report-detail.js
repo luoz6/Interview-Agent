@@ -123,6 +123,14 @@ function renderFeedbacks(feedbacks) {
       if (seenReferences.has(key)) continue;
       seenReferences.add(key);
       const evidence = createEl("article", "bg-white p-4 rounded-xl border border-gray-200 shadow-sm");
+      if (reference.chunk_id) {
+        evidence.dataset.evidenceId = reference.chunk_id;
+        evidence.appendChild(createEl(
+          "span",
+          "text-[11px] text-gray-500 block mb-1",
+          `Evidence ID: ${reference.chunk_id}`,
+        ));
+      }
       evidence.appendChild(createEl("strong", "text-[13px] font-bold text-blue-600 block mb-2", reference.title || reference.source_type || "参考证据"));
       evidence.appendChild(createEl("p", "text-xs text-gray-600 leading-relaxed", reference.excerpt || ""));
       evidenceList.appendChild(evidence);

@@ -207,28 +207,46 @@ def _enforce_v2_report_references(
     context = plan.prep_context
     if context is None or context.schema_version != "v2":
         return report
+    public_evidence_by_id = {
+        reference.evidence_id: reference
+        for reference in context.evidence_refs
+    }
     trusted_by_question = {
-        item["question_id"]: {
-            reference["chunk_id"]: reference
+        item["question_id"]: [
+            reference
             for reference in item.get("scoring_references", [])
             if reference.get("chunk_id")
-        }
+        ]
         for item in evaluation_items
     }
     feedbacks = []
     for feedback in report.feedbacks:
-        trusted = trusted_by_question.get(feedback.question_id, {})
         references = []
-        for provider_reference in feedback.references:
-            source = trusted.get(provider_reference.chunk_id)
-            if source is None:
+        seen_ids: set[str] = set()
+        for source in trusted_by_question.get(feedback.question_id, []):
+            evidence_id = source["chunk_id"]
+            if evidence_id in seen_ids:
                 continue
+            seen_ids.add(evidence_id)
+            public_evidence = public_evidence_by_id.get(evidence_id)
             references.append(
                 FeedbackReference(
-                    chunk_id=source["chunk_id"],
-                    title=source.get("title") or source["chunk_id"],
-                    source_type=source.get("source_type") or "knowledge",
-                    excerpt=source.get("content") or "",
+                    chunk_id=evidence_id,
+                    title=(
+                        public_evidence.title
+                        if public_evidence is not None
+                        else source.get("title") or evidence_id
+                    ),
+                    source_type=(
+                        public_evidence.source_type
+                        if public_evidence is not None
+                        else source.get("source_type") or "knowledge"
+                    ),
+                    excerpt=(
+                        public_evidence.candidate_summary
+                        if public_evidence is not None
+                        else ""
+                    ),
                 )
             )
         feedbacks.append(feedback.model_copy(update={"references": references}))

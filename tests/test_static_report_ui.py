@@ -354,6 +354,13 @@ def test_report_detail_renders_question_evaluation_records():
     assert "if (!sessionId) return;" in js
 
 
+def test_report_detail_exposes_reference_evidence_ids_for_continuity():
+    js = read_static_file("report-detail.js")
+
+    assert "evidence.dataset.evidenceId = reference.chunk_id" in js
+    assert "`Evidence ID: ${reference.chunk_id}`" in js
+
+
 def test_report_detail_renders_knowledge_retrieval_status_without_internal_hashes():
     js = read_static_file("report-detail.js")
 
@@ -467,6 +474,8 @@ def test_report_processing_page_renders_report_path_metadata():
     assert "microbatch_reused_questions" in js
     assert "microbatch_rerun_questions" in js
     assert "full_session_fallback" in js
+    assert "knowledge_path" in js
+    assert "bound_evidence_reuse" in js
 
 
 def test_report_detail_page_disables_pdf_without_session_id_and_preserves_report_on_download_failure():

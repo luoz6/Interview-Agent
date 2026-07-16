@@ -1,0 +1,32 @@
+{
+  "artifact_count": 5,
+  "artifacts": [
+    {
+      "path": "browser/prep.png",
+      "sha256": "7c6227690f1b9f622d3b6e96faf307824cd76819cb6a6c6839ebfa249eeaff70",
+      "size": 99510
+    },
+    {
+      "path": "browser/report.png",
+      "sha256": "b1d0b0fb867da36f8ddad22d7cd96beaa10fd5c7c88a11269da5efcddccaa52a",
+      "size": 97072
+    },
+    {
+      "path": "metrics.json",
+      "sha256": "ddbe78a385035484ba436afb116ceabc23671b89c40388d45522b39ced7b8000",
+      "size": 344
+    },
+    {
+      "path": "report.md",
+      "sha256": "178df8fbe3d41790137374a102de71d16c102ed1ea42c756c142816ffe54c66c",
+      "size": 692
+    },
+    {
+      "path": "retrieval-cases/real-provider-continuity.json",
+      "sha256": "3629db3ce2b7bfab3e77182d34b63290a4018bba6341dcd898102ac1d1c4c40c",
+      "size": 418
+    }
+  ],
+  "run_id": "20260716T062331Z-real-model-rc",
+  "total_bytes": 198036
+}

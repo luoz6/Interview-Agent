@@ -24,6 +24,8 @@ class LLMConfig:
     model: str = "deepseek-v4-pro"
     base_url: str | None = None
     temperature: float = 0.2
+    request_timeout_seconds: float = 120.0
+    max_retries: int = 1
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -36,6 +38,10 @@ class LLMConfig:
             model=os.getenv("OPENAI_MODEL", "deepseek-v4-pro"),
             base_url=os.getenv("OPENAI_BASE_URL") or None,
             temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.2")),
+            request_timeout_seconds=float(
+                os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "120")
+            ),
+            max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "1")),
         )
 
 
@@ -69,14 +75,20 @@ class OpenAIInterviewLLM:
         config: LLMConfig | None = None,
         chat_model=None,
         trace_recorder=None,
-        report_output_mode: Literal["structured_first", "raw_only"] = "structured_first",
+        report_output_mode: Literal["structured_first", "raw_only"] | None = None,
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
         self.config = config
         self.chat_model = chat_model or self._build_chat_model(config or LLMConfig.from_env())
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
-        self.report_output_mode = report_output_mode
+        configured_mode = report_output_mode or os.getenv(
+            "OPENAI_REPORT_OUTPUT_MODE",
+            "structured_first",
+        )
+        if configured_mode not in {"structured_first", "raw_only"}:
+            raise ValueError(f"unsupported OPENAI_REPORT_OUTPUT_MODE: {configured_mode}")
+        self.report_output_mode = configured_mode
 
     def generate_plan(
         self,
@@ -443,6 +455,8 @@ class OpenAIInterviewLLM:
             "api_key": config.api_key,
             "model": config.model,
             "temperature": config.temperature,
+            "timeout": config.request_timeout_seconds,
+            "max_retries": config.max_retries,
         }
         if config.base_url:
             kwargs["base_url"] = config.base_url

@@ -1,9 +1,16 @@
 from app.services.report import (
     DimensionScores,
+    FeedbackReference,
     InterviewFeedback,
     InterviewReport,
 )
-from app.services.report_pdf import _dimension_table, build_report_pdf
+from app.services.report_pdf import (
+    _build_styles,
+    _dimension_table,
+    _feedback_story,
+    _register_pdf_fonts,
+    build_report_pdf,
+)
 
 
 def make_dimension_scores(score: int = 81) -> DimensionScores:
@@ -52,6 +59,29 @@ def test_build_report_pdf_supports_fallback_reports():
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 1000
+
+
+def test_report_pdf_reference_includes_evidence_id():
+    _register_pdf_fonts()
+    feedback = make_report().feedbacks[0].model_copy(
+        update={
+            "references": [
+                FeedbackReference(
+                    chunk_id="redis_consistency",
+                    title="Redis consistency",
+                    source_type="theory",
+                    excerpt="Cache-aside consistency evidence.",
+                )
+            ]
+        }
+    )
+
+    blocks = _feedback_story(feedback, _build_styles())
+    paragraph_text = "\n".join(
+        block.getPlainText() for block in blocks if hasattr(block, "getPlainText")
+    )
+
+    assert "[id=redis_consistency]" in paragraph_text
 
 
 def test_report_pdf_contains_skipped_answer_marker():

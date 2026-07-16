@@ -1,5 +1,4 @@
 from app.graphs.interview_state import InterviewState
-from app.services.prep import InterviewPlan
 
 
 def build_single_question_review_state(
@@ -30,7 +29,7 @@ def build_single_question_review_state(
 
     return {
         "session_id": state["session_id"],
-        "plan": InterviewPlan(title=state["plan"].title, questions=[question]),
+        "plan": state["plan"].model_copy(update={"questions": [question]}),
         "current_index": 1,
         "messages": messages,
         "decision": {

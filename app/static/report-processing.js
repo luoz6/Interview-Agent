@@ -29,6 +29,12 @@ function renderReportMetadata(progress) {
     details.push(`path: full_session_fallback`);
     details.push(`reason: ${metadata.fallback_reason || "unknown"}`);
   }
+  if (metadata.knowledge_path) {
+    details.push(`knowledge: ${metadata.knowledge_path}`);
+    if (metadata.knowledge_path === "bound_evidence_reuse") {
+      details.push("Prep evidence bindings were reused");
+    }
+  }
   return details;
 }
 

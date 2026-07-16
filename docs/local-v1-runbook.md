@@ -290,3 +290,35 @@ Playwright regression is deterministic and offline; provider smoke is recorded
 separately. Saved real-model evidence is valid for 30 days, and can only produce
 `PASS_WITH_PROVIDER_RECHECK` after a documented external API failure. A final
 release still requires a fresh provider smoke.
+
+## 10. Stage 42 Knowledge Continuity Gate
+
+Run the deterministic browser gate first:
+
+```powershell
+npm run test:browser
+```
+
+The opt-in real-model browser gate starts its own isolated Uvicorn process and
+report worker. It uses the `stage42_real_browser` PostgreSQL table prefix unless
+`STAGE42_REAL_BROWSER_PREFIX` is set:
+
+```powershell
+$env:RUN_REAL_BROWSER_SMOKE="1"
+npx playwright test --config=playwright.real.config.js
+```
+
+Compatible-provider RC runs default to a 75-second request timeout, zero SDK
+retries, and `raw_only` report output inside the Playwright configuration. Set
+`OPENAI_REQUEST_TIMEOUT_SECONDS`, `OPENAI_MAX_RETRIES`, or
+`OPENAI_REPORT_OUTPUT_MODE` explicitly to override those RC defaults.
+
+After a passing run, populate only the Stage 42 release whitelist and audit it:
+
+```powershell
+python -m scripts.audit_stage42_artifacts --run-dir reports/stage42-acceptance/<run-id> --run-id <run-id> --write-manifest
+```
+
+The accepted directory contains only `manifest.json`, `metrics.json`,
+`report.md`, `retrieval-cases/**`, and `browser/**`. Do not create a passing
+manifest when the real-model browser gate has not passed.

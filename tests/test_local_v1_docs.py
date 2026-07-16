@@ -18,7 +18,22 @@ def test_env_example_documents_local_v1_runtime():
     assert "INTERVIEW_RUNTIME_STORE=postgres" in env
     assert "INTERVIEW_RUNTIME_TABLE_PREFIX=interview" in env
     assert "OPENAI_API_KEY=" in env
+    assert "OPENAI_REQUEST_TIMEOUT_SECONDS=120" in env
+    assert "OPENAI_MAX_RETRIES=1" in env
+    assert "OPENAI_REPORT_OUTPUT_MODE=structured_first" in env
     assert "DEEPSEEK_API_KEY" not in env
+
+
+def test_docs_record_stage42_pending_real_model_gate_and_artifact_audit():
+    runbook = read_text("docs/local-v1-runbook.md")
+    record = read_text("docs/stage-42b-knowledge-continuity-acceptance.md")
+
+    assert "RUN_REAL_BROWSER_SMOKE" in runbook
+    assert "scripts.audit_stage42_artifacts" in runbook
+    assert "reports/stage42-acceptance/<run-id>" in runbook
+    assert "PENDING_REAL_MODEL_RC" in record
+    assert "get_by_ids=1/search=0" in record
+    assert "No `reports/stage42-acceptance/<run-id>/` PASS directory" in record
 
 
 def test_gitignore_excludes_local_runtime_artifacts():

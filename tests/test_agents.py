@@ -123,7 +123,10 @@ def test_report_coach_agent_generates_report():
 
 def test_shadow_reviewer_agent_wraps_expert_evaluator():
     agent = ShadowReviewerAgent(llm=ReportLLM(), vector_store=VectorStore())
+    expected_metadata = {"q1": {"retrieval_path": "bound_evidence_ids"}}
+    agent._evaluator.last_retrieval_by_question = expected_metadata
 
     assert agent.llm is not None
     assert agent.vector_store is not None
     assert agent._evaluator is not None
+    assert agent.last_retrieval_by_question == expected_metadata

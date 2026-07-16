@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "run_id": "20260716T062331Z-real-model-rc",
+  "run_at": "2026-07-16T06:23:31.995Z",
+  "model": "deepseek-v4-pro",
+  "real_model_browser_tests_passed": 1,
+  "distinct_questions_answered": 2,
+  "follow_up_observed": true,
+  "evidence_continuity_rate": 1.0,
+  "invalid_reference_rate": 0.0,
+  "pdf_continuity_passed": true
+}

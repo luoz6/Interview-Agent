@@ -317,6 +317,7 @@ class InterviewSessionStore:
         )
         self._reports[session_id] = ReportRecord(
             status="completed",
+            progress=existing.progress if existing is not None else None,
             report=report,
             created_at=created_at,
             finished_at=report_utc_now_iso(),
@@ -336,6 +337,7 @@ class InterviewSessionStore:
         )
         self._reports[session_id] = ReportRecord(
             status="failed",
+            progress=existing.progress if existing is not None else None,
             error=error,
             created_at=created_at,
             finished_at=report_utc_now_iso(),
