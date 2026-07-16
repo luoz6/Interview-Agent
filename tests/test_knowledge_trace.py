@@ -77,3 +77,22 @@ def test_trace_recorder_is_disabled_without_directory(monkeypatch):
         stage="retrieval",
         payload={"status": "completed"},
     ) is None
+
+
+def test_knowledge_trace_keeps_legacy_substring_blocking(tmp_path):
+    recorder = KnowledgeTraceRecorder(root_dir=tmp_path)
+
+    path = recorder.record(
+        prep_run_id="prep-legacy-policy",
+        stage="retrieval",
+        payload={
+            "hit_ids": ["redis-1"],
+            "content_sha256": "a" * 64,
+            "safe_counter": 1,
+        },
+    )
+
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert body["hit_ids"] == ["redis-1"]
+    assert body["safe_counter"] == 1
+    assert "content_sha256" not in body

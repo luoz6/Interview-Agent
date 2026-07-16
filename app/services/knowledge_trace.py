@@ -5,21 +5,10 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-
-_BLOCKED_KEY_PARTS = (
-    "api_key",
-    "authorization",
-    "content",
-    "dsn",
-    "embedding",
-    "password",
-    "provider_response",
-    "raw_response",
-    "resume",
-    "secret",
-    "token",
+from app.services.trace_sanitization import (
+    KNOWLEDGE_TRACE_BLOCKED_KEY_PARTS,
+    sanitize_trace_payload,
 )
 
 
@@ -41,7 +30,10 @@ class KnowledgeTraceRecorder:
     ) -> Path | None:
         if self.root_dir is None:
             return None
-        safe_payload = _sanitize(payload)
+        safe_payload = sanitize_trace_payload(
+            payload,
+            blocked_key_parts=KNOWLEDGE_TRACE_BLOCKED_KEY_PARTS,
+        )
         target_dir = self.root_dir / prep_run_id
         target_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
@@ -60,24 +52,3 @@ class KnowledgeTraceRecorder:
             encoding="utf-8",
         )
         return target
-
-
-def _sanitize(value: Any):
-    if isinstance(value, dict):
-        return {
-            str(key): _sanitize(item)
-            for key, item in value.items()
-            if not _blocked_key(str(key))
-        }
-    if isinstance(value, list):
-        return [_sanitize(item) for item in value]
-    if isinstance(value, tuple):
-        return [_sanitize(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
-
-
-def _blocked_key(key: str) -> bool:
-    normalized = key.casefold()
-    return any(part in normalized for part in _BLOCKED_KEY_PARTS)
