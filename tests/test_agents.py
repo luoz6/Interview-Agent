@@ -200,14 +200,30 @@ def test_knowledge_agent_generates_plan():
 
 def test_report_coach_agent_generates_report():
     plan = PlanLLM().generate_plan("jd", "resume")
-    report = ReportCoachAgent(llm=ReportLLM()).generate_report(
+    recorder = CapturingRecorder()
+    report = ReportCoachAgent(
+        llm=ReportLLM(),
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    ).generate_report(
         plan=plan,
         evaluation_items=[],
         session_id="s1",
+        execution_context=AgentExecutionContext(
+            correlation_id="prep-coach-1",
+            agent="report_coach",
+            operation="generate_report",
+            phase="review",
+            session_id="s1",
+        ),
     )
 
     assert report.session_id == "s1"
     assert report.feedbacks[0].question_id == "q1"
+    trace = recorder.records[0]
+    assert trace.status == "completed"
+    assert trace.output_type == "InterviewReport"
+    assert trace.safe_metadata == {"feedback_count": 1}
+    assert "summary" not in trace.model_dump_json()
 
 
 def test_shadow_reviewer_agent_wraps_expert_evaluator():

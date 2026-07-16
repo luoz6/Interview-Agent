@@ -4,7 +4,11 @@ from typing import Literal, cast
 from pydantic import BaseModel, Field
 
 from app.agents.report_coach import ReportCoachAgent
-from app.services.agent_runtime import correlation_id_from_plan
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    correlation_id_from_plan,
+)
 from app.services.evaluator import build_evaluation_chunks
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import DimensionScores, InterviewReport, ReportProgress
@@ -64,6 +68,7 @@ def generate_microbatch_report(
     on_progress=None,
     on_microbatch_stats=None,
     reviewer_factory=None,
+    execution_runner: AgentExecutionRunner | None = None,
 ):
     if on_progress is not None:
         on_progress(
@@ -109,13 +114,41 @@ def generate_microbatch_report(
         chunk.question_id: chunk
         for chunk in build_evaluation_chunks(state)
     }
-    coach_report = ReportCoachAgent(llm=llm).generate_report(
+    command_id = state.get("last_command_id")
+    evidence_ids = [
+        reference.chunk_id
+        for record in records
+        if record.feedback is not None
+        for reference in record.feedback.references
+    ]
+    coach_report = ReportCoachAgent(
+        llm=llm,
+        execution_runner=execution_runner,
+    ).generate_report(
         plan=state["plan"],
         evaluation_items=build_report_coach_items_from_question_evaluations(
             records,
             chunks_by_question_id=chunks_by_question_id,
         ),
         session_id=state["session_id"],
+        execution_context=AgentExecutionContext(
+            correlation_id=correlation_id_from_plan(
+                state["plan"],
+                session_id=state["session_id"],
+            ),
+            causation_id=command_id,
+            agent="report_coach",
+            operation="generate_microbatch_report",
+            phase="review",
+            session_id=state["session_id"],
+            state_version=state["state_version"],
+            command_id=command_id,
+            evidence_ids=evidence_ids,
+        ),
+        trace_metadata={
+            "question_count": len(records),
+            "report_path": "microbatch",
+        },
     )
     report = finalize_report_with_microbatch_feedback(coach_report, records)
 

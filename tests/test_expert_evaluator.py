@@ -2,6 +2,7 @@ import pytest
 
 from app.graphs.interview_state import build_initial_state
 from app.ports.runtime import KnowledgeLookupResult
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.evaluator_ext import ExpertShadowEvaluator
 from app.services.prep import (
     InterviewPlan,
@@ -118,6 +119,14 @@ def make_v2_state():
     state["status"] = "finished"
     state["current_index"] = 1
     return state
+
+
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
 
 
 class FakeVectorStore:
@@ -299,7 +308,12 @@ def test_expert_evaluator_fails_when_retrieval_infrastructure_fails():
 def test_v2_evaluator_reuses_bound_ids_without_semantic_search():
     llm = FakeExpertLLM()
     vector_store = V2VectorStore()
-    evaluator = ExpertShadowEvaluator(llm=llm, vector_store=vector_store)
+    recorder = CapturingRecorder()
+    evaluator = ExpertShadowEvaluator(
+        llm=llm,
+        vector_store=vector_store,
+        execution_runner=AgentExecutionRunner(recorder=recorder),
+    )
 
     report = evaluator.evaluate(make_v2_state())
 
@@ -312,6 +326,17 @@ def test_v2_evaluator_reuses_bound_ids_without_semantic_search():
         "retrieval_path": "bound_evidence_ids",
         "degraded_reason": None,
         "evidence_content_sha256": {"redis-1": "a" * 64},
+    }
+    trace = recorder.records[0]
+    assert trace.agent == "report_coach"
+    assert trace.operation == "generate_full_session_report"
+    assert trace.correlation_id == "prep-v2"
+    assert trace.session_id == "s-v2"
+    assert trace.evidence_ids == ["redis-1"]
+    assert trace.safe_metadata == {
+        "feedback_count": 1,
+        "question_count": 1,
+        "report_path": "full_session",
     }
 
 

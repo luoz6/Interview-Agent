@@ -3,6 +3,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.graphs.interview_state import InterviewState
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    correlation_id_from_plan,
+)
 from app.services.evaluator import (
     _apply_answer_state_overrides,
     build_evaluation_chunks,
@@ -67,9 +72,11 @@ class ExpertShadowEvaluator:
         self,
         llm: InterviewLLM,
         vector_store: KnowledgeSearchStore,
+        execution_runner: AgentExecutionRunner | None = None,
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store
+        self._execution_runner = execution_runner or AgentExecutionRunner()
         self.last_retrieval_by_question: dict[str, dict] = {}
 
     def evaluate(
@@ -142,10 +149,38 @@ class ExpertShadowEvaluator:
         try:
             from app.agents.report_coach import ReportCoachAgent
 
-            report = ReportCoachAgent(llm=self._llm).generate_report(
+            command_id = state.get("last_command_id")
+            evidence_ids = [
+                reference["chunk_id"]
+                for item in evaluation_items
+                for reference in item.get("scoring_references", [])
+                if reference.get("chunk_id")
+            ]
+            report = ReportCoachAgent(
+                llm=self._llm,
+                execution_runner=self._execution_runner,
+            ).generate_report(
                 plan=state["plan"],
                 evaluation_items=evaluation_items,
                 session_id=state["session_id"],
+                execution_context=AgentExecutionContext(
+                    correlation_id=correlation_id_from_plan(
+                        state["plan"],
+                        session_id=state["session_id"],
+                    ),
+                    causation_id=command_id,
+                    agent="report_coach",
+                    operation="generate_full_session_report",
+                    phase="review",
+                    session_id=state["session_id"],
+                    state_version=state["state_version"],
+                    command_id=command_id,
+                    evidence_ids=evidence_ids,
+                ),
+                trace_metadata={
+                    "question_count": len(chunks),
+                    "report_path": "full_session",
+                },
             )
             report = _apply_answer_state_overrides(report, chunks)
         except ReportOutputFormatError as exc:

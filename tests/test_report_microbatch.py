@@ -1,8 +1,10 @@
 import pytest
 
 from app.graphs.interview_state import build_initial_state
+from app.services.agent_runtime import AgentExecutionRunner
+from app.services.prep import KnowledgeBindingSnapshot, PrepContext
 from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import InterviewReport
+from app.services.report import FeedbackReference, InterviewReport
 from app.services.report_microbatch import (
     MicrobatchReportUnavailable,
     build_report_coach_items_from_question_evaluations,
@@ -117,6 +119,14 @@ class CapturingReportLLM:
                 for item in evaluation_items
             ],
         )
+
+
+class CapturingRecorder:
+    def __init__(self):
+        self.records = []
+
+    def record(self, record):
+        self.records.append(record)
 
 
 def test_ensure_completed_question_evaluations_reuses_existing_completed_records():
@@ -335,12 +345,39 @@ def test_ensure_completed_question_evaluations_logs_unknown_answer_state(caplog)
 
 def test_generate_microbatch_report_calls_report_coach_with_microbatch_items():
     state = make_state()
+    state["plan"] = state["plan"].model_copy(
+        update={
+            "prep_context": PrepContext(
+                schema_version="v2",
+                summary="Grounded interview.",
+                knowledge_status="completed",
+                binding_snapshot=KnowledgeBindingSnapshot(
+                    prep_run_id="prep-microbatch-1",
+                    corpus_manifest_sha256="a" * 64,
+                    status="completed",
+                ),
+            )
+        }
+    )
+    records = [
+        completed_record("s1", "q1", 78),
+        completed_record("s1", "q2", 82),
+    ]
+    records[0].feedback.references = [
+        FeedbackReference(
+            chunk_id="evidence-q1",
+            title="Q1 evidence",
+            source_type="theory",
+            excerpt="Safe evidence summary.",
+        )
+    ]
     store = FakeStore(
         state,
-        [completed_record("s1", "q1", 78), completed_record("s1", "q2", 82)],
+        records,
     )
     llm = CapturingReportLLM()
     progress_updates = []
+    recorder = CapturingRecorder()
 
     report = generate_microbatch_report(
         state,
@@ -349,6 +386,7 @@ def test_generate_microbatch_report_calls_report_coach_with_microbatch_items():
         vector_store=object(),
         on_progress=progress_updates.append,
         reviewer_factory=FakeReviewer,
+        execution_runner=AgentExecutionRunner(recorder=recorder),
     )
 
     assert report.session_id == "s1"
@@ -361,6 +399,17 @@ def test_generate_microbatch_report_calls_report_coach_with_microbatch_items():
         "aggregating",
         "completed",
     ]
+    trace = recorder.records[0]
+    assert trace.agent == "report_coach"
+    assert trace.operation == "generate_microbatch_report"
+    assert trace.correlation_id == "prep-microbatch-1"
+    assert trace.session_id == "s1"
+    assert trace.evidence_ids == ["evidence-q1"]
+    assert trace.safe_metadata == {
+        "feedback_count": 2,
+        "question_count": 2,
+        "report_path": "microbatch",
+    }
 
 
 def test_generate_microbatch_report_reports_reuse_stats():
