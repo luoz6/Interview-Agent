@@ -37,6 +37,7 @@ class AgentExecutionContext(BaseModel):
     state_version: int | None = Field(default=None, ge=1)
     command_id: str | None = None
     evidence_ids: list[str] = Field(default_factory=list)
+    attempt_number: int = Field(default=1, ge=1)
 
     @field_validator("evidence_ids")
     @classmethod

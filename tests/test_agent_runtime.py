@@ -86,6 +86,23 @@ def test_agent_execution_context_forbids_unknown_raw_payload_fields():
         )
 
 
+def test_agent_context_accepts_positive_attempt():
+    context = make_context().model_copy(update={"attempt_number": 3})
+
+    assert context.attempt_number == 3
+
+
+def test_agent_context_rejects_zero_attempt():
+    with pytest.raises(ValidationError):
+        AgentExecutionContext(
+            correlation_id="prep-1",
+            agent="shadow_reviewer",
+            operation="evaluate_round",
+            phase="review",
+            attempt_number=0,
+        )
+
+
 def test_correlation_id_uses_prep_run_then_session_fallback():
     assert correlation_id_from_plan(make_plan(), session_id="s1") == "prep-123"
     assert correlation_id_from_plan(make_plan(None), session_id="s1") == "s1"
