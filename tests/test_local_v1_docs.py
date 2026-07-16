@@ -38,7 +38,8 @@ def test_docs_describe_stage43a_agent_runtime_audit():
         assert "Stage 42" in document
         assert "Redis and WebSocket are not part of Stage 43A" in document
     assert "Tracing is disabled when unset" in env
-    assert "Status: `PENDING_CELERY_ACCEPTANCE`" in acceptance
+    assert "Status: `PASS`" in acceptance
+    assert "persisted skipped-round evaluation" in acceptance
     assert "Five-Agent correlation continuity" in acceptance
 
 

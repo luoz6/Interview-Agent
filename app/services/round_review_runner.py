@@ -7,6 +7,10 @@ from app.services.agent_runtime import (
     AgentExecutionRunner,
     evidence_ids_for_question,
 )
+from app.services.evaluator import (
+    build_empty_answer_feedback,
+    build_evaluation_chunks,
+)
 from app.services.question_evaluations import (
     QuestionEvaluationRecord,
     question_evaluation_from_feedback,
@@ -24,6 +28,14 @@ def run_round_review_event_payload(
 ) -> QuestionEvaluationRecord:
     event = RoundClosedEvent.model_validate(payload)
     store = get_session_store()
+    if event.answer_state in {"skipped", "unanswered"}:
+        return run_round_review_event(
+            event,
+            store=store,
+            llm=None,
+            vector_store=None,
+            execution_runner=execution_runner,
+        )
     return run_round_review_event(
         event,
         store=store,
@@ -66,32 +78,43 @@ def run_round_review_event_from_state(
 ) -> QuestionEvaluationRecord:
     try:
         review_state = build_single_question_review_state(state, event.question_id)
-        reviewer = (reviewer_factory or ShadowReviewerAgent)(
-            llm=llm,
-            vector_store=vector_store,
-        )
-        runner = execution_runner or AgentExecutionRunner()
-        context = AgentExecutionContext(
-            correlation_id=event.correlation_id or event.session_id,
-            causation_id=event.event_id,
-            agent="shadow_reviewer",
-            operation="evaluate_round",
-            phase="review",
-            session_id=event.session_id,
-            question_id=event.question_id,
-            state_version=event.state_version,
-            evidence_ids=evidence_ids_for_question(
-                state["plan"],
+        if event.answer_state in {"skipped", "unanswered"}:
+            chunk = _select_evaluation_chunk(
+                build_evaluation_chunks(review_state),
                 event.question_id,
-            ),
-        )
-        report = runner.run(context, lambda: reviewer.evaluate(review_state))
-        feedback = _select_feedback(report.feedbacks, event.question_id)
-        retrieval_metadata = getattr(
-            reviewer,
-            "last_retrieval_by_question",
-            {},
-        ).get(event.question_id, {})
+            ).model_copy(update={"answer_state": event.answer_state})
+            feedback = build_empty_answer_feedback(chunk)
+            retrieval_metadata = {
+                "retrieval_path": "not_applicable",
+                "degraded_reason": f"answer_state_{event.answer_state}",
+            }
+        else:
+            reviewer = (reviewer_factory or ShadowReviewerAgent)(
+                llm=llm,
+                vector_store=vector_store,
+            )
+            runner = execution_runner or AgentExecutionRunner()
+            context = AgentExecutionContext(
+                correlation_id=event.correlation_id or event.session_id,
+                causation_id=event.event_id,
+                agent="shadow_reviewer",
+                operation="evaluate_round",
+                phase="review",
+                session_id=event.session_id,
+                question_id=event.question_id,
+                state_version=event.state_version,
+                evidence_ids=evidence_ids_for_question(
+                    state["plan"],
+                    event.question_id,
+                ),
+            )
+            report = runner.run(context, lambda: reviewer.evaluate(review_state))
+            feedback = _select_feedback(report.feedbacks, event.question_id)
+            retrieval_metadata = getattr(
+                reviewer,
+                "last_retrieval_by_question",
+                {},
+            ).get(event.question_id, {})
         record = question_evaluation_from_feedback(
             session_id=event.session_id,
             feedback=feedback,
@@ -121,6 +144,13 @@ def _select_feedback(feedbacks, question_id: str):
     if not feedbacks:
         raise ValueError("round review returned no feedback")
     return feedbacks[0]
+
+
+def _select_evaluation_chunk(chunks, question_id: str):
+    for chunk in chunks:
+        if chunk.question_id == question_id:
+            return chunk
+    raise ValueError("round review question was not found")
 
 
 def _failed_question_evaluation(

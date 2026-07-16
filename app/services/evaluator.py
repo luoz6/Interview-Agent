@@ -135,7 +135,12 @@ def _apply_answer_state_overrides(
         if chunk is None or chunk.answer_state == "answered":
             feedbacks.append(feedback)
             continue
-        feedbacks.append(_empty_answer_feedback(chunk, references=feedback.references))
+        feedbacks.append(
+            build_empty_answer_feedback(
+                chunk,
+                references=feedback.references,
+            )
+        )
     overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
     return report.model_copy(
         update={
@@ -146,7 +151,7 @@ def _apply_answer_state_overrides(
     )
 
 
-def _empty_answer_feedback(
+def build_empty_answer_feedback(
     chunk: EvaluationChunk,
     *,
     references=None,
