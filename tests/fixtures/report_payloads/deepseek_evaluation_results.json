@@ -1,0 +1,69 @@
+{
+  "provider_payload": {
+    "session_id": "s1",
+    "evaluation_results": [
+      {
+        "question_id": "q1",
+        "question_text": "Explain Redis cache invalidation.",
+        "rationale": "回答说明了 cache-aside、update-then-delete 和可量化的延迟收益。",
+        "references": [
+          "redis-1",
+          "redis-2"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": ["候选人说明了 cache-aside 和 update-then-delete 主路径。"],
+            "missing": ["没有充分展开竞争窗口。"],
+            "quality_signals": ["concept", "concrete_steps"]
+          },
+          {
+            "dimension": "engineering",
+            "observed": ["候选人提到了可量化的延迟收益。"],
+            "missing": ["没有说明失败补偿。"],
+            "quality_signals": ["concept", "metric"]
+          },
+          {
+            "dimension": "communication",
+            "observed": ["候选人回答结构清晰。"],
+            "missing": [],
+            "quality_signals": ["clarity"]
+          }
+        ],
+        "highlights": [
+          "提到了 p95 延迟下降。",
+          "说明了 update-then-delete 主路径。"
+        ]
+      }
+    ]
+  },
+  "evaluation_items": [
+    {
+      "question_id": "q1",
+      "question_text": "Explain Redis cache invalidation.",
+      "question_kind": "technical",
+      "messages": [
+        {
+          "role": "candidate",
+          "content": "I delete cache after database writes."
+        }
+      ],
+      "scoring_references": [
+        {
+          "chunk_id": "redis-1",
+          "title": "Redis cache consistency",
+          "source_type": "theory",
+          "excerpt": "在数据库更新后删除缓存，并处理竞争窗口。"
+        }
+      ],
+      "answer_references": [
+        {
+          "chunk_id": "redis-2",
+          "title": "High-score Redis answer",
+          "source_type": "answer",
+          "excerpt": "建议补充延迟双删策略。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "session_id": "stage40-system-design-job-queue-empty-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "system-design-job-queue-empty",
+        "question_text": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+        "user_answer": "候选人未作答这道题。",
+        "score": 0,
+        "dimension_scores": {
+          "breadth": 0,
+          "depth": 0,
+          "architecture": 0,
+          "engineering": 0,
+          "communication": 0
+        },
+        "applicable_dimensions": [
+          "architecture",
+          "engineering",
+          "depth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "architecture",
+            "observed": [],
+            "missing": [
+              "候选人未提交任何回答，没有描述系统架构，未提及 API 接入、持久化消息队列、多节点 worker、租约等架构组件。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "候选人未给出任何设计细节，没有涉及幂等键、退避重试、死信队列、容量估算等工程实现要素。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "候选人未展示对失败模式、扩展瓶颈、背压处理或可观测性策略的深入思考。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [],
+            "missing": [
+              "候选人未提供任何回答，未能展示任何沟通能力。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人提交了空白回答，在所有维度上均未展示任何证据。因此每个适用维度的观察证据为空，缺失证据概括了该维度未涉及的要点。",
+        "critique": "最大的缺失点是完全没有任何系统设计内容，无法评估任何维度。",
+        "better_answer": "设计分布式任务队列时，我会采用 API 网关接收任务并写入持久化消息队列（如 Kafka 或 Redis 列表），多个无状态 worker 节点通过租约机制争抢任务，每次执行带上幂等键防止重复处理；重试采用指数退避，超过阈值的任务进入死信队列，同时暴露 Prometheus 指标和结构化日志用于可观测性。容量估算根据日活任务量和平均执行时间决定 worker 数量和队列分片数。",
+        "reference_chunk_ids": [
+          "system-design-job-queue-reference"
+        ],
+        "highlights": []
+      }
+    ],
+    "reference_lookup": {
+      "system-design-job-queue-reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "source_type": "benchmark",
+        "excerpt": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

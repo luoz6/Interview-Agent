@@ -1,0 +1,49 @@
+{
+  "case_id": "system-design-job-queue-strong",
+  "group_id": "system-design-job-queue",
+  "quality_level": "strong",
+  "run_number": 1,
+  "score": 54,
+  "answer": "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。失败采用指数退避和次数限制，最终进入 DLQ。容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。",
+  "observed": [
+    "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。",
+    "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+    "最终进入 DLQ。",
+    "失败采用指数退避和次数限制，最终进入 DLQ。",
+    "容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。",
+    "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+    "失败采用指数退避和次数限制，最终进入 DLQ。",
+    "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。",
+    "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+    "失败采用指数退避和次数限制，最终进入 DLQ。",
+    "容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。"
+  ],
+  "required_observations": [
+    "入口 API",
+    "持久化消息队列",
+    "租约",
+    "幂等键",
+    "指数退避",
+    "DLQ",
+    "容量"
+  ],
+  "forbidden_claims": [
+    "内存列表保证持久化"
+  ],
+  "applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人给出了一个覆盖核心要素的概要设计：从 API 入口、幂等键、持久化存储与队列，到 Worker 的租约机制、失败重试与死信队列，最后包含容量估算与监控指标。该回答展示了架构主线（API → 队列 → Worker → DLQ）和工程实践（幂等、租约、退避、可观测性），但在各维度上均缺乏具体技术选型、实现细节与异常场景的深入讨论。 最大的缺失是对核心技术组件的选型与关键机制的实现细节阐述不足，例如未说明使用何种队列、如何实现分布式租约、退避算法的具体策略，导致设计停留于概念层面，缺乏落地性。 在现有基础上，我会补充：采用 Kafka 作为分布式消息队列保障持久化与回溯，MySQL 存储任务状态与幂等键，Redis 实现 Worker 的分布式租约（SET NX PX）并配备心跳续期；重试使用指数退避加随机抖动，最大重试 3 次后移入死信队列（独立 Topic），支持人工重放；容量估算通过公式 Workers = (Peak QPS × Avg Execution Time) / 1000 并留 30% 余量；可观测性方面集成 Prometheus 指标（队列深度、任务延迟、成功率、重试率）与 OpenTelemetry 链路追踪，并设置关键告警规则。",
+  "latency_seconds": 33.808,
+  "provider_invocations": 1
+}

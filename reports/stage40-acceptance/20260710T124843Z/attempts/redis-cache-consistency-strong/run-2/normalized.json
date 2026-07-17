@@ -1,0 +1,37 @@
+{
+  "case_id": "redis-cache-consistency-strong",
+  "group_id": "redis-cache-consistency",
+  "quality_level": "strong",
+  "run_number": 2,
+  "score": 56,
+  "answer": "我会采用 cache-aside：先更新数据库并提交事务，成功后删除缓存，读取未命中时再回源。并发窗口可能把旧值写回，因此会按业务容忍度增加延迟双删或消息补偿；删除失败则重试并告警，必要时使用短 TTL 降级。上线后监控命中率、数据库回源量和接口 p95。",
+  "observed": [
+    "先更新数据库并提交事务，成功后删除缓存，读取未命中时再回源。并发窗口可能把旧值写回，因此会按业务容忍度增加延迟双删或消息补偿",
+    "删除失败则重试并告警，必要时使用短 TTL 降级。上线后监控命中率、数据库回源量和接口 p95",
+    "我会采用 cache-aside：先更新数据库并提交事务，成功后删除缓存，读取未命中时再回源。并发窗口可能把旧值写回，因此会按业务容忍度增加延迟双删或消息补偿；删除失败则重试并告警，必要时使用短 TTL 降级。上线后监控命中率、数据库回源量和接口 p95。"
+  ],
+  "required_observations": [
+    "成功后删除缓存",
+    "删除失败则重试",
+    "接口 p95"
+  ],
+  "forbidden_claims": [
+    "天然强一致"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人正确描述了Cache-Aside模式，识别了并发写回旧值的风险，并提出了延迟双删、消息补偿、失败重试与监控等工程措施，整体逻辑清晰，但对强一致性方案、其他缓存策略以及重试的具体实现缺乏深入。 最大缺失是未展现对缓存一致性方案的广度，仅局限于Cache-Aside，没有涉及Write-through、Canal异步更新等替代方案，也没有讨论强一致性的实现途径。 我会采用Cache-Aside作为默认策略：更新DB成功后删除缓存，读未命中时回源写缓存。为了解决并发导致旧值覆盖，引入延迟双删（第一次删除→更新DB→休眠数百毫秒→再次删除）；删除失败时通过MQ异步重试，并配置短TTL作为兜底。对于强一致性场景，可结合分布式锁或使用Canal监听binlog异步刷新缓存，确保最终一致。同时监控缓存命中率、DB回源量和p95延迟，并设置降级开关。",
+  "latency_seconds": 43.347,
+  "provider_invocations": 1
+}

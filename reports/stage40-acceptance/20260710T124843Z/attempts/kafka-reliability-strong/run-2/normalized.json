@@ -1,0 +1,47 @@
+{
+  "case_id": "kafka-reliability-strong",
+  "group_id": "kafka-reliability",
+  "quality_level": "strong",
+  "run_number": 2,
+  "score": 57,
+  "answer": "生产端开启幂等生产者，使用合适的 acks 和有限重试。消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄。",
+  "observed": [
+    "生产端开启幂等生产者，使用合适的 acks 和有限重试",
+    "消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset",
+    "异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄",
+    "生产端开启幂等生产者，使用合适的 acks 和有限重试",
+    "用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset",
+    "异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄",
+    "生产端开启幂等生产者，使用合适的 acks 和有限重试",
+    "消费端不能把 exactly-once 当成业务幂等的替代",
+    "监控 consumer lag、失败率和最老消息年龄",
+    "生产端开启幂等生产者，使用合适的 acks 和有限重试。消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄。"
+  ],
+  "required_observations": [
+    "幂等生产者",
+    "acks",
+    "业务唯一键",
+    "提交 offset",
+    "DLQ",
+    "consumer lag"
+  ],
+  "forbidden_claims": [
+    "无需消费幂等"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "答案清晰地区分了生产端和消费端的可靠性措施，提出了幂等生产者、业务唯一键、延迟重试与 DLQ 等具体机制，并强调了监控指标。整体覆盖了消息不丢失和业务幂等的核心要点，但缺乏代理端持久化配置和更深入的实现细节。 最大的遗漏是未提及 Kafka 代理端的可靠性配置，如 replication.factor、min.insync.replicas、unclean.leader.election.enable 等，这些是保证消息存储持久性的基础。另外，对生产端 ack 设置和消费端 offset 提交的异常处理缺乏具体描述。 生产端启用幂等性并设置 acks=all，结合有限重试确保消息不丢失。代理端配置 replication.factor≥3、min.insync.replicas=2 并关闭 unclean leader election，保证分区高可用。消费端不依赖 Kafka 的 exactly-once 事务替代业务幂等，而是通过业务唯一键或去重表实现幂等处理，在业务成功后手动提交 offset。异常采用指数退避延迟重试，超过阈值落入 DLQ，并由人工或自动化工具修复。监控 consumer lag、失败率、最老消息年龄以及 ISR 收缩告警，及时响应集群退化。",
+  "latency_seconds": 37.842,
+  "provider_invocations": 1
+}

@@ -1,0 +1,67 @@
+{
+  "session_id": "stage40-redis-cache-consistency-medium-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-redis-cache-consistency-medium-2",
+    "question_results": [
+      {
+        "question_id": "redis-cache-consistency-medium",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "我会使用 cache-aside，先更新数据库，事务提交成功后删除 Redis 缓存。下一次读取未命中时查询数据库并回填，同时设置合理过期时间。"
+            ],
+            "missing": [
+              "未讨论删除缓存失败时的重试或消息补偿机制，未解释缓存删除失败如何影响最终一致性。",
+              "未提及缓存预热、缓存穿透/击穿/雪崩防护等深度优化手段。",
+              "未分析先更新数据库再删除缓存可能存在的并发竞态问题及解决方案。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "未提及删除缓存失败的重试策略或消息队列异步补偿机制。",
+              "未提及缓存命中率、回源量、接口 p95 等关键监控指标。",
+              "未讨论缓存降级、熔断或与业务层的整合方式。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [],
+            "missing": [
+              "仅局限于 cache-aside 模式，未对比 write-through、write-behind、延迟双删等其他缓存一致性方案。",
+              "未涉及分布式环境下通过分布式锁、事务消息或订阅 binlog 实现最终一致性的方案。",
+              "未讨论读多写少、强一致性、最终一致性等不同业务场景的适配选择。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "这能满足多数允许短暂不一致的业务。"
+            ],
+            "missing": [
+              "未通过具体示例或时序图阐述写后读可能不一致的窗口期。",
+              "未明确说明该方案不适用于强一致性场景，且未量化‘合理过期时间’的选取依据。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选答案准确描述了 cache-aside 的基本流程，先更新数据库再删除缓存并设置过期时间，对短暂不一致场景的适用性有清晰说明。但未深入讨论删除失败补偿、监控指标、其他替代方案以及潜在并发问题，因此各维度均存在证据不足。",
+        "critique": "最大的缺失是未覆盖缓存删除失败的重试或消息补偿机制，这在生产环境中是保证最终一致性的关键，同时完全没有提及可观测性指标。",
+        "better_answer": "在高并发下，我会采用 cache-aside 模式：先更新数据库，事务提交成功后再删除 Redis 缓存，并设置合理 TTL。为保证最终一致性，删除操作需内置重试（如最多 3 次），失败时将删除任务写入消息队列进行异步补偿。同时监控缓存命中率、回源 QPS 及接口 p95 延迟。对于强一致性需求，可引入分布式锁或使用延迟双删策略。读操作则需考虑缓存穿透与击穿防护，例如布隆过滤器和互斥锁。该方案适用于大多数允许短暂不一致的读多写少场景。",
+        "reference_chunk_ids": [
+          "redis-cache-consistency-reference"
+        ],
+        "highlights": [
+          "准确描述了 cache-aside 基本流程",
+          "明确了短暂不一致的业务适用范围"
+        ]
+      }
+    ]
+  }
+}

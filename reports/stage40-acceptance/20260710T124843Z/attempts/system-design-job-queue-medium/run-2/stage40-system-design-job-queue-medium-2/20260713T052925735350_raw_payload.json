@@ -1,0 +1,78 @@
+{
+  "session_id": "stage40-system-design-job-queue-medium-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-system-design-job-queue-medium-2",
+    "question_results": [
+      {
+        "question_id": "system-design-job-queue-medium",
+        "dimension_evidence": [
+          {
+            "dimension": "architecture",
+            "observed": [
+              "系统包含提交任务的 API、消息队列和多个 Worker。",
+              "API 把任务放入队列，Worker 并发消费并更新状态，",
+              "执行失败时按固定次数重试。",
+              "增加 Worker 可以提升处理能力"
+            ],
+            "missing": [
+              "未说明消息队列是否需要持久化以及如何保证任务不丢失。",
+              "未设计租约机制防止 Worker 崩溃后任务无限期占用。",
+              "未引入幂等键避免重试导致重复执行副作用。",
+              "未提及死信队列用于隔离最终失败的任务。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "执行失败时按固定次数重试。",
+              "增加 Worker 可以提升处理能力"
+            ],
+            "missing": [
+              "未采用指数退避重试，固定次数重试可能加重系统压力。",
+              "未考虑任务处理的幂等性设计。",
+              "缺乏容量估算，未说明队列长度、Worker 数量等量化指标。",
+              "未说明如何保证任务状态更新的可靠性（如数据库事务）。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "depth",
+            "observed": [
+              "执行失败时按固定次数重试。",
+              "记录成功和失败日志。"
+            ],
+            "missing": [
+              "未讨论重试策略的利弊，如固定重试与指数退避的对比。",
+              "未分析 Worker 崩溃、网络分区等故障场景下的行为。",
+              "未设计死信队列和告警机制。",
+              "未涉及任务优先级、延迟调度等高级特性。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "系统包含提交任务的 API、消息队列和多个 Worker。API 把任务放入队列，Worker 并发消费并更新状态，执行失败时按固定次数重试。增加 Worker 可以提升处理能力，并记录成功和失败日志。"
+            ],
+            "missing": [
+              "没有分步骤或分模块结构化描述设计，缺少数据流图的文字描述。",
+              "未说明各组件之间的交互协议（如 REST/gRPC）。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人给出了基本的任务队列架构轮廓，包含 API、队列、Worker、状态更新和固定重试，体现了分布式任务队列的初步理解。但整体设计停留在表面，缺少持久化保证、租约、幂等键、死信队列、退避重试、容量估算和全维度可观测性等生产系统必备要素，未能展现对可靠性和扩展性深度的思考。",
+        "critique": "最大的缺失在于没有设计防止任务重复执行和丢失的机制（如租约和幂等键），也没有引入指数退避和死信队列，使得系统在生产环境中的健壮性不足。",
+        "better_answer": "一个更完整的方案：API 接收任务并写入持久化消息队列（如 Kafka），多个 Worker 通过消费者组并发拉取任务，处理前先获取租约（Redis 锁）防止重复，使用幂等键记录任务状态避免副作用。失败重试采用指数退避并设置最大次数，超过次数转入死信队列并触发告警。通过 Prometheus 指标和分布式追踪实现可观测性，同时进行容量估算确定分区数和 Worker 数。",
+        "reference_chunk_ids": [
+          "system-design-job-queue-reference"
+        ],
+        "highlights": [
+          "提到了多个 Worker 并发消费和固定次数重试，展示了基本扩展性和容错意识。"
+        ]
+      }
+    ]
+  }
+}

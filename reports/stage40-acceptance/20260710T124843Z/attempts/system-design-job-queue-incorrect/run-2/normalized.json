@@ -1,0 +1,36 @@
+{
+  "case_id": "system-design-job-queue-incorrect",
+  "group_id": "system-design-job-queue",
+  "quality_level": "incorrect",
+  "run_number": 2,
+  "score": 40,
+  "answer": "我会在每个节点维护 Python 内存列表作为可靠队列。多个节点天然共享这份列表，进程重启任务也不会丢失，所以不需要数据库、消息队列、租约或幂等设计。",
+  "observed": [
+    "我会在每个节点维护 Python 内存列表作为可靠队列。多个节点天然共享这份列表",
+    "进程重启任务也不会丢失，所以不需要数据库、消息队列、租约或幂等设计",
+    "所以不需要数据库、消息队列、租约或幂等设计",
+    "我会在每个节点维护 Python 内存列表作为可靠队列。"
+  ],
+  "required_observations": [
+    "Python 内存列表"
+  ],
+  "forbidden_claims": [
+    "多个节点天然共享"
+  ],
+  "applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人提出了一个完全错误的设计，认为内存列表可以跨节点共享且重启不丢失，否定了分布式任务队列所需的一切基础组件。这缺乏系统设计常识。 最大的缺陷是完全忽略了任务的持久化和节点间协调，错误地假设多节点自动共享内存且重启不丢数据。 设计应包含：任务提交 API，消息队列（如 Kafka 或 Redis Streams）持久化存储，多节点 Worker 通过竞争性消费获取任务，为每个任务分配租约防止重复执行，Worker 处理失败后进行指数退避重试，达到上限后移至死信队列，引入幂等键保障精确一次语义，并集成 Prometheus/Grafana 实现可观测性。",
+  "latency_seconds": 22.983,
+  "provider_invocations": 1
+}

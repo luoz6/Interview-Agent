@@ -1,0 +1,53 @@
+{
+  "session_id": "stage40-project-incident-review-incorrect-1",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-project-incident-review-incorrect-1",
+    "question_results": [
+      {
+        "question_id": "project-incident-review-incorrect",
+        "dimension_evidence": [
+          {
+            "dimension": "engineering",
+            "observed": [
+              "我不需要监控、回滚和复盘，也没有验证错误率或延迟"
+            ],
+            "missing": [
+              "回答中完全没有提及监控告警、自动回滚、灰度发布、错误率与延迟验证等工程实践，反而明确拒绝这些手段。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "回答未提供任何故障案例，没有描述故障现象、定位过程、止损措施与量化恢复结果，也缺少根因分析与深度复盘内容。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "我的项目从未发生任何线上失败，因为发布前人工检查就能保证零故障。"
+            ],
+            "missing": [
+              "回答虽然表达流畅，但完全没有包含故障复盘要求的各项要素，如影响说明、定位流程、恢复结果和预防改进。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人明确宣称项目零故障，拒绝监控、回滚与复盘，并依赖人工检查和用户投诉作为唯一质量信号。回答缺乏任何故障复盘所需的工程手段、定位深度与复盘要素，只能从摘录中看到对工程实践的排斥，而非有效的复盘证据。",
+        "critique": "最大缺失点是完全没有复盘任何真实故障，且错误地将零投诉等同于系统完全正常，缺乏对监控、可观测性和事故响应的基本认识。",
+        "better_answer": "在某次上线后，监控告警发现订单服务 p95 延迟从 200ms 升至 2s，错误率升至 1.2%。我第一时间通过回滚到上一个稳定版本止损，随后分析日志和 Redis 慢查询，定位到新增的缓存穿透问题。恢复后错误率降回 0.01%，延迟恢复正常。事后推动了缓存预热、压测与自动回滚机制，避免同类问题复发。",
+        "reference_chunk_ids": [
+          "project-incident-review-reference"
+        ],
+        "highlights": [
+          "声称零故障且拒绝监控与复盘",
+          "以用户未投诉代替客观指标",
+          "完全缺失定位与止损步骤"
+        ]
+      }
+    ]
+  }
+}

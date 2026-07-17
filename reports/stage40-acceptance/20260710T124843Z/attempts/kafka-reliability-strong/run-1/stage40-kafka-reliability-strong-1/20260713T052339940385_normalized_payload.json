@@ -1,0 +1,97 @@
+{
+  "session_id": "stage40-kafka-reliability-strong-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "kafka-reliability-strong",
+        "question_text": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+        "user_answer": "生产端开启幂等生产者，使用合适的 acks 和有限重试。消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄。",
+        "score": 57,
+        "dimension_scores": {
+          "breadth": 50,
+          "depth": 60,
+          "architecture": 0,
+          "engineering": 60,
+          "communication": 40
+        },
+        "applicable_dimensions": [
+          "depth",
+          "engineering",
+          "breadth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "生产端开启幂等生产者，使用合适的 acks 和有限重试。",
+              "消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。"
+            ],
+            "missing": [],
+            "quality_signals": [
+              "concept",
+              "metric",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "生产端开启幂等生产者，使用合适的 acks 和有限重试。",
+              "消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄。"
+            ],
+            "missing": [],
+            "quality_signals": [
+              "concept",
+              "metric",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "生产端开启幂等生产者，使用合适的 acks 和有限重试。",
+              "消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄。"
+            ],
+            "missing": [],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行"
+            ],
+            "missing": [],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选答案从生产端的幂等、acks与重试，到消费端强调业务幂等替代exactly-once、唯一键/去重表、先成功后提交offset，再到异常延迟重试、DLQ和监控指标，覆盖了端到端可靠性和重复消费处理的全部关键点，表达准确且具有实操性。",
+        "critique": "未提及生产者事务（如跨分区原子写入）和消费者端的精确一次语义在Kafka Streams中的实现，这会让可靠性的讨论更完整。",
+        "better_answer": "生产端启用幂等生产者，并可配合事务API保证跨分区原子性；合理设置acks=all与有限重试次数。消费端切勿依赖框架的exactly-once，必须通过业务唯一键、去重表或幂等操作处理重复消息，待业务执行成功后再提交offset。异常采用指数延迟重试，耗尽次数后转入死信队列，并持续监控consumer lag、失败率和最老未消费消息年龄，确保及时预警。",
+        "reference_chunk_ids": [
+          "kafka-reliability-reference"
+        ],
+        "highlights": [
+          "区分业务幂等与框架exactly-once",
+          "提出唯一键/去重表防重",
+          "先业务成功再提交offset",
+          "延迟重试与DLQ机制",
+          "监控lag、失败率与最老消息年龄"
+        ]
+      }
+    ],
+    "reference_lookup": {
+      "kafka-reliability-reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "source_type": "benchmark",
+        "excerpt": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

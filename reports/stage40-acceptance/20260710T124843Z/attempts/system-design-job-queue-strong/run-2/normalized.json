@@ -1,0 +1,49 @@
+{
+  "case_id": "system-design-job-queue-strong",
+  "group_id": "system-design-job-queue",
+  "quality_level": "strong",
+  "run_number": 2,
+  "score": 54,
+  "answer": "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。失败采用指数退避和次数限制，最终进入 DLQ。容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。",
+  "observed": [
+    "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。",
+    "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+    "失败采用指数退避和次数限制，最终进入 DLQ。",
+    "容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。",
+    "生成幂等键",
+    "Worker 通过租约领取任务并续约，节点失联后可重新分配",
+    "指数退避和次数限制，最终进入 DLQ",
+    "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。",
+    "Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。",
+    "失败采用指数退避和次数限制，最终进入 DLQ。",
+    "容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。"
+  ],
+  "required_observations": [
+    "入口 API",
+    "持久化消息队列",
+    "租约",
+    "幂等键",
+    "指数退避",
+    "DLQ",
+    "容量"
+  ],
+  "forbidden_claims": [
+    "内存列表保证持久化"
+  ],
+  "applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "architecture",
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人的回答涵盖了任务队列的核心组件：入口 API 校验、幂等键生成、持久化存储与队列、Worker 租约机制、失败重试策略、死信队列，以及容量估算和监控指标。架构层面给出了完整的端到端流程，工程层面触及了容量规划和可观测性指标，深度上提到了幂等、租约续约和指数退避，沟通上用简洁的线性叙述展示了系统全貌。但缺乏底层选型理由、具体故障场景处理和扩容策略等细节。 最大的缺失点是未能具体化死信队列的后续管理和租约机制的故障恢复细节，使设计停留在概要层面。 可以这样改进：'API 层接收任务后计算 SHA256(业务类型+业务ID) 作为幂等键，先写入 MySQL 记录任务状态为 pending，再发布到 Kafka 分区队列。Worker 通过 SELECT FOR UPDATE 获取任务并租约，使用 Redis 锁续约，若 Worker 崩溃，超时后任务重新分配。重试采用指数退避（1s, 2s, 4s... 上限 10 次），最终转入 MySQL 死信表并告警。容量假设日均 100 万任务，峰值 200 QPS，执行中位数 3 秒，配置 50 个 Worker。可观测性通过 Prometheus 指标记录排队时长、成功率、重试率，并通过 ELK 收集执行日志。' 这样补充了具体技术栈、处理细节和容量推算。",
+  "latency_seconds": 48.685,
+  "provider_invocations": 1
+}

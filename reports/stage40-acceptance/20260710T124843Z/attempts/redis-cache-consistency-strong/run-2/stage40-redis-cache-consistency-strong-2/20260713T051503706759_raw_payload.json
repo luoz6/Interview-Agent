@@ -1,0 +1,65 @@
+{
+  "session_id": "stage40-redis-cache-consistency-strong-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-redis-cache-consistency-strong-2",
+    "question_results": [
+      {
+        "question_id": "redis-cache-consistency-strong",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "先更新数据库并提交事务，成功后删除缓存，读取未命中时再回源。并发窗口可能把旧值写回，因此会按业务容忍度增加延迟双删或消息补偿"
+            ],
+            "missing": [
+              "未说明延迟双删的延迟时间设定依据，未讨论先更新再删除可能导致的短期不一致的具体影响范围，未涉及强一致性需求下的解决方案（如分布式锁）"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "删除失败则重试并告警，必要时使用短 TTL 降级。上线后监控命中率、数据库回源量和接口 p95"
+            ],
+            "missing": [
+              "未说明重试的具体实现（如消息队列、重试表），未提及缓存穿透/雪崩的防护措施，未提到降级开关的细节"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [],
+            "missing": [
+              "未讨论其他缓存模式如Write-through、Write-behind，没有涉及基于binlog的异步更新方案，未提及最终一致性和强一致性的权衡"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "我会采用 cache-aside：先更新数据库并提交事务，成功后删除缓存，读取未命中时再回源。并发窗口可能把旧值写回，因此会按业务容忍度增加延迟双删或消息补偿；删除失败则重试并告警，必要时使用短 TTL 降级。上线后监控命中率、数据库回源量和接口 p95。"
+            ],
+            "missing": [
+              "可以在开头简要概述核心步骤，用词更简洁，如“缓存更新策略：Cache-Aside + 延迟双删 + 失败重试 + 监控”"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人正确描述了Cache-Aside模式，识别了并发写回旧值的风险，并提出了延迟双删、消息补偿、失败重试与监控等工程措施，整体逻辑清晰，但对强一致性方案、其他缓存策略以及重试的具体实现缺乏深入。",
+        "critique": "最大缺失是未展现对缓存一致性方案的广度，仅局限于Cache-Aside，没有涉及Write-through、Canal异步更新等替代方案，也没有讨论强一致性的实现途径。",
+        "better_answer": "我会采用Cache-Aside作为默认策略：更新DB成功后删除缓存，读未命中时回源写缓存。为了解决并发导致旧值覆盖，引入延迟双删（第一次删除→更新DB→休眠数百毫秒→再次删除）；删除失败时通过MQ异步重试，并配置短TTL作为兜底。对于强一致性场景，可结合分布式锁或使用Canal监听binlog异步刷新缓存，确保最终一致。同时监控缓存命中率、DB回源量和p95延迟，并设置降级开关。",
+        "reference_chunk_ids": [
+          "redis-cache-consistency-reference"
+        ],
+        "highlights": [
+          "提及延迟双删和消息补偿",
+          "指出并发写回旧值问题",
+          "强调失败重试和告警",
+          "监控命中率、回源量和p95",
+          "结构清晰，遵循策略-问题-监控的叙述"
+        ]
+      }
+    ]
+  }
+}

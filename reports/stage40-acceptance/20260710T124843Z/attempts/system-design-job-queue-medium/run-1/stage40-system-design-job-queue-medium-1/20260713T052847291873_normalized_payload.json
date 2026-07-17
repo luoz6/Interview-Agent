@@ -1,0 +1,98 @@
+{
+  "session_id": "stage40-system-design-job-queue-medium-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "system-design-job-queue-medium",
+        "question_text": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+        "user_answer": "系统包含提交任务的 API、消息队列和多个 Worker。API 把任务放入队列，Worker 并发消费并更新状态，执行失败时按固定次数重试。增加 Worker 可以提升处理能力，并记录成功和失败日志。",
+        "score": 44,
+        "dimension_scores": {
+          "breadth": 0,
+          "depth": 50,
+          "architecture": 40,
+          "engineering": 50,
+          "communication": 40
+        },
+        "applicable_dimensions": [
+          "architecture",
+          "engineering",
+          "depth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "architecture",
+            "observed": [
+              "系统包含提交任务的 API、消息队列和多个 Worker。",
+              "API 把任务放入队列，Worker 并发消费并更新状态"
+            ],
+            "missing": [
+              "未提及消息队列的持久化、租约机制、死信队列、容量估算等架构核心设计。"
+            ],
+            "quality_signals": [
+              "concept"
+            ]
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "执行失败时按固定次数重试。",
+              "增加 Worker 可以提升处理能力，并记录成功和失败日志。"
+            ],
+            "missing": [
+              "未提及幂等键、退避重试策略、死信队列处理、监控告警等工程化实践。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "depth",
+            "observed": [
+              "API 把任务放入队列，Worker 并发消费并更新状态，执行失败时按固定次数重试。"
+            ],
+            "missing": [
+              "未解释重试策略的退避机制、任务去重、任务延迟、死信队列处理、容量规划等深层设计。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "系统包含提交任务的 API、消息队列和多个 Worker。API 把任务放入队列，Worker 并发消费并更新状态，执行失败时按固定次数重试。增加 Worker 可以提升处理能力，并记录成功和失败日志。"
+            ],
+            "missing": [],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人给出了任务队列的基本结构，包括 API、队列和 Worker，并提到固定次数重试和日志记录，沟通清晰。但回答在架构、工程和深度维度上明显不足：缺少消息持久化、租约、幂等、退避重试、死信队列、容量估算、监控告警等关键设计细节，未能展现对分布式任务队列生产级需求的全面理解。",
+        "critique": "最大的缺失点是未说明消息队列的持久化与任务去重机制，系统在故障时可能丢失任务或重复执行，可靠性无法保障。",
+        "better_answer": "API 服务接收任务请求，为每个任务生成幂等键并持久化到 Kafka 分区。多个 Worker 通过消费者组拉取任务，获取租约后执行，定期续租。执行成功则确认，失败按指数退避重试，超过上限进入死信队列。系统暴露任务延迟、积压、失败率等 Prometheus 指标，结合结构化日志和告警实现可观测性。通过预期 QPS 和平均处理时间估算所需分区和 Worker 数量。",
+        "reference_chunk_ids": [
+          "system-design-job-queue-reference"
+        ],
+        "highlights": [
+          "明确划分了 API、队列、Worker 三层结构",
+          "提到了失败重试（固定次数）",
+          "提到了日志记录以提供可观测性",
+          "指出了水平扩展的能力（增加 Worker）"
+        ]
+      }
+    ],
+    "reference_lookup": {
+      "system-design-job-queue-reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "source_type": "benchmark",
+        "excerpt": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

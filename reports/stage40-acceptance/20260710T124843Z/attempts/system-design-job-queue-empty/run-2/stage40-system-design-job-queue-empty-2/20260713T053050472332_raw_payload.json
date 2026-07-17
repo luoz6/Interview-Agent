@@ -1,0 +1,53 @@
+{
+  "session_id": "stage40-system-design-job-queue-empty-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-system-design-job-queue-empty-2",
+    "question_results": [
+      {
+        "question_id": "system-design-job-queue-empty",
+        "dimension_evidence": [
+          {
+            "dimension": "architecture",
+            "observed": [],
+            "missing": [
+              "未提供任何架构设计，没有说明组件、消息队列选型、worker 部署方式、持久化与高可用方案。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "未讨论任何工程实现细节，如请求接口、任务提交、重试策略、幂等保证、死信队列、容量估算和部署运维。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "未对失败重试、租约机制、可观测性、数据一致性等深层问题进行任何说明。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [],
+            "missing": [
+              "回答为空，缺乏任何沟通与表述。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人的回答为空，未展示任何设计内容，因此所有评估维度均无有效证据。",
+        "critique": "回答完全缺失，无法评估分布式任务队列的设计能力。建议提供包含 API 接入、持久化队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量规划和可观测性指标的完整方案。",
+        "better_answer": "设计一个分布式任务队列系统，包含生产者通过 REST API 提交任务，任务持久化到 RabbitMQ 或 Kafka 的分区 topic，多个 worker 节点消费任务并执行，使用数据库记录任务状态。通过心跳和 TTL 实现租约机制，防止任务被重复执行。重试采用指数退避，超过最大重试次数后转入死信队列，由人工或监控系统处理。通过分布式链路追踪和 Prometheus 指标暴露任务延迟、成功率、p99 耗时等，实现全面的可观测性。进行容量估算，给出 worker 数量与队列吞吐量的匹配方案。",
+        "reference_chunk_ids": [
+          "system-design-job-queue-reference"
+        ],
+        "highlights": []
+      }
+    ]
+  }
+}

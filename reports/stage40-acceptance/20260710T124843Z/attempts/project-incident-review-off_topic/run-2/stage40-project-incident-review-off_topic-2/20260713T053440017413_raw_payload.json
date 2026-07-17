@@ -1,0 +1,45 @@
+{
+  "session_id": "stage40-project-incident-review-off_topic-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-project-incident-review-off_topic-2",
+    "question_results": [
+      {
+        "question_id": "project-incident-review-off_topic",
+        "dimension_evidence": [
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "回答未涉及任何工程实施、架构或系统设计内容，仅介绍 Redis 基础知识，与故障复盘无关。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "回答未对故障进行任何深度分析，缺少根因定位、影响范围、量化恢复结果等复盘要素。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [],
+            "missing": [
+              "回答完全偏离提问主题，未能围绕线上故障复盘进行结构化沟通，缺乏针对性与相关性。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人的回答介绍了 Redis 的基本概念，但完全未涉及线上故障复盘。提问明确要求复盘一次线上故障，包括定位、止损、结果和后续预防，而回答内容与要求毫无关联。因此，在所有维度上均缺乏支撑证据。",
+        "critique": "最大的缺失是完全未回应故障复盘的核心要求，未提供任何故障细节或预防措施。",
+        "better_answer": "例如：'在某次发布后，监控发现商品详情接口 p95 延迟从 200ms 飙升到 2s，错误率 5%。通过链路追踪定位到新引入的缓存加载逻辑在热点数据下产生锁竞争。立即回滚发布版本，2 分钟内恢复。根因是未对批量加载做分片。后续我们增加了压测场景、优化了锁粒度，并配置了缓存加载耗时告警，杜绝了此类重复发生。'",
+        "reference_chunk_ids": [
+          "project-incident-review-reference"
+        ],
+        "highlights": []
+      }
+    ]
+  }
+}

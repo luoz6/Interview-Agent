@@ -1,0 +1,79 @@
+{
+  "session_id": "stage40-kafka-reliability-off_topic-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "kafka-reliability-off_topic",
+        "question_text": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+        "user_answer": "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。这能提升页面加载速度，但没有回答 Kafka 可靠性。",
+        "score": 4,
+        "dimension_scores": {
+          "breadth": 0,
+          "depth": 0,
+          "architecture": 0,
+          "engineering": 0,
+          "communication": 40
+        },
+        "applicable_dimensions": [
+          "depth",
+          "engineering",
+          "breadth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "回答未涉及 Kafka 消息可靠性的任何技术深度，例如生产者确认机制、幂等性、事务或偏移量提交策略。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "回答完全未体现工程实践，未讨论重试、死信队列、监控或资源规划等可靠性保障手段。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [],
+            "missing": [
+              "回答未覆盖 Kafka 链路中生产者、Broker 或消费者任一环节的可靠性措施，也未涉及重复消费处理。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。"
+            ],
+            "missing": [
+              "该回答虽然表述清晰，但内容完全偏题，未能传达任何与 Kafka 可靠性相关的信息。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人的回答围绕前端性能优化（图片压缩、缓存、CDN）展开，与 Kafka 消息可靠性完全无关，因此在深度、工程、广度三个维度均未提供任何相关证据；沟通维度仅表明表达流畅，但内容严重偏题。",
+        "critique": "最大的缺失点是完全没有回答 Kafka 可靠性的任何方面，导致所有相关维度均无实质内容。",
+        "better_answer": "要保证 Kafka 消息链路可靠，首先在生产者端需启用幂等性（enable.idempotence）并选择合适的 acks 级别（如 acks=all），设置合理的重试机制与超时时间，防止消息丢失或乱序。其次，消费者端需实现业务幂等（如根据唯一键去重），采用手动提交 offset 并在处理成功后提交，结合重试与死信队列处理可重试失败的消息。同时监控消费者组积压（lag），配置告警。对于重复消费，可在消费逻辑中使用数据库唯一约束或 Redis 幂等标记，将重复消息识别并丢弃。全链路还需考虑 Broker 端的副本因子、min.insync.replicas 及磁盘可靠性配置。",
+        "reference_chunk_ids": [
+          "kafka-reliability-reference"
+        ],
+        "highlights": []
+      }
+    ],
+    "reference_lookup": {
+      "kafka-reliability-reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "source_type": "benchmark",
+        "excerpt": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

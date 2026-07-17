@@ -1,0 +1,29 @@
+# Local secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Node
+node_modules/
+test-results/
+playwright-report/
+
+# IDE
+.idea/
+.claude/
+
+# Local runtime scratch files
+tmp/
+tmp-*.log
+tmp-*.pid
+tmp-stage*.log
+tmp-stage*.pid
+
+# Stage 40 real-model evaluation artifacts
+reports/stage40/*/
+reports/stage40-group*/
+reports/stage40-smoke*/

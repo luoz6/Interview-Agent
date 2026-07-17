@@ -1,0 +1,68 @@
+[
+  {
+    "id": "redis-strong-cache-aside",
+    "domain": "redis",
+    "job_tags": ["python", "redis"],
+    "question": "Explain Redis cache invalidation.",
+    "focus": "Redis reliability",
+    "answer": "I use cache-aside. After database writes I delete cache, handle race conditions with retry or delayed cleanup, keep Redis fallback to the database, and I watch p95 latency and hit ratio.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "redis-1",
+    "required_rationale_terms": ["race conditions", "fallback", "p95 latency"]
+  },
+  {
+    "id": "redis-weak-basic-cache",
+    "domain": "redis",
+    "job_tags": ["python", "redis"],
+    "question": "Explain Redis cache invalidation.",
+    "focus": "Redis reliability",
+    "answer": "I use Redis to make things faster and clear the cache sometimes.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "redis-1",
+    "required_critique_terms": ["race conditions", "fallback", "consistency"]
+  },
+  {
+    "id": "redis-strong-ttl-and-consistency",
+    "domain": "redis",
+    "job_tags": ["backend", "redis"],
+    "question": "How do you keep Redis cache and database data consistent?",
+    "focus": "Consistency and observability",
+    "answer": "I use cache-aside, delete-after-write, guard against race conditions with delayed double delete when needed, keep database fallback paths, and track hit ratio plus p95 latency for regressions.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "redis-1",
+    "required_rationale_terms": ["race conditions", "fallback", "p95 latency"]
+  },
+  {
+    "id": "redis-weak-no-race-plan",
+    "domain": "redis",
+    "job_tags": ["backend", "redis"],
+    "question": "How do you keep Redis cache and database data consistent?",
+    "focus": "Consistency and observability",
+    "answer": "We set TTLs and clear cache after updates.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "redis-1",
+    "required_critique_terms": ["race conditions", "fallback", "consistency"]
+  },
+  {
+    "id": "redis-mixed-python-stack",
+    "domain": "redis",
+    "job_tags": ["python", "redis", "mysql"],
+    "question": "In a Python service with MySQL and Redis, how do you avoid stale cache data?",
+    "focus": "Redis reliability in a mixed stack",
+    "answer": "I still use cache-aside, delete-after-write after MySQL commits, plan for race conditions, keep fallback reads from the database, and monitor p95 latency and hit ratio.",
+    "expected_score_min": 80,
+    "expected_reference_chunk": "redis-1",
+    "required_rationale_terms": ["race conditions", "fallback", "p95 latency"]
+  },
+  {
+    "id": "redis-mixed-event-gap",
+    "domain": "redis",
+    "job_tags": ["redis", "kafka"],
+    "question": "How would Redis fit into an event-driven backend without stale reads?",
+    "focus": "Redis reliability in distributed systems",
+    "answer": "I would update Redis when events arrive and rely on TTL.",
+    "expected_score_max": 69,
+    "expected_reference_chunk": "redis-1",
+    "required_critique_terms": ["race conditions", "fallback", "consistency"]
+  }
+]

@@ -1,0 +1,27 @@
+{
+  "case_id": "kafka-reliability-off_topic",
+  "group_id": "kafka-reliability",
+  "quality_level": "off_topic",
+  "run_number": 2,
+  "score": 0,
+  "answer": "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。这能提升页面加载速度，但没有回答 Kafka 可靠性。",
+  "observed": [],
+  "required_observations": [],
+  "forbidden_claims": [],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人回答完全偏离主题，讨论了前端性能优化（图片压缩、缓存、CDN），但未对 Kafka 消息可靠性和重复消费提供任何解释或解决方案。没有回答所问的技术问题。 最大的缺失是完全未提及 Kafka 相关的任何概念或设计，回答与问题无关。 为保证 Kafka 消息可靠，生产端应启用幂等性、设置 acks=all 并配置合理的重试机制；消费端需要实现业务幂等，通过唯一键去重，并使用手动提交 offset 确保不丢失。同时，通过死信队列处理重试失败的消息，监控消费延迟和积压。处理重复消费可在消费端记录已处理的消息 ID 或进行幂等操作。",
+  "latency_seconds": 27.188,
+  "provider_invocations": 1
+}

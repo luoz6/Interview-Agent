@@ -1,0 +1,68 @@
+{
+  "session_id": "stage40-kafka-reliability-medium-1",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-kafka-reliability-medium-1",
+    "question_results": [
+      {
+        "question_id": "kafka-reliability-medium",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "生产者设置 acks=all 并配置重试，副本同步后再确认。",
+              "消费者处理成功后提交 offset，失败时重新消费。",
+              "但还要限制重试次数。"
+            ],
+            "missing": [
+              "未提及生产者幂等与事务机制，未解释重复消费的根因及业务幂等去重方案。",
+              "未说明偏移提交策略（自动/手动）对重复消费的影响。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "生产者设置 acks=all 并配置重试",
+              "但还要限制重试次数。"
+            ],
+            "missing": [
+              "未提及死信队列、监控告警及偏移提交方式的具体工程实践。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "生产者设置 acks=all 并配置重试，副本同步后再确认。消费者处理成功后提交 offset，失败时重新消费。"
+            ],
+            "missing": [
+              "未涉及 broker 端配置（如 min.insync.replicas）、消费者再均衡影响、事务及幂等生产等全链路方案。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "生产者设置 acks=all 并配置重试，副本同步后再确认。消费者处理成功后提交 offset，失败时重新消费。这样能减少消息丢失，但还要限制重试次数。"
+            ],
+            "missing": [
+              "回答未按生产端、消费端、系统可靠性等维度结构化展开，未清晰说明重复消费场景及应对策略。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选答案点出了生产端 acks=all 与重试、消费端提交 offset 与重试限制，具备基本可靠性认知。然而，深度上缺失生产者幂等、业务幂等及偏移提交影响的分析；工程实践上缺死信队列与监控；广度上未覆盖 broker 配置与事务；沟通上缺乏分层次组织，影响表达的完整性。",
+        "critique": "最大缺失点在于未阐明如何实现消费端业务幂等及死信队列，仅依赖重试无法根治重复消费。",
+        "better_answer": "保障 Kafka 消息可靠需全链路设计：生产端启用幂等、配置 acks=all 和合理重试，必要时引入事务；broker 端设置 min.insync.replicas 防止数据丢失；消费端采用手动偏移提交，结合业务幂等（如基于消息 ID 去重）和重试机制，将多次失败的消息路由到死信队列，并部署积压监控与告警，从而实现可靠传递并妥善处理重复消费。",
+        "reference_chunk_ids": [
+          "kafka-reliability-reference"
+        ],
+        "highlights": [
+          "提到了 acks=all 和重试限制",
+          "提及消费者处理成功后提交 offset"
+        ]
+      }
+    ]
+  }
+}

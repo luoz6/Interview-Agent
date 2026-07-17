@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>结构化面评报告 - 面试智能体</title>
+    <link rel="stylesheet" href="/static/prototype.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+        /* 侧边栏步骤连接线 */
+        .step-item::after {
+            content: '';
+            position: absolute;
+            left: 19px;
+            top: 40px;
+            bottom: -16px;
+            width: 2px;
+            background-color: #f3f4f6;
+            z-index: 0;
+        }
+        .step-item:last-child::after { display: none; }
+        .step-item-active::after { background-color: #f3f4f6; } /* 保持灰线 */
+
+        /* 优雅的自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+    </style>
+</head>
+<body class="h-screen flex flex-col bg-[#f9fafb] text-gray-800 overflow-hidden">
+
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide">面试智能体</span>
+        </div>
+
+        <nav class="flex h-full text-sm">
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-house mr-2"></i>首页
+            </a>
+            <a href="/prep" class="px-6 h-full flex items-center text-blue-600 font-medium border-b-2 border-blue-600">
+                <i class="fa-solid fa-microphone mr-2"></i>我的面试
+            </a>
+            <a href="/reports" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-file-lines mr-2"></i>报告中心
+            </a>
+            <a href="/help" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-regular fa-circle-question mr-2"></i>帮助
+            </a>
+        </nav>
+
+        <div class="flex items-center gap-5">
+            <button class="text-gray-400 hover:text-gray-600"><i class="fa-regular fa-bell text-lg"></i></button>
+            <div class="flex items-center gap-2 cursor-pointer">
+                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-sm">
+                    张
+                </div>
+                <div class="leading-tight">
+                    <div class="text-sm font-medium">张同学</div>
+                    <div class="text-xs text-gray-400">求职者</div>
+                </div>
+                <i class="fa-solid fa-chevron-down text-gray-400 text-xs ml-1"></i>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+
+        <aside class="w-[260px] bg-[#f9fafb] border-r border-gray-200 flex flex-col shrink-0">
+            <div class="p-6 flex-1 overflow-y-auto">
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10">
+                        <div class="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-400 shadow-sm shrink-0">
+                            <i class="fa-regular fa-clipboard"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">1. 面试准备</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">输入 JD 与简历，生成面试计划</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10">
+                        <div class="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-400 shadow-sm shrink-0">
+                            <i class="fa-regular fa-comments"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">2. 模拟面试</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">与面试智能体进行问答</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10">
+                        <div class="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-gray-400 shadow-sm shrink-0">
+                            <i class="fa-solid fa-file-invoice"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">3. 报告生成</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">生成评估报告与建议</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item step-item-active mb-6">
+                    <div class="absolute -inset-x-6 -inset-y-3 bg-blue-50 border-l-4 border-blue-600 z-0"></div>
+                    <div class="flex gap-3 relative z-10">
+                        <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
+                            <i class="fa-solid fa-chart-pie"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-bold text-blue-700 text-sm">4. 面试复盘</h3>
+                            <p class="text-[11px] text-blue-500 mt-0.5 leading-snug">回顾表现，持续提升</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="p-6 border-t border-gray-200 bg-gray-50/80">
+                <div class="flex items-center gap-1 text-sm font-medium text-gray-700 mb-2">
+                    流程说明 <i class="fa-regular fa-circle-question text-gray-400 text-xs"></i>
+                </div>
+                <p class="text-[11px] text-gray-500 leading-relaxed">
+                    提交 JD + 简历 → 生成 InterviewPlan<br>→ 创建 Session → 进入 active 状态
+                </p>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col relative min-w-0">
+            <div class="flex-1 overflow-y-auto p-6 pb-24">
+
+                <div class="flex items-end justify-between mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold mb-1">结构化面评报告</h1>
+                        <p id="reportSummary" class="text-xs text-gray-500">这是基于本次模拟面试生成的最终评估报告，包含各维度得分、证据引用与改进建议，帮助你明确优势与提升方向。</p>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                        <span id="reportStatus" class="px-2.5 py-1 bg-green-50 text-green-600 border border-green-200 rounded flex items-center gap-1">
+                            <i class="fa-solid fa-check"></i> 报告已完成
+                        </span>
+                        <span class="px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded">
+                            非降级（完成）
+                        </span>
+                        <span class="text-gray-400 ml-2">面试计划ID: JD-20250523-Redis-001 <i class="fa-regular fa-copy cursor-pointer hover:text-gray-600 ml-1"></i></span>
+                        <span class="text-gray-400 ml-2">完成时间: 2025-05-23 21:42</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-5 gap-4 mb-6">
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm col-span-1">
+                        <div class="text-sm font-bold text-gray-700 mb-2">总分</div>
+                        <div class="flex items-baseline gap-1 mb-3">
+                            <span id="reportScore" class="text-5xl font-bold text-blue-600">0</span>
+                            <span class="text-gray-400 text-sm">/100</span>
+                        </div>
+                        <div class="flex items-center justify-between mt-auto">
+                            <span id="reportScoreHint" class="text-[11px] text-gray-400">--</span>
+                            <span id="reportScoreBadge" class="px-2 py-0.5 bg-gray-100 text-gray-500 text-[11px] rounded-full font-medium">--</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm relative flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="text-sm font-bold text-gray-700">技术能力</div>
+                            <div class="w-8 h-8 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center text-sm"><i class="fa-solid fa-code"></i></div>
+                        </div>
+                        <div>
+                            <div class="flex items-baseline gap-1 mb-1">
+                                <span id="reportTechnicalScore" class="text-3xl font-bold text-blue-600">0</span><span class="text-gray-400 text-sm">/100</span>
+                            </div>
+                            <p class="text-xs text-gray-500 line-clamp-1">扎实的基础与技术实现能力</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm relative flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="text-sm font-bold text-gray-700">系统设计</div>
+                            <div class="w-8 h-8 bg-purple-50 text-purple-500 rounded-full flex items-center justify-center text-sm"><i class="fa-solid fa-cubes"></i></div>
+                        </div>
+                        <div>
+                            <div class="flex items-baseline gap-1 mb-1">
+                                <span id="reportArchitectureScore" class="text-3xl font-bold text-blue-600">0</span><span class="text-gray-400 text-sm">/100</span>
+                            </div>
+                            <p class="text-xs text-gray-500 line-clamp-1">系统架构与设计思路清晰</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm relative flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="text-sm font-bold text-gray-700">表达沟通</div>
+                            <div class="w-8 h-8 bg-green-50 text-green-500 rounded-full flex items-center justify-center text-sm"><i class="fa-regular fa-comments"></i></div>
+                        </div>
+                        <div>
+                            <div class="flex items-baseline gap-1 mb-1">
+                                <span id="reportCommunicationScore" class="text-3xl font-bold text-blue-600">0</span><span class="text-gray-400 text-sm">/100</span>
+                            </div>
+                            <p class="text-xs text-gray-500 line-clamp-1">条理清晰，表述较流畅</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm relative flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="text-sm font-bold text-gray-700">项目深度</div>
+                            <div class="w-8 h-8 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center text-sm"><i class="fa-solid fa-briefcase"></i></div>
+                        </div>
+                        <div>
+                            <div class="flex items-baseline gap-1 mb-1">
+                                <span id="reportEngineeringScore" class="text-3xl font-bold text-blue-600">0</span><span class="text-gray-400 text-sm">/100</span>
+                            </div>
+                            <p class="text-xs text-gray-500 line-clamp-1">理解深入，有实践与思考</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm col-span-1">
+                        <h3 class="text-sm font-bold text-gray-800 mb-2">五维能力得分</h3>
+                        <div id="dimensionScores" class="space-y-3 text-[13px] text-gray-600"></div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm col-span-1 flex flex-col">
+                        <h3 class="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <i class="fa-regular fa-circle-check text-green-500 text-base"></i> 亮点总结
+                        </h3>
+                        <ul id="reportHighlights" class="text-[13px] text-gray-600 space-y-3 pl-1 flex-1">
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> Redis 相关知识扎实，掌握常见数据结构与应用场景。</li>
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 能清晰阐述 MySQL 索引与事务机制，理解较深入。</li>
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 系统设计能考虑高可用与扩展性，思路较全面。</li>
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 项目经验丰富，能结合实践说明技术选型与权衡。</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm col-span-1 flex flex-col">
+                        <h3 class="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-circle-exclamation text-orange-400 text-base"></i> 待改进项
+                        </h3>
+                        <ul class="text-[13px] text-gray-600 space-y-3 pl-1 flex-1">
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 对 Redis 持久化与主从同步细节的理解可更深入。</li>
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 系统设计在性能评估与容量估算方面展开不足。</li>
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 对 FastAPI 的依赖注入与中间件机制理解较浅。</li>
+                            <li class="flex items-start gap-2"><div class="w-1 h-1 rounded-full bg-gray-400 mt-1.5 shrink-0"></div> 部分回答缺乏量化指标与工程化落地方案。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 overflow-hidden">
+                    <div class="px-5 py-4 border-b border-gray-100">
+                        <h3 class="text-sm font-bold text-gray-800">逐题反馈</h3>
+                    </div>
+                    <div id="scoringOwnershipNotice" class="mx-5 mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                        AI &#36127;&#36131;&#25552;&#21462;&#35777;&#25454;&#65292;&#21518;&#31471;&#35268;&#21017;&#36127;&#36131;&#35745;&#31639;&#20998;&#25968;&#12290;
+                    </div>
+                    <table class="w-full text-[13px] text-left text-gray-600">
+                        <thead class="bg-gray-50/50 text-gray-500 font-medium">
+                            <tr>
+                                <th class="px-5 py-3 font-medium w-1/4">题目</th>
+                                <th class="px-5 py-3 font-medium w-[80px]">得分</th>
+                                <th class="px-5 py-3 font-medium w-1/3">反馈</th>
+                                <th class="px-5 py-3 font-medium">改进建议（要点预览）</th>
+                                <th class="px-5 py-3 font-medium w-[100px]">证据引用</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feedbackList" class="divide-y divide-gray-100">
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="px-5 py-3 align-top leading-relaxed">1. Redis 的持久化机制有哪些？各自的优缺点是什么？</td>
+                                <td class="px-5 py-3 align-top">8 <span class="text-gray-400 text-xs">/ 10</span></td>
+                                <td class="px-5 py-3 align-top leading-relaxed">能覆盖 RDB 与 AOF，优缺点说明清晰，但未深入到重写与 fsync 策略。</td>
+                                <td class="px-5 py-3 align-top leading-relaxed">补充 AOF 重写触发时机、rewrite 的优化与 fsync=always/everysec/no 的影响。</td>
+                                <td class="px-5 py-3 align-top"><a href="#" class="text-blue-500 hover:underline">证据 1</a>, <a href="#" class="text-blue-500 hover:underline">证据 2</a></td>
+                            </tr>
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="px-5 py-3 align-top leading-relaxed">2. MySQL 索引的底层实现与最左前缀原则是什么？</td>
+                                <td class="px-5 py-3 align-top">9 <span class="text-gray-400 text-xs">/ 10</span></td>
+                                <td class="px-5 py-3 align-top leading-relaxed">能正确说明 B+ 树与最左前缀原则，并给出示例，回答完整。</td>
+                                <td class="px-5 py-3 align-top leading-relaxed">补充索引下推 (ICP) 与覆盖索引的应用场景。</td>
+                                <td class="px-5 py-3 align-top"><a href="#" class="text-blue-500 hover:underline">证据 3</a></td>
+                            </tr>
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="px-5 py-3 align-top leading-relaxed">3. 设计一个高并发秒杀系统，如何保证库存与下单的一致性？</td>
+                                <td class="px-5 py-3 align-top">7 <span class="text-gray-400 text-xs">/ 10</span></td>
+                                <td class="px-5 py-3 align-top leading-relaxed">思路正确，提到 Redis 扣减与 MQ 异步，但一致性细节不够。</td>
+                                <td class="px-5 py-3 align-top leading-relaxed">补充幂等设计、消息可靠性与最终一致性的权衡方案。</td>
+                                <td class="px-5 py-3 align-top"><a href="#" class="text-blue-500 hover:underline">证据 4</a>, <a href="#" class="text-blue-500 hover:underline">证据 5</a></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="px-5 py-3 text-center text-[13px] text-blue-500 hover:bg-blue-50/50 cursor-pointer border-t border-gray-100 transition-colors flex items-center justify-center gap-1">
+                        查看全部题目 (共 12 题) <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                    </div>
+                </div>
+
+                <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 overflow-hidden">
+                    <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-sm font-bold text-gray-800">逐题评估链路</h3>
+                            <p class="text-xs text-gray-400 mt-1">展示后台 QuestionEvaluationRecord，帮助追踪每题状态、评分依据与改进建议。</p>
+                        </div>
+                        <span id="questionEvaluationStatus" class="text-[12px] text-gray-400">等待加载</span>
+                    </div>
+                    <div id="questionEvaluationList" class="divide-y divide-gray-100"></div>
+                </section>
+
+                <div>
+                    <h3 class="text-sm font-bold text-gray-800 mb-3">RAG 证据引用（部分）</h3>
+                    <div id="evidenceList" class="relative grid grid-cols-3 gap-4">
+
+                        <div class="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm cursor-pointer hover:bg-gray-50 z-10 text-gray-400 text-xs">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                            <h4 class="text-[13px] font-bold text-blue-600 mb-3 flex items-center gap-2">
+                                <span class="w-5 h-5 bg-blue-50 text-blue-600 rounded text-xs flex items-center justify-center shrink-0">1</span>
+                                <span class="truncate">Redis 持久化：RDB 与 AOF 的原理与对比</span>
+                            </h4>
+                            <div class="space-y-1.5 text-xs">
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">source_type</span><span class="text-gray-700">doc</span></div>
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">domain</span><span class="text-gray-700">Redis</span></div>
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">excerpt</span><span class="text-gray-700 leading-relaxed line-clamp-2">RDB 适合备份恢复，AOF 适合数据不丢失。AOF 重写可压缩体积，fsync 策略影响性能与安全性。</span></div>
+                            </div>
+                            <div class="mt-4 flex items-center gap-3 text-xs">
+                                <span class="text-gray-500">相关度 <span class="font-medium text-gray-700">0.93</span></span>
+                                <div class="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-green-400 rounded-full w-[93%]"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                            <h4 class="text-[13px] font-bold text-blue-600 mb-3 flex items-center gap-2">
+                                <span class="w-5 h-5 bg-blue-50 text-blue-600 rounded text-xs flex items-center justify-center shrink-0">2</span>
+                                <span class="truncate">MySQL 索引与查询优化最佳实践</span>
+                            </h4>
+                            <div class="space-y-1.5 text-xs">
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">source_type</span><span class="text-gray-700">doc</span></div>
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">domain</span><span class="text-gray-700">MySQL</span></div>
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">excerpt</span><span class="text-gray-700 leading-relaxed line-clamp-2">最左前缀原则要求联合索引的使用遵循最左匹配，覆盖索引可避免回表。</span></div>
+                            </div>
+                            <div class="mt-4 flex items-center gap-3 text-xs">
+                                <span class="text-gray-500">相关度 <span class="font-medium text-gray-700">0.89</span></span>
+                                <div class="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-green-400 rounded-full w-[89%]"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                            <h4 class="text-[13px] font-bold text-blue-600 mb-3 flex items-center gap-2">
+                                <span class="w-5 h-5 bg-blue-50 text-blue-600 rounded text-xs flex items-center justify-center shrink-0">3</span>
+                                <span class="truncate">高并发秒杀系统架构设计与实践</span>
+                            </h4>
+                            <div class="space-y-1.5 text-xs">
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">source_type</span><span class="text-gray-700">doc</span></div>
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">domain</span><span class="text-gray-700">系统设计</span></div>
+                                <div class="flex gap-4"><span class="text-gray-400 w-16 shrink-0">excerpt</span><span class="text-gray-700 leading-relaxed line-clamp-2">通过 Redis 预减库存 + MQ 异步下单，结合幂等与重试保证可靠性。</span></div>
+                            </div>
+                            <div class="mt-4 flex items-center gap-3 text-xs">
+                                <span class="text-gray-500">相关度 <span class="font-medium text-gray-700">0.87</span></span>
+                                <div class="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-green-400 rounded-full w-[87%]"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm cursor-pointer hover:bg-gray-50 z-10 text-gray-400 text-xs">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="absolute bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-4 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.02)]">
+                <button id="downloadReportButton" type="button" class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-download text-gray-500"></i> 下载报告 (PDF)
+                </button>
+                <button id="retryInterviewButton" type="button" class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-rotate-right text-gray-500"></i> 再次模拟
+                </button>
+                <button id="reportCenterButton" type="button" class="px-8 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition-colors shadow-md shadow-blue-200 flex items-center gap-2">
+                    <i class="fa-solid fa-suitcase"></i> 返回报告中心
+                </button>
+                <p id="reportNotice" class="text-[12px] text-gray-500" hidden></p>
+            </div>
+
+        </main>
+    </div>
+
+    <script type="module" src="/static/report-detail.js?v=20260710-score-cards"></script>
+</body>
+</html>

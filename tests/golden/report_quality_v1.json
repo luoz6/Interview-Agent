@@ -1,0 +1,932 @@
+{
+  "version": "report-quality-v1",
+  "cases": [
+    {
+      "case_id": "redis-cache-consistency-strong",
+      "group_id": "redis-cache-consistency",
+      "domain": "redis",
+      "quality_level": "strong",
+      "question_kind": "technical",
+      "question": "在高并发业务中，如何处理 Redis 缓存与数据库之间的一致性？",
+      "focus": "Redis 缓存一致性",
+      "answer": "我会采用 cache-aside：先更新数据库并提交事务，成功后删除缓存，读取未命中时再回源。并发窗口可能把旧值写回，因此会按业务容忍度增加延迟双删或消息补偿；删除失败则重试并告警，必要时使用短 TTL 降级。上线后监控命中率、数据库回源量和接口 p95。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "成功后删除缓存",
+        "删除失败则重试",
+        "接口 p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然强一致"
+      ],
+      "reference": {
+        "chunk_id": "redis-cache-consistency-reference",
+        "title": "Redis 缓存一致性参考资料",
+        "content": "Cache-aside 应在数据库成功后删除缓存，并通过重试或消息补偿处理删除失败，同时监控命中率、回源量和接口 p95。",
+        "source_type": "benchmark",
+        "domain": "redis",
+        "tags": [
+          "redis",
+          "redis-cache-consistency"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "redis-cache-consistency"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "redis-cache-consistency-medium",
+      "group_id": "redis-cache-consistency",
+      "domain": "redis",
+      "quality_level": "medium",
+      "question_kind": "technical",
+      "question": "在高并发业务中，如何处理 Redis 缓存与数据库之间的一致性？",
+      "focus": "Redis 缓存一致性",
+      "answer": "我会使用 cache-aside，先更新数据库，事务提交成功后删除 Redis 缓存。下一次读取未命中时查询数据库并回填，同时设置合理过期时间。这能满足多数允许短暂不一致的业务。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "成功后删除缓存"
+      ],
+      "required_missing_points": [
+        "竞争窗口",
+        "失败补偿",
+        "监控指标"
+      ],
+      "forbidden_claims": [
+        "天然强一致"
+      ],
+      "reference": {
+        "chunk_id": "redis-cache-consistency-reference",
+        "title": "Redis 缓存一致性参考资料",
+        "content": "Cache-aside 应在数据库成功后删除缓存，并通过重试或消息补偿处理删除失败，同时监控命中率、回源量和接口 p95。",
+        "source_type": "benchmark",
+        "domain": "redis",
+        "tags": [
+          "redis",
+          "redis-cache-consistency"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "redis-cache-consistency"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "redis-cache-consistency-incorrect",
+      "group_id": "redis-cache-consistency",
+      "domain": "redis",
+      "quality_level": "incorrect",
+      "question_kind": "technical",
+      "question": "在高并发业务中，如何处理 Redis 缓存与数据库之间的一致性？",
+      "focus": "Redis 缓存一致性",
+      "answer": "为了避免缓存失效，我会先更新 Redis，再提交数据库事务，并认为两次写入后天然强一致。即使数据库提交失败也不用处理，因为读请求始终以缓存为准。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "先更新 Redis"
+      ],
+      "required_missing_points": [
+        "事务失败处理",
+        "删除补偿"
+      ],
+      "forbidden_claims": [
+        "天然强一致"
+      ],
+      "reference": {
+        "chunk_id": "redis-cache-consistency-reference",
+        "title": "Redis 缓存一致性参考资料",
+        "content": "Cache-aside 应在数据库成功后删除缓存，并通过重试或消息补偿处理删除失败，同时监控命中率、回源量和接口 p95。",
+        "source_type": "benchmark",
+        "domain": "redis",
+        "tags": [
+          "redis",
+          "redis-cache-consistency"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "redis-cache-consistency"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "redis-cache-consistency-off_topic",
+      "group_id": "redis-cache-consistency",
+      "domain": "redis",
+      "quality_level": "off_topic",
+      "question_kind": "technical",
+      "question": "在高并发业务中，如何处理 Redis 缓存与数据库之间的一致性？",
+      "focus": "Redis 缓存一致性",
+      "answer": "我会调整页面 CSS 网格布局，统一按钮圆角、阴影和主题色，再通过媒体查询优化移动端展示。这能改善前端体验，但没有回答缓存与数据库一致性。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [],
+      "required_missing_points": [
+        "cache-aside",
+        "数据库事务",
+        "删除缓存"
+      ],
+      "forbidden_claims": [],
+      "reference": {
+        "chunk_id": "redis-cache-consistency-reference",
+        "title": "Redis 缓存一致性参考资料",
+        "content": "Cache-aside 应在数据库成功后删除缓存，并通过重试或消息补偿处理删除失败，同时监控命中率、回源量和接口 p95。",
+        "source_type": "benchmark",
+        "domain": "redis",
+        "tags": [
+          "redis",
+          "redis-cache-consistency"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "redis-cache-consistency"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "mysql-index-transaction-strong",
+      "group_id": "mysql-index-transaction",
+      "domain": "mysql",
+      "quality_level": "strong",
+      "question_kind": "technical",
+      "question": "如何为 MySQL 查询设计联合索引，并兼顾事务隔离与锁范围？",
+      "focus": "MySQL 索引与事务",
+      "answer": "我会根据真实 SQL 的等值、范围和排序条件设计联合索引，遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra。事务按一致性需求选择隔离级别，把外部调用移出事务以缩短持锁时间，确认范围查询的 next-key lock，并准备回滚。上线后比较慢查询 p95、扫描行数和锁等待。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "最左前缀",
+        "EXPLAIN",
+        "隔离级别",
+        "回滚",
+        "慢查询 p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "所有索引都提升写入"
+      ],
+      "reference": {
+        "chunk_id": "mysql-index-transaction-reference",
+        "title": "MySQL 索引与事务参考资料",
+        "content": "联合索引需遵循最左前缀并通过 EXPLAIN 验证；事务应选择合适隔离级别、缩短持锁时间、明确回滚路径并关注范围锁。",
+        "source_type": "benchmark",
+        "domain": "mysql",
+        "tags": [
+          "mysql",
+          "mysql-index-transaction"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "mysql-index-transaction"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "mysql-index-transaction-medium",
+      "group_id": "mysql-index-transaction",
+      "domain": "mysql",
+      "quality_level": "medium",
+      "question_kind": "technical",
+      "question": "如何为 MySQL 查询设计联合索引，并兼顾事务隔离与锁范围？",
+      "focus": "MySQL 索引与事务",
+      "answer": "MySQL 联合索引底层是 B+Tree，我会把常用过滤字段放前面并遵循最左前缀，然后用 EXPLAIN 查看是否命中索引和扫描行数。事务中尽量减少无关逻辑。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "B+Tree",
+        "最左前缀",
+        "EXPLAIN"
+      ],
+      "required_missing_points": [
+        "隔离级别",
+        "锁范围",
+        "回滚监控"
+      ],
+      "forbidden_claims": [
+        "所有索引都提升写入"
+      ],
+      "reference": {
+        "chunk_id": "mysql-index-transaction-reference",
+        "title": "MySQL 索引与事务参考资料",
+        "content": "联合索引需遵循最左前缀并通过 EXPLAIN 验证；事务应选择合适隔离级别、缩短持锁时间、明确回滚路径并关注范围锁。",
+        "source_type": "benchmark",
+        "domain": "mysql",
+        "tags": [
+          "mysql",
+          "mysql-index-transaction"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "mysql-index-transaction"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "mysql-index-transaction-incorrect",
+      "group_id": "mysql-index-transaction",
+      "domain": "mysql",
+      "quality_level": "incorrect",
+      "question_kind": "technical",
+      "question": "如何为 MySQL 查询设计联合索引，并兼顾事务隔离与锁范围？",
+      "focus": "MySQL 索引与事务",
+      "answer": "我会给表中每一列都建立索引，因为所有索引都提升写入速度。事务统一持有最长时间的锁，也不用分析执行计划，只要存在索引 MySQL 就一定使用。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "每一列都建立索引"
+      ],
+      "required_missing_points": [
+        "最左前缀",
+        "EXPLAIN",
+        "锁范围"
+      ],
+      "forbidden_claims": [
+        "所有索引都提升写入速度"
+      ],
+      "reference": {
+        "chunk_id": "mysql-index-transaction-reference",
+        "title": "MySQL 索引与事务参考资料",
+        "content": "联合索引需遵循最左前缀并通过 EXPLAIN 验证；事务应选择合适隔离级别、缩短持锁时间、明确回滚路径并关注范围锁。",
+        "source_type": "benchmark",
+        "domain": "mysql",
+        "tags": [
+          "mysql",
+          "mysql-index-transaction"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "mysql-index-transaction"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "mysql-index-transaction-empty",
+      "group_id": "mysql-index-transaction",
+      "domain": "mysql",
+      "quality_level": "empty",
+      "question_kind": "technical",
+      "question": "如何为 MySQL 查询设计联合索引，并兼顾事务隔离与锁范围？",
+      "focus": "MySQL 索引与事务",
+      "answer": "1",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [],
+      "required_missing_points": [
+        "联合索引",
+        "EXPLAIN",
+        "事务隔离"
+      ],
+      "forbidden_claims": [],
+      "reference": {
+        "chunk_id": "mysql-index-transaction-reference",
+        "title": "MySQL 索引与事务参考资料",
+        "content": "联合索引需遵循最左前缀并通过 EXPLAIN 验证；事务应选择合适隔离级别、缩短持锁时间、明确回滚路径并关注范围锁。",
+        "source_type": "benchmark",
+        "domain": "mysql",
+        "tags": [
+          "mysql",
+          "mysql-index-transaction"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "mysql-index-transaction"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "kafka-reliability-strong",
+      "group_id": "kafka-reliability",
+      "domain": "kafka",
+      "quality_level": "strong",
+      "question_kind": "technical",
+      "question": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+      "focus": "Kafka 消息可靠性",
+      "answer": "生产端开启幂等生产者，使用合适的 acks 和有限重试。消费端不能把 exactly-once 当成业务幂等的替代，而要用业务唯一键或去重表保证重复消息可安全执行，业务成功后再提交 offset。异常采用延迟重试，超过阈值进入 DLQ，并监控 consumer lag、失败率和最老消息年龄。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "幂等生产者",
+        "acks",
+        "业务唯一键",
+        "提交 offset",
+        "DLQ",
+        "consumer lag"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "无需消费幂等"
+      ],
+      "reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "content": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。",
+        "source_type": "benchmark",
+        "domain": "kafka",
+        "tags": [
+          "kafka",
+          "kafka-reliability"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "kafka-reliability"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "kafka-reliability-medium",
+      "group_id": "kafka-reliability",
+      "domain": "kafka",
+      "quality_level": "medium",
+      "question_kind": "technical",
+      "question": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+      "focus": "Kafka 消息可靠性",
+      "answer": "生产者设置 acks=all 并配置重试，副本同步后再确认。消费者处理成功后提交 offset，失败时重新消费。这样能减少消息丢失，但还要限制重试次数。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "acks=all",
+        "重试",
+        "提交 offset"
+      ],
+      "required_missing_points": [
+        "消费幂等",
+        "DLQ",
+        "积压监控"
+      ],
+      "forbidden_claims": [
+        "无需消费幂等"
+      ],
+      "reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "content": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。",
+        "source_type": "benchmark",
+        "domain": "kafka",
+        "tags": [
+          "kafka",
+          "kafka-reliability"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "kafka-reliability"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "kafka-reliability-incorrect",
+      "group_id": "kafka-reliability",
+      "domain": "kafka",
+      "quality_level": "incorrect",
+      "question_kind": "technical",
+      "question": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+      "focus": "Kafka 消息可靠性",
+      "answer": "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。失败消息可以无限重试，不需要死信队列。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [
+        "开启 Kafka 的 exactly-once"
+      ],
+      "required_missing_points": [
+        "业务幂等",
+        "offset 提交",
+        "DLQ"
+      ],
+      "forbidden_claims": [
+        "无需消费幂等"
+      ],
+      "reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "content": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。",
+        "source_type": "benchmark",
+        "domain": "kafka",
+        "tags": [
+          "kafka",
+          "kafka-reliability"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "kafka-reliability"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "kafka-reliability-off_topic",
+      "group_id": "kafka-reliability",
+      "domain": "kafka",
+      "quality_level": "off_topic",
+      "question_kind": "technical",
+      "question": "如何保证 Kafka 消息链路可靠并处理重复消费？",
+      "focus": "Kafka 消息可靠性",
+      "answer": "我会把图片压缩成 WebP，为静态资源设置长期缓存，并通过 CDN 分发 JavaScript 和 CSS。这能提升页面加载速度，但没有回答 Kafka 可靠性。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "expected_applicable_dimensions": [
+        "depth",
+        "engineering",
+        "breadth",
+        "communication"
+      ],
+      "required_observations": [],
+      "required_missing_points": [
+        "生产确认",
+        "消费幂等",
+        "offset"
+      ],
+      "forbidden_claims": [],
+      "reference": {
+        "chunk_id": "kafka-reliability-reference",
+        "title": "Kafka 消息可靠性参考资料",
+        "content": "生产端需启用幂等、合理 acks 与重试；消费端需要业务幂等和受控提交 offset，并配置重试、死信队列及积压监控。",
+        "source_type": "benchmark",
+        "domain": "kafka",
+        "tags": [
+          "kafka",
+          "kafka-reliability"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "kafka-reliability"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "system-design-job-queue-strong",
+      "group_id": "system-design-job-queue",
+      "domain": "system-design",
+      "quality_level": "strong",
+      "question_kind": "system-design",
+      "question": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+      "focus": "分布式任务队列系统设计",
+      "answer": "入口 API 校验请求并生成幂等键，把任务写入持久化存储和队列。Worker 通过租约领取任务并续约，节点失联后可重新分配，执行结果按幂等键落库。失败采用指数退避和次数限制，最终进入 DLQ。容量按峰值 QPS、执行时长和并发度估算，并监控排队时长、成功率、重试率和最老任务年龄。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "expected_applicable_dimensions": [
+        "architecture",
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [
+        "入口 API",
+        "持久化消息队列",
+        "租约",
+        "幂等键",
+        "指数退避",
+        "DLQ",
+        "容量"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "内存列表保证持久化"
+      ],
+      "reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "content": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。",
+        "source_type": "benchmark",
+        "domain": "system-design",
+        "tags": [
+          "system-design",
+          "system-design-job-queue"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "system-design-job-queue"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "system-design-job-queue-medium",
+      "group_id": "system-design-job-queue",
+      "domain": "system-design",
+      "quality_level": "medium",
+      "question_kind": "system-design",
+      "question": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+      "focus": "分布式任务队列系统设计",
+      "answer": "系统包含提交任务的 API、消息队列和多个 Worker。API 把任务放入队列，Worker 并发消费并更新状态，执行失败时按固定次数重试。增加 Worker 可以提升处理能力，并记录成功和失败日志。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "expected_applicable_dimensions": [
+        "architecture",
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [
+        "API",
+        "消息队列",
+        "多个 Worker",
+        "重试"
+      ],
+      "required_missing_points": [
+        "租约",
+        "幂等键",
+        "DLQ",
+        "容量估算"
+      ],
+      "forbidden_claims": [
+        "内存列表保证持久化"
+      ],
+      "reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "content": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。",
+        "source_type": "benchmark",
+        "domain": "system-design",
+        "tags": [
+          "system-design",
+          "system-design-job-queue"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "system-design-job-queue"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "system-design-job-queue-incorrect",
+      "group_id": "system-design-job-queue",
+      "domain": "system-design",
+      "quality_level": "incorrect",
+      "question_kind": "system-design",
+      "question": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+      "focus": "分布式任务队列系统设计",
+      "answer": "我会在每个节点维护 Python 内存列表作为可靠队列。多个节点天然共享这份列表，进程重启任务也不会丢失，所以不需要数据库、消息队列、租约或幂等设计。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "expected_applicable_dimensions": [
+        "architecture",
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [
+        "Python 内存列表"
+      ],
+      "required_missing_points": [
+        "持久化消息队列",
+        "多节点协调",
+        "失败恢复"
+      ],
+      "forbidden_claims": [
+        "多个节点天然共享"
+      ],
+      "reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "content": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。",
+        "source_type": "benchmark",
+        "domain": "system-design",
+        "tags": [
+          "system-design",
+          "system-design-job-queue"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "system-design-job-queue"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "system-design-job-queue-empty",
+      "group_id": "system-design-job-queue",
+      "domain": "system-design",
+      "quality_level": "empty",
+      "question_kind": "system-design",
+      "question": "请设计支持多节点执行、失败重试和可观测性的后台任务队列。",
+      "focus": "分布式任务队列系统设计",
+      "answer": "",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "expected_applicable_dimensions": [
+        "architecture",
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [],
+      "required_missing_points": [
+        "任务队列架构",
+        "重试",
+        "可观测性"
+      ],
+      "forbidden_claims": [],
+      "reference": {
+        "chunk_id": "system-design-job-queue-reference",
+        "title": "分布式任务队列系统设计参考资料",
+        "content": "任务队列需要接入 API、持久化消息队列、多节点 worker、租约、幂等键、退避重试、死信队列、容量估算和可观测性。",
+        "source_type": "benchmark",
+        "domain": "system-design",
+        "tags": [
+          "system-design",
+          "system-design-job-queue"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "system-design-job-queue"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "project-incident-review-strong",
+      "group_id": "project-incident-review",
+      "domain": "project",
+      "quality_level": "strong",
+      "question_kind": "project",
+      "question": "请复盘一次线上故障，包括定位、止损、结果和后续预防。",
+      "focus": "项目故障复盘",
+      "answer": "一次发布后订单接口 p95 从 180ms 升到 2.4s，错误率达到 7%。我根据告警和 trace 定位到新 SQL 未命中联合索引，立即回滚并限制非核心查询，十分钟内把错误率降回 0.2%。随后用 EXPLAIN 验证索引并补充压测，上线后 p95 稳定在 160ms，最后增加慢查询门禁、发布观察期和同类告警。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "expected_applicable_dimensions": [
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [
+        "p95 从 180ms 升到 2.4s",
+        "trace 定位",
+        "回滚",
+        "错误率降回 0.2%",
+        "慢查询门禁"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "人工检查保证零故障"
+      ],
+      "reference": {
+        "chunk_id": "project-incident-review-reference",
+        "title": "项目故障复盘参考资料",
+        "content": "故障复盘应交代影响、监控发现、证据化定位、回滚或降级、量化恢复结果，以及防止复发的测试与告警改进。",
+        "source_type": "benchmark",
+        "domain": "project",
+        "tags": [
+          "project",
+          "project-incident-review"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "project-incident-review"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "project-incident-review-medium",
+      "group_id": "project-incident-review",
+      "domain": "project",
+      "quality_level": "medium",
+      "question_kind": "project",
+      "question": "请复盘一次线上故障，包括定位、止损、结果和后续预防。",
+      "focus": "项目故障复盘",
+      "answer": "项目上线后接口变慢，我查看日志发现数据库查询耗时较高，于是修改 SQL 并增加索引，重新发布后问题解决。之后提醒团队上线前检查慢查询并补充测试，但没有完整记录影响范围和恢复指标。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "expected_applicable_dimensions": [
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [
+        "查看日志",
+        "修改 SQL",
+        "增加索引"
+      ],
+      "required_missing_points": [
+        "量化影响",
+        "止损过程",
+        "恢复指标"
+      ],
+      "forbidden_claims": [
+        "人工检查保证零故障"
+      ],
+      "reference": {
+        "chunk_id": "project-incident-review-reference",
+        "title": "项目故障复盘参考资料",
+        "content": "故障复盘应交代影响、监控发现、证据化定位、回滚或降级、量化恢复结果，以及防止复发的测试与告警改进。",
+        "source_type": "benchmark",
+        "domain": "project",
+        "tags": [
+          "project",
+          "project-incident-review"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "project-incident-review"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "project-incident-review-incorrect",
+      "group_id": "project-incident-review",
+      "domain": "project",
+      "quality_level": "incorrect",
+      "question_kind": "project",
+      "question": "请复盘一次线上故障，包括定位、止损、结果和后续预防。",
+      "focus": "项目故障复盘",
+      "answer": "我的项目从未发生任何线上失败，因为发布前人工检查就能保证零故障。我不需要监控、回滚和复盘，也没有验证错误率或延迟；用户没有投诉就证明系统完全正常。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "expected_applicable_dimensions": [
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [
+        "从未发生任何线上失败"
+      ],
+      "required_missing_points": [
+        "故障证据",
+        "定位过程",
+        "止损预防"
+      ],
+      "forbidden_claims": [
+        "人工检查就能保证零故障"
+      ],
+      "reference": {
+        "chunk_id": "project-incident-review-reference",
+        "title": "项目故障复盘参考资料",
+        "content": "故障复盘应交代影响、监控发现、证据化定位、回滚或降级、量化恢复结果，以及防止复发的测试与告警改进。",
+        "source_type": "benchmark",
+        "domain": "project",
+        "tags": [
+          "project",
+          "project-incident-review"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "project-incident-review"
+        },
+        "score": 0.95
+      }
+    },
+    {
+      "case_id": "project-incident-review-off_topic",
+      "group_id": "project-incident-review",
+      "domain": "project",
+      "quality_level": "off_topic",
+      "question_kind": "project",
+      "question": "请复盘一次线上故障，包括定位、止损、结果和后续预防。",
+      "focus": "项目故障复盘",
+      "answer": "Redis 是基于内存的键值数据库，支持字符串、哈希、列表和集合，常用于缓存、排行榜和分布式锁。这个回答介绍了 Redis，但没有复盘线上故障。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "expected_applicable_dimensions": [
+        "engineering",
+        "depth",
+        "communication"
+      ],
+      "required_observations": [],
+      "required_missing_points": [
+        "故障影响",
+        "定位",
+        "止损",
+        "量化结果"
+      ],
+      "forbidden_claims": [],
+      "reference": {
+        "chunk_id": "project-incident-review-reference",
+        "title": "项目故障复盘参考资料",
+        "content": "故障复盘应交代影响、监控发现、证据化定位、回滚或降级、量化恢复结果，以及防止复发的测试与告警改进。",
+        "source_type": "benchmark",
+        "domain": "project",
+        "tags": [
+          "project",
+          "project-incident-review"
+        ],
+        "metadata": {
+          "benchmark": "report-quality-v1",
+          "group_id": "project-incident-review"
+        },
+        "score": 0.95
+      }
+    }
+  ]
+}

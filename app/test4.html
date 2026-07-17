@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开始一次模拟面试 - 面试智能体</title>
+    <link rel="stylesheet" href="/static/prototype.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+        /* 侧边栏步骤连接线 */
+        .step-item::after {
+            content: '';
+            position: absolute;
+            left: 19px;
+            top: 40px;
+            bottom: -16px;
+            width: 2px;
+            background-color: #f3f4f6;
+            z-index: 0;
+        }
+        .step-item:last-child::after { display: none; }
+        .step-item-active::after { background-color: #f3f4f6; }
+
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+        /* 隐藏 textarea 默认的调整大小手柄，使用自定义的以更好地匹配 UI */
+        textarea { resize: none; }
+    </style>
+</head>
+<body class="h-screen flex flex-col bg-[#f9fafb] text-gray-800 overflow-hidden">
+
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide">面试智能体</span>
+        </div>
+
+        <nav class="flex h-full text-sm">
+            <a href="/prep" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-house mr-2"></i>首页
+            </a>
+            <a href="/prep" class="px-6 h-full flex items-center text-blue-600 font-medium border-b-2 border-blue-600">
+                <i class="fa-solid fa-microphone mr-2"></i>我的面试
+            </a>
+            <a href="/reports" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-solid fa-file-lines mr-2"></i>报告中心
+            </a>
+            <a href="/help" class="px-6 h-full flex items-center text-gray-500 hover:text-blue-600 transition-colors">
+                <i class="fa-regular fa-circle-question mr-2"></i>帮助
+            </a>
+        </nav>
+
+        <div class="flex items-center gap-5">
+            <button class="text-gray-400 hover:text-gray-600"><i class="fa-regular fa-bell text-lg"></i></button>
+            <div class="flex items-center gap-2 cursor-pointer">
+                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-sm">
+                    张
+                </div>
+                <div class="leading-tight">
+                    <div class="text-sm font-medium">张同学</div>
+                    <div class="text-xs text-gray-400">求职者</div>
+                </div>
+                <i class="fa-solid fa-chevron-down text-gray-400 text-xs ml-1"></i>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+
+        <aside class="w-[260px] bg-[#f9fafb] border-r border-gray-200 flex flex-col shrink-0">
+            <div class="p-6 flex-1 overflow-y-auto">
+
+                <div class="relative step-item step-item-active mb-6">
+                    <div class="absolute -inset-x-6 -inset-y-3 bg-blue-50 border-l-4 border-blue-600 z-0"></div>
+                    <div class="flex gap-3 relative z-10">
+                        <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
+                            <i class="fa-regular fa-clipboard"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-bold text-blue-700 text-sm">1. 面试准备</h3>
+                            <p class="text-[11px] text-blue-500 mt-0.5 leading-snug">输入 JD 与简历，生成面试计划</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10 opacity-50">
+                        <div class="w-10 h-10 bg-transparent flex items-center justify-center text-gray-400 text-xl shrink-0">
+                            <i class="fa-regular fa-comments"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">2. 模拟面试</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">与面试智能体进行问答</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10 opacity-50">
+                        <div class="w-10 h-10 bg-transparent flex items-center justify-center text-gray-400 text-xl shrink-0">
+                            <i class="fa-solid fa-file-invoice"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">3. 报告生成</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">生成评估报告与建议</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative step-item mb-6">
+                    <div class="flex gap-3 relative z-10 opacity-50">
+                        <div class="w-10 h-10 bg-transparent flex items-center justify-center text-gray-400 text-xl shrink-0">
+                            <i class="fa-solid fa-chart-line"></i>
+                        </div>
+                        <div class="pt-1">
+                            <h3 class="font-medium text-gray-700 text-sm">4. 面试复盘</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5 leading-snug">回顾表现，持续提升</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="m-6 p-5 border border-gray-200 rounded-xl bg-white shadow-sm">
+                <div class="flex items-center gap-1 text-[13px] font-bold text-gray-700 mb-2">
+                    流程说明 <i class="fa-regular fa-circle-question text-gray-400 text-xs"></i>
+                </div>
+                <p class="text-[12px] text-gray-500 leading-relaxed">
+                    提交 JD + 简历 → 生成 InterviewPlan<br>→ 创建 Session → 进入 active 状态
+                </p>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col min-w-0 p-8 overflow-y-auto bg-gray-50/50">
+
+            <div class="mb-8">
+                <h1 class="text-2xl font-bold mb-2 text-gray-800">开始一次模拟面试</h1>
+                <p class="text-sm text-gray-500">请填写目标岗位的 JD 和你的简历内容，面试智能体将为你生成个性化的面试计划。</p>
+            </div>
+
+            <div class="flex gap-8 flex-1">
+
+                <div class="flex-1 flex flex-col gap-6 max-w-3xl">
+
+                    <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative group focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-50 transition-all">
+                        <div class="flex justify-between items-center mb-4">
+                            <label class="font-bold text-gray-800 text-[15px]">岗位 JD <span class="text-red-500">*</span></label>
+                            <span class="text-xs text-gray-400">161/5000</span>
+                        </div>
+                        <textarea id="jobDescription" class="w-full h-32 bg-transparent focus:outline-none text-[13.5px] text-gray-600 leading-relaxed placeholder-gray-300" placeholder="请输入岗位 JD...">我们正在寻找一名后端开发工程师，负责公司核心业务系统的设计与开发。要求：
+1. 熟悉 Redis 缓存、MySQL 数据库设计与优化；
+2. 熟悉 FastAPI 或其他 Python Web 框架；
+3. 具备良好的系统设计能力和代码质量意识；
+4. 有高并发、分布式系统开发经验者优先。</textarea>
+                        <div class="absolute bottom-2 right-2 text-gray-300 pointer-events-none group-hover:text-gray-400 transition-colors">
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M11 1L1 11M11 5L5 11M11 9L9 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative group focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-50 transition-all">
+                        <div class="flex justify-between items-center mb-4">
+                            <label class="font-bold text-gray-800 text-[15px]">简历内容 <span class="text-red-500">*</span></label>
+                            <span class="text-xs text-gray-400">223/5000</span>
+                        </div>
+                        <textarea id="resumeText" class="w-full h-44 bg-transparent focus:outline-none text-[13.5px] text-gray-600 leading-relaxed placeholder-gray-300" placeholder="请输入简历内容...">5 年后端开发经验，熟悉 Python 技术栈。
+【项目经验】
+1. 电商平台后端服务（2022.03 - 2024.06）：负责商品、订单、库存等模块的设计与开发，使用 FastAPI + MySQL + Redis，QPS 峰值 3k+。
+2. 用户行为分析平台（2021.01 - 2022.02）：基于微服务架构，使用 Redis 做缓存与计数，MySQL 分库分表，优化查询性能，提升系统稳定性。
+【技术栈】
+Python、FastAPI、Redis、MySQL、SQLAlchemy、Docker、Git、Kafka、Linux</textarea>
+                        <div class="absolute bottom-2 right-2 text-gray-300 pointer-events-none group-hover:text-gray-400 transition-colors">
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M11 1L1 11M11 5L5 11M11 9L9 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div class="flex items-center gap-1.5 text-sm font-bold text-gray-700 mb-4">
+                            自动识别岗位标签 <i class="fa-regular fa-circle-question text-gray-400 font-normal"></i>
+                        </div>
+                        <div id="topicTags" class="flex flex-wrap gap-2.5">
+                            <span class="px-4 py-1.5 bg-blue-50/50 text-blue-500 rounded-lg text-[13px] border border-blue-100 hover:bg-blue-50 cursor-pointer transition-colors">Redis</span>
+                            <span class="px-4 py-1.5 bg-blue-50/50 text-blue-500 rounded-lg text-[13px] border border-blue-100 hover:bg-blue-50 cursor-pointer transition-colors">MySQL</span>
+                            <span class="px-4 py-1.5 bg-blue-50/50 text-blue-500 rounded-lg text-[13px] border border-blue-100 hover:bg-blue-50 cursor-pointer transition-colors">FastAPI</span>
+                            <span class="px-4 py-1.5 bg-blue-50/50 text-blue-500 rounded-lg text-[13px] border border-blue-100 hover:bg-blue-50 cursor-pointer transition-colors">系统设计</span>
+                            <span class="px-4 py-1.5 bg-blue-50/50 text-blue-500 rounded-lg text-[13px] border border-blue-100 hover:bg-blue-50 cursor-pointer transition-colors">后端开发</span>
+                        </div>
+                    </div>
+
+                    <p id="prepStatus" class="text-[12px] text-gray-500" hidden></p>
+
+                    <div id="prepActions" class="flex gap-4 pt-2">
+                        <button id="restoreDraftButton" type="button" class="px-7 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-[14px] font-medium transition-colors flex items-center gap-2 shadow-sm">
+                            <i class="fa-solid fa-rotate-left text-gray-500"></i> 恢复草稿
+                        </button>
+                        <button id="saveDraftButton" type="button" class="px-7 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-[14px] font-medium transition-colors flex items-center gap-2 shadow-sm">
+                            <i class="fa-regular fa-bookmark text-gray-500"></i> 保存草稿
+                        </button>
+                        <button id="prepButton" type="button" class="flex-1 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-[15px] font-medium transition-colors shadow-lg shadow-blue-200/50 flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> 生成面试计划
+                        </button>
+                        <button id="startButton" type="button" class="px-7 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 text-[14px] font-medium transition-colors flex items-center gap-2 shadow-sm">
+                            <i class="fa-solid fa-play"></i> 开始面试
+                        </button>
+                    </div>
+
+                </div>
+
+                <div class="w-[420px] shrink-0">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-7 sticky top-8">
+
+                        <h3 id="planTitle" class="text-lg font-bold text-gray-800 mb-8 flex items-center gap-2">
+                            面试计划预览 <i class="fa-solid fa-wand-magic-sparkles text-blue-400 text-[15px]"></i>
+                        </h3>
+
+                        <div class="space-y-6 mb-8">
+                            <div class="flex items-start gap-4">
+                                <div class="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 shrink-0">
+                                    <i class="fa-regular fa-id-badge text-lg"></i>
+                                </div>
+                                <div class="pt-0.5">
+                                    <div class="text-[13px] text-gray-500 mb-1">岗位方向</div>
+                                    <div class="text-[14px] font-medium text-gray-800">后端开发工程师</div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-4">
+                                <div class="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 shrink-0">
+                                    <i class="fa-regular fa-calendar text-lg"></i>
+                                </div>
+                                <div class="pt-0.5">
+                                    <div class="text-[13px] text-gray-500 mb-1">面试轮次</div>
+                                    <div class="text-[14px] font-medium text-gray-800">3 轮（基础能力 + 技术深挖 + 系统设计）</div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-4">
+                                <div class="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500 shrink-0">
+                                    <i class="fa-solid fa-list-ul text-base"></i>
+                                </div>
+                                <div class="pt-0.5">
+                                    <div class="text-[13px] text-gray-500 mb-1">题目数量</div>
+                                    <div class="text-[14px] font-medium text-gray-800">18 题（预计 60 - 75 分钟）</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="pt-6 border-t border-gray-100 mb-8">
+                            <div class="text-[14px] font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <i class="fa-solid fa-shield-halved text-gray-400"></i> 核心考察点
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">后端基础</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">Redis</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">MySQL</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">FastAPI</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">系统设计</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">并发编程</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">代码质量</span>
+                                <span class="px-2.5 py-1 bg-white text-blue-500 text-[12px] rounded border border-blue-100 shadow-sm">工程实践</span>
+                            </div>
+                        </div>
+
+                        <div class="pt-6 border-t border-gray-100">
+                            <div class="text-[14px] font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <i class="fa-solid fa-list text-gray-400"></i> 题目示例（部分）
+                            </div>
+                            <ul id="planQuestions" class="space-y-4 text-[13.5px] text-gray-600">
+                                <li class="flex items-start gap-3">
+                                    <span class="w-5 h-5 rounded-full bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center text-[11px] font-medium shrink-0 mt-0.5">1</span>
+                                    <span class="leading-snug">请简述 Redis 的数据结构及其应用场景。</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="w-5 h-5 rounded-full bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center text-[11px] font-medium shrink-0 mt-0.5">2</span>
+                                    <span class="leading-snug">MySQL 索引的底层原理是什么？如何优化慢查询？</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="w-5 h-5 rounded-full bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center text-[11px] font-medium shrink-0 mt-0.5">3</span>
+                                    <span class="leading-snug">如何设计一个高并发的秒杀系统？请说明关键技术点。</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="w-5 h-5 rounded-full bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center text-[11px] font-medium shrink-0 mt-0.5">4</span>
+                                    <span class="leading-snug">FastAPI 的依赖注入原理是什么？它有哪些优势？</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="w-5 h-5 rounded-full bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center text-[11px] font-medium shrink-0 mt-0.5">5</span>
+                                    <span class="leading-snug">你在项目中遇到的最有挑战的系统设计问题是什么？如何解决的？</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="pt-6 border-t border-gray-100 mt-6">
+                            <div class="text-[14px] font-bold text-gray-800 mb-3 flex items-center justify-between gap-2">
+                                <span class="flex items-center gap-2"><i class="fa-solid fa-brain text-gray-400"></i> Knowledge Agent 预热</span>
+                                <span id="prepKnowledgeStatus" class="px-2 py-0.5 rounded border text-[11px] font-medium" hidden></span>
+                            </div>
+                            <p id="prepContextSummary" class="text-[12px] text-gray-500 leading-relaxed mb-4">等待生成面试计划后展示考点预热结果。</p>
+                            <div id="prepContextTopics" class="flex flex-wrap gap-2 mb-4"></div>
+                            <ul id="prepQuestionHints" class="space-y-3 text-[12.5px] text-gray-600"></ul>
+                        </div>
+
+                        <div class="mt-8 bg-blue-50/60 border border-blue-100 text-blue-500 text-[12px] p-3.5 rounded-lg flex items-start gap-2">
+                            <i class="fa-solid fa-circle-info mt-0.5"></i>
+                            <span class="leading-snug">以上计划为 AI 生成的预览，具体题目会在面试开始时动态调整。</span>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <script type="module" src="/static/prep.js"></script>
+</body>
+</html>

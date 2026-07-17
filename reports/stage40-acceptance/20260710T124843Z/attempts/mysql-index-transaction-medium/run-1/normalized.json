@@ -1,0 +1,39 @@
+{
+  "case_id": "mysql-index-transaction-medium",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "medium",
+  "run_number": 1,
+  "score": 49,
+  "answer": "MySQL 联合索引底层是 B+Tree，我会把常用过滤字段放前面并遵循最左前缀，然后用 EXPLAIN 查看是否命中索引和扫描行数。事务中尽量减少无关逻辑。",
+  "observed": [
+    "MySQL 联合索引底层是 B+Tree",
+    "我会把常用过滤字段放前面并遵循最左前缀",
+    "然后用 EXPLAIN 查看是否命中索引和扫描行数",
+    "用 EXPLAIN 查看是否命中索引和扫描行数",
+    "事务中尽量减少无关逻辑"
+  ],
+  "required_observations": [
+    "B+Tree",
+    "最左前缀",
+    "EXPLAIN"
+  ],
+  "forbidden_claims": [
+    "所有索引都提升写入"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选答案简要提到联合索引底层、最左前缀和 EXPLAIN 验证，展示了基础认知，但深度不足，未阐述索引设计优化和事务隔离锁机制。工程实践仅停留在浅层建议，缺少具体操作。广度方面完全未涉及事务深度知识。沟通方面表达简洁但信息量不足，未展现出系统性思考。 最大的缺失是完全没有讨论事务隔离级别和锁的具体细节，而这是问题后半部分的要求。此外，索引设计的原则仅提及最左前缀，不够深入。 设计联合索引时，遵循最左前缀原则，等值查询列放在前面，范围查询列放在最后，尽量使用覆盖索引避免回表。用 EXPLAIN 观察 key_len 和 rows 判断索引使用效率，必要时使用 FORCE INDEX 或调整 SQL。事务方面，根据业务场景选择隔离级别，如读已提交减少间隙锁冲突，或可重复读保证一致性。确保事务短小，操作基于索引缩小锁范围，避免全表扫描导致的表锁。注意死锁预防，按固定顺序访问资源，并在代码中实现重试。",
+  "latency_seconds": 39.884,
+  "provider_invocations": 1
+}

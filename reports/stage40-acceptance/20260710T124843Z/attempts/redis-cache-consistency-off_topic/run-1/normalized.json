@@ -1,0 +1,27 @@
+{
+  "case_id": "redis-cache-consistency-off_topic",
+  "group_id": "redis-cache-consistency",
+  "quality_level": "off_topic",
+  "run_number": 1,
+  "score": 0,
+  "answer": "我会调整页面 CSS 网格布局，统一按钮圆角、阴影和主题色，再通过媒体查询优化移动端展示。这能改善前端体验，但没有回答缓存与数据库一致性。",
+  "observed": [],
+  "required_observations": [],
+  "forbidden_claims": [],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人回答完全围绕前端 CSS 布局展开，未提及任何与 Redis 缓存或数据库一致性相关的内容，属于完全跑题的回应。 最大的缺失是答案完全没有涉及主题，未给出任何技术内容，导致评估缓存一致性能力时无有效证据。 在高并发下，通常采用 Cache-Aside 模式：写操作先更新数据库，成功后删除缓存；删除失败可通过重试或消息队列补偿。读操作缓存未命中时从数据库加载并写入缓存。同时需设置合理的过期时间，并监控命中率与延迟，必要时引入延迟双删或分布式锁以应对并发写带来的不一致。",
+  "latency_seconds": 19.146,
+  "provider_invocations": 1
+}

@@ -1,0 +1,29 @@
+{
+  "case_id": "project-incident-review-off_topic",
+  "group_id": "project-incident-review",
+  "quality_level": "off_topic",
+  "run_number": 1,
+  "score": 0,
+  "answer": "Redis 是基于内存的键值数据库，支持字符串、哈希、列表和集合，常用于缓存、排行榜和分布式锁。这个回答介绍了 Redis，但没有复盘线上故障。",
+  "observed": [
+    "Redis 是基于内存的键值数据库，支持字符串、哈希、列表和集合，常用于缓存、排行榜和分布式锁。",
+    "Redis 是基于内存的键值数据库，支持字符串、哈希、列表和集合，常用于缓存、排行榜和分布式锁。",
+    "Redis 是基于内存的键值数据库，支持字符串、哈希、列表和集合，常用于缓存、排行榜和分布式锁。"
+  ],
+  "required_observations": [],
+  "forbidden_claims": [],
+  "applicable_dimensions": [
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "engineering",
+    "depth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选回答仅介绍了 Redis 的基本概念，完全没有提及任何线上故障案例，未包含定位、止损、恢复结果或预防措施，从内容、深度和沟通结构三个维度均与故障复盘无关，属于完全偏离主题的回答。 最大的缺失是未能提供一个实际的故障复盘案例，回答内容与问题要求完全脱节，未展示任何故障处理或总结能力。 一次线上故障复盘示例：某次发版后，监控发现登录接口 p95 延迟升至 3s，错误率 5%。通过链路追踪定位到新增的 Redis 键过期逻辑在高并发下产生热 key，导致 Redis CPU 飙升。立即在配置中心关闭该特性开关并回滚相关服务，2 分钟内延迟恢复正常。事后优化了键过期策略为惰性删除+随机过期，并增加了热 key 探测和压测门禁，防止类似问题复现。",
+  "latency_seconds": 20.666,
+  "provider_invocations": 1
+}

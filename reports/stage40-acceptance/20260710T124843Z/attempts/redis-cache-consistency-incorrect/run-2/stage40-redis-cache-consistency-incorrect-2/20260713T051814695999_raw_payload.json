@@ -1,0 +1,74 @@
+{
+  "session_id": "stage40-redis-cache-consistency-incorrect-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-redis-cache-consistency-incorrect-2",
+    "question_results": [
+      {
+        "question_id": "redis-cache-consistency-incorrect",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "先更新 Redis，再提交数据库事务",
+              "两次写入后天然强一致",
+              "即使数据库提交失败也不用处理，因为读请求始终以缓存为准"
+            ],
+            "missing": [
+              "未分析先更新 Redis 后数据库提交失败导致缓存脏数据的场景",
+              "未解释为什么认为两次写入后天然强一致，缺乏对分布式系统一致性模型的讨论",
+              "未说明并发写入时可能出现的数据不一致问题"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "未说明缓存删除失败后的重试或消息补偿机制",
+              "未提及数据库回滚时缓存应如何处理",
+              "未引入监控指标如命中率、回源量和接口 p95"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "先更新 Redis，再提交数据库事务"
+            ],
+            "missing": [
+              "未讨论其他缓存更新模式如 Cache-Aside、Write-Through、Write-Behind",
+              "未考虑读并发时的缓存穿透、雪崩等问题",
+              "未提及延迟双删、分布式锁等补救方案"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "为了避免缓存失效，我会先更新 Redis，再提交数据库事务",
+              "读请求始终以缓存为准"
+            ],
+            "missing": [
+              "未按读写路径分别说明处理流程",
+              "缺少结构化的步骤描述和假设前提",
+              "未说明不同场景下的适用性"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人在回答中给出了具体操作（先更新 Redis，再提交数据库事务），并声称两次写入后天然强一致，即使数据库提交失败也不处理。从深度看，虽然说出了具体步骤，但完全忽略了一致性问题的核心：先更新缓存会导致数据库失败时缓存脏数据，且未分析并发写入的不一致。工程层面完全没有涉及缓存操作的失败补偿、重试机制或监控指标。广度上仅提出了一种错误的更新顺序，没有对比其他缓存一致性模式。沟通上虽表达了意图，但缺乏结构化的读写路径分离和适用条件说明。",
+        "critique": "最大的缺失是候选人错误地认为先更新 Redis 再更新数据库可以保证强一致性，并且明确表示数据库失败无需处理，这会导致缓存脏读，完全违背生产环境中最终一致性的基本要求。此外，回答未提及任何失败补偿和监控措施，工程可行性为零。",
+        "better_answer": "高并发下应采用 Cache-Aside 模式：写操作时先更新数据库，事务提交成功后删除对应缓存；如果缓存删除失败，通过重试或消息队列（如 Kafka）异步补偿。读操作先查缓存，未命中再回源数据库并回填缓存。同时需要监控缓存命中率、回源量和接口 p95 延迟，以确保一致性和性能。",
+        "reference_chunk_ids": [
+          "redis-cache-consistency-reference"
+        ],
+        "highlights": [
+          "提到先更新 Redis 再提交数据库事务",
+          "认为两次写入后天然强一致",
+          "读请求始终以缓存为准"
+        ]
+      }
+    ]
+  }
+}

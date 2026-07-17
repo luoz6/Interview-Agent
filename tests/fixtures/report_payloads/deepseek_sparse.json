@@ -1,0 +1,86 @@
+{
+  "provider_payload": {
+    "session_id": "s1",
+    "feedback_items": [
+      {
+        "question_id": "q1",
+        "question_text": "Explain Redis cache invalidation.",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": ["候选人识别了 Redis + PostgreSQL 的 cache-aside 模式。"],
+            "missing": ["没有解释缓存失效竞争窗口的处理方式。"],
+            "quality_signals": ["concept"]
+          },
+          {
+            "dimension": "engineering",
+            "observed": ["候选人给出了 p95 延迟收益。"],
+            "missing": ["没有说明缓存击穿保护。"],
+            "quality_signals": ["concept", "metric"]
+          },
+          {
+            "dimension": "communication",
+            "observed": ["候选人回答能被理解。"],
+            "missing": [],
+            "quality_signals": ["clarity"]
+          }
+        ],
+        "strengths": [
+          "识别了 Redis + PostgreSQL 的 cache-aside 模式。",
+          "给出了可量化的 p95 延迟收益。"
+        ],
+        "weaknesses": [
+          "没有解释缓存失效竞争窗口的处理方式。",
+          "没有说明缓存击穿保护。"
+        ],
+        "gaps": [
+          {
+            "reference_chunk_id": "redis-1",
+            "missing": "没有提到 delete-after-write 顺序。"
+          },
+          {
+            "reference_chunk_id": "redis-2",
+            "missing": "没有提到延迟双删。"
+          }
+        ],
+        "suggested_improvements": "补充 delete-after-write 顺序、延迟双删和降级策略。"
+      }
+    ],
+    "highlights": [
+      "回答提到了基于 Redis cache-aside 的延迟收益。"
+    ],
+    "references": [
+      "redis-1",
+      "redis-2"
+    ]
+  },
+  "evaluation_items": [
+    {
+      "question_id": "q1",
+      "question_text": "Explain Redis cache invalidation.",
+      "question_kind": "technical",
+      "messages": [
+        {
+          "role": "candidate",
+          "content": "I delete cache after database writes."
+        }
+      ],
+      "scoring_references": [
+        {
+          "chunk_id": "redis-1",
+          "title": "Redis cache consistency",
+          "source_type": "theory",
+          "excerpt": "在数据库更新后删除缓存，并处理竞争窗口。"
+        }
+      ],
+      "answer_references": [
+        {
+          "chunk_id": "redis-2",
+          "title": "High-score Redis answer",
+          "source_type": "answer",
+          "excerpt": "建议说明延迟双删或基于 binlog 的失效策略，以缩短脏读窗口。"
+        }
+      ]
+    }
+  ]
+}

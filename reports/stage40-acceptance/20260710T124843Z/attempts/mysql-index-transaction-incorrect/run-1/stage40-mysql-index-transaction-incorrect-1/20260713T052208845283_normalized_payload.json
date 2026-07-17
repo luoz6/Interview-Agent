@@ -1,0 +1,102 @@
+{
+  "session_id": "stage40-mysql-index-transaction-incorrect-1",
+  "stage": "normalized_payload",
+  "payload": {
+    "question_results": [
+      {
+        "question_id": "mysql-index-transaction-incorrect",
+        "question_text": "如何为 MySQL 查询设计联合索引，并兼顾事务隔离与锁范围？",
+        "user_answer": "我会给表中每一列都建立索引，因为所有索引都提升写入速度。事务统一持有最长时间的锁，也不用分析执行计划，只要存在索引 MySQL 就一定使用。",
+        "score": 35,
+        "dimension_scores": {
+          "breadth": 35,
+          "depth": 35,
+          "architecture": 0,
+          "engineering": 35,
+          "communication": 35
+        },
+        "applicable_dimensions": [
+          "depth",
+          "engineering",
+          "breadth",
+          "communication"
+        ],
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "给表中每一列都建立索引，因为所有索引都提升写入速度。",
+              "事务统一持有最长时间的锁"
+            ],
+            "missing": [
+              "未阐述联合索引最左前缀原则，未解释索引对写入性能的实际影响。",
+              "未讨论不同事务隔离级别的锁机制与范围锁管理。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "也不用分析执行计划，只要存在索引 MySQL 就一定使用。"
+            ],
+            "missing": [
+              "未提及使用 EXPLAIN 验证索引使用情况，未提供具体建索引步骤。",
+              "未涉及事务隔离级别选择、持锁时间优化及回滚策略。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "给表中每一列都建立索引",
+              "事务统一持有最长时间的锁"
+            ],
+            "missing": [
+              "未涉及覆盖索引、索引条件下推等扩展设计。",
+              "未讨论间隙锁、记录锁、表锁等不同锁范围，也未提及 MVCC 等机制。"
+            ],
+            "quality_signals": [
+              "concept",
+              "code_or_api"
+            ]
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "所有索引都提升写入速度",
+              "只要存在索引 MySQL 就一定使用"
+            ],
+            "missing": [
+              "表述存在根本性错误，未能清晰传达联合索引与事务的正确设计思路。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人对联合索引和事务的理解存在根本性错误：认为每列建索引可以提升写入速度，并认为事务只需统一长时间持锁，完全忽略了最左前缀、索引代价、执行计划验证以及事务隔离与锁范围的正确设计。仅凭其答句中的片面主张，没有任何可靠的技术机制支撑。",
+        "critique": "最大的缺失是完全未涉及联合索引最左前缀设计和 EXPLAIN 执行计划分析，也未讨论如何根据业务选择事务隔离级别和缩小锁范围。",
+        "better_answer": "设计联合索引应遵循最左前缀原则，根据查询条件顺序创建索引，并通过 EXPLAIN 观察 key_len 和 type 等指标验证索引是否生效。事务方面需依据业务需要选择 READ COMMITTED 或 REPEATABLE READ 隔离级别，尽可能缩短持锁时间，将更新操作集中在事务末尾，同时关注范围条件导致的间隙锁，配合合适的索引避免大量行锁，保证并发性能。",
+        "reference_chunk_ids": [
+          "mysql-index-transaction-reference"
+        ],
+        "highlights": [
+          "提到索引和事务概念，但描述存在根本性错误。"
+        ]
+      }
+    ],
+    "reference_lookup": {
+      "mysql-index-transaction-reference": {
+        "chunk_id": "mysql-index-transaction-reference",
+        "title": "MySQL 索引与事务参考资料",
+        "source_type": "benchmark",
+        "excerpt": "联合索引需遵循最左前缀并通过 EXPLAIN 验证；事务应选择合适隔离级别、缩短持锁时间、明确回滚路径并关注范围锁。"
+      }
+    },
+    "provider_reference_ids": []
+  }
+}

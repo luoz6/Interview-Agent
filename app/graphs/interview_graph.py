@@ -1,5 +1,10 @@
 from copy import deepcopy
+import inspect
 
+from app.agents.examiner import (
+    ExaminerAgent,
+    fallback_followup as examiner_fallback_followup,
+)
 from app.graphs.interview_state import (
     InterviewState,
     build_initial_state,
@@ -7,41 +12,116 @@ from app.graphs.interview_state import (
     get_current_question,
 )
 from app.services.llm import InterviewLLM
+from app.services.agent_runtime import (
+    AgentExecutionContext,
+    AgentExecutionRunner,
+    correlation_id_from_plan,
+    evidence_ids_for_question,
+)
+from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import InterviewPlan
+
+INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
 
 class InterviewGraphRunner:
-    def __init__(self, llm: InterviewLLM | None = None) -> None:
+    def __init__(
+        self,
+        llm: InterviewLLM | None = None,
+        examiner=None,
+        knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+        execution_runner: AgentExecutionRunner | None = None,
+    ) -> None:
         self._llm = llm
-
-    def start(self, session_id: str, plan: InterviewPlan) -> InterviewState:
-        return build_initial_state(session_id=session_id, plan=plan)
-
-    def submit_answer(self, state: InterviewState, answer: str) -> InterviewState:
-        next_state = deepcopy(state)
-        question = get_current_question(next_state)
-        if question is None:
-            next_state["status"] = "finished"
-            next_state["decision"] = {
-                "action": "finish",
-                "follow_up": None,
-                "reason": "all_questions_completed",
-            }
-            next_state["pending_output"] = "本次模拟面试已结束。"
-            return next_state
-
-        next_state["messages"].append(
-            {
-                "role": "candidate",
-                "content": answer.strip(),
-                "question_id": question.id,
-            }
+        self._examiner = examiner or ExaminerAgent(
+            llm=llm,
+            execution_runner=execution_runner,
         )
-        next_state = brain_node(next_state, self._llm)
+        self._knowledge_binding_resolver = (
+            knowledge_binding_resolver or KnowledgeBindingResolver()
+        )
+
+    def start(
+        self,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+    ) -> InterviewState:
+        return build_initial_state(
+            session_id=session_id,
+            plan=plan,
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+        )
+
+    def submit_answer(
+        self,
+        state: InterviewState,
+        answer: str,
+        *,
+        command_id: str | None = None,
+    ) -> InterviewState:
+        next_state = _append_candidate_answer(state, answer)
+        next_state = brain_node(
+            next_state,
+            self._llm,
+            examiner=self._examiner,
+            knowledge_binding_resolver=self._knowledge_binding_resolver,
+            command_id=command_id,
+        )
         return speaker_node(next_state)
 
+    def prepare_answer(
+        self,
+        state: InterviewState,
+        answer: str,
+        *,
+        command_id: str | None = None,
+    ) -> InterviewState:
+        next_state = _append_candidate_answer(state, answer)
+        return brain_node(
+            next_state,
+            self._llm,
+            examiner=self._examiner,
+            knowledge_binding_resolver=self._knowledge_binding_resolver,
+            generate_followup_text=False,
+            command_id=command_id,
+        )
 
-def brain_node(state: InterviewState, llm: InterviewLLM | None) -> InterviewState:
+    def finalize_prepared_answer(
+        self,
+        state: InterviewState,
+        *,
+        follow_up: str | None = None,
+    ) -> InterviewState:
+        next_state = deepcopy(state)
+        if follow_up is not None and next_state["decision"] is not None:
+            next_state["decision"]["follow_up"] = follow_up
+        return speaker_node(next_state)
+
+    def stream_followup(self, state: InterviewState):
+        question = get_current_question(state)
+        focus = question.focus if question is not None else "current question"
+        yield from _stream_examiner_followup(
+            self._examiner,
+            context=_build_followup_context(state, self._knowledge_binding_resolver),
+            focus=focus,
+            execution_context=_examiner_execution_context(state),
+        )
+
+
+def brain_node(
+    state: InterviewState,
+    llm: InterviewLLM | None,
+    *,
+    examiner=None,
+    knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+    generate_followup_text: bool = True,
+    command_id: str | None = None,
+) -> InterviewState:
     question = get_current_question(state)
     if question is None:
         state["decision"] = {
@@ -68,14 +148,18 @@ def brain_node(state: InterviewState, llm: InterviewLLM | None) -> InterviewStat
             }
         return state
 
-    try:
-        if llm is None:
-            from app.services.llm import OpenAIInterviewLLM
-
-            llm = OpenAIInterviewLLM()
-        follow_up = llm.generate_followup(_build_followup_context(state))
-    except Exception:
-        follow_up = fallback_followup(question.focus)
+    follow_up = None
+    if generate_followup_text:
+        resolved_examiner = examiner or ExaminerAgent(llm=llm)
+        follow_up = _generate_examiner_followup(
+            resolved_examiner,
+            context=_build_followup_context(state, knowledge_binding_resolver),
+            focus=question.focus,
+            execution_context=_examiner_execution_context(
+                state,
+                command_id=command_id,
+            ),
+        )
 
     state["decision"] = {
         "action": "follow_up",
@@ -89,7 +173,7 @@ def speaker_node(state: InterviewState) -> InterviewState:
     decision = state["decision"]
     if decision is None:
         state["status"] = "finished"
-        state["pending_output"] = "本次模拟面试已结束。"
+        state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
         return state
 
     action = decision["action"]
@@ -108,7 +192,7 @@ def speaker_node(state: InterviewState) -> InterviewState:
         next_question = get_current_question(state)
         if next_question is None:
             state["status"] = "finished"
-            state["pending_output"] = "本次模拟面试已结束。"
+            state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
             return state
         state["pending_output"] = next_question.prompt
         state["messages"].append(
@@ -122,11 +206,11 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
     state["current_index"] = len(state["plan"].questions)
     state["status"] = "finished"
-    state["pending_output"] = "本次模拟面试已结束。"
+    state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
     state["messages"].append(
         {
             "role": "interviewer",
-            "content": "本次模拟面试已结束。",
+            "content": INTERVIEW_FINISHED_MESSAGE,
             "question_id": None,
         }
     )
@@ -134,11 +218,107 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
 
 def fallback_followup(focus: str) -> str:
-    return f"请继续深挖{focus}：你当时做了什么取舍，为什么这样选？"
+    return examiner_fallback_followup(focus)
 
 
-def _build_followup_context(state: InterviewState) -> list[dict[str, str]]:
-    return [
+def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewState:
+    next_state = deepcopy(state)
+    question = get_current_question(next_state)
+    if question is None:
+        next_state["status"] = "finished"
+        next_state["decision"] = {
+            "action": "finish",
+            "follow_up": None,
+            "reason": "all_questions_completed",
+        }
+        next_state["pending_output"] = INTERVIEW_FINISHED_MESSAGE
+        return next_state
+
+    next_state["messages"].append(
+        {
+            "role": "candidate",
+            "content": answer.strip(),
+            "question_id": question.id,
+        }
+    )
+    return next_state
+
+
+def _build_followup_context(
+    state: InterviewState,
+    knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+) -> list[dict[str, str]]:
+    recent_messages = [
         {"role": message["role"], "content": message["content"]}
         for message in state["messages"][-4:]
     ]
+    question = get_current_question(state)
+    question_id = question.id if question is not None else None
+    resolver = knowledge_binding_resolver or KnowledgeBindingResolver()
+    resolution = resolver.resolve(state["plan"], question_id)
+    return recent_messages + resolution.messages
+
+
+def _examiner_execution_context(
+    state: InterviewState,
+    *,
+    command_id: str | None = None,
+) -> AgentExecutionContext:
+    question = get_current_question(state)
+    question_id = question.id if question is not None else None
+    effective_command_id = (
+        command_id if command_id is not None else state.get("last_command_id")
+    )
+    return AgentExecutionContext(
+        correlation_id=correlation_id_from_plan(
+            state["plan"],
+            session_id=state["session_id"],
+        ),
+        causation_id=effective_command_id,
+        agent="examiner",
+        operation="generate_followup",
+        phase="interview",
+        session_id=state["session_id"],
+        question_id=question_id,
+        state_version=state["state_version"],
+        command_id=effective_command_id,
+        evidence_ids=evidence_ids_for_question(state["plan"], question_id),
+    )
+
+
+def _supports_execution_context(method) -> bool:
+    try:
+        parameters = inspect.signature(method).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == "execution_context"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _generate_examiner_followup(
+    examiner,
+    *,
+    context: list[dict[str, str]],
+    focus: str,
+    execution_context: AgentExecutionContext,
+) -> str:
+    kwargs = {"context": context, "focus": focus}
+    if _supports_execution_context(examiner.generate_followup):
+        kwargs["execution_context"] = execution_context
+    return examiner.generate_followup(**kwargs)
+
+
+def _stream_examiner_followup(
+    examiner,
+    *,
+    context: list[dict[str, str]],
+    focus: str,
+    execution_context: AgentExecutionContext,
+):
+    kwargs = {"context": context, "focus": focus}
+    if _supports_execution_context(examiner.stream_followup):
+        kwargs["execution_context"] = execution_context
+    yield from examiner.stream_followup(**kwargs)

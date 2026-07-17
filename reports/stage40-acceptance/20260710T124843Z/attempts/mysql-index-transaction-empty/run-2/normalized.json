@@ -1,0 +1,27 @@
+{
+  "case_id": "mysql-index-transaction-empty",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "empty",
+  "run_number": 2,
+  "score": 0,
+  "answer": "1",
+  "observed": [],
+  "required_observations": [],
+  "forbidden_claims": [],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "候选人的回答为“1”，不含任何与问题相关的内容，因此在所有维度上均无有效证据。 最大的缺失点是完全缺少实质性内容，对于技术问题必须给出具体的设计思路和实现考量。 设计联合索引时应遵循最左前缀原则，通过 EXPLAIN 验证 key_len 和 type 确保索引正确使用。事务层面需根据业务选择适当的隔离级别，一般使用 READ COMMITTED 并配合乐观锁或悲观锁，缩短事务持锁时间，关注范围查询产生的间隙锁，明确失败回滚路径。",
+  "latency_seconds": 21.776,
+  "provider_invocations": 1
+}

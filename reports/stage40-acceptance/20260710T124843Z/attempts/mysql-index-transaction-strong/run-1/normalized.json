@@ -1,0 +1,44 @@
+{
+  "case_id": "mysql-index-transaction-strong",
+  "group_id": "mysql-index-transaction",
+  "quality_level": "strong",
+  "run_number": 1,
+  "score": 69,
+  "answer": "我会根据真实 SQL 的等值、范围和排序条件设计联合索引，遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra。事务按一致性需求选择隔离级别，把外部调用移出事务以缩短持锁时间，确认范围查询的 next-key lock，并准备回滚。上线后比较慢查询 p95、扫描行数和锁等待。",
+  "observed": [
+    "遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra",
+    "确认范围查询的 next-key lock，并准备回滚",
+    "把外部调用移出事务以缩短持锁时间",
+    "上线后比较慢查询 p95、扫描行数和锁等待",
+    "根据真实 SQL 的等值、范围和排序条件设计联合索引，遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra",
+    "把外部调用移出事务以缩短持锁时间，确认范围查询的 next-key lock，并准备回滚",
+    "上线后比较慢查询 p95、扫描行数和锁等待",
+    "我会根据真实 SQL 的等值、范围和排序条件设计联合索引，遵循最左前缀，再用 EXPLAIN 检查 type、key、rows 和 Extra。"
+  ],
+  "required_observations": [
+    "最左前缀",
+    "EXPLAIN",
+    "隔离级别",
+    "回滚",
+    "慢查询 p95"
+  ],
+  "forbidden_claims": [
+    "所有索引都提升写入"
+  ],
+  "applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "expected_applicable_dimensions": [
+    "depth",
+    "engineering",
+    "breadth",
+    "communication"
+  ],
+  "fallback": false,
+  "output_text": "回答覆盖了联合索引的最左前缀原则和 EXPLAIN 验证，并提到了 next-key lock、缩短持锁时间和上线监控，体现了从设计到验证的闭环思路。但在索引字段顺序选择、不同隔离级别的锁行为差异等深度原理上缺乏展开，也未给出具体的监控工具和死锁处理等工程细节，广度上对存储引擎差异、分布式场景一致性等未涉及。表达通顺但结构可以更具层次感。 最大的缺失是对联合索引字段顺序的具体设计原则（如等值列在前、范围列在后，以及利用索引排序避免 filesort）和不同事务隔离级别下锁差异的解释，这使得回答停留在方向性描述，缺少可操作的细节。 设计联合索引时，我会按等值条件在前、范围条件在后的原则构建多列索引，并将满足 order by 的列纳入索引以避免 filesort。通过 EXPLAIN 验证 type 为 range 或 ref，key_len 充分利用，Extra 中无 Using filesort。事务方面，根据数据一致性要求选择 RC 或 RR，RR 下注意范围查询产生的 next-key lock，避免死锁时按固定顺序访问表和索引。将远程调用等非数据库操作移到事务外，缩短持锁时间。上线后利用 slow log、performance_schema 分析锁等待，并结合 p95 响应和扫描行数对比，持续优化索引。",
+  "latency_seconds": 29.259,
+  "provider_invocations": 1
+}

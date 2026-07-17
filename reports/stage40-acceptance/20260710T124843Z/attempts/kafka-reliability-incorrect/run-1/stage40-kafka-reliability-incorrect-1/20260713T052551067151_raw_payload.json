@@ -1,0 +1,66 @@
+{
+  "session_id": "stage40-kafka-reliability-incorrect-1",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-kafka-reliability-incorrect-1",
+    "question_results": [
+      {
+        "question_id": "kafka-reliability-incorrect",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。"
+            ],
+            "missing": [
+              "没有解释 exactly-once 的具体实现（幂等生产者、事务），也没有说明消费者端仍需幂等处理以应对 offset 提交失败等导致的重复消费。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "失败消息可以无限重试，不需要死信队列。"
+            ],
+            "missing": [
+              "缺乏重试策略、死信队列、消息积压监控等工程化设计，无限重试可能导致消费停滞和资源耗尽。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息，所以无需消费幂等，也不用关心 offset 提交时机。",
+              "失败消息可以无限重试，不需要死信队列。"
+            ],
+            "missing": [
+              "未涵盖生产端 acks、幂等、重试机制，消费端手动提交 offset、业务幂等设计、死信队列及端到端监控等保障措施。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息"
+            ],
+            "missing": [
+              "表述过于绝对且不准确，未解释 exactly-once 的工作机制和边界，容易误导。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人声称开启 exactly-once 即可完全避免重复消费，忽略了 Kafka 事务仅在 consume-transform-produce 场景下保证端到端精确一次，而消费者在仅读取消息时仍需通过业务幂等和受控 offset 提交来消除重复。此外，无限重试不加死信队列不符合生产实践。回答缺少对生产端配置、消费端设计以及监控机制的覆盖，深度与广度不足。",
+        "critique": "最大缺失点是错把 Kafka exactly-once 语义理解为消费者绝不会接收到重复数据，且认为无需消费端幂等和死信队列。",
+        "better_answer": "要保障 Kafka 消息链路可靠：生产端启用幂等（enable.idempotence=true）、设置 acks=all、合理配置 retries 与 min.insync.replicas。消费端即使配合事务，仍需消费者自身实现业务幂等（如通过唯一键去重），手动提交 offset 并保证提交与业务操作原子性，配置重试上限和死信队列处理最终失败的消息，同时监控 lag 和异常。",
+        "reference_chunk_ids": [
+          "kafka-reliability-reference"
+        ],
+        "highlights": [
+          "错误理解为 exactly-once 无需消费幂等",
+          "忽略 offset 提交时机与重试策略",
+          "缺乏死信队列和监控意识"
+        ]
+      }
+    ]
+  }
+}

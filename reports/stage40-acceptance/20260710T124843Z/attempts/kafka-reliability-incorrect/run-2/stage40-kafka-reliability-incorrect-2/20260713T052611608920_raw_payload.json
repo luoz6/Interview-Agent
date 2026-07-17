@@ -1,0 +1,68 @@
+{
+  "session_id": "stage40-kafka-reliability-incorrect-2",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-kafka-reliability-incorrect-2",
+    "question_results": [
+      {
+        "question_id": "kafka-reliability-incorrect",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [
+              "只要开启 Kafka exactly-once，消费者就绝对不会收到重复消息",
+              "所以无需消费幂等，也不用关心 offset 提交时机"
+            ],
+            "missing": [
+              "未说明 Kafka 的 exactly-once 语义实际是由幂等生产者和事务协调实现的，消费者仍需通过幂等处理和受控 offset 提交来配合，而非单方面保证。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [
+              "失败消息可以无限重试，不需要死信队列"
+            ],
+            "missing": [
+              "未提及重试策略需要限制次数、退避和死信队列，否则会导致消费阻塞和系统雪崩；也缺失对生产端 acks、重试、幂等的工程配置说明。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [
+              "只要开启 Kafka exactly-once",
+              "失败消息可以无限重试，不需要死信队列"
+            ],
+            "missing": [
+              "未覆盖生产端的幂等配置、acks 等级、重试机制，也未涉及消费端的业务幂等、offset 管理、死信队列及积压监控等可靠性的关键环节。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [
+              "消费者就绝对不会收到重复消息",
+              "无需消费幂等，也不用关心 offset 提交时机"
+            ],
+            "missing": [
+              "表述过于绝对且存在误导，缺乏对 exactly-once 实现前提和消费端责任的准确说明，容易使读者对 Kafka 可靠性产生错误认知。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人错误地将 Kafka exactly-once 理解为消费者侧绝对无重复，忽略了生产端幂等与事务的配合，且完全否定了消费幂等、offset 控制、死信队列等工程实践。所有维度均存在明显缺失。",
+        "critique": "最大的错误是宣称 exactly-once 让消费者绝对无重复，从而完全忽略了消费幂等和 offset 提交，这是对 Kafka 语义的根本误解。",
+        "better_answer": "Kafka 的可靠性需要端到端保障：生产端开启幂等或事务、设置 acks=all 并合理重试；消费端仍需实现业务幂等，控制 offset 提交时机（如手动提交），并配置重试次数与死信队列，结合监控应对积压。",
+        "reference_chunk_ids": [
+          "kafka-reliability-reference"
+        ],
+        "highlights": [
+          "错误认为 exactly-once 使消费者侧绝对无重复",
+          "完全否定消费幂等和 offset 提交的必要性",
+          "主张无限重试且无需死信队列"
+        ]
+      }
+    ]
+  }
+}

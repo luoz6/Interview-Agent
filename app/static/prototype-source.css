@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+}
+
+@layer components {
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(191 219 254);
+    background: rgb(239 246 255);
+    color: rgb(37 99 235);
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .tag.muted {
+    border-color: rgb(229 231 235);
+    background: rgb(249 250 251);
+    color: rgb(107 114 128);
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  [data-type="info"] {
+    color: rgb(37 99 235);
+  }
+
+  [data-type="success"] {
+    color: rgb(22 163 74);
+  }
+
+  [data-type="warning"] {
+    color: rgb(202 138 4);
+  }
+
+  [data-type="danger"] {
+    color: rgb(220 38 38);
+  }
+
+  .fa-solid,
+  .fa-regular {
+    display: inline-flex;
+    width: 1em;
+    min-width: 1em;
+    align-items: center;
+    justify-content: center;
+    font-style: normal;
+    line-height: 1;
+  }
+
+  .fa-solid::before,
+  .fa-regular::before {
+    content: "•";
+  }
+
+}
+
+.question-current {
+  color: rgb(29 78 216);
+  font-weight: 700;
+}
+
+.question-answered {
+  color: rgb(22 163 74);
+}
+
+.question-skipped {
+  color: rgb(202 138 4);
+}
+
+.question-unanswered {
+  color: rgb(220 38 38);
+}
+
+.question-pending {
+  color: rgb(107 114 128);
+}
+
+@media (max-width: 767px) {
+  body {
+    height: auto !important;
+    min-height: 100vh;
+    overflow: auto !important;
+  }
+
+  body > header {
+    height: 3.5rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  body > header nav,
+  body > header > div:last-child,
+  body > div > aside {
+    display: none !important;
+  }
+
+  body > div.flex.flex-1.overflow-hidden.relative {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  body > div > main {
+    min-height: calc(100vh - 3.5rem);
+    padding: 0.75rem !important;
+    overflow: visible !important;
+  }
+
+  body > div > main > div.flex.flex-1.gap-6 {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  body > div > main > div.flex.gap-8.flex-1 {
+    display: block !important;
+  }
+
+  body > div > main > div.flex.gap-8.flex-1 > div:last-child {
+    display: block !important;
+    width: 100% !important;
+    margin-top: 1.5rem;
+  }
+
+  body > div > main > div.flex.gap-8.flex-1 > div:last-child > div {
+    position: static !important;
+  }
+
+  #planQuestions,
+  #prepQuestionHints {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  #prepActions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem !important;
+  }
+
+  #prepActions button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    white-space: normal;
+  }
+
+  body > div > main > div.flex.flex-1.gap-6 > div:last-child {
+    display: none !important;
+  }
+
+  #conversation {
+    min-height: 14rem;
+    max-height: 42vh;
+  }
+
+  #answerForm > div:last-child {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  #answerForm > div:last-child > div:last-child {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem !important;
+  }
+
+  #answerForm button {
+    justify-content: center;
+    min-width: 0;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  #sendAnswerButton {
+    grid-column: 1 / -1;
+  }
+}

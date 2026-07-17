@@ -1,0 +1,53 @@
+{
+  "session_id": "stage40-mysql-index-transaction-empty-1",
+  "stage": "raw_payload",
+  "payload": {
+    "session_id": "stage40-mysql-index-transaction-empty-1",
+    "question_results": [
+      {
+        "question_id": "mysql-index-transaction-empty",
+        "dimension_evidence": [
+          {
+            "dimension": "depth",
+            "observed": [],
+            "missing": [
+              "回答未涉及联合索引设计原理、最左前缀规则、EXPLAIN 验证或事务隔离级别与锁范围的深层机制。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "engineering",
+            "observed": [],
+            "missing": [
+              "回答未给出任何可落地的实现方案，如 SQL 示例、索引创建语句、隔离级别配置、锁监视或回滚策略。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "breadth",
+            "observed": [],
+            "missing": [
+              "回答未覆盖索引与事务的关键交叉点，如范围锁引起的间隙锁、不同隔离级别下的加锁差异、覆盖索引优化或长事务风险。"
+            ],
+            "quality_signals": []
+          },
+          {
+            "dimension": "communication",
+            "observed": [],
+            "missing": [
+              "回答仅为单一数字，未提供任何清晰、结构化或可理解的技术表述。"
+            ],
+            "quality_signals": []
+          }
+        ],
+        "rationale": "候选人的回答仅为 '1'，没有任何关于联合索引设计与事务隔离、锁范围的实质性内容，无法从任何维度提取有效证据。",
+        "critique": "回答完全空白，需从头构建包含联合索引最左前缀、EXPLAIN 验证、隔离级别选择、锁范围控制及异常处理的全流程说明。",
+        "better_answer": "联合索引设计应依据查询条件顺序遵循最左前缀原则，并用 EXPLAIN 验证执行计划。事务方面，选择 READ COMMITTED 降低间隙锁范围，或在可重复读下评估唯一索引减少间隙锁；同时缩短事务时间，明确回滚边界，对高并发热点使用 SELECT ... FOR UPDATE 限定行锁，避免全表扫描导致锁升级，并监控 information_schema.innodb_locks 检查锁争用。",
+        "reference_chunk_ids": [
+          "mysql-index-transaction-reference"
+        ],
+        "highlights": []
+      }
+    ]
+  }
+}

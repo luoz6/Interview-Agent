@@ -1,18 +1,31 @@
+import json
+import logging
 import os
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
+
+from pydantic import ValidationError
+
+if TYPE_CHECKING:
+    from app.services.report import InterviewReport
+
+logger = logging.getLogger(__name__)
+
+REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
 
 
 class MissingLLMConfigError(RuntimeError):
-    """LLM 配置缺失，通常是没有设置 OPENAI_API_KEY。"""
+    """LLM configuration is missing, usually OPENAI_API_KEY."""
 
 
 @dataclass(frozen=True)
 class LLMConfig:
     api_key: str
-    model: str = "deepseekv4-pro"
+    model: str = "deepseek-v4-pro"
     base_url: str | None = None
     temperature: float = 0.2
+    request_timeout_seconds: float = 120.0
+    max_retries: int = 1
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -22,58 +35,417 @@ class LLMConfig:
 
         return cls(
             api_key=api_key,
-            model=os.getenv("OPENAI_MODEL", "deepseekv4-pro"),
+            model=os.getenv("OPENAI_MODEL", "deepseek-v4-pro"),
             base_url=os.getenv("OPENAI_BASE_URL") or None,
             temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.2")),
+            request_timeout_seconds=float(
+                os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "120")
+            ),
+            max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "1")),
         )
 
 
 class InterviewLLM(Protocol):
-    def generate_plan(self, job_description: str, resume_text: str):
-        """根据 JD 和简历生成结构化面试大纲。"""
+    def generate_plan(
+        self,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None = None,
+    ):
+        """Generate the interview plan from JD and resume."""
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
-        """根据最近几轮上下文生成追问。"""
+        """Generate a follow-up question from recent context."""
+
+    def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
+        """Stream a follow-up question from recent context."""
+
+    def generate_report(
+        self,
+        plan,
+        evaluation_items: list[dict],
+        session_id: str,
+    ) -> "InterviewReport":
+        """Generate a structured expert report."""
 
 
 class OpenAIInterviewLLM:
-    def __init__(self, config: LLMConfig | None = None, chat_model=None) -> None:
+    def __init__(
+        self,
+        config: LLMConfig | None = None,
+        chat_model=None,
+        trace_recorder=None,
+        report_output_mode: Literal["structured_first", "raw_only"] | None = None,
+    ) -> None:
+        from app.services.report_trace import ReportTraceRecorder
+
         self.config = config
         self.chat_model = chat_model or self._build_chat_model(config or LLMConfig.from_env())
+        self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
+        configured_mode = report_output_mode or os.getenv(
+            "OPENAI_REPORT_OUTPUT_MODE",
+            "structured_first",
+        )
+        if configured_mode not in {"structured_first", "raw_only"}:
+            raise ValueError(f"unsupported OPENAI_REPORT_OUTPUT_MODE: {configured_mode}")
+        self.report_output_mode = configured_mode
 
-    def generate_plan(self, job_description: str, resume_text: str):
+    def generate_plan(
+        self,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None = None,
+    ):
         from app.services.prep import InterviewPlan
 
-        prompt = (
-            "你是一个严格的技术面试官。请根据候选人的 JD 和简历生成一份结构化面试大纲。\n"
-            "要求：\n"
-            "1. 至少包含项目题、技术深挖题、系统设计题三类问题。\n"
-            "2. 问题必须贴合候选人的真实经历，不要生成泛泛而谈的问题。\n"
-            "3. 输出必须严格符合 InterviewPlan 的结构化字段。\n\n"
-            f"JD：\n{job_description}\n\n"
-            f"简历：\n{resume_text}"
+        prompt = self._build_plan_prompt(
+            job_description=job_description,
+            resume_text=resume_text,
+            knowledge_context=knowledge_context,
         )
+        try:
+            return self._invoke_structured_plan(prompt, InterviewPlan)
+        except Exception as exc:
+            logger.warning(
+                "Structured interview plan output failed, trying raw JSON path",
+                extra={"reason": str(exc)},
+            )
+
+        payload = self._invoke_raw_json_plan(prompt)
+        try:
+            return InterviewPlan.model_validate(payload)
+        except ValidationError as exc:
+            raise ValueError(f"raw interview plan JSON schema validation failed: {exc}") from exc
+
+    def _build_plan_prompt(
+        self,
+        *,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None = None,
+    ) -> str:
+        expected_shape = {
+            "title": "Backend interview plan",
+            "questions": [
+                {
+                    "id": "q1",
+                    "kind": "project",
+                    "prompt": "Ask one concrete interview question.",
+                    "focus": "What this question evaluates.",
+                },
+                {
+                    "id": "q2",
+                    "kind": "technical",
+                    "prompt": "Ask one concrete interview question.",
+                    "focus": "What this question evaluates.",
+                },
+                {
+                    "id": "q3",
+                    "kind": "system-design",
+                    "prompt": "Ask one concrete interview question.",
+                    "focus": "What this question evaluates.",
+                },
+            ],
+        }
+        knowledge_section = ""
+        if knowledge_context:
+            knowledge_section = (
+                "\n\nTrusted knowledge candidates (safe metadata only):\n"
+                f"{json.dumps(knowledge_context, ensure_ascii=False, indent=2)}\n"
+                "Use these candidates to make questions more specific. Do not copy a "
+                "benchmark answer into a question and do not invent evidence IDs."
+            )
+        return (
+            "You are a senior technical interviewer.\n"
+            "Create a focused mock interview plan from the job description and resume.\n"
+            "Return exactly 3 to 5 questions.\n"
+            "Each question kind must be one of: project, technical, system-design, behavioral.\n"
+            "Use stable ids q1, q2, q3, and continue in order if more questions are needed.\n"
+            "Questions should be specific to the candidate's resume and the target job.\n"
+            "Do not generate prep_context; the service enriches the plan with Knowledge Agent metadata locally.\n"
+            "Return valid JSON only. Do not return markdown.\n"
+            "Use this JSON shape exactly:\n"
+            f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
+            f"Job description:\n{job_description}\n\n"
+            f"Resume:\n{resume_text}"
+            f"{knowledge_section}"
+        )
+
+    def _invoke_structured_plan(self, prompt: str, schema):
         structured_model = self.chat_model.with_structured_output(
-            InterviewPlan,
+            schema,
             method="json_schema",
         )
-        return structured_model.invoke(prompt)
+        result = structured_model.invoke(prompt)
+        if isinstance(result, schema):
+            return result
+        return schema.model_validate(result)
+
+    def _invoke_raw_json_plan(self, prompt: str) -> dict[str, Any]:
+        fallback_prompt = (
+            f"{prompt}\n\n"
+            "Return valid JSON only. Use the JSON shape exactly. "
+            "Do not wrap the JSON in markdown code fences."
+        )
+        message = self.chat_model.invoke(fallback_prompt)
+        content = str(getattr(message, "content", message)).strip()
+        return self._parse_raw_json_payload(content)
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
-        transcript = "\n".join(
-            f"{item['role']}: {item['content']}" for item in context if item.get("content")
-        )
-        prompt = (
-            "你是一个有压迫感但专业的技术面试官。请根据下面最近几轮面试上下文，"
-            "只生成一个犀利的追问。\n"
-            "要求：\n"
-            "1. 追问必须基于候选人刚才的回答。\n"
-            "2. 优先追问取舍、边界条件、故障兜底、性能瓶颈或源码原理。\n"
-            "3. 不要输出解释，不要输出多道题，只输出追问本身。\n\n"
-            f"上下文：\n{transcript}"
-        )
+        prompt = _build_followup_prompt(context)
         message = self.chat_model.invoke(prompt)
         return str(getattr(message, "content", message)).strip()
+
+    def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
+        prompt = _build_followup_prompt(context)
+        for chunk in self.chat_model.stream(prompt):
+            text = str(getattr(chunk, "content", "") or "")
+            if text:
+                yield text
+
+    def generate_report(
+        self,
+        plan,
+        evaluation_items: list[dict],
+        session_id: str,
+    ) -> "InterviewReport":
+        from app.services.report import ReportGenerationFailed, ReportOutputFormatError
+        from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
+
+        prompt = self._build_report_prompt(
+            plan=plan,
+            evaluation_items=evaluation_items,
+            session_id=session_id,
+        )
+        structured_error: Exception | None = None
+        if self.report_output_mode == "structured_first":
+            try:
+                provider_payload = self._invoke_structured_report(
+                    prompt,
+                    ProviderQuestionResultsEnvelope,
+                )
+                return self._normalize_and_assemble_report(
+                    provider_payload,
+                    evaluation_items,
+                    session_id=session_id,
+                )
+            except ReportOutputFormatError as exc:
+                structured_error = exc
+                self._record_trace(
+                    session_id,
+                    "structured_output_error",
+                    {"error": str(exc), "error_type": type(exc).__name__},
+                )
+                logger.warning(
+                    "Structured report output was invalid",
+                    extra={"session_id": session_id, "reason": str(exc)},
+                )
+            except Exception as exc:
+                structured_error = exc
+                self._record_trace(
+                    session_id,
+                    "structured_output_error",
+                    {"error": str(exc), "error_type": type(exc).__name__},
+                )
+                logger.warning(
+                    "Structured report output failed, trying raw JSON path",
+                    extra={"session_id": session_id, "reason": str(exc)},
+                )
+
+        try:
+            provider_payload = self._invoke_raw_json_report(
+                prompt,
+                session_id=session_id,
+            )
+            return self._normalize_and_assemble_report(
+                provider_payload,
+                evaluation_items,
+                session_id=session_id,
+            )
+        except ReportOutputFormatError as exc:
+            self._record_trace(
+                session_id,
+                "report_output_format_error",
+                {"error": str(exc), "error_type": type(exc).__name__},
+            )
+            raise
+        except Exception as exc:
+            raise self._classify_report_failure(exc, structured_error) from exc
+
+    def _build_report_prompt(
+        self,
+        *,
+        plan,
+        evaluation_items: list[dict],
+        session_id: str,
+    ) -> str:
+        expected_shape = {
+            "session_id": session_id,
+            "question_results": [
+                {
+                    "question_id": "q1",
+                    "dimension_evidence": [
+                        {
+                            "dimension": "depth",
+                            "observed": [
+                                "Candidate explained the concrete mechanism present in their answer."
+                            ],
+                            "missing": [
+                                "Candidate did not explain the failure mode."
+                            ],
+                            "quality_signals": [],
+                        }
+                    ],
+                    "rationale": "Explain the evidence in Simplified Chinese.",
+                    "critique": "State the biggest missing point in Simplified Chinese.",
+                    "better_answer": "Give a concise improved answer in Simplified Chinese.",
+                    "reference_chunk_ids": ["redis-1", "redis-2"],
+                    "highlights": ["Mentioned cache-aside tradeoffs."],
+                }
+            ],
+        }
+        return (
+            f"Evidence prompt version: {REPORT_EVIDENCE_PROMPT_VERSION}.\n"
+            "You are a strict technical interview coach.\n"
+            "Return valid JSON only. Do not return markdown.\n"
+            "Return exactly one question_results item for each evaluation item.\n"
+            "All user-facing fields must be written in Simplified Chinese.\n"
+            "Keep literal identifiers like Redis, Kafka, MySQL, p95, and API names unchanged when needed.\n"
+            "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
+            "Do not invent new chunk ids.\n"
+            "The backend computes all numeric scores from evidence.\n"
+            "Do not return score or dimension_scores for any question.\n"
+            "Do not return overall_score, overall_dimension_scores, summary, or reference objects.\n"
+            "For each question, return exactly one dimension_evidence item for every applicable dimension listed in the evaluation item context.\n"
+            "If an applicable dimension has no support, return observed as an empty list and explain the missing evidence in missing.\n"
+            "Do not merge evidence for several dimensions into one dimension item.\n"
+            "Each observed item must be a short continuous excerpt copied from the candidate answer.\n"
+            "Do not prefix observed excerpts with phrases like candidate said, candidate explained, or the answer is clear.\n"
+            "Do not put evaluator judgments, communication-quality summaries, or inferred capabilities in observed; put those only in rationale.\n"
+            "Do not award evidence from the question text, job description, reference answer, or benchmark alone.\n"
+            "Always return quality_signals as an empty list; the backend derives scoring signals deterministically from the candidate answer.\n"
+            "Use this JSON shape exactly:\n"
+            f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
+            f"session_id: {session_id}\n\n"
+            f"plan_title: {plan.title}\n\n"
+            "questions:\n"
+            f"{json.dumps([question.model_dump() for question in plan.questions], ensure_ascii=False, indent=2)}\n\n"
+            "evaluation_items:\n"
+            f"{json.dumps(evaluation_items, ensure_ascii=False, indent=2)}"
+        )
+
+    def _invoke_structured_report(self, prompt: str, schema):
+        structured_model = self.chat_model.with_structured_output(
+            schema,
+            method="json_schema",
+        )
+        result = structured_model.invoke(prompt)
+        return self._coerce_report_result(result, schema)
+
+    def _invoke_raw_json_report(
+        self,
+        prompt: str,
+        *,
+        session_id: str,
+    ) -> dict[str, Any]:
+        fallback_prompt = (
+            f"{prompt}\n\n"
+            "Return valid JSON only. Use the JSON shape exactly. "
+            "Do not wrap the JSON in markdown code fences."
+        )
+        message = self.chat_model.invoke(fallback_prompt)
+        content = str(getattr(message, "content", message)).strip()
+        self._record_trace(
+            session_id,
+            "raw_json",
+            {"raw_content": content},
+        )
+        return self._parse_raw_json_payload(content)
+
+    def _parse_raw_json_payload(self, content: str) -> dict[str, Any]:
+        from app.services.report import ReportOutputFormatError
+
+        try:
+            return json.loads(_extract_json_object(content))
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ReportOutputFormatError(
+                f"raw LLM JSON response parsing failed: {exc}"
+            ) from exc
+
+    def _normalize_and_assemble_report(
+        self,
+        payload: Any,
+        evaluation_items: list[dict],
+        *,
+        session_id: str,
+    ):
+        from app.services.report import ReportOutputFormatError
+        from app.services.report_contract import assemble_interview_report
+        from app.services.report_provider_adapter import normalize_provider_payload
+
+        try:
+            if isinstance(payload, dict):
+                self._record_trace(
+                    session_id,
+                    "raw_payload",
+                    {"payload": payload},
+                )
+            else:
+                self._record_trace(
+                    session_id,
+                    "structured_payload",
+                    {"payload": payload.model_dump(exclude_none=True)},
+                )
+            normalized = normalize_provider_payload(payload, evaluation_items)
+            self._record_trace(
+                session_id,
+                "normalized_payload",
+                {"payload": normalized.model_dump()},
+            )
+            return assemble_interview_report(
+                session_id=session_id,
+                question_results=normalized.question_results,
+                reference_lookup=normalized.reference_lookup,
+            )
+        except (ValidationError, TypeError, ValueError) as exc:
+            raise ReportOutputFormatError(
+                f"provider payload normalization failed: {exc}"
+            ) from exc
+
+    def _coerce_report_result(self, result, schema):
+        from app.services.report import ReportOutputFormatError
+
+        if isinstance(result, schema):
+            return result
+        try:
+            return schema.model_validate(result)
+        except ValidationError as exc:
+            raise ReportOutputFormatError(
+                f"structured output schema validation failed: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _classify_report_failure(exc: Exception, prior_error: Exception | None):
+        from app.services.report import ReportGenerationFailed
+
+        message = str(exc)
+        if prior_error is not None:
+            message = f"{message}; structured_error={prior_error}"
+        return ReportGenerationFailed(message)
+
+    def _record_trace(self, session_id: str, stage: str, payload: dict[str, Any]) -> None:
+        try:
+            self.trace_recorder.record(
+                session_id=session_id,
+                stage=stage,
+                payload=payload,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to record report trace artifact",
+                extra={"session_id": session_id, "stage": stage},
+                exc_info=True,
+            )
 
     @staticmethod
     def _build_chat_model(config: LLMConfig):
@@ -83,7 +455,33 @@ class OpenAIInterviewLLM:
             "api_key": config.api_key,
             "model": config.model,
             "temperature": config.temperature,
+            "timeout": config.request_timeout_seconds,
+            "max_retries": config.max_retries,
         }
         if config.base_url:
             kwargs["base_url"] = config.base_url
         return ChatOpenAI(**kwargs)
+
+
+def _build_followup_prompt(context: list[dict[str, str]]) -> str:
+    transcript = "\n".join(
+        f"{item['role']}: {item['content']}" for item in context if item.get("content")
+    )
+    return (
+        "You are a professional technical interviewer.\n"
+        "Based on the recent interview context, ask exactly one sharp follow-up question.\n"
+        "The follow-up must be grounded in the candidate's latest answer.\n"
+        "Use knowledge_agent entries as interview guidance, not as candidate answers.\n"
+        "Use knowledge_evidence entries only as reference material, never as candidate answers.\n"
+        "Prefer tradeoffs, edge cases, fallback plans, performance bottlenecks, or source-code reasoning.\n"
+        "Return only the follow-up question, without explanation.\n\n"
+        f"Recent context:\n{transcript}"
+    )
+
+
+def _extract_json_object(content: str) -> str:
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError("LLM response did not contain a JSON object")
+    return content[start : end + 1]
