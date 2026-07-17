@@ -19,6 +19,7 @@ from app.services.runtime_events import (
     InterviewStreamErrorEvent,
 )
 from app.services.runtime import (
+    get_agent_execution_runner,
     get_draft_store,
     get_event_publisher,
     get_report_job_store,
@@ -112,6 +113,7 @@ def prep_interview(payload: PrepRequest):
         plan = prepare_interview(
             payload.job_description,
             payload.resume_text,
+            execution_runner=get_agent_execution_runner(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -171,6 +173,7 @@ def start_interview(
             payload.job_description,
             payload.resume_text,
             llm=store.llm,
+            execution_runner=get_agent_execution_runner(),
         )
         job_tags = extract_job_tags(payload.job_description)
         turn = store.start(

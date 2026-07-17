@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.prep import InterviewPlan
@@ -42,10 +43,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         table_prefix: str = "interview",
         llm: InterviewLLM | None = None,
         knowledge_repository=None,
+        execution_runner: AgentExecutionRunner | None = None,
     ) -> None:
         super().__init__(
             llm=llm,
             knowledge_repository=knowledge_repository,
+            execution_runner=execution_runner,
         )
         self.dsn = dsn
         self.table_prefix = table_prefix

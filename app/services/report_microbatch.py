@@ -69,6 +69,7 @@ def generate_microbatch_report(
     on_microbatch_stats=None,
     reviewer_factory=None,
     execution_runner: AgentExecutionRunner | None = None,
+    attempt_number: int = 1,
 ):
     if on_progress is not None:
         on_progress(
@@ -87,6 +88,8 @@ def generate_microbatch_report(
             llm=llm,
             vector_store=vector_store,
             reviewer_factory=reviewer_factory,
+            execution_runner=execution_runner,
+            attempt_number=attempt_number,
             stats=stats,
         )
     except MicrobatchReportUnavailable as exc:
@@ -144,6 +147,7 @@ def generate_microbatch_report(
             state_version=state["state_version"],
             command_id=command_id,
             evidence_ids=evidence_ids,
+            attempt_number=attempt_number,
         ),
         trace_metadata={
             "question_count": len(records),
@@ -178,6 +182,8 @@ def ensure_completed_question_evaluations_for_report(
     llm,
     vector_store,
     reviewer_factory=None,
+    execution_runner: AgentExecutionRunner | None = None,
+    attempt_number: int = 1,
     stats: ReportMicrobatchStats | None = None,
 ) -> list[QuestionEvaluationRecord]:
     session_id = state["session_id"]
@@ -221,6 +227,8 @@ def ensure_completed_question_evaluations_for_report(
             llm=llm,
             vector_store=vector_store,
             reviewer_factory=reviewer_factory,
+            execution_runner=execution_runner,
+            attempt_number=attempt_number,
         )
         if not _is_completed_record(reviewed):
             reason = reviewed.error if reviewed is not None else "missing feedback"

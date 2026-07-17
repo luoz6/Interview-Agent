@@ -113,7 +113,9 @@ def consume_round_review_event(
             llm=resolved_llm,
             vector_store=resolved_vector_store,
             reviewer_factory=reviewer_factory,
-            execution_runner=execution_runner,
+            execution_runner=(
+                execution_runner or _get_agent_execution_runner()
+            ),
             attempt_number=receipt["attempt_count"],
         )
         control_store.complete_round_review(
@@ -182,3 +184,9 @@ def _get_knowledge_store():
     from app.services.vector_store import get_knowledge_store
 
     return get_knowledge_store()
+
+
+def _get_agent_execution_runner():
+    from app.services.runtime import get_agent_execution_runner
+
+    return get_agent_execution_runner()

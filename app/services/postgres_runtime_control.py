@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.question_evaluations import QuestionEvaluationRecord
+from app.services.agent_runtime import AgentRunRecord
 from app.services.runtime_domain_events import RoundClosedEvent
 from app.services.session_serialization import (
     question_evaluation_record_to_row,
@@ -341,6 +342,164 @@ class PostgresRuntimeControlStore:
                 )
                 count = cursor.rowcount
         return count
+
+    def record_agent_run(self, record: AgentRunRecord) -> bool:
+        _, sql = self._import_psycopg2()
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        INSERT INTO {agent_runs} (
+                            run_id, schema_version, correlation_id,
+                            causation_id, agent, operation, phase,
+                            session_id, question_id, state_version,
+                            command_id, evidence_ids, attempt_number,
+                            status, started_at, finished_at, latency_ms,
+                            fallback_reason, error_code, output_type,
+                            safe_metadata
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s::jsonb, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+                        )
+                        ON CONFLICT (run_id) DO NOTHING
+                        """
+                    ).format(
+                        agent_runs=sql.Identifier(self.agent_runs_table)
+                    ),
+                    (
+                        record.run_id,
+                        record.schema_version,
+                        record.correlation_id,
+                        record.causation_id,
+                        record.agent,
+                        record.operation,
+                        record.phase,
+                        record.session_id,
+                        record.question_id,
+                        record.state_version,
+                        record.command_id,
+                        json.dumps(record.evidence_ids),
+                        record.attempt_number,
+                        record.status,
+                        record.started_at,
+                        record.finished_at,
+                        record.latency_ms,
+                        record.fallback_reason,
+                        record.error_code,
+                        record.output_type,
+                        json.dumps(
+                            record.safe_metadata,
+                            ensure_ascii=False,
+                        ),
+                    ),
+                )
+                inserted = cursor.rowcount == 1
+        return inserted
+
+    def count_agent_runs(self, run_id: str | None = None) -> int:
+        _, sql = self._import_psycopg2()
+        statement = sql.SQL(
+            "SELECT COUNT(*) FROM {agent_runs}"
+        ).format(agent_runs=sql.Identifier(self.agent_runs_table))
+        params: tuple[Any, ...] = ()
+        if run_id is not None:
+            statement += sql.SQL(" WHERE run_id = %s")
+            params = (run_id,)
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(statement, params)
+                row = cursor.fetchone()
+        return int(row[0])
+
+    def list_agent_runs(
+        self,
+        *,
+        session_id: str | None = None,
+        correlation_id: str | None = None,
+        agent: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        _, sql = self._import_psycopg2()
+        clauses = []
+        params: list[Any] = []
+        identity_clauses = []
+        if session_id is not None:
+            identity_clauses.append(sql.SQL("session_id = %s"))
+            params.append(session_id)
+        if correlation_id is not None:
+            identity_clauses.append(sql.SQL("correlation_id = %s"))
+            params.append(correlation_id)
+        if identity_clauses:
+            clauses.append(
+                sql.SQL("(")
+                + sql.SQL(" OR ").join(identity_clauses)
+                + sql.SQL(")")
+            )
+        if agent is not None:
+            clauses.append(sql.SQL("agent = %s"))
+            params.append(agent)
+        if status is not None:
+            clauses.append(sql.SQL("status = %s"))
+            params.append(status)
+        where = (
+            sql.SQL(" WHERE ") + sql.SQL(" AND ").join(clauses)
+            if clauses
+            else sql.SQL("")
+        )
+        params.append(limit)
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT run_id, correlation_id, causation_id,
+                               agent, operation, phase, session_id,
+                               question_id, state_version, command_id,
+                               evidence_ids, attempt_number, status,
+                               started_at, finished_at, latency_ms,
+                               fallback_reason, error_code, output_type
+                        FROM {agent_runs}
+                        {where}
+                        ORDER BY started_at DESC, run_id
+                        LIMIT %s
+                        """
+                    ).format(
+                        agent_runs=sql.Identifier(
+                            self.agent_runs_table
+                        ),
+                        where=where,
+                    ),
+                    tuple(params),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "run_id": row[0],
+                "correlation_id": row[1],
+                "causation_id": row[2],
+                "agent": row[3],
+                "operation": row[4],
+                "phase": row[5],
+                "session_id": row[6],
+                "question_id": row[7],
+                "state_version": row[8],
+                "command_id": row[9],
+                "evidence_ids": row[10],
+                "attempt_number": row[11],
+                "status": row[12],
+                "started_at": row[13],
+                "finished_at": row[14],
+                "latency_ms": row[15],
+                "fallback_reason": row[16],
+                "error_code": row[17],
+                "output_type": row[18],
+            }
+            for row in rows
+        ]
 
     def claim_receipt(
         self,

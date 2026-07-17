@@ -75,6 +75,7 @@ def run_round_review_event_from_state(
     vector_store,
     reviewer_factory: Callable | None = None,
     execution_runner: AgentExecutionRunner | None = None,
+    attempt_number: int = 1,
 ) -> QuestionEvaluationRecord:
     try:
         record = evaluate_round_review_event(
@@ -84,6 +85,7 @@ def run_round_review_event_from_state(
             vector_store=vector_store,
             reviewer_factory=reviewer_factory,
             execution_runner=execution_runner,
+            attempt_number=attempt_number,
         )
     except Exception as exc:
         record = failed_question_evaluation(

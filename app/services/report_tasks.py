@@ -18,7 +18,10 @@ from app.services.report_microbatch import (
     generate_microbatch_report,
 )
 from app.services.report_runtime_quality import evaluate_runtime_report_quality
-from app.services.runtime import resolve_runtime_llm
+from app.services.runtime import (
+    get_agent_execution_runner,
+    resolve_runtime_llm,
+)
 from app.services.session import InterviewSessionStore
 from app.services.vector_store import get_knowledge_store
 
@@ -28,6 +31,8 @@ def execute_report_generation(
     store: InterviewSessionStore,
     llm,
     vector_store,
+    execution_runner: AgentExecutionRunner | None = None,
+    attempt_number: int = 1,
 ):
     state = store.get(session_id)
     if state["status"] != "finished":
@@ -54,6 +59,8 @@ def execute_report_generation(
                 vector_store=vector_store,
                 on_progress=publish_progress,
                 on_microbatch_stats=capture_microbatch_stats,
+                execution_runner=execution_runner,
+                attempt_number=attempt_number,
             )
             report_path = "microbatch"
             report_path_metadata = {
@@ -86,6 +93,8 @@ def execute_report_generation(
                 llm=llm,
                 vector_store=vector_store,
                 on_progress=publish_progress,
+                execution_runner=execution_runner,
+                attempt_number=attempt_number,
             )
     else:
         report, full_session_retrieval = _evaluate_full_session(
@@ -93,6 +102,8 @@ def execute_report_generation(
             llm=llm,
             vector_store=vector_store,
             on_progress=publish_progress,
+            execution_runner=execution_runner,
+            attempt_number=attempt_number,
         )
     quality = evaluate_runtime_report_quality(
         report,
@@ -147,6 +158,8 @@ def run_report_generation(
     store: InterviewSessionStore,
     llm,
     vector_store,
+    execution_runner: AgentExecutionRunner | None = None,
+    attempt_number: int = 1,
 ):
     try:
         return execute_report_generation(
@@ -154,6 +167,8 @@ def run_report_generation(
             store=store,
             llm=llm,
             vector_store=vector_store,
+            execution_runner=execution_runner,
+            attempt_number=attempt_number,
         )
     except ValueError:
         return None
@@ -179,6 +194,7 @@ def generate_report_for_session(
         store=store,
         llm=resolve_runtime_llm(store),
         vector_store=vector_store,
+        execution_runner=get_agent_execution_runner(),
     )
 
 
@@ -222,6 +238,7 @@ def _evaluate_full_session(
     vector_store,
     on_progress,
     execution_runner: AgentExecutionRunner | None = None,
+    attempt_number: int = 1,
 ):
     evaluator = ShadowReviewerAgent(
         llm=llm,
@@ -246,6 +263,7 @@ def _evaluate_full_session(
         state_version=state.get("state_version"),
         command_id=command_id,
         evidence_ids=evidence_ids,
+        attempt_number=attempt_number,
     )
     runner = execution_runner or AgentExecutionRunner()
     report = runner.run(

@@ -33,6 +33,15 @@ def run_one_job(
             store=executor.store,
             llm=executor.llm,
             vector_store=executor.vector_store,
+            execution_runner=getattr(
+                executor,
+                "execution_runner",
+                None,
+            ),
+            attempt_number=max(
+                1,
+                int(job.get("attempt_count", 0)) + 1,
+            ),
         )
         assert report is not None
         if report.is_fallback:

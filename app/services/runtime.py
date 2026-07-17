@@ -13,6 +13,12 @@ from app.services.config import (
     get_runtime_store,
     get_runtime_table_prefix,
 )
+from app.services.agent_recorders import (
+    CompositeAgentRunRecorder,
+    PostgresAgentRunRecorder,
+)
+from app.services.agent_runtime import AgentExecutionRunner
+from app.services.agent_trace import AgentTraceRecorder
 from app.services.drafts import AnonymousDraftStore
 from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
@@ -32,6 +38,7 @@ class ReportExecutor:
     store: InterviewSessionStore
     llm: InterviewLLM
     vector_store: PgVectorKnowledgeStore
+    execution_runner: AgentExecutionRunner | None = None
 
 
 _session_store = None
@@ -41,19 +48,31 @@ _draft_store = None
 _event_publisher = None
 _runtime_control_store = None
 _runtime_outbox_service = None
+_agent_execution_runner = None
+_agent_composite_recorder = None
+_agent_postgres_control_ids: set[int] = set()
 
 
 def build_session_store(llm=None):
     store_kind = get_runtime_store()
+    execution_runner = get_agent_execution_runner()
     if store_kind == "postgres":
-        return PostgresInterviewSessionStore(
+        store = PostgresInterviewSessionStore(
             dsn=get_postgres_dsn(),
             table_prefix=get_runtime_table_prefix(),
             llm=llm,
+            execution_runner=execution_runner,
         )
+        get_agent_execution_runner(
+            control_store=store._runtime_control
+        )
+        return store
     if store_kind != "memory":
         raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {store_kind}")
-    return InterviewSessionStore(llm=llm)
+    return InterviewSessionStore(
+        llm=llm,
+        execution_runner=execution_runner,
+    )
 
 
 def build_report_job_store():
@@ -104,6 +123,7 @@ def build_report_executor(
         store=resolved_store,
         llm=resolved_llm,
         vector_store=resolved_vector_store,
+        execution_runner=get_agent_execution_runner(),
     )
 
 
@@ -150,6 +170,29 @@ def get_runtime_control_store():
         session_store = get_session_store()
         _runtime_control_store = session_store._runtime_control
     return _runtime_control_store
+
+
+def get_agent_execution_runner(
+    *,
+    control_store=None,
+) -> AgentExecutionRunner:
+    global _agent_execution_runner, _agent_composite_recorder
+    if _agent_execution_runner is None:
+        _agent_composite_recorder = CompositeAgentRunRecorder(
+            [AgentTraceRecorder.from_env()]
+        )
+        _agent_execution_runner = AgentExecutionRunner(
+            recorder=_agent_composite_recorder
+        )
+    if (
+        control_store is not None
+        and id(control_store) not in _agent_postgres_control_ids
+    ):
+        _agent_composite_recorder.add_recorder(
+            PostgresAgentRunRecorder(control_store)
+        )
+        _agent_postgres_control_ids.add(id(control_store))
+    return _agent_execution_runner
 
 
 def build_runtime_outbox_service() -> RuntimeOutboxService:
@@ -215,6 +258,7 @@ def get_report_executor():
 def shutdown_runtime(*, wait: bool = True) -> None:
     global _session_store, _report_job_store, _report_executor, _draft_store
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
+    global _agent_execution_runner, _agent_composite_recorder
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
     _shutdown_cached_publisher(_event_publisher, wait=wait)
@@ -225,6 +269,9 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _event_publisher = None
     _runtime_control_store = None
     _runtime_outbox_service = None
+    _agent_execution_runner = None
+    _agent_composite_recorder = None
+    _agent_postgres_control_ids.clear()
 
 
 def reset_runtime_for_tests() -> None:

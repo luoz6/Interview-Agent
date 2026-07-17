@@ -21,6 +21,7 @@ from app.graphs.interview_transitions import (
     skip_interview_question_state,
 )
 from app.services.llm import InterviewLLM
+from app.services.agent_runtime import AgentExecutionRunner
 from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.question_evaluations import QuestionEvaluationRecord
@@ -48,6 +49,7 @@ class InterviewSessionStore:
         self,
         llm: InterviewLLM | None = None,
         knowledge_repository=None,
+        execution_runner: AgentExecutionRunner | None = None,
     ) -> None:
         self.runtime_event_delivery = "direct"
         self._sessions: Dict[str, InterviewState] = {}
@@ -59,10 +61,12 @@ class InterviewSessionStore:
             knowledge_binding_resolver=KnowledgeBindingResolver(
                 knowledge_repository
             ),
+            execution_runner=execution_runner,
         )
         self._orchestrator = OrchestratorAgent(
             llm=llm,
             interview_runner=self._runner,
+            execution_runner=execution_runner,
         )
 
     @property

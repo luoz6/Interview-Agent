@@ -86,7 +86,7 @@ def test_prepare_endpoint_returns_questions(monkeypatch):
     monkeypatch.setattr(
         route_module,
         "prepare_interview",
-        lambda job_description, resume_text: FakeApiLLM().generate_plan(
+        lambda job_description, resume_text, execution_runner=None: FakeApiLLM().generate_plan(
             job_description,
             resume_text,
         ),
@@ -170,7 +170,7 @@ def test_prepare_endpoint_returns_job_tags_without_session_store(monkeypatch):
     monkeypatch.setattr(
         route_module,
         "prepare_interview",
-        lambda job_description, resume_text: prepare_interview_service(
+        lambda job_description, resume_text, execution_runner=None: prepare_interview_service(
             job_description,
             resume_text,
             llm=FakeApiLLM(),
@@ -342,7 +342,12 @@ def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
     def fail_session_store():
         raise RuntimeError("session store should not be used")
 
-    def fake_prepare_interview(job_description: str, resume_text: str, llm=None):
+    def fake_prepare_interview(
+        job_description: str,
+        resume_text: str,
+        llm=None,
+        execution_runner=None,
+    ):
         assert llm is None
         return InterviewPlan(
             title="Preview plan",
