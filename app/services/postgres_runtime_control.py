@@ -132,6 +132,65 @@ class PostgresRuntimeControlStore:
                 rows = cursor.fetchall()
         return [self._outbox_row_to_dict(row) for row in rows]
 
+    def list_runtime_events(
+        self,
+        *,
+        session_id: str,
+        status: str | None = None,
+        event_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        _, sql = self._import_psycopg2()
+        clauses = [sql.SQL("session_id = %s")]
+        params: list[Any] = [session_id]
+        if status is not None:
+            clauses.append(sql.SQL("status = %s"))
+            params.append(status)
+        if event_type is not None:
+            clauses.append(sql.SQL("event_type = %s"))
+            params.append(event_type)
+        params.append(limit)
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT event_id, correlation_id, event_type,
+                               schema_version, status, attempt_count,
+                               max_attempts, replay_count, last_error_code,
+                               created_at, updated_at, published_at,
+                               dead_lettered_at
+                        FROM {outbox}
+                        WHERE {where}
+                        ORDER BY created_at DESC, event_id
+                        LIMIT %s
+                        """
+                    ).format(
+                        outbox=sql.Identifier(self.outbox_table),
+                        where=sql.SQL(" AND ").join(clauses),
+                    ),
+                    tuple(params),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "event_id": row[0],
+                "correlation_id": row[1],
+                "event_type": row[2],
+                "schema_version": row[3],
+                "status": row[4],
+                "attempt_count": row[5],
+                "max_attempts": row[6],
+                "replay_count": row[7],
+                "last_error_code": row[8],
+                "created_at": row[9],
+                "updated_at": row[10],
+                "published_at": row[11],
+                "dead_lettered_at": row[12],
+            }
+            for row in rows
+        ]
+
     def list_foreign_keys(self) -> dict[str, tuple[str, str]]:
         table_names = [
             self.outbox_table,

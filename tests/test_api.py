@@ -62,11 +62,67 @@ class FakeApiLLM:
 _api_draft_store = AnonymousDraftStore()
 
 
-def make_client():
+def make_client(control_store=None):
     store = InterviewSessionStore(llm=FakeApiLLM())
     app.dependency_overrides[get_session_store] = lambda: store
     app.dependency_overrides[get_draft_store] = lambda: _api_draft_store
+    if control_store is not None:
+        app.dependency_overrides[
+            route_module.get_runtime_control_store
+        ] = lambda: control_store
     return TestClient(app)
+
+
+class FakeRuntimeControl:
+    def __init__(self):
+        self.agent_filters = None
+        self.event_filters = None
+
+    def list_agent_runs(self, **kwargs):
+        self.agent_filters = kwargs
+        return [
+            {
+                "run_id": "agent-1",
+                "correlation_id": kwargs["correlation_id"],
+                "causation_id": "cmd-1",
+                "agent": "examiner",
+                "operation": "generate_followup",
+                "phase": "interview",
+                "session_id": kwargs["session_id"],
+                "question_id": "q1",
+                "state_version": 2,
+                "command_id": "cmd-1",
+                "evidence_ids": ["redis-1"],
+                "attempt_number": 1,
+                "status": "completed",
+                "started_at": "2026-07-17T00:00:00Z",
+                "finished_at": "2026-07-17T00:00:00.050000Z",
+                "latency_ms": 50,
+                "fallback_reason": None,
+                "error_code": None,
+                "output_type": "str",
+            }
+        ]
+
+    def list_runtime_events(self, **kwargs):
+        self.event_filters = kwargs
+        return [
+            {
+                "event_id": "event-1",
+                "correlation_id": "prep-1",
+                "event_type": "round_closed",
+                "schema_version": "runtime-event-v1",
+                "status": "published",
+                "attempt_count": 1,
+                "max_attempts": 5,
+                "replay_count": 0,
+                "last_error_code": None,
+                "created_at": "2026-07-17T00:00:00Z",
+                "updated_at": "2026-07-17T00:00:00.050000Z",
+                "published_at": "2026-07-17T00:00:00.050000Z",
+                "dead_lettered_at": None,
+            }
+        ]
 
 
 def teardown_function():
@@ -80,6 +136,80 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def start_runtime_api_session(client):
+    response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Redis.",
+            "resume_text": "Built Redis-backed APIs.",
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["session_id"]
+
+
+def test_agent_runs_returns_only_safe_fields():
+    control = FakeRuntimeControl()
+    client = make_client(control)
+    session_id = start_runtime_api_session(client)
+
+    response = client.get(
+        f"/api/interviews/{session_id}/agent-runs?agent=examiner"
+    )
+    item = response.json()["items"][0]
+
+    assert set(item) == {
+        "run_id",
+        "correlation_id",
+        "causation_id",
+        "agent",
+        "operation",
+        "phase",
+        "session_id",
+        "question_id",
+        "state_version",
+        "command_id",
+        "evidence_ids",
+        "attempt_number",
+        "status",
+        "started_at",
+        "finished_at",
+        "latency_ms",
+        "fallback_reason",
+        "error_code",
+        "output_type",
+    }
+    assert "safe_metadata" not in response.text
+    assert control.agent_filters["agent"] == "examiner"
+
+
+def test_runtime_events_excludes_payload_and_lease():
+    control = FakeRuntimeControl()
+    client = make_client(control)
+    session_id = start_runtime_api_session(client)
+
+    response = client.get(
+        f"/api/interviews/{session_id}/runtime-events"
+    )
+
+    assert response.status_code == 200
+    assert "payload_json" not in response.text
+    assert "payload" not in response.text
+    assert "lease_owner" not in response.text
+
+
+def test_runtime_query_limit_above_one_hundred_is_rejected():
+    control = FakeRuntimeControl()
+    client = make_client(control)
+    session_id = start_runtime_api_session(client)
+
+    response = client.get(
+        f"/api/interviews/{session_id}/agent-runs?limit=101"
+    )
+
+    assert response.status_code == 422
 
 
 def test_prepare_endpoint_returns_questions(monkeypatch):

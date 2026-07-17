@@ -39,6 +39,8 @@ def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
         "schema_version": "agent-runtime-v1",
         "event_schema_version": "runtime-event-v1",
         "trace_enabled": False,
+        "outbox_enabled": body["runtime_store"] == "postgres",
+        "agent_ledger_enabled": body["runtime_store"] == "postgres",
     }
 
 
@@ -91,5 +93,7 @@ def test_runtime_boundary_reports_agent_trace_enabled_without_exposing_path(
         "schema_version": "agent-runtime-v1",
         "event_schema_version": "runtime-event-v1",
         "trace_enabled": True,
+        "outbox_enabled": body["runtime_store"] == "postgres",
+        "agent_ledger_enabled": body["runtime_store"] == "postgres",
     }
     assert "C:\\private\\agent-traces" not in response.text

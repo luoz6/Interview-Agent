@@ -3,11 +3,18 @@ import os
 from collections.abc import Iterator
 from copy import deepcopy
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+)
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
+from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import prepare_interview, public_interview_plan_payload
 from app.services.config import get_runtime_event_backend, get_runtime_store
 from app.services.interview_rounds import round_closed_event_from_transition
@@ -23,6 +30,7 @@ from app.services.runtime import (
     get_draft_store,
     get_event_publisher,
     get_report_job_store,
+    get_runtime_control_store,
     get_session_store,
 )
 from app.services.session_errors import SessionVersionConflict
@@ -103,6 +111,8 @@ def runtime_boundary():
             "schema_version": "agent-runtime-v1",
             "event_schema_version": "runtime-event-v1",
             "trace_enabled": bool(os.getenv("AGENT_TRACE_DIR")),
+            "outbox_enabled": runtime_store == "postgres",
+            "agent_ledger_enabled": runtime_store == "postgres",
         },
     }
 
@@ -200,6 +210,63 @@ def get_interview_session(
         return snapshot
     except ValueError as exc:
         _raise_value_error(exc)
+
+
+@router.get("/interviews/{session_id}/agent-runs")
+def list_agent_runs(
+    session_id: str,
+    agent: str | None = None,
+    status: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    store: InterviewSessionStore = Depends(get_session_store),
+    control=Depends(get_runtime_control_store),
+):
+    try:
+        state = store.get(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+    if control is None:
+        return {"session_id": session_id, "items": []}
+    correlation_id = correlation_id_from_plan(
+        state["plan"],
+        session_id=session_id,
+    )
+    return {
+        "session_id": session_id,
+        "items": control.list_agent_runs(
+            session_id=session_id,
+            correlation_id=correlation_id,
+            agent=agent,
+            status=status,
+            limit=limit,
+        ),
+    }
+
+
+@router.get("/interviews/{session_id}/runtime-events")
+def list_runtime_events(
+    session_id: str,
+    status: str | None = None,
+    event_type: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    store: InterviewSessionStore = Depends(get_session_store),
+    control=Depends(get_runtime_control_store),
+):
+    try:
+        store.get(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+    if control is None:
+        return {"session_id": session_id, "items": []}
+    return {
+        "session_id": session_id,
+        "items": control.list_runtime_events(
+            session_id=session_id,
+            status=status,
+            event_type=event_type,
+            limit=limit,
+        ),
+    }
 
 
 @router.post("/interviews/{session_id}/answer")
