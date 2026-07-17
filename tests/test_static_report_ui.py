@@ -193,6 +193,56 @@ def test_interview_page_has_runtime_hooks():
     assert "/static/interview.js" in html
 
 
+def test_interview_page_has_focus_draft_timing_and_review_contracts():
+    html = read_app_file("test3.html")
+    js = read_static_file("interview.js")
+    css = read_static_file("prototype-source.css")
+
+    for element_id in (
+        "focusModeButton",
+        "answerCount",
+        "answerDraftStatus",
+        "elapsedTime",
+        "estimatedRemainingTime",
+        "roundReviewStatus",
+    ):
+        assert f'id="{element_id}"' in html
+
+    for marker in (
+        "interviewAnswerDraft:",
+        "`interviewAnswerDraft:${sessionId}:${questionId}`",
+        'document.body.classList.toggle("interview-focus-mode"',
+        'event.key === "Escape"',
+        "getQuestionEvaluations",
+        "formatDuration(snapshot.elapsed_seconds)",
+        "formatDuration(snapshot.estimated_remaining_seconds)",
+        "}, 300);",
+        "clearAnswerDraft(submittedQuestionId)",
+    ):
+        assert marker in js
+
+    for selector in (
+        ".interview-shell",
+        ".question-nav",
+        ".question-item",
+        ".interview-main",
+        ".question-banner",
+        ".conversation-panel",
+        ".message",
+        ".answer-panel",
+        ".interview-side",
+        ".context-section",
+        ".interview-focus-mode",
+    ):
+        assert selector in css
+
+    assert "<style" not in html
+    assert "data-view" not in html
+    assert 'href="#' not in html
+    for demo_value in ("张同学", "sess_2025", "如何设计一个高并发缓存系统"):
+        assert demo_value not in html
+
+
 def test_report_processing_page_has_runtime_hooks():
     html = read_app_file("test2.html")
 
