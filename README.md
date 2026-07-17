@@ -174,6 +174,23 @@ candidate answers, resumes, job descriptions, provider responses, secrets, or
 absolute paths. Redis and WebSocket are not part of Stage 43A; Local event
 delivery remains the default, while Celery is an optional acceptance profile.
 
+## Stage 43B Durable Agent Recovery
+
+PostgreSQL is the source of truth for runtime events, consumer receipts, Agent
+run metadata, and report jobs. Redis and Celery provide transport and scheduling
+only. In PostgreSQL Local mode the FastAPI lifespan runs one leased outbox
+dispatcher. In Celery mode start the dispatcher separately:
+
+    python -m app.services.runtime_outbox_worker
+
+Inspect dead-letter work without exposing payloads or raw errors:
+
+    python -m scripts.runtime_recovery list --status dead_letter
+    python -m scripts.runtime_recovery replay-event --event-id <event-id>
+    python -m scripts.runtime_recovery requeue-report --session-id <session-id>
+
+The runtime control APIs are read-only. Recovery remains CLI-only.
+
 ## Current Non-Scope
 
 - 不包含登录。

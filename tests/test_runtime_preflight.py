@@ -4,6 +4,7 @@ from scripts.runtime_preflight import (
     PreflightError,
     check_redis,
     redact_connection_url,
+    validate_runtime_control_snapshot,
     validate_runtime_versions,
 )
 
@@ -76,3 +77,34 @@ def test_redact_connection_url_hides_password():
         redact_connection_url("redis://user:secret@127.0.0.1:6379/0")
         == "redis://user:***@127.0.0.1:6379/0"
     )
+
+
+def test_runtime_control_snapshot_requires_cascade_and_latency():
+    result = validate_runtime_control_snapshot(
+        tables=["outbox", "receipts", "agent_runs"],
+        indexes=[f"idx-{index}" for index in range(8)],
+        foreign_keys={
+            "outbox": ("session_id", "CASCADE"),
+            "receipts": ("session_id", "CASCADE"),
+            "agent_runs": ("session_id", "CASCADE"),
+        },
+        expected_tables=["outbox", "receipts", "agent_runs"],
+        ledger_latencies_ms=[10.0] * 20,
+    )
+
+    assert result["ledger_insert_p95_ms"] == 10.0
+
+
+def test_runtime_control_snapshot_rejects_slow_ledger():
+    with pytest.raises(PreflightError, match="p95"):
+        validate_runtime_control_snapshot(
+            tables=["outbox", "receipts", "agent_runs"],
+            indexes=[f"idx-{index}" for index in range(8)],
+            foreign_keys={
+                "outbox": ("session_id", "CASCADE"),
+                "receipts": ("session_id", "CASCADE"),
+                "agent_runs": ("session_id", "CASCADE"),
+            },
+            expected_tables=["outbox", "receipts", "agent_runs"],
+            ledger_latencies_ms=[51.0] * 20,
+        )

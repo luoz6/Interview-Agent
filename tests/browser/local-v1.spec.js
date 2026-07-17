@@ -26,6 +26,11 @@ async function startInterview(page) {
 }
 
 test("prep, SSE answer, refresh, conflict recovery, report and PDF", async ({ page, request }) => {
+  const runtimeResponse = await request.get("/api/runtime");
+  const runtime = await runtimeResponse.json();
+  expect(runtime.agent_runtime.outbox_enabled).toBe(false);
+  expect(runtime.agent_runtime.agent_ledger_enabled).toBe(false);
+
   const { sessionId, prepEvidenceIds } = await startInterview(page);
 
   const persistedPrep = await request.get(`/api/interviews/${sessionId}`);
@@ -133,7 +138,7 @@ test("degraded knowledge is explicit and still completes without references", as
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   await page.locator("#finishInterviewButton").click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 10_000 });
-  await expect(page.locator("body")).toContainText("Knowledge evidence: degraded (missing_evidence_binding)");
+  await expect(page.locator("body")).toContainText("Knowledge evidence: degraded (knowledge_unavailable)");
   await expect(page.locator("[data-evidence-id]")).toHaveCount(0);
 
   const reportResponse = await request.get(`/api/interviews/${sessionId}/report`);

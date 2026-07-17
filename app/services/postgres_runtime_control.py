@@ -268,6 +268,67 @@ class PostgresRuntimeControlStore:
                 rows = cursor.fetchall()
         return {row[0]: (row[1], row[2]) for row in rows}
 
+    def list_control_tables(self) -> list[str]:
+        names = [
+            self.outbox_table,
+            self.receipts_table,
+            self.agent_runs_table,
+        ]
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = ANY(%s)
+                    ORDER BY table_name
+                    """,
+                    (names,),
+                )
+                return [row[0] for row in cursor.fetchall()]
+
+    def list_control_indexes(self) -> list[str]:
+        names = [
+            self.outbox_table,
+            self.receipts_table,
+            self.agent_runs_table,
+        ]
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT indexname
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND tablename = ANY(%s)
+                    ORDER BY indexname
+                    """,
+                    (names,),
+                )
+                return [row[0] for row in cursor.fetchall()]
+
+    def delete_agent_runs_by_correlation(
+        self,
+        correlation_id: str,
+    ) -> int:
+        _, sql = self._import_psycopg2()
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        DELETE FROM {agent_runs}
+                        WHERE correlation_id = %s
+                        """
+                    ).format(
+                        agent_runs=sql.Identifier(self.agent_runs_table)
+                    ),
+                    (correlation_id,),
+                )
+                count = cursor.rowcount
+        return count
+
     def claim_batch(
         self,
         *,

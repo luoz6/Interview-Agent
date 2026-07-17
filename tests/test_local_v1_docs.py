@@ -398,3 +398,29 @@ def test_stage_41_artifact_and_browser_outputs_are_ignored():
         "reports/stage40-smoke*/",
     ):
         assert pattern in gitignore
+
+
+def test_docs_describe_stage43b_durable_recovery():
+    env = read_text(".env.example")
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    acceptance = read_text(
+        "docs/stage-43b-durable-agent-runtime-acceptance.md"
+    )
+
+    for name in (
+        "RUNTIME_OUTBOX_BATCH_SIZE=20",
+        "RUNTIME_OUTBOX_LEASE_SECONDS=60",
+        "RUNTIME_OUTBOX_POLL_SECONDS=0.5",
+        "RUNTIME_OUTBOX_MAX_ATTEMPTS=5",
+        "RUNTIME_RECEIPT_LEASE_SECONDS=300",
+    ):
+        assert name in env
+    for document in (readme, runbook):
+        assert "PostgreSQL is the source of truth" in document
+        assert "python -m app.services.runtime_outbox_worker" in document
+        assert (
+            "python -m scripts.runtime_recovery list "
+            "--status dead_letter"
+        ) in document
+    assert "Status: `PENDING_RECOVERY_ACCEPTANCE`" in acceptance

@@ -342,3 +342,31 @@ Redis and WebSocket are not part of Stage 43A. The default Local event publisher
 and the optional Celery publisher must preserve the same runtime-event-v1
 envelope. Celery support may be declared only after the authenticated Celery
 preflight and persisted event acceptance pass.
+
+## 12. Stage 43B Durable Agent Recovery
+
+PostgreSQL is the source of truth. Redis and Celery are transport and scheduling
+only; they are not completion ledgers. Configure bounded leases:
+
+    RUNTIME_OUTBOX_BATCH_SIZE=20
+    RUNTIME_OUTBOX_LEASE_SECONDS=60
+    RUNTIME_OUTBOX_POLL_SECONDS=0.5
+    RUNTIME_OUTBOX_MAX_ATTEMPTS=5
+    RUNTIME_RECEIPT_LEASE_SECONDS=300
+
+PostgreSQL plus Local starts one dispatcher from FastAPI lifespan. PostgreSQL
+plus Celery requires both workers:
+
+    python -m celery -A app.services.celery_app.celery_app worker --loglevel=info --pool=solo
+    python -m app.services.runtime_outbox_worker
+
+Preflight and recovery commands:
+
+    python -m scripts.runtime_preflight --profile runtime
+    python -m scripts.runtime_recovery list --status dead_letter
+    python -m scripts.runtime_recovery replay-event --event-id <event-id>
+    python -m scripts.runtime_recovery requeue-report --session-id <session-id>
+
+Recovery commands expose stable IDs, statuses, attempts, timestamps, and error
+codes only. They do not expose event payloads, Agent safe metadata, candidate
+text, raw provider errors, leases, paths, or connection configuration.

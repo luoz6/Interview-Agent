@@ -15,6 +15,12 @@ REQUIRED_AGENTS = {
 }
 _SAFE_MACHINE_VALUE = re.compile(r"^[A-Za-z0-9_.:@+-]+$")
 _WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+_CONTROL_BLOCKED_KEYS = AGENT_TRACE_BLOCKED_KEYS | {
+    "payload",
+    "payload_json",
+    "safe_metadata",
+    "lease_owner",
+}
 
 
 def audit_agent_runtime(trace_dir: Path) -> dict:
@@ -53,16 +59,47 @@ def audit_agent_runtime(trace_dir: Path) -> dict:
     }
 
 
-def _scan(value, violations: list[str], *, path: str) -> None:
+def audit_runtime_control_payloads(payloads: list[dict]) -> dict:
+    violations: list[str] = []
+    for index, payload in enumerate(payloads):
+        _scan(
+            payload,
+            violations,
+            path=f"$[{index}]",
+            blocked_keys=_CONTROL_BLOCKED_KEYS,
+        )
+    return {
+        "status": "PASS" if not violations else "FAIL",
+        "privacy_violations": sorted(set(violations)),
+    }
+
+
+def _scan(
+    value,
+    violations: list[str],
+    *,
+    path: str,
+    blocked_keys=AGENT_TRACE_BLOCKED_KEYS,
+) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
             child = f"{path}.{key}"
-            if str(key).casefold() in AGENT_TRACE_BLOCKED_KEYS:
+            if str(key).casefold() in blocked_keys:
                 violations.append(child)
-            _scan(item, violations, path=child)
+            _scan(
+                item,
+                violations,
+                path=child,
+                blocked_keys=blocked_keys,
+            )
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            _scan(item, violations, path=f"{path}[{index}]")
+            _scan(
+                item,
+                violations,
+                path=f"{path}[{index}]",
+                blocked_keys=blocked_keys,
+            )
     elif isinstance(value, str):
         if _WINDOWS_ABSOLUTE_PATH.match(value) or value.startswith("/"):
             violations.append(path)

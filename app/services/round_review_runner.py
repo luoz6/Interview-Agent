@@ -119,10 +119,10 @@ def evaluate_round_review_event(
             event.question_id,
         ).model_copy(update={"answer_state": event.answer_state})
         feedback = build_empty_answer_feedback(chunk)
-        retrieval_metadata = {
-            "retrieval_path": "not_applicable",
-            "degraded_reason": f"answer_state_{event.answer_state}",
-        }
+        retrieval_metadata = _empty_answer_retrieval_metadata(
+            state,
+            event.answer_state,
+        )
     else:
         reviewer = (reviewer_factory or ShadowReviewerAgent)(
             llm=llm,
@@ -193,6 +193,27 @@ def _select_evaluation_chunk(chunks, question_id: str):
         if chunk.question_id == question_id:
             return chunk
     raise ValueError("round review question was not found")
+
+
+def _empty_answer_retrieval_metadata(state, answer_state: str) -> dict:
+    prep_context = state["plan"].prep_context
+    if (
+        prep_context is not None
+        and prep_context.knowledge_status == "degraded"
+    ):
+        snapshot = prep_context.binding_snapshot
+        return {
+            "retrieval_path": "degraded",
+            "degraded_reason": (
+                snapshot.degraded_reason
+                if snapshot is not None and snapshot.degraded_reason
+                else "missing_evidence_binding"
+            ),
+        }
+    return {
+        "retrieval_path": "not_applicable",
+        "degraded_reason": f"answer_state_{answer_state}",
+    }
 
 
 def failed_question_evaluation(

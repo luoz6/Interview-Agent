@@ -1,6 +1,10 @@
 import json
 
-from scripts.audit_agent_runtime import REQUIRED_AGENTS, audit_agent_runtime
+from scripts.audit_agent_runtime import (
+    REQUIRED_AGENTS,
+    audit_agent_runtime,
+    audit_runtime_control_payloads,
+)
 
 
 def make_payload(agent: str, *, correlation_id: str = "prep-123") -> dict:
@@ -106,3 +110,33 @@ def test_auditor_rejects_absolute_paths(tmp_path):
 
     assert result["status"] == "FAIL"
     assert "$.safe_metadata.artifact" in result["privacy_violations"]
+
+
+def test_control_auditor_accepts_metadata_only_rows():
+    result = audit_runtime_control_payloads(
+        [
+            {
+                "event_id": "event-1",
+                "status": "dead_letter",
+                "attempt_count": 5,
+                "last_error_code": "provider_unavailable",
+            }
+        ]
+    )
+
+    assert result == {"status": "PASS", "privacy_violations": []}
+
+
+def test_control_auditor_rejects_payload_and_safe_metadata():
+    result = audit_runtime_control_payloads(
+        [
+            {
+                "payload_json": {"candidate_answer": "secret"},
+                "safe_metadata": {"note": "raw provider response"},
+            }
+        ]
+    )
+
+    assert result["status"] == "FAIL"
+    assert "$[0].payload_json" in result["privacy_violations"]
+    assert "$[0].safe_metadata" in result["privacy_violations"]

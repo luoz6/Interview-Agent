@@ -1,4 +1,8 @@
+import os
 from uuid import uuid4
+
+os.environ["INTERVIEW_RUNTIME_STORE"] = "memory"
+os.environ["INTERVIEW_EVENT_BACKEND"] = "noop"
 
 import app.api.routes as route_module
 from app.main import app
@@ -192,9 +196,14 @@ class BrowserKnowledgeStore:
         raise AssertionError("v2 browser acceptance must reuse bound evidence IDs")
 
 
-def prepare_browser_interview(job_description, resume_text, llm=None):
+def prepare_browser_interview(
+    job_description,
+    resume_text,
+    llm=None,
+    execution_runner=None,
+):
     prep_run_id = f"browser-{uuid4().hex}"
-    runner = AgentExecutionRunner()
+    runner = execution_runner or AgentExecutionRunner()
     return runner.run(
         AgentExecutionContext(
             correlation_id=prep_run_id,
