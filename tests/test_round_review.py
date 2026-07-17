@@ -32,7 +32,11 @@ from app.services.prep import (
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.round_review import build_single_question_review_state
-from app.services.round_review_runner import run_round_review_event
+from app.services.round_review_runner import (
+    evaluate_round_review_event,
+    run_round_review_event,
+    run_round_review_event_payload,
+)
 from app.services.round_review_tasks import run_closed_round_review
 from app.services.runtime_domain_events import RoundClosedEvent
 
@@ -293,6 +297,24 @@ def test_run_round_review_event_saves_failed_record_when_reviewer_raises():
     assert trace.error_code == "RuntimeError"
 
 
+def test_evaluation_core_raises_without_persisting():
+    class FailingAgent:
+        def __init__(self, *, llm, vector_store):
+            pass
+
+        def evaluate(self, state, on_progress=None):
+            raise RuntimeError("review model unavailable")
+
+    with pytest.raises(RuntimeError, match="review model unavailable"):
+        evaluate_round_review_event(
+            make_round_closed_event(),
+            state=make_state(),
+            llm=object(),
+            vector_store=object(),
+            reviewer_factory=FailingAgent,
+        )
+
+
 def test_run_round_review_event_selects_matching_feedback_when_report_has_extra_feedback():
     class FakeStore:
         def __init__(self):
@@ -362,19 +384,15 @@ def test_run_round_review_event_selects_matching_feedback_when_report_has_extra_
 def test_run_closed_round_review_delegates_to_runner(monkeypatch):
     calls = []
 
-    def fake_runner(payload):
+    def fake_consumer(payload, *, worker_id):
         calls.append(payload)
-        return QuestionEvaluationRecord(
-            session_id=payload["session_id"],
-            question_id=payload["question_id"],
-            answer_state=payload["answer_state"],
-            status="failed",
-            error="delegated",
-        )
+        from app.services.runtime_event_consumer import ConsumerOutcome
+
+        return ConsumerOutcome("completed")
 
     monkeypatch.setattr(
-        "app.services.round_review_tasks.run_round_review_event_payload",
-        fake_runner,
+        "app.services.round_review_tasks.consume_round_review_event_payload",
+        fake_consumer,
     )
 
     run_closed_round_review(
@@ -456,7 +474,7 @@ def test_run_closed_round_review_saves_one_question_evaluation(monkeypatch):
     )
     monkeypatch.setattr("app.services.round_review_runner.ShadowReviewerAgent", FakeAgent)
 
-    run_closed_round_review(
+    run_round_review_event_payload(
         {
             "event_type": "round_closed",
             "session_id": "s1",
@@ -509,7 +527,7 @@ def test_run_closed_round_review_short_circuits_empty_answer_agents(
         lambda **kwargs: pytest.fail("empty answers must not construct a reviewer"),
     )
 
-    run_closed_round_review(
+    run_round_review_event_payload(
         {
             "event_type": "round_closed",
             "session_id": "s1",

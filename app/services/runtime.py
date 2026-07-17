@@ -160,6 +160,7 @@ def build_runtime_outbox_service() -> RuntimeOutboxService:
     sink = LocalRuntimeEventSink(
         control_store=control_store,
         worker_id=f"{worker_id}:consumer",
+        store=get_session_store(),
     )
     return RuntimeOutboxService(
         RuntimeOutboxDispatcher(

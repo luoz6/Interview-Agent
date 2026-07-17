@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -6,7 +7,13 @@ import pytest
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.question_evaluations import question_evaluation_from_feedback
+from app.services.report import DimensionScores, InterviewFeedback
 from app.services.runtime_domain_events import RoundClosedEvent
+from app.services.runtime_outbox_dispatcher import (
+    LocalRuntimeEventSink,
+    RuntimeOutboxDispatcher,
+)
 
 
 pytestmark = pytest.mark.pg_control
@@ -145,3 +152,144 @@ def test_guarded_completion_requires_matching_lease_owner(stores):
 
     assert published["status"] == "published"
     assert published["lease_owner"] is None
+
+
+def make_completed_record(session_id: str):
+    scores = DimensionScores(
+        breadth=0,
+        depth=0,
+        architecture=0,
+        engineering=0,
+        communication=0,
+    )
+    return question_evaluation_from_feedback(
+        session_id=session_id,
+        feedback=InterviewFeedback(
+            question_id="q1",
+            question_text="Explain durable event delivery.",
+            user_answer="The candidate skipped this question.",
+            answer_state="skipped",
+            score=0,
+            dimension_scores=scores,
+            rationale="The candidate skipped this question.",
+            critique="There is no answer to evaluate.",
+            better_answer="Explain the transactional outbox.",
+            references=[],
+        ),
+        answer_state="skipped",
+    )
+
+
+def test_receipt_completion_is_idempotent_before_business_work(stores):
+    control = stores["control"]
+    event = make_round_event(stores["session_id"])
+    with control.connection() as connection:
+        with connection.cursor() as cursor:
+            control.enqueue_event(cursor, event)
+
+    claim = control.claim_receipt(
+        event,
+        consumer_name="round_review",
+        worker_id="consumer-1",
+        lease_seconds=60,
+    )
+    active = control.claim_receipt(
+        event,
+        consumer_name="round_review",
+        worker_id="consumer-2",
+        lease_seconds=60,
+    )
+    control.complete_round_review(
+        event.event_id,
+        "round_review",
+        "consumer-1",
+        make_completed_record(stores["session_id"]),
+    )
+    duplicate = control.claim_receipt(
+        event,
+        consumer_name="round_review",
+        worker_id="consumer-2",
+        lease_seconds=60,
+    )
+
+    assert claim["claim_status"] == "claimed"
+    assert claim["attempt_count"] == 1
+    assert active["claim_status"] == "active"
+    assert duplicate["claim_status"] == "completed"
+    records = stores["session"].list_question_evaluations(
+        stores["session_id"]
+    )
+    assert len(records) == 1
+    assert records[0].status == "completed"
+
+
+def test_lost_receipt_lease_rolls_back_question_upsert(stores):
+    control = stores["control"]
+    event = make_round_event(stores["session_id"])
+    with control.connection() as connection:
+        with connection.cursor() as cursor:
+            control.enqueue_event(cursor, event)
+    control.claim_receipt(
+        event,
+        consumer_name="round_review",
+        worker_id="consumer-1",
+        lease_seconds=60,
+    )
+    control.mark_receipt_retrying(
+        event.event_id,
+        "round_review",
+        "consumer-1",
+        error_code="provider_timeout",
+        available_at=datetime.now(timezone.utc) + timedelta(seconds=5),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="runtime receipt lease was lost",
+    ):
+        control.complete_round_review(
+            event.event_id,
+            "round_review",
+            "consumer-1",
+            make_completed_record(stores["session_id"]),
+        )
+
+    assert stores["session"].list_question_evaluations(
+        stores["session_id"]
+    ) == []
+
+
+def test_local_dispatcher_completes_receipt_and_business_result(stores):
+    stores["session"].skip(
+        stores["session_id"],
+        expected_version=1,
+        command_id="cmd-local-dispatch",
+    )
+    dispatcher = RuntimeOutboxDispatcher(
+        stores["control"],
+        LocalRuntimeEventSink(
+            control_store=stores["control"],
+            worker_id="local-consumer-1",
+            store=stores["session"],
+        ),
+        batch_size=20,
+        lease_seconds=60,
+    )
+
+    assert dispatcher.run_once("local-dispatcher-1") == 1
+
+    events = stores["control"].list_outbox(
+        session_id=stores["session_id"]
+    )
+    receipt = stores["control"].get_receipt(
+        events[0]["event_id"],
+        "round_review",
+    )
+    records = stores["session"].list_question_evaluations(
+        stores["session_id"]
+    )
+    assert events[0]["status"] == "published"
+    assert receipt["status"] == "completed"
+    assert len(records) == 1
+    assert records[0].status == "completed"
+    assert records[0].answer_state == "skipped"

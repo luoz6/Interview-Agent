@@ -121,20 +121,32 @@ class RuntimeOutboxService:
 
 
 class LocalRuntimeEventSink:
-    def __init__(self, *, control_store, worker_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        control_store,
+        worker_id: str,
+        store=None,
+    ) -> None:
         self.control_store = control_store
         self.worker_id = worker_id
+        self.store = store
 
     def publish(self, payload: dict[str, Any]) -> None:
         from app.services.runtime_event_consumer import (
             consume_round_review_event_payload,
         )
 
-        consume_round_review_event_payload(
+        outcome = consume_round_review_event_payload(
             payload,
             control_store=self.control_store,
             worker_id=self.worker_id,
+            store=self.store,
         )
+        if outcome.status == "reschedule":
+            raise RuntimeError(
+                outcome.error_code or "runtime_work_retry"
+            )
 
 
 class CeleryRuntimeEventSink:
