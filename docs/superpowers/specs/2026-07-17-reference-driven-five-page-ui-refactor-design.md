@@ -1,6 +1,6 @@
 # Reference-Driven Five-Page UI Refactor Design
 
-Status: `REVISION_READY_FOR_REVIEW`
+Status: `APPROVED_FOR_PLANNING`
 
 Date: 2026-07-17
 
@@ -179,7 +179,9 @@ Real behaviors:
 - A matching draft is restored on refresh. It is cleared only after a
   successful answer, skip, or explicit finish for that question.
 - Version-conflict recovery retains the draft while refreshing the session.
-- Elapsed time is derived from the public session `started_at` value.
+- Elapsed and estimated remaining time use the existing public session
+  `elapsed_seconds` and `estimated_remaining_seconds` fields; `started_at` is
+  retained for timestamp display only.
 - Question progress and current round come from the session snapshot.
 - Connection status means the most recent snapshot or command succeeded; it
   is not a fabricated permanent connectivity claim.
