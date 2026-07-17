@@ -20,7 +20,14 @@ def test_build_session_store_defaults_to_local_postgres(monkeypatch):
     created = {}
 
     class FakePostgresStore:
-        def __init__(self, *, dsn, table_prefix="interview", llm=None):
+        def __init__(
+            self,
+            *,
+            dsn,
+            table_prefix="interview",
+            llm=None,
+            execution_runner=None,
+        ):
             created["dsn"] = dsn
             created["table_prefix"] = table_prefix
             created["llm"] = llm
@@ -44,7 +51,14 @@ def test_build_session_store_uses_postgres_when_enabled(monkeypatch):
     created = {}
 
     class FakePostgresStore:
-        def __init__(self, *, dsn, table_prefix="interview", llm=None):
+        def __init__(
+            self,
+            *,
+            dsn,
+            table_prefix="interview",
+            llm=None,
+            execution_runner=None,
+        ):
             created["dsn"] = dsn
             created["table_prefix"] = table_prefix
             created["llm"] = llm
@@ -69,7 +83,14 @@ def test_build_session_store_uses_runtime_table_prefix_with_legacy_fallback(monk
     created = {}
 
     class FakePostgresStore:
-        def __init__(self, *, dsn, table_prefix="interview", llm=None):
+        def __init__(
+            self,
+            *,
+            dsn,
+            table_prefix="interview",
+            llm=None,
+            execution_runner=None,
+        ):
             created["table_prefix"] = table_prefix
 
     monkeypatch.setattr(

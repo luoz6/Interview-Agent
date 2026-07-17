@@ -63,9 +63,9 @@ def build_session_store(llm=None):
             llm=llm,
             execution_runner=execution_runner,
         )
-        get_agent_execution_runner(
-            control_store=store._runtime_control
-        )
+        control_store = getattr(store, "_runtime_control", None)
+        if control_store is not None:
+            get_agent_execution_runner(control_store=control_store)
         return store
     if store_kind != "memory":
         raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {store_kind}")

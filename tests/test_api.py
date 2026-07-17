@@ -6,6 +6,7 @@ import app.api.routes as route_module
 from app.api.routes import get_session_store
 from app.main import app
 from app.services.drafts import AnonymousDraftStore
+from app.services.event_publisher import NoopRuntimeEventPublisher
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -66,6 +67,10 @@ def make_client(control_store=None):
     store = InterviewSessionStore(llm=FakeApiLLM())
     app.dependency_overrides[get_session_store] = lambda: store
     app.dependency_overrides[get_draft_store] = lambda: _api_draft_store
+    app.dependency_overrides.setdefault(
+        route_module.get_event_publisher,
+        lambda: NoopRuntimeEventPublisher(),
+    )
     if control_store is not None:
         app.dependency_overrides[
             route_module.get_runtime_control_store

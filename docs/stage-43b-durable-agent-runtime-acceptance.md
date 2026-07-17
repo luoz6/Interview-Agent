@@ -1,6 +1,6 @@
 # Stage 43B Durable Agent Runtime Acceptance
 
-Status: `PENDING_RECOVERY_ACCEPTANCE`
+Status: `PASS`
 
 Date: 2026-07-17
 
@@ -18,15 +18,32 @@ Date: 2026-07-17
 | Dead-letter and report recovery | PASS |
 | Control-plane privacy unit gate | PASS |
 
-## Pending Release Gates
+## Release Gates
 
-- Authenticated PostgreSQL runtime preflight and ledger p95.
-- Authenticated Redis/Celery outbox and receipt recovery.
-- Duplicate delivery and expired receipt recovery.
-- Transient retry, permanent dead-letter, and operator replay.
-- Five-Agent persisted ledger correlation.
-- Deterministic browser and full Python regression.
-- Stage 40, Stage 42, and Stage 43A artifact audits.
+| Gate | Result |
+| --- | --- |
+| Full Python regression | 679 passed, 1 skipped |
+| PostgreSQL runtime preflight | 3 tables, 11 indexes, 3 CASCADE foreign keys |
+| Agent ledger write latency | p95 32.086 ms |
+| Authenticated Redis/Celery recovery | 10 of 10 checks passed |
+| Duplicate delivery and expired receipt recovery | PASS |
+| Transient retry, dead-letter, and replay | PASS |
+| Five-Agent persisted ledger correlation | PASS |
+| Control-plane privacy | PASS, 0 sensitive-field violations |
+| Deterministic Playwright | 8 passed, 2 real-model checks skipped |
+| JavaScript syntax and CSS build | PASS |
+| Core runtime preflight | PASS |
+| Stage 40 artifact audit | PASS |
+| Stage 42 artifact audit | PASS, 5 artifacts |
+| Stage 43A acceptance | PASS |
 
-PASS may be recorded only after every named Stage 43B recovery check succeeds.
-Acceptance artifacts must contain metadata and stable IDs only.
+The recovery acceptance used isolated PostgreSQL and Redis services with an
+authenticated Celery worker. It covered atomic state/outbox persistence,
+publisher outage recovery, duplicate delivery, expired receipt reclamation,
+bounded retry, permanent dead-letter handling, identity-preserving operator
+replay, five-Agent ledger correlation, and public control-plane privacy.
+
+The acceptance artifact contains metadata and stable identifiers only. No
+local embedding model was downloaded or loaded; deterministic and fake-agent
+paths were used for the recovery checks, and real-model browser cases remain
+explicit opt-in tests.
