@@ -13,6 +13,38 @@ def read_static_file(name: str) -> str:
     return (STATIC_DIR / name).read_text(encoding="utf-8")
 
 
+def test_production_visual_tokens_replace_reference_decorations():
+    css = read_static_file("prototype-source.css")
+    for token in (
+        "--color-primary: #2563eb",
+        "--color-primary-hover: #1d4ed8",
+        "--color-page: #f8fafc",
+        "--color-line: #e2e8f0",
+        "--radius-card: 8px",
+        "--radius-control: 6px",
+    ):
+        assert token in css
+    assert "linear-gradient" not in css
+
+
+def test_shared_reference_components_are_declared():
+    css = read_static_file("prototype-source.css")
+    for selector in (
+        ".app-topbar",
+        ".app-brand",
+        ".app-nav",
+        ".workflow-shell",
+        ".workflow-sidebar",
+        ".workflow-step",
+        ".ui-card",
+        ".ui-button",
+        ".ui-badge",
+        ".ui-notice",
+        ".progress-track",
+    ):
+        assert selector in css
+
+
 def test_four_runtime_html_pages_exist():
     assert (APP_DIR / "test4.html").exists()
     assert (APP_DIR / "test3.html").exists()

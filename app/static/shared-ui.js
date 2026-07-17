@@ -66,6 +66,18 @@ export function formatPercent(value) {
   return `${Math.max(0, Math.min(100, Number(value) || 0))}%`;
 }
 
+export function formatDuration(totalSeconds) {
+  const safe = Math.max(0, Number(totalSeconds) || 0);
+  const minutes = Math.floor(safe / 60);
+  const seconds = Math.floor(safe % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function setPressed(element, pressed) {
+  if (!element) return;
+  element.setAttribute("aria-pressed", pressed ? "true" : "false");
+}
+
 export function setBusy(elements, busy) {
   for (const element of elements) {
     if (element) {

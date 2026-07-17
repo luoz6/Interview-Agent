@@ -3,12 +3,166 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --color-primary: #2563eb;
+    --color-primary-hover: #1d4ed8;
+    --color-page: #f8fafc;
+    --color-surface: #ffffff;
+    --color-text: #1f2937;
+    --color-muted: #64748b;
+    --color-line: #e2e8f0;
+    --color-success: #16a34a;
+    --color-warning: #d97706;
+    --color-danger: #dc2626;
+    --radius-card: 8px;
+    --radius-control: 6px;
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-width: 1280px;
+    background: var(--color-page);
+    color: var(--color-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    letter-spacing: 0;
   }
 }
 
 @layer components {
+  .app-topbar {
+    height: 4rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .app-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: .625rem;
+    color: var(--color-text);
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .app-nav {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .app-nav a {
+    height: 4rem;
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-muted);
+    border-bottom: 2px solid transparent;
+  }
+
+  .app-nav a[aria-current="page"] {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .workflow-shell {
+    min-height: calc(100vh - 4rem);
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+
+  .workflow-sidebar {
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-line);
+    padding: 1.25rem .875rem;
+  }
+
+  .workflow-step {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: .625rem;
+    padding: .625rem;
+    border-radius: var(--radius-control);
+  }
+
+  .workflow-step[aria-current="step"] {
+    background: #eff6ff;
+    color: #1e3a8a;
+  }
+
+  .ui-card {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-button {
+    min-height: 2.25rem;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-control);
+    background: #fff;
+    color: #334155;
+    padding: .5rem .875rem;
+    font-weight: 600;
+  }
+
+  .ui-button-primary {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: #fff;
+  }
+
+  .ui-button-primary:hover {
+    background: var(--color-primary-hover);
+  }
+
+  .ui-button:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+  }
+
+  .ui-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #bfdbfe;
+    border-radius: 9999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    padding: .25rem .625rem;
+    font-size: .75rem;
+    font-weight: 600;
+  }
+
+  .ui-notice {
+    border-left: 3px solid var(--color-primary);
+    background: #eff6ff;
+    color: #1e40af;
+    padding: .625rem .75rem;
+  }
+
+  .ui-notice[data-type="danger"] {
+    border-color: var(--color-danger);
+    background: #fef2f2;
+    color: #991b1b;
+  }
+
+  .progress-track {
+    height: .4375rem;
+    overflow: hidden;
+    border-radius: 4px;
+    background: #e2e8f0;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+  }
+
   .tag {
     display: inline-flex;
     align-items: center;
@@ -89,6 +243,7 @@
 @media (max-width: 767px) {
   body {
     height: auto !important;
+    min-width: 0;
     min-height: 100vh;
     overflow: auto !important;
   }
