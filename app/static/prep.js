@@ -2,7 +2,13 @@ import { getJson, postJson } from "./api.js";
 import { byId, clear, createEl, renderEmptyState, renderTags, setBusy, setText, showNotice } from "./shared-ui.js";
 
 const jobDescription = byId("jobDescription");
+const jobDescriptionFileInput = byId("jobDescriptionFileInput");
+const jobDescriptionFileButton = byId("jobDescriptionFileButton");
+const jobDescriptionFileMeta = byId("jobDescriptionFileMeta");
 const resumeText = byId("resumeText");
+const resumeFileInput = byId("resumeFileInput");
+const resumeFileButton = byId("resumeFileButton");
+const resumeFileMeta = byId("resumeFileMeta");
 const saveDraftButton = byId("saveDraftButton");
 const restoreDraftButton = byId("restoreDraftButton");
 const prepButton = byId("prepButton");
@@ -15,9 +21,45 @@ const prepKnowledgeStatus = byId("prepKnowledgeStatus");
 const prepContextTopics = byId("prepContextTopics");
 const prepQuestionHints = byId("prepQuestionHints");
 
+const MAX_TEXT_FILE_BYTES = 1024 * 1024;
+const SUPPORTED_TEXT_EXTENSIONS = [".txt", ".md"];
+
 let currentTags = [];
 let latestPlan = null;
 let draftId = localStorage.getItem("interviewDraftId");
+
+function hasSupportedExtension(fileName) {
+  const lower = String(fileName || "").toLowerCase();
+  return SUPPORTED_TEXT_EXTENSIONS.some((extension) => lower.endsWith(extension));
+}
+
+async function importTextFile(file, textarea, metadataNode, label) {
+  if (!file) return;
+  if (!hasSupportedExtension(file.name)) {
+    throw new Error(`${label}仅支持 .txt 或 .md 文件`);
+  }
+  if (file.size > MAX_TEXT_FILE_BYTES) {
+    throw new Error(`${label}文件不能超过 1 MiB`);
+  }
+  const content = await file.text();
+  textarea.value = content;
+  metadataNode.textContent = `${file.name} · ${content.length} 字符`;
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function bindTextFileImport(button, input, textarea, metadataNode, label) {
+  button.addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    try {
+      await importTextFile(input.files?.[0], textarea, metadataNode, label);
+      showNotice(prepStatus, `${label}已导入`, "success");
+    } catch (error) {
+      showNotice(prepStatus, error.message, "danger");
+    } finally {
+      input.value = "";
+    }
+  });
+}
 
 function payload() {
   return {
@@ -166,6 +208,10 @@ function renderPrepContext(prepContext) {
 function renderPlan(plan) {
   latestPlan = plan;
   setText("planTitle", plan.title || "面试计划");
+  setText("planState", "已生成");
+  const questionCount = (plan.questions || []).length;
+  setText("planQuestionCount", `${questionCount} 题`);
+  setText("planDuration", `${questionCount * 4}-${questionCount * 6} 分钟`);
   clear(planQuestions);
   for (const question of plan.questions || []) {
     const item = createEl("li", "flex items-start gap-3 min-w-0");
@@ -252,6 +298,21 @@ prepButton.addEventListener("click", () => {
 startButton.addEventListener("click", () => {
   withBusy(startInterview);
 });
+
+bindTextFileImport(
+  jobDescriptionFileButton,
+  jobDescriptionFileInput,
+  jobDescription,
+  jobDescriptionFileMeta,
+  "岗位 JD",
+);
+bindTextFileImport(
+  resumeFileButton,
+  resumeFileInput,
+  resumeText,
+  resumeFileMeta,
+  "简历",
+);
 
 setCurrentTags([]);
 renderPrepContext(null);

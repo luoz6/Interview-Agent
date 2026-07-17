@@ -64,18 +64,68 @@ def test_prep_page_has_runtime_hooks():
 
     for element_id in (
         "jobDescription",
+        "jobDescriptionFileInput",
+        "jobDescriptionFileButton",
+        "jobDescriptionFileMeta",
         "resumeText",
+        "resumeFileInput",
+        "resumeFileButton",
+        "resumeFileMeta",
         "saveDraftButton",
         "restoreDraftButton",
         "prepButton",
         "startButton",
         "topicTags",
         "planTitle",
+        "planState",
+        "planQuestionCount",
+        "planDuration",
         "planQuestions",
         "prepStatus",
+        "prepKnowledgeStatus",
+        "prepContextSummary",
+        "prepContextTopics",
+        "prepQuestionHints",
     ):
         assert f'id="{element_id}"' in html
+    assert 'accept=".txt,.md,text/plain,text/markdown"' in html
+    assert "app-topbar" in html
+    assert "workflow-shell" in html
+    assert 'href="/prep"' in html
+    assert 'href="/reports"' in html
+    assert 'href="/help"' in html
     assert "/static/prep.js" in html
+
+
+def test_prep_page_imports_text_files_and_renders_only_real_plan_metrics():
+    html = read_app_file("test4.html")
+    js = read_static_file("prep.js")
+
+    for marker in (
+        "const MAX_TEXT_FILE_BYTES = 1024 * 1024",
+        'const SUPPORTED_TEXT_EXTENSIONS = [".txt", ".md"]',
+        "async function importTextFile(file, textarea, metadataNode, label)",
+        "await file.text()",
+        'textarea.dispatchEvent(new Event("input", { bubbles: true }))',
+        "仅支持 .txt 或 .md 文件",
+        "文件不能超过 1 MiB",
+        'setText("planQuestionCount", `${questionCount} 题`)',
+        'setText("planDuration", `${questionCount * 4}-${questionCount * 6} 分钟`)',
+        'setText("planState", "已生成")',
+    ):
+        assert marker in js
+    assert "FormData" not in js
+    assert "<style" not in html
+    assert "data-view" not in html
+    assert 'href="#' not in html
+    for demo_value in (
+        "我们正在寻找一名后端开发工程师",
+        "5 年后端开发经验",
+        "18 题（预计 60 - 75 分钟）",
+        "请简述 Redis 的数据结构及其应用场景",
+        "张同学",
+    ):
+        assert demo_value not in html
 
 
 def test_prep_page_has_knowledge_preheat_runtime_hooks():
