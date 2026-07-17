@@ -15,6 +15,7 @@ playwright-report/
 # IDE
 .idea/
 .claude/
+.superpowers/
 
 # Local runtime scratch files
 tmp/
