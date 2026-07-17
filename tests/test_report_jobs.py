@@ -56,6 +56,9 @@ def list_tables(dsn: str, *table_names: str) -> list[str]:
 def drop_runtime_tables(dsn: str, table_prefix: str) -> None:
     psycopg2, sql = PostgresReportJobStore._import_psycopg2()
     table_names = [
+        f"{table_prefix}_runtime_event_receipts",
+        f"{table_prefix}_agent_runs",
+        f"{table_prefix}_runtime_outbox",
         f"{table_prefix}_report_jobs",
         f"{table_prefix}_reports",
         f"{table_prefix}_question_evaluations",
@@ -119,6 +122,47 @@ def test_enqueue_report_request_creates_job_and_processing_report(stores):
     assert report["status"] == "processing"
     assert stores["job_store"].count_jobs() == 1
     assert stores["job_store"].count_reports() == 1
+
+
+def seed_running_report(stores):
+    session_id = create_session(stores["session_store"])
+    stores["job_store"].enqueue_report_request(
+        session_id=session_id
+    )
+    job = stores["job_store"].claim_next(worker_id="worker-1")
+    return session_id, job["job_id"]
+
+
+def test_report_failure_persists_stable_error_code(stores):
+    session_id, job_id = seed_running_report(stores)
+
+    stores["job_store"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+    job = stores["job_store"].get_job_by_session(session_id)
+
+    assert job["last_error_code"] == "domain_validation_failed"
+
+
+def test_report_requeue_updates_job_and_report(stores):
+    session_id, job_id = seed_running_report(stores)
+    stores["job_store"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+
+    job = stores["job_store"].requeue_failed(session_id)
+    report = stores["job_store"].get_report_row(session_id)
+
+    assert job["job_id"] == job_id
+    assert job["status"] == "queued"
+    assert job["attempt_count"] == 0
+    assert job["last_error_code"] is None
+    assert job["replay_count"] == 1
+    assert report["status"] == "processing"
 
 
 def test_enqueue_report_request_is_idempotent_for_same_session(stores):

@@ -191,6 +191,52 @@ class PostgresRuntimeControlStore:
             for row in rows
         ]
 
+    def list_recovery_events(
+        self,
+        *,
+        status: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        _, sql = self._import_psycopg2()
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT event_id, session_id, correlation_id,
+                               event_type, status, attempt_count,
+                               max_attempts, replay_count, last_error_code,
+                               available_at, created_at, updated_at,
+                               published_at, dead_lettered_at
+                        FROM {outbox}
+                        WHERE status = %s
+                        ORDER BY updated_at, event_id
+                        LIMIT %s
+                        """
+                    ).format(outbox=sql.Identifier(self.outbox_table)),
+                    (status, limit),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "event_id": row[0],
+                "session_id": row[1],
+                "correlation_id": row[2],
+                "event_type": row[3],
+                "status": row[4],
+                "attempt_count": row[5],
+                "max_attempts": row[6],
+                "replay_count": row[7],
+                "last_error_code": row[8],
+                "available_at": row[9],
+                "created_at": row[10],
+                "updated_at": row[11],
+                "published_at": row[12],
+                "dead_lettered_at": row[13],
+            }
+            for row in rows
+        ]
+
     def list_foreign_keys(self) -> dict[str, tuple[str, str]]:
         table_names = [
             self.outbox_table,
@@ -401,6 +447,74 @@ class PostgresRuntimeControlStore:
                 )
                 count = cursor.rowcount
         return count
+
+    def replay_dead_letter(
+        self,
+        event_id: str,
+    ) -> dict[str, Any]:
+        _, sql = self._import_psycopg2()
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        f"""
+                        SELECT {self._OUTBOX_COLUMNS}
+                        FROM {{outbox}}
+                        WHERE event_id = %s
+                        FOR UPDATE
+                        """
+                    ).format(outbox=sql.Identifier(self.outbox_table)),
+                    (event_id,),
+                )
+                existing = self._outbox_row_to_dict(cursor.fetchone())
+                if (
+                    existing is None
+                    or existing["status"] != "dead_letter"
+                ):
+                    raise ValueError("event is not dead-lettered")
+                cursor.execute(
+                    sql.SQL(
+                        f"""
+                        UPDATE {{outbox}}
+                        SET status = 'pending',
+                            attempt_count = 0,
+                            available_at = NOW(),
+                            lease_owner = NULL,
+                            lease_expires_at = NULL,
+                            last_error_code = NULL,
+                            replay_count = replay_count + 1,
+                            published_at = NULL,
+                            dead_lettered_at = NULL,
+                            updated_at = NOW()
+                        WHERE event_id = %s
+                        RETURNING {self._OUTBOX_COLUMNS}
+                        """
+                    ).format(outbox=sql.Identifier(self.outbox_table)),
+                    (event_id,),
+                )
+                replayed = self._outbox_row_to_dict(cursor.fetchone())
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        UPDATE {receipts}
+                        SET status = 'retrying',
+                            attempt_count = 0,
+                            available_at = NOW(),
+                            lease_owner = NULL,
+                            lease_expires_at = NULL,
+                            last_error_code = NULL,
+                            replay_count = replay_count + 1,
+                            dead_lettered_at = NULL,
+                            updated_at = NOW()
+                        WHERE event_id = %s
+                          AND status = 'dead_letter'
+                        """
+                    ).format(
+                        receipts=sql.Identifier(self.receipts_table)
+                    ),
+                    (event_id,),
+                )
+        return replayed
 
     def record_agent_run(self, record: AgentRunRecord) -> bool:
         _, sql = self._import_psycopg2()

@@ -293,3 +293,43 @@ def test_local_dispatcher_completes_receipt_and_business_result(stores):
     assert len(records) == 1
     assert records[0].status == "completed"
     assert records[0].answer_state == "skipped"
+
+
+def test_dead_letter_replay_preserves_event_identity(stores):
+    control = stores["control"]
+    event = make_round_event(stores["session_id"])
+    with control.connection() as connection:
+        with connection.cursor() as cursor:
+            control.enqueue_event(cursor, event)
+    control.claim_batch(
+        worker_id="dispatcher-1",
+        limit=1,
+        lease_seconds=60,
+    )
+    control.mark_dead_letter(
+        event.event_id,
+        "dispatcher-1",
+        error_code="provider_unavailable",
+    )
+
+    replayed = control.replay_dead_letter(event.event_id)
+
+    assert replayed["event_id"] == event.event_id
+    assert replayed["correlation_id"] == event.correlation_id
+    assert replayed["status"] == "pending"
+    assert replayed["attempt_count"] == 0
+    assert replayed["replay_count"] == 1
+
+
+def test_replay_rejects_pending_event(stores):
+    control = stores["control"]
+    event = make_round_event(stores["session_id"])
+    with control.connection() as connection:
+        with connection.cursor() as cursor:
+            control.enqueue_event(cursor, event)
+
+    with pytest.raises(
+        ValueError,
+        match="event is not dead-lettered",
+    ):
+        control.replay_dead_letter(event.event_id)

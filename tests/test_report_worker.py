@@ -27,6 +27,8 @@ class FakeJobStore:
         self.completed_calls: list[str] = []
         self.retry_calls: list[tuple[str, str]] = []
         self.failed_calls: list[tuple[str, str]] = []
+        self.retry_error_codes: list[str] = []
+        self.failed_error_codes: list[str] = []
 
     def repair_orphan_processing_reports(self) -> int:
         self.repair_calls += 1
@@ -44,8 +46,15 @@ class FakeJobStore:
             "status": "completed",
         }
 
-    def mark_retryable_failure(self, job_id: str, error: str) -> dict:
+    def mark_retryable_failure(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str,
+    ) -> dict:
         self.retry_calls.append((job_id, error))
+        self.retry_error_codes.append(error_code)
         return {
             "job_id": job_id,
             "session_id": self.claimed_job["session_id"],
@@ -53,8 +62,15 @@ class FakeJobStore:
             "last_error": error,
         }
 
-    def mark_failed(self, job_id: str, error: str) -> dict:
+    def mark_failed(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str,
+    ) -> dict:
         self.failed_calls.append((job_id, error))
+        self.failed_error_codes.append(error_code)
         return {
             "job_id": job_id,
             "session_id": self.claimed_job["session_id"],
@@ -222,6 +238,7 @@ def test_run_one_job_marks_retryable_failure_for_timeout(monkeypatch):
 
     assert result["status"] == "retrying"
     assert job_store.retry_calls == [("job-1", "report generation timed out")]
+    assert job_store.retry_error_codes == ["provider_timeout"]
     assert job_store.failed_calls == []
     assert store.failed_reports == [("s1", "report generation timed out")]
 
@@ -245,6 +262,7 @@ def test_run_one_job_marks_retryable_failure_for_pgvector_unavailable(monkeypatc
 
     assert result["status"] == "retrying"
     assert job_store.retry_calls == [("job-1", "pgvector knowledge store is unavailable")]
+    assert job_store.retry_error_codes == ["provider_unavailable"]
     assert job_store.failed_calls == []
     assert store.failed_reports == [("s1", "pgvector knowledge store is unavailable")]
 
@@ -269,6 +287,7 @@ def test_run_one_job_marks_terminal_failure_for_non_retryable_report_error(monke
     assert result["status"] == "failed"
     assert job_store.retry_calls == []
     assert job_store.failed_calls == [("job-1", "interview is not finished")]
+    assert job_store.failed_error_codes == ["domain_validation_failed"]
     assert store.failed_reports == [("s1", "interview is not finished")]
 
 
@@ -299,6 +318,7 @@ def test_run_one_job_marks_terminal_failure_for_runtime_quality_failure(monkeypa
             "runtime report quality check failed: summary must include Simplified Chinese text",
         )
     ]
+    assert job_store.failed_error_codes == ["domain_validation_failed"]
     assert store.failed_reports == [
         (
             "s1",

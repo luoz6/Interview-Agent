@@ -45,7 +45,8 @@ class PostgresReportJobStore:
             sql.SQL(
                 """
                 SELECT job_id, session_id, status, lease_owner, lease_expires_at,
-                       attempt_count, max_attempts, last_error, queued_at,
+                       attempt_count, max_attempts, last_error,
+                       last_error_code, replay_count, queued_at,
                        started_at, finished_at, updated_at
                 FROM {jobs}
                 WHERE session_id = %s
@@ -61,7 +62,8 @@ class PostgresReportJobStore:
             sql.SQL(
                 """
                 SELECT job_id, session_id, status, lease_owner, lease_expires_at,
-                       attempt_count, max_attempts, last_error, queued_at,
+                       attempt_count, max_attempts, last_error,
+                       last_error_code, replay_count, queued_at,
                        started_at, finished_at, updated_at
                 FROM {jobs}
                 WHERE job_id = %s::uuid
@@ -123,7 +125,8 @@ class PostgresReportJobStore:
                         ON CONFLICT (session_id) DO UPDATE
                         SET session_id = EXCLUDED.session_id
                         RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
-                                  attempt_count, max_attempts, last_error, queued_at,
+                                  attempt_count, max_attempts, last_error,
+                                  last_error_code, replay_count, queued_at,
                                   started_at, finished_at, updated_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
@@ -160,7 +163,9 @@ class PostgresReportJobStore:
                         WHERE jobs.job_id = next_job.job_id
                         RETURNING jobs.job_id, jobs.session_id, jobs.status, jobs.lease_owner,
                                   jobs.lease_expires_at, jobs.attempt_count, jobs.max_attempts,
-                                  jobs.last_error, jobs.queued_at, jobs.started_at,
+                                  jobs.last_error, jobs.last_error_code,
+                                  jobs.replay_count, jobs.queued_at,
+                                  jobs.started_at,
                                   jobs.finished_at, jobs.updated_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
@@ -184,7 +189,8 @@ class PostgresReportJobStore:
                             updated_at = NOW()
                         WHERE job_id = %s::uuid
                         RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
-                                  attempt_count, max_attempts, last_error, queued_at,
+                                  attempt_count, max_attempts, last_error,
+                                  last_error_code, replay_count, queued_at,
                                   started_at, finished_at, updated_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
@@ -193,7 +199,13 @@ class PostgresReportJobStore:
                 row = cursor.fetchone()
         return self._job_row_to_dict(row)
 
-    def mark_retryable_failure(self, job_id: str, error: str) -> dict | None:
+    def mark_retryable_failure(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str = "unexpected_error",
+    ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
         progress_json = json.dumps(self._processing_progress_payload(), ensure_ascii=False)
         with psycopg2.connect(self.dsn) as connection:
@@ -209,6 +221,7 @@ class PostgresReportJobStore:
                                     ELSE 'retrying'
                                 END,
                                 last_error = %s,
+                                last_error_code = %s,
                                 lease_owner = NULL,
                                 lease_expires_at = NULL,
                                 finished_at = CASE
@@ -218,7 +231,8 @@ class PostgresReportJobStore:
                                 updated_at = NOW()
                             WHERE job_id = %s::uuid
                             RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
-                                      attempt_count, max_attempts, last_error, queued_at,
+                                      attempt_count, max_attempts, last_error,
+                                      last_error_code, replay_count, queued_at,
                                       started_at, finished_at, updated_at
                         )
                         UPDATE {reports} AS reports
@@ -241,7 +255,10 @@ class PostgresReportJobStore:
                         RETURNING updated_job.job_id, updated_job.session_id, updated_job.status,
                                   updated_job.lease_owner, updated_job.lease_expires_at,
                                   updated_job.attempt_count, updated_job.max_attempts,
-                                  updated_job.last_error, updated_job.queued_at,
+                                  updated_job.last_error,
+                                  updated_job.last_error_code,
+                                  updated_job.replay_count,
+                                  updated_job.queued_at,
                                   updated_job.started_at, updated_job.finished_at,
                                   updated_job.updated_at
                         """
@@ -249,12 +266,24 @@ class PostgresReportJobStore:
                         jobs=sql.Identifier(self.jobs_table),
                         reports=sql.Identifier(self.reports_table),
                     ),
-                    (error, job_id, progress_json, error),
+                    (
+                        error,
+                        error_code,
+                        job_id,
+                        progress_json,
+                        error,
+                    ),
                 )
                 row = cursor.fetchone()
         return self._job_row_to_dict(row)
 
-    def mark_failed(self, job_id: str, error: str) -> dict | None:
+    def mark_failed(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str = "unexpected_error",
+    ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
         with psycopg2.connect(self.dsn) as connection:
             with connection.cursor() as cursor:
@@ -265,13 +294,15 @@ class PostgresReportJobStore:
                             UPDATE {jobs}
                             SET status = 'failed',
                                 last_error = %s,
+                                last_error_code = %s,
                                 lease_owner = NULL,
                                 lease_expires_at = NULL,
                                 finished_at = NOW(),
                                 updated_at = NOW()
                             WHERE job_id = %s::uuid
                             RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
-                                      attempt_count, max_attempts, last_error, queued_at,
+                                      attempt_count, max_attempts, last_error,
+                                      last_error_code, replay_count, queued_at,
                                       started_at, finished_at, updated_at
                         )
                         UPDATE {reports} AS reports
@@ -279,13 +310,17 @@ class PostgresReportJobStore:
                             progress_json = NULL,
                             report_json = NULL,
                             error = %s,
+                            failed_at = NOW(),
                             updated_at = NOW()
                         FROM updated_job
                         WHERE reports.session_id = updated_job.session_id
                         RETURNING updated_job.job_id, updated_job.session_id, updated_job.status,
                                   updated_job.lease_owner, updated_job.lease_expires_at,
                                   updated_job.attempt_count, updated_job.max_attempts,
-                                  updated_job.last_error, updated_job.queued_at,
+                                  updated_job.last_error,
+                                  updated_job.last_error_code,
+                                  updated_job.replay_count,
+                                  updated_job.queued_at,
                                   updated_job.started_at, updated_job.finished_at,
                                   updated_job.updated_at
                         """
@@ -293,9 +328,75 @@ class PostgresReportJobStore:
                         jobs=sql.Identifier(self.jobs_table),
                         reports=sql.Identifier(self.reports_table),
                     ),
-                    (error, job_id, error),
+                    (error, error_code, job_id, error),
                 )
                 row = cursor.fetchone()
+        return self._job_row_to_dict(row)
+
+    def requeue_failed(self, session_id: str) -> dict:
+        psycopg2, sql = self._import_psycopg2()
+        progress_json = json.dumps(
+            self._processing_progress_payload(),
+            ensure_ascii=False,
+        )
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        WITH requeued AS (
+                            UPDATE {jobs}
+                            SET status = 'queued',
+                                lease_owner = NULL,
+                                lease_expires_at = NULL,
+                                attempt_count = 0,
+                                last_error = NULL,
+                                last_error_code = NULL,
+                                replay_count = replay_count + 1,
+                                started_at = NULL,
+                                finished_at = NULL,
+                                updated_at = NOW()
+                            WHERE session_id = %s
+                              AND status = 'failed'
+                            RETURNING job_id, session_id, status,
+                                      lease_owner, lease_expires_at,
+                                      attempt_count, max_attempts,
+                                      last_error, last_error_code,
+                                      replay_count, queued_at, started_at,
+                                      finished_at, updated_at
+                        )
+                        UPDATE {reports} AS reports
+                        SET status = 'processing',
+                            progress_json = %s::jsonb,
+                            report_json = NULL,
+                            error = NULL,
+                            completed_at = NULL,
+                            failed_at = NULL,
+                            updated_at = NOW()
+                        FROM requeued
+                        WHERE reports.session_id = requeued.session_id
+                        RETURNING requeued.job_id, requeued.session_id,
+                                  requeued.status, requeued.lease_owner,
+                                  requeued.lease_expires_at,
+                                  requeued.attempt_count,
+                                  requeued.max_attempts,
+                                  requeued.last_error,
+                                  requeued.last_error_code,
+                                  requeued.replay_count,
+                                  requeued.queued_at,
+                                  requeued.started_at,
+                                  requeued.finished_at,
+                                  requeued.updated_at
+                        """
+                    ).format(
+                        jobs=sql.Identifier(self.jobs_table),
+                        reports=sql.Identifier(self.reports_table),
+                    ),
+                    (session_id, progress_json),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise ValueError("report job is not failed")
         return self._job_row_to_dict(row)
 
     def insert_processing_report_only(self, session_id: str) -> None:
@@ -393,6 +494,8 @@ class PostgresReportJobStore:
                             attempt_count INTEGER NOT NULL DEFAULT 0,
                             max_attempts INTEGER NOT NULL DEFAULT 3,
                             last_error TEXT,
+                            last_error_code TEXT,
+                            replay_count INTEGER NOT NULL DEFAULT 0,
                             queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             started_at TIMESTAMPTZ,
                             finished_at TIMESTAMPTZ,
@@ -414,6 +517,23 @@ class PostgresReportJobStore:
                         status_index=sql.Identifier(f"{self.jobs_table}_status_idx"),
                         jobs=sql.Identifier(self.jobs_table),
                     )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS last_error_code TEXT
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS replay_count
+                        INTEGER NOT NULL DEFAULT 0
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
                 )
                 self._ensure_foreign_key(
                     cursor=cursor,
@@ -509,10 +629,12 @@ class PostgresReportJobStore:
             "attempt_count": row[5],
             "max_attempts": row[6],
             "last_error": row[7],
-            "queued_at": row[8],
-            "started_at": row[9],
-            "finished_at": row[10],
-            "updated_at": row[11],
+            "last_error_code": row[8],
+            "replay_count": row[9],
+            "queued_at": row[10],
+            "started_at": row[11],
+            "finished_at": row[12],
+            "updated_at": row[13],
         }
 
     @staticmethod

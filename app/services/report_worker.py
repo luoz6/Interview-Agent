@@ -57,18 +57,38 @@ def run_one_job(
         return job_store.mark_completed(job["job_id"])
     except ReportGenerationTimeout as exc:
         executor.store.fail_report(job["session_id"], str(exc))
-        return job_store.mark_retryable_failure(job["job_id"], str(exc))
+        return job_store.mark_retryable_failure(
+            job["job_id"],
+            str(exc),
+            error_code="provider_timeout",
+        )
     except ReportGenerationFailed as exc:
         executor.store.fail_report(job["session_id"], str(exc))
         if _is_retryable_failure(exc):
-            return job_store.mark_retryable_failure(job["job_id"], str(exc))
-        return job_store.mark_failed(job["job_id"], str(exc))
+            return job_store.mark_retryable_failure(
+                job["job_id"],
+                str(exc),
+                error_code="provider_unavailable",
+            )
+        return job_store.mark_failed(
+            job["job_id"],
+            str(exc),
+            error_code="domain_validation_failed",
+        )
     except ValueError as exc:
         executor.store.fail_report(job["session_id"], str(exc))
-        return job_store.mark_failed(job["job_id"], str(exc))
+        return job_store.mark_failed(
+            job["job_id"],
+            str(exc),
+            error_code="domain_validation_failed",
+        )
     except Exception as exc:
         executor.store.fail_report(job["session_id"], str(exc))
-        return job_store.mark_retryable_failure(job["job_id"], str(exc))
+        return job_store.mark_retryable_failure(
+            job["job_id"],
+            str(exc),
+            error_code="unexpected_error",
+        )
 
 
 def run_forever(
