@@ -875,3 +875,22 @@ def test_report_center_loads_reports_and_links_to_details():
     assert "matchesDate" in js
     assert "setPressed" in js
     assert 'seconds === null || seconds === undefined || seconds === ""' in js
+
+
+def test_reference_ui_desktop_browser_acceptance_is_wired_to_test_support():
+    root = APP_DIR.parent
+    spec = (root / "tests" / "browser" / "reference-ui.spec.js").read_text(
+        encoding="utf-8"
+    )
+    support = (root / "tests" / "browser_support_app.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'testInfo.project.name !== "desktop-chromium"' in spec
+    assert "jobDescriptionFileInput" in spec
+    assert "interviewAnswerDraft:" in spec
+    assert 'data-report-status="failed"' in spec
+    assert "page.setViewportSize({ width: 1440, height: 1000 })" in spec
+    assert "page.setViewportSize({ width: 1280, height: 800 })" in spec
+    assert '@app.post("/test-support/reports/{status}")' in support
+    assert 'status not in {"processing", "failed"}' in support

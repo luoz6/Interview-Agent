@@ -1,5 +1,8 @@
 import os
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+
+from fastapi import HTTPException
 
 os.environ["INTERVIEW_RUNTIME_STORE"] = "memory"
 os.environ["INTERVIEW_EVENT_BACKEND"] = "noop"
@@ -365,4 +368,48 @@ def browser_prep_run_id(session_id: str):
     state = store.get(session_id)
     return {
         "prep_run_id": state["plan"].prep_context.binding_snapshot.prep_run_id,
+    }
+
+
+@app.post("/test-support/reports/{status}")
+def seed_report_state(status: str, age_days: int = 0):
+    if status not in {"processing", "failed"}:
+        raise HTTPException(status_code=422, detail="unsupported report seed status")
+    if age_days < 0:
+        raise HTTPException(status_code=422, detail="age_days must be non-negative")
+
+    plan = browser_llm.generate_plan("Backend engineer", "Redis project")
+    turn = store.start(
+        plan,
+        job_description="Backend engineer",
+        resume_text="Redis project",
+        job_tags=["Redis", "Backend"],
+    )
+    store.finish(turn.session_id)
+    store.mark_report_processing(turn.session_id)
+    job_store.jobs[turn.session_id] = {
+        "job_id": f"browser-job-{turn.session_id}",
+        "session_id": turn.session_id,
+        "status": status,
+        "replay_count": 0,
+    }
+    if status == "failed":
+        store.fail_report(turn.session_id, "provider_timeout")
+
+    if age_days:
+        seeded_at = (
+            datetime.now(timezone.utc) - timedelta(days=age_days)
+        ).isoformat().replace("+00:00", "Z")
+        record = store.get_report_record(turn.session_id)
+        store._reports[turn.session_id] = record.model_copy(
+            update={
+                "created_at": seeded_at,
+                "finished_at": seeded_at if status == "failed" else None,
+            }
+        )
+
+    return {
+        "session_id": turn.session_id,
+        "status": status,
+        "age_days": age_days,
     }
