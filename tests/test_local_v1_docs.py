@@ -423,4 +423,4 @@ def test_docs_describe_stage43b_durable_recovery():
             "python -m scripts.runtime_recovery list "
             "--status dead_letter"
         ) in document
-    assert "Status: `PENDING_RECOVERY_ACCEPTANCE`" in acceptance
+    assert "Status: `PASS`" in acceptance
