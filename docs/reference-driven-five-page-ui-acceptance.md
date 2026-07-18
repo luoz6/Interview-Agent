@@ -1,6 +1,6 @@
 # Reference-Driven Five-Page UI Acceptance
 
-Status: `PENDING`
+Status: `PASS`
 
 Date: 2026-07-18
 
@@ -18,18 +18,18 @@ Reference SHA-256: `A4549DD6D1B0F37C4207338E1ABC33D00CD44453A7643FF2DF81F25F3D35
 | Deterministic Playwright | PASS | `13 passed, 7 skipped`; real-model cases remained explicit opt-in skips and reference-only desktop cases were intentionally skipped by the mobile project. |
 | Screenshot and geometry audit | PASS | Five nonempty screenshots were captured at the `1440x1000` viewport; geometry also passed at `1280x800`. Sampled images contained 50-117 colors with luminance ranges of 215-232. |
 | Privacy, routes, and reference integrity | PASS | `38 passed`; the production demo/hash-router search returned no matches; `git diff --check` passed. |
-| Full Python regression | BLOCKED | `659 passed, 53 skipped, 1 failed`. The unrelated Stage 43B documentation contract still expects `PENDING_RECOVERY_ACCEPTANCE`, while its acceptance document is already `PASS`. |
+| Full Python regression | PASS | `660 passed, 53 skipped`; only the documented Starlette deprecation warning remained. |
 
-## Full-Suite Blocker
+## Full-Suite Resolution
 
-The remaining failure is:
+The first full-suite run exposed a stale Stage 43B documentation contract:
 
 `tests/test_local_v1_docs.py::test_docs_describe_stage43b_durable_recovery`
 
-It asserts that `docs/stage-43b-durable-agent-runtime-acceptance.md` contains
-`Status: PENDING_RECOVERY_ACCEPTANCE`, but that document currently contains
-`Status: PASS`. The reference-driven five-page UI acceptance remains `PENDING`
-until that stale contract is reconciled and the complete Python suite passes.
+The test still expected `PENDING_RECOVERY_ACCEPTANCE`, while the Stage 43B
+acceptance document was already `PASS`. Commit `73a7031` aligned that
+contract with the completed Stage 43B gate. The complete Python suite was then
+rerun successfully with `660 passed, 53 skipped`.
 
 ## Browser Evidence
 
