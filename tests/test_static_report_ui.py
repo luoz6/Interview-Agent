@@ -245,17 +245,48 @@ def test_interview_page_has_focus_draft_timing_and_review_contracts():
 
 def test_report_processing_page_has_runtime_hooks():
     html = read_app_file("test2.html")
+    js = read_static_file("report-processing.js")
 
     for element_id in (
-        "reportProgressBar",
         "reportProgressStatus",
+        "reportProgressText",
+        "reportProgressBar",
+        "reportStageList",
         "reportEvents",
-        "reportRagSummary",
         "reportJobId",
+        "reportPath",
+        "reportMetrics",
+        "reportRagSummary",
+        "continueInBackgroundButton",
         "viewReportButton",
+        "processingNotice",
     ):
         assert f'id="{element_id}"' in html
     assert "/static/report-processing.js" in html
+    assert "setInterval" not in js
+    assert 'window.location.href = "/reports"' in js
+    assert "if (isFailedProgress(progress))" in js
+    assert "reportResponse.status === 200" in js
+    assert "reportResponse.status >= 500" in js
+    assert "reportResponse.status === 404" not in js
+    assert "reportResponse.status !== 202" not in js
+    assert 'window.location.href = "/report-detail?session_id=" + encodeURIComponent(sessionId)' in js
+
+
+def test_report_processing_page_allowlists_paths_and_numeric_metrics():
+    html = read_app_file("test2.html")
+    js = read_static_file("report-processing.js")
+
+    assert 'microbatch: "' in js
+    assert 'full_session: "' in js
+    assert 'full_session_fallback: "' in js
+    assert 'reportPathLabels[metadata.report_path] || "Unavailable"' in js
+    assert 'typeof value === "number" && Number.isFinite(value)' in js
+    assert "if (isNumeric(metadata[key]))" in js
+    assert 'id="reportPath">Unavailable</dd>' in html
+
+    for demo_value in ("68%", "job-20250704", "服务正常", "本地数据库已连接"):
+        assert demo_value not in html
 
 
 def test_report_detail_page_has_runtime_hooks():
