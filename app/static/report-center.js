@@ -189,8 +189,8 @@ async function requeueReport(report, button) {
   setBusy([button], true);
   try {
     await postJson(`/api/interviews/${report.session_id}/report/requeue`);
-    showNotice(reportsStatus, "报告已重新进入队列", "success");
     await loadReports();
+    showNotice(reportsStatus, "报告已重新进入队列", "success");
   } catch (error) {
     showNotice(reportsStatus, requeueErrorMessage(error), "danger");
   } finally {
