@@ -165,6 +165,17 @@ class BrowserReportJobStore:
     def get_job_by_session(self, session_id: str):
         return self.jobs.get(session_id)
 
+    def requeue_failed(self, session_id: str) -> dict:
+        job = self.get_job_by_session(session_id)
+        if job is None or job.get("status") != "failed":
+            raise ValueError("report job is not failed")
+        # The test store has no public failed-to-processing transition.
+        self.store._reports.pop(session_id, None)
+        self.store.mark_report_processing(session_id)
+        job["status"] = "queued"
+        job["replay_count"] = int(job.get("replay_count", 0)) + 1
+        return dict(job)
+
 
 browser_llm = BrowserTestLLM()
 
@@ -341,9 +352,11 @@ publisher = NoopRuntimeEventPublisher()
 job_store = BrowserReportJobStore(store)
 
 original_report_job_dependency = route_module.get_report_job_store
+original_report_queue_dependency = route_module.get_report_job_queue
 app.dependency_overrides[route_module.get_session_store] = lambda: store
 app.dependency_overrides[route_module.get_event_publisher] = lambda: publisher
 app.dependency_overrides[original_report_job_dependency] = lambda: job_store
+app.dependency_overrides[original_report_queue_dependency] = lambda: job_store
 route_module.get_report_job_store = lambda: job_store
 
 

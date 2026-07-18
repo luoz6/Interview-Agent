@@ -42,6 +42,16 @@ router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 
+def get_report_job_queue():
+    try:
+        return get_report_job_store()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="report queue is unavailable",
+        ) from exc
+
+
 class PrepRequest(BaseModel):
     job_description: str
     resume_text: str
@@ -530,6 +540,56 @@ def get_interview_report_progress(
         record,
         report_job_id=_report_job_id_for_session(session_id),
     )
+
+
+@router.post(
+    "/interviews/{session_id}/report/requeue",
+    status_code=202,
+)
+def requeue_failed_report(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+    queue=Depends(get_report_job_queue),
+):
+    try:
+        store.get(session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="interview session not found",
+        ) from exc
+
+    job = queue.get_job_by_session(session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="report job not found")
+
+    status = job.get("status")
+    if status in {"queued", "retrying", "running"}:
+        raise HTTPException(
+            status_code=409,
+            detail="report job is already queued or processing",
+        )
+    if status == "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="completed report cannot be requeued",
+        )
+    if status != "failed":
+        raise HTTPException(status_code=409, detail="report job is not failed")
+
+    try:
+        queue.requeue_failed(session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="report job is not failed",
+        ) from exc
+
+    return {
+        "session_id": session_id,
+        "status": "queued",
+        "report_progress_url": f"/api/interviews/{session_id}/report/progress",
+    }
 
 
 @router.get("/interviews/{session_id}/question-evaluations")

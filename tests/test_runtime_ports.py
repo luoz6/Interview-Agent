@@ -56,6 +56,10 @@ def test_postgres_job_store_matches_report_queue_protocol_without_connecting():
     assert isinstance(queue, ReportJobQueue)
 
 
+def test_report_job_queue_requires_requeue_failed():
+    assert hasattr(ReportJobQueue, "requeue_failed")
+
+
 def test_noop_event_publisher_makes_local_v1_publisher_boundary_explicit():
     publisher = NoopRuntimeEventPublisher()
 

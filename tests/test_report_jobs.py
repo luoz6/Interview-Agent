@@ -165,6 +165,23 @@ def test_report_requeue_updates_job_and_report(stores):
     assert report["status"] == "processing"
 
 
+def test_report_requeue_rejects_second_attempt_without_mutating_replay_count(stores):
+    session_id, job_id = seed_running_report(stores)
+    stores["job_store"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+    stores["job_store"].requeue_failed(session_id)
+
+    with pytest.raises(ValueError, match="report job is not failed"):
+        stores["job_store"].requeue_failed(session_id)
+
+    job = stores["job_store"].get_job_by_session(session_id)
+    assert job["status"] == "queued"
+    assert job["replay_count"] == 1
+
+
 def test_enqueue_report_request_is_idempotent_for_same_session(stores):
     session_id = create_session(stores["session_store"])
     first = stores["job_store"].enqueue_report_request(session_id=session_id)

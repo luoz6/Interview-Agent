@@ -183,6 +183,9 @@ class ReportJobQueue(Protocol):
     def get_job_by_session(self, session_id: str) -> dict[str, Any] | None:
         ...
 
+    def requeue_failed(self, session_id: str) -> dict[str, Any]:
+        ...
+
 
 @runtime_checkable
 class RuntimeEventPublisher(Protocol):
