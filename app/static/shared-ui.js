@@ -27,7 +27,7 @@ export function setText(id, value) {
 
 export function clear(node) {
   if (node) {
-    node.innerHTML = "";
+    node.replaceChildren();
   }
 }
 
@@ -64,6 +64,19 @@ export function showNotice(node, message, type = "info") {
 export function formatPercent(value) {
   if (value === null || value === undefined) return "0%";
   return `${Math.max(0, Math.min(100, Number(value) || 0))}%`;
+}
+
+export function renderTextList(container, values, emptyMessage) {
+  clear(container);
+  if (!container) return;
+  const items = Array.isArray(values) ? values.filter(Boolean) : [];
+  if (!items.length) {
+    container.appendChild(createEl("li", "report-text-list-empty", emptyMessage));
+    return;
+  }
+  for (const value of items) {
+    container.appendChild(createEl("li", "", String(value)));
+  }
 }
 
 export function formatDuration(totalSeconds) {

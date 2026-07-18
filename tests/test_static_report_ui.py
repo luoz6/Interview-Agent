@@ -315,6 +315,109 @@ def test_report_detail_page_has_runtime_hooks():
     assert "/static/report-detail.js?v=20260710-score-cards" in html
 
 
+def test_report_detail_uses_reference_sections_and_safe_runtime_trace():
+    html = read_app_file("test1.html")
+    js = read_static_file("report-detail.js")
+    shared_js = read_static_file("shared-ui.js")
+
+    section_ids = (
+        "reportOverview",
+        "reportQuestionEvaluations",
+        "reportImprovements",
+        "reportRuntimeTrace",
+    )
+    for element_id in (
+        *section_ids,
+        "reportHighScoreCount",
+        "reportImprovementCount",
+        "reportStrengths",
+        "reportRisks",
+        "agentRunList",
+        "runtimeEventList",
+        "runtimeTraceNotice",
+    ):
+        assert f'id="{element_id}"' in html
+    for section_id in section_ids:
+        assert f'href="#{section_id}"' in html
+
+    for preserved_id in (
+        "reportStatus",
+        "reportScore",
+        "reportSummary",
+        "dimensionScores",
+        "reportHighlights",
+        "feedbackList",
+        "evidenceList",
+        "questionEvaluationStatus",
+        "questionEvaluationList",
+        "downloadReportButton",
+        "retryInterviewButton",
+        "reportCenterButton",
+        "reportNotice",
+    ):
+        assert f'id="{preserved_id}"' in html
+
+    assert "safe_metadata" not in js
+    assert "payload_json" not in js
+    assert "agent-runs?limit=100" in js
+    assert "runtime-events?limit=100" in js
+    assert js.count('from "./api.js";') == 1
+    assert "<style" not in html
+    assert "export function renderTextList(container, values, emptyMessage)" in shared_js
+    assert 'container.appendChild(createEl("li"' in shared_js
+    assert "node.replaceChildren()" in shared_js
+    assert "innerHTML" not in shared_js
+    for demo_value in (
+        "JD-20250523-Redis-001",
+        "2025-05-23 21:42",
+        "0.93",
+        "0.89",
+        "0.87",
+    ):
+        assert demo_value not in html
+
+
+def test_report_detail_declares_literal_report_layout_components():
+    css = read_static_file("prototype-source.css")
+
+    for selector in (
+        ".report-layout",
+        ".report-nav",
+        ".report-main",
+        ".score-card",
+        ".score-ring",
+        ".summary-metrics",
+        ".dimension-bars",
+        ".risk-grid",
+        ".evaluation-card",
+        ".evidence-grid",
+        ".runtime-trace-grid",
+    ):
+        assert selector in css
+
+
+def test_report_detail_text_and_scoring_evidence_are_valid_utf8():
+    html = read_app_file("test1.html")
+    js = read_static_file("report-detail.js")
+
+    for phrase in (
+        "结构化面评报告",
+        "逐题评估链路",
+        "运行轨迹",
+    ):
+        assert phrase in html
+    for phrase in (
+        "报告仍在生成中，请稍后刷新。",
+        "缺少 session_id，请从报告生成页进入。",
+        "适用维度：${dimensionText}",
+        '.join("、")',
+    ):
+        assert phrase in js
+    for corrupted in ("鎶ュ憡", "缂哄皯", "閫愰", "銆?", "锛?", "�"):
+        assert corrupted not in html
+        assert corrupted not in js
+
+
 def test_report_detail_top_score_cards_are_data_bound_not_mock_values():
     html = read_app_file("test1.html")
     js = read_static_file("report-detail.js")
@@ -507,7 +610,10 @@ def test_report_detail_uses_reference_excerpt_field():
 def test_report_detail_renders_question_evaluation_records():
     js = read_static_file("report-detail.js")
 
-    assert 'import { downloadPdf, getQuestionEvaluations, getSessionId, parseJsonResponse } from "./api.js";' in js
+    assert "downloadPdf," in js
+    assert "getJson," in js
+    assert "getQuestionEvaluations," in js
+    assert 'from "./api.js";' in js
     assert 'const questionEvaluationStatus = byId("questionEvaluationStatus")' in js
     assert 'const questionEvaluationList = byId("questionEvaluationList")' in js
     assert "function renderQuestionEvaluations(payload)" in js
