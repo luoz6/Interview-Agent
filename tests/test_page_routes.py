@@ -54,3 +54,5 @@ def test_help_route_serves_help_page():
 
     assert response.status_code == 200
     assert "帮助" in response.text
+    assert '<header class="app-topbar">' in response.text
+    assert '<a href="/help" aria-current="page">帮助</a>' in response.text

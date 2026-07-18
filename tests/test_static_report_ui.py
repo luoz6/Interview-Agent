@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -43,6 +44,78 @@ def test_shared_reference_components_are_declared():
         ".progress-track",
     ):
         assert selector in css
+
+
+def test_production_pages_share_real_http_navigation():
+    for name in (
+        "test0.html",
+        "test1.html",
+        "test2.html",
+        "test3.html",
+        "test4.html",
+        "test-help.html",
+    ):
+        html = read_app_file(name)
+        assert '<header class="app-topbar">' in html
+        assert '<a class="app-brand" href="/prep"' in html
+        assert '<nav class="app-nav" aria-label="主导航">' in html
+        assert 'href="/prep"' in html
+        assert 'href="/reports"' in html
+        assert 'href="/help"' in html
+
+    help_html = read_app_file("test-help.html")
+    assert '<a href="/help" aria-current="page">帮助</a>' in help_html
+
+
+def test_production_pages_do_not_copy_reference_demo_runtime():
+    combined = "\n".join(
+        read_app_file(name)
+        for name in (
+            "test0.html",
+            "test1.html",
+            "test2.html",
+            "test3.html",
+            "test4.html",
+            "test-help.html",
+        )
+    )
+    combined += "\n" + "\n".join(
+        read_static_file(path.name) for path in sorted(STATIC_DIR.glob("*.js"))
+    )
+
+    for forbidden in (
+        "data-view-target=",
+        "showView(",
+        "location.hash",
+        "超过候选人",
+        "如何设计一个高并发缓存系统",
+        "2026-07-17 16:25",
+        "fallback_failed",
+        "本地数据库已连接",
+    ):
+        assert forbidden not in combined
+
+    assert "full_session_fallback" in combined
+
+
+def test_production_shell_uses_bounded_radii_and_no_inline_visual_system():
+    css = read_static_file("prototype-source.css")
+    html = "\n".join(
+        read_app_file(name)
+        for name in (
+            "test0.html",
+            "test1.html",
+            "test2.html",
+            "test3.html",
+            "test4.html",
+            "test-help.html",
+        )
+    )
+
+    assert "linear-gradient" not in css
+    assert not re.search(r"border-radius:\s*(?:1[0-9]|[2-9][0-9])px", css)
+    assert "rounded-xl" not in html
+    assert "<style" not in html
 
 
 def test_four_runtime_html_pages_exist():
@@ -549,7 +622,14 @@ def test_page_scripts_use_real_api_endpoints():
 
 
 def test_runtime_pages_do_not_use_external_cdn_assets():
-    for page in ("test4.html", "test3.html", "test2.html", "test1.html", "test0.html"):
+    for page in (
+        "test4.html",
+        "test3.html",
+        "test2.html",
+        "test1.html",
+        "test0.html",
+        "test-help.html",
+    ):
         html = read_app_file(page)
 
         assert "https://cdn.tailwindcss.com" not in html
@@ -564,11 +644,11 @@ def test_old_single_page_static_assets_are_removed():
     assert not (STATIC_DIR / "styles.css").exists()
 
 
-def test_local_prototype_css_exists_and_contains_icon_fallbacks():
+def test_local_prototype_css_contains_runtime_state_styles_without_obsolete_icons():
     css = read_static_file("prototype.css")
 
-    assert ".fa-solid" in css
-    assert ".fa-regular" in css
+    assert ".fa-solid" not in css
+    assert ".fa-regular" not in css
     assert '[data-type=danger]' in css or '[data-type="danger"]' in css
     assert ".question-current" in css
     assert ".question-answered" in css
