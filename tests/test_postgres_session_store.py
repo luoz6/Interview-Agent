@@ -854,6 +854,17 @@ def test_list_reports_survives_store_reinstantiation():
     assert len(completed_reports) == 1
     assert completed_reports[0]["session_id"] == completed.session_id
     assert completed_reports[0]["record"].report.summary == "Solid interview."
+    completed_state = recovered_store.get(completed.session_id)
+    assert completed_reports[0]["session_summary"] == {
+        "job_title": completed_state["plan"].title,
+        "job_tags": completed_state["job_tags"],
+        "question_count": len(completed_state["plan"].questions),
+        "started_at": completed_state["started_at"],
+        "finished_at": completed_state["finished_at"],
+    }
+    assert "job_description" not in completed_reports[0]["session_summary"]
+    assert "resume_text" not in completed_reports[0]["session_summary"]
+    assert "messages" not in completed_reports[0]["session_summary"]
 
 
 def test_postgres_store_upserts_single_question_evaluation():

@@ -373,7 +373,21 @@ class InterviewSessionStore:
         for index, (session_id, record) in enumerate(self._reports.items()):
             if status is not None and record.status != status:
                 continue
-            items.append({"session_id": session_id, "record": record, "_index": index})
+            state = self._sessions[session_id]
+            items.append(
+                {
+                    "session_id": session_id,
+                    "record": record,
+                    "session_summary": {
+                        "job_title": state["plan"].title,
+                        "job_tags": list(state["job_tags"]),
+                        "question_count": len(state["plan"].questions),
+                        "started_at": state["started_at"],
+                        "finished_at": state["finished_at"],
+                    },
+                    "_index": index,
+                }
+            )
         items.sort(
             key=lambda item: (item["record"].created_at, item["_index"]),
             reverse=True,

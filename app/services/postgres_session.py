@@ -489,7 +489,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         where_clause = sql.SQL("")
         params: list = []
         if status is not None:
-            where_clause = sql.SQL("WHERE status = %s")
+            where_clause = sql.SQL("WHERE reports.status = %s")
             params.append(status)
         params.append(limit)
         with psycopg2.connect(self.dsn) as connection:
@@ -497,36 +497,53 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 cursor.execute(
                     sql.SQL(
                         """
-                        SELECT session_id, status, progress_json, report_json, error,
-                               created_at, completed_at, failed_at
-                        FROM {reports}
+                        SELECT reports.session_id, reports.status,
+                               reports.progress_json, reports.report_json,
+                               reports.error, reports.created_at,
+                               reports.completed_at, reports.failed_at,
+                               sessions.plan_json, sessions.job_tags,
+                               sessions.started_at, sessions.finished_at
+                        FROM {reports} AS reports
+                        LEFT JOIN {sessions} AS sessions
+                          ON sessions.session_id = reports.session_id
                         {where_clause}
-                        ORDER BY created_at DESC
+                        ORDER BY reports.created_at DESC
                         LIMIT %s
                         """
                     ).format(
                         reports=sql.Identifier(self.reports_table),
+                        sessions=sql.Identifier(self.sessions_table),
                         where_clause=where_clause,
                     ),
                     tuple(params),
                 )
                 rows = cursor.fetchall()
-        return [
-            {
-                "session_id": row[0],
-                "record": report_record_from_row(
-                    {
-                        "status": row[1],
-                        "progress_json": row[2],
-                        "report_json": row[3],
-                        "error": row[4],
-                        "created_at": self._iso_timestamp(row[5]),
-                        "finished_at": self._iso_timestamp(row[6] or row[7]),
-                    }
-                ),
-            }
-            for row in rows
-        ]
+        items = []
+        for row in rows:
+            plan = InterviewPlan.model_validate(row[8])
+            items.append(
+                {
+                    "session_id": row[0],
+                    "record": report_record_from_row(
+                        {
+                            "status": row[1],
+                            "progress_json": row[2],
+                            "report_json": row[3],
+                            "error": row[4],
+                            "created_at": self._iso_timestamp(row[5]),
+                            "finished_at": self._iso_timestamp(row[6] or row[7]),
+                        }
+                    ),
+                    "session_summary": {
+                        "job_title": plan.title,
+                        "job_tags": list(row[9]),
+                        "question_count": len(plan.questions),
+                        "started_at": self._iso_timestamp(row[10]),
+                        "finished_at": self._iso_timestamp(row[11]),
+                    },
+                }
+            )
+        return items
 
     def save_question_evaluations(
         self,

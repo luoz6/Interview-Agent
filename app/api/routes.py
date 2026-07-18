@@ -2,6 +2,7 @@ import logging
 import os
 from collections.abc import Iterator
 from copy import deepcopy
+from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -167,7 +168,11 @@ def list_reports(
     safe_limit = max(1, min(limit, 100))
     reports = store.list_reports(status=status, limit=safe_limit)
     items = [
-        _report_summary_to_dict(item["session_id"], item["record"])
+        _report_summary_to_dict(
+            item["session_id"],
+            item["record"],
+            session_summary=item["session_summary"],
+        )
         for item in reports
     ]
     return {"items": items, "total": len(items)}
@@ -567,7 +572,35 @@ def _report_job_id_for_session(session_id: str) -> str | None:
     return job.get("job_id")
 
 
-def _report_summary_to_dict(session_id: str, record) -> dict:
+_PUBLIC_REPORT_PATHS = {
+    "microbatch",
+    "full_session",
+    "full_session_fallback",
+}
+
+
+def _public_report_path(record) -> str | None:
+    metadata = record.progress.metadata if record.progress is not None else {}
+    value = metadata.get("report_path")
+    return value if value in _PUBLIC_REPORT_PATHS else None
+
+
+def _duration_seconds(summary: dict) -> int | None:
+    started_at = summary.get("started_at")
+    finished_at = summary.get("finished_at")
+    if not started_at or not finished_at:
+        return None
+    started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    finished = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+    return max(0, int((finished - started).total_seconds()))
+
+
+def _report_summary_to_dict(
+    session_id: str,
+    record,
+    *,
+    session_summary: dict,
+) -> dict:
     report = record.report
     return {
         "session_id": session_id,
@@ -578,6 +611,12 @@ def _report_summary_to_dict(session_id: str, record) -> dict:
         "summary": report.summary if report is not None else None,
         "is_fallback": report.is_fallback if report is not None else False,
         "error": record.error,
+        "job_title": session_summary.get("job_title"),
+        "job_tags": list(session_summary.get("job_tags") or []),
+        "question_count": session_summary.get("question_count"),
+        "started_at": session_summary.get("started_at"),
+        "duration_seconds": _duration_seconds(session_summary),
+        "report_path": _public_report_path(record),
         "report_url": f"/api/interviews/{session_id}/report",
         "report_pdf_url": f"/api/interviews/{session_id}/report.pdf"
         if record.status == "completed"

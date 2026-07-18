@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 import app.api.routes as route_module
@@ -315,6 +316,66 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     assert body["items"][2]["summary"] == "Completed summary."
     assert body["items"][2]["report_url"] == f"/api/interviews/{completed}/report"
     assert body["items"][2]["report_pdf_url"] == f"/api/interviews/{completed}/report.pdf"
+
+
+@pytest.mark.parametrize(
+    ("stored_path", "public_path"),
+    [
+        ("microbatch", "microbatch"),
+        ("full_session", "full_session"),
+        ("full_session_fallback", "full_session_fallback"),
+        ("fallback_failed", None),
+        (None, None),
+    ],
+)
+def test_reports_endpoint_exposes_only_safe_joined_metadata(
+    stored_path: str | None,
+    public_path: str | None,
+):
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    state = store.get(session_id)
+    state["status"] = "finished"
+    state["current_index"] = len(state["plan"].questions)
+    state["started_at"] = "2026-07-17T08:00:00Z"
+    state["finished_at"] = "2026-07-17T08:01:05Z"
+    store.mark_report_processing(session_id)
+    store.update_report_progress(
+        session_id,
+        ReportProgress(
+            stage="analyzing",
+            percent=60,
+            message="Analyzing interview evidence.",
+            metadata={"report_path": stored_path} if stored_path is not None else {},
+        ),
+    )
+    store.save_report(session_id, make_report_model(session_id))
+
+    response = client.get("/api/reports")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["job_title"] == "Backend mock interview"
+    assert item["job_tags"] == ["python", "redis"]
+    assert item["question_count"] == 1
+    assert item["started_at"] == state["started_at"]
+    assert item["duration_seconds"] == 65
+    assert item["report_path"] == public_path
+    assert "job_description" not in item
+    assert "resume_text" not in item
+    assert "messages" not in item
+
+
+def test_reports_endpoint_omits_duration_without_finished_timestamp():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+
+    response = client.get("/api/reports")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["duration_seconds"] is None
 
 
 def test_reports_endpoint_filters_status_and_limit():
