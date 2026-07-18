@@ -464,15 +464,34 @@ def test_report_detail_renders_backend_scoring_evidence():
 
 def test_report_center_page_has_runtime_hooks():
     html = read_app_file("test0.html")
+    js = read_static_file("report-center.js")
 
     for element_id in (
+        "reportOverviewTotal",
+        "reportOverviewCompleted",
+        "reportOverviewProcessing",
+        "reportOverviewFailed",
+        "reportSearch",
+        "reportDateFilter",
+        "reportsTableBody",
+        "reportsEmptyState",
+        "paginationPrevious",
+        "paginationPages",
+        "paginationNext",
         "reportsStatus",
-        "reportsList",
         "refreshReportsButton",
         "startNewInterviewButton",
     ):
         assert f'id="{element_id}"' in html
-    assert "/static/report-center.js?v=20260707-report-actions" in html
+    for status in ("all", "completed", "processing", "failed"):
+        assert f'data-report-status="{status}"' in html
+    for marker in ("pageSize: 5", "report/requeue", "downloadPdf", "created_at"):
+        assert marker in js
+
+    assert "/static/report-center.js" in html
+    assert "data-toast" not in html
+    assert "fallback_failed" not in html + js
+    assert "innerHTML" not in js
 
 
 def test_runtime_top_navigation_uses_real_routes():
@@ -767,9 +786,12 @@ def test_report_detail_action_buttons_navigate_to_prep_and_report_center():
 def test_report_center_loads_reports_and_links_to_details():
     js = read_static_file("report-center.js")
 
-    assert 'import { getJson } from "./api.js";' in js
-    assert 'getJson("/api/reports")' in js
-    assert 'function renderReports(payload)' in js
+    assert 'getJson("/api/reports?limit=100")' in js
+    assert 'function renderReportCenter()' in js
     assert '`/report-detail?session_id=${encodeURIComponent(report.session_id)}`' in js
     assert '`/report-processing?session_id=${encodeURIComponent(report.session_id)}`' in js
     assert 'window.location.href = "/prep"' in js
+    assert "matchesQuery" in js
+    assert "matchesDate" in js
+    assert "setPressed" in js
+    assert 'seconds === null || seconds === undefined || seconds === ""' in js
