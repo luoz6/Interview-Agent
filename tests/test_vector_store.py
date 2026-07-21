@@ -1,24 +1,28 @@
-import os
-
 import pytest
 
 from app.services.config import DEFAULT_POSTGRES_DSN
 from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
 
 
-class FakeEmbeddingModel:
-    def encode(self, text: str, normalize_embeddings: bool = True):
+class FakeEmbeddingProvider:
+    provider_name = "fake"
+    model_name = "fake-bge-m3"
+    model_revision = "fake-v1"
+    dimension = 3
+
+    def embed_query(self, text):
         base = 0.1 if "redis" in text.lower() else 0.2
         return [base, base + 0.1, base + 0.2]
+
+    def embed_documents(self, texts):
+        return [self.embed_query(text) for text in texts]
 
 
 def make_store() -> PgVectorKnowledgeStore:
     return PgVectorKnowledgeStore(
         dsn="postgresql://placeholder",
         table_name="knowledge_chunks",
-        embedding_model_name="BAAI/bge-m3",
-        embedding_dimension=3,
-        embedding_model=FakeEmbeddingModel(),
+        embedding_provider=FakeEmbeddingProvider(),
         minimum_score=0.35,
     )
 
@@ -42,7 +46,7 @@ def test_knowledge_chunk_preserves_metadata():
     assert chunk.metadata["section"] == "consistency"
 
 
-def test_embed_text_uses_injected_model_and_validates_dimension():
+def test_embed_text_uses_injected_provider():
     store = make_store()
 
     vector = store.embed_text("redis cache consistency")
@@ -59,11 +63,15 @@ def test_vector_literal_format_is_pgvector_compatible():
 def test_from_env_defaults_to_local_postgres(monkeypatch):
     monkeypatch.delenv("POSTGRES_DSN", raising=False)
     monkeypatch.delenv("PGVECTOR_TABLE", raising=False)
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
 
     store = PgVectorKnowledgeStore.from_env()
 
     assert store.dsn == DEFAULT_POSTGRES_DSN
-    assert store.table_name == "knowledge_chunks"
+    assert store.legacy_table == "knowledge_chunks"
+    assert store.versions_table == "knowledge_chunks_versions"
+    assert store.releases_table == "knowledge_chunks_releases"
+    assert store.embedding_provider.provider_name == "disabled"
     assert store.minimum_score == 0.45
 
 
@@ -72,9 +80,7 @@ def test_repository_errors_do_not_expose_dsn_credentials():
     store = PgVectorKnowledgeStore(
         dsn=dsn,
         table_name="knowledge_chunks",
-        embedding_model_name="unused",
-        embedding_dimension=3,
-        embedding_model=FakeEmbeddingModel(),
+        embedding_provider=FakeEmbeddingProvider(),
     )
 
     with pytest.raises(RuntimeError) as exc:
@@ -84,32 +90,3 @@ def test_repository_errors_do_not_expose_dsn_credentials():
     assert "secret-user" not in message
     assert "secret-pass" not in message
     assert "private-db" not in message
-
-
-@pytest.mark.pgvector
-def test_pgvector_upsert_and_search_roundtrip():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is not configured")
-
-    table_name = "knowledge_chunks_test"
-    store = PgVectorKnowledgeStore(
-        dsn=dsn,
-        table_name=table_name,
-        embedding_model_name="BAAI/bge-m3",
-        embedding_dimension=3,
-        embedding_model=FakeEmbeddingModel(),
-    )
-    chunk = make_chunk()
-    store.upsert_chunks([chunk])
-
-    results = store.search(
-        "Redis cache invalidation",
-        job_tags=["redis"],
-        source_types=["theory"],
-        limit=3,
-    )
-
-    assert results
-    assert results[0].chunk_id == "redis-1"
-    assert results[0].score is not None

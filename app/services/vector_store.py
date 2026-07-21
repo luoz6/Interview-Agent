@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from time import perf_counter
@@ -8,7 +9,16 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.ports.runtime import KnowledgeLookupResult, KnowledgeRepository
-from app.services.config import get_pgvector_table, get_postgres_dsn
+from app.services.config import (
+    derive_pgvector_table_names,
+    get_embedding_settings,
+    get_pgvector_table,
+    get_postgres_dsn,
+)
+from app.services.embedding_providers import (
+    build_embedding_provider,
+    validate_embedding_batch,
+)
 
 
 KnowledgeSearchStore = KnowledgeRepository
@@ -32,27 +42,26 @@ class PgVectorKnowledgeStore:
         *,
         dsn: str,
         table_name: str,
-        embedding_model_name: str,
-        embedding_dimension: int,
-        embedding_model=None,
+        embedding_provider,
         minimum_score: float = DEFAULT_KNOWLEDGE_MIN_SCORE,
     ) -> None:
         self.dsn = dsn
+        self.legacy_table = table_name
         self.table_name = table_name
-        self.embedding_model_name = embedding_model_name
-        self.embedding_dimension = embedding_dimension
-        self._embedding_model = embedding_model
+        self.versions_table, self.releases_table = derive_pgvector_table_names(table_name)
+        self.embedding_provider = embedding_provider
+        self.embedding_dimension = embedding_provider.dimension
         self.minimum_score = float(minimum_score)
         self.last_search_trace: dict[str, Any] | None = None
         self.last_lookup_trace: dict[str, Any] | None = None
 
     @classmethod
     def from_env(cls) -> "PgVectorKnowledgeStore":
+        settings = get_embedding_settings()
         return cls(
             dsn=get_postgres_dsn(),
             table_name=get_pgvector_table(),
-            embedding_model_name=os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3"),
-            embedding_dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
+            embedding_provider=build_embedding_provider(settings),
             minimum_score=float(
                 os.getenv("KNOWLEDGE_MIN_SCORE", str(DEFAULT_KNOWLEDGE_MIN_SCORE))
             ),
@@ -274,17 +283,12 @@ class PgVectorKnowledgeStore:
         return result
 
     def embed_text(self, text: str) -> list[float]:
-        model = self._get_embedding_model()
         payload = text.strip() or "general knowledge"
-        vector = model.encode(payload, normalize_embeddings=True)
-        if hasattr(vector, "tolist"):
-            vector = vector.tolist()
-        normalized = [float(value) for value in vector]
-        if len(normalized) != self.embedding_dimension:
-            raise RuntimeError(
-                f"embedding dimension mismatch: expected {self.embedding_dimension}, got {len(normalized)}"
-            )
-        return normalized
+        return validate_embedding_batch(
+            [self.embedding_provider.embed_query(payload)],
+            expected_count=1,
+            dimension=self.embedding_dimension,
+        )[0]
 
     def ensure_schema(self) -> None:
         psycopg2, _ = self._import_psycopg2()
@@ -301,23 +305,23 @@ class PgVectorKnowledgeStore:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        sql.SQL('SELECT COUNT(*) FROM {table}').format(
-                            table=sql.Identifier(self.table_name)
+                        sql.SQL(
+                            """
+                            SELECT COUNT(v.chunk_id)
+                            FROM {releases} AS r
+                            LEFT JOIN {versions} AS v
+                              ON v.corpus_version = r.corpus_version
+                            WHERE r.status = 'active'
+                            """
+                        ).format(
+                            releases=sql.Identifier(self.releases_table),
+                            versions=sql.Identifier(self.versions_table),
                         )
                     )
                     row = cursor.fetchone()
         except Exception as exc:
             raise RuntimeError('pgvector knowledge store is unavailable') from exc
         return int(row[0]) if row is not None else 0
-
-    def _get_embedding_model(self):
-        if self._embedding_model is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise RuntimeError("sentence-transformers is required") from exc
-            self._embedding_model = SentenceTransformer(self.embedding_model_name)
-        return self._embedding_model
 
     def _ensure_schema(self, connection) -> None:
         _, sql = self._import_psycopg2()
@@ -327,8 +331,46 @@ class PgVectorKnowledgeStore:
             cursor.execute(
                 sql.SQL(
                     """
-                    CREATE TABLE IF NOT EXISTS {table} (
-                        chunk_id TEXT PRIMARY KEY,
+                    CREATE TABLE IF NOT EXISTS {releases} (
+                        corpus_version TEXT PRIMARY KEY,
+                        manifest_sha256 TEXT NOT NULL,
+                        embedding_provider TEXT NOT NULL,
+                        embedding_model TEXT NOT NULL,
+                        embedding_revision TEXT NOT NULL,
+                        embedding_dimension INTEGER NOT NULL
+                            CHECK (embedding_dimension > 0),
+                        chunk_count INTEGER NOT NULL CHECK (chunk_count >= 0),
+                        status TEXT NOT NULL
+                            CHECK (status IN ('staged', 'active', 'retired')),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        activated_at TIMESTAMPTZ
+                    )
+                    """
+                ).format(releases=sql.Identifier(self.releases_table))
+            )
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS {index_name}
+                    ON {releases} ((1)) WHERE status = 'active'
+                    """
+                ).format(
+                    index_name=sql.Identifier(self._index_name("one_active")),
+                    releases=sql.Identifier(self.releases_table),
+                )
+            )
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS {versions} (
+                        corpus_version TEXT NOT NULL
+                            REFERENCES {releases}(corpus_version) ON DELETE RESTRICT,
+                        chunk_id TEXT NOT NULL,
+                        content_sha256 TEXT NOT NULL,
+                        embedding_provider TEXT NOT NULL,
+                        embedding_model TEXT NOT NULL,
+                        embedding_revision TEXT NOT NULL,
+                        embedding_dimension INTEGER NOT NULL,
                         title TEXT NOT NULL,
                         content TEXT NOT NULL,
                         source_type TEXT NOT NULL,
@@ -337,30 +379,236 @@ class PgVectorKnowledgeStore:
                         metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                         embedding VECTOR({dimension}) NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        PRIMARY KEY (corpus_version, chunk_id)
                     )
                     """
                 ).format(
-                    table=sql.Identifier(self.table_name),
+                    versions=sql.Identifier(self.versions_table),
+                    releases=sql.Identifier(self.releases_table),
                     dimension=dimension_sql,
                 )
             )
             cursor.execute(
                 sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {index_name} ON {table} USING GIN (tags)"
+                    """
+                    CREATE INDEX IF NOT EXISTS {index_name}
+                    ON {versions} (corpus_version, source_type)
+                    """
                 ).format(
-                    index_name=sql.Identifier(f"{self.table_name}_tags_gin"),
-                    table=sql.Identifier(self.table_name),
+                    index_name=sql.Identifier(self._index_name("source")),
+                    versions=sql.Identifier(self.versions_table),
                 )
             )
             cursor.execute(
                 sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {index_name} ON {table} (source_type)"
+                    """
+                    CREATE INDEX IF NOT EXISTS {index_name}
+                    ON {versions} USING GIN (tags)
+                    """
                 ).format(
-                    index_name=sql.Identifier(f"{self.table_name}_source_type_idx"),
-                    table=sql.Identifier(self.table_name),
+                    index_name=sql.Identifier(self._index_name("tags")),
+                    versions=sql.Identifier(self.versions_table),
                 )
             )
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS {index_name}
+                    ON {versions} (
+                        content_sha256,
+                        embedding_provider,
+                        embedding_model,
+                        embedding_revision,
+                        embedding_dimension
+                    )
+                    """
+                ).format(
+                    index_name=sql.Identifier(self._index_name("reuse")),
+                    versions=sql.Identifier(self.versions_table),
+                )
+            )
+
+    def migrate_legacy_rows(self) -> int:
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with psycopg2.connect(self.dsn) as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT to_regclass(%s)", (f"public.{self.legacy_table}",))
+                    if cursor.fetchone()[0] is None:
+                        return 0
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, title, content, source_type, domain,
+                                   tags, metadata, embedding::text
+                            FROM {legacy}
+                            ORDER BY chunk_id
+                            """
+                        ).format(legacy=sql.Identifier(self.legacy_table))
+                    )
+                    source_rows = cursor.fetchall()
+                    if not source_rows:
+                        return 0
+
+                    prepared = self._prepare_legacy_rows(source_rows)
+                    manifest_sha256 = self._legacy_manifest_sha256(prepared)
+                    identity = (
+                        manifest_sha256,
+                        "legacy-unknown",
+                        "legacy-unknown",
+                        "legacy-stage42-v1",
+                        self.embedding_dimension,
+                        len(prepared),
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT manifest_sha256, embedding_provider,
+                                   embedding_model, embedding_revision,
+                                   embedding_dimension, chunk_count
+                            FROM {releases}
+                            WHERE corpus_version = %s
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table)),
+                        ("legacy-stage42-v1",),
+                    )
+                    existing = cursor.fetchone()
+                    if existing is not None and tuple(existing) != identity:
+                        raise ValueError("legacy corpus identity conflict")
+                    if existing is None:
+                        cursor.execute(
+                            sql.SQL(
+                                """
+                                INSERT INTO {releases} (
+                                    corpus_version, manifest_sha256,
+                                    embedding_provider, embedding_model,
+                                    embedding_revision, embedding_dimension,
+                                    chunk_count, status
+                                )
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, 'retired')
+                                """
+                            ).format(releases=sql.Identifier(self.releases_table)),
+                            ("legacy-stage42-v1", *identity),
+                        )
+
+                    insert_statement = sql.SQL(
+                        """
+                        INSERT INTO {versions} (
+                            corpus_version, chunk_id, content_sha256,
+                            embedding_provider, embedding_model,
+                            embedding_revision, embedding_dimension,
+                            title, content, source_type, domain, tags,
+                            metadata, embedding
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::vector
+                        )
+                        ON CONFLICT (corpus_version, chunk_id) DO NOTHING
+                        """
+                    ).format(versions=sql.Identifier(self.versions_table))
+                    for row in prepared:
+                        cursor.execute(insert_statement, row["insert_values"])
+
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, content_sha256,
+                                   embedding_provider, embedding_model,
+                                   embedding_revision, embedding_dimension
+                            FROM {versions}
+                            WHERE corpus_version = %s
+                            ORDER BY chunk_id
+                            """
+                        ).format(versions=sql.Identifier(self.versions_table)),
+                        ("legacy-stage42-v1",),
+                    )
+                    persisted = cursor.fetchall()
+                    expected = [row["verification"] for row in prepared]
+                    if [tuple(row) for row in persisted] != expected:
+                        raise ValueError("legacy corpus identity conflict")
+                    return len(prepared)
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+
+    def _prepare_legacy_rows(self, source_rows) -> list[dict[str, Any]]:
+        prepared: list[dict[str, Any]] = []
+        for row in source_rows:
+            tags = self._coerce_json_value(row[5], default=[])
+            metadata = self._coerce_json_value(row[6], default={})
+            content = str(row[2])
+            source_content_sha256 = self._content_sha256(content)
+            mapped_hash = metadata.get("content_sha256")
+            content_sha256 = (
+                mapped_hash.strip()
+                if isinstance(mapped_hash, str) and mapped_hash.strip()
+                else source_content_sha256
+            )
+            metadata = {**metadata, "content_sha256": content_sha256}
+            vector = [float(value) for value in json.loads(row[7])]
+            if len(vector) != self.embedding_dimension:
+                raise ValueError("legacy corpus identity conflict")
+            chunk_id = str(row[0])
+            prepared.append(
+                {
+                    "source_identity": {
+                        "chunk_id": chunk_id,
+                        "source_content_sha256": source_content_sha256,
+                        "content_sha256": content_sha256,
+                        "embedding_dimension": len(vector),
+                    },
+                    "insert_values": (
+                        "legacy-stage42-v1",
+                        chunk_id,
+                        content_sha256,
+                        "legacy-unknown",
+                        "legacy-unknown",
+                        "legacy-stage42-v1",
+                        self.embedding_dimension,
+                        row[1],
+                        content,
+                        row[3],
+                        row[4],
+                        json.dumps(tags, ensure_ascii=False),
+                        json.dumps(metadata, ensure_ascii=False),
+                        self._to_vector_literal(vector),
+                    ),
+                    "verification": (
+                        chunk_id,
+                        content_sha256,
+                        "legacy-unknown",
+                        "legacy-unknown",
+                        "legacy-stage42-v1",
+                        self.embedding_dimension,
+                    ),
+                }
+            )
+        return prepared
+
+    @staticmethod
+    def _legacy_manifest_sha256(prepared: list[dict[str, Any]]) -> str:
+        payload = [row["source_identity"] for row in prepared]
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _content_sha256(content: str) -> str:
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def _index_name(self, purpose: str) -> str:
+        digest = hashlib.sha256(
+            f"{self.versions_table}:{purpose}".encode("ascii")
+        ).hexdigest()[:12]
+        return f"knowledge_{purpose}_{digest}"
 
     def _chunk_embedding_text(self, chunk: KnowledgeChunk) -> str:
         return f"{chunk.title}\n{chunk.content}"

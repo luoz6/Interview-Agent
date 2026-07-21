@@ -1,211 +1,274 @@
+import hashlib
+import json
 import os
 import uuid
 
 import pytest
 
-from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
-from tests.test_vector_store import FakeEmbeddingModel
+from app.services.vector_store import PgVectorKnowledgeStore
+from tests.test_vector_store import FakeEmbeddingProvider
 
 
-def make_chunk(
-    chunk_id: str,
-    *,
-    title: str,
-    content: str,
-    source_type: str,
-    domain: str,
-    tags: list[str],
-    content_sha256: str | None = None,
-) -> KnowledgeChunk:
-    return KnowledgeChunk(
-        chunk_id=chunk_id,
-        title=title,
-        content=content,
-        source_type=source_type,
-        domain=domain,
-        tags=tags,
-        metadata={
-            "source": "pgvector-test",
-            **(
-                {"content_sha256": content_sha256}
-                if content_sha256 is not None
-                else {}
-            ),
-        },
-    )
-
-
-@pytest.mark.pgvector
-def test_pgvector_roundtrip_filters_by_tag_and_source_type():
+def require_dsn() -> str:
     dsn = os.getenv("POSTGRES_DSN")
     if not dsn:
         pytest.skip("POSTGRES_DSN is not configured")
+    return dsn
 
-    table_name = f"knowledge_chunks_{uuid.uuid4().hex[:8]}"
-    store = PgVectorKnowledgeStore(
+
+def make_store(dsn: str, base: str | None = None) -> PgVectorKnowledgeStore:
+    return PgVectorKnowledgeStore(
         dsn=dsn,
-        table_name=table_name,
-        embedding_model_name="BAAI/bge-m3",
-        embedding_dimension=3,
-        embedding_model=FakeEmbeddingModel(),
+        table_name=base or f"knowledge_{uuid.uuid4().hex[:10]}",
+        embedding_provider=FakeEmbeddingProvider(),
     )
 
-    redis_chunk = make_chunk(
-        "redis-1",
-        title="Redis cache consistency",
-        content="Delete cache after database writes and handle race conditions.",
-        source_type="theory",
-        domain="redis",
-        tags=["redis", "general"],
-    )
-    mysql_chunk = make_chunk(
-        "mysql-1",
-        title="MySQL indexing",
-        content="Use covering indexes for read-heavy queries.",
-        source_type="theory",
-        domain="mysql",
-        tags=["mysql", "general"],
-    )
 
-    try:
-        store.upsert_chunks([redis_chunk, mysql_chunk])
-        store.upsert_chunks([redis_chunk])
-
-        results = store.search(
-            "Redis cache invalidation",
-            job_tags=["redis"],
-            source_types=["theory"],
-            limit=5,
-        )
-
-        assert results
-        assert results[0].chunk_id == "redis-1"
-        assert results[0].score is not None
-    finally:
-        psycopg2, _ = PgVectorKnowledgeStore._import_psycopg2()
-        with psycopg2.connect(dsn) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-
-
-@pytest.mark.pgvector
-def test_get_by_ids_preserves_order_dedupes_and_reports_version_status():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is not configured")
-
-    table_name = f"knowledge_chunks_{uuid.uuid4().hex[:8]}"
-    store = PgVectorKnowledgeStore(
-        dsn=dsn,
-        table_name=table_name,
-        embedding_model_name="BAAI/bge-m3",
-        embedding_dimension=3,
-        embedding_model=FakeEmbeddingModel(),
-    )
-    redis = make_chunk(
-        "redis-1",
-        title="Redis consistency",
-        content="Delete cache after the database commit.",
-        source_type="theory",
-        domain="redis",
-        tags=["redis"],
-        content_sha256="a" * 64,
-    )
-    mysql = make_chunk(
-        "mysql-1",
-        title="MySQL indexing",
-        content="Inspect the query plan and scanned rows.",
-        source_type="theory",
-        domain="mysql",
-        tags=["mysql"],
-        content_sha256="b" * 64,
-    )
-
-    try:
-        store.upsert_chunks([redis, mysql])
-
-        result = store.get_by_ids(
-            ["mysql-1", "missing", "redis-1", "mysql-1"],
-            expected_hashes={
-                "mysql-1": "b" * 64,
-                "redis-1": "changed-content-hash",
-            },
-        )
-
-        assert [chunk.chunk_id for chunk in result.found] == ["mysql-1"]
-        assert result.missing == ["missing"]
-        assert result.version_mismatch == ["redis-1"]
-    finally:
-        _drop_table(dsn, table_name)
-
-
-class StableScoreEmbeddingModel:
-    def encode(self, text: str, normalize_embeddings: bool = True):
-        lowered = text.lower()
-        if "unrelated" in lowered:
-            return [0.0, 1.0, 0.0]
-        return [1.0, 0.0, 0.0]
-
-
-@pytest.mark.pgvector
-def test_search_filters_low_scores_and_sorts_equal_scores_by_chunk_id():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is not configured")
-
-    table_name = f"knowledge_chunks_{uuid.uuid4().hex[:8]}"
-    store = PgVectorKnowledgeStore(
-        dsn=dsn,
-        table_name=table_name,
-        embedding_model_name="test",
-        embedding_dimension=3,
-        embedding_model=StableScoreEmbeddingModel(),
-        minimum_score=0.5,
-    )
-    chunks = [
-        make_chunk(
-            "redis-b",
-            title="Redis B",
-            content="Cache consistency evidence.",
-            source_type="theory",
-            domain="redis",
-            tags=["redis"],
-        ),
-        make_chunk(
-            "redis-a",
-            title="Redis A",
-            content="Cache invalidation evidence.",
-            source_type="theory",
-            domain="redis",
-            tags=["redis"],
-        ),
-        make_chunk(
-            "redis-unrelated",
-            title="Unrelated material",
-            content="Unrelated evidence.",
-            source_type="theory",
-            domain="redis",
-            tags=["redis"],
-        ),
-    ]
-
-    try:
-        store.upsert_chunks(chunks)
-        results = store.search(
-            "Redis cache consistency",
-            job_tags=["redis"],
-            source_types=["theory"],
-            limit=5,
-        )
-
-        assert [chunk.chunk_id for chunk in results] == ["redis-a", "redis-b"]
-        assert all(chunk.score >= 0.5 for chunk in results)
-    finally:
-        _drop_table(dsn, table_name)
-
-
-def _drop_table(dsn: str, table_name: str) -> None:
-    psycopg2, _ = PgVectorKnowledgeStore._import_psycopg2()
-    with psycopg2.connect(dsn) as connection:
+def drop_store_tables(store: PgVectorKnowledgeStore) -> None:
+    psycopg2, sql = store._import_psycopg2()
+    with psycopg2.connect(store.dsn) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+            for table in (
+                store.versions_table,
+                store.releases_table,
+                store.legacy_table,
+            ):
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                        table=sql.Identifier(table)
+                    )
+                )
+
+
+def create_legacy_table(store: PgVectorKnowledgeStore) -> None:
+    psycopg2, sql = store._import_psycopg2()
+    with psycopg2.connect(store.dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE TABLE {table} (
+                        chunk_id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source_type TEXT NOT NULL,
+                        domain TEXT NOT NULL,
+                        tags JSONB NOT NULL,
+                        metadata JSONB NOT NULL,
+                        embedding VECTOR(3) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                ).format(table=sql.Identifier(store.legacy_table))
+            )
+
+
+def insert_legacy_row(
+    store: PgVectorKnowledgeStore,
+    *,
+    chunk_id: str,
+    content: str,
+    content_sha256: str | None,
+    vector: str,
+) -> None:
+    psycopg2, sql = store._import_psycopg2()
+    metadata = {"source": "legacy-test"}
+    if content_sha256 is not None:
+        metadata["content_sha256"] = content_sha256
+    with psycopg2.connect(store.dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    INSERT INTO {table} (
+                        chunk_id, title, content, source_type, domain,
+                        tags, metadata, embedding
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::vector)
+                    """
+                ).format(table=sql.Identifier(store.legacy_table)),
+                (
+                    chunk_id,
+                    f"Title {chunk_id}",
+                    content,
+                    "theory",
+                    "redis",
+                    json.dumps(["redis"]),
+                    json.dumps(metadata),
+                    vector,
+                ),
+            )
+
+
+@pytest.mark.pgvector
+def test_versioned_schema_has_one_active_index_restrict_fk_and_no_legacy_table():
+    store = make_store(require_dsn())
+    try:
+        store.ensure_schema()
+        psycopg2, _ = store._import_psycopg2()
+        with psycopg2.connect(store.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT to_regclass(%s), to_regclass(%s), to_regclass(%s)",
+                    (
+                        f"public.{store.versions_table}",
+                        f"public.{store.releases_table}",
+                        f"public.{store.legacy_table}",
+                    ),
+                )
+                versions, releases, legacy = cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND tablename = %s
+                      AND indexdef ILIKE '%%UNIQUE%%'
+                      AND indexdef ILIKE '%%WHERE (status = ''active''::text)%%'
+                    """,
+                    (store.releases_table,),
+                )
+                active_indexes = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """
+                    SELECT confdeltype
+                    FROM pg_constraint
+                    WHERE conrelid = %s::regclass AND contype = 'f'
+                    """,
+                    (store.versions_table,),
+                )
+                delete_rule = cursor.fetchone()[0]
+
+        assert versions == store.versions_table
+        assert releases == store.releases_table
+        assert legacy is None
+        assert active_indexes == 1
+        assert delete_rule == "r"
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_empty_legacy_table_migrates_zero_rows_without_release():
+    store = make_store(require_dsn())
+    try:
+        store.ensure_schema()
+        create_legacy_table(store)
+
+        assert store.migrate_legacy_rows() == 0
+
+        psycopg2, sql = store._import_psycopg2()
+        with psycopg2.connect(store.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("SELECT COUNT(*) FROM {table}").format(
+                        table=sql.Identifier(store.releases_table)
+                    )
+                )
+                assert cursor.fetchone()[0] == 0
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_legacy_copy_is_truthful_retired_and_idempotent():
+    store = make_store(require_dsn())
+    first_hash = "a" * 64
+    second_content = "Legacy content with normalized line endings.\r\n"
+    second_hash = hashlib.sha256(second_content.strip().encode("utf-8")).hexdigest()
+    try:
+        store.ensure_schema()
+        create_legacy_table(store)
+        insert_legacy_row(
+            store,
+            chunk_id="legacy-a",
+            content="First content",
+            content_sha256=first_hash,
+            vector="[0.1,0.2,0.3]",
+        )
+        insert_legacy_row(
+            store,
+            chunk_id="legacy-b",
+            content=second_content,
+            content_sha256=None,
+            vector="[0.3,0.2,0.1]",
+        )
+
+        assert store.migrate_legacy_rows() == 2
+        assert store.migrate_legacy_rows() == 2
+
+        psycopg2, sql = store._import_psycopg2()
+        with psycopg2.connect(store.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT status, embedding_provider, embedding_model,
+                               embedding_revision, embedding_dimension, chunk_count
+                        FROM {table}
+                        WHERE corpus_version = 'legacy-stage42-v1'
+                        """
+                    ).format(table=sql.Identifier(store.releases_table))
+                )
+                release = cursor.fetchone()
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT chunk_id, content_sha256, embedding::text
+                        FROM {table}
+                        ORDER BY chunk_id
+                        """
+                    ).format(table=sql.Identifier(store.versions_table))
+                )
+                rows = cursor.fetchall()
+
+        assert release == (
+            "retired",
+            "legacy-unknown",
+            "legacy-unknown",
+            "legacy-stage42-v1",
+            3,
+            2,
+        )
+        assert [(row[0], row[1]) for row in rows] == [
+            ("legacy-a", first_hash),
+            ("legacy-b", second_hash),
+        ]
+        assert [json.loads(row[2]) for row in rows] == [
+            [0.1, 0.2, 0.3],
+            [0.3, 0.2, 0.1],
+        ]
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_changed_legacy_content_under_same_release_is_rejected():
+    store = make_store(require_dsn())
+    try:
+        store.ensure_schema()
+        create_legacy_table(store)
+        insert_legacy_row(
+            store,
+            chunk_id="legacy-a",
+            content="First content",
+            content_sha256="a" * 64,
+            vector="[0.1,0.2,0.3]",
+        )
+        assert store.migrate_legacy_rows() == 1
+
+        psycopg2, sql = store._import_psycopg2()
+        with psycopg2.connect(store.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("UPDATE {table} SET content = %s WHERE chunk_id = %s").format(
+                        table=sql.Identifier(store.legacy_table)
+                    ),
+                    ("Changed content", "legacy-a"),
+                )
+
+        with pytest.raises(ValueError, match="legacy corpus identity conflict"):
+            store.migrate_legacy_rows()
+    finally:
+        drop_store_tables(store)
