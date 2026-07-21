@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from time import perf_counter
 from typing import Any
+import unicodedata
 
 from pydantic import BaseModel
 
@@ -24,6 +26,76 @@ from app.services.embedding_providers import (
 KnowledgeSearchStore = KnowledgeRepository
 DEFAULT_KNOWLEDGE_MIN_SCORE = 0.45
 
+_ENGLISH_TECHNICAL_TERM = re.compile(r"[a-z0-9]+(?:\+\+|#)?")
+_CJK_TERM = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,}")
+_TECHNICAL_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "for",
+    "with",
+    "how",
+    "what",
+    "why",
+}
+
+
+def _normalize_technical_terms(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    english = {
+        term
+        for term in _ENGLISH_TECHNICAL_TERM.findall(normalized)
+        if term not in _TECHNICAL_STOPWORDS
+    }
+    return english | set(_CJK_TERM.findall(normalized))
+
+
+def _rerank_chunks(
+    chunks: list["KnowledgeChunk"],
+    *,
+    query_text: str,
+    requested_tags: list[str],
+    minimum_score: float,
+    limit: int,
+) -> list["KnowledgeChunk"]:
+    terms = _normalize_technical_terms(query_text)
+    boost_tags = {
+        tag.strip().casefold()
+        for tag in requested_tags
+        if tag and tag.strip() and tag.strip().casefold() != "general"
+    }
+    ranked: list[KnowledgeChunk] = []
+    for chunk in chunks:
+        raw_aliases = chunk.metadata.get("aliases", [])
+        if isinstance(raw_aliases, str):
+            aliases = [raw_aliases]
+        elif isinstance(raw_aliases, list):
+            aliases = [alias for alias in raw_aliases if isinstance(alias, str)]
+        else:
+            aliases = []
+        searchable = _normalize_technical_terms(" ".join([chunk.title, *aliases]))
+        exact_boost = 0.06 if terms & searchable else 0.0
+        metadata_values = {
+            chunk.domain.casefold(),
+            *(tag.casefold() for tag in chunk.tags),
+        }
+        tag_boost = 0.04 if boost_tags & metadata_values else 0.0
+        final_score = min(
+            1.0,
+            max(0.0, float(chunk.score or 0.0) + exact_boost + tag_boost),
+        )
+        if final_score >= minimum_score:
+            ranked.append(chunk.model_copy(update={"score": final_score}))
+    return sorted(
+        ranked,
+        key=lambda item: (-float(item.score or 0.0), item.chunk_id),
+    )[: max(0, int(limit))]
+
 
 class KnowledgeChunk(BaseModel):
     chunk_id: str
@@ -32,7 +104,7 @@ class KnowledgeChunk(BaseModel):
     source_type: str
     domain: str
     tags: list[str]
-    metadata: dict[str, str | int | float | bool | None]
+    metadata: dict[str, Any]
     score: float | None = None
 
 
@@ -82,10 +154,10 @@ class PgVectorKnowledgeStore:
         query_embedding = self.embed_text(query_text)
         vector_literal = self._to_vector_literal(query_embedding)
 
-        clauses: list[Any] = []
+        clauses: list[Any] = [sql.SQL("r.status = 'active'")]
         params: list[Any] = []
         if normalized_sources:
-            clauses.append(sql.SQL("source_type = ANY(%s)"))
+            clauses.append(sql.SQL("v.source_type = ANY(%s)"))
             params.append(normalized_sources)
         if normalized_tags:
             clauses.append(
@@ -93,7 +165,7 @@ class PgVectorKnowledgeStore:
                     """
                     EXISTS (
                         SELECT 1
-                        FROM jsonb_array_elements_text(tags) AS tag(value)
+                        FROM jsonb_array_elements_text(v.tags) AS tag(value)
                         WHERE tag.value = ANY(%s)
                     )
                     """
@@ -102,50 +174,87 @@ class PgVectorKnowledgeStore:
             params.append(normalized_tags)
 
         where_sql = (
-            sql.SQL("WHERE ") + sql.SQL(" AND ").join(clauses) if clauses else sql.SQL("")
+            sql.SQL("WHERE ") + sql.SQL(" AND ").join(clauses)
         )
+        candidate_limit = max(12, int(limit))
         statement = sql.SQL(
             """
             SELECT
-                chunk_id,
-                title,
-                content,
-                source_type,
-                domain,
-                tags,
-                metadata,
-                1 - (embedding <=> %s::vector) AS score
-            FROM {table}
+                v.chunk_id,
+                v.title,
+                v.content,
+                v.source_type,
+                v.domain,
+                v.tags,
+                v.metadata,
+                1 - (v.embedding <=> %s::vector) AS score,
+                r.corpus_version,
+                r.manifest_sha256
+            FROM {releases} AS r
+            JOIN {versions} AS v ON v.corpus_version = r.corpus_version
             {where_sql}
-            ORDER BY embedding <=> %s::vector, chunk_id ASC
+            ORDER BY v.embedding <=> %s::vector, v.chunk_id ASC
             LIMIT %s
             """
         ).format(
-            table=sql.Identifier(self.table_name),
+            releases=sql.Identifier(self.releases_table),
+            versions=sql.Identifier(self.versions_table),
             where_sql=where_sql,
         )
 
+        corpus_version = None
         try:
             with psycopg2.connect(self.dsn) as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
-                    cursor.execute(statement, [vector_literal, *params, vector_literal, limit])
-                    rows = cursor.fetchall()
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT corpus_version
+                            FROM {releases}
+                            WHERE status = 'active'
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table))
+                    )
+                    active_row = cursor.fetchone()
+                    if active_row is None:
+                        rows = []
+                    else:
+                        corpus_version = active_row[0]
+                        cursor.execute(
+                            statement,
+                            [
+                                vector_literal,
+                                *params,
+                                vector_literal,
+                                candidate_limit,
+                            ],
+                        )
+                        rows = cursor.fetchall()
         except Exception as exc:
             raise RuntimeError("pgvector knowledge store is unavailable") from exc
 
-        results: list[KnowledgeChunk] = []
-        seen_ids: set[str] = set()
+        candidates: list[KnowledgeChunk] = []
         for row in rows:
             chunk = self._row_to_chunk(row)
-            if chunk.chunk_id in seen_ids:
-                continue
-            if chunk.score is None or chunk.score < self.minimum_score:
-                continue
-            seen_ids.add(chunk.chunk_id)
-            results.append(chunk)
-        results.sort(key=lambda chunk: (-float(chunk.score or 0.0), chunk.chunk_id))
+            chunk.metadata = {
+                **chunk.metadata,
+                "corpus_manifest_sha256": row[9],
+            }
+            candidates.append(chunk)
+        results = _rerank_chunks(
+            candidates,
+            query_text=query_text,
+            requested_tags=normalized_tags,
+            minimum_score=self.minimum_score,
+            limit=limit,
+        )
         self.last_search_trace = {
+            "provider_name": self.embedding_provider.provider_name,
+            "model_name": self.embedding_provider.model_name,
+            "model_revision": self.embedding_provider.model_revision,
+            "corpus_version": corpus_version,
+            "candidate_count": len(candidates),
             "latency_ms": round((perf_counter() - started_at) * 1000, 3),
             "filters": {
                 "job_tags": normalized_tags,
@@ -154,6 +263,7 @@ class PgVectorKnowledgeStore:
                 "limit": limit,
             },
             "hit_ids": [chunk.chunk_id for chunk in results],
+            "scores": [round(float(chunk.score or 0.0), 6) for chunk in results],
         }
         return results
 
@@ -180,18 +290,31 @@ class PgVectorKnowledgeStore:
         statement = sql.SQL(
             """
             SELECT
-                chunk_id,
-                title,
-                content,
-                source_type,
-                domain,
-                tags,
-                metadata,
-                NULL::DOUBLE PRECISION AS score
-            FROM {table}
-            WHERE chunk_id = ANY(%s)
+                v.chunk_id,
+                v.title,
+                v.content,
+                v.source_type,
+                v.domain,
+                v.tags,
+                v.metadata,
+                NULL::DOUBLE PRECISION AS score,
+                v.content_sha256,
+                r.manifest_sha256,
+                r.status
+            FROM {versions} AS v
+            JOIN {releases} AS r ON r.corpus_version = v.corpus_version
+            WHERE v.chunk_id = ANY(%s)
+            ORDER BY
+                v.chunk_id,
+                (r.status = 'active') DESC,
+                r.activated_at DESC NULLS LAST,
+                r.created_at DESC,
+                v.created_at DESC
             """
-        ).format(table=sql.Identifier(self.table_name))
+        ).format(
+            versions=sql.Identifier(self.versions_table),
+            releases=sql.Identifier(self.releases_table),
+        )
 
         try:
             with psycopg2.connect(self.dsn) as connection:
@@ -202,19 +325,39 @@ class PgVectorKnowledgeStore:
         except Exception as exc:
             raise RuntimeError("pgvector knowledge store is unavailable") from exc
 
-        by_id = {row[0]: self._row_to_chunk(row) for row in rows}
+        rows_by_id: dict[str, list[Any]] = {}
+        for row in rows:
+            rows_by_id.setdefault(row[0], []).append(row)
         expected = expected_hashes or {}
         result = KnowledgeLookupResult()
         for chunk_id in requested:
-            chunk = by_id.get(chunk_id)
-            if chunk is None:
+            candidates = rows_by_id.get(chunk_id, [])
+            if not candidates:
                 result.missing.append(chunk_id)
                 continue
             expected_hash = expected.get(chunk_id)
-            actual_hash = chunk.metadata.get("content_sha256")
-            if expected_hash is not None and actual_hash != expected_hash:
+            if expected_hash is not None:
+                selected = next(
+                    (row for row in candidates if row[8] == expected_hash),
+                    None,
+                )
+            else:
+                selected = next(
+                    (row for row in candidates if row[10] == "active"),
+                    None,
+                )
+            if selected is None and expected_hash is not None:
                 result.version_mismatch.append(chunk_id)
                 continue
+            if selected is None:
+                result.missing.append(chunk_id)
+                continue
+            chunk = self._row_to_chunk(selected)
+            chunk.metadata = {
+                **chunk.metadata,
+                "content_sha256": selected[8],
+                "corpus_manifest_sha256": selected[9],
+            }
             result.found.append(chunk)
 
         self.last_lookup_trace = {
@@ -225,6 +368,9 @@ class PgVectorKnowledgeStore:
             "version_mismatch_ids": result.version_mismatch,
         }
         return result
+
+    def warm_embedding(self, text: str) -> list[float]:
+        return self.embedding_provider.embed_query(text.strip() or "general knowledge")
 
     def embed_text(self, text: str) -> list[float]:
         payload = text.strip() or "general knowledge"

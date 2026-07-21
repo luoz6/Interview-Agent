@@ -106,9 +106,19 @@ def evaluate_knowledge_retrieval(
 
     metrics = calculate_knowledge_retrieval_metrics(dataset, observations)
     corpus_hash = next(iter(manifest_hashes)) if len(manifest_hashes) == 1 else ""
+    provider = getattr(repository, "embedding_provider", None)
+    active_version = getattr(repository, "get_active_corpus_version", None)
+    try:
+        corpus_version = active_version() if callable(active_version) else ""
+    except Exception:
+        corpus_version = ""
     return {
         "dataset_version": dataset.version,
         "corpus_manifest_sha256": corpus_hash,
+        "provider": getattr(provider, "provider_name", ""),
+        "model": getattr(provider, "model_name", ""),
+        "model_revision": getattr(provider, "model_revision", ""),
+        "corpus_version": corpus_version or "",
         "warmup_ms": warmup_ms,
         "metrics": metrics.model_dump(mode="json"),
         "cases": case_results,
@@ -121,6 +131,10 @@ def write_evaluation_result(result: dict, output_path: Path | str) -> None:
         for key in (
             "dataset_version",
             "corpus_manifest_sha256",
+            "provider",
+            "model",
+            "model_revision",
+            "corpus_version",
             "warmup_ms",
             "metrics",
             "cases",
@@ -136,11 +150,11 @@ def write_evaluation_result(result: dict, output_path: Path | str) -> None:
 
 
 def _warm_repository(repository) -> float:
-    embed_text = getattr(repository, "embed_text", None)
-    if not callable(embed_text):
+    warm_embedding = getattr(repository, "warm_embedding", None)
+    if not callable(warm_embedding):
         return 0.0
     started_at = perf_counter()
-    embed_text("knowledge retrieval warmup")
+    warm_embedding("knowledge retrieval warmup")
     return round((perf_counter() - started_at) * 1000, 3)
 
 

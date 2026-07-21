@@ -17,12 +17,25 @@ def require_dsn() -> str:
     return dsn
 
 
-def make_store(dsn: str, base: str | None = None) -> PgVectorKnowledgeStore:
+def make_store(
+    dsn: str,
+    base: str | None = None,
+    provider=None,
+) -> PgVectorKnowledgeStore:
     return PgVectorKnowledgeStore(
         dsn=dsn,
         table_name=base or f"knowledge_{uuid.uuid4().hex[:10]}",
-        embedding_provider=FakeEmbeddingProvider(),
+        embedding_provider=provider or FakeEmbeddingProvider(),
     )
+
+
+class CountingEmbeddingProvider(FakeEmbeddingProvider):
+    def __init__(self):
+        self.query_calls = 0
+
+    def embed_query(self, text):
+        self.query_calls += 1
+        return super().embed_query(text)
 
 
 def drop_store_tables(store: PgVectorKnowledgeStore) -> None:
@@ -402,5 +415,130 @@ def test_activation_conflict_rolls_back_and_new_release_retires_old_without_dele
             ("stage44a-v2", "active"),
         ]
         assert retained_rows == 2
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_search_reads_active_release_fetches_twelve_and_returns_five():
+    provider = CountingEmbeddingProvider()
+    store = make_store(require_dsn(), provider=provider)
+    try:
+        store.activate_corpus(
+            corpus_version="stage44a-v1",
+            manifest_sha256="1" * 64,
+            provider=provider,
+            chunks=[make_prepared("retired-only", "0" * 64)],
+        )
+        active_chunks = [
+            make_prepared(
+                f"redis-{index:02d}",
+                f"{index:064x}",
+                [0.1, 0.2, 0.3],
+            )
+            for index in range(13)
+        ]
+        store.activate_corpus(
+            corpus_version="stage44a-v2",
+            manifest_sha256="2" * 64,
+            provider=provider,
+            chunks=active_chunks,
+        )
+
+        results = store.search(
+            "redis consistency",
+            job_tags=["redis"],
+            source_types=["theory"],
+            limit=5,
+        )
+
+        assert [chunk.chunk_id for chunk in results] == [
+            "redis-00",
+            "redis-01",
+            "redis-02",
+            "redis-03",
+            "redis-04",
+        ]
+        assert "retired-only" not in {chunk.chunk_id for chunk in results}
+        assert provider.query_calls == 1
+        assert store.last_search_trace["corpus_version"] == "stage44a-v2"
+        assert store.last_search_trace["candidate_count"] == 12
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_general_filter_fallback_does_not_earn_canonical_tag_boost():
+    provider = CountingEmbeddingProvider()
+    store = make_store(require_dsn(), provider=provider)
+    prepared = make_prepared("fallback", "f" * 64, [0.1, 0.2, 0.3])
+    prepared.chunk.tags[:] = ["general"]
+    prepared.chunk.domain = "general"
+    prepared.chunk.title = "Fallback material"
+    try:
+        store.activate_corpus(
+            corpus_version="stage44a-v1",
+            manifest_sha256="1" * 64,
+            provider=provider,
+            chunks=[prepared],
+        )
+
+        results = store.search(
+            "unmatched",
+            job_tags=["unknown"],
+            limit=5,
+        )
+
+        query = [0.2, 0.3, 0.4]
+        vector = [0.1, 0.2, 0.3]
+        dense = sum(a * b for a, b in zip(query, vector)) / (
+            sum(a * a for a in query) ** 0.5 * sum(b * b for b in vector) ** 0.5
+        )
+        assert len(results) == 1
+        assert results[0].score == pytest.approx(dense)
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_historical_lookup_uses_expected_hash_and_never_embeds():
+    provider = CountingEmbeddingProvider()
+    store = make_store(require_dsn(), provider=provider)
+    old = make_prepared("redis-a", "a" * 64)
+    new = make_prepared("redis-a", "b" * 64)
+    new.chunk.content = "New active content"
+    try:
+        store.activate_corpus(
+            corpus_version="stage44a-v1",
+            manifest_sha256="1" * 64,
+            provider=provider,
+            chunks=[old],
+        )
+        store.activate_corpus(
+            corpus_version="stage44a-v2",
+            manifest_sha256="2" * 64,
+            provider=provider,
+            chunks=[new],
+        )
+
+        historical = store.get_by_ids(
+            ["redis-a"],
+            expected_hashes={"redis-a": "a" * 64},
+        )
+        active = store.get_by_ids(["redis-a"])
+        mismatch = store.get_by_ids(
+            ["redis-a"],
+            expected_hashes={"redis-a": "c" * 64},
+        )
+        missing = store.get_by_ids(["absent"])
+
+        assert historical.found[0].content == "Content redis-a"
+        assert historical.missing == []
+        assert historical.version_mismatch == []
+        assert active.found[0].content == "New active content"
+        assert mismatch.version_mismatch == ["redis-a"]
+        assert mismatch.missing == []
+        assert missing.missing == ["absent"]
+        assert provider.query_calls == 0
     finally:
         drop_store_tables(store)
