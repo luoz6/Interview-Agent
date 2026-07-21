@@ -73,6 +73,13 @@ $env:OPENAI_MODEL="deepseek-chat"
 
 The code reads `OPENAI_API_KEY` even when the provider is DeepSeek-compatible. For DeepSeek, get the key from `platform.deepseek.com` and put that value in `OPENAI_API_KEY`. Do not store real keys in git.
 
+Remote embeddings are opt-in. `EMBEDDING_PROVIDER=disabled` is the default, so
+Prep uses its existing degraded knowledge path and does not download a local embedding model.
+Before enabling SiliconFlow after any credential exposure,
+rotate the SiliconFlow key and set `SILICONFLOW_API_KEY` only through a secure
+local process environment. The provider uses `BAAI/bge-m3`; the key must never
+be written to `.env`, logs, screenshots, or Git.
+
 ## Install
 
 ```powershell
@@ -82,11 +89,24 @@ npm ci
 
 ## Load Knowledge
 
+Use the existing `interview` PostgreSQL database and its pgvector extension;
+do not create another database or container. Enable SiliconFlow explicitly,
+set a release-specific model revision, and run versioned ingestion:
+the module entry point is implemented in `scripts/load_knowledge.py`.
+
 ```powershell
-python scripts/load_knowledge.py
+$env:EMBEDDING_PROVIDER="siliconflow"
+$env:EMBEDDING_MODEL_NAME="BAAI/bge-m3"
+$env:EMBEDDING_MODEL_REVISION="siliconflow-bge-m3-20260721"
+# Set SILICONFLOW_API_KEY through a secure local mechanism without displaying it.
+python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 ```
 
-Expected result: `knowledge_chunks` contains theory and expert benchmark chunks, with 1024-dimension embeddings.
+Expected result: one complete 25-unit release becomes active in
+`knowledge_chunks_versions`/`knowledge_chunks_releases`. Activation is atomic;
+provider or validation failure leaves the previous active release unchanged.
+Reviewer `get_by_ids()` makes no embedding call and can replay retained evidence
+by its bound content hash.
 
 ## Start
 

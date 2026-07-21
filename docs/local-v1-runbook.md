@@ -56,35 +56,48 @@ $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
 ```
 
+Remote embeddings are explicitly disabled by default:
+
+```text
+EMBEDDING_PROVIDER=disabled
+```
+
+This mode keeps Prep's degraded knowledge fallback available and does not download a local embedding model.
+Before a SiliconFlow run, rotate the SiliconFlow key
+and supply `SILICONFLOW_API_KEY` only through a secure local process environment.
+Never place the value in `.env`, logs, screenshots, or Git.
+
 ## 3. Database Check
 
+Use the existing `interview` PostgreSQL database; do not create a new database
+or container. The read-only check validates pgvector, the runtime tables, both
+derived knowledge tables, and the active release:
+
 ```powershell
-@'
-import psycopg2
-conn = psycopg2.connect("postgresql://postgres:postgres@127.0.0.1:5432/interview")
-cur = conn.cursor()
-cur.execute("select current_database(), current_user")
-print(cur.fetchone())
-cur.execute("select extname from pg_extension where extname='vector'")
-print(cur.fetchone())
-cur.execute("select count(*) from knowledge_chunks")
-print(cur.fetchone())
-conn.close()
-'@ | python -
+python -m scripts.init_local_runtime --check
 ```
 
 Expected:
 
 - Database is `interview`.
 - Current user is `postgres`.
-- Extension row is `('vector',)`.
-- `knowledge_chunks` count is greater than zero.
+- `vector_extension` is `true`.
+- `required_knowledge_tables` contains the versions and releases tables.
+- `knowledge_corpus_version` is the active release, or `null` before ingestion.
 
-If `knowledge_chunks` is empty, run:
+To activate the Stage 44A corpus, configure the non-secret provider identity,
+set the rotated key securely, and run:
 
 ```powershell
-python scripts/load_knowledge.py
+$env:EMBEDDING_PROVIDER="siliconflow"
+$env:EMBEDDING_MODEL_NAME="BAAI/bge-m3"
+$env:EMBEDDING_MODEL_REVISION="siliconflow-bge-m3-20260721"
+# Set SILICONFLOW_API_KEY through a secure local mechanism without displaying it.
+python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 ```
+
+The loader prepares all vectors before the activation transaction. Reviewer `get_by_ids()` makes no embedding call
+and resolves bound historical evidence by content hash.
 
 ## 4. Start Server And Report Worker
 
@@ -246,8 +259,8 @@ Keep the run directory, `metrics.json`, attempt artifacts, traces, hashes, model
 | Symptom | Check |
 | --- | --- |
 | Plan falls back to generic questions | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` |
-| Report fails with knowledge store unavailable | `POSTGRES_DSN`, pgvector extension, and `knowledge_chunks` count |
-| First report generation is slow | SentenceTransformer model loading and embedding cache warm-up |
+| Report fails with knowledge store unavailable | `POSTGRES_DSN`, pgvector extension, derived tables, and active corpus version |
+| Knowledge retrieval is degraded | `EMBEDDING_PROVIDER`, active corpus version, and SiliconFlow availability |
 | Static page is unstyled | Run `npm run build:prototype-css` |
 | Browser cannot find session | Confirm URL contains `session_id` and runtime store did not reset |
 
@@ -270,8 +283,9 @@ python -m scripts.audit_stage40_artifacts
 ```
 
 `python -m scripts.init_local_runtime --check` is read-only. Use
-`python -m scripts.init_local_runtime --seed-knowledge` only when the knowledge
-table must be loaded. Use a unique `INTERVIEW_RUNTIME_TABLE_PREFIX` and
+`python -m scripts.init_local_runtime --seed-knowledge --corpus-version stage44a-bge-m3-v1`
+only when the knowledge corpus must be loaded. Use a unique
+`INTERVIEW_RUNTIME_TABLE_PREFIX` and
 `PGVECTOR_TABLE` for acceptance runs.
 
 The optional Redis/Celery profile requires both the Redis data-path smoke and a

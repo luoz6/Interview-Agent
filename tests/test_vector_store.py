@@ -1,3 +1,8 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 import pytest
 
 from app.services.config import DEFAULT_POSTGRES_DSN
@@ -194,3 +199,47 @@ def test_repository_errors_do_not_expose_dsn_credentials():
     assert "secret-user" not in message
     assert "secret-pass" not in message
     assert "private-db" not in message
+
+
+def test_runtime_has_no_local_embedding_dependency():
+    vector_source = Path("app/services/vector_store.py").read_text(encoding="utf-8")
+    requirements = Path("requirements.txt").read_text(encoding="utf-8")
+
+    assert "sentence_transformers" not in vector_source
+    assert "sentence-transformers" not in requirements
+    assert "langchain-huggingface" not in requirements
+
+
+def test_disabled_provider_constructs_without_adapter_import_or_model_cache(tmp_path):
+    cache = tmp_path / "model-cache"
+    cache.mkdir()
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "EMBEDDING_PROVIDER": "disabled",
+            "HF_HOME": str(cache),
+            "TRANSFORMERS_CACHE": str(cache),
+            "SENTENCE_TRANSFORMERS_HOME": str(cache),
+        }
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from app.services.vector_store import PgVectorKnowledgeStore; "
+                "store = PgVectorKnowledgeStore.from_env(); "
+                "print(store.embedding_provider.provider_name); "
+                "print('app.services.siliconflow_embeddings' in sys.modules)"
+            ),
+        ],
+        cwd=Path.cwd(),
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.splitlines() == ["disabled", "False"]
+    assert list(cache.iterdir()) == []

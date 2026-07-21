@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,27 @@ def test_env_example_documents_local_v1_runtime():
     assert "OPENAI_REPORT_OUTPUT_MODE=structured_first" in env
     assert "AGENT_TRACE_DIR=" in env
     assert "DEEPSEEK_API_KEY" not in env
+
+
+def test_docs_define_remote_embedding_enablement_without_local_model_or_secret():
+    env = read_text(".env.example")
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    assert "EMBEDDING_PROVIDER=disabled" in env
+    assert "SILICONFLOW_API_KEY=" in env
+    for document in (readme, runbook):
+        assert "EMBEDDING_PROVIDER=disabled" in document
+        assert "SILICONFLOW_API_KEY" in document
+        assert "rotate the SiliconFlow key" in document
+        assert "does not download a local embedding model" in document
+        assert (
+            "python -m scripts.load_knowledge --corpus-version "
+            "stage44a-bge-m3-v1"
+        ) in document
+        assert "existing `interview` PostgreSQL database" in document
+        assert "Reviewer `get_by_ids()` makes no embedding call" in document
+        assert re.search(r"sk-[A-Za-z0-9_-]{8,}", document) is None
 
 
 def test_docs_describe_stage43a_agent_runtime_audit():
