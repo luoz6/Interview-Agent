@@ -308,6 +308,30 @@ test("report detail renders only safe runtime trace fields and no percentile cla
   await expect(page.locator("body")).not.toContainText("payload_json");
 });
 
+test("report detail tracks exactly one current section while scrolling", async ({ page, request }) => {
+  const sessionId = await createCompletedReport(request);
+  await page.goto(`/report-detail?session_id=${sessionId}`);
+  const currentLink = page.locator('.report-nav [aria-current="location"]');
+
+  await expect(currentLink).toHaveCount(1);
+  await expect(currentLink).toHaveAttribute("href", "#reportOverview");
+  await page.locator("#reportQuestionEvaluations").scrollIntoViewIfNeeded();
+  await expect(currentLink).toHaveCount(1);
+  await expect(currentLink).toHaveAttribute("href", "#reportQuestionEvaluations");
+});
+
+test("reduced motion disables the page shell reveal", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/prep");
+  const motion = await page.locator(".prep-main").evaluate((element) => {
+    const styles = getComputedStyle(element);
+    return { animationName: styles.animationName, transform: styles.transform };
+  });
+
+  expect(motion.animationName).toBe("none");
+  expect(motion.transform).toBe("none");
+});
+
 test("five reference pages stay nonempty and bounded at desktop viewports", async ({ page, request }, testInfo) => {
   const activeSessionId = await createSession(request);
   const processing = await seedReport(request, "processing");
