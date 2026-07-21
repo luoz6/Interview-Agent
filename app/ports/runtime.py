@@ -15,6 +15,20 @@ class RuntimeLLMProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    provider_name: str
+    model_name: str
+    model_revision: str
+    dimension: int
+
+    def embed_query(self, text: str) -> list[float]:
+        ...
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        ...
+
+
 @dataclass
 class KnowledgeLookupResult:
     found: list[Any] = field(default_factory=list)

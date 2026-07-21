@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 import os
+import re
 
 
 DEFAULT_POSTGRES_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/interview"
@@ -7,6 +9,20 @@ DEFAULT_RUNTIME_TABLE_PREFIX = "interview"
 DEFAULT_PGVECTOR_TABLE = "knowledge_chunks"
 DEFAULT_RUNTIME_EVENT_BACKEND = "local"
 DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0"
+
+_PG_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    provider_name: str
+    api_base: str
+    model_name: str
+    model_revision: str
+    dimension: int
+    batch_size: int
+    connect_timeout_seconds: float
+    read_timeout_seconds: float
 
 
 def get_postgres_dsn() -> str:
@@ -23,7 +39,43 @@ def get_runtime_table_prefix() -> str:
 
 
 def get_pgvector_table() -> str:
-    return os.getenv("PGVECTOR_TABLE", DEFAULT_PGVECTOR_TABLE).strip() or DEFAULT_PGVECTOR_TABLE
+    base = os.getenv("PGVECTOR_TABLE", DEFAULT_PGVECTOR_TABLE).strip() or DEFAULT_PGVECTOR_TABLE
+    derive_pgvector_table_names(base)
+    return base
+
+
+def derive_pgvector_table_names(base: str) -> tuple[str, str]:
+    versions = f"{base}_versions"
+    releases = f"{base}_releases"
+    if not _PG_IDENTIFIER.fullmatch(base):
+        raise ValueError("PGVECTOR_TABLE must be a valid PostgreSQL identifier")
+    if max(len(versions.encode("ascii")), len(releases.encode("ascii"))) > 63:
+        raise ValueError("PGVECTOR_TABLE is too long for derived tables")
+    return versions, releases
+
+
+def get_embedding_settings() -> EmbeddingSettings:
+    provider = os.getenv("EMBEDDING_PROVIDER", "disabled").strip().lower() or "disabled"
+    if provider not in {"disabled", "siliconflow"}:
+        raise ValueError("EMBEDDING_PROVIDER must be disabled or siliconflow")
+    return EmbeddingSettings(
+        provider_name=provider,
+        api_base=os.getenv(
+            "EMBEDDING_API_BASE", "https://api.siliconflow.cn/v1"
+        ).strip().rstrip("/"),
+        model_name=os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3").strip(),
+        model_revision=os.getenv(
+            "EMBEDDING_MODEL_REVISION", "siliconflow-current"
+        ).strip(),
+        dimension=_positive_int("EMBEDDING_DIMENSION", 1024),
+        batch_size=_positive_int("EMBEDDING_BATCH_SIZE", 32),
+        connect_timeout_seconds=_positive_float(
+            "EMBEDDING_CONNECT_TIMEOUT_SECONDS", 5.0
+        ),
+        read_timeout_seconds=_positive_float(
+            "EMBEDDING_READ_TIMEOUT_SECONDS", 30.0
+        ),
+    )
 
 
 def get_runtime_event_backend() -> str:

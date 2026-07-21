@@ -1,4 +1,5 @@
 from app.ports.runtime import (
+    EmbeddingProvider,
     InterviewSessionRepository,
     KnowledgeRepository,
     QuestionEvaluationRepository,
@@ -25,6 +26,7 @@ def test_runtime_protocols_are_runtime_checkable():
         InterviewSessionRepository,
         ReportJobQueue,
         KnowledgeRepository,
+        EmbeddingProvider,
         RuntimeLLMProvider,
         RuntimeEventPublisher,
     ):
