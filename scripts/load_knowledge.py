@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 import sys
 import json
@@ -8,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore, get_knowledge_store
+from app.services.knowledge_ingestion import KnowledgeCorpusIngestor, IngestionSummary
 
 
 KNOWLEDGE_ROOT = Path("app/data/knowledge")
@@ -17,11 +19,15 @@ def iter_markdown_files(knowledge_root: Path | str = KNOWLEDGE_ROOT) -> list[Pat
     return sorted(Path(knowledge_root).rglob("*.md"))
 
 
-def build_chunks(knowledge_root: Path | str = KNOWLEDGE_ROOT) -> list[KnowledgeChunk]:
+def build_chunks(
+    knowledge_root: Path | str = KNOWLEDGE_ROOT,
+    *,
+    manifest: dict | None = None,
+) -> list[KnowledgeChunk]:
     from scripts.build_knowledge_manifest import build_manifest
 
     root = Path(knowledge_root)
-    manifest = build_manifest(root)
+    manifest = manifest or build_manifest(root)
     manifest_by_id = {item["chunk_id"]: item for item in manifest["chunks"]}
     chunks: list[KnowledgeChunk] = []
     for path in iter_markdown_files(root):
@@ -169,16 +175,37 @@ def resolve_store(store: PgVectorKnowledgeStore | None = None) -> PgVectorKnowle
         raise RuntimeError("POSTGRES_DSN is required to load knowledge into pgvector") from exc
 
 
-def load_knowledge(store: PgVectorKnowledgeStore | None = None) -> dict[str, int]:
-    chunks = build_chunks()
-    store = resolve_store(store)
-    store.upsert_chunks(chunks)
-    return {"discovered": len(chunks), "upserted": len(chunks)}
+def load_knowledge(
+    *,
+    store: PgVectorKnowledgeStore | None = None,
+    corpus_version: str,
+    knowledge_root: Path | str = KNOWLEDGE_ROOT,
+) -> IngestionSummary:
+    from scripts.build_knowledge_manifest import build_manifest
+
+    root = Path(knowledge_root)
+    manifest = build_manifest(root, corpus_version=corpus_version)
+    chunks = build_chunks(root, manifest=manifest)
+    resolved_store = resolve_store(store)
+    ingestor = KnowledgeCorpusIngestor(
+        store=resolved_store,
+        provider=resolved_store.embedding_provider,
+    )
+    return ingestor.ingest(chunks=chunks, manifest=manifest)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Load a versioned knowledge corpus")
+    parser.add_argument("--corpus-version", required=True)
+    parser.add_argument("--knowledge-root", default=str(KNOWLEDGE_ROOT))
+    args = parser.parse_args(argv)
+    summary = load_knowledge(
+        corpus_version=args.corpus_version,
+        knowledge_root=args.knowledge_root,
+    )
+    print(summary.model_dump_json())
+    return 0
 
 
 if __name__ == "__main__":
-    summary = load_knowledge()
-    print(
-        f"Discovered {summary['discovered']} knowledge chunks and upserted "
-        f"{summary['upserted']} rows."
-    )
+    raise SystemExit(main())

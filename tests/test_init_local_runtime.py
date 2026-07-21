@@ -29,6 +29,9 @@ class FakeKnowledgeStore:
     def count_chunks(self):
         return getattr(self, "count", 0)
 
+    def get_active_corpus_version(self):
+        return getattr(self, "active_version", None)
+
 
 def test_knowledge_helpers_support_current_pgvector_private_schema_boundary():
     class Cursor:
@@ -84,15 +87,18 @@ def test_initialize_runtime_reports_all_tables_without_seeding():
     ]
     assert result["knowledge_table"] == "knowledge_stage41"
     assert result["knowledge_chunks"] == 0
+    assert result["knowledge_corpus_version"] is None
     assert result["seeded"] is False
 
 
 def test_initialize_runtime_seeds_knowledge_idempotently():
     knowledge = FakeKnowledgeStore()
+    received_versions = []
 
-    def seed(store):
+    def seed(*, store, corpus_version):
+        received_versions.append(corpus_version)
         store.count = 10
-        return {"discovered": 10, "upserted": 10}
+        store.active_version = corpus_version
 
     first = initialize_runtime(
         session_store=FakeSessionStore(),
@@ -100,6 +106,7 @@ def test_initialize_runtime_seeds_knowledge_idempotently():
         knowledge_store=knowledge,
         seed_knowledge=True,
         seed_loader=seed,
+        corpus_version="stage44a-bge-m3-v1",
     )
     second = initialize_runtime(
         session_store=FakeSessionStore(),
@@ -107,11 +114,28 @@ def test_initialize_runtime_seeds_knowledge_idempotently():
         knowledge_store=knowledge,
         seed_knowledge=True,
         seed_loader=seed,
+        corpus_version="stage44a-bge-m3-v1",
     )
 
     assert first["knowledge_chunks"] == 10
     assert second["knowledge_chunks"] == 10
     assert first["seeded"] is True
+    assert first["knowledge_corpus_version"] == "stage44a-bge-m3-v1"
+    assert received_versions == ["stage44a-bge-m3-v1", "stage44a-bge-m3-v1"]
+
+
+def test_initialize_runtime_requires_version_when_seeding():
+    try:
+        initialize_runtime(
+            session_store=FakeSessionStore(),
+            job_store=FakeJobStore(),
+            knowledge_store=FakeKnowledgeStore(),
+            seed_knowledge=True,
+        )
+    except ValueError as exc:
+        assert "corpus_version" in str(exc)
+    else:
+        raise AssertionError("expected corpus_version requirement")
 
 
 class VersionedReadOnlyConnection:

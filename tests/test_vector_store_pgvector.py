@@ -5,7 +5,8 @@ import uuid
 
 import pytest
 
-from app.services.vector_store import PgVectorKnowledgeStore
+from app.services.knowledge_ingestion import PreparedKnowledgeChunk
+from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
 from tests.test_vector_store import FakeEmbeddingProvider
 
 
@@ -99,6 +100,22 @@ def insert_legacy_row(
                     vector,
                 ),
             )
+
+
+def make_prepared(chunk_id: str, content_hash: str, vector=None):
+    return PreparedKnowledgeChunk(
+        chunk=KnowledgeChunk(
+            chunk_id=chunk_id,
+            title=f"Title {chunk_id}",
+            content=f"Content {chunk_id}",
+            source_type="theory",
+            domain="redis",
+            tags=["redis"],
+            metadata={"content_sha256": content_hash},
+        ),
+        content_sha256=content_hash,
+        embedding=vector or [0.1, 0.2, 0.3],
+    )
 
 
 @pytest.mark.pgvector
@@ -270,5 +287,120 @@ def test_changed_legacy_content_under_same_release_is_rejected():
 
         with pytest.raises(ValueError, match="legacy corpus identity conflict"):
             store.migrate_legacy_rows()
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_activation_is_idempotent_and_reuses_only_exact_identity_and_hash():
+    store = make_store(require_dsn())
+    chunks = [
+        make_prepared("redis-a", "a" * 64, [0.1, 0.2, 0.3]),
+        make_prepared("redis-b", "b" * 64, [0.3, 0.2, 0.1]),
+    ]
+    try:
+        store.activate_corpus(
+            corpus_version="stage44a-v1",
+            manifest_sha256="1" * 64,
+            provider=store.embedding_provider,
+            chunks=chunks,
+        )
+        store.activate_corpus(
+            corpus_version="stage44a-v1",
+            manifest_sha256="1" * 64,
+            provider=store.embedding_provider,
+            chunks=chunks,
+        )
+
+        reusable = store.find_reusable_embeddings(
+            [item.chunk for item in chunks],
+            provider_name="fake",
+            model_name="fake-bge-m3",
+            model_revision="fake-v1",
+            dimension=3,
+        )
+        changed = make_prepared("redis-a", "c" * 64).chunk
+        changed_reusable = store.find_reusable_embeddings(
+            [changed, chunks[1].chunk],
+            provider_name="fake",
+            model_name="fake-bge-m3",
+            model_revision="fake-v1",
+            dimension=3,
+        )
+        wrong_model = store.find_reusable_embeddings(
+            [item.chunk for item in chunks],
+            provider_name="fake",
+            model_name="different-model",
+            model_revision="fake-v1",
+            dimension=3,
+        )
+
+        assert store.get_active_corpus_version() == "stage44a-v1"
+        assert store.count_chunks() == 2
+        assert reusable == {
+            "redis-a": pytest.approx([0.1, 0.2, 0.3]),
+            "redis-b": pytest.approx([0.3, 0.2, 0.1]),
+        }
+        assert set(changed_reusable) == {"redis-b"}
+        assert wrong_model == {}
+    finally:
+        drop_store_tables(store)
+
+
+@pytest.mark.pgvector
+def test_activation_conflict_rolls_back_and_new_release_retires_old_without_deleting():
+    store = make_store(require_dsn())
+    v1_chunks = [make_prepared("redis-a", "a" * 64)]
+    try:
+        store.activate_corpus(
+            corpus_version="stage44a-v1",
+            manifest_sha256="1" * 64,
+            provider=store.embedding_provider,
+            chunks=v1_chunks,
+        )
+
+        with pytest.raises(ValueError, match="corpus version identity conflict"):
+            store.activate_corpus(
+                corpus_version="stage44a-v1",
+                manifest_sha256="2" * 64,
+                provider=store.embedding_provider,
+                chunks=[make_prepared("redis-a", "changed")],
+            )
+
+        assert store.get_active_corpus_version() == "stage44a-v1"
+        assert store.count_chunks() == 1
+
+        store.activate_corpus(
+            corpus_version="stage44a-v2",
+            manifest_sha256="3" * 64,
+            provider=store.embedding_provider,
+            chunks=[make_prepared("redis-b", "b" * 64)],
+        )
+
+        psycopg2, sql = store._import_psycopg2()
+        with psycopg2.connect(store.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT corpus_version, status
+                        FROM {releases}
+                        ORDER BY corpus_version
+                        """
+                    ).format(releases=sql.Identifier(store.releases_table))
+                )
+                releases = cursor.fetchall()
+                cursor.execute(
+                    sql.SQL("SELECT COUNT(*) FROM {versions}").format(
+                        versions=sql.Identifier(store.versions_table)
+                    )
+                )
+                retained_rows = int(cursor.fetchone()[0])
+
+        assert releases == [
+            ("stage44a-v1", "retired"),
+            ("stage44a-v2", "active"),
+        ]
+        assert retained_rows == 2
     finally:
         drop_store_tables(store)

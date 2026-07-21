@@ -117,10 +117,13 @@ def initialize_runtime(
     knowledge_store,
     seed_knowledge: bool,
     seed_loader=load_knowledge,
+    corpus_version: str | None = None,
 ) -> dict:
     knowledge_store.ensure_schema()
     if seed_knowledge:
-        seed_loader(knowledge_store)
+        if not corpus_version:
+            raise ValueError("corpus_version is required when seeding knowledge")
+        seed_loader(store=knowledge_store, corpus_version=corpus_version)
     runtime_tables = list(session_store.list_runtime_tables())
     if job_store.jobs_table not in runtime_tables:
         runtime_tables.append(job_store.jobs_table)
@@ -128,6 +131,7 @@ def initialize_runtime(
         "runtime_tables": runtime_tables,
         "knowledge_table": knowledge_store.table_name,
         "knowledge_chunks": knowledge_store.count_chunks(),
+        "knowledge_corpus_version": knowledge_store.get_active_corpus_version(),
         "seeded": seed_knowledge,
     }
 
@@ -145,6 +149,7 @@ def build_runtime_components():
 def main() -> int:
     parser = argparse.ArgumentParser(description="Initialize Local V1 PostgreSQL runtime")
     parser.add_argument("--seed-knowledge", action="store_true")
+    parser.add_argument("--corpus-version")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     try:
@@ -163,6 +168,7 @@ def main() -> int:
                 job_store=job_store,
                 knowledge_store=knowledge_store,
                 seed_knowledge=args.seed_knowledge,
+                corpus_version=args.corpus_version,
             )
     except Exception as exc:
         print(json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False))
