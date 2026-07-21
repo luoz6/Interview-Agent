@@ -102,6 +102,37 @@ def test_embedding_numeric_settings_must_be_positive(monkeypatch, name, value):
 
     with pytest.raises(ValueError, match=name):
         get_embedding_settings()
+
+
+def test_pgvector_derived_table_names_are_valid_and_bounded():
+    from app.services.config import derive_pgvector_table_names
+
+    assert derive_pgvector_table_names("knowledge_chunks") == (
+        "knowledge_chunks_versions",
+        "knowledge_chunks_releases",
+    )
+    versions, releases = derive_pgvector_table_names("x" * 54)
+    assert len(versions.encode("ascii")) == 63
+    assert len(releases.encode("ascii")) == 63
+
+
+@pytest.mark.parametrize(
+    "base",
+    ["", "9invalid", "contains-dash", "知识", "x" * 55],
+)
+def test_pgvector_table_rejects_invalid_or_overlong_derived_names(base):
+    from app.services.config import derive_pgvector_table_names
+
+    with pytest.raises(ValueError, match="PGVECTOR_TABLE"):
+        derive_pgvector_table_names(base)
+
+
+def test_get_pgvector_table_validates_derived_names(monkeypatch):
+    from app.services.config import get_pgvector_table
+
+    monkeypatch.setenv("PGVECTOR_TABLE", "x" * 55)
+    with pytest.raises(ValueError, match="PGVECTOR_TABLE"):
+        get_pgvector_table()
 ```
 
 Create `tests/test_embedding_providers.py`:
@@ -185,6 +216,7 @@ out of it:
 
 ```python
 from dataclasses import dataclass
+import re
 
 
 @dataclass(frozen=True)
@@ -222,6 +254,28 @@ def get_embedding_settings() -> EmbeddingSettings:
         ),
     )
 ```
+
+Add one shared identifier helper to the same module. The longest suffix is nine
+ASCII bytes, so a valid base is at most 54 bytes:
+
+```python
+_PG_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def derive_pgvector_table_names(base: str) -> tuple[str, str]:
+    versions = f"{base}_versions"
+    releases = f"{base}_releases"
+    if not _PG_IDENTIFIER.fullmatch(base):
+        raise ValueError("PGVECTOR_TABLE must be a valid PostgreSQL identifier")
+    if max(len(versions.encode("ascii")), len(releases.encode("ascii"))) > 63:
+        raise ValueError("PGVECTOR_TABLE is too long for derived tables")
+    return versions, releases
+```
+
+`get_pgvector_table()` must call `derive_pgvector_table_names(base)` before
+returning the base value. `PgVectorKnowledgeStore` and
+`scripts.init_local_runtime` must import this helper instead of defining their
+own regex or silently relying on PostgreSQL identifier truncation.
 
 Create `app/services/embedding_providers.py` with stable non-secret errors,
 validation, and a disabled provider:
@@ -578,9 +632,34 @@ test:
 6. changed legacy content under the same migration identity fails;
 7. copied legacy release is `retired`, never active.
 
-Add failing `test_init_local_runtime.py` cases proving `--check` derives
-`{knowledge_table}_versions` and `{knowledge_table}_releases`, does not require
-the legacy base table, and reports the count belonging to the active release.
+Add failing `test_init_local_runtime.py` cases with exact result assertions:
+
+```python
+def test_check_runtime_uses_versioned_tables_and_active_release_only():
+    result = check_runtime(
+        dsn="postgresql://example",
+        table_prefix="stage44",
+        knowledge_table="knowledge_stage44",
+        connect=VersionedReadOnlyConnection,
+    )
+
+    assert result["initialized"] is True
+    assert result["knowledge_table"] == "knowledge_stage44"
+    assert result["knowledge_corpus_version"] == "stage44a-bge-m3-v1"
+    assert result["knowledge_chunks"] == 25
+    assert result["required_knowledge_tables"] == [
+        "knowledge_stage44_versions",
+        "knowledge_stage44_releases",
+    ]
+```
+
+The fake read-only connection returns runtime tables plus the two derived
+tables, one active release row `("stage44a-bge-m3-v1", 25)`, and captures every
+statement. Assert none contains `CREATE`, `ALTER`, `INSERT`, `UPDATE`, or
+`DELETE`. Add separate cases for no active release (`version=None`, count 0),
+missing derived table (`initialized=False`), a 55-character base name
+(`ValueError`), and a legacy base table being absent while initialization still
+succeeds.
 
 Use safe psycopg2 SQL composition in test setup/cleanup; do not interpolate a
 DSN or secret into assertion messages.
@@ -613,8 +692,7 @@ Change `PgVectorKnowledgeStore.__init__` to accept `embedding_provider` and set:
 self.embedding_provider = embedding_provider
 self.embedding_dimension = embedding_provider.dimension
 self.legacy_table = table_name
-self.versions_table = f"{table_name}_versions"
-self.releases_table = f"{table_name}_releases"
+self.versions_table, self.releases_table = derive_pgvector_table_names(table_name)
 ```
 
 Replace `_ensure_schema()` with versioned DDL equivalent to:
@@ -666,12 +744,13 @@ GIN(tags)
  embedding_revision, embedding_dimension)
 ```
 
-Update `scripts/init_local_runtime.check_runtime()` to treat the derived
+Update `scripts/init_local_runtime.check_runtime()` to call
+`derive_pgvector_table_names()` and treat the derived
 versions/releases tables as the required knowledge schema. Count chunks with a
 read-only join on the active release. Continue returning `knowledge_table` as
 the configured base name for operator clarity, and add `knowledge_corpus_version`
-to the result. The read-only check must issue no CREATE/ALTER/write statement
-and must not require the legacy base table.
+and `required_knowledge_tables` to the result. The read-only check must issue no
+CREATE/ALTER/write statement and must not require the legacy base table.
 
 - [ ] **Step 5: Implement optional idempotent legacy copy**
 
@@ -976,16 +1055,85 @@ git commit -m "feat: activate complete knowledge corpus versions"
 
 - [ ] **Step 1: Add failing rerank and historical-lookup tests**
 
-Add unit coverage for a pure helper such as `_rerank_chunks()`:
+Add unit coverage for the private pure helpers `_normalize_technical_terms()`
+and `_rerank_chunks()`:
 
 ```python
+def make_scored_chunk(
+    chunk_id,
+    *,
+    score,
+    title,
+    domain,
+    tags,
+    metadata=None,
+):
+    return KnowledgeChunk(
+        chunk_id=chunk_id,
+        title=title,
+        content="test content",
+        source_type="curated",
+        domain=domain,
+        tags=tags,
+        metadata=metadata or {},
+        score=score,
+    )
+
+
+def test_normalize_technical_terms_has_a_fixed_dependency_free_contract():
+    assert _normalize_technical_terms("FastAPI PostgreSQL") == {
+        "fastapi",
+        "postgresql",
+    }
+    assert _normalize_technical_terms("cache-aside") == {"cache", "aside"}
+    assert _normalize_technical_terms("Ｃ＋＋ Redis") == {"c++", "redis"}
+    assert _normalize_technical_terms("缓存一致性 与 数据库") == {
+        "缓存一致性",
+        "数据库",
+    }
+    assert _normalize_technical_terms("the cache and database") == {
+        "cache",
+        "database",
+    }
+
+
+@pytest.mark.parametrize(
+    ("aliases", "expected_score"),
+    [
+        ("cache-aside", 0.56),
+        (["cache-aside", 7], 0.56),
+        (None, 0.50),
+    ],
+)
+def test_rerank_normalizes_alias_metadata_shapes(aliases, expected_score):
+    metadata = {} if aliases is None else {"aliases": aliases}
+    chunk = make_scored_chunk(
+        "cache",
+        score=0.50,
+        title="General cache",
+        domain="redis",
+        tags=["redis"],
+        metadata=metadata,
+    )
+
+    ranked = _rerank_chunks(
+        [chunk],
+        query_text="cache-aside",
+        requested_tags=[],
+        minimum_score=0.45,
+        limit=5,
+    )
+
+    assert ranked[0].score == pytest.approx(expected_score)
+
+
 def test_rerank_applies_each_signal_once_and_breaks_ties_by_id():
     chunks = [
         make_scored_chunk("b", score=0.80, title="General cache", domain="redis", tags=["redis"]),
         make_scored_chunk("a", score=0.80, title="Redis consistency", domain="redis", tags=["redis"]),
     ]
 
-    ranked = rerank_chunks(
+    ranked = _rerank_chunks(
         chunks,
         query_text="redis consistency consistency",
         requested_tags=["redis", "redis"],
@@ -1024,16 +1172,59 @@ metadata reranker.
 - [ ] **Step 3: Implement active search and the exact two-signal reranker**
 
 Query `{base}_versions` joined to the one active release. Fetch
-`max(12, limit)` dense candidates after source/tag filters, then apply:
+`max(12, limit)` dense candidates after source/tag filters. Stage 44A uses an
+exact pgvector cosine scan and creates no IVFFLAT or HNSW index. At 25 units,
+and later at the approximately 140-unit Stage 44B target, exact scanning keeps
+activation and rollback simple; ANN is considered only after acceptance data
+shows a measured need.
+
+Use this exact dependency-free normalizer and reranker:
+
+First widen `KnowledgeChunk.metadata` from its scalar-only value union to
+`dict[str, Any]`. This is required because corpus metadata may contain the
+normalized `aliases: list[str]`; metadata remains internal and is never copied
+into retrieval traces or public report rendering.
 
 ```python
-def rerank_chunks(chunks, *, query_text, requested_tags, minimum_score, limit):
-    terms = normalize_technical_terms(query_text)
-    boost_tags = {tag for tag in normalize_tags(requested_tags) if tag != "general"}
+import re
+import unicodedata
+
+
+_ENGLISH_TECHNICAL_TERM = re.compile(r"[a-z0-9]+(?:\+\+|#)?")
+_CJK_TERM = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,}")
+_TECHNICAL_STOPWORDS = {
+    "a", "an", "the", "and", "or", "of", "to", "in", "for", "with",
+    "how", "what", "why",
+}
+
+
+def _normalize_technical_terms(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    english = {
+        term
+        for term in _ENGLISH_TECHNICAL_TERM.findall(normalized)
+        if term not in _TECHNICAL_STOPWORDS
+    }
+    return english | set(_CJK_TERM.findall(normalized))
+
+
+def _rerank_chunks(chunks, *, query_text, requested_tags, minimum_score, limit):
+    terms = _normalize_technical_terms(query_text)
+    boost_tags = {
+        tag.strip().casefold()
+        for tag in requested_tags
+        if tag and tag.strip() and tag.strip().casefold() != "general"
+    }
     ranked = []
     for chunk in chunks:
-        aliases = chunk.metadata.get("aliases", [])
-        searchable = normalize_technical_terms(
+        raw_aliases = chunk.metadata.get("aliases", [])
+        if isinstance(raw_aliases, str):
+            aliases = [raw_aliases]
+        elif isinstance(raw_aliases, list):
+            aliases = [alias for alias in raw_aliases if isinstance(alias, str)]
+        else:
+            aliases = []
+        searchable = _normalize_technical_terms(
             " ".join([chunk.title, *aliases])
         )
         exact_boost = 0.06 if terms & searchable else 0.0
@@ -1045,8 +1236,12 @@ def rerank_chunks(chunks, *, query_text, requested_tags, minimum_score, limit):
     return sorted(ranked, key=lambda item: (-float(item.score or 0.0), item.chunk_id))[:limit]
 ```
 
-Normalize English technical tokens and contiguous Chinese terms without a new
-tokenizer dependency. Apply each boost once regardless of duplicate terms.
+The normalizer performs Unicode NFKC normalization, case-folding, the fixed
+English and CJK regex extraction shown above, and only the explicit English
+stopword removal shown above. It does not add jieba, CJK n-grams, stemming, or
+another tokenizer. Missing aliases become `[]`, one string alias becomes a
+one-item list, and a list keeps only string items. Apply each boost once
+regardless of duplicate terms.
 
 Extend `last_search_trace` with safe fields only:
 
@@ -1251,6 +1446,8 @@ without network. Assert the runner:
   path;
 - writes one safe file per retrieval case containing IDs, scores, latency, and
   status only;
+- records `storage_strategy=exact_pgvector_cosine`, active chunk count, and
+  retrieval p95 so the no-ANN decision is measurable;
 - exits nonzero if v1 metrics fail.
 
 - [ ] **Step 2: Write failing artifact whitelist/privacy tests**
@@ -1316,6 +1513,7 @@ metrics_payload = {
     "corpus_version": ingestion.corpus_version,
     "corpus_manifest_sha256": ingestion.manifest_sha256,
     "chunk_count": ingestion.activated,
+    "storage_strategy": "exact_pgvector_cosine",
     "dataset_version": dataset.version,
     "retrieval_metrics": evaluation["metrics"],
     "provider_metrics": provider.snapshot_metrics(),
@@ -1362,7 +1560,9 @@ git commit -m "test: add stage 44a remote embedding acceptance"
 Create the document with `Status: PENDING` and gate rows for provider contract,
 25-unit activation, v1 metrics, historical evidence, privacy, PostgreSQL,
 Python, browser, JavaScript/CSS, Stage 40/42/43 regressions, and no-local-model
-proof. Do not mark PASS before every required command succeeds.
+proof. Add a storage-strategy row recording that Stage 44A uses exact pgvector
+cosine scan, creates no IVFFLAT/HNSW index, and defers ANN until a later measured
+need. Do not mark PASS before every required command succeeds.
 
 - [ ] **Step 2: Verify secret hygiene and rotate the exposed key**
 
@@ -1458,9 +1658,13 @@ Reviewer get_by_ids performs zero embedding calls
 - [ ] **Step 7: Update acceptance from PENDING to PASS and commit**
 
 Record exact timestamps, commit, table prefix, corpus/dataset hashes, model
-revision, test counts, retrieval metrics, p50/p95 provider latency, artifact
-path, and zero privacy violations. Never record the DSN, API key, absolute
-path, request content, or authorization header.
+revision, test counts, retrieval metrics including retrieval p95, p50/p95
+provider latency, artifact
+path, active corpus size, exact-scan storage strategy, and zero privacy
+violations. State that ANN was not used and may be reconsidered in Stage 44B or
+later only after corpus-size and p95 measurements demonstrate a need. Never
+record the DSN, API key, absolute path, request content, or authorization
+header.
 
 Commit:
 
