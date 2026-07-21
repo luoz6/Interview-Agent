@@ -6,12 +6,14 @@ Date: 2026-07-21
 
 ## 1. Purpose
 
-Knowledge Agent 3.0 replaces the runtime dependency on a locally loaded
+Knowledge Agent 3.0 is delivered through two serial, independently accepted
+stages. Stage 44A replaces the runtime dependency on a locally loaded
 SentenceTransformer with a provider-neutral embedding boundary backed by
-SiliconFlow's hosted `BAAI/bge-m3` model. It expands the curated backend
-engineering corpus to approximately 140 versioned knowledge units and adds
-formal retrieval-quality gates without changing the public interview APIs or
-the existing Prep-to-Reviewer evidence contract.
+SiliconFlow's hosted `BAAI/bge-m3`, migrates the current 25-unit corpus into
+versioned storage, and preserves the existing Stage 42 quality gates. Stage
+44B expands the curated backend-engineering corpus to approximately 140 units
+and adds the new 72-case retrieval-quality gates. Neither stage changes the
+public interview APIs or the existing Prep-to-Reviewer evidence contract.
 
 The workstation and application processes must not download or initialize a
 local embedding model. Real provider calls remain explicit opt-in acceptance
@@ -44,6 +46,31 @@ measured.
    release thresholds.
 7. Prevent API keys, raw resumes, raw JDs, provider request bodies, and corpus
    content from entering logs or acceptance artifacts.
+
+### 3.1 Stage Boundaries
+
+Stage 44A owns embedding and storage infrastructure:
+
+- provider protocol, fake provider, and SiliconFlow adapter;
+- configuration, timeout, retry, validation, and redaction behavior;
+- versioned PostgreSQL tables and migration of the current 25 rows;
+- atomic corpus activation, vector reuse, and historical evidence lookup;
+- deterministic metadata reranking that does not expand the repository search
+  signature;
+- unchanged execution of the 30-case Stage 42 v1 dataset and its existing
+  release thresholds.
+
+Stage 44B owns content and stronger quality gates:
+
+- update the existing 25 units and add approximately 115 reviewed units;
+- extend the query taxonomy for PostgreSQL and reliability topics;
+- add the v2 front-matter requirements and corpus validators;
+- create a separate 72-case v2 dataset and metric model;
+- run the complete SiliconFlow quality and privacy acceptance.
+
+Stage 44B starts only after Stage 44A has a recorded PASS. The two stages use
+separate implementation plans and commits so corpus authoring cannot block or
+obscure the infrastructure cutover.
 
 ## 4. Non-Goals
 
@@ -98,7 +125,14 @@ The provider validates every response before returning it:
 
 ## 6. Configuration And Secret Handling
 
-The supported configuration is:
+The default configuration disables embedding instead of selecting a local or
+remote model implicitly:
+
+```text
+EMBEDDING_PROVIDER=disabled
+```
+
+SiliconFlow is enabled explicitly with:
 
 ```text
 EMBEDDING_PROVIDER=siliconflow
@@ -123,15 +157,18 @@ with real values, exception text, logs, trace payloads, database rows, test
 fixtures, screenshots, or acceptance artifacts. Any credential pasted into a
 chat, issue, log, or terminal transcript must be revoked before use.
 
-Missing configuration does not prevent importing the application or starting
-non-knowledge commands. The first requested SiliconFlow operation raises a
-stable configuration error, which the Prep knowledge path converts to the
-existing explicit degraded result.
+`disabled` never initializes a model or performs a network request. Missing
+SiliconFlow configuration does not prevent importing the application or
+starting non-knowledge commands. The first requested SiliconFlow operation
+raises a stable configuration error, which the Prep knowledge path converts to
+the existing explicit degraded result. There is no SentenceTransformer or
+other local-model fallback for any provider value.
 
 ## 7. Curated Corpus
 
-The initial corpus target is approximately 140 independently reviewable
-knowledge units:
+Stage 44A migrates the existing 25-unit Stage 42 corpus without requiring new
+content fields. Stage 44B upgrades those units and expands the active corpus to
+approximately 140 independently reviewable knowledge units:
 
 | Domain | Target units |
 | --- | ---: |
@@ -166,15 +203,21 @@ engineering trade-offs, and observable scoring signals. References name the
 source and URL, but the repository contains an original technical summary
 rather than copied article bodies.
 
-Corpus validation rejects duplicate IDs, missing required metadata, invalid
-domains/source types/difficulties, empty bodies, duplicate references,
-unparseable URLs, and units outside configured size bounds. Every corpus file
-uses UTF-8 and contributes a normalized `content_sha256` to the manifest.
+The existing Stage 42 manifest schema remains readable for the 44A legacy
+migration. Stage 44B introduces manifest schema v2 and requires the complete
+front matter above for all active v2 units. Its validation rejects duplicate
+IDs, missing required metadata, invalid domains/source types/difficulties,
+empty bodies, duplicate references, unparseable URLs, and units outside
+configured size bounds. Every corpus file uses UTF-8 and contributes a
+normalized `content_sha256` to the manifest.
 
 ## 8. Versioned Storage Model
 
-The knowledge schema stores immutable corpus-version rows rather than
-overwriting the only copy of a chunk. Each row includes:
+Stage 44A creates `{PGVECTOR_TABLE}_versions` and
+`{PGVECTOR_TABLE}_releases`, using safe SQL identifiers derived from the
+configured base table name so DSN-gated tests retain isolated prefixes. The
+version table stores immutable corpus rows rather than overwriting the only
+copy of a chunk. Each row includes:
 
 ```text
 corpus_version
@@ -188,10 +231,32 @@ title/content/source_type/domain/tags/metadata
 embedding VECTOR(1024)
 ```
 
-The row identity is `(corpus_version, chunk_id)`. A corpus release table stores
-the manifest hash, provider/model identity, dimension, chunk count, lifecycle
-status, creation time, and activation time. Exactly one corpus version is
-active.
+The row identity is `(corpus_version, chunk_id)`. The release table stores the
+manifest hash, provider/model identity, dimension, chunk count, lifecycle
+status, creation time, and activation time. A partial unique index over active
+rows guarantees exactly one active corpus version.
+
+The existing configured knowledge table is not altered in place and its rows
+must never be relabeled as SiliconFlow output. Stage 44A handles it as follows:
+
+1. create both new tables and their indexes idempotently;
+2. if legacy rows exist, copy them into corpus `legacy-stage42-v1`, preserving
+   the current vector, content hash, and truthful provider/model labels;
+3. verify legacy source/destination counts, chunk IDs, hashes, and dimensions;
+4. parse the current 25-unit manifest and generate a new complete corpus with
+   SiliconFlow under a distinct Stage 44A version;
+5. atomically activate only the new SiliconFlow corpus after all 25 vectors and
+   release metadata validate;
+6. switch runtime reads to the new version table after activation;
+7. retain the old table and any copied legacy release unchanged through Stage
+   44A and Stage 44B acceptance.
+
+An empty legacy table is valid and skips only the optional copy; it does not
+skip remote ingestion of the current corpus. The migration is idempotent.
+Re-running it with the same source rows succeeds; the same legacy version name
+with different IDs or hashes is a blocking error. Vector reuse requires the
+same content hash, provider, model, revision, and dimension, so a local legacy
+vector is never reused as a SiliconFlow vector.
 
 Runtime dense search reads only the active corpus version. Evidence lookup is
 different: `get_by_ids(ids, expected_hashes=...)` may read retained historical
@@ -199,14 +264,17 @@ versions and selects the row matching both `chunk_id` and the expected content
 hash. This preserves existing interview and report evidence after a newer
 corpus changes or removes the same logical chunk.
 
-This stage does not physically delete historical corpus releases. At the
-target scale, retaining versioned vectors is small and provides reliable
-rollback and evidence replay. A future retention policy may delete a version
-only after proving that no persisted session binding references its hashes.
+Neither stage physically deletes historical corpus releases or the legacy
+table. At the target scale, retaining versioned vectors is small and provides
+reliable rollback and evidence replay. A future retention policy may delete a
+version only after proving that no persisted session binding references its
+hashes.
 
 ## 9. Atomic Ingestion
 
-The ingestion command follows this sequence:
+The current loader already places its row writes inside one psycopg2 connection
+transaction. What it lacks is release identity and atomic active-version
+cutover. The Stage 44A ingestion command therefore follows this sequence:
 
 1. Parse every corpus file and validate the complete logical corpus.
 2. Build the normalized manifest and calculate its SHA-256.
@@ -248,21 +316,22 @@ For each query, the store:
 5. sorts by final score descending and `chunk_id` ascending;
 6. returns at most five chunks above the configured minimum score.
 
-The initial score is:
+The repository search protocol remains unchanged. Because it supplies job tags
+but no independent requested-domain parameter, domain and tag matches form one
+combined signal rather than two duplicate boosts. The initial score is:
 
 ```text
 final_score = clamp(
     dense_similarity
-    + 0.05 when a normalized query term matches title or aliases
-    + 0.03 when the requested domain matches
-    + 0.02 when at least one requested tag matches,
+    + 0.06 when a normalized query term matches title or aliases
+    + 0.04 when chunk.domain or chunk.tags matches a canonical job tag,
     0,
     1,
 )
 ```
 
-Each boost is applied at most once. Domain and tag comparison use normalized
-exact values. Title and alias matching uses the corpus metadata and normalized
+Each boost is applied at most once. Domain/tag comparison uses normalized exact
+values. Title and alias matching uses the corpus metadata and normalized
 technical terms; it does not require general Chinese tokenization. Retrieval
 traces expose filters, safe IDs, scores, latency, provider/model labels, and
 corpus version, but never query text or corpus content.
@@ -294,10 +363,28 @@ Failure behavior remains bounded by workflow ownership:
 
 ## 12. Evaluation Dataset And Metrics
 
-The repository adds a versioned 72-case golden dataset with 12 manually
-reviewed queries per corpus domain. Each case defines the query, filters,
-primary expected chunks, accepted related chunks, and explicitly excluded
-chunks.
+Stage 44A preserves `tests/golden/knowledge_retrieval_v1.json`, its 30 cases,
+and all current Stage 42 metrics and thresholds, including Hit@3 >= 0.90, MRR
+>= 0.75, evidence continuity, false-positive, completeness, and latency gates.
+The infrastructure cutover may not weaken or overwrite that baseline.
+
+Stage 44B adds `tests/golden/knowledge_retrieval_v2.json`; it does not replace
+v1. The v2 dataset contains 72 cases with 12 manually reviewed queries in each
+evaluation group:
+
+- `fastapi`;
+- `redis`;
+- `relational-database` (MySQL and PostgreSQL chunks);
+- `kafka`;
+- `system-design`;
+- `reliability`.
+
+`evaluation_group` is an evaluation dimension, not a replacement for chunk
+domain. Stage 44B extends the runtime canonical taxonomy with explicit
+`postgresql` and `reliability` tags while retaining existing `mysql` and
+`system-design` compatibility. Each v2 case defines its query, canonical tags,
+source filters, primary expected chunks, accepted related chunks, and
+explicitly excluded chunks.
 
 The release thresholds are:
 
@@ -311,20 +398,22 @@ The release thresholds are:
 | Vector dimension and finite-value validity | 1.00 |
 | Evidence-ID replay stability | 1.00 |
 
-Metric calculation is deterministic and independent of an LLM. A failure in
-attempt completeness is a blocking failure rather than a reduced denominator.
-Dataset, corpus manifest, scoring-rubric, and provider/model revision hashes
-are recorded together.
+The v1 and v2 metric models have distinct versioned schemas; existing Stage 42
+artifacts remain replayable. Metric calculation is deterministic and
+independent of an LLM. A failure in attempt completeness is a blocking failure
+rather than a reduced denominator. Dataset, corpus manifest, scoring-rubric,
+and provider/model revision hashes are recorded together.
 
 ## 13. Test Strategy
 
 ### 13.1 Deterministic Unit Tests
 
-Tests use `FakeEmbeddingProvider` and cover configuration, batch ordering,
-transient/permanent retry classification, vector validation, secret and input
-redaction, manifest validation, idempotency, atomic activation, historical
-lookup, metadata boosts, stable ordering, and metric calculation. They perform
-no network access.
+Stage 44A tests use `FakeEmbeddingProvider` and cover configuration, batch
+ordering, transient/permanent retry classification, vector validation, secret
+and input redaction, migration idempotency, atomic activation, historical
+lookup, metadata boosts, stable ordering, and unchanged v1 metrics. Stage 44B
+extends them with manifest-v2 validation, taxonomy expansion, and v2 metric
+calculation. They perform no network access.
 
 ### 13.2 PostgreSQL Integration
 
@@ -337,10 +426,12 @@ evidence lookup, and Stage 42 continuity.
 ### 13.3 SiliconFlow Acceptance
 
 Real acceptance runs only when `RUN_SILICONFLOW_ACCEPTANCE=1` and a rotated
-`SILICONFLOW_API_KEY` is present in the environment. It embeds the approved
-corpus and executes all 72 golden queries. The artifact records only corpus and
-dataset identities, safe aggregate metrics, p50/p95 latency, request/error
-counts, provider/model labels, and relative artifact hashes.
+`SILICONFLOW_API_KEY` is present in the environment. Stage 44A performs a
+provider contract smoke plus the existing v1 cases against the migrated
+25-unit corpus. Stage 44B embeds the approved expanded corpus and executes all
+72 v2 queries while rerunning v1. Artifacts record only corpus and dataset
+identities, safe aggregate metrics, p50/p95 latency, request/error counts,
+provider/model labels, and relative artifact hashes.
 
 The acceptance directory must pass a privacy audit that rejects API keys,
 authorization headers, raw requests, raw JDs/resumes, absolute paths, and
@@ -348,30 +439,63 @@ unallowlisted files.
 
 ## 14. Release Gates
 
-Knowledge Agent 3.0 is accepted only when:
+### 14.1 Stage 44A Gates
 
-1. all deterministic embedding, ingestion, retrieval, metric, privacy, and
-   Stage 42 continuity tests pass;
-2. PostgreSQL version activation and historical evidence tests pass against
-   isolated tables in the existing `interview` database;
-3. the complete 72-case SiliconFlow run meets every metric threshold;
-4. no runtime path imports or initializes SentenceTransformer;
-5. a clean environment proves no local embedding model is downloaded;
-6. Reviewer bound-evidence reuse performs zero embedding API calls;
-7. the existing Python, deterministic browser, JavaScript, CSS, Stage 40,
-   Stage 42, and Stage 43 gates remain green;
-8. the formal artifact privacy audit reports zero violations.
+Stage 44A is accepted only when:
+
+1. deterministic provider, retry, validation, migration, activation,
+   historical lookup, reranking, and redaction tests pass;
+2. PostgreSQL migration proves count/hash/vector parity for every legacy row
+   that exists, while also handling an empty legacy table;
+3. a distinct SiliconFlow-backed 25-unit corpus is fully ingested and becomes
+   the only active release;
+4. the unchanged 30-case v1 dataset meets every existing Stage 42 threshold;
+5. the opt-in SiliconFlow contract and v1 smoke pass;
+6. no runtime path imports or initializes SentenceTransformer;
+7. a clean environment proves no local embedding model is downloaded;
+8. Reviewer bound-evidence reuse performs zero embedding API calls;
+9. existing Python, browser, JavaScript, CSS, Stage 40, Stage 42, and Stage 43
+   gates remain green;
+10. the Stage 44A artifact privacy audit reports zero violations.
+
+### 14.2 Stage 44B Gates
+
+Stage 44B is accepted only when:
+
+1. Stage 44A has a recorded PASS;
+2. the active v2 manifest contains 120-180 valid units with the approved domain
+   distribution and all v2 metadata;
+3. all 72 v2 observations are complete and meet every new metric threshold;
+4. all 30 v1 cases still meet the original Stage 42 thresholds;
+5. PostgreSQL activation, rollback, and historical Stage 42 evidence replay
+   pass against the expanded corpus;
+6. the complete opt-in SiliconFlow run and formal privacy audit pass;
+7. all Stage 44A and repository-wide regression gates remain green.
 
 ## 15. Delivery Order
 
-1. Lock protocol, configuration, fake-provider, and redaction contracts.
+### 15.1 Stage 44A
+
+1. Lock protocol, disabled-default configuration, fake-provider, and redaction
+   contracts.
 2. Implement and test the SiliconFlow adapter.
-3. Add versioned PostgreSQL corpus storage and atomic activation.
-4. Split ingestion from runtime search and implement idempotent vector reuse.
-5. Add deterministic metadata reranking and safe retrieval traces.
-6. Curate and validate the approximately 140-unit corpus.
-7. Add the 72-case dataset, metrics, CLI, and artifact audit.
-8. Run PostgreSQL, full regression, and opt-in SiliconFlow acceptance gates.
+3. Create versioned PostgreSQL tables and optionally preserve existing legacy
+   rows without changing their provider identity.
+4. Split ingestion from runtime search, remotely embed the current 25 units,
+   and implement atomic activation plus idempotent vector reuse.
+5. Add the two-signal deterministic reranker and safe retrieval traces.
+6. Run the unchanged v1 dataset, PostgreSQL, full regression, opt-in
+   SiliconFlow smoke, and Stage 44A artifact audit.
+
+### 15.2 Stage 44B
+
+1. Lock manifest-v2, taxonomy, evaluation-group, and metric contracts.
+2. Upgrade the existing 25 units to v2 metadata.
+3. Add and review approximately 115 units in bounded domain batches.
+4. Build the separate 72-case v2 dataset and versioned metric calculator.
+5. Activate the expanded corpus and verify v1 plus historical evidence replay.
+6. Run PostgreSQL, full regression, complete SiliconFlow quality acceptance,
+   and Stage 44B artifact audit.
 
 Hybrid lexical retrieval is considered only after this release if recorded
 failure cases show exact-term misses and the approved Recall@5 threshold cannot
