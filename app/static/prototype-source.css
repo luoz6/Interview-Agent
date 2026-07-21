@@ -611,12 +611,15 @@
     gap: .625rem;
     padding: .625rem;
     border: 1px solid transparent;
+    border-left-width: 3px;
     border-radius: var(--radius-control);
     color: var(--color-ink-secondary);
+    transition: background-color var(--motion-state) var(--motion-easing), border-color var(--motion-state) var(--motion-easing), color var(--motion-state) var(--motion-easing);
   }
 
   .question-item.question-current {
     border-color: var(--color-primary-ring);
+    border-left-color: var(--color-primary);
     background: var(--color-primary-subtle);
     color: var(--color-primary-strong);
   }
@@ -1247,15 +1250,17 @@
 
   .report-nav nav a {
     padding: .625rem .75rem;
-    border-left: 2px solid transparent;
+    border-left: 3px solid transparent;
     color: var(--color-ink-secondary);
     font-size: .8125rem;
     font-weight: 600;
     text-decoration: none;
+    transition: background-color var(--motion-state) var(--motion-easing), border-color var(--motion-state) var(--motion-easing), color var(--motion-state) var(--motion-easing);
   }
 
   .report-nav nav a:hover,
-  .report-nav nav a:focus-visible {
+  .report-nav nav a:focus-visible,
+  .report-nav nav a[aria-current="location"] {
     border-color: var(--color-primary);
     background: var(--color-primary-subtle);
     color: var(--color-primary-strong);

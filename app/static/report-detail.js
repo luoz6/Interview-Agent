@@ -38,6 +38,53 @@ const reportCommunicationScore = byId("reportCommunicationScore");
 const reportEngineeringScore = byId("reportEngineeringScore");
 const legacyScoringEvidenceMessage = "旧版报告暂无结构化评分证据。";
 
+function setupReportSectionNavigation() {
+  const links = [...document.querySelectorAll("[data-report-section-link]")];
+  const sections = links
+    .map((link) => document.querySelector(link.hash))
+    .filter(Boolean);
+  if (!links.length || !sections.length) return;
+
+  const setCurrentReportSection = (sectionId) => {
+    for (const link of links) {
+      if (link.hash === `#${sectionId}`) {
+        link.setAttribute("aria-current", "location");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    }
+  };
+
+  const selectHashSection = () => {
+    const sectionId = window.location.hash.slice(1);
+    const section = sections.find((candidate) => candidate.id === sectionId);
+    setCurrentReportSection(section?.id || sections[0].id);
+  };
+
+  for (const link of links) {
+    link.addEventListener("click", () => {
+      window.location.hash = link.hash;
+      setCurrentReportSection(link.hash.slice(1));
+    });
+  }
+  window.addEventListener("hashchange", selectHashSection);
+  selectHashSection();
+
+  if (!("IntersectionObserver" in window)) return;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
+      if (visible.length) {
+        setCurrentReportSection(visible[0].target.id);
+      }
+    },
+    { rootMargin: "-12% 0px -72% 0px", threshold: 0 },
+  );
+  for (const section of sections) observer.observe(section);
+}
+
 function setNodeText(node, value) {
   if (node) {
     node.textContent = String(value ?? "--");
@@ -391,6 +438,8 @@ retryInterviewButton.addEventListener("click", () => {
 reportCenterButton.addEventListener("click", () => {
   window.location.href = "/reports";
 });
+
+setupReportSectionNavigation();
 
 if (!sessionId) {
   downloadReportButton.disabled = true;

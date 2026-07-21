@@ -409,7 +409,7 @@ def test_report_detail_page_has_runtime_hooks():
         "reportNotice",
     ):
         assert f'id="{element_id}"' in html
-    assert "/static/report-detail.js?v=20260710-score-cards" in html
+    assert "/static/report-detail.js?v=20260721-ui-polish" in html
 
 
 def test_report_detail_uses_reference_sections_and_safe_runtime_trace():
@@ -792,7 +792,7 @@ def test_interview_page_streams_followup_inside_conversation_and_enter_submits()
     js = read_static_file("interview.js")
 
     assert "按 Enter 提交，Shift+Enter 换行" in html
-    assert "/static/interview.js?v=20260710-question-toggle" in html
+    assert "/static/interview.js?v=20260721-ui-polish" in html
     assert "function appendMessage(" in js
     assert "function createStreamingAssistantMessage()" in js
     assert "function submitAnswerFromKeyboard()" in js

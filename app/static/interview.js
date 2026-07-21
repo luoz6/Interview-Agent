@@ -176,6 +176,10 @@ function renderQuestions(questions) {
   for (const [index, question] of visibleQuestions.entries()) {
     const state = question.state || "pending";
     const item = createEl("li", `question-item question-${state}`);
+    if (question.id === currentQuestionId) {
+      item.classList.add("question-current");
+      item.setAttribute("aria-current", "step");
+    }
     item.appendChild(createEl("span", "question-number", String(index + 1)));
     const body = createEl("div", "question-item-copy");
     body.appendChild(createEl("strong", "", question.prompt || question.id || "未命名题目"));
@@ -217,8 +221,8 @@ function renderSnapshot(snapshot) {
   renderTags(topicTags, snapshot.job_tags || []);
   renderMessages(snapshot.messages || []);
   renderCurrentQuestion(snapshot.current_question);
-  renderQuestions(snapshot.questions || []);
   currentQuestionId = snapshot.current_question?.id || null;
+  renderQuestions(snapshot.questions || []);
   restoreAnswerDraft(currentQuestionId);
   if (snapshot.status === "finished") {
     window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
