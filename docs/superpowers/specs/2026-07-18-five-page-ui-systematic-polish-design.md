@@ -102,6 +102,29 @@ and independent semantic colors:
 Cobalt must not recolor entire page regions. Semantic states remain visibly
 distinct so the UI does not become a one-note blue palette.
 
+This table defines the target state, not the current implementation. The
+existing stylesheet and static tests still encode the previous palette. The
+implementation migrates them together according to this explicit map:
+
+| Existing token | Existing value | Target value |
+| --- | --- | --- |
+| `--color-text` | `#1F2937` | `#172033` |
+| `--color-muted` | `#64748B` | `#647084` |
+| `--color-page` | `#F8FAFC` | `#F4F6F9` |
+| `--color-surface` | `#FFFFFF` | `#FFFFFF` |
+| `--color-line` | `#E2E8F0` | `#DCE2EA` |
+| `--color-primary` | `#2563EB` | `#2457D6` |
+| `--color-primary-hover` | `#1D4ED8` | `#1D47B3` |
+| `--color-success` | `#16A34A` | `#17845E` |
+| `--color-warning` | `#D97706` | `#B7791F` |
+| `--color-danger` | `#DC2626` | `#C2413B` |
+
+Repeated literal colors such as `#BFDBFE`, `#EFF6FF`, `#DBEAFE`, `#0F172A`,
+and `#CBD5E1` must be classified by semantic role and replaced with shared
+subtle-background, focus-ring, strong-ink, or control-border tokens. The
+implementation must not perform an unreviewed global string replacement.
+Static token assertions are updated in the same change as the source tokens.
+
 ### 5.2 Typography
 
 The existing local system-font stack remains for performance and Chinese
@@ -123,8 +146,14 @@ sidebars, tables, or compact panels.
 - Control radius: 6px
 - Pills are reserved for statuses and compact filters
 - Structural grouping relies on borders
-- Shadows are limited to a low elevation for active or floating tools
+- Base cards and structural panels use borders without a default shadow
+- One low-elevation variant is reserved for floating tools and active surfaces
 - No nested decorative cards
+
+The shared `.ui-card` contract therefore becomes flat. An explicit elevated
+variant, rather than page-specific shadows, is required wherever elevation is
+semantically justified. Hover must not add elevation to non-interactive
+content.
 
 ## 6. Shared Product Shell
 
@@ -148,15 +177,28 @@ The approved navigation model keeps page-specific contextual sidebars:
 - preparation and processing: four-step workflow
 - interview: question plan
 - report detail: report sections
-- report center: status filters
+- report center: status-filter controls
 
-They share:
+Navigation sidebars on preparation, processing, interview, and report detail
+share:
 
 - one desktop width range
 - label, heading, count, and active-state rules
 - a three-pixel cobalt active spine
 - stable row heights and number markers
 - consistent border and canvas treatment
+
+The report-center status rail is a control group rather than navigation. It
+shares width, typography, spacing, and semantic color tokens, but retains
+`aria-pressed` and a selected-control treatment instead of the active spine.
+It must not expose `aria-current`.
+
+The report-detail section navigation tracks the section nearest the top of the
+reading viewport. An `IntersectionObserver` maintains exactly one
+`aria-current="location"` link. Anchor activation updates the URL hash, and a
+hash-based fallback selects the matching link when observation is unavailable.
+This behavior is progressive enhancement: report content and anchor navigation
+remain usable if the observer cannot start.
 
 The sidebars do not become a second global application navigation layer.
 
@@ -219,6 +261,12 @@ The sidebars do not become a second global application navigation layer.
 All buttons have stable minimum height, visible focus, disabled treatment, and
 no content-driven layout shift.
 
+The shared destructive variant is `.ui-button-danger`. Its default state uses
+danger text and border on a neutral surface; hover uses a subtle danger-tinted
+surface, and focus remains clearly visible. It is applied to genuinely
+destructive commands such as ending an interview, not to recoverable actions
+such as retry or report requeue.
+
 ### 8.2 Inputs
 
 - Labels, help text, metadata, and controls align to a shared field header
@@ -237,8 +285,9 @@ no content-driven layout shift.
 
 ## 9. Motion and Interaction
 
-- Hover and press feedback: approximately 160ms
-- State transitions: approximately 200ms
+- `--motion-fast: 160ms` covers hover, focus, and press feedback
+- `--motion-state: 200ms` covers selected, expanded, and status transitions
+- A shared non-bouncy easing curve is used for both tokens
 - Entry motion is restricted to one subtle page-shell reveal
 - No continuous decorative animation
 - Progress motion reflects real progress updates only
@@ -246,6 +295,11 @@ no content-driven layout shift.
 
 Motion must not move controls, alter layout dimensions, or obscure state
 changes.
+
+Motion is applied only to interactive color, border, opacity, and real progress
+changes. Message content and error notices do not animate merely to satisfy a
+timing target. Under `prefers-reduced-motion: reduce`, page entry and transform
+effects are disabled and state/progress updates become effectively immediate.
 
 ## 10. Data, Privacy, and Error Boundaries
 
@@ -269,6 +323,10 @@ changes.
 
 - Keyboard focus is visible on every command and link.
 - Existing `aria-pressed`, `aria-current`, and `aria-live` contracts remain.
+- Report-section scroll tracking maintains exactly one
+  `aria-current="location"`; workflow progress continues to use
+  `aria-current="step"`, and global page navigation uses
+  `aria-current="page"`.
 - Live regions announce only meaningful status changes.
 - Color is never the only status signal.
 - Text and controls meet desktop contrast requirements.
@@ -316,6 +374,17 @@ Required gates:
 9. complete Python regression
 10. `git diff --check`
 
+The static and browser suites add explicit contracts for the target color
+tokens, `.ui-button-danger`, flat base cards, the two motion-duration tokens,
+the reduced-motion override, and report-section `aria-current` tracking. Exact
+animation frame timing is not asserted; tests verify tokens, reduced-motion
+behavior, and stable interaction state instead.
+
+The existing Playwright geometry helper already checks that document width does
+not exceed viewport width and that wide report tables remain inside their local
+scroll container at 1280x800. This remains a regression gate, not a known
+overflow defect.
+
 The implementation does not require a new PostgreSQL schema gate because it
 does not modify persistence. If a database-backed regression is run, it must
 use an isolated test database and never `ragent`.
@@ -346,4 +415,6 @@ The optimization is complete when:
 | Status color inconsistency | Route all statuses through semantic tokens |
 | Interaction feedback overwrites business state | Render feedback after successful refresh and preserve view state |
 | Desktop work breaks mobile behavior | Keep existing mobile browser regression in the release gate |
-
+| Palette migration leaves literal legacy colors | Classify each literal by semantic role and update source and assertions together |
+| Active-state semantics become inconsistent | Use `aria-current` only for navigation and `aria-pressed` only for filter controls |
+| Motion harms reduced-motion users | Verify the reduced-motion override in static and browser tests |
