@@ -48,6 +48,10 @@ def test_shared_elevation_command_and_motion_contracts_are_declared():
     assert ".ui-card-elevated" in css
     assert ".ui-button-danger" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
+    assert "@keyframes page-shell-reveal" in css
+    assert "animation: page-shell-reveal var(--motion-state)" in css
+    assert "animation: none !important" in css
+    assert "transform: none !important" in css
     assert "var(--motion-fast)" in css
     assert "var(--motion-state)" in css
     assert 'id="finishInterviewButton" type="button" class="ui-button ui-button-danger"' in html

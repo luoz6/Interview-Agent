@@ -51,6 +51,26 @@
 }
 
 @layer components {
+  @keyframes page-shell-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .prep-main,
+  .interview-main,
+  .processing-main,
+  .report-main,
+  .reports-main,
+  .help-main {
+    animation: page-shell-reveal var(--motion-state) var(--motion-easing) both;
+  }
+
   .app-topbar {
     height: 4rem;
     display: flex;
@@ -2337,10 +2357,22 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .prep-main,
+  .interview-main,
+  .processing-main,
+  .report-main,
+  .reports-main,
+  .help-main {
+    animation: none !important;
+    transform: none !important;
+  }
+
   .app-nav a,
   .workflow-step,
+  .question-item,
   .ui-button,
   .processing-overview .progress-fill,
+  .report-nav nav a,
   .report-filter,
   .pagination-page {
     transition-duration: 0.01ms !important;
