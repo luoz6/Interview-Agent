@@ -17,15 +17,40 @@ def read_static_file(name: str) -> str:
 def test_production_visual_tokens_replace_reference_decorations():
     css = read_static_file("prototype-source.css")
     for token in (
-        "--color-primary: #2563eb",
-        "--color-primary-hover: #1d4ed8",
-        "--color-page: #f8fafc",
-        "--color-line: #e2e8f0",
+        "--color-text: #172033",
+        "--color-muted: #647084",
+        "--color-page: #f4f6f9",
+        "--color-line: #dce2ea",
+        "--color-primary: #2457d6",
+        "--color-primary-hover: #1d47b3",
+        "--color-success: #17845e",
+        "--color-warning: #b7791f",
+        "--color-danger: #c2413b",
+        "--color-control-border:",
+        "--color-primary-subtle:",
+        "--color-primary-ring:",
+        "--motion-fast: 160ms",
+        "--motion-state: 200ms",
         "--radius-card: 8px",
         "--radius-control: 6px",
     ):
         assert token in css
     assert "linear-gradient" not in css
+
+
+def test_shared_elevation_command_and_motion_contracts_are_declared():
+    css = read_static_file("prototype-source.css")
+    html = read_app_file("test3.html")
+    card_block = re.search(r"\.ui-card \{(?P<body>.*?)\n  \}", css, re.DOTALL)
+
+    assert card_block is not None
+    assert "box-shadow" not in card_block.group("body")
+    assert ".ui-card-elevated" in css
+    assert ".ui-button-danger" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert "var(--motion-fast)" in css
+    assert "var(--motion-state)" in css
+    assert 'id="finishInterviewButton" type="button" class="ui-button ui-button-danger"' in html
 
 
 def test_shared_reference_components_are_declared():
@@ -86,7 +111,6 @@ def test_production_pages_do_not_copy_reference_demo_runtime():
     for forbidden in (
         "data-view-target=",
         "showView(",
-        "location.hash",
         "超过候选人",
         "如何设计一个高并发缓存系统",
         "2026-07-17 16:25",
@@ -467,6 +491,20 @@ def test_report_detail_declares_literal_report_layout_components():
         ".runtime-trace-grid",
     ):
         assert selector in css
+
+
+def test_context_navigation_exposes_current_location_and_step_semantics():
+    report_html = read_app_file("test1.html")
+    report_js = read_static_file("report-detail.js")
+    interview_js = read_static_file("interview.js")
+
+    assert report_html.count('aria-current="location"') == 1
+    assert "data-report-section-link" in report_html
+    assert "function setupReportSectionNavigation()" in report_js
+    assert "new IntersectionObserver" in report_js
+    assert 'setAttribute("aria-current", "location")' in report_js
+    assert "window.location.hash" in report_js
+    assert 'item.setAttribute("aria-current", "step")' in interview_js
 
 
 def test_report_detail_text_and_scoring_evidence_are_valid_utf8():
