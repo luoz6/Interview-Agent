@@ -427,11 +427,12 @@ evidence lookup, and Stage 42 continuity.
 
 Real acceptance runs only when `RUN_SILICONFLOW_ACCEPTANCE=1` and a rotated
 `SILICONFLOW_API_KEY` is present in the environment. Stage 44A performs a
-provider contract smoke plus the existing v1 cases against the migrated
-25-unit corpus. Stage 44B embeds the approved expanded corpus and executes all
-72 v2 queries while rerunning v1. Artifacts record only corpus and dataset
-identities, safe aggregate metrics, p50/p95 latency, request/error counts,
-provider/model labels, and relative artifact hashes.
+provider contract smoke plus the existing v1 cases against a newly generated
+and activated SiliconFlow-backed 25-unit corpus. Stage 44B embeds the approved
+expanded corpus and executes all 72 v2 queries while rerunning v1. Artifacts
+record only corpus and dataset identities, safe aggregate metrics, p50/p95
+latency, request/error counts, provider/model labels, and relative artifact
+hashes.
 
 The acceptance directory must pass a privacy audit that rejects API keys,
 authorization headers, raw requests, raw JDs/resumes, absolute paths, and
