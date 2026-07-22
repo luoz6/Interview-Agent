@@ -20,10 +20,8 @@ _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _PROSE_TOKEN_RE = re.compile(
     r"[A-Za-z]+(?:-[A-Za-z]+)*|[\u3400-\u4dbf\u4e00-\u9fff]+"
 )
-_FENCED_CODE_RE = re.compile(
-    r"^[ \t]*(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]*(?P=fence)[ \t]*$",
-    flags=re.MULTILINE | re.DOTALL,
-)
+_FENCE_LINE_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<suffix>.*)$")
+_CLOSING_FENCE_LINE_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 _URL_RE = re.compile(r"https?://[^\s<>\])}]+", flags=re.IGNORECASE)
 _ALLOWED_TECHNICAL_TERMS = {
@@ -194,7 +192,35 @@ class KnowledgeDocumentV2(BaseModel):
 
 
 def strip_non_prose_markdown(text: str) -> str:
-    stripped = _FENCED_CODE_RE.sub(" ", text)
+    prose_lines: list[str] = []
+    fence_character: str | None = None
+    opening_fence_length = 0
+    for line in text.splitlines(keepends=True):
+        candidate = line.rstrip("\r\n")
+        if fence_character is None:
+            opening = _FENCE_LINE_RE.match(candidate)
+            if opening is not None:
+                fence = opening.group("fence")
+                suffix = opening.group("suffix")
+                if fence.startswith("`") and "`" in suffix:
+                    prose_lines.append(line)
+                    continue
+                fence_character = fence[0]
+                opening_fence_length = len(fence)
+                prose_lines.append("\n" if line.endswith(("\n", "\r")) else " ")
+                continue
+            prose_lines.append(line)
+            continue
+
+        closing = _CLOSING_FENCE_LINE_RE.match(candidate)
+        if closing is not None:
+            fence = closing.group("fence")
+            if fence[0] == fence_character and len(fence) >= opening_fence_length:
+                fence_character = None
+                opening_fence_length = 0
+        prose_lines.append("\n" if line.endswith(("\n", "\r")) else " ")
+
+    stripped = "".join(prose_lines)
     stripped = _INLINE_CODE_RE.sub(" ", stripped)
     return _URL_RE.sub(" ", stripped)
 
@@ -203,8 +229,10 @@ def _contains_disallowed_english_prose(text: str) -> bool:
     consecutive_words = 0
     for match in _PROSE_TOKEN_RE.finditer(text):
         token = match.group(0)
-        if _CJK_RE.search(token) or token.casefold() in _ALLOWED_TECHNICAL_TERMS:
+        if _CJK_RE.search(token):
             consecutive_words = 0
+            continue
+        if token.casefold() in _ALLOWED_TECHNICAL_TERMS:
             continue
         consecutive_words += 1
         if consecutive_words >= 4:

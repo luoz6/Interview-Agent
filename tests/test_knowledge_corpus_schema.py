@@ -212,6 +212,34 @@ def test_code_blocks_inline_code_and_urls_do_not_count_as_chinese_prose(tmp_path
     assert "example.cn" not in stripped
 
 
+def test_longer_commonmark_closing_fence_is_removed(tmp_path: Path):
+    prose = "有效正文" * 75
+    fenced = "\n```text\n" + "围栏中的中文" * 80 + "\n````\n"
+    text = replace_body(valid_document(), prose + fenced)
+
+    document = load_knowledge_document_v2(write_document(tmp_path, text))
+
+    assert document.chinese_character_count == 300
+    assert "围栏中的中文" not in strip_non_prose_markdown(fenced)
+
+
+def test_whitelisted_technical_term_does_not_hide_english_prose(tmp_path: Path):
+    body = "中文" * 150 + " We should use Redis cluster safely today"
+    text = replace_body(valid_document(), body)
+
+    with pytest.raises(ValueError, match="English prose"):
+        load_knowledge_document_v2(write_document(tmp_path, text))
+
+
+def test_pure_technical_identifiers_are_allowed(tmp_path: Path):
+    body = "中文" * 150 + "\nPython FastAPI Redis MySQL PostgreSQL Kafka SQL HTTP HTTPS ASGI Cache-Aside"
+    text = replace_body(valid_document(), body)
+
+    document = load_knowledge_document_v2(write_document(tmp_path, text))
+
+    assert document.chinese_character_count == 300
+
+
 @pytest.mark.parametrize(
     ("original", "replacement"),
     [
