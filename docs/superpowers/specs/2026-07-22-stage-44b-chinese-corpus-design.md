@@ -33,6 +33,21 @@ Stage 44B 分为两批：
 
 评估组与领域不是一一对应关系：Python 与 FastAPI 属于 `fastapi` 评估组，MySQL 与 PostgreSQL 属于 `relational-database` 评估组，可靠性相关的系统设计单元可进入 `reliability` 评估组。旧的 `mysql`、`system-design` 等标识继续可读，新增 `python`、`postgresql`、`reliability` 标识通过显式枚举加入。
 
+代码层固定评估组映射，避免把评估组误当成语料 `domain`：
+
+```python
+EVALUATION_GROUP_DOMAIN_MAP = {
+    "fastapi": {"python", "fastapi"},
+    "redis": {"redis"},
+    "relational-database": {"mysql", "postgresql"},
+    "kafka": {"kafka"},
+    "system-design": {"system-design"},
+    "reliability": {"reliability", "system-design"},
+}
+```
+
+`QUERYABLE_TOPIC_TAGS` 和 `KNOWLEDGE_COVERED_TAGS` 必须扩展 `postgresql`、`reliability`；taxonomy 也必须提供 `reliability` 的规范标签。运行时查询生成属于 44B1 范围：`_build_query_text()` 改为中文模板，例如“后端工程师 | 高级 | PostgreSQL | 数据库 | 面试知识证据”，只保留技术专名和内部标识，不再生成英文自然语言短语。
+
 ## 3. Manifest v2 与内容模型
 
 ### 3.1 Front matter
@@ -83,11 +98,17 @@ references:
 4. 所有引用标题为中文，URL 使用 HTTPS、可解析且不得重复。URL 可包含技术标识或英文路径，但不构成英文正文。
 5. 资料只用于核对结论、边界和反例；仓库保存原创中文技术总结，不复制来源正文。
 
-自动检查 URL 语法、重复引用、发布方独立性和字段完整性；来源页面语言、论断一致性和原创性由每个批次的人工审查清单确认。外部站点的 403、限流或临时不可达不会被误判为内容正确性，但必须保留可复核的来源信息或替代来源。
+自动检查 URL 语法、重复引用、发布方独立性和字段完整性；来源页面语言、论断一致性和原创性由每个批次的人工审查清单确认。外部站点的 403、限流或临时不可达不会被误判为内容正确性，但必须保留可复核的来源信息或替代来源。自动 `content-lint` 只负责字段、字符比例、代码块/URL 剥离后的中文字符数和结构规则，不替代人工来源审查。
 
 ### 3.3 质量分布
 
 完整语料的难度目标为：基础 20% 至 30%、中等 45% 至 60%、高级 20% 至 30%。每个评估组至少包含机制、失败模式、工程实践三种内容类型，并包含边界或 hard-negative 单元。manifest 还拒绝空正文、重复 ID、规范化正文重复、超出大小边界的文件和重复引用。
+
+中文内容检查剥离 Markdown fenced code block、inline code 和 URL 后，按 `[㐀-䶿一-鿿]` 统计 CJK 字符；英文自然语言只在未被技术标识白名单覆盖且形成连续英文句子时报告。来源页面语言和技术论断一致性仍由人工审查确认。
+
+### 3.4 v2 评估模型独立性
+
+v2 新建 `KnowledgeRetrievalCaseV2` 和 `KnowledgeRetrievalDatasetV2`，不修改 v1 的 Pydantic 模型。v2 不保留 v1 的 `category`；primary、accepted related 和 excluded 三组 ID 完整表达相关、可接受和禁止命中语义。v1 的 `relevant`、`weak_keyword`、`negative` 分类及其指标继续冻结。
 
 ## 4. 两批数据流
 
@@ -95,11 +116,11 @@ references:
 
 1. 将现有 25 个单元升级到 manifest v2，保持 `id` 不变，补充中文正文、难度、问题模板和中文来源。
 2. 构建 `stage44b1-zh-v2` manifest，验证 25 个单元、领域兼容、引用规则和内容哈希。
-3. 在隔离的 `knowledge_chunks_stage44b_rc` 前缀准备并激活完整中间版本，不切换生产配置。
+3. 在贯穿 44B1 和 44B2 的持久隔离 `knowledge_chunks_stage44b_rc` 前缀准备并激活完整中间版本，不切换生产配置。
 4. 运行 12 条全中文冒烟查询，每个评估组两条，验证中文查询、过滤、证据回放和有限向量。
-5. 继续运行冻结的 30 条英文 v1 查询，保留 Stage 42 原始阈值作为兼容性门禁。
+5. 继续运行冻结的 30 条 v1 查询（25 条英文、5 条中文），保留 Stage 42 原始阈值作为兼容性门禁。
 
-44B1 通过后，25 个内容哈希可在 44B2 中复用。若某单元在 44B2 继续修改，只有哈希变化的单元重新请求向量。
+由于 44B1 将 25 篇正文从英文改写为中文，25 个 `content_sha256` 全部变化，44B1 预期全部重新请求远程向量。44B2 继续使用同一 RC 前缀时，只有未再次修改的 44B1 单元可以按内容哈希和提供商身份复用；哈希变化的单元重新请求向量。生产前缀的晋级是独立准备动作，不假设跨表自动复用。
 
 ### 4.2 44B2：领域批次与最终版本
 
@@ -116,17 +137,19 @@ references:
 
 每批必须通过 schema、中文比例、来源、重复内容、难度和内容类型检查，并完成“结论与引用一致”的人工审查。全部批次合并后生成约 140 单元的 `stage44b-zh-v2` manifest，一次性准备向量并激活完整版本。
 
-生产晋级不属于自动验收动作。只有 RC 全部通过并获得操作方明确批准后，才使用与 RC 完全相同的 manifest 和内容哈希，在已配置的版本表中通过 `activate_corpus()` 原子切换；失败时保留上一活动版本，失败版本不成为活动版本，也不删除历史版本。
+生产晋级不属于自动验收动作。只有 RC 全部通过并获得操作方明确批准后，才在现有生产表前缀中重新准备同一 manifest，并通过 `activate_corpus()` 原子切换；服务继续使用原生产前缀，不需要为 RC 验收修改环境变量。失败时保留上一活动版本，失败版本不成为活动版本，也不删除历史版本。
 
 ## 5. v2 评估数据集
 
-新增 `tests/golden/knowledge_retrieval_v2.json`，不替换 v1。数据集包含 72 条全中文查询，六个评估组各 12 条：`fastapi`、`redis`、`relational-database`、`kafka`、`system-design`、`reliability`。
+44B1 使用独立的 `tests/golden/knowledge_retrieval_v2_pilot.json` 保存 12 条冒烟查询；44B2 再新增 `tests/golden/knowledge_retrieval_v2.json` 保存最终 72 条查询。两者都不替换 v1。最终数据集包含六个评估组各 12 条全中文查询：`fastapi`、`redis`、`relational-database`、`kafka`、`system-design`、`reliability`。
 
 每条用例包含稳定 ASCII `case_id`、中文 `query_text`、`evaluation_group`、`canonical_tags`、`source_types`、`allowed_domains`、`primary_relevant_chunk_ids`、`accepted_related_chunk_ids`、`excluded_chunk_ids` 和 `top_k=5`。每条用例至少有一个 primary 相关单元，所有 ID 必须存在于 v2 manifest。
 
 查询正文、评估说明和人工审查记录为中文；`case_id`、领域标识和语料 ID 是内部技术标识。数据集校验拒绝重复 ID、重复规范化查询、空相关集合、无效领域、无效来源过滤器和缺失语料 ID。
 
 ## 6. v2 指标与失败语义
+
+v2 指标实现放在独立的 `app/services/knowledge_eval_metrics_v2.py`，评估循环放在独立的 v2 evaluator 中；`knowledge_eval_metrics.py` 和 v1 evaluator 不增加 v2 字段或改变 v1 结果结构。
 
 ### 6.1 确定性评分
 
@@ -140,6 +163,8 @@ references:
 - **观察完整率**：72 条必须各自产生观察；缺失观察使整次评估失败，不得缩小分母。
 
 发布阈值为 Recall@5 >= 0.90、MRR@5 >= 0.80、nDCG@5 >= 0.85、领域和过滤正确率 1.0、排除违规率 0、向量有效率 1.0、证据回放稳定率 1.0、观察完整率 1.0，且检索 p95 <= 1500ms。冻结 v1 仍需满足 Stage 42 原始阈值。
+
+44B1 的 12 条 pilot 只用于验证公式、中文查询链路和明显回归，不重新校准或降低最终阈值。MRR@5 允许排名 4 至 5 的命中获得非零贡献，但最终门禁仍优先约束前排质量；若 pilot 暴露问题，先修复语料、映射或查询生成，再提交单独设计变更讨论阈值。
 
 ### 6.2 失败与回滚
 
@@ -155,11 +180,13 @@ references:
 
 Stage 44B 的真实验收必须显式设置 SiliconFlow provider、模型修订和隔离 RC 表前缀。验收运行 v2 全部 72 条、冻结 v1 全部 30 条、PostgreSQL 激活与回滚、历史证据回放、完整 Python 和浏览器回归。
 
-验收产物只允许记录版本、数量、哈希、用例 ID、命中 ID、分数、状态、聚合指标、延迟、请求/重试/错误码和 provider/model 标签。禁止记录 API key、DSN、Authorization header、查询正文、语料正文、资料 URL、简历、职位描述、邮箱、手机号和绝对路径。隐私审计必须报告零违规。
+验收产物只允许记录版本、数量、哈希、用例 ID、命中 ID、分数、状态、聚合指标、延迟、请求/重试/错误码和 provider/model 标签。禁止记录 API key、DSN、Authorization header、查询正文、语料正文、资料 URL、简历、职位描述、邮箱、手机号和绝对路径。Stage 44B 复用 Stage 44A auditor 的递归 blocked-key、敏感字符串和白名单机制，并增加 `url`、`references`、`source_url` 等 v2 专属禁止键；隐私审计必须报告零违规。
 
 ## 8. 测试策略与发布门禁
 
-44B1 先增加 schema v2、中文 lint、来源准入、12 条冒烟集、v2 指标公式和向量复用的无网络测试，再执行隔离真实 provider 验收。44B2 增加每个领域批次的 manifest fixture、72 条数据集结构测试、指标边界测试、排除 ID 测试、过滤正确性测试和完整证据回放测试。
+44B1 先增加 schema v2、中文 content-lint、来源准入、独立 v2 数据集模型、12 条 pilot、v2 nDCG/Recall/MRR 公式和向量复用的无网络测试，再执行隔离真实 provider 验收。44B2 增加每个领域批次的 manifest fixture、72 条数据集结构测试、指标边界测试、排除 ID 测试、过滤正确性测试、中文运行时查询测试和完整证据回放测试。
+
+实施文件边界保持 v1 冻结：新增 `knowledge_eval_dataset_v2.py`、`knowledge_eval_metrics_v2.py`、`knowledge_corpus_schema.py`/`content_validator.py`、`build_knowledge_manifest_v2.py`、v2 evaluator、44B acceptance runner/auditor 及其测试；修改 `knowledge_query.py`、`knowledge_profile.py`、taxonomy、直接 PyYAML 依赖和锁文件；不修改 v1 数据集模型、v1 指标模型、v1 manifest 或 Stage 44A 冻结测试。
 
 Stage 44B 最终通过必须同时满足：
 
