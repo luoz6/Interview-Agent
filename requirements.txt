@@ -8,6 +8,7 @@ langchain-openai>=1.0.0
 langgraph>=0.2.51
 psycopg2-binary>=2.9.9
 pgvector>=0.3.5
+PyYAML>=6.0.2
 reportlab>=4.2.0
 celery>=5.4.0
 redis>=5.0.7
