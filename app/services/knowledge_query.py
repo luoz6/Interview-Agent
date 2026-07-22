@@ -10,7 +10,34 @@ from app.services.knowledge_profile import CANONICAL_TAXONOMY
 from app.services.prep import RoleProfile
 
 
-QUERYABLE_TOPIC_TAGS = {"fastapi", "redis", "mysql", "kafka", "system-design"}
+QUERYABLE_TOPIC_TAGS = {
+    "python",
+    "fastapi",
+    "redis",
+    "mysql",
+    "postgresql",
+    "kafka",
+    "system-design",
+    "reliability",
+}
+QUERY_DOMAIN_LABELS = {
+    "python": "后端开发",
+    "fastapi": "后端开发",
+    "redis": "缓存",
+    "mysql": "数据库",
+    "postgresql": "数据库",
+    "kafka": "消息系统",
+    "system-design": "系统设计",
+    "reliability": "可靠性",
+}
+SENIORITY_LABELS = {
+    "principal": "专家级",
+    "staff": "专家级",
+    "lead": "负责人级",
+    "senior": "高级",
+    "mid": "中级",
+    "junior": "初级",
+}
 DEFAULT_SOURCE_TYPES = ["theory", "engineering_guide", "expert_benchmark"]
 
 
@@ -55,27 +82,37 @@ def build_knowledge_queries(role_profile: RoleProfile) -> list[KnowledgeQuery]:
 
 
 def _build_query_text(role_profile: RoleProfile, tag: str) -> str:
-    role = _base_role_title(role_profile.role_title)
+    role = _controlled_role_label(role_profile.role_title)
     parts = [
         role,
-        role_profile.seniority,
-        tag,
-        CANONICAL_TAXONOMY[tag]["domain"],
-        "interview evidence",
+        SENIORITY_LABELS.get(role_profile.seniority, ""),
+        CANONICAL_TAXONOMY[tag]["label"],
+        QUERY_DOMAIN_LABELS[tag],
+        "面试知识证据",
     ]
     normalized: list[str] = []
     for part in parts:
-        value = re.sub(r"\s+", " ", part.strip().lower())
+        value = re.sub(r"\s+", " ", part.strip())
         if value and value not in normalized:
             normalized.append(value)
     return " | ".join(normalized)[:240].rstrip()
 
 
-def _base_role_title(role_title: str) -> str:
+def _controlled_role_label(role_title: str) -> str:
     value = role_title.lower()
-    value = re.sub(
-        r"\b(?:principal|staff|lead|senior|sr\.?|mid(?:dle)?|junior|jr\.?)\b",
-        " ",
-        value,
+    role_labels = (
+        (("backend", "后端"), "后端工程师"),
+        (("frontend", "front end", "前端"), "前端工程师"),
+        (("full stack", "fullstack", "全栈"), "全栈工程师"),
+        (("data", "数据"), "数据工程师"),
+        (("machine learning", "ml", "算法"), "算法工程师"),
+        (("devops", "运维"), "运维工程师"),
+        (("security", "安全"), "安全工程师"),
+        (("qa", "test", "测试"), "测试工程师"),
+        (("platform", "平台"), "平台工程师"),
+        (("software", "软件"), "软件工程师"),
     )
-    return re.sub(r"\s+", " ", value).strip()
+    for aliases, label in role_labels:
+        if any(alias in value for alias in aliases):
+            return label
+    return "技术岗位"

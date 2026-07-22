@@ -23,6 +23,14 @@ from app.services.vector_store import KnowledgeChunk
 
 
 RetrievalStatus = Literal["completed", "empty", "degraded"]
+CONTENT_KIND_LABELS = {
+    "benchmark": "评估基准",
+    "engineering_practice": "工程实践",
+    "failure_mode": "故障模式",
+    "hard_negative": "边界辨析",
+    "mechanism": "机制",
+    "knowledge": "知识",
+}
 
 
 @dataclass
@@ -227,10 +235,10 @@ def _build_topic(retrieval: QueryRetrieval) -> PrepKnowledgeTopic:
     label = CANONICAL_TAXONOMY.get(tag, {}).get("label", tag)
     evidence_ids = [chunk.chunk_id for chunk in retrieval.chunks]
     if evidence_ids:
-        summary = f"Retrieved {len(evidence_ids)} trusted evidence items for {label}."
+        summary = f"已为{label}找到 {len(evidence_ids)} 条可信知识证据。"
         source = "retrieval"
     else:
-        summary = f"No trusted knowledge evidence was available for {label}."
+        summary = f"未找到可用于{label}的可信知识证据。"
         source = "keyword_fallback"
     return PrepKnowledgeTopic(
         id=retrieval.query.topic_id,
@@ -330,10 +338,9 @@ def _query_snapshot(retrieval: QueryRetrieval) -> KnowledgeQuerySnapshot:
 
 def _candidate_summary(chunk: KnowledgeChunk) -> str:
     content_kind = str(chunk.metadata.get("content_kind") or "knowledge")
-    return (
-        f"{chunk.title} provides {content_kind.replace('_', ' ')} evidence "
-        f"for {chunk.domain} interview checks."
-    )
+    content_kind_label = CONTENT_KIND_LABELS.get(content_kind, "知识")
+    domain_label = CANONICAL_TAXONOMY.get(chunk.domain, {}).get("label", chunk.domain)
+    return f"{chunk.title}提供用于 {domain_label} 面试判断的{content_kind_label}证据。"
 
 
 def _context_summary(result: GroundingResult, question_count: int) -> str:
