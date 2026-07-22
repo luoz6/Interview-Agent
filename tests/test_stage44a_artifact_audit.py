@@ -61,6 +61,17 @@ def test_manifest_uses_relative_whitelisted_paths_sizes_and_hashes(tmp_path):
     ) == manifest
 
 
+
+
+def test_audit_does_not_treat_numeric_hash_segment_as_phone(tmp_path):
+    run_dir = make_run(tmp_path)
+    write(run_dir / "report.md", "sha256=a13812345678b")
+    manifest = write_artifact_manifest(run_dir, run_id="stage44a-run")
+
+    assert audit_stage44a_artifacts(
+        run_dir, expected_run_id="stage44a-run"
+    ) == manifest
+
 @pytest.mark.parametrize(
     "sensitive_content",
     [

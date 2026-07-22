@@ -31,7 +31,7 @@ SENSITIVE_PATTERNS = (
     re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"']+"),
     re.compile(r"/(?:Users|home|tmp|var|opt|workspace|mnt)/[^\s\"']+"),
     re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
-    re.compile(r"(?<!\d)(?:\+?86[ -]?)?1[3-9]\d[ -]?\d{4}[ -]?\d{4}(?!\d)"),
+    re.compile(r"(?<![A-Fa-f0-9])(?:\+?86[ -]?)?1[3-9]\d[ -]?\d{4}[ -]?\d{4}(?![A-Fa-f0-9])"),
 )
 
 
