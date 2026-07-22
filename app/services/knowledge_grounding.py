@@ -346,11 +346,11 @@ def _candidate_summary(chunk: KnowledgeChunk) -> str:
 def _context_summary(result: GroundingResult, question_count: int) -> str:
     if result.status == "completed":
         return (
-            f"Knowledge Agent 预热了 {len(result.candidates)} 条可信知识证据，"
+            f"知识智能体预热了 {len(result.candidates)} 条可信知识证据，"
             f"并为 {question_count} 道题绑定了提问依据。"
         )
     if result.status == "degraded":
-        return "知识检索已降级，Provider 生成的面试计划仍可使用。"
+        return "知识检索已降级，模型服务生成的面试计划仍可使用。"
     return "知识检索未返回可信证据，本次计划未创建知识引用。"
 
 
