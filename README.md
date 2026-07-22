@@ -108,6 +108,25 @@ provider or validation failure leaves the previous active release unchanged.
 Reviewer `get_by_ids()` makes no embedding call and can replay retained evidence
 by its bound content hash.
 
+### Stage 44B1 Chinese Corpus RC
+
+Stage 44B1 keeps the frozen v1 corpus root at `app/data/knowledge/` and the
+Chinese v2 corpus root at `app/data/knowledge_v2/`. The roots, manifests, and
+loaders remain isolated even though stable chunk IDs may be shared. All v2
+natural-language corpus content and runtime retrieval queries are Chinese;
+technical identifiers, code, and SQL may retain their official spelling.
+
+The v2 corpus may use only the Chinese sources approved in
+`docs/stage-44b1-chinese-source-matrix.md`. Its release candidate is loaded as
+corpus `stage44b1-zh-v2` under the persistent isolated table prefix
+`knowledge_chunks_stage44b_rc`. A clean RC load is expected to report
+`embedded=25` and `reused=0`; an idempotent rerun may report `embedded=0` and
+`reused=25`.
+
+Stage 44B1 acceptance never promotes the RC to the production table prefix
+automatically. Production promotion requires a separate explicit operator
+approval after the acceptance record is complete.
+
 ## Start
 
 Start the FastAPI web process:

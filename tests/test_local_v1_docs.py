@@ -446,3 +446,13 @@ def test_docs_describe_stage43b_durable_recovery():
             "--status dead_letter"
         ) in document
     assert "Status: `PASS`" in acceptance
+
+
+def test_stage44b1_docs_record_passed_isolated_rc():
+    record = read_text("docs/stage-44b1-chinese-corpus-acceptance.md")
+    assert "Status: `PASS`" in record
+    assert "knowledge_chunks_stage44b_rc" in record
+    assert "stage44b1-zh-v2" in record
+    assert "20260722T115946Z-stage44b1-zh" in record
+    assert "Excluded-chunk violation rate | 0.00" in record
+    assert "Production promotion requires a separate explicit operator approval" in record

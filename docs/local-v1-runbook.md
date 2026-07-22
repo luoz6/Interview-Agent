@@ -384,3 +384,34 @@ Preflight and recovery commands:
 Recovery commands expose stable IDs, statuses, attempts, timestamps, and error
 codes only. They do not expose event payloads, Agent safe metadata, candidate
 text, raw provider errors, leases, paths, or connection configuration.
+
+## 13. Stage 44B1 Chinese Corpus RC
+
+Stage 44B1 preserves `app/data/knowledge/` as the frozen v1 root and loads the
+Chinese v2 corpus only from `app/data/knowledge_v2/`. Do not point the v1 loader
+at the v2 root or regenerate the v1 manifest. All v2 natural-language corpus
+content and runtime retrieval queries must be Chinese. Technical identifiers,
+code, and SQL may keep their official spelling.
+
+Corpus authors may use only sources already approved in
+`docs/stage-44b1-chinese-source-matrix.md`. A source addition or replacement
+requires a new source review before the corresponding corpus content changes.
+
+Use the persistent isolated RC prefix and fixed corpus identity:
+
+```powershell
+$env:PGVECTOR_TABLE=knowledge_chunks_stage44b_rc
+python -m scripts.load_knowledge_v2 --corpus-version stage44b1-zh-v2
+```
+
+The first load into a clean RC prefix is expected to report `embedded=25` and
+`reused=0`. An idempotent rerun against the retained RC tables may report
+`embedded=0` and `reused=25`. In both cases, `embedded + reused` and the active
+chunk count must equal 25.
+
+Run the Stage 44B1 acceptance runner and artifact auditor only after the
+deterministic and PostgreSQL gates are green. Keep the RC on
+`knowledge_chunks_stage44b_rc`: the runner must never change the production
+table prefix or promote `stage44b1-zh-v2` automatically. Production promotion
+requires separate explicit operator approval after
+`docs/stage-44b1-chinese-corpus-acceptance.md` is complete.
