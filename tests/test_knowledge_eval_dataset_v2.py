@@ -127,6 +127,23 @@ def test_pilot_has_12_cases_and_two_cases_per_group_with_manifest_ids():
     assert counts == {group: 2 for group in EVALUATION_GROUP_DOMAIN_MAP}
 
 
+
+def test_pilot_exclusions_are_cross_domain_filter_controls():
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    dataset = load_knowledge_retrieval_dataset_v2(
+        PILOT_PATH,
+        expected_case_count=12,
+        manifest=manifest,
+    )
+    chunks_by_id = {item["chunk_id"]: item for item in manifest["chunks"]}
+
+    for case in dataset.cases:
+        assert case.excluded_chunk_ids
+        assert all(
+            chunks_by_id[chunk_id]["domain"] not in case.allowed_domains
+            for chunk_id in case.excluded_chunk_ids
+        )
+
 def test_v2_loader_rejects_missing_manifest_id(tmp_path):
     payload = {"version": "test", "cases": [_case(primary_relevant_chunk_ids=["missing"])]}
     path = tmp_path / "dataset.json"

@@ -10,7 +10,7 @@
       "allowed_domains": ["fastapi"],
       "primary_relevant_chunk_ids": ["fastapi_request_lifecycle"],
       "accepted_related_chunk_ids": ["fastapi_dependency_lifecycle"],
-      "excluded_chunk_ids": ["fastapi_blocking_io"],
+      "excluded_chunk_ids": ["kafka_delivery"],
       "top_k": 5
     },
     {
@@ -22,7 +22,7 @@
       "allowed_domains": ["fastapi"],
       "primary_relevant_chunk_ids": ["fastapi_blocking_io"],
       "accepted_related_chunk_ids": ["fastapi_production"],
-      "excluded_chunk_ids": ["fastapi_request_lifecycle"],
+      "excluded_chunk_ids": ["cascading_failures"],
       "top_k": 5
     },
     {
@@ -34,7 +34,7 @@
       "allowed_domains": ["redis"],
       "primary_relevant_chunk_ids": ["redis_consistency"],
       "accepted_related_chunk_ids": ["redis_operations"],
-      "excluded_chunk_ids": ["redis_distributed_lock"],
+      "excluded_chunk_ids": ["kafka_delivery"],
       "top_k": 5
     },
     {
@@ -46,7 +46,7 @@
       "allowed_domains": ["redis"],
       "primary_relevant_chunk_ids": ["cache_breakdown"],
       "accepted_related_chunk_ids": ["redis_operations"],
-      "excluded_chunk_ids": ["redis_consistency"],
+      "excluded_chunk_ids": ["capacity_planning"],
       "top_k": 5
     },
     {
@@ -58,7 +58,7 @@
       "allowed_domains": ["mysql"],
       "primary_relevant_chunk_ids": ["mysql_indexing"],
       "accepted_related_chunk_ids": ["mysql_backend"],
-      "excluded_chunk_ids": ["mysql_isolation"],
+      "excluded_chunk_ids": ["redis_backend"],
       "top_k": 5
     },
     {
@@ -70,7 +70,7 @@
       "allowed_domains": ["mysql"],
       "primary_relevant_chunk_ids": ["mysql_deadlocks"],
       "accepted_related_chunk_ids": ["mysql_isolation"],
-      "excluded_chunk_ids": ["mysql_online_migration"],
+      "excluded_chunk_ids": ["redis_distributed_lock"],
       "top_k": 5
     },
     {
@@ -82,7 +82,7 @@
       "allowed_domains": ["kafka"],
       "primary_relevant_chunk_ids": ["kafka_delivery"],
       "accepted_related_chunk_ids": ["kafka_backend"],
-      "excluded_chunk_ids": ["kafka_rebalancing"],
+      "excluded_chunk_ids": ["redis_consistency"],
       "top_k": 5
     },
     {
@@ -94,7 +94,7 @@
       "allowed_domains": ["kafka"],
       "primary_relevant_chunk_ids": ["kafka_poison_messages"],
       "accepted_related_chunk_ids": ["kafka_operations"],
-      "excluded_chunk_ids": ["kafka_delivery"],
+      "excluded_chunk_ids": ["cascading_failures"],
       "top_k": 5
     },
     {
@@ -106,7 +106,7 @@
       "allowed_domains": ["system-design"],
       "primary_relevant_chunk_ids": ["service_scaling"],
       "accepted_related_chunk_ids": ["system_design_backend"],
-      "excluded_chunk_ids": ["capacity_planning"],
+      "excluded_chunk_ids": ["cache_breakdown"],
       "top_k": 5
     },
     {
@@ -118,7 +118,7 @@
       "allowed_domains": ["system-design"],
       "primary_relevant_chunk_ids": ["queue_backpressure"],
       "accepted_related_chunk_ids": ["capacity_planning"],
-      "excluded_chunk_ids": ["cascading_failures"],
+      "excluded_chunk_ids": ["kafka_poison_messages"],
       "top_k": 5
     },
     {
@@ -130,7 +130,7 @@
       "allowed_domains": ["system-design"],
       "primary_relevant_chunk_ids": ["capacity_planning"],
       "accepted_related_chunk_ids": ["system_design_backend"],
-      "excluded_chunk_ids": ["service_scaling"],
+      "excluded_chunk_ids": ["cache_breakdown"],
       "top_k": 5
     },
     {
@@ -142,7 +142,7 @@
       "allowed_domains": ["system-design"],
       "primary_relevant_chunk_ids": ["cascading_failures"],
       "accepted_related_chunk_ids": ["queue_backpressure"],
-      "excluded_chunk_ids": ["service_scaling"],
+      "excluded_chunk_ids": ["fastapi_blocking_io"],
       "top_k": 5
     }
   ]
