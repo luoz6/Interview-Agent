@@ -6,10 +6,17 @@ Stage 44A 已完成远程 `BAAI/bge-m3` 提供商、版本化 pgvector 存储、
 
 Stage 44B 分为两批：
 
-- **44B1：合约与中文基线。** 引入 manifest v2、中文内容校验、中文资料规则，重写现有 25 个稳定 ID，并在隔离 RC 表中激活一个中间版本。
+- **44B1：合约与中文基线。** 引入 manifest v2、中文内容校验、中文资料规则，在独立 v2 语料根目录中为现有 25 个稳定 ID 创建中文版本，并在隔离 RC 表中激活一个中间版本。
 - **44B2：规模与最终质量。** 按领域批次新增约 115 个单元，形成约 140 个单元的最终语料，创建 72 条中文 v2 查询，执行完整质量和隐私验收。
 
 所有自然语言内容均为中文。`FastAPI`、`Redis`、`MySQL`、`PostgreSQL`、`Kafka`、SQL、代码标识符和 URL 属于技术标识，按官方写法保留。Stage 42 的英文 v1 数据集冻结为内部兼容性回归，不进入用户面试流程，也不被翻译或覆盖。
+
+v1 与 v2 使用独立语料根目录：
+
+- `app/data/knowledge/` 保留现有 25 篇英文文件和 `manifest.json`，供 v1/Stage 44A 重放，文件、相对路径和哈希不变。
+- `app/data/knowledge_v2/` 保存同一批稳定 ID 的中文 v2 文件及独立 `manifest.json`，44B2 继续在此目录扩展。
+
+两个根目录可包含相同 `chunk_id`，因为构建、摄入和验收每次必须显式选择一个根目录，禁止把两个目录合并扫描。
 
 ## 2. 已确认的方案
 
@@ -86,7 +93,7 @@ references:
 - `question_patterns` 为 2 至 5 条中文面试问法。
 - 正文去除代码块和 URL 后包含 300 至 1200 个中文字符，并按“核心结论、机制与边界、常见错误、工程权衡、可观察评分信号”组织。
 
-解析使用作为直接依赖声明的 PyYAML 安全加载器，而不是继续扩展当前的逗号分隔解析。加载器增加重复映射键检查，并由 Pydantic 模型拒绝未知字段、错误类型和非法枚举。v1 manifest 读取和测试保持兼容，v2 manifest 固定写入 `app/data/knowledge/manifest_v2.json`，不覆盖历史 `manifest.json`。
+解析使用作为直接依赖声明的 PyYAML 安全加载器，而不是继续扩展当前的逗号分隔解析。加载器增加重复映射键检查，并由 Pydantic 模型拒绝未知字段、错误类型和非法枚举。v1 manifest 读取和测试保持兼容，v2 manifest 固定写入 `app/data/knowledge_v2/manifest.json`，不覆盖或重新生成 v1 manifest。
 
 ### 3.2 中文资料准入
 
@@ -114,7 +121,7 @@ v2 新建 `KnowledgeRetrievalCaseV2` 和 `KnowledgeRetrievalDatasetV2`，不修�
 
 ### 4.1 44B1：中文 25 单元基线
 
-1. 将现有 25 个单元升级到 manifest v2，保持 `id` 不变，补充中文正文、难度、问题模板和中文来源。
+1. 保持 `app/data/knowledge/` 完全不变，在 `app/data/knowledge_v2/` 为现有 25 个 `id` 创建中文 v2 单元，补充中文正文、难度、问题模板和中文来源。
 2. 构建 `stage44b1-zh-v2` manifest，验证 25 个单元、领域兼容、引用规则和内容哈希。
 3. 在贯穿 44B1 和 44B2 的持久隔离 `knowledge_chunks_stage44b_rc` 前缀准备并激活完整中间版本，不切换生产配置。
 4. 运行 12 条全中文冒烟查询，每个评估组两条，验证中文查询、过滤、证据回放和有限向量。
@@ -186,7 +193,7 @@ Stage 44B 的真实验收必须显式设置 SiliconFlow provider、模型修订�
 
 44B1 先增加 schema v2、中文 content-lint、来源准入、独立 v2 数据集模型、12 条 pilot、v2 nDCG/Recall/MRR 公式和向量复用的无网络测试，再执行隔离真实 provider 验收。44B2 增加每个领域批次的 manifest fixture、72 条数据集结构测试、指标边界测试、排除 ID 测试、过滤正确性测试、中文运行时查询测试和完整证据回放测试。
 
-实施文件边界保持 v1 冻结：新增 `knowledge_eval_dataset_v2.py`、`knowledge_eval_metrics_v2.py`、`knowledge_corpus_schema.py`/`content_validator.py`、`build_knowledge_manifest_v2.py`、v2 evaluator、44B acceptance runner/auditor 及其测试；修改 `knowledge_query.py`、`knowledge_profile.py`、taxonomy、直接 PyYAML 依赖和锁文件；不修改 v1 数据集模型、v1 指标模型、v1 manifest 或 Stage 44A 冻结测试。
+实施文件边界保持 v1 冻结：新增 `app/data/knowledge_v2/`、`knowledge_eval_dataset_v2.py`、`knowledge_eval_metrics_v2.py`、`knowledge_corpus_schema.py`/`content_validator.py`、`build_knowledge_manifest_v2.py`、v2 evaluator、44B acceptance runner/auditor 及其测试；修改 `knowledge_query.py`、`knowledge_profile.py`、taxonomy、直接 PyYAML 依赖和锁文件；不修改 `app/data/knowledge/`、v1 数据集模型、v1 指标模型、v1 manifest 或 Stage 44A 冻结测试。
 
 Stage 44B 最终通过必须同时满足：
 
