@@ -44,6 +44,28 @@ def test_manifest_has_relative_paths_sizes_and_sha256(tmp_path):
     assert audit_release_artifacts(run, expected_run_id="stage42-run") == manifest
 
 
+def test_audit_accepts_git_expanded_crlf_for_json_and_markdown(tmp_path):
+    run = _make_run(tmp_path)
+    text_paths = (
+        "metrics.json",
+        "report.md",
+        "retrieval-cases/redis.json",
+    )
+    for relative_path in text_paths:
+        path = run / relative_path
+        path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+
+    manifest = write_artifact_manifest(run, run_id="stage42-run")
+
+    for relative_path in text_paths:
+        path = run / relative_path
+        lf_bytes = path.read_bytes()
+        assert b"\r\n" not in lf_bytes
+        path.write_bytes(lf_bytes.replace(b"\n", b"\r\n"))
+
+    assert audit_release_artifacts(run, expected_run_id="stage42-run") == manifest
+
+
 @pytest.mark.parametrize(
     "sensitive_content",
     [

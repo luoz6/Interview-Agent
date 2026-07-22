@@ -9,6 +9,7 @@ from pathlib import Path
 
 REQUIRED_FILES = ("manifest.json", "metrics.json", "report.md")
 REQUIRED_DIRECTORIES = ("retrieval-cases", "browser")
+CANONICAL_TEXT_SUFFIXES = {".json", ".md"}
 SENSITIVE_PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
     re.compile(r"authorization\s*[:=]", re.IGNORECASE),
@@ -25,12 +26,20 @@ class ArtifactAuditError(RuntimeError):
     pass
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _inventory_bytes(path: Path) -> bytes:
+    content = path.read_bytes()
+    if path.suffix.casefold() in CANONICAL_TEXT_SUFFIXES:
+        return content.replace(b"\r\n", b"\n")
+    return content
+
+
+def _artifact_record(path: Path, *, run_dir: Path) -> dict:
+    content = _inventory_bytes(path)
+    return {
+        "path": path.relative_to(run_dir).as_posix(),
+        "size": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
 
 
 def _artifact_files(run_dir: Path) -> list[Path]:
@@ -44,14 +53,7 @@ def _artifact_files(run_dir: Path) -> list[Path]:
 
 def _inventory(run_dir: Path, *, run_id: str) -> dict:
     files = _artifact_files(run_dir)
-    artifacts = [
-        {
-            "path": path.relative_to(run_dir).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": _sha256(path),
-        }
-        for path in files
-    ]
+    artifacts = [_artifact_record(path, run_dir=run_dir) for path in files]
     return {
         "run_id": run_id,
         "artifact_count": len(artifacts),
