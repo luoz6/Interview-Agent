@@ -111,4 +111,3 @@ Expected: Python, browser, Stage 44A privacy, and whitespace gates PASS. If Wind
 git add scripts/audit_stage42_artifacts.py tests/test_stage42_artifact_audit.py
 git commit -m "fix: canonicalize stage 42 artifact line endings"
 ```
-
