@@ -1,0 +1,658 @@
+{
+  "chunk_count": 25,
+  "chunks": [
+    {
+      "aliases": [
+        "热点键失效",
+        "并发回源"
+      ],
+      "chunk_id": "cache_breakdown",
+      "content_kind": "failure_mode",
+      "content_sha256": "abbfb950a02fd0b83eff0dfe51accfb4d39862d1cdc54700eccb0c180d0ee2fa",
+      "difficulty": "intermediate",
+      "domain": "redis",
+      "metadata_sha256": "fcd4f9714023906761feb18566a676403de3305bb984125a72866d7d9aa61518",
+      "question_patterns": [
+        "热点缓存失效后怎样避免请求同时访问数据库？",
+        "互斥重建和逻辑过期分别适合什么场景？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "0d5f2b6e6442b74a8da1acb3f8d98d936f11c29ca747d2e494683f8f18968f4d",
+      "source_path": "theory/cache_breakdown.md",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "缓存",
+        "缓存击穿"
+      ],
+      "title": "热点缓存失效与缓存击穿"
+    },
+    {
+      "aliases": [
+        "容量估算",
+        "峰值流量规划"
+      ],
+      "chunk_id": "capacity_planning",
+      "content_kind": "engineering_practice",
+      "content_sha256": "ac89e6ed2651f2ee1740cb082b6ace2dad30e239e08c08ad0085eede7699f7e7",
+      "difficulty": "intermediate",
+      "domain": "system-design",
+      "metadata_sha256": "5bab8a124b63012e42bf9ed58459e1826e00eba4b4cb2265118e1596c52f79be",
+      "question_patterns": [
+        "如何根据峰值流量和并发估算服务容量？",
+        "容量模型怎样通过压测和生产数据校准？"
+      ],
+      "reference_count": 1,
+      "references_sha256": "4d2c17ecaabf4ff49c74208924b23ca3fe20dc3e73dc60e20b80ac81b1dfad9a",
+      "source_path": "practices/capacity_planning.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "system-design",
+        "reliability",
+        "容量规划"
+      ],
+      "title": "服务容量规划方法"
+    },
+    {
+      "aliases": [
+        "重试风暴",
+        "故障放大"
+      ],
+      "chunk_id": "cascading_failures",
+      "content_kind": "failure_mode",
+      "content_sha256": "e129e407ce82a3aa5da1c2c6bd0f78e64cae3e28957d80ac9e48d15ab3e07173",
+      "difficulty": "intermediate",
+      "domain": "system-design",
+      "metadata_sha256": "f93fdc3fa65b8789df4d438c09456abd8224bb7726d3000b8e5862381336156e",
+      "question_patterns": [
+        "下游变慢如何形成重试风暴和级联故障？",
+        "熔断、隔离和超时应怎样配合？"
+      ],
+      "reference_count": 3,
+      "references_sha256": "7eec134315ff22bb6ec053fbc3654732e9a516ce2b551b2c8428262d65035bb2",
+      "source_path": "theory/cascading_failures.md",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "reliability",
+        "级联故障"
+      ],
+      "title": "服务级联故障与放大链路"
+    },
+    {
+      "aliases": [
+        "FastAPI 项目评价",
+        "后端项目证据"
+      ],
+      "chunk_id": "fastapi_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "99a8df44a29b12a8d03264da555ee5efe0ea2f59efa74ac7dcdb0c563564272b",
+      "difficulty": "advanced",
+      "domain": "fastapi",
+      "metadata_sha256": "1f4278d8c4bb6f59944b99d0af282db9d64e94aef5e36c211d242ed3145feb24",
+      "question_patterns": [
+        "如何判断一个 FastAPI 项目是否具备真实生产价值？",
+        "面试中怎样证明后端项目的稳定性和可观测性？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "297e13a6b050f48875c9f19c084a6cb32f6f4ac06d7588c4c58f445f0d3b074d",
+      "source_path": "benchmarks/fastapi_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "fastapi",
+        "python",
+        "后端工程"
+      ],
+      "title": "FastAPI 后端项目评价基准"
+    },
+    {
+      "aliases": [
+        "事件循环阻塞",
+        "同步客户端阻塞"
+      ],
+      "chunk_id": "fastapi_blocking_io",
+      "content_kind": "failure_mode",
+      "content_sha256": "60b4bc2ff35898280c6823dec77cf1969d452495a4e8150605590a419bdc80aa",
+      "difficulty": "intermediate",
+      "domain": "fastapi",
+      "metadata_sha256": "1c573d97f1ad726c9c4269bfcc99bb41490d3c54aa0b32fe91b9c5da18afd978",
+      "question_patterns": [
+        "为什么异步接口中的同步调用会拖慢其他请求？",
+        "如何定位并修复 FastAPI 的事件循环阻塞？"
+      ],
+      "reference_count": 1,
+      "references_sha256": "90a9458a5f49380c348805d066634baee311eb9243be98ab1bc5dbfe5d783b59",
+      "source_path": "theory/fastapi_blocking_io.md",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "阻塞调用"
+      ],
+      "title": "FastAPI 异步接口中的阻塞 I/O"
+    },
+    {
+      "aliases": [
+        "yield 依赖",
+        "lifespan 资源"
+      ],
+      "chunk_id": "fastapi_dependency_lifecycle",
+      "content_kind": "mechanism",
+      "content_sha256": "db9477f6deda7b3136754a9dcfbc2457a80226cc4e4f6d84c4e993f3e4a12910",
+      "difficulty": "intermediate",
+      "domain": "fastapi",
+      "metadata_sha256": "eee6910ee45845c6501368257d80ebf249b169ad9a017b83edf824037a1e55d6",
+      "question_patterns": [
+        "FastAPI 中使用 yield 的依赖何时执行清理？",
+        "请求级依赖和应用级 lifespan 应怎样划分？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "35fead0135357be6a46e0344014b9da7a287d4930c57713c1f1c4226e40b34c8",
+      "source_path": "theory/fastapi_dependency_lifecycle.md",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "依赖注入"
+      ],
+      "title": "FastAPI 依赖项生命周期边界"
+    },
+    {
+      "aliases": [
+        "FastAPI 生产部署",
+        "服务运行治理"
+      ],
+      "chunk_id": "fastapi_production",
+      "content_kind": "engineering_practice",
+      "content_sha256": "65ae8bc0a14686c69fdcac3e207e3c9eeacc97727b08bc4da55c2f55a5ff10ff",
+      "difficulty": "intermediate",
+      "domain": "fastapi",
+      "metadata_sha256": "64f4c71f7b591f9f9efa4957f12b608704df99e77af330c79f498ad8931129cd",
+      "question_patterns": [
+        "FastAPI 服务上线前需要建立哪些生产保障？",
+        "多工作进程部署时应关注哪些资源边界？"
+      ],
+      "reference_count": 3,
+      "references_sha256": "69584d9b2a6b80b10a063a623771bbcf41098615763edb736166e8f1682a8627",
+      "source_path": "practices/fastapi_production.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "fastapi",
+        "python",
+        "生产运行"
+      ],
+      "title": "FastAPI 生产工程实践"
+    },
+    {
+      "aliases": [
+        "ASGI 请求链路",
+        "请求处理顺序"
+      ],
+      "chunk_id": "fastapi_request_lifecycle",
+      "content_kind": "hard_negative",
+      "content_sha256": "7e849ba64c1f529d985692e85130be73bebcd923f9e966f269c89c55bd1b3d7e",
+      "difficulty": "beginner",
+      "domain": "fastapi",
+      "metadata_sha256": "c8cf1e746c074e38b46eeb3d65e7faff8460faa437f195680b2906bf59a91501",
+      "question_patterns": [
+        "FastAPI 请求从进入 ASGI 到响应返回经历哪些阶段？",
+        "依赖解析、参数校验和中间件的执行顺序是什么？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "9f245229d211869a0733ce8c80bf40dfdfd5cc85f19a60de9fe544d4a4d0e7ea",
+      "source_path": "theory/fastapi_request_lifecycle.md",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "请求生命周期"
+      ],
+      "title": "FastAPI 请求生命周期"
+    },
+    {
+      "aliases": [
+        "Kafka 项目评价",
+        "消息工程证据"
+      ],
+      "chunk_id": "kafka_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "14f79dd9bbe8b2d1f8a1da66e14b6c870854144746d5e4fbf9e72e1ef8138287",
+      "difficulty": "advanced",
+      "domain": "kafka",
+      "metadata_sha256": "5d89d48d1e8a97ea559c71148150e59ad18c7c336223ba67732e84276d5ea720",
+      "question_patterns": [
+        "如何判断 Kafka 项目是否具备生产价值？",
+        "面试中怎样证明消息系统的可靠性和容量？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "cb026883aa164d984cbcfbf1f4ad6ca0dddd95a528678794cffc1cda42c4b246",
+      "source_path": "benchmarks/kafka_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "kafka",
+        "消息系统",
+        "后端工程"
+      ],
+      "title": "Kafka 后端项目评价基准"
+    },
+    {
+      "aliases": [
+        "至少一次投递",
+        "offset 提交"
+      ],
+      "chunk_id": "kafka_delivery",
+      "content_kind": "mechanism",
+      "content_sha256": "395db9edab170c9a92749eb4c5933cbf48724f2f17ae3e5a60376bf38096d047",
+      "difficulty": "beginner",
+      "domain": "kafka",
+      "metadata_sha256": "9b2479a267e3bd24a3f1d309c0096112c7327ae6362d48a46d6248a6142d7359",
+      "question_patterns": [
+        "Kafka 至少一次投递下如何避免重复副作用？",
+        "offset 提交时机怎样影响消息丢失和重复？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "46099f6c92c867df39888b0e4b8c60100c527062cd9f77462d40a94181c1bb8b",
+      "source_path": "theory/kafka_delivery.md",
+      "source_type": "theory",
+      "tags": [
+        "kafka",
+        "投递语义",
+        "幂等"
+      ],
+      "title": "Kafka 投递语义与幂等副作用"
+    },
+    {
+      "aliases": [
+        "consumer lag",
+        "消费积压"
+      ],
+      "chunk_id": "kafka_operations",
+      "content_kind": "engineering_practice",
+      "content_sha256": "3f9b7e491a140474a1224dda3eeb8f5a2f7e977d8524958b5ebd72cb1e19f114",
+      "difficulty": "intermediate",
+      "domain": "kafka",
+      "metadata_sha256": "23724024558e3d5cf80f1f0936c57398efb51b87fcc672b47b5cfba165ea9594",
+      "question_patterns": [
+        "Kafka 消费者需要监控哪些运行指标？",
+        "如何判断积压是突发流量还是处理能力不足？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "9a94cc74e2081389f9c939a4dc446ca03c4bce107f2a522b0b314e2dacdd045f",
+      "source_path": "practices/kafka_operations.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "kafka",
+        "监控",
+        "消费治理"
+      ],
+      "title": "Kafka 消费运行指标"
+    },
+    {
+      "aliases": [
+        "poison message",
+        "DLQ"
+      ],
+      "chunk_id": "kafka_poison_messages",
+      "content_kind": "failure_mode",
+      "content_sha256": "d8b95424e7e486db0894f42c9865a5b36e11b91c3dba05335ded26c4f2c8174e",
+      "difficulty": "intermediate",
+      "domain": "kafka",
+      "metadata_sha256": "e380c073afa22c76b61e644b4c54b5fc13ad7385acc8f5312ecbedbb4581ebd7",
+      "question_patterns": [
+        "坏消息反复失败导致分区阻塞时应如何处理？",
+        "死信消息怎样安全回放并保留审计？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "31b086142da07a4e14e74d7b422e9f3221bebcce3ad1e943f410ff618b1d0bb6",
+      "source_path": "theory/kafka_poison_messages.md",
+      "source_type": "theory",
+      "tags": [
+        "kafka",
+        "坏消息",
+        "死信队列"
+      ],
+      "title": "Kafka 坏消息与重试隔离"
+    },
+    {
+      "aliases": [
+        "consumer rebalance",
+        "分区重分配"
+      ],
+      "chunk_id": "kafka_rebalancing",
+      "content_kind": "hard_negative",
+      "content_sha256": "d5e1efe0586ea6a2abca35aee2a3769cc238cae2c130b85958b96b795bae5b56",
+      "difficulty": "intermediate",
+      "domain": "kafka",
+      "metadata_sha256": "fbd1d656bbe794972d8db3fde98b8eb15ba61267ec65fee62c108422a3c1783d",
+      "question_patterns": [
+        "Kafka 消费组为什么会发生再平衡？",
+        "再平衡期间如何正确处理 offset 和在途任务？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "107ba1924501e4928d43c70f693d34aca5aa83891d63e7899f22959c14d49ee6",
+      "source_path": "theory/kafka_rebalancing.md",
+      "source_type": "theory",
+      "tags": [
+        "kafka",
+        "消费组",
+        "再平衡"
+      ],
+      "title": "Kafka 消费组再平衡边界"
+    },
+    {
+      "aliases": [
+        "MySQL 项目评价",
+        "数据库工程证据"
+      ],
+      "chunk_id": "mysql_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "10339a40f35b32ad76ed33dfdb57eec0ebec60c616ab6034385754ec161dae7a",
+      "difficulty": "advanced",
+      "domain": "mysql",
+      "metadata_sha256": "77aeee14812e3d95114a2ca51550ef17f9fd6c87867abb2ad69b6d51d84c47c0",
+      "question_patterns": [
+        "如何判断项目中的 MySQL 设计是否达到生产水平？",
+        "面试中怎样说明数据库性能和可靠性证据？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "41dd1fbe10f9bb3c7ee5ed56aba6044403a632e2a8fa832a60405e289b23759c",
+      "source_path": "benchmarks/mysql_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "mysql",
+        "数据库",
+        "后端工程"
+      ],
+      "title": "MySQL 后端项目评价基准"
+    },
+    {
+      "aliases": [
+        "事务死锁",
+        "锁等待环"
+      ],
+      "chunk_id": "mysql_deadlocks",
+      "content_kind": "failure_mode",
+      "content_sha256": "3dd3861f75ef1fc8a25ca9eb2a68651889cf3b97cbc49f9250c0c12624a32d92",
+      "difficulty": "intermediate",
+      "domain": "mysql",
+      "metadata_sha256": "0f90d55d95179fcbb09e18ac36ecc9dfc08e29945c65bf80c1e68d80d292c6b7",
+      "question_patterns": [
+        "InnoDB 死锁为什么发生，应用应如何恢复？",
+        "怎样减少并发事务形成等待环？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "a3d3e8be18b179441fd1ab056fdaf26fc80ffe2bee7e39aa21027cfa16513928",
+      "source_path": "theory/mysql_deadlocks.md",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "innodb",
+        "死锁"
+      ],
+      "title": "InnoDB 死锁识别与恢复"
+    },
+    {
+      "aliases": [
+        "最左前缀",
+        "覆盖索引"
+      ],
+      "chunk_id": "mysql_indexing",
+      "content_kind": "mechanism",
+      "content_sha256": "dccf9e2d3a2d20a6c2071c8fb7e9d20e23e6467a9681117db84f21441e719bb6",
+      "difficulty": "beginner",
+      "domain": "mysql",
+      "metadata_sha256": "08af57e56bc777c4c8759dfc4368cd69d93421b7b09b7a31cfaef235c1a9af13",
+      "question_patterns": [
+        "如何利用联合索引和覆盖索引减少回表？",
+        "联合索引列顺序应该怎样确定？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "184d81dc1f0edb91f686164f50ac2c6344dea5ea34f320a6719441a24a8c276e",
+      "source_path": "theory/mysql_indexing.md",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "索引",
+        "查询优化"
+      ],
+      "title": "MySQL 联合索引与覆盖索引"
+    },
+    {
+      "aliases": [
+        "RC 与 RR",
+        "next-key lock"
+      ],
+      "chunk_id": "mysql_isolation",
+      "content_kind": "hard_negative",
+      "content_sha256": "4ddcc2910643d44abbc0cefa1879b6965497cec838e63ee3432047e7de63fbfc",
+      "difficulty": "intermediate",
+      "domain": "mysql",
+      "metadata_sha256": "00aaa5fc42168d92b8cfe8c9537e98bcc7ea51c5a023d6119a2c11ebfb53e225",
+      "question_patterns": [
+        "MySQL 的 RC 和 RR 在读取与加锁上有什么区别？",
+        "快照读和当前读为什么会看到不同结果？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "aa1f1e0d682f1b19b57db06e72d968509c8388e324c5b0c14c8bca031c7386c1",
+      "source_path": "theory/mysql_isolation.md",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "事务",
+        "隔离级别"
+      ],
+      "title": "MySQL 事务隔离与锁边界"
+    },
+    {
+      "aliases": [
+        "Online DDL",
+        "无停机迁移"
+      ],
+      "chunk_id": "mysql_online_migration",
+      "content_kind": "engineering_practice",
+      "content_sha256": "90219b5304573bda7a21ae6ab7602341c4fa62d3c15259731760ba8e54f141fa",
+      "difficulty": "intermediate",
+      "domain": "mysql",
+      "metadata_sha256": "75c0a701ebf350a527ecbfcfb72e34c74c6e0b5c542e71bdcafd046645933d38",
+      "question_patterns": [
+        "如何在不停机条件下修改大表结构？",
+        "在线 DDL 和业务分批回填应如何配合？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "c8f99ce103351169a340bc90b771134db57a6e9f3f8c6c593263a854e2bc82ea",
+      "source_path": "practices/mysql_online_migration.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "mysql",
+        "在线迁移",
+        "ddl"
+      ],
+      "title": "MySQL 在线表结构迁移"
+    },
+    {
+      "aliases": [
+        "队列调平",
+        "流量准入"
+      ],
+      "chunk_id": "queue_backpressure",
+      "content_kind": "mechanism",
+      "content_sha256": "34312d494b0005763492a4e0b10393f646a47a581f3caa8dd0e5d2496239a1a0",
+      "difficulty": "intermediate",
+      "domain": "system-design",
+      "metadata_sha256": "f794e44c0f7a3654cb5fef728563857bd60d4e4794a09b0758ac9b4647f95725",
+      "question_patterns": [
+        "消费速度低于生产速度时如何实施背压？",
+        "队列积压达到上限后系统应该怎样降级？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "1d9ec4aa3c712ab31d3a69f5ec8c859f66ecc155a27f4739a79b7bc1306d291d",
+      "source_path": "theory/queue_backpressure.md",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "reliability",
+        "背压"
+      ],
+      "title": "队列背压与准入控制"
+    },
+    {
+      "aliases": [
+        "Redis 项目评价",
+        "缓存工程证据"
+      ],
+      "chunk_id": "redis_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "f96a13511bfb0aae9d2bc5e5dceb966e44414b332af2c1ab60b26d06b4dae0f1",
+      "difficulty": "advanced",
+      "domain": "redis",
+      "metadata_sha256": "49d2370af3ee9eed7ae2856fe6f6f6ac54e3beb0aeba3059bd8bb2d25089f036",
+      "question_patterns": [
+        "如何判断项目中的 Redis 使用是否合理？",
+        "面试中怎样证明缓存优化真实有效？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "b0aa7bc0a618856a2cd3aa138f9abe9518938d366c6a405f3e9077bdde2b82de",
+      "source_path": "benchmarks/redis_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "redis",
+        "缓存",
+        "后端工程"
+      ],
+      "title": "Redis 后端项目评价基准"
+    },
+    {
+      "aliases": [
+        "Cache-Aside 一致性",
+        "缓存更新顺序"
+      ],
+      "chunk_id": "redis_consistency",
+      "content_kind": "mechanism",
+      "content_sha256": "8664d647bc7bcdb6bc9f7c4c49193a2fb96aee616c709f47dede430e8d548bff",
+      "difficulty": "beginner",
+      "domain": "redis",
+      "metadata_sha256": "daf8e2ada994addff779d38b1571cb1fbc4b1d12dbdb4c9c063cdc699b56ce4c",
+      "question_patterns": [
+        "缓存与数据库更新时怎样处理并发一致性窗口？",
+        "为什么常见做法是更新数据库后删除缓存？"
+      ],
+      "reference_count": 1,
+      "references_sha256": "88da6812a987391609ef65db18f216e8a5a352668050219c179ce2807c30c313",
+      "source_path": "theory/redis_consistency.md",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "缓存",
+        "一致性"
+      ],
+      "title": "Redis 缓存一致性的边界"
+    },
+    {
+      "aliases": [
+        "Redis 锁",
+        "owner token"
+      ],
+      "chunk_id": "redis_distributed_lock",
+      "content_kind": "hard_negative",
+      "content_sha256": "9423e04d1a8169617f10d05f50b1c5664744144387bbdea6dc6d5f4e1e2b1da8",
+      "difficulty": "intermediate",
+      "domain": "redis",
+      "metadata_sha256": "4e8e01312c7aad78705ecf8657887b5d399d31e7f0db2ecce1ba26841bf49040",
+      "question_patterns": [
+        "Redis 分布式锁为什么必须校验唯一所有者？",
+        "锁过期和业务执行超时会产生什么安全问题？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "f37da643697db0bdc58d7a65c6cc89d38535c36538ca671500e41fee3303ec86",
+      "source_path": "theory/redis_distributed_lock.md",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "分布式锁",
+        "幂等"
+      ],
+      "title": "Redis 分布式锁的安全边界"
+    },
+    {
+      "aliases": [
+        "Redis 运维",
+        "缓存监控"
+      ],
+      "chunk_id": "redis_operations",
+      "content_kind": "engineering_practice",
+      "content_sha256": "1f958b1976cbc6543dba7e5e314df433196a951f388d9bd2132df42749afa0d1",
+      "difficulty": "intermediate",
+      "domain": "redis",
+      "metadata_sha256": "ee8f090770818e9c355c2814c40f18d16eb87a31d789df9b2bb6881bea3b4e21",
+      "question_patterns": [
+        "Redis 生产环境需要监控哪些关键指标？",
+        "命中率下降和内存压力应如何排查？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "0dfc14a967472159b4af5f506f92604cf54fe501666277275b1d36827d7f3dba",
+      "source_path": "practices/redis_operations.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "redis",
+        "监控",
+        "容量"
+      ],
+      "title": "Redis 生产运维观察点"
+    },
+    {
+      "aliases": [
+        "横向扩容",
+        "自动扩缩容"
+      ],
+      "chunk_id": "service_scaling",
+      "content_kind": "hard_negative",
+      "content_sha256": "72cbc719c3f1e544a4ab5c7ba9c8addbc124f9c6efd7e235c658b4526086488f",
+      "difficulty": "beginner",
+      "domain": "system-design",
+      "metadata_sha256": "5f131fd59a2faaae3eeb7bd0e9b90411a3792ff574b16f65af321002d5cf7986",
+      "question_patterns": [
+        "无状态服务扩容时哪些下游会成为瓶颈？",
+        "为什么增加实例不一定提高系统吞吐？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "1e9656a0723344a9e637cae39b9c7b7c9647291ab84502a1ef314d2b57d7dd3b",
+      "source_path": "theory/service_scaling.md",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "扩容",
+        "无状态服务"
+      ],
+      "title": "无状态服务扩容边界"
+    },
+    {
+      "aliases": [
+        "系统设计评分",
+        "后端架构证据"
+      ],
+      "chunk_id": "system_design_backend",
+      "content_kind": "benchmark",
+      "content_sha256": "a8ef6561e7d9734c8a67ef681d6ea8c53997918b0496e8895dfc82240520846a",
+      "difficulty": "advanced",
+      "domain": "system-design",
+      "metadata_sha256": "e49894abd99e1759f0f618aad5456f458aad47bf42526126b301aabf55b9d160",
+      "question_patterns": [
+        "如何评价一个后端系统设计回答是否完整？",
+        "系统设计中怎样用量化证据支撑架构选择？"
+      ],
+      "reference_count": 3,
+      "references_sha256": "859e171abe7e33bad7f349edeb610b0b8717661d218f3d851bbca8410e97a4e5",
+      "source_path": "benchmarks/system_design_backend.md",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "system-design",
+        "后端架构",
+        "可靠性"
+      ],
+      "title": "后端系统设计评价基准"
+    }
+  ],
+  "corpus_manifest_sha256": "68a410d4cf24c283c9a17d766e4036ce8cf4f5fd4b91546bba304744b204033f",
+  "corpus_version": "stage44b1-zh-v2",
+  "manifest_schema_version": 2
+}

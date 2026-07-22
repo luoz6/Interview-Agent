@@ -3,7 +3,7 @@ id: fastapi_request_lifecycle
 title: FastAPI 请求生命周期
 domain: fastapi
 source_type: theory
-content_kind: mechanism
+content_kind: hard_negative
 tags: [fastapi, python, 请求生命周期]
 aliases: [ASGI 请求链路, 请求处理顺序]
 difficulty: beginner
