@@ -1,0 +1,149 @@
+{
+  "version": "stage44b1-knowledge-retrieval-v2-pilot",
+  "cases": [
+    {
+      "case_id": "fastapi-request-lifecycle",
+      "evaluation_group": "fastapi",
+      "query_text": "FastAPI 请求从进入 ASGI 到响应返回经历哪些阶段？",
+      "canonical_tags": ["fastapi", "python"],
+      "source_types": ["theory"],
+      "allowed_domains": ["fastapi"],
+      "primary_relevant_chunk_ids": ["fastapi_request_lifecycle"],
+      "accepted_related_chunk_ids": ["fastapi_dependency_lifecycle"],
+      "excluded_chunk_ids": ["fastapi_blocking_io"],
+      "top_k": 5
+    },
+    {
+      "case_id": "fastapi-blocking-io",
+      "evaluation_group": "fastapi",
+      "query_text": "为什么异步接口中的同步阻塞调用会拖慢其他请求？",
+      "canonical_tags": ["fastapi", "python"],
+      "source_types": ["theory", "engineering_guide"],
+      "allowed_domains": ["fastapi"],
+      "primary_relevant_chunk_ids": ["fastapi_blocking_io"],
+      "accepted_related_chunk_ids": ["fastapi_production"],
+      "excluded_chunk_ids": ["fastapi_request_lifecycle"],
+      "top_k": 5
+    },
+    {
+      "case_id": "redis-consistency",
+      "evaluation_group": "redis",
+      "query_text": "缓存与数据库更新时怎样处理并发一致性窗口？",
+      "canonical_tags": ["redis", "一致性"],
+      "source_types": ["theory", "engineering_guide"],
+      "allowed_domains": ["redis"],
+      "primary_relevant_chunk_ids": ["redis_consistency"],
+      "accepted_related_chunk_ids": ["redis_operations"],
+      "excluded_chunk_ids": ["redis_distributed_lock"],
+      "top_k": 5
+    },
+    {
+      "case_id": "redis-hot-key-breakdown",
+      "evaluation_group": "redis",
+      "query_text": "热点缓存失效后怎样避免大量请求同时访问数据库？",
+      "canonical_tags": ["redis", "缓存"],
+      "source_types": ["theory", "engineering_guide"],
+      "allowed_domains": ["redis"],
+      "primary_relevant_chunk_ids": ["cache_breakdown"],
+      "accepted_related_chunk_ids": ["redis_operations"],
+      "excluded_chunk_ids": ["redis_consistency"],
+      "top_k": 5
+    },
+    {
+      "case_id": "mysql-covering-index",
+      "evaluation_group": "relational-database",
+      "query_text": "如何利用联合索引和覆盖索引减少回表与扫描行数？",
+      "canonical_tags": ["mysql", "索引"],
+      "source_types": ["theory", "expert_benchmark"],
+      "allowed_domains": ["mysql"],
+      "primary_relevant_chunk_ids": ["mysql_indexing"],
+      "accepted_related_chunk_ids": ["mysql_backend"],
+      "excluded_chunk_ids": ["mysql_isolation"],
+      "top_k": 5
+    },
+    {
+      "case_id": "mysql-deadlock",
+      "evaluation_group": "relational-database",
+      "query_text": "InnoDB 死锁为什么发生，事务应如何重试？",
+      "canonical_tags": ["mysql", "事务"],
+      "source_types": ["theory", "engineering_guide"],
+      "allowed_domains": ["mysql"],
+      "primary_relevant_chunk_ids": ["mysql_deadlocks"],
+      "accepted_related_chunk_ids": ["mysql_isolation"],
+      "excluded_chunk_ids": ["mysql_online_migration"],
+      "top_k": 5
+    },
+    {
+      "case_id": "kafka-delivery",
+      "evaluation_group": "kafka",
+      "query_text": "Kafka 至少一次投递下如何避免重复副作用？",
+      "canonical_tags": ["kafka", "投递"],
+      "source_types": ["theory", "expert_benchmark"],
+      "allowed_domains": ["kafka"],
+      "primary_relevant_chunk_ids": ["kafka_delivery"],
+      "accepted_related_chunk_ids": ["kafka_backend"],
+      "excluded_chunk_ids": ["kafka_rebalancing"],
+      "top_k": 5
+    },
+    {
+      "case_id": "kafka-poison-message",
+      "evaluation_group": "kafka",
+      "query_text": "坏消息反复失败导致分区阻塞时应如何处理？",
+      "canonical_tags": ["kafka", "重试"],
+      "source_types": ["theory", "engineering_guide"],
+      "allowed_domains": ["kafka"],
+      "primary_relevant_chunk_ids": ["kafka_poison_messages"],
+      "accepted_related_chunk_ids": ["kafka_operations"],
+      "excluded_chunk_ids": ["kafka_delivery"],
+      "top_k": 5
+    },
+    {
+      "case_id": "service-scaling",
+      "evaluation_group": "system-design",
+      "query_text": "无状态服务扩容时数据库、缓存和队列会出现哪些瓶颈？",
+      "canonical_tags": ["system-design", "扩容"],
+      "source_types": ["theory", "engineering_guide", "expert_benchmark"],
+      "allowed_domains": ["system-design"],
+      "primary_relevant_chunk_ids": ["service_scaling"],
+      "accepted_related_chunk_ids": ["system_design_backend"],
+      "excluded_chunk_ids": ["capacity_planning"],
+      "top_k": 5
+    },
+    {
+      "case_id": "queue-backpressure",
+      "evaluation_group": "system-design",
+      "query_text": "消费速度低于生产速度时如何实施背压和准入控制？",
+      "canonical_tags": ["system-design", "背压"],
+      "source_types": ["theory", "engineering_guide"],
+      "allowed_domains": ["system-design"],
+      "primary_relevant_chunk_ids": ["queue_backpressure"],
+      "accepted_related_chunk_ids": ["capacity_planning"],
+      "excluded_chunk_ids": ["cascading_failures"],
+      "top_k": 5
+    },
+    {
+      "case_id": "capacity-planning",
+      "evaluation_group": "reliability",
+      "query_text": "如何根据峰值流量、并发和增长量估算容量余量？",
+      "canonical_tags": ["system-design", "reliability"],
+      "source_types": ["theory", "engineering_guide", "expert_benchmark"],
+      "allowed_domains": ["system-design"],
+      "primary_relevant_chunk_ids": ["capacity_planning"],
+      "accepted_related_chunk_ids": ["system_design_backend"],
+      "excluded_chunk_ids": ["service_scaling"],
+      "top_k": 5
+    },
+    {
+      "case_id": "cascading-failure",
+      "evaluation_group": "reliability",
+      "query_text": "下游变慢、重试放大和队列堆积如何形成级联故障？",
+      "canonical_tags": ["system-design", "reliability"],
+      "source_types": ["theory"],
+      "allowed_domains": ["system-design"],
+      "primary_relevant_chunk_ids": ["cascading_failures"],
+      "accepted_related_chunk_ids": ["queue_backpressure"],
+      "excluded_chunk_ids": ["service_scaling"],
+      "top_k": 5
+    }
+  ]
+}
