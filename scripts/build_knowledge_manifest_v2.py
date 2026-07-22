@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import sys
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.services.knowledge_corpus_schema import KnowledgeDocumentV2, load_knowledge_document_v2
+
+
+KNOWLEDGE_V2_ROOT = Path("app/data/knowledge_v2")
+DEFAULT_OUTPUT_PATH = KNOWLEDGE_V2_ROOT / "manifest.json"
+DEFAULT_CORPUS_VERSION = "stage44b1-zh-v2"
+
+
+def iter_markdown_files(knowledge_root: Path | str = KNOWLEDGE_V2_ROOT) -> list[Path]:
+    """Return only documents below the explicitly selected v2 root."""
+    return sorted(Path(knowledge_root).rglob("*.md"))
+
+
+def _normalized_text(value: str) -> str:
+    return value.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _sha256_payload(payload: Any) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def content_sha256(document: KnowledgeDocumentV2) -> str:
+    # This is exactly the text sent to the embedding provider by ingestion.
+    payload = f"{document.metadata.title}\n{_normalized_text(document.body)}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def metadata_sha256(document: KnowledgeDocumentV2) -> str:
+    return _sha256_payload(document.metadata.model_dump(mode="json"))
+
+
+def references_sha256(document: KnowledgeDocumentV2) -> str:
+    references = [reference.model_dump(mode="json") for reference in document.metadata.references]
+    return _sha256_payload(references)
+
+
+def build_manifest_v2(
+    knowledge_root: Path | str = KNOWLEDGE_V2_ROOT,
+    *,
+    corpus_version: str = DEFAULT_CORPUS_VERSION,
+) -> dict[str, Any]:
+    root = Path(knowledge_root)
+    if not corpus_version.strip():
+        raise ValueError("corpus_version must not be empty")
+
+    entries: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_body_hashes: dict[str, str] = {}
+    for path in iter_markdown_files(root):
+        document = load_knowledge_document_v2(path)
+        metadata = document.metadata
+        chunk_id = metadata.id
+        if chunk_id in seen_ids:
+            raise ValueError(f"duplicate v2 knowledge chunk id: {chunk_id}")
+        seen_ids.add(chunk_id)
+
+        body_hash = hashlib.sha256(
+            _normalized_text(document.body).casefold().encode("utf-8")
+        ).hexdigest()
+        if body_hash in seen_body_hashes:
+            raise ValueError(
+                "duplicate v2 knowledge content: "
+                f"{seen_body_hashes[body_hash]} and {chunk_id}"
+            )
+        seen_body_hashes[body_hash] = chunk_id
+
+        entries.append(
+            {
+                "chunk_id": chunk_id,
+                "title": metadata.title,
+                "domain": metadata.domain,
+                "source_type": metadata.source_type,
+                "content_kind": metadata.content_kind,
+                "tags": metadata.tags,
+                "aliases": metadata.aliases,
+                "difficulty": metadata.difficulty,
+                "question_patterns": metadata.question_patterns,
+                "source_path": path.relative_to(root).as_posix(),
+                "content_sha256": content_sha256(document),
+                "metadata_sha256": metadata_sha256(document),
+                "reference_count": len(metadata.references),
+                "references_sha256": references_sha256(document),
+            }
+        )
+
+    entries.sort(key=lambda item: item["chunk_id"])
+    payload = {
+        "corpus_version": corpus_version,
+        "chunk_count": len(entries),
+        "chunks": entries,
+    }
+    corpus_hash = _sha256_payload(payload)
+    return {
+        "manifest_schema_version": 2,
+        **payload,
+        "corpus_manifest_sha256": corpus_hash,
+    }
+
+
+def write_manifest_v2(
+    *,
+    output_path: Path | str = DEFAULT_OUTPUT_PATH,
+    knowledge_root: Path | str = KNOWLEDGE_V2_ROOT,
+    corpus_version: str = DEFAULT_CORPUS_VERSION,
+) -> dict[str, Any]:
+    manifest = build_manifest_v2(knowledge_root, corpus_version=corpus_version)
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build an isolated Stage 44B v2 knowledge manifest")
+    parser.add_argument("--knowledge-root", default=str(KNOWLEDGE_V2_ROOT))
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT_PATH))
+    parser.add_argument("--corpus-version", default=DEFAULT_CORPUS_VERSION)
+    args = parser.parse_args(argv)
+    manifest = write_manifest_v2(
+        output_path=args.output,
+        knowledge_root=args.knowledge_root,
+        corpus_version=args.corpus_version,
+    )
+    print(
+        json.dumps(
+            {
+                "corpus_version": manifest["corpus_version"],
+                "chunk_count": manifest["chunk_count"],
+                "corpus_manifest_sha256": manifest["corpus_manifest_sha256"],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
