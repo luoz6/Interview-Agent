@@ -163,6 +163,8 @@ InterviewGraphState
 |-- execution
 |   |-- generation_id
 |   |-- generation_attempt
+|   |-- expected_retry_attempt
+|   |-- retry_resume_attempt
 |   |-- next_retry_at
 |   `-- last_error_code
 `-- concurrency
@@ -177,6 +179,13 @@ interview has a small bounded conversation. This avoids loading the entire
 message store in decide and Examiner nodes, keeps replay self-contained, and
 accepts larger checkpoints as an explicit trade-off. Evidence content is still
 loaded by ID and verified hash only when an Agent needs it.
+
+`expected_retry_attempt` is durable retry-fencing state. It records the only
+timer resume the paused thread may accept. `retry_resume_attempt` and the
+command/generation outcome fields used by adjacent conditional edges are
+transient routing values. `project_state` clears all such routing values after
+the projection transaction has consumed them, so they cannot leak into a later
+public transition.
 
 There is no checkpointed `pending_action`. The graph cursor and interrupt
 payload already encode pending execution. The API projection translates the
@@ -255,12 +264,19 @@ decide_next_action
   |                                    |               |
   |                                    |               | Command(resume={
   |                                    |               |   kind: retry_timer,
-  |                                    |               |   generation_id
+  |                                    |               |   generation_id,
+  |                                    |               |   next_attempt_number
   |                                    |               | })
   |                                    |               v
-  |                                    |         prepare_retry
-  |                                    |               |
-  |                                    |               +-> generate_followup
+  |                                    |         validate_retry
+  |                                    |           |-- stale or mismatch
+  |                                    |           |      `-> wait_for_retry
+  |                                    |           `-- accepted
+  |                                    |                  |
+  |                                    |                  v
+  |                                    |            prepare_retry
+  |                                    |                  |
+  |                                    |                  `-> generate_followup
   |                                    |
   |                                    `-- terminal or exhausted
   |                                           `-> fallback_followup
@@ -275,7 +291,7 @@ decide_next_action
   |                                               wait_for_answer
   |
   |-- next_question -> commit_next_question -> project_state -> wait_for_answer
-  `-- finish_interview -> emit_report_event -> project_state -> END
+  `-- finish_interview -> project_state -> emit_report_event -> END
 ```
 
 `wait_for_answer` is a pure interrupt node. It performs no database write,
@@ -294,10 +310,17 @@ text. `validate_command` loads and validates the protected inbox row:
 ```
 
 `enqueue_retry` writes one idempotent retry outbox event with
-`available_at`. `wait_for_retry` is a second pure interrupt node. The leased
-outbox dispatcher polls due events and resumes that thread with a `retry_timer`
-command. LangGraph is not expected to provide a sleep primitive, and graph
-workers never block while waiting for backoff.
+`available_at`, calculated from PostgreSQL `NOW()`, and checkpoints its
+`expected_retry_attempt`. `wait_for_retry` is a second pure interrupt node.
+The leased outbox dispatcher polls due events and resumes that thread with a
+`retry_timer` command. Before invoking the graph, the consumer rejects events
+when the current cursor is not `wait_for_retry` or the expected attempt does
+not match. `validate_retry` repeats that check inside the graph against
+checkpointed state; it never trusts the resume payload to advance
+`generation_attempt`. A stale or duplicate event returns to
+`wait_for_retry` without changing generation state. LangGraph is not expected
+to provide a sleep primitive, and graph workers never block while waiting for
+backoff.
 
 Every completed sequential node or superstep may write a PostgreSQL checkpoint.
 A retry therefore creates checkpoints for failure classification, retry
@@ -309,13 +332,13 @@ operations dashboards and retention estimates must use that interpretation.
 finished interviews; no parallel generic `status` field is introduced. The
 conditional edge after `project_state` uses this fixed order:
 
-1. `interview_status == "finished"` routes to END.
+1. `interview_status == "finished"` routes to `emit_report_event`.
 2. An uncommitted `generation_id` routes to `generate_followup`.
 3. Any other active state routes to `wait_for_answer`.
 
 The commit and fallback nodes clear the uncommitted generation marker before
 their final projection, so an active completed turn cannot loop back into
-generation.
+generation. `emit_report_event` routes directly to END.
 
 ## 9. Command Ingress
 
@@ -418,9 +441,12 @@ Failures are classified at the node boundary:
 | State or code invariant failure | Missing references, invalid hashes, unknown state | Stop the graph and alert. |
 
 Provider generation permits at most three attempts. Retry availability is
-stored on a `retry_due` outbox row as `available_at`. `enqueue_retry` inserts
-that row idempotently, `wait_for_retry` interrupts the graph, and the existing
-leased dispatcher resumes the thread only after the row becomes claimable.
+stored on a `retry_due` outbox row as `available_at`, derived from the
+database clock. `enqueue_retry` inserts that row idempotently,
+`wait_for_retry` interrupts the graph, and the existing leased dispatcher
+resumes the thread only after the row becomes claimable. The checkpointed
+expected attempt plus `validate_retry` fences duplicate, delayed, and
+out-of-order retry events.
 Exhausted or terminal provider failure routes to the existing template
 follow-up and commits a degraded, auditable result.
 
@@ -435,9 +461,11 @@ engine. Graph routing owns retries and final fallback. Execution context gains
 tree instead of sharing only one command causation ID.
 
 This requires an explicit Examiner boundary that does not exist today.
-`ExaminerAgent` adds `stream_followup_attempt` (or an equivalent raising
-method) that invokes one provider attempt through AgentExecutionRunner with no
-fallback callback. The langgraph-v1 generation node uses this raising method.
+`ExaminerAgent` adds `stream_followup_attempt` that invokes one provider
+attempt through AgentExecutionRunner with no fallback callback. The
+langgraph-v1 generation node always consumes this stream, persists chunks, and
+joins them into the final text. No synchronous `generate_followup_attempt`
+method is required in this design.
 The existing `generate_followup` and `stream_followup` methods retain their
 current immediate fallback semantics for legacy sessions. The graph fallback
 node calls the shared deterministic template function directly; it must not
@@ -496,8 +524,12 @@ the public `pending_action`; that derived field is not written back into graph
 state.
 
 Final report workers continue to consume the complete projected session. The
-finish branch inserts the report request into the existing durable report job
-boundary before the graph reaches END.
+finish branch first commits the final `finished` projection and then inserts
+the report request into the existing durable report job boundary before the
+graph reaches END. These are separate node transactions, not a distributed
+transaction: report enqueue is idempotent by session and replays independently
+after failure. This ordering prevents a report worker from observing the job
+before the final projection is readable.
 
 ## 14. Version Compatibility
 
@@ -568,6 +600,7 @@ to reduce variation and support fairness audits.
 - Graph topology and every conditional edge.
 - Pure `wait_for_answer` interrupt behavior.
 - Pure `wait_for_retry` interrupt and due-event resume behavior.
+- Duplicate, stale, and mismatched retry events cannot advance an attempt.
 - Command duplicate and version-conflict routing.
 - Provider failure classification and the three-attempt cap.
 - Retry-loop checkpoint accounting and retention estimates.
@@ -600,8 +633,10 @@ After restarting a worker, every test verifies:
 - Public state_version increases monotonically.
 - A project_state replay after checkpoint failure does not skip or duplicate a
   public version.
+- Projection clears transient command, generation, and retry routing values.
 - Outbox rows never contain answer_text.
 - One effective report request exists.
+- A report request is never visible before the final finished projection.
 - The thread resumes from the expected node.
 
 ### 17.3 Browser acceptance

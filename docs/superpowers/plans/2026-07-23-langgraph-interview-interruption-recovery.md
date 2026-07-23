@@ -136,7 +136,13 @@ langgraph-checkpoint-postgres>=3.1.0,<3.2
 psycopg[binary]>=3.2,<4
 ```
 
-Retain `psycopg2-binary`; existing application repositories continue using psycopg2 while the official checkpointer uses psycopg 3.
+Retain `psycopg2-binary`; existing application repositories continue using
+psycopg2 while the official checkpointer uses psycopg 3. These are separate
+drivers with independent pools and lifecycle management. Never pass a
+psycopg2 connection to the saver. Size PostgreSQL `max_connections`, the
+existing repository pool, the saver pool, API process count, and worker
+concurrency together before rollout so the second pool does not silently
+exhaust the connection budget.
 
 - [ ] **Step 4: Implement bounded rollout accessors**
 
@@ -695,7 +701,55 @@ class DurableQuestionSnapshot(BaseModel):
 
 class DurablePlanSnapshot(BaseModel):
     title: str
+    corpus_manifest_sha256: str | None = None
     questions: list[DurableQuestionSnapshot]
+
+    @classmethod
+    def from_plan(cls, plan: InterviewPlan) -> "DurablePlanSnapshot":
+        context = plan.prep_context
+        references = (
+            {
+                reference.evidence_id: reference.content_sha256
+                for reference in context.evidence_refs
+            }
+            if context is not None
+            else {}
+        )
+        evidence_ids_by_question = (
+            {
+                hint.question_id: list(hint.evidence_ids)
+                for hint in context.question_hints
+            }
+            if context is not None
+            else {}
+        )
+        manifest_sha256 = (
+            context.binding_snapshot.corpus_manifest_sha256
+            if context is not None and context.binding_snapshot is not None
+            else None
+        )
+        questions = []
+        for question in plan.questions:
+            evidence_ids = evidence_ids_by_question.get(question.id, [])
+            questions.append(
+                DurableQuestionSnapshot(
+                    id=question.id,
+                    kind=question.kind,
+                    prompt=question.prompt,
+                    focus=question.focus,
+                    evidence_ids=evidence_ids,
+                    evidence_sha256={
+                        evidence_id: references[evidence_id]
+                        for evidence_id in evidence_ids
+                        if evidence_id in references
+                    },
+                )
+            )
+        return cls(
+            title=plan.title,
+            corpus_manifest_sha256=manifest_sha256,
+            questions=questions,
+        )
 
 
 class DurableInterviewState(TypedDict):
@@ -712,6 +766,9 @@ class DurableInterviewState(TypedDict):
     active_command_id: str | None
     generation_id: str | None
     generation_attempt: int
+    expected_retry_attempt: int | None
+    retry_resume_attempt: int | None
+    retry_validation: Literal["accepted", "stale"] | None
     next_retry_at: str | None
     last_error_code: str | None
     command_type: Literal["answer", "skip", "finish"] | None
@@ -724,7 +781,14 @@ class DurableInterviewState(TypedDict):
     generated_text: str | None
 ```
 
-`DurablePlanSnapshot.from_plan` copies question text, focus, evidence IDs, and hashes only. It excludes JD, resume, role-profile resume signals, evidence summaries, and evidence content.
+`DurablePlanSnapshot.from_plan` intentionally reads only questions,
+`question_hints[].evidence_ids`, `evidence_refs[].content_sha256`, and the
+binding snapshot's corpus manifest hash. A referenced ID with no matching hash
+is preserved so the runtime resolver can degrade with
+`invalid_evidence_reference` instead of silently changing the binding. The
+conversion excludes JD, resume, role-profile resume signals, topic summaries,
+candidate summaries, and evidence content. Add serialization tests that assert
+those excluded strings do not occur in the checkpoint payload.
 
 - [ ] **Step 4: Implement pure wait and command validation nodes**
 
@@ -908,12 +972,27 @@ Message rows use `(session_id, sequence_no)`; an existing row must match role, c
 ```python
 def project_state_node(state, deps) -> dict:
     projection = deps.workflow_store.project_state(state)
-    return {"state_version": projection.state_version}
+    updates = {
+        "state_version": projection.state_version,
+        "command_outcome": None,
+        "generation_outcome": None,
+        "generated_text": None,
+        "retry_resume_attempt": None,
+        "retry_validation": None,
+    }
+    if state["command_outcome"] == "completed":
+        updates["active_command_id"] = None
+        updates["command_type"] = None
+    return updates
 ```
 
-At this task boundary, `route_after_projection` handles finished to END and
-active to `wait_for_answer`. Task 9 extends it with the uncommitted-generation
-route after all generation nodes exist.
+`project_state_node` clears every field used only as an adjacent-node routing
+signal after the projector has consumed it. It preserves durable business facts
+such as `last_error_code`, `next_retry_at`, and the expected retry fence
+until their own transition clears them. At this task boundary,
+`route_after_projection` handles finished to END and active to
+`wait_for_answer`. Task 9 extends it with the uncommitted-generation route
+after all generation nodes exist.
 
 - [ ] **Step 6: Simulate checkpoint failure after successful projection**
 
@@ -1019,6 +1098,9 @@ def stream_followup_attempt(
 ```
 
 Do not change legacy `generate_followup` or `stream_followup`. The durable graph calls only `stream_followup_attempt`; its fallback node calls the shared deterministic `fallback_followup` function directly.
+No synchronous `generate_followup_attempt` is added: the durable graph owns
+chunk accumulation and final-text assembly, so a second raising API would be
+unused and would create a second failure boundary to maintain.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -1191,8 +1273,10 @@ git commit -m "feat: persist replayable interview generations"
 - Modify: `app/graphs/durable_interview_state.py`
 - Modify: `app/graphs/durable_interview_graph.py`
 - Modify: `app/services/interview_workflow_store.py`
+- Modify: `app/services/knowledge_binding.py`
 - Modify: `tests/test_durable_interview_graph.py`
 - Modify: `tests/test_interview_workflow_store.py`
+- Modify: `tests/test_knowledge_binding_resolver.py`
 
 - [ ] **Step 1: Write failing successful, retry, and fallback tests**
 
@@ -1216,6 +1300,24 @@ def test_retry_interrupt_waits_until_due_event(graph_fixture):
     assert event.available_at > event.created_at
 
 
+def test_duplicate_due_retry_cannot_restart_completed_generation(graph_fixture):
+    graph_fixture.examiner.fail_once(ProviderUnavailable())
+    graph_fixture.resume_answer("cmd-1")
+    graph_fixture.resume_retry(attempt=2)
+    before = graph_fixture.state()
+    graph_fixture.resume_retry(attempt=2)
+    assert graph_fixture.state()["messages"] == before["messages"]
+    assert graph_fixture.examiner.attempt_count == 2
+
+
+def test_mismatched_due_retry_returns_to_wait(graph_fixture):
+    graph_fixture.examiner.fail_with(ProviderUnavailable())
+    graph_fixture.resume_answer("cmd-1")
+    graph_fixture.resume_retry(attempt=3)
+    assert graph_fixture.snapshot().next == ("wait_for_retry",)
+    assert graph_fixture.state()["generation_attempt"] == 1
+
+
 def test_third_failure_commits_template_fallback(graph_fixture):
     graph_fixture.examiner.always_fail(ProviderUnavailable())
     graph_fixture.resume_answer("cmd-1")
@@ -1230,6 +1332,20 @@ def test_finish_enqueues_one_report_job_on_replay(graph_fixture):
     graph_fixture.resume_finish("cmd-finish")
     graph_fixture.replay_last_node()
     assert graph_fixture.report_jobs.count("s1") == 1
+
+
+def test_finish_projects_before_report_job_enqueue(graph_fixture):
+    graph_fixture.resume_finish("cmd-finish")
+    assert graph_fixture.report_jobs.observed_state_version("s1") == 2
+    assert graph_fixture.workflow_store.session_snapshot()["status"] == "finished"
+
+
+def test_project_state_clears_transient_routes(graph_fixture):
+    graph_fixture.resume_answer("cmd-1")
+    state = graph_fixture.state()
+    assert state["command_outcome"] is None
+    assert state["generation_outcome"] is None
+    assert state["retry_resume_attempt"] is None
 
 
 def test_retry_history_records_nodes_not_public_versions(graph_fixture):
@@ -1251,31 +1367,51 @@ Expected: missing generation nodes and retry interrupt.
 
 - [ ] **Step 3: Implement one observable provider attempt**
 
-Before calling Examiner, build grounded context directly from the current
-question snapshot:
+Before calling Examiner, reuse the evidence-verification path already owned by
+`KnowledgeBindingResolver`; do not add another direct `get_by_ids` call in
+the graph. Extract the common evidence-only operation from the resolver so
+legacy plans retain their existing guidance behavior while durable snapshots
+get the same hash, manifest, missing-reference, and unavailable-repository
+handling:
 
 ```python
+def resolve_evidence_by_ids(
+    repository: KnowledgeRepository,
+    *,
+    evidence_ids: list[str],
+    expected_hashes: dict[str, str],
+    expected_manifest_sha256: str | None,
+) -> KnowledgeBindingResolution:
+    return KnowledgeBindingResolver(repository).resolve_bound_evidence(
+        evidence_ids=evidence_ids,
+        expected_hashes=expected_hashes,
+        expected_manifest_sha256=expected_manifest_sha256,
+    )
+
+
 def build_examiner_context(state, repository) -> list[dict[str, str]]:
     question = current_question_snapshot(state)
-    lookup = repository.get_by_ids(
-        question.evidence_ids,
+    resolution = resolve_evidence_by_ids(
+        repository,
+        evidence_ids=question.evidence_ids,
         expected_hashes=question.evidence_sha256,
+        expected_manifest_sha256=state["plan_snapshot"].get(
+            "corpus_manifest_sha256"
+        ),
     )
-    if lookup.version_mismatch or lookup.missing:
+    if resolution.retrieval_path != "bound_evidence_ids":
         return recent_conversation_messages(state)
-    evidence = [
-        {
-            "role": "knowledge_evidence",
-            "content": chunk.content,
-        }
-        for chunk in lookup.found
-    ]
-    return [*recent_conversation_messages(state), *evidence]
+    return [*recent_conversation_messages(state), *resolution.messages]
 ```
 
-This preserves evidence hash validation without checkpointing evidence text.
-Repository failure degrades to conversation-only context and records a stable
-knowledge path; it does not fail answer recovery.
+Move the existing validation currently inside `KnowledgeBindingResolver.resolve`
+into `resolve_bound_evidence`, then have `resolve` call that helper after it
+has derived the legacy plan's evidence IDs and hashes. The helper returns
+`bound_evidence_ids` only when every ID, content hash, and manifest hash
+matches. It returns a degraded path and stable reason otherwise. This preserves
+evidence validation without checkpointing evidence text. Repository failure
+degrades to conversation-only context and records that path; it does not fail
+answer recovery.
 
 ```python
 def generate_followup(state, deps) -> dict:
@@ -1343,16 +1479,16 @@ Invariant failures and unknown state errors propagate; only classified provider 
 ```python
 def enqueue_retry(state, deps) -> dict:
     next_attempt = state["generation_attempt"] + 1
-    available_at = utc_now() + timedelta(
-        seconds=retry_delay_seconds(state["generation_attempt"])
-    )
-    deps.workflow_store.enqueue_retry(
+    scheduled = deps.workflow_store.enqueue_retry(
         session_id=state["session_id"],
         generation_id=state["generation_id"],
         next_attempt_number=next_attempt,
-        available_at=available_at,
+        delay_seconds=retry_delay_seconds(state["generation_attempt"]),
     )
-    return {"next_retry_at": available_at.isoformat()}
+    return {
+        "expected_retry_attempt": next_attempt,
+        "next_retry_at": scheduled.available_at.isoformat(),
+    }
 
 
 def wait_for_retry(state) -> dict:
@@ -1363,13 +1499,59 @@ def wait_for_retry(state) -> dict:
             "next_attempt_number": state["generation_attempt"] + 1,
         }
     )
+    return {"retry_resume_attempt": payload["next_attempt_number"]}
+
+
+def validate_retry(state) -> dict:
+    if state["retry_resume_attempt"] != state["expected_retry_attempt"]:
+        return {
+            "retry_resume_attempt": None,
+            "retry_validation": "stale",
+        }
     return {
-        "generation_attempt": payload["next_attempt_number"],
+        "generation_attempt": state["expected_retry_attempt"],
+        "expected_retry_attempt": None,
+        "retry_resume_attempt": None,
+        "retry_validation": "accepted",
         "next_retry_at": None,
     }
 ```
 
-The outbox event ID is deterministic from `generation_id` and next attempt. No graph node sleeps.
+The outbox event ID is deterministic from `generation_id` and next attempt.
+`enqueue_retry` computes `available_at` inside PostgreSQL with
+`NOW() + delay_seconds * INTERVAL '1 second'` and returns that server timestamp,
+so the scheduler does not depend on application-server clock skew. No graph
+node sleeps.
+
+Add `InterviewWorkflowStore.enqueue_retry(session_id, generation_id,
+next_attempt_number, delay_seconds) -> RetrySchedule`. Its one transaction
+inserts the deterministic runtime-outbox event with `ON CONFLICT DO NOTHING`,
+then reads and returns the canonical event's `available_at`. The event payload
+contains only session ID, generation ID, and attempt number; it never contains
+candidate text or model output.
+
+Wire `wait_for_retry -> validate_retry` and route
+`retry_validation == "accepted"` to `prepare_retry`; route
+`retry_validation == "stale"` back to `wait_for_retry`. `prepare_retry`
+clears `retry_validation` before it starts the next attempt. The graph remains
+authoritative even when a dispatcher precheck is bypassed.
+
+```python
+def route_validated_retry(state) -> str:
+    if state["retry_validation"] == "accepted":
+        return "prepare_retry"
+    return "wait_for_retry"
+
+
+builder.add_node("enqueue_retry", partial(enqueue_retry, deps=deps))
+builder.add_node("wait_for_retry", wait_for_retry)
+builder.add_node("validate_retry", validate_retry)
+builder.add_node("prepare_retry", prepare_retry)
+builder.add_edge("enqueue_retry", "wait_for_retry")
+builder.add_edge("wait_for_retry", "validate_retry")
+builder.add_conditional_edges("validate_retry", route_validated_retry)
+builder.add_edge("prepare_retry", "generate_followup")
+```
 
 - [ ] **Step 5: Add completion and fallback routes**
 
@@ -1393,11 +1575,12 @@ commits does the graph node clear `active_command_id`. This prevents a command
 from reporting applied before its final projection exists.
 
 Task 9 also extends `route_after_projection` to route in this exact order:
-finished to END, uncommitted generation ID to `generate_followup`, otherwise
-active to `wait_for_answer`. Retry checkpoints do not call `project_state` and
-do not advance public `state_version`.
+finished to `emit_report_event`, uncommitted generation ID to
+`generate_followup`, otherwise active to `wait_for_answer`. Retry
+checkpoints do not call `project_state` and do not advance public
+`state_version`.
 
-Add `emit_report_event` between finish transition and final projection:
+Add `emit_report_event` after the final finished projection:
 
 ```python
 def emit_report_event(state, deps) -> dict:
@@ -1405,7 +1588,17 @@ def emit_report_event(state, deps) -> dict:
     return {"interview_status": "finished"}
 ```
 
-The existing report job uniqueness by session makes replay idempotent. Report
+Register `emit_report_event` as a graph node and add its only outgoing edge to
+`END`. The `apply_finish` edge remains `apply_finish -> project_state`;
+`route_after_projection` supplies the conditional
+`finished -> emit_report_event` edge.
+
+The report enqueue and final projection are intentionally separate idempotent
+node transactions, not a distributed transaction. `apply_finish` sets the
+finished state, `project_state` makes that state visible, then
+`emit_report_event` enqueues the report request. If enqueue fails after the
+projection succeeds, node replay retries the same session-unique job; if a
+checkpoint fails after enqueue, the duplicate enqueue is harmless. Report
 evaluation and report status transitions remain outside LangGraph.
 
 - [ ] **Step 6: Verify and commit**
@@ -1457,6 +1650,19 @@ def test_retry_event_resumes_timer_interrupt(consumer):
     assert consumer.graph.invocations[0].resume["kind"] == "retry_timer"
 
 
+def test_duplicate_retry_event_is_discarded_before_graph_invoke(consumer):
+    consumer.graph.snapshot.next = ("wait_for_answer",)
+    outcome = consumer.consume(
+        InterviewRetryDueEvent(
+            session_id="s1",
+            generation_id="gen-1",
+            next_attempt_number=2,
+        ).model_dump()
+    )
+    assert outcome.status == "discarded_stale_retry"
+    assert consumer.graph.invocations == []
+
+
 def test_dispatcher_heartbeats_long_running_sink():
     repository = HeartbeatRepository(make_claim("event-1"))
     RuntimeOutboxDispatcher(
@@ -1488,6 +1694,7 @@ class InterviewWorkflowConsumer:
         config = {
             "configurable": {"thread_id": payload["session_id"]}
         }
+        graph = self.workflow.graph_for_session(payload["session_id"])
         if event_type == "interview_command_ready":
             event = InterviewCommandReadyEvent.model_validate(payload)
             resume = {
@@ -1496,6 +1703,15 @@ class InterviewWorkflowConsumer:
             }
         elif event_type == "interview_retry_due":
             event = InterviewRetryDueEvent.model_validate(payload)
+            snapshot = graph.get_state(config)
+            state = snapshot.values
+            if (
+                snapshot.next != ("wait_for_retry",)
+                or state.get("generation_id") != event.generation_id
+                or state.get("expected_retry_attempt")
+                != event.next_attempt_number
+            ):
+                return ConsumerOutcome("discarded_stale_retry")
             resume = {
                 "kind": "retry_timer",
                 "generation_id": event.generation_id,
@@ -1503,7 +1719,7 @@ class InterviewWorkflowConsumer:
             }
         else:
             raise ValueError("unsupported interview workflow event")
-        self.workflow.graph_for_session(event.session_id).invoke(
+        graph.invoke(
             Command(resume=resume), config=config
         )
         return ConsumerOutcome("completed")
@@ -1918,7 +2134,70 @@ append replacement-attempt chunks to abandoned text.
 
 - [ ] **Step 6: Extend browser support with deterministic streams**
 
-`tests/browser_support_app.py` stores command status, attempts, and chunks in process memory for deterministic UI tests. Its command stream honors `Last-Event-ID`, emits a reset before replacement chunks, and deduplicates fixed command IDs. This support app does not claim process-loss durability; PostgreSQL recovery is Task 14.
+`tests/browser_support_app.py` stores command status, attempts, and chunks in
+process memory for deterministic UI tests. Give it a small
+`FakeGenerationStore` with the production-facing methods below, backed by a
+dictionary keyed by `generation_id` and then attempt number:
+
+```python
+class FakeGenerationStore:
+    def __init__(self) -> None:
+        self.generations: dict[str, dict] = {}
+        self.next_event_id = 0
+
+    def prepare_generation(self, generation_id: str) -> dict:
+        return self.generations.setdefault(
+            generation_id, {"attempts": {}, "events": []}
+        )
+
+    def start_attempt(self, generation_id: str, attempt_number: int) -> dict:
+        generation = self.prepare_generation(generation_id)
+        return generation["attempts"].setdefault(
+            attempt_number, {"chunks": [], "status": "running"}
+        )
+
+    def append_chunk(
+        self, generation_id: str, attempt_number: int, sequence: int, text: str
+    ) -> None:
+        attempt = self.start_attempt(generation_id, attempt_number)
+        attempt["chunks"].append((sequence, text))
+        self.next_event_id += 1
+        self.prepare_generation(generation_id)["events"].append(
+            {
+                "id": self.next_event_id,
+                "kind": "chunk",
+                "attempt_number": attempt_number,
+                "sequence": sequence,
+                "text": text,
+            }
+        )
+
+    def complete_attempt(
+        self, generation_id: str, attempt_number: int, final_text: str
+    ) -> None:
+        attempt = self.start_attempt(generation_id, attempt_number)
+        attempt["status"] = "completed"
+        attempt["final_text"] = final_text
+        self.next_event_id += 1
+        self.prepare_generation(generation_id)["events"].append(
+            {
+                "id": self.next_event_id,
+                "kind": "completed",
+                "attempt_number": attempt_number,
+            }
+        )
+
+    def list_events(self, generation_id: str, after_id: int) -> list[dict]:
+        return [
+            event
+            for event in self.prepare_generation(generation_id)["events"]
+            if event["id"] > after_id
+        ]
+```
+
+The support app's command stream honors `Last-Event-ID`, emits a reset before
+replacement chunks, and deduplicates fixed command IDs. This support app does
+not claim process-loss durability; PostgreSQL recovery is Task 14.
 
 - [ ] **Step 7: Verify and commit**
 
@@ -2310,10 +2589,14 @@ git commit -m "docs: accept langgraph interview recovery"
 - [ ] Plan snapshot and messages are bounded and self-contained; JD, resume, and evidence text stay outside checkpoints.
 - [ ] Only `project_state` advances public `state_version`.
 - [ ] Projection replay after checkpoint failure reuses the same next version and payload hash.
+- [ ] Projection clears transient command, generation, and retry route fields.
 - [ ] Inbox and outbox commit together; outbox never stores answer text.
 - [ ] Duplicate command IDs with changed payloads fail closed.
 - [ ] Durable Examiner attempts propagate errors; legacy methods retain immediate fallback.
-- [ ] Provider retries use `enqueue_retry -> wait_for_retry -> retry_due`; no worker sleeps for backoff.
+- [ ] Provider retries use `enqueue_retry -> wait_for_retry -> validate_retry -> retry_due`; no worker sleeps for backoff.
+- [ ] A retry timer can advance only the checkpointed expected attempt; duplicate and stale events are discarded.
+- [ ] The database clock determines retry visibility; due-retry tests advance that clock rather than sleeping.
+- [ ] The final finished projection commits before the idempotent report enqueue becomes visible.
 - [ ] Every long-running outbox sink heartbeats its lease.
 - [ ] Generation chunks are attempt-scoped and replacement attempts emit reset before chunks.
 - [ ] SSE disconnect never cancels graph execution.
