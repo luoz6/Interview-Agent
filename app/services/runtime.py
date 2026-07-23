@@ -6,6 +6,7 @@ from uuid import uuid4
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_postgres_dsn,
+    get_interview_langgraph_runtime_enabled,
     get_runtime_event_backend,
     get_runtime_outbox_batch_size,
     get_runtime_outbox_lease_seconds,
@@ -51,6 +52,8 @@ _runtime_outbox_service = None
 _agent_execution_runner = None
 _agent_composite_recorder = None
 _agent_postgres_control_ids: set[int] = set()
+_langgraph_checkpointer_runtime = None
+_langgraph_checkpointer_started = False
 
 
 def build_session_store(llm=None):
@@ -172,6 +175,21 @@ def get_runtime_control_store():
     return _runtime_control_store
 
 
+def get_langgraph_checkpointer_runtime():
+    global _langgraph_checkpointer_runtime
+    if get_runtime_store() != "postgres":
+        return None
+    if not get_interview_langgraph_runtime_enabled():
+        return None
+    if _langgraph_checkpointer_runtime is None:
+        from app.services.langgraph_runtime import PostgresCheckpointerRuntime
+
+        _langgraph_checkpointer_runtime = PostgresCheckpointerRuntime(
+            get_postgres_dsn()
+        )
+    return _langgraph_checkpointer_runtime
+
+
 def get_agent_execution_runner(
     *,
     control_store=None,
@@ -237,11 +255,17 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
 
 
 def start_runtime() -> None:
+    global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
     global _runtime_outbox_service
-    if (
-        get_runtime_store() != "postgres"
-        or get_runtime_event_backend() != "local"
-    ):
+    if get_runtime_store() != "postgres":
+        return
+    if _langgraph_checkpointer_runtime is None:
+        _langgraph_checkpointer_runtime = get_langgraph_checkpointer_runtime()
+    checkpointer_runtime = _langgraph_checkpointer_runtime
+    if checkpointer_runtime is not None and not _langgraph_checkpointer_started:
+        checkpointer_runtime.start()
+        _langgraph_checkpointer_started = True
+    if get_runtime_event_backend() != "local":
         return
     if _runtime_outbox_service is None:
         _runtime_outbox_service = build_runtime_outbox_service()
@@ -259,8 +283,11 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     global _session_store, _report_job_store, _report_executor, _draft_store
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
+    global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
+    if _langgraph_checkpointer_runtime is not None:
+        _langgraph_checkpointer_runtime.shutdown()
     _shutdown_cached_publisher(_event_publisher, wait=wait)
     _session_store = None
     _report_job_store = None
@@ -269,6 +296,8 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _event_publisher = None
     _runtime_control_store = None
     _runtime_outbox_service = None
+    _langgraph_checkpointer_runtime = None
+    _langgraph_checkpointer_started = False
     _agent_execution_runner = None
     _agent_composite_recorder = None
     _agent_postgres_control_ids.clear()
