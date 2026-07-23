@@ -1,8 +1,10 @@
 # LangGraph Interview Interruption Recovery Design
 
-Status: APPROVED_FOR_SPEC_REVIEW
+Status: REVISED_FOR_SPEC_REVIEW
 
 Date: 2026-07-22
+
+Revised: 2026-07-23
 
 ## 1. Context
 
@@ -30,9 +32,9 @@ The approved design decisions are:
    retained for local development and does not promise process-loss recovery.
 3. Only sessions created after rollout are assigned to the new engine. Existing
    sessions are not migrated or backfilled into checkpoints.
-4. New sessions use LangGraph as the workflow write model. Existing business
-   tables become read projections and immutable content stores, not a second
-   workflow authority.
+4. New sessions use LangGraph as the workflow write model. The checkpoint
+   inlines the bounded plan snapshot and conversation messages. Existing
+   business tables become query projections, not a second workflow authority.
 5. Review generation remains on the current report job pipeline. This stage
    ends the graph after it durably emits the report request.
 6. Streaming execution is detached from the SSE connection. Client disconnect
@@ -51,8 +53,10 @@ This work will:
 6. Make provider retry, degraded fallback, and generation replacement visible
    and auditable.
 7. Keep legacy sessions operational throughout rollout and rollback.
-8. Prevent raw JD, resume, answer, and evidence content from being copied into
-   checkpoint metadata, runtime traces, or generation control records.
+8. Keep raw JD, resume, and evidence content out of graph checkpoints, and keep
+   all raw interview content out of runtime traces, generation control records,
+   and diagnostic metadata. Checkpointed conversation text receives the same
+   access control, deletion, and retention policy as interview messages.
 
 ## 4. Non-Goals
 
@@ -84,8 +88,8 @@ creates unsafe dual writes.
 
 LangGraph checkpoints own the workflow state and execution position for new
 sessions. Existing session, message, and report-facing tables expose query
-projections and immutable content. Projection writes are idempotent and can be
-replayed from graph state and content references.
+projections. Projection writes are idempotent and can be replayed from graph
+state.
 
 Selected because it gives checkpoint recovery one source of workflow truth
 while retaining the current API and report integration boundaries.
@@ -104,7 +108,7 @@ The production command and streaming path is:
 
 ```text
 HTTP Command API
-      | persist command_id, expected_version, and answer reference
+      | persist command_id, expected_version, and answer text
       v
 Command Inbox and Runtime Outbox
       | leased background consumption
@@ -137,13 +141,12 @@ existing langgraph-v1 threads to legacy code.
 
 ## 7. State Ownership and Schema
 
-LangGraph owns transition state and the execution cursor. Business tables own
-immutable text artifacts and query projections. Reading an immutable answer or
-plan artifact from a business table does not make that table a workflow state
-authority.
+LangGraph owns transition state and the execution cursor. Business tables are
+query projections for API and report consumers. Command inbox rows temporarily
+hold accepted request content until the graph validates and incorporates it.
 
-The checkpointed state is JSON serializable and contains references instead of
-repeated sensitive text:
+The checkpointed state is JSON serializable and self-contained for the bounded
+interview loop:
 
 ```text
 InterviewGraphState
@@ -152,30 +155,53 @@ InterviewGraphState
 |   |-- workflow_engine
 |   `-- graph_schema_version
 |-- interview
-|   |-- plan_snapshot_id
-|   |-- current_question_id
-|   |-- message_ids
+|   |-- plan_snapshot
+|   |-- current_index
+|   |-- messages
 |   |-- skipped_question_ids
 |   `-- interview_status
 |-- execution
-|   |-- pending_action
 |   |-- generation_id
 |   |-- generation_attempt
+|   |-- next_retry_at
 |   `-- last_error_code
 `-- concurrency
     |-- state_version
     `-- last_command_id
 ```
 
-JD, resume, plan, candidate answers, interviewer messages, and knowledge
-evidence remain in access-controlled content storage. References include a
-stable identifier and content hash. Nodes load only the content needed for the
-current operation.
+The plan snapshot contains the ordered questions, focus metadata, evidence IDs,
+and evidence hashes needed by the graph. It excludes raw JD, resume, and
+knowledge evidence text. Messages are append-only and inline because one
+interview has a small bounded conversation. This avoids loading the entire
+message store in decide and Examiner nodes, keeps replay self-contained, and
+accepts larger checkpoints as an explicit trade-off. Evidence content is still
+loaded by ID and verified hash only when an Agent needs it.
+
+There is no checkpointed `pending_action`. The graph cursor and interrupt
+payload already encode pending execution. The API projection translates the
+current StateSnapshot `next` nodes and interrupts into a public
+`pending_action` value. This prevents a duplicated state field from drifting
+away from the actual graph position.
 
 `state_version` remains the public optimistic-concurrency value. The LangGraph
 checkpoint ID is an internal execution cursor and is not presented as the same
 concept. The current behavior that mirrors `checkpoint_version` from
 `state_version` is removed for new-engine sessions.
+
+Only `project_state` advances the public version. It deterministically
+calculates `next_state_version = state.state_version + 1`, writes the projection
+using `(session_id, next_state_version)` as its idempotency identity, and then
+returns that value as the graph state update. If projection succeeds but
+checkpoint persistence fails, the node restarts from the prior checkpoint,
+calculates the same next version, reuses the existing projection row, and
+returns the same update.
+
+Public versions advance for session initialization, an accepted answer becoming
+visible with its generation status, and a committed interviewer output or final
+status. Provider retry nodes and chunk writes create operational checkpoints
+but do not advance `state_version`. Duplicate and rejected commands also do not
+advance it.
 
 ## 8. Graph Topology
 
@@ -193,11 +219,11 @@ project_state
   v
 wait_for_answer ------------------------------ interrupt
   |
-  | Command(resume={command_id, expected_version, answer_ref})
+  | Command(resume={kind: answer_command, command_id})
   v
 validate_command
-  |-- duplicate -----------------------------> return_current_state
-  |-- version conflict ----------------------> reject_command
+  |-- duplicate ------------------------------> wait_for_answer
+  |-- version conflict ------------------------> wait_for_answer
   `-- accepted
         |
         v
@@ -205,29 +231,51 @@ append_candidate_answer
         |
         v
 decide_next_action
-  |-- follow_up
-  |     |
-  |     v
-  |   prepare_generation
-  |     |
-  |     v checkpoint
-  |   generate_followup
-  |     |
-  |     v
-  |   classify_generation
-  |     |-- completed ------------------------> commit_interviewer_message
-  |     |-- retryable and under limit --------> prepare_retry --+
-  |     `-- terminal or exhausted ------------> fallback_followup |
-  |                                                              |
-  |<-------------------------------------------------------------+
+  |-- follow_up -> prepare_generation -> project_state
+  |                                         |
+  |                                         v
+  |                                  generate_followup
+  |                                         |
+  |                                         v
+  |                                  classify_generation
+  |                                    |-- completed
+  |                                    |      `-> commit_interviewer_message
+  |                                    |                    |
+  |                                    |                    v
+  |                                    |              project_state
+  |                                    |                    |
+  |                                    |                    v
+  |                                    |              wait_for_answer
+  |                                    |
+  |                                    |-- retryable and under limit
+  |                                    |      `-> enqueue_retry
+  |                                    |               |
+  |                                    |               v
+  |                                    |         wait_for_retry -- interrupt
+  |                                    |               |
+  |                                    |               | Command(resume={
+  |                                    |               |   kind: retry_timer,
+  |                                    |               |   generation_id
+  |                                    |               | })
+  |                                    |               v
+  |                                    |         prepare_retry
+  |                                    |               |
+  |                                    |               +-> generate_followup
+  |                                    |
+  |                                    `-- terminal or exhausted
+  |                                           `-> fallback_followup
+  |                                                     |
+  |                                                     v
+  |                                           commit_interviewer_message
+  |                                                     |
+  |                                                     v
+  |                                               project_state
+  |                                                     |
+  |                                                     v
+  |                                               wait_for_answer
   |
-  |-- next_question --------------------------> commit_next_question
-  `-- finish_interview -----------------------> emit_report_event
-                                                  |
-                                                  v
-                                                project_state
-                                                  |-- active -> wait_for_answer
-                                                  `-- finished -> END
+  |-- next_question -> commit_next_question -> project_state -> wait_for_answer
+  `-- finish_interview -> emit_report_event -> project_state -> END
 ```
 
 `wait_for_answer` is a pure interrupt node. It performs no database write,
@@ -235,29 +283,88 @@ event publication, model call, or other side effect before `interrupt()`. On
 resume, LangGraph restarts the node and returns the resume payload from the
 interrupt call. All side effects occur in later idempotent nodes.
 
-The resume payload contains an answer reference rather than raw answer text:
+The answer interrupt resumes with a command identity rather than raw answer
+text. `validate_command` loads and validates the protected inbox row:
 
 ```json
 {
-  "command_id": "cmd-...",
-  "expected_version": 4,
-  "answer_ref": "answer-..."
+  "kind": "answer_command",
+  "command_id": "cmd-..."
 }
 ```
+
+`enqueue_retry` writes one idempotent retry outbox event with
+`available_at`. `wait_for_retry` is a second pure interrupt node. The leased
+outbox dispatcher polls due events and resumes that thread with a `retry_timer`
+command. LangGraph is not expected to provide a sleep primitive, and graph
+workers never block while waiting for backoff.
+
+Every completed sequential node or superstep may write a PostgreSQL checkpoint.
+A retry therefore creates checkpoints for failure classification, retry
+scheduling, the timer interrupt, attempt preparation, and subsequent generation
+work. Checkpoint counts represent durable node execution, not interview turns;
+operations dashboards and retention estimates must use that interpretation.
+
+`interview_status` is the only graph field used to distinguish active and
+finished interviews; no parallel generic `status` field is introduced. The
+conditional edge after `project_state` uses this fixed order:
+
+1. `interview_status == "finished"` routes to END.
+2. An uncommitted `generation_id` routes to `generate_followup`.
+3. Any other active state routes to `wait_for_answer`.
+
+The commit and fallback nodes clear the uncommitted generation marker before
+their final projection, so an active completed turn cannot loop back into
+generation.
 
 ## 9. Command Ingress
 
 The API command transaction:
 
 1. Validates the public request shape.
-2. Inserts the answer into controlled content storage.
-3. Inserts a command inbox record keyed by `(session_id, command_id)`.
-4. Inserts the corresponding runtime outbox event in the same transaction.
-5. Commits, then returns accepted command metadata.
+2. Inserts a command inbox record keyed by `(session_id, command_id)`.
+3. Inserts the corresponding runtime outbox event in the same transaction.
+4. Commits, then returns durable command metadata.
+
+The inbox stores:
+
+| Field | Contract |
+| --- | --- |
+| session_id, command_id | Composite command identity. |
+| command_type | Initially answer, skip, or finish. |
+| expected_version | Public version supplied by the client. |
+| answer_text | Protected payload for answer commands; null otherwise. |
+| payload_sha256 | Integrity and duplicate-payload audit. |
+| status | pending, applied, conflict, or failed. |
+| result_state_version | Set only after successful application. |
+| error_code | Stable failure code, never raw exception text. |
+| timestamps | Created, claimed, completed, and updated times. |
+
+The outbox stores only scheduling data:
+
+| Field | Contract |
+| --- | --- |
+| event_id, event_type | Work identity and command_ready or retry_due type. |
+| session_id, work_ref | References command_id or generation_id. |
+| status, attempt_count | Pending, running, retrying, completed, or dead-letter. |
+| available_at | Earliest claim time; immediate for command work. |
+| lease fields | Owner, heartbeat, and expiry. |
+| timestamps | Created, claimed, completed, and updated times. |
+
+Inbox and outbox rows are inserted in one PostgreSQL transaction. The outbox
+never duplicates `answer_text`. After an answer is appended to checkpointed
+messages and the message projection, the inbox payload may be cleared according
+to the retention policy while its identity, hash, status, and result version
+remain.
 
 The worker claims the outbox event with a lease and invokes the graph using the
 session thread ID. At-least-once delivery is expected. Duplicate delivery sees
 the same command inbox identity and returns the already applied state.
+
+The initial HTTP response acknowledges durable receipt, not successful graph
+application. Normal clients observe applied or conflict status through the
+command result and session stream. A projection precheck may reject an obviously
+stale version early, but graph validation remains authoritative for races.
 
 Two concurrent commands with the same expected version may both enter the
 inbox, but only one can pass graph version validation. The other is marked as a
@@ -311,9 +418,11 @@ Failures are classified at the node boundary:
 | State or code invariant failure | Missing references, invalid hashes, unknown state | Stop the graph and alert. |
 
 Provider generation permits at most three attempts. Retry availability is
-stored as `available_at`; workers reschedule the graph instead of blocking a
-worker thread with a long sleep. Exhausted or terminal provider failure routes
-to the existing template follow-up and commits a degraded, auditable result.
+stored on a `retry_due` outbox row as `available_at`. `enqueue_retry` inserts
+that row idempotently, `wait_for_retry` interrupts the graph, and the existing
+leased dispatcher resumes the thread only after the row becomes claimable.
+Exhausted or terminal provider failure routes to the existing template
+follow-up and commits a degraded, auditable result.
 
 Unexpected programming or state errors are not converted into a successful
 template response. They leave the thread at its last checkpoint for operator
@@ -325,6 +434,15 @@ engine. Graph routing owns retries and final fallback. Execution context gains
 `parent_run_id` so nested Orchestrator and Examiner attempts form a real call
 tree instead of sharing only one command causation ID.
 
+This requires an explicit Examiner boundary that does not exist today.
+`ExaminerAgent` adds `stream_followup_attempt` (or an equivalent raising
+method) that invokes one provider attempt through AgentExecutionRunner with no
+fallback callback. The langgraph-v1 generation node uses this raising method.
+The existing `generate_followup` and `stream_followup` methods retain their
+current immediate fallback semantics for legacy sessions. The graph fallback
+node calls the shared deterministic template function directly; it must not
+re-enter a legacy Examiner method that hides another provider call.
+
 ## 12. Idempotent Side Effects
 
 The required unique identities are:
@@ -334,6 +452,7 @@ The required unique identities are:
 | User command | `(session_id, command_id)` |
 | Generation attempt | `(generation_id, attempt_number)` |
 | Stream chunk | `(generation_id, attempt_number, sequence)` |
+| Retry outbox event | `(generation_id, next_attempt_number)` |
 | Message commit | `(session_id, source_command_id, role)` |
 | State projection | `(session_id, state_version)` |
 | Interview-finished event | `(session_id, finished_state_version)` |
@@ -355,11 +474,26 @@ contains the public interview status, current question, messages, pending
 generation metadata, state version, and review status expected by current UI
 and report code.
 
-`project_state` is idempotent by `(session_id, state_version)`. If projection
-succeeds but its graph checkpoint fails, rerunning the node performs no second
-business transition. A projection lag may temporarily make GET return an older
-state version, but it can be repaired from the graph state and immutable
-content references.
+`project_state` is idempotent by `(session_id, next_state_version)`, where
+`next_state_version` is always calculated from the node's checkpointed input.
+If projection succeeds but its graph checkpoint fails, rerunning the node
+calculates and reuses the same version instead of incrementing again. The source
+checkpoint ID may be recorded for audit but is not the version key. A projection
+lag may temporarily make GET return an older state version, but it can be
+repaired from graph state.
+
+The current one-row-per-session projection uses a conditional upsert rather than
+adding a second current-state row: insert the initial row, or update it only when
+the stored version is lower than `next_state_version`. If the stored version is
+already equal, `project_state` verifies the projection payload hash and reuses
+the row. A greater stored version is a stale replay and performs no write.
+Message projection rows retain their existing append identity and verify content
+on an idempotent replay.
+
+GET combines the business projection with `graph.get_state(config)` for
+new-engine sessions. It maps snapshot `next` nodes and interrupt payloads to
+the public `pending_action`; that derived field is not written back into graph
+state.
 
 Final report workers continue to consume the complete projected session. The
 finish branch inserts the report request into the existing durable report job
@@ -389,15 +523,21 @@ Checkpoint state, command control records, generation metadata, chunks,
 AgentRunRecord metadata, and application traces are subject to explicit privacy
 tests.
 
-- Checkpoints store identifiers, hashes, status, and counters, not raw JD,
-  resume, answer, prompt, evidence, or provider response text.
+- Checkpoints contain the bounded plan snapshot plus candidate and committed
+  interviewer messages. They exclude raw JD, resume, knowledge evidence text,
+  uncommitted provider payloads, credentials, and transport metadata.
+- Checkpoint tables use a restricted database role, encrypted storage and
+  backups, the interview retention window, and explicit session deletion.
+- Raw conversation text is allowed only in protected checkpoints, command inbox
+  rows awaiting incorporation, message projections, and generation chunks. It
+  is excluded from Agent run metadata, runtime control APIs, logs, and traces.
 - Generation chunks necessarily contain the follow-up being streamed. Their
   table uses the same access control as interview messages and is not exposed
   by runtime diagnostic APIs.
 - Completed generation chunks are retained for 24 hours by default. The final
   follow-up remains in the message store.
 - Session deletion cascades or explicitly deletes checkpoints, inbox commands,
-  outbox work, attempts, chunks, projections, and content artifacts.
+  outbox work, attempts, chunks, and projections.
 - Stable error codes are persisted; raw exception text remains restricted to
   protected application logs.
 
@@ -427,12 +567,15 @@ to reduce variation and support fairness audits.
 
 - Graph topology and every conditional edge.
 - Pure `wait_for_answer` interrupt behavior.
+- Pure `wait_for_retry` interrupt and due-event resume behavior.
 - Command duplicate and version-conflict routing.
 - Provider failure classification and the three-attempt cap.
+- Retry-loop checkpoint accounting and retention estimates.
 - Generation reset and client attempt replacement rules.
 - Every idempotency-key contract.
 - Workflow engine and graph version routing.
-- Checkpoint and trace privacy sanitization.
+- StateSnapshot-to-pending_action projection mapping.
+- Checkpoint schema allowlist and trace privacy sanitization.
 
 ### 17.2 PostgreSQL integration tests
 
@@ -440,12 +583,14 @@ Use a real PostgreSQL checkpointer and application schema. Force process loss
 at each boundary:
 
 1. Command inbox committed before graph dispatch.
-2. Candidate artifact written before node checkpoint.
+2. Inbox answer appended to graph messages before node checkpoint.
 3. Generation attempt prepared before provider invocation.
 4. Partial chunks persisted during provider streaming.
 5. Complete provider result saved before graph checkpoint.
-6. Session projection committed before graph checkpoint.
+6. Session projection committed before graph checkpoint; replay must reuse the
+   same next_state_version.
 7. Report event inserted before graph END.
+8. Retry event not yet due, due, claimed, and redelivered after dispatcher loss.
 
 After restarting a worker, every test verifies:
 
@@ -453,6 +598,9 @@ After restarting a worker, every test verifies:
 - Exactly one final interviewer message is committed.
 - Chunks from abandoned and replacement attempts are not concatenated.
 - Public state_version increases monotonically.
+- A project_state replay after checkpoint failure does not skip or duplicate a
+  public version.
+- Outbox rows never contain answer_text.
 - One effective report request exists.
 - The thread resumes from the expected node.
 
@@ -487,10 +635,13 @@ This design is accepted in implementation only when:
    message, never concatenated output.
 6. Permanent provider failure reaches template fallback after bounded retry.
 7. State projection can be replayed without a second business transition.
-8. Checkpoints and diagnostic metadata contain no raw JD, resume, candidate
-   answer, knowledge evidence, or provider response.
-9. Legacy sessions continue through the legacy engine without migration.
-10. New session assignment can be disabled without stranding existing
+8. Checkpoints contain only the approved plan snapshot and conversation text;
+   they contain no raw JD, resume, knowledge evidence, uncommitted provider
+   payload, credential, or transport metadata.
+9. Runtime traces, Agent run metadata, control APIs, and logs contain no raw
+   interview text.
+10. Legacy sessions continue through the legacy engine without migration.
+11. New session assignment can be disabled without stranding existing
     langgraph-v1 threads.
 
 ## 19. Rollout and Rollback
@@ -513,13 +664,13 @@ threads have completed or expired.
 
 | Risk | Control |
 | --- | --- |
-| Dual workflow state | LangGraph is the write model; tables are projections and immutable content. |
+| Dual workflow state | LangGraph is the write model; business tables are query projections. |
 | Lost accepted command | Command inbox and outbox commit before HTTP acceptance. |
 | Duplicate model call | Expected after some crashes; attempt and message keys prevent duplicate business output. |
 | Partial stream corruption | Attempt-scoped sequences and mandatory generation reset. |
 | Checkpoint and table transaction gap | Every node side effect is idempotent and reusable. |
 | Paused thread breaks after deploy | Pin graph version and retain old node definitions. |
-| Checkpoint privacy growth | Reference-based state, JSON serialization, retention, and privacy tests. |
+| Checkpoint privacy growth | Bounded inline state, restricted storage, JSON serialization, retention, and privacy tests. |
 | Database load from chunks | Coalesce chunks and delete completed chunks after the replay window. |
 | Rollback strands new sessions | Keep v1 workers running; rollback only assignment. |
 | Scope expansion into report orchestration | End graph after durable report request emission. |
