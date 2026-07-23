@@ -2,6 +2,8 @@ from app.graphs.interview_state import (
     build_initial_state,
     choose_workflow_engine,
 )
+from app.graphs.durable_interview_state import make_durable_initial_state
+import json
 from app.services.prep import InterviewPlan, InterviewQuestion
 
 
@@ -51,6 +53,17 @@ def test_engine_assignment_is_stable_for_one_session():
         runtime_enabled=True,
         rollout_percent=100,
     ) == "legacy"
+
+
+def test_state_has_no_pending_action_or_raw_source_documents():
+    kwargs = make_start_kwargs()
+    state = make_durable_initial_state(kwargs["session_id"], kwargs["plan"])
+
+    assert "pending_action" not in state
+    serialized = json.dumps(state, ensure_ascii=False)
+    assert "job_description" not in serialized
+    assert "resume_text" not in serialized
+    assert "knowledge_evidence" not in serialized
     assert choose_workflow_engine(
         "session-fixed",
         runtime_store="postgres",
