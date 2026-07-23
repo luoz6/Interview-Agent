@@ -8,7 +8,7 @@ from typing import Any
 
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.agent_runtime import AgentRunRecord
-from app.services.runtime_domain_events import RoundClosedEvent
+from app.services.runtime_domain_events import RuntimeEventEnvelope
 from app.services.session_serialization import (
     question_evaluation_record_to_row,
 )
@@ -51,7 +51,7 @@ class PostgresRuntimeControlStore:
         with psycopg2.connect(self.dsn) as connection:
             yield connection
 
-    def enqueue_event(self, cursor, event: RoundClosedEvent) -> bool:
+    def enqueue_event(self, cursor, event: RuntimeEventEnvelope) -> bool:
         _, sql = self._import_psycopg2()
         cursor.execute(
             sql.SQL(

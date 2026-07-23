@@ -27,3 +27,14 @@ class RoundClosedEvent(RuntimeEventEnvelope):
     question_id: str
     answer_state: Literal["answered", "skipped", "unanswered"]
     job_tags: list[str] = Field(default_factory=list)
+
+
+class InterviewCommandReadyEvent(RuntimeEventEnvelope):
+    event_type: Literal["interview_command_ready"] = "interview_command_ready"
+    command_id: str
+
+
+class InterviewRetryDueEvent(RuntimeEventEnvelope):
+    event_type: Literal["interview_retry_due"] = "interview_retry_due"
+    generation_id: str
+    next_attempt_number: int = Field(ge=2, le=3)
