@@ -142,4 +142,17 @@ class InterviewWorkflowService:
         next_node = graph_state.next[0] if graph_state.next else None
         snapshot["pending_action"] = PENDING_ACTION_BY_NODE.get(next_node)
         snapshot["workflow_engine"] = "langgraph-v1"
+        values = graph_state.values
+        active_command_id = values.get("active_command_id")
+        generation_id = values.get("generation_id")
+        snapshot["active_command_id"] = active_command_id
+        snapshot["active_generation_id"] = generation_id
+        snapshot["active_attempt_number"] = values.get(
+            "generation_attempt"
+        )
+        if active_command_id and generation_id:
+            snapshot["active_stream_url"] = (
+                f"/api/interviews/{session_id}/commands/"
+                f"{active_command_id}/stream"
+            )
         return snapshot

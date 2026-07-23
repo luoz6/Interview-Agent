@@ -846,6 +846,21 @@ def test_interview_page_does_not_render_partial_turn_payload_after_sse_done():
     assert "await loadSnapshot();" in js
 
 
+def test_sse_parser_preserves_event_id():
+    js = read_static_file("api.js")
+
+    assert 'if (line.startsWith("id:"))' in js
+    assert "event.id =" in js
+
+
+def test_interview_client_handles_generation_reset():
+    js = read_static_file("interview.js")
+
+    assert "generation_reset(data" in js
+    assert "activeAttemptNumber" in js
+    assert "resumePendingGeneration(snapshot)" in js
+
+
 def test_interview_page_toggles_full_question_plan():
     html = read_app_file("test3.html")
     js = read_static_file("interview.js")

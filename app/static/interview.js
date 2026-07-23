@@ -34,6 +34,11 @@ let showAllQuestions = false;
 let currentQuestionId = null;
 let latestCompletedQuestions = 0;
 let draftTimer = null;
+let activeCommandId = null;
+let activeGenerationId = null;
+let activeAttemptNumber = 0;
+let lastGenerationEventId = null;
+let activeStreamingBubble = null;
 
 const collapsedQuestionLimit = 6;
 
@@ -155,6 +160,59 @@ function createStreamingAssistantMessage() {
   return appendMessage("assistant", "");
 }
 
+function applyGenerationReset(data) {
+  if (data.attempt_number <= activeAttemptNumber) return;
+  activeAttemptNumber = data.attempt_number;
+  lastGenerationEventId = data.event_id || null;
+  if (activeStreamingBubble) activeStreamingBubble.textContent = "";
+}
+
+async function resumeCommandStream(streamUrl) {
+  if (!streamUrl || !activeStreamingBubble) return;
+  const headers = lastGenerationEventId
+    ? { "Last-Event-ID": lastGenerationEventId }
+    : {};
+  const response = await fetch(streamUrl, { headers });
+  await readSse(response, {
+    generation_reset(data, id) {
+      applyGenerationReset(Object.assign({}, data, { event_id: id }));
+    },
+    chunk(data, id) {
+      if (data.attempt_number < activeAttemptNumber) return;
+      activeAttemptNumber = data.attempt_number;
+      activeGenerationId = data.generation_id;
+      lastGenerationEventId = id;
+      activeStreamingBubble.textContent += data.delta || "";
+      conversation.scrollTop = conversation.scrollHeight;
+    },
+    conflict() {
+      throw new Error("Interview state changed");
+    },
+    done() {
+      activeCommandId = null;
+      activeGenerationId = null;
+      activeStreamingBubble = null;
+    },
+  });
+}
+
+function resumePendingGeneration(snapshot) {
+  if (
+    snapshot.workflow_engine !== "langgraph-v1"
+    || !snapshot.active_stream_url
+  ) {
+    return;
+  }
+  activeCommandId = snapshot.active_command_id || null;
+  activeGenerationId = snapshot.active_generation_id || null;
+  activeAttemptNumber = snapshot.active_attempt_number || 0;
+  lastGenerationEventId = snapshot.last_generation_event_id || null;
+  activeStreamingBubble = createStreamingAssistantMessage();
+  void resumeCommandStream(snapshot.active_stream_url).catch((error) => {
+    showNotice(interviewNotice, error.message, "danger");
+  });
+}
+
 function renderCurrentQuestion(question) {
   clear(currentQuestion);
   currentQuestion.appendChild(createEl("span", "question-chip", question?.id || "--"));
@@ -224,6 +282,7 @@ function renderSnapshot(snapshot) {
   currentQuestionId = snapshot.current_question?.id || null;
   renderQuestions(snapshot.questions || []);
   restoreAnswerDraft(currentQuestionId);
+  resumePendingGeneration(snapshot);
   if (snapshot.status === "finished") {
     window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
   }
@@ -250,6 +309,7 @@ async function submitAnswer(event) {
   flushAnswerDraft(submittedQuestionId);
   appendMessage("candidate", answer);
   const streamingBubble = createStreamingAssistantMessage();
+  activeStreamingBubble = streamingBubble;
   resetAnswerEditor("提交中");
 
   setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], true);
@@ -262,7 +322,15 @@ async function submitAnswer(event) {
     let streamedText = "";
     let streamError = null;
     await readSse(response, {
+      generation_reset(data, id) {
+        applyGenerationReset(Object.assign({}, data, { event_id: id }));
+        streamedText = "";
+      },
       chunk(data) {
+        const id = arguments[1];
+        if (data.attempt_number && data.attempt_number < activeAttemptNumber) return;
+        if (data.attempt_number) activeAttemptNumber = data.attempt_number;
+        lastGenerationEventId = id || lastGenerationEventId;
         streamedText += data.delta || "";
         streamingBubble.textContent = streamedText;
         conversation.scrollTop = conversation.scrollHeight;

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from time import sleep
+
 from app.services.runtime_events import (
     InterviewGenerationChunkEvent,
     InterviewGenerationResetEvent,
+    _format_sse,
 )
 
 
@@ -50,12 +53,43 @@ class InterviewEventStreamService:
         *,
         after_event_id: str | None = None,
     ):
-        for event in self.iter_command_events(
-            session_id,
-            command_id,
-            after_event_id=after_event_id,
-        ):
-            yield event.to_sse()
+        cursor = after_event_id
+        while True:
+            for event in self.iter_command_events(
+                session_id,
+                command_id,
+                after_event_id=cursor,
+            ):
+                cursor = (
+                    f"{event.generation_id}:{event.attempt_number}:"
+                    f"{getattr(event, 'sequence', 0)}"
+                )
+                yield event.to_sse()
+            command = self.workflow_store.get_command(
+                session_id, command_id
+            )
+            if command.status == "applied":
+                yield _format_sse(
+                    "done",
+                    {
+                        "command_id": command_id,
+                        "state_version": command.result_state_version,
+                    },
+                )
+                return
+            if command.status == "conflict":
+                yield _format_sse(
+                    "conflict",
+                    {"code": command.error_code or "state_version_conflict"},
+                )
+                return
+            if command.status == "failed":
+                yield _format_sse(
+                    "error",
+                    {"code": command.error_code or "workflow_failed"},
+                )
+                return
+            sleep(0.05)
 
     @staticmethod
     def _parse_cursor(
