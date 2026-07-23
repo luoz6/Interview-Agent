@@ -27,3 +27,22 @@ rollout are eligible for `langgraph-v1`.
   evidence content in diagnostics.
 - A replacement attempt emits `generation_reset`; clients clear abandoned
   partial text before rendering new chunks.
+
+## PostgreSQL Recovery Gate
+
+Task 14 status: PASS
+
+- Executed at: 2026-07-23T11:06:02Z
+- Implementation base: `136e6bd`
+- Recovery checks: 10 passed
+- Focused recovery contracts: 12 passed
+- Recovery duration: 12.501 seconds
+- Acknowledged command RPO: zero
+- Replacement attempts observed: 1
+- Retry timer checks: 1
+- Duplicate committed messages: 0
+- Duplicate report jobs: 0
+- Privacy allowlist: PASS
+
+The overall release status remains pending until the browser, compatibility,
+operational, and full regression gates in Task 15 pass.

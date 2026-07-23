@@ -107,6 +107,33 @@ def test_cleanup_removes_only_old_completed_generation_chunks(store):
     ]
 
 
+def test_expired_attempt_is_replaced_with_reset_event(store):
+    generation = seed_generation(store)
+    store.append_chunk(generation.generation_id, 1, 1, "partial")
+    with store._connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                store._sql(
+                    "UPDATE {attempts} SET lease_expires_at = NOW() - INTERVAL '1 second' WHERE generation_id = %s AND attempt_number = 1"
+                ),
+                (generation.generation_id,),
+            )
+
+    replacement = store.start_or_reclaim_attempt(
+        generation.generation_id,
+        1,
+        worker_id="replacement-worker",
+        lease_seconds=60,
+    )
+
+    assert replacement.attempt_number == 2
+    events = store.list_events(generation.generation_id)
+    assert [(event.attempt_number, event.event_type) for event in events] == [
+        (1, "chunk"),
+        (2, "generation_reset"),
+    ]
+
+
 def test_chunk_coalescer_uses_injected_clock():
     now = [0.0]
     coalescer = ChunkCoalescer(

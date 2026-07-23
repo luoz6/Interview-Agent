@@ -197,19 +197,60 @@ class PostgresInterviewGenerationStore:
                     cursor.execute(
                         self._sql(
                             """
-                            SELECT status, lease_owner, lease_expires_at <= NOW()
-                            FROM {attempts}
-                            WHERE generation_id = %s AND attempt_number = %s
+                            SELECT a.status, a.lease_owner,
+                                   a.lease_expires_at <= NOW(),
+                                   g.status, g.active_attempt
+                            FROM {attempts} AS a
+                            JOIN {generations} AS g
+                              ON g.generation_id = a.generation_id
+                            WHERE a.generation_id = %s
+                              AND a.attempt_number = %s
+                            FOR UPDATE OF a, g
                             """
                         ),
                         (generation_id, attempt_number),
                     )
                     row = cursor.fetchone()
-            if row and row[0] == "running" and row[1] == worker_id:
-                return GenerationAttempt(
-                    generation_id, attempt_number, "running", worker_id
-                )
-            raise
+                    if row and row[3] == "completed":
+                        raise GenerationAlreadyCompleted(generation_id)
+                    if row and row[0] == "running":
+                        if not row[2]:
+                            if row[1] == worker_id:
+                                return GenerationAttempt(
+                                    generation_id,
+                                    attempt_number,
+                                    "running",
+                                    worker_id,
+                                )
+                            raise GenerationLeaseConflict(generation_id)
+                        replacement = max(attempt_number, int(row[4])) + 1
+                        if replacement > 3:
+                            raise GenerationLeaseConflict(generation_id)
+                        cursor.execute(
+                            self._sql(
+                                """
+                                UPDATE {attempts}
+                                SET status = 'abandoned',
+                                    last_error_code = 'worker_lost',
+                                    lease_owner = NULL,
+                                    lease_expires_at = NULL,
+                                    completed_at = COALESCE(completed_at, NOW()),
+                                    updated_at = NOW()
+                                WHERE generation_id = %s
+                                  AND attempt_number = %s
+                                  AND status = 'running'
+                                """
+                            ),
+                            (generation_id, attempt_number),
+                        )
+                    else:
+                        raise GenerationLeaseConflict(generation_id)
+            return self.start_attempt(
+                generation_id,
+                replacement,
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+            )
 
     def append_chunk(
         self,
@@ -359,6 +400,25 @@ class PostgresInterviewGenerationStore:
                 )
                 row = cursor.fetchone()
         return InterviewGeneration(*row) if row is not None else None
+
+    def get_by_id(self, generation_id: str) -> InterviewGeneration:
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT generation_id, session_id, source_command_id,
+                               question_id, status, active_attempt, final_text
+                        FROM {generations}
+                        WHERE generation_id = %s
+                        """
+                    ),
+                    (generation_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            raise ValueError("generation not found")
+        return InterviewGeneration(*row)
 
     def cleanup_completed_chunks(self, *, older_than: datetime) -> int:
         with self._connection() as connection:

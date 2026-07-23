@@ -351,9 +351,8 @@ class PostgresRuntimeControlStore:
                         SELECT event_id
                         FROM {outbox}
                         WHERE (
-                            status = 'pending'
-                            OR (
-                                status = 'retrying'
+                            (
+                                status IN ('pending', 'retrying')
                                 AND available_at <= NOW()
                             )
                             OR (

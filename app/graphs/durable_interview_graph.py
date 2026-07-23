@@ -11,6 +11,7 @@ from app.agents.examiner import fallback_followup
 from app.graphs.durable_interview_state import DurableInterviewState
 from app.services.agent_runtime import AgentExecutionContext
 from app.services.interview_generation_store import ChunkCoalescer
+from app.services.interview_generation_store import GenerationAlreadyCompleted
 from app.services.knowledge_binding import resolve_evidence_by_ids
 from app.services.runtime_work import (
     classify_runtime_failure,
@@ -169,12 +170,19 @@ def prepare_generation(state, deps) -> dict:
 
 def generate_followup(state, deps) -> dict:
     coalescer = deps.coalescer_factory()
-    attempt = deps.generation_store.start_or_reclaim_attempt(
-        state["generation_id"],
-        state["generation_attempt"],
-        worker_id=deps.worker_id,
-        lease_seconds=deps.generation_lease_seconds,
-    )
+    try:
+        attempt = deps.generation_store.start_or_reclaim_attempt(
+            state["generation_id"],
+            state["generation_attempt"],
+            worker_id=deps.worker_id,
+            lease_seconds=deps.generation_lease_seconds,
+        )
+    except GenerationAlreadyCompleted:
+        generation = deps.generation_store.get_by_id(state["generation_id"])
+        return {
+            "generation_outcome": "completed",
+            "generated_text": generation.final_text or "",
+        }
     chunks: list[str] = []
     sequence = 0
     context = (
