@@ -586,7 +586,7 @@ class PostgresRuntimeControlStore:
                         """
                         INSERT INTO {agent_runs} (
                             run_id, schema_version, correlation_id,
-                            causation_id, agent, operation, phase,
+                            causation_id, parent_run_id, agent, operation, phase,
                             session_id, question_id, state_version,
                             command_id, evidence_ids, attempt_number,
                             status, started_at, finished_at, latency_ms,
@@ -594,7 +594,7 @@ class PostgresRuntimeControlStore:
                             safe_metadata
                         )
                         VALUES (
-                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s::jsonb, %s,
                             %s, %s, %s, %s, %s, %s, %s, %s::jsonb
                         )
@@ -608,6 +608,7 @@ class PostgresRuntimeControlStore:
                         record.schema_version,
                         record.correlation_id,
                         record.causation_id,
+                        record.parent_run_id,
                         record.agent,
                         record.operation,
                         record.phase,
@@ -690,7 +691,7 @@ class PostgresRuntimeControlStore:
                 cursor.execute(
                     sql.SQL(
                         """
-                        SELECT run_id, correlation_id, causation_id,
+                        SELECT run_id, correlation_id, causation_id, parent_run_id,
                                agent, operation, phase, session_id,
                                question_id, state_version, command_id,
                                evidence_ids, attempt_number, status,
@@ -715,22 +716,23 @@ class PostgresRuntimeControlStore:
                 "run_id": row[0],
                 "correlation_id": row[1],
                 "causation_id": row[2],
-                "agent": row[3],
-                "operation": row[4],
-                "phase": row[5],
-                "session_id": row[6],
-                "question_id": row[7],
-                "state_version": row[8],
-                "command_id": row[9],
-                "evidence_ids": row[10],
-                "attempt_number": row[11],
-                "status": row[12],
-                "started_at": row[13],
-                "finished_at": row[14],
-                "latency_ms": row[15],
-                "fallback_reason": row[16],
-                "error_code": row[17],
-                "output_type": row[18],
+                "parent_run_id": row[3],
+                "agent": row[4],
+                "operation": row[5],
+                "phase": row[6],
+                "session_id": row[7],
+                "question_id": row[8],
+                "state_version": row[9],
+                "command_id": row[10],
+                "evidence_ids": row[11],
+                "attempt_number": row[12],
+                "status": row[13],
+                "started_at": row[14],
+                "finished_at": row[15],
+                "latency_ms": row[16],
+                "fallback_reason": row[17],
+                "error_code": row[18],
+                "output_type": row[19],
             }
             for row in rows
         ]
@@ -1138,6 +1140,7 @@ class PostgresRuntimeControlStore:
                             schema_version TEXT NOT NULL,
                             correlation_id TEXT NOT NULL,
                             causation_id TEXT,
+                            parent_run_id TEXT,
                             agent TEXT NOT NULL,
                             operation TEXT NOT NULL,
                             phase TEXT NOT NULL,
@@ -1168,6 +1171,13 @@ class PostgresRuntimeControlStore:
                     ).format(
                         agent_runs=sql.Identifier(self.agent_runs_table),
                         sessions=sql.Identifier(self.sessions_table),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {agent_runs} ADD COLUMN IF NOT EXISTS parent_run_id TEXT"
+                    ).format(
+                        agent_runs=sql.Identifier(self.agent_runs_table)
                     )
                 )
                 self._ensure_indexes(cursor, sql)

@@ -5,6 +5,7 @@ from app.agents.shadow_reviewer import ShadowReviewerAgent
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
+import pytest
 
 
 class FollowupLLM:
@@ -186,6 +187,40 @@ def test_examiner_agent_records_empty_stream_fallback_as_degraded():
     assert chunks == [fallback_followup("Redis consistency")]
     assert recorder.records[0].status == "degraded"
     assert recorder.records[0].fallback_reason == "empty_provider_stream"
+
+
+def test_stream_followup_attempt_propagates_provider_failure():
+    class FailingLLM(FollowupLLM):
+        def stream_followup(self, context: list[dict[str, str]]):
+            raise RuntimeError("provider failed")
+            yield
+
+    agent = ExaminerAgent(llm=FailingLLM())
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(
+            agent.stream_followup_attempt(
+                context=[{"role": "candidate", "content": "answer"}],
+                execution_context=make_examiner_context(),
+            )
+        )
+
+
+def test_legacy_stream_still_falls_back():
+    class FailingLLM(FollowupLLM):
+        def stream_followup(self, context: list[dict[str, str]]):
+            raise RuntimeError("provider failed")
+            yield
+
+    agent = ExaminerAgent(llm=FailingLLM())
+
+    assert list(
+        agent.stream_followup(
+            context=[],
+            focus="Redis",
+            execution_context=make_examiner_context(),
+        )
+    ) == [fallback_followup("Redis")]
 
 
 def test_knowledge_agent_generates_plan():

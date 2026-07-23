@@ -13,11 +13,16 @@ from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
 
 
-def make_record(session_id: str | None = None) -> AgentRunRecord:
+def make_record(
+    session_id: str | None = None,
+    *,
+    parent_run_id: str | None = None,
+) -> AgentRunRecord:
     return AgentRunRecord(
         run_id="agent-run-1",
         correlation_id="prep-1",
         causation_id="cmd-1",
+        parent_run_id=parent_run_id,
         agent="examiner",
         operation="generate_followup",
         phase="interview",
@@ -119,3 +124,15 @@ def test_public_query_excludes_safe_metadata(pg_control):
 
     assert "safe_metadata" not in item
     assert item["attempt_number"] == 2
+
+
+@pytest.mark.pg_control
+def test_child_run_persists_parent_run_id(pg_control):
+    control, session_id = pg_control
+    control.record_agent_run(
+        make_record(session_id, parent_run_id="agent-parent")
+    )
+
+    assert control.list_agent_runs(session_id=session_id)[0][
+        "parent_run_id"
+    ] == "agent-parent"

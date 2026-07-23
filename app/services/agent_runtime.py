@@ -29,6 +29,7 @@ class AgentExecutionContext(BaseModel):
     run_id: str = Field(default_factory=lambda: f"agent-{uuid4().hex}")
     correlation_id: str = Field(min_length=1)
     causation_id: str | None = None
+    parent_run_id: str | None = None
     agent: AgentName
     operation: str = Field(min_length=1)
     phase: AgentPhase

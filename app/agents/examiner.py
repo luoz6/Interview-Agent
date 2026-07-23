@@ -74,6 +74,30 @@ class ExaminerAgent:
             ),
         )
 
+    def stream_followup_attempt(
+        self,
+        *,
+        context: list[dict[str, str]],
+        execution_context: AgentExecutionContext,
+    ) -> Iterator[str]:
+        def provider_stream():
+            emitted = False
+            for chunk in (self.llm or self._default_llm()).stream_followup(
+                context
+            ):
+                if not chunk:
+                    continue
+                emitted = True
+                yield chunk
+            if not emitted:
+                raise _EmptyFollowupStream()
+
+        yield from self._execution_runner.stream(
+            execution_context,
+            provider_stream,
+            fallback=None,
+        )
+
     @staticmethod
     def _standalone_context(*, operation: str) -> AgentExecutionContext:
         return AgentExecutionContext(
