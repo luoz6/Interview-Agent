@@ -1,11 +1,14 @@
 from uuid import uuid4
+from copy import deepcopy
 
 import pytest
 
 from app.services.interview_workflow_store import (
     CommandPayloadConflict,
     PostgresInterviewWorkflowStore,
+    ProjectionConflict,
 )
+from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.postgres_session import PostgresInterviewSessionStore
 from tests.test_postgres_session_store import make_plan, require_dsn
 
@@ -26,6 +29,29 @@ def workflow_store():
         dsn=require_dsn(), table_prefix=prefix
     )
     store.session_id = turn.session_id
+    return store
+
+
+@pytest.fixture
+def durable_workflow_store():
+    prefix = f"test_projection_{uuid4().hex[:12]}"
+    session_store = PostgresInterviewSessionStore(
+        dsn=require_dsn(), table_prefix=prefix
+    )
+    session_id = f"session-{uuid4().hex}"
+    plan = make_plan()
+    session_store.insert_durable_session_shell(
+        session_id=session_id,
+        plan=plan,
+        job_description="Backend role",
+        resume_text="Built APIs",
+        job_tags=["python"],
+    )
+    store = PostgresInterviewWorkflowStore(
+        dsn=require_dsn(), table_prefix=prefix
+    )
+    store.session_id = session_id
+    store.plan = plan
     return store
 
 
@@ -78,3 +104,48 @@ def test_duplicate_command_with_changed_payload_is_rejected(workflow_store):
             expected_version=1,
             answer_text="changed",
         )
+
+
+def test_projection_advances_one_public_version(durable_workflow_store):
+    state = make_durable_initial_state(
+        durable_workflow_store.session_id,
+        durable_workflow_store.plan,
+    )
+
+    result = durable_workflow_store.project_state(state)
+
+    assert result.state_version == 1
+    assert durable_workflow_store.session_snapshot(
+        durable_workflow_store.session_id
+    )["state_version"] == 1
+
+
+def test_projection_replay_reuses_same_version(durable_workflow_store):
+    state = make_durable_initial_state(
+        durable_workflow_store.session_id,
+        durable_workflow_store.plan,
+    )
+
+    first = durable_workflow_store.project_state(state)
+    second = durable_workflow_store.project_state(state)
+
+    assert first == second
+    assert second.state_version == 1
+    assert durable_workflow_store.count_messages(
+        durable_workflow_store.session_id
+    ) == len(state["messages"])
+
+
+def test_projection_rejects_same_version_with_changed_payload(
+    durable_workflow_store,
+):
+    state = make_durable_initial_state(
+        durable_workflow_store.session_id,
+        durable_workflow_store.plan,
+    )
+    durable_workflow_store.project_state(state)
+    changed = deepcopy(state)
+    changed["messages"][-1]["content"] = "changed"
+
+    with pytest.raises(ProjectionConflict):
+        durable_workflow_store.project_state(changed)

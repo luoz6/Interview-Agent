@@ -13,11 +13,29 @@ from app.graphs.durable_interview_state import DurableInterviewState
 @dataclass
 class DurableInterviewGraphDependencies:
     workflow_store: Any
-    project_state: Callable[[DurableInterviewState], dict]
+    project_state: Callable[[DurableInterviewState], dict] | None = None
 
 
 def initialize_session(state: DurableInterviewState) -> dict:
     return {}
+
+
+def project_state_node(state, deps) -> dict:
+    if deps.project_state is not None:
+        return deps.project_state(state)
+    projection = deps.workflow_store.project_state(state)
+    updates = {
+        "state_version": projection.state_version,
+        "command_outcome": None,
+        "generation_outcome": None,
+        "generated_text": None,
+        "retry_resume_attempt": None,
+        "retry_validation": None,
+    }
+    if state["command_outcome"] == "completed":
+        updates["active_command_id"] = None
+        updates["command_type"] = None
+    return updates
 
 
 def wait_for_answer(state: DurableInterviewState) -> dict:
@@ -136,7 +154,7 @@ def build_durable_interview_graph(
 ):
     builder = StateGraph(DurableInterviewState)
     builder.add_node("initialize_session", initialize_session)
-    builder.add_node("project_state", deps.project_state)
+    builder.add_node("project_state", partial(project_state_node, deps=deps))
     builder.add_node("wait_for_answer", wait_for_answer)
     builder.add_node(
         "validate_command", partial(validate_command, deps=deps)

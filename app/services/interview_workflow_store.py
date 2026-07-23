@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.runtime_domain_events import InterviewCommandReadyEvent
@@ -15,6 +15,16 @@ CommandStatus = Literal["pending", "applied", "conflict", "failed"]
 
 class CommandPayloadConflict(ValueError):
     pass
+
+
+class ProjectionConflict(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class ProjectionResult:
+    state_version: int
+    projection_sha256: str
 
 
 @dataclass(frozen=True)
@@ -122,6 +132,134 @@ class PostgresInterviewWorkflowStore:
             "state_version_conflict",
         )
 
+    def project_state(self, state: dict[str, Any]) -> ProjectionResult:
+        next_version = int(state["state_version"]) + 1
+        payload = self._projection_payload(state, next_version)
+        digest = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT state_version, projection_sha256
+                        FROM {sessions}
+                        WHERE session_id = %s
+                        FOR UPDATE
+                        """
+                    ),
+                    (state["session_id"],),
+                )
+                current = cursor.fetchone()
+                if current is None:
+                    raise ValueError("session not found")
+                current_version = int(current[0])
+                current_digest = current[1]
+                if current_version > next_version:
+                    return ProjectionResult(current_version, current_digest)
+                if current_version == next_version:
+                    if current_digest != digest:
+                        raise ProjectionConflict(state["session_id"])
+                    self._verify_messages(cursor, state)
+                    return ProjectionResult(next_version, digest)
+                if current_version != int(state["state_version"]):
+                    raise ProjectionConflict(state["session_id"])
+                self._append_messages(cursor, state)
+                cursor.execute(
+                    self._sql(
+                        """
+                        UPDATE {sessions}
+                        SET current_index = %s, status = %s,
+                            skipped_question_ids = %s::jsonb,
+                            state_version = %s, checkpoint_version = %s,
+                            last_command_id = %s, projection_sha256 = %s,
+                            updated_at = NOW(),
+                            finished_at = CASE
+                                WHEN %s = 'finished'
+                                THEN COALESCE(finished_at, NOW())
+                                ELSE finished_at
+                            END
+                        WHERE session_id = %s AND state_version = %s
+                        """
+                    ),
+                    (
+                        payload["current_index"],
+                        payload["status"],
+                        json.dumps(payload["skipped_question_ids"]),
+                        next_version,
+                        next_version,
+                        payload["last_command_id"],
+                        digest,
+                        payload["status"],
+                        state["session_id"],
+                        state["state_version"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ProjectionConflict(state["session_id"])
+                if (
+                    state.get("command_outcome") == "completed"
+                    and state.get("active_command_id")
+                ):
+                    cursor.execute(
+                        self._sql(
+                            """
+                            UPDATE {commands}
+                            SET status = 'applied', result_state_version = %s,
+                                error_code = NULL, completed_at = NOW(),
+                                updated_at = NOW()
+                            WHERE session_id = %s AND command_id = %s
+                              AND status = 'pending'
+                            """
+                        ),
+                        (
+                            next_version,
+                            state["session_id"],
+                            state["active_command_id"],
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ProjectionConflict(state["session_id"])
+        return ProjectionResult(next_version, digest)
+
+    def session_snapshot(self, session_id: str) -> dict[str, Any]:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT state_version, status, projection_sha256
+                        FROM {sessions} WHERE session_id = %s
+                        """
+                    ),
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            raise ValueError("session not found")
+        return {
+            "state_version": row[0],
+            "status": row[1],
+            "projection_sha256": row[2],
+        }
+
+    def count_messages(self, session_id: str) -> int:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        "SELECT COUNT(*) FROM {messages} WHERE session_id = %s"
+                    ),
+                    (session_id,),
+                )
+                return int(cursor.fetchone()[0])
+
     def _update_status(
         self,
         session_id: str,
@@ -212,7 +350,80 @@ class PostgresInterviewWorkflowStore:
         return sql.SQL(statement).format(
             commands=sql.Identifier(self.commands_table),
             sessions=sql.Identifier(self.sessions_table),
+            messages=sql.Identifier(f"{self.table_prefix}_messages"),
         )
+
+    def _append_messages(self, cursor, state: dict[str, Any]) -> None:
+        self._verify_messages(cursor, state, append_missing=True)
+
+    def _verify_messages(
+        self,
+        cursor,
+        state: dict[str, Any],
+        *,
+        append_missing: bool = False,
+    ) -> None:
+        cursor.execute(
+            self._sql(
+                """
+                SELECT sequence_no, role, content, question_id
+                FROM {messages}
+                WHERE session_id = %s
+                ORDER BY sequence_no
+                """
+            ),
+            (state["session_id"],),
+        )
+        existing = cursor.fetchall()
+        messages = state["messages"]
+        for index, row in enumerate(existing):
+            if index >= len(messages):
+                raise ProjectionConflict(state["session_id"])
+            message = messages[index]
+            if row != (
+                index + 1,
+                message["role"],
+                message["content"],
+                message["question_id"],
+            ):
+                raise ProjectionConflict(state["session_id"])
+        if not append_missing and len(existing) != len(messages):
+            raise ProjectionConflict(state["session_id"])
+        for index, message in enumerate(
+            messages[len(existing) :], start=len(existing) + 1
+        ):
+            cursor.execute(
+                self._sql(
+                    """
+                    INSERT INTO {messages} (
+                        session_id, sequence_no, role, content, question_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """
+                ),
+                (
+                    state["session_id"],
+                    index,
+                    message["role"],
+                    message["content"],
+                    message["question_id"],
+                ),
+            )
+
+    @staticmethod
+    def _projection_payload(
+        state: dict[str, Any], state_version: int
+    ) -> dict[str, Any]:
+        return {
+            "session_id": state["session_id"],
+            "current_index": state["current_index"],
+            "messages": state["messages"],
+            "skipped_question_ids": state["skipped_question_ids"],
+            "status": state["interview_status"],
+            "state_version": state_version,
+            "last_command_id": state.get("active_command_id")
+            or state.get("last_command_id"),
+        }
 
     @staticmethod
     def _payload_sha256(

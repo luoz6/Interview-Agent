@@ -132,6 +132,32 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         self._insert_state(state)
         return self._to_turn(state, follow_up=None)
 
+    def insert_durable_session_shell(
+        self,
+        *,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+    ) -> None:
+        from app.graphs.interview_state import build_initial_state
+
+        state = build_initial_state(
+            session_id=session_id,
+            plan=plan,
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+        )
+        state["workflow_engine"] = "langgraph-v1"
+        state["graph_schema_version"] = "langgraph-v1"
+        state["messages"] = []
+        state["state_version"] = 0
+        state["checkpoint_version"] = 0
+        state["projection_sha256"] = None
+        self._insert_state(state)
+
     def get(self, session_id: str) -> InterviewState:
         psycopg2, sql = self._import_psycopg2()
         with psycopg2.connect(self.dsn) as connection:
