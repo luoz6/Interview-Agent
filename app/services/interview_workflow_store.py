@@ -323,6 +323,35 @@ class PostgresInterviewWorkflowStore:
                 )
                 return RetrySchedule(*cursor.fetchone())
 
+    def clear_applied_command_payloads(
+        self, *, older_than: datetime
+    ) -> int:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        UPDATE {commands}
+                        SET answer_text = NULL, updated_at = NOW()
+                        WHERE status = 'applied' AND answer_text IS NOT NULL
+                          AND completed_at < %s
+                        """
+                    ),
+                    (older_than,),
+                )
+                return cursor.rowcount
+
+    def delete_session_control_rows(self, session_id: str) -> int:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        "DELETE FROM {commands} WHERE session_id = %s"
+                    ),
+                    (session_id,),
+                )
+                return cursor.rowcount
+
     def _update_status(
         self,
         session_id: str,
@@ -405,6 +434,76 @@ class PostgresInterviewWorkflowStore:
                             )
                         )
                         """
+                    )
+                )
+                _, sql = self.control._import_psycopg2()
+                named_constraint = f"{self.commands_table}_answer_payload_check"
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {commands} DROP CONSTRAINT IF EXISTS {constraint}"
+                    ).format(
+                        commands=sql.Identifier(self.commands_table),
+                        constraint=sql.Identifier(named_constraint),
+                    )
+                )
+                cursor.execute(
+                    """
+                    SELECT constraint_name
+                    FROM information_schema.check_constraints
+                    WHERE constraint_schema = current_schema()
+                      AND constraint_name IN (
+                          SELECT constraint_name
+                          FROM information_schema.constraint_column_usage
+                          WHERE table_name = %s AND column_name = 'answer_text'
+                      )
+                    """,
+                    (self.commands_table,),
+                )
+                for (constraint_name,) in cursor.fetchall():
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {commands} DROP CONSTRAINT {constraint}"
+                        ).format(
+                            commands=sql.Identifier(self.commands_table),
+                            constraint=sql.Identifier(constraint_name),
+                        )
+                    )
+                constraint_name = named_constraint
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {commands}
+                        ADD CONSTRAINT {constraint}
+                        CHECK (
+                            (
+                                command_type = 'answer'
+                                AND (
+                                    answer_text IS NOT NULL
+                                    OR status = 'applied'
+                                )
+                            )
+                            OR (
+                                command_type <> 'answer'
+                                AND answer_text IS NULL
+                            )
+                        )
+                        """
+                    ).format(
+                        commands=sql.Identifier(self.commands_table),
+                        constraint=sql.Identifier(constraint_name),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS {index}
+                        ON {commands} (status, updated_at)
+                        """
+                    ).format(
+                        index=sql.Identifier(
+                            f"{self.commands_table}_status_updated_idx"
+                        ),
+                        commands=sql.Identifier(self.commands_table),
                     )
                 )
 

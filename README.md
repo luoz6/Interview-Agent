@@ -41,6 +41,18 @@ Stage 35 makes the review pipeline observable. Report progress now carries `meta
 
 Stage 37 cleans up the Postgres runtime contract. Memory and Postgres session stores now share the same versioned command behavior: mutating user commands accept `expected_version` plus `command_id`, stale commands raise `SessionVersionConflict` and return HTTP 409, duplicate `command_id` calls are idempotent, and snapshots expose `state_version`, `checkpoint_version`, `phase`, `phase_status`, and `review_status`. Streaming answer completion and report lifecycle updates advance version metadata without replacing the last user command id. The LangGraph orchestrator remains an internal phase router; Local V1 transport is still HTTP/SSE/polling.
 
+## Durable Interview Recovery
+
+The opt-in `langgraph-v1` engine applies only to newly assigned sessions.
+PostgreSQL checkpoints own its workflow cursor; command inbox rows and runtime
+outbox events provide resumable ingress and retry timers; generation chunks are
+attempt-scoped and replayable over SSE.
+
+Keep `INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0` until the recovery acceptance
+record is complete. Reducing rollout later changes assignment for new sessions
+only. Existing v1 graph definitions and workers must remain available for
+already-created v1 sessions.
+
 ## Prerequisites
 
 - Python 3.11

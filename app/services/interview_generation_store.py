@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from time import monotonic
 from typing import Callable
 
@@ -359,6 +360,46 @@ class PostgresInterviewGenerationStore:
                 row = cursor.fetchone()
         return InterviewGeneration(*row) if row is not None else None
 
+    def cleanup_completed_chunks(self, *, older_than: datetime) -> int:
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        DELETE FROM {chunks}
+                        USING {generations}
+                        WHERE {chunks}.generation_id =
+                              {generations}.generation_id
+                          AND {generations}.status = 'completed'
+                          AND {generations}.completed_at < %s
+                        """
+                    ),
+                    (older_than,),
+                )
+                return cursor.rowcount
+
+    def delete_session_rows(self, session_id: str) -> int:
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        "DELETE FROM {generations} WHERE session_id = %s"
+                    ),
+                    (session_id,),
+                )
+                return cursor.rowcount
+
+    def count_session_rows(self, session_id: str) -> int:
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        "SELECT COUNT(*) FROM {generations} WHERE session_id = %s"
+                    ),
+                    (session_id,),
+                )
+                return int(cursor.fetchone()[0])
+
     def _set_attempt_status(
         self,
         generation_id: str,
@@ -480,6 +521,36 @@ class PostgresInterviewGenerationStore:
                                 ) ON DELETE CASCADE
                         )
                         """
+                    )
+                )
+                from psycopg2 import sql
+
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS {index}
+                        ON {generations} (session_id, source_command_id)
+                        """
+                    ).format(
+                        index=sql.Identifier(
+                            f"{self.generations_table}_session_source_idx"
+                        ),
+                        generations=sql.Identifier(self.generations_table),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS {index}
+                        ON {chunks} (
+                            generation_id, attempt_number, sequence
+                        )
+                        """
+                    ).format(
+                        index=sql.Identifier(
+                            f"{self.chunks_table}_replay_idx"
+                        ),
+                        chunks=sql.Identifier(self.chunks_table),
                     )
                 )
 

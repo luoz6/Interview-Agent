@@ -1,5 +1,6 @@
-from uuid import uuid4
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -104,6 +105,28 @@ def test_duplicate_command_with_changed_payload_is_rejected(workflow_store):
             expected_version=1,
             answer_text="changed",
         )
+
+
+def test_applied_command_payload_can_be_cleared(workflow_store):
+    command = workflow_store.enqueue_command(
+        session_id=workflow_store.session_id,
+        command_id="cmd-private",
+        command_type="answer",
+        expected_version=1,
+        answer_text="private answer",
+    )
+    workflow_store.mark_command_applied(
+        workflow_store.session_id, command.command_id, 2
+    )
+
+    assert workflow_store.clear_applied_command_payloads(
+        older_than=datetime.now(timezone.utc) + timedelta(seconds=1)
+    ) == 1
+    cleared = workflow_store.get_command(
+        workflow_store.session_id, command.command_id
+    )
+    assert cleared.answer_text is None
+    assert cleared.payload_sha256 == command.payload_sha256
 
 
 def test_projection_advances_one_public_version(durable_workflow_store):

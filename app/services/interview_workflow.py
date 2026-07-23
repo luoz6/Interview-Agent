@@ -156,3 +156,14 @@ class InterviewWorkflowService:
                 f"{active_command_id}/stream"
             )
         return snapshot
+
+    def purge_session(self, session_id: str) -> None:
+        from app.services.runtime import (
+            get_langgraph_checkpointer_runtime,
+        )
+
+        checkpointer = get_langgraph_checkpointer_runtime()
+        if checkpointer is not None:
+            checkpointer.delete_thread(session_id)
+        self.workflow_store.delete_session_control_rows(session_id)
+        self.generation_store.delete_session_rows(session_id)

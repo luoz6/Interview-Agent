@@ -20,6 +20,8 @@ from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import prepare_interview, public_interview_plan_payload
 from app.services.config import (
     get_interview_langgraph_rollout_percent,
+    get_interview_langgraph_runtime_enabled,
+    get_interview_langgraph_version,
     get_runtime_event_backend,
     get_runtime_store,
 )
@@ -98,6 +100,8 @@ def health():
 def runtime_boundary():
     runtime_store = get_runtime_store()
     event_backend = get_runtime_event_backend()
+    runtime_enabled = get_interview_langgraph_runtime_enabled()
+    rollout_percent = get_interview_langgraph_rollout_percent()
     session_store = (
         "PostgresInterviewSessionStore"
         if runtime_store == "postgres"
@@ -120,9 +124,18 @@ def runtime_boundary():
             "langgraph": True,
         },
         "orchestration": {
-            "engine": "langgraph",
+            "engine": "versioned",
+            "default_engine": "legacy",
+            "langgraph_version": get_interview_langgraph_version(),
+            "langgraph_runtime_enabled": runtime_enabled,
+            "langgraph_rollout_percent": rollout_percent,
+            "checkpoint_backend": (
+                "postgres"
+                if runtime_enabled and runtime_store == "postgres"
+                else "disabled"
+            ),
             "phase_aware": True,
-            "resume_contract": "versioned_http",
+            "resume_contract": "checkpointed_http_sse",
         },
         "agent_runtime": {
             "schema_version": "agent-runtime-v1",

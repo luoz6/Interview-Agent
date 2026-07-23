@@ -4,6 +4,8 @@ from scripts.runtime_preflight import (
     PreflightError,
     check_redis,
     redact_connection_url,
+    validate_langgraph_configuration,
+    validate_langgraph_schema_snapshot,
     validate_runtime_control_snapshot,
     validate_runtime_versions,
 )
@@ -108,3 +110,47 @@ def test_runtime_control_snapshot_rejects_slow_ledger():
             expected_tables=["outbox", "receipts", "agent_runs"],
             ledger_latencies_ms=[51.0] * 20,
         )
+
+
+def test_langgraph_rollout_requires_enabled_postgres_runtime():
+    with pytest.raises(PreflightError, match="PostgreSQL"):
+        validate_langgraph_configuration(
+            runtime_store="memory",
+            runtime_enabled=True,
+            rollout_percent=1,
+            strict_msgpack="true",
+            retention_hours=24,
+        )
+
+
+def test_langgraph_configuration_requires_strict_msgpack_and_retention():
+    with pytest.raises(PreflightError, match="STRICT_MSGPACK"):
+        validate_langgraph_configuration(
+            runtime_store="postgres",
+            runtime_enabled=True,
+            rollout_percent=0,
+            strict_msgpack="false",
+            retention_hours=24,
+        )
+    with pytest.raises(PreflightError, match="retention"):
+        validate_langgraph_configuration(
+            runtime_store="postgres",
+            runtime_enabled=True,
+            rollout_percent=0,
+            strict_msgpack="true",
+            retention_hours=0,
+        )
+
+
+def test_langgraph_schema_snapshot_requires_tables_and_indexes():
+    expected_tables = ["commands", "generations", "attempts", "chunks"]
+    expected_indexes = ["commands_status", "outbox_due", "source", "replay"]
+
+    result = validate_langgraph_schema_snapshot(
+        tables=expected_tables,
+        indexes=expected_indexes + ["extra"],
+        expected_tables=expected_tables,
+        expected_indexes=expected_indexes,
+    )
+
+    assert result == {"workflow_tables": 4, "recovery_indexes": 4}

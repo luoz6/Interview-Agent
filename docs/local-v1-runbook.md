@@ -415,3 +415,26 @@ deterministic and PostgreSQL gates are green. Keep the RC on
 table prefix or promote `stage44b1-zh-v2` automatically. Production promotion
 requires separate explicit operator approval after
 `docs/stage-44b1-chinese-corpus-acceptance.md` is complete.
+
+# Local V1 Runbook
+
+## Durable Interview Recovery
+
+Use PostgreSQL runtime mode with the LangGraph runtime enabled. Keep rollout
+at zero while validating the recovery acceptance record, then increase it
+gradually for newly created sessions.
+
+The durable graph persists command identity separately from answer content,
+waits on retry timers without blocking a worker, and streams generation chunks
+by `(generation_id, attempt_number, sequence)`. A replacement attempt starts
+with `generation_reset`; clients must clear the old partial text.
+
+Rollback changes only assignment for new sessions. Workers serving existing
+`langgraph-v1` threads and the corresponding graph version must remain
+available until those sessions finish or are purged.
+
+Completed generation chunks are retained for 24 hours for reconnect and audit,
+then cleanup may remove them. Active and retrying generations are never removed
+by retention cleanup.
+
+See `docs/langgraph-interview-recovery-acceptance.md` for the release gates.

@@ -31,9 +31,18 @@ def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
         "langgraph": True,
     }
     assert body["orchestration"] == {
-        "engine": "langgraph",
+        "engine": "versioned",
+        "default_engine": "legacy",
+        "langgraph_version": "langgraph-v1",
+        "langgraph_runtime_enabled": True,
+        "langgraph_rollout_percent": 0,
+        "checkpoint_backend": (
+            "postgres"
+            if body["runtime_store"] == "postgres"
+            else "disabled"
+        ),
         "phase_aware": True,
-        "resume_contract": "versioned_http",
+        "resume_contract": "checkpointed_http_sse",
     }
     assert body["agent_runtime"] == {
         "schema_version": "agent-runtime-v1",
@@ -59,7 +68,7 @@ def test_runtime_boundary_endpoint_reports_stage_29_celery_mode(monkeypatch):
         "websocket": False,
         "langgraph": True,
     }
-    assert body["orchestration"]["engine"] == "langgraph"
+    assert body["orchestration"]["engine"] == "versioned"
 
 
 def test_runtime_boundary_endpoint_reports_noop_event_mode(monkeypatch):

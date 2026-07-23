@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -9,6 +10,9 @@ from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit
 
 from app.services.config import (
+    get_interview_chunk_retention_hours,
+    get_interview_langgraph_rollout_percent,
+    get_interview_langgraph_runtime_enabled,
     get_postgres_dsn,
     get_redis_url,
     get_runtime_table_prefix,
@@ -17,6 +21,136 @@ from app.services.config import (
 
 class PreflightError(RuntimeError):
     pass
+
+
+def validate_langgraph_configuration(
+    *,
+    runtime_store: str,
+    runtime_enabled: bool,
+    rollout_percent: int,
+    strict_msgpack: str,
+    retention_hours: int,
+) -> dict[str, object]:
+    if rollout_percent > 0 and (
+        runtime_store != "postgres" or not runtime_enabled
+    ):
+        raise PreflightError(
+            "LangGraph rollout requires enabled PostgreSQL runtime"
+        )
+    if strict_msgpack.strip().lower() != "true":
+        raise PreflightError("LANGGRAPH_STRICT_MSGPACK must be true")
+    if retention_hours < 1:
+        raise PreflightError("chunk retention must be positive")
+    return {
+        "runtime_store": runtime_store,
+        "runtime_enabled": runtime_enabled,
+        "rollout_percent": rollout_percent,
+        "strict_msgpack": True,
+        "chunk_retention_hours": retention_hours,
+    }
+
+
+def validate_langgraph_schema_snapshot(
+    *,
+    tables: list[str],
+    indexes: list[str],
+    expected_tables: list[str],
+    expected_indexes: list[str],
+) -> dict[str, int]:
+    if set(tables) != set(expected_tables):
+        raise PreflightError("LangGraph workflow tables are incomplete")
+    if not set(expected_indexes).issubset(indexes):
+        raise PreflightError("LangGraph recovery indexes are incomplete")
+    return {
+        "workflow_tables": len(tables),
+        "recovery_indexes": len(expected_indexes),
+    }
+
+
+def check_langgraph_runtime() -> dict[str, object]:
+    from app.services.interview_generation_store import (
+        PostgresInterviewGenerationStore,
+    )
+    from app.services.interview_workflow_store import (
+        PostgresInterviewWorkflowStore,
+    )
+    from app.services.langgraph_runtime import PostgresCheckpointerRuntime
+    from app.services.postgres_session import PostgresInterviewSessionStore
+    from scripts.audit_agent_runtime import audit_runtime_control_payloads
+
+    dsn = get_postgres_dsn()
+    prefix = get_runtime_table_prefix()
+    session_store = PostgresInterviewSessionStore(
+        dsn=dsn, table_prefix=prefix
+    )
+    workflow_store = PostgresInterviewWorkflowStore(
+        dsn=dsn, table_prefix=prefix
+    )
+    generation_store = PostgresInterviewGenerationStore(
+        dsn=dsn, table_prefix=prefix
+    )
+    expected_tables = [
+        workflow_store.commands_table,
+        generation_store.generations_table,
+        generation_store.attempts_table,
+        generation_store.chunks_table,
+    ]
+    expected_indexes = [
+        f"{workflow_store.commands_table}_status_updated_idx",
+        f"{session_store._runtime_control.outbox_table}_status_available_idx",
+        f"{generation_store.generations_table}_session_source_idx",
+        f"{generation_store.chunks_table}_replay_idx",
+    ]
+    psycopg2, _ = session_store._import_psycopg2()
+    with psycopg2.connect(dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = ANY(%s)
+                """,
+                (expected_tables,),
+            )
+            tables = [row[0] for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = ANY(%s)
+                """,
+                (expected_indexes,),
+            )
+            indexes = [row[0] for row in cursor.fetchall()]
+    result: dict[str, object] = validate_langgraph_schema_snapshot(
+        tables=tables,
+        indexes=indexes,
+        expected_tables=expected_tables,
+        expected_indexes=expected_indexes,
+    )
+    checkpointer = PostgresCheckpointerRuntime(dsn)
+    try:
+        checkpointer.start()
+        result["saver_setup"] = True
+    finally:
+        checkpointer.shutdown()
+
+    privacy = audit_runtime_control_payloads(
+        [
+            {
+                "engine": "versioned",
+                "default_engine": "legacy",
+                "langgraph_version": "langgraph-v1",
+                "checkpoint_backend": "postgres",
+                "resume_contract": "checkpointed_http_sse",
+            }
+        ]
+    )
+    if privacy["status"] != "PASS":
+        raise PreflightError("runtime diagnostics privacy audit failed")
+    result["privacy_allowlist"] = "PASS"
+    return result
 
 
 def validate_runtime_versions(
@@ -172,6 +306,19 @@ def main() -> int:
             python_version=sys.version_info[:3], node_version=_node_version()
         )
         result["profile"] = args.profile
+        result["langgraph"] = validate_langgraph_configuration(
+            runtime_store=os.getenv("INTERVIEW_RUNTIME_STORE", "postgres"),
+            runtime_enabled=get_interview_langgraph_runtime_enabled(),
+            rollout_percent=get_interview_langgraph_rollout_percent(),
+            strict_msgpack=os.getenv("LANGGRAPH_STRICT_MSGPACK", "true"),
+            retention_hours=get_interview_chunk_retention_hours(),
+        )
+        if (
+            result["langgraph"]["runtime_store"] == "postgres"
+            and result["langgraph"]["runtime_enabled"]
+            and args.profile == "core"
+        ):
+            result["langgraph"]["postgres"] = check_langgraph_runtime()
         if args.profile == "celery":
             url = get_redis_url()
             result["redis_url"] = redact_connection_url(url)

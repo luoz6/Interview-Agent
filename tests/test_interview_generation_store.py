@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -81,6 +82,29 @@ def test_completed_attempt_is_not_replaced(store):
 
     with pytest.raises(GenerationAlreadyCompleted):
         store.start_attempt(generation.generation_id, 2)
+
+
+def test_cleanup_removes_only_old_completed_generation_chunks(store):
+    completed = seed_generation(store)
+    store.append_chunk(completed.generation_id, 1, 1, "completed")
+    store.complete_attempt(completed.generation_id, 1, "completed")
+    active = store.prepare_generation(
+        session_id=store.session_id,
+        source_command_id="cmd-active",
+        question_id="q1",
+    )
+    store.start_attempt(active.generation_id, 1)
+    store.append_chunk(active.generation_id, 1, 1, "active")
+
+    deleted = store.cleanup_completed_chunks(
+        older_than=datetime.now(timezone.utc) + timedelta(seconds=1)
+    )
+
+    assert deleted == 1
+    assert store.list_events(completed.generation_id) == []
+    assert [event.delta for event in store.list_events(active.generation_id)] == [
+        "active"
+    ]
 
 
 def test_chunk_coalescer_uses_injected_clock():

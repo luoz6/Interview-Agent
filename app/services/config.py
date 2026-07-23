@@ -103,6 +103,10 @@ def get_runtime_receipt_lease_seconds() -> int:
     return _positive_int("RUNTIME_RECEIPT_LEASE_SECONDS", 300)
 
 
+def get_interview_chunk_retention_hours() -> int:
+    return _positive_int("INTERVIEW_CHUNK_RETENTION_HOURS", 24)
+
+
 def get_interview_langgraph_rollout_percent() -> int:
     raw = os.getenv("INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT", "0")
     try:
