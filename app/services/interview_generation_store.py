@@ -340,6 +340,25 @@ class PostgresInterviewGenerationStore:
                 )
                 return [GenerationEvent(*row) for row in cursor.fetchall()]
 
+    def get_by_source_command(
+        self, session_id: str, source_command_id: str
+    ) -> InterviewGeneration | None:
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT generation_id, session_id, source_command_id,
+                               question_id, status, active_attempt, final_text
+                        FROM {generations}
+                        WHERE session_id = %s AND source_command_id = %s
+                        """
+                    ),
+                    (session_id, source_command_id),
+                )
+                row = cursor.fetchone()
+        return InterviewGeneration(*row) if row is not None else None
+
     def _set_attempt_status(
         self,
         generation_id: str,

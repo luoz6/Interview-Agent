@@ -80,8 +80,9 @@ class InterviewSessionStore:
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        session_id: str | None = None,
     ) -> InterviewTurn:
-        session_id = str(uuid4())
+        session_id = session_id or str(uuid4())
         state = self._runner.start(
             session_id=session_id,
             plan=plan,
@@ -130,6 +131,8 @@ class InterviewSessionStore:
             "checkpoint_version": state["checkpoint_version"],
             "last_checkpoint_at": state["last_checkpoint_at"],
             "last_command_id": state["last_command_id"],
+            "workflow_engine": state.get("workflow_engine", "legacy"),
+            "graph_schema_version": state.get("graph_schema_version"),
             "job_tags": list(state["job_tags"]),
             "current_question": current_question.model_dump() if current_question else None,
             "questions": questions,

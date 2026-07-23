@@ -6,7 +6,9 @@ from uuid import uuid4
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_postgres_dsn,
+    get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
+    get_interview_langgraph_version,
     get_runtime_event_backend,
     get_runtime_outbox_batch_size,
     get_runtime_outbox_lease_seconds,
@@ -54,6 +56,8 @@ _agent_composite_recorder = None
 _agent_postgres_control_ids: set[int] = set()
 _langgraph_checkpointer_runtime = None
 _langgraph_checkpointer_started = False
+_interview_workflow_service = None
+_interview_workflow_consumer = None
 
 
 def build_session_store(llm=None):
@@ -190,6 +194,84 @@ def get_langgraph_checkpointer_runtime():
     return _langgraph_checkpointer_runtime
 
 
+def build_interview_workflow_service():
+    from app.agents.examiner import ExaminerAgent
+    from app.graphs.durable_interview_graph import (
+        DurableInterviewGraphDependencies,
+        build_durable_interview_graph,
+    )
+    from app.services.interview_generation_store import (
+        PostgresInterviewGenerationStore,
+    )
+    from app.services.interview_workflow import InterviewWorkflowService
+    from app.services.interview_workflow_store import (
+        PostgresInterviewWorkflowStore,
+    )
+    from app.services.langgraph_runtime import (
+        VersionedInterviewGraphRegistry,
+    )
+
+    if get_runtime_store() != "postgres":
+        raise RuntimeError("durable interview workflow requires PostgreSQL")
+    checkpointer = get_langgraph_checkpointer_runtime()
+    if checkpointer is None:
+        raise RuntimeError("LangGraph runtime is disabled")
+    saver = checkpointer.start()
+    store = get_session_store()
+    dsn = get_postgres_dsn()
+    prefix = get_runtime_table_prefix()
+    workflow_store = PostgresInterviewWorkflowStore(
+        dsn=dsn, table_prefix=prefix
+    )
+    generation_store = PostgresInterviewGenerationStore(
+        dsn=dsn, table_prefix=prefix
+    )
+    deps = DurableInterviewGraphDependencies(
+        workflow_store=workflow_store,
+        generation_store=generation_store,
+        examiner=ExaminerAgent(
+            llm=store.llm,
+            execution_runner=get_agent_execution_runner(),
+        ),
+        knowledge_repository=get_knowledge_store(),
+        report_job_queue=get_report_job_store(),
+    )
+    graph = build_durable_interview_graph(deps, checkpointer=saver)
+    registry = VersionedInterviewGraphRegistry()
+    version = get_interview_langgraph_version()
+    registry.register(version, graph)
+    return InterviewWorkflowService(
+        legacy_store=store,
+        workflow_store=workflow_store,
+        generation_store=generation_store,
+        graph_registry=registry,
+        runtime_store="postgres",
+        runtime_enabled=get_interview_langgraph_runtime_enabled(),
+        rollout_percent=get_interview_langgraph_rollout_percent(),
+        default_graph_version=version,
+    )
+
+
+def get_interview_workflow_service():
+    global _interview_workflow_service
+    if _interview_workflow_service is None:
+        _interview_workflow_service = build_interview_workflow_service()
+    return _interview_workflow_service
+
+
+def get_interview_workflow_consumer():
+    global _interview_workflow_consumer
+    if _interview_workflow_consumer is None:
+        from app.services.interview_workflow_consumer import (
+            InterviewWorkflowConsumer,
+        )
+
+        _interview_workflow_consumer = InterviewWorkflowConsumer(
+            get_interview_workflow_service()
+        )
+    return _interview_workflow_consumer
+
+
 def get_agent_execution_runner(
     *,
     control_store=None,
@@ -222,6 +304,7 @@ def build_runtime_outbox_service() -> RuntimeOutboxService:
         control_store=control_store,
         worker_id=f"{worker_id}:consumer",
         store=get_session_store(),
+        interview_consumer=get_interview_workflow_consumer(),
     )
     return RuntimeOutboxService(
         RuntimeOutboxDispatcher(
@@ -256,6 +339,7 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
 
 def start_runtime() -> None:
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
+    global _interview_workflow_service, _interview_workflow_consumer
     global _runtime_outbox_service
     if get_runtime_store() != "postgres":
         return
@@ -298,6 +382,8 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _runtime_outbox_service = None
     _langgraph_checkpointer_runtime = None
     _langgraph_checkpointer_started = False
+    _interview_workflow_service = None
+    _interview_workflow_consumer = None
     _agent_execution_runner = None
     _agent_composite_recorder = None
     _agent_postgres_control_ids.clear()

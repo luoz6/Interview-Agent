@@ -70,6 +70,7 @@ class SessionCommandRepository(Protocol):
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        session_id: str | None = None,
     ) -> InterviewTurn:
         ...
 

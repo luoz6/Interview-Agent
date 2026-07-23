@@ -10,6 +10,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
 )
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -17,7 +18,11 @@ from pydantic import BaseModel, Field, field_validator
 from app.services.job_tags import extract_job_tags
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import prepare_interview, public_interview_plan_payload
-from app.services.config import get_runtime_event_backend, get_runtime_store
+from app.services.config import (
+    get_interview_langgraph_rollout_percent,
+    get_runtime_event_backend,
+    get_runtime_store,
+)
 from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
@@ -33,6 +38,7 @@ from app.services.runtime import (
     get_report_job_store,
     get_runtime_control_store,
     get_session_store,
+    get_interview_workflow_service,
 )
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
@@ -201,12 +207,23 @@ def start_interview(
             execution_runner=get_agent_execution_runner(),
         )
         job_tags = extract_job_tags(payload.job_description)
-        turn = store.start(
-            plan,
-            job_description=payload.job_description,
-            resume_text=payload.resume_text,
-            job_tags=job_tags,
-        )
+        if (
+            get_runtime_store() == "postgres"
+            and get_interview_langgraph_rollout_percent() > 0
+        ):
+            turn = get_interview_workflow_service().start(
+                plan,
+                job_description=payload.job_description,
+                resume_text=payload.resume_text,
+                job_tags=job_tags,
+            )
+        else:
+            turn = store.start(
+                plan,
+                job_description=payload.job_description,
+                resume_text=payload.resume_text,
+                job_tags=job_tags,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
@@ -218,8 +235,12 @@ def get_interview_session(
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
-        snapshot = store.snapshot(session_id)
         state = store.get(session_id)
+        snapshot = (
+            get_interview_workflow_service().snapshot(session_id)
+            if state.get("workflow_engine") == "langgraph-v1"
+            else store.snapshot(session_id)
+        )
         public_plan = public_interview_plan_payload(state["plan"])
         snapshot["prep_context"] = public_plan.get("prep_context")
         return snapshot
@@ -293,6 +314,19 @@ def submit_answer(
     publisher=Depends(get_event_publisher),
 ):
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="answer",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+                answer_text=payload.answer,
+            )
+            return JSONResponse(
+                status_code=202,
+                content=accepted.model_dump(mode="json"),
+            )
         before_state = _snapshot_session_state(store, session_id)
         turn = store.submit_answer(
             session_id,
@@ -330,6 +364,27 @@ def submit_answer_stream(
     publisher=Depends(get_event_publisher),
 ):
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="answer",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+                answer_text=payload.answer,
+            )
+            workflow = get_interview_workflow_service()
+            return StreamingResponse(
+                workflow.event_stream.iter_sse(
+                    session_id, accepted.command_id
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
         before_state = _snapshot_session_state(store, session_id)
         prepared = store.prepare_streaming_answer(
             session_id,
@@ -400,6 +455,18 @@ def finish_interview(
 ):
     payload = payload or SessionCommandRequest()
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="finish",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+            )
+            return JSONResponse(
+                status_code=202,
+                content=accepted.model_dump(mode="json"),
+            )
         before_state = _snapshot_session_state(store, session_id)
         turn = store.finish(
             session_id,
@@ -437,6 +504,18 @@ def skip_interview_question(
 ):
     payload = payload or SessionCommandRequest()
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="skip",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+            )
+            return JSONResponse(
+                status_code=202,
+                content=accepted.model_dump(mode="json"),
+            )
         before_state = _snapshot_session_state(store, session_id)
         turn = store.skip(
             session_id,
@@ -462,6 +541,29 @@ def skip_interview_question(
         background_tasks=background_tasks,
     )
     return _turn_to_dict(turn)
+
+
+@router.get(
+    "/interviews/{session_id}/commands/{command_id}/stream"
+)
+def stream_interview_command(
+    session_id: str,
+    command_id: str,
+    request: Request,
+):
+    workflow = get_interview_workflow_service()
+    return StreamingResponse(
+        workflow.event_stream.iter_sse(
+            session_id,
+            command_id,
+            after_event_id=request.headers.get("Last-Event-ID"),
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/interviews/{session_id}/report")

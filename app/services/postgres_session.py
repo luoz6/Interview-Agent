@@ -120,8 +120,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        session_id: str | None = None,
     ) -> InterviewTurn:
-        session_id = str(uuid4())
+        session_id = session_id or str(uuid4())
         state = self._runner.start(
             session_id=session_id,
             plan=plan,
