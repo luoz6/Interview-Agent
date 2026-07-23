@@ -3,10 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.runtime_domain_events import InterviewCommandReadyEvent
+from app.services.runtime_domain_events import (
+    InterviewCommandReadyEvent,
+    InterviewRetryDueEvent,
+)
 
 
 CommandType = Literal["answer", "skip", "finish"]
@@ -25,6 +29,13 @@ class ProjectionConflict(RuntimeError):
 class ProjectionResult:
     state_version: int
     projection_sha256: str
+
+
+@dataclass(frozen=True)
+class RetrySchedule:
+    event_id: str
+    available_at: datetime
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -260,6 +271,58 @@ class PostgresInterviewWorkflowStore:
                 )
                 return int(cursor.fetchone()[0])
 
+    def enqueue_retry(
+        self,
+        *,
+        session_id: str,
+        generation_id: str,
+        next_attempt_number: int,
+        delay_seconds: float,
+    ) -> RetrySchedule:
+        event_id = f"{generation_id}:retry:{next_attempt_number}"
+        event = InterviewRetryDueEvent(
+            event_id=event_id,
+            session_id=session_id,
+            generation_id=generation_id,
+            next_attempt_number=next_attempt_number,
+        )
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        INSERT INTO {outbox} (
+                            event_id, session_id, correlation_id, event_type,
+                            schema_version, payload_json, status, available_at
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s::jsonb, 'pending',
+                            NOW() + (%s * INTERVAL '1 second')
+                        )
+                        ON CONFLICT (event_id) DO NOTHING
+                        """
+                    ),
+                    (
+                        event.event_id,
+                        event.session_id,
+                        event.correlation_id,
+                        event.event_type,
+                        event.schema_version,
+                        event.model_dump_json(),
+                        delay_seconds,
+                    ),
+                )
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT event_id, available_at, created_at
+                        FROM {outbox} WHERE event_id = %s
+                        """
+                    ),
+                    (event_id,),
+                )
+                return RetrySchedule(*cursor.fetchone())
+
     def _update_status(
         self,
         session_id: str,
@@ -351,6 +414,7 @@ class PostgresInterviewWorkflowStore:
             commands=sql.Identifier(self.commands_table),
             sessions=sql.Identifier(self.sessions_table),
             messages=sql.Identifier(f"{self.table_prefix}_messages"),
+            outbox=sql.Identifier(self.control.outbox_table),
         )
 
     def _append_messages(self, cursor, state: dict[str, Any]) -> None:

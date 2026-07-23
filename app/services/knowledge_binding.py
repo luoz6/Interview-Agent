@@ -77,51 +77,96 @@ class KnowledgeBindingResolver:
         expected_hashes = {
             reference.evidence_id: reference.content_sha256 for reference in references
         }
+        resolution = self.resolve_bound_evidence(
+            evidence_ids=list(hint.evidence_ids),
+            expected_hashes=expected_hashes,
+            expected_manifest_sha256=snapshot_hash or None,
+        )
+        if resolution.retrieval_path != "bound_evidence_ids":
+            return self._degraded(
+                plan,
+                question_id,
+                resolution.degraded_reason or "knowledge_unavailable",
+            )
+        guidance = build_question_prep_context_messages(plan, question_id)
+        return self._remember(
+            KnowledgeBindingResolution(
+                messages=[*guidance, *resolution.messages],
+                evidence_ids=resolution.evidence_ids,
+                references=resolution.references,
+                retrieval_path="bound_evidence_ids",
+            )
+        )
+
+    def resolve_bound_evidence(
+        self,
+        *,
+        evidence_ids: list[str],
+        expected_hashes: dict[str, str],
+        expected_manifest_sha256: str | None,
+    ) -> KnowledgeBindingResolution:
+        if any(evidence_id not in expected_hashes for evidence_id in evidence_ids):
+            return KnowledgeBindingResolution(
+                retrieval_path="degraded",
+                degraded_reason="invalid_evidence_reference",
+            )
         try:
             repository = self.repository or self._default_repository()
             lookup = repository.get_by_ids(
-                hint.evidence_ids,
+                evidence_ids,
                 expected_hashes=expected_hashes,
             )
         except Exception:
-            return self._degraded(plan, question_id, "knowledge_unavailable")
-
+            return KnowledgeBindingResolution(
+                retrieval_path="degraded",
+                degraded_reason="knowledge_unavailable",
+            )
         if lookup.version_mismatch:
-            return self._degraded(plan, question_id, "evidence_version_mismatch")
+            return KnowledgeBindingResolution(
+                retrieval_path="degraded",
+                degraded_reason="evidence_version_mismatch",
+            )
         if lookup.missing:
-            return self._degraded(plan, question_id, "evidence_missing")
-        found_lookup = {_chunk_value(chunk, "chunk_id"): chunk for chunk in lookup.found}
-        if any(evidence_id not in found_lookup for evidence_id in hint.evidence_ids):
-            return self._degraded(plan, question_id, "evidence_missing")
-        if snapshot_hash and any(
+            return KnowledgeBindingResolution(
+                retrieval_path="degraded",
+                degraded_reason="evidence_missing",
+            )
+        found_lookup = {
+            _chunk_value(chunk, "chunk_id"): chunk for chunk in lookup.found
+        }
+        if any(evidence_id not in found_lookup for evidence_id in evidence_ids):
+            return KnowledgeBindingResolution(
+                retrieval_path="degraded",
+                degraded_reason="evidence_missing",
+            )
+        if expected_manifest_sha256 and any(
             (_chunk_value(found_lookup[evidence_id], "metadata") or {}).get(
                 "corpus_manifest_sha256"
             )
-            != snapshot_hash
-            for evidence_id in hint.evidence_ids
+            != expected_manifest_sha256
+            for evidence_id in evidence_ids
         ):
-            return self._degraded(plan, question_id, "corpus_manifest_mismatch")
-
-        guidance = build_question_prep_context_messages(plan, question_id)
-        evidence_messages = [
+            return KnowledgeBindingResolution(
+                retrieval_path="degraded",
+                degraded_reason="corpus_manifest_mismatch",
+            )
+        messages = [
             {
                 "role": "knowledge_evidence",
                 "content": (
-                    f"Evidence for {question_id} "
+                    "Bound interview evidence "
                     f"[id={evidence_id}] "
-                    f"[source={_chunk_value(found_lookup[evidence_id], 'source_type')}]:\n"
+                    f"[source={_chunk_value(found_lookup[evidence_id], 'source_type')}]: "
                     f"{_chunk_value(found_lookup[evidence_id], 'content')}"
                 ),
             }
-            for evidence_id in hint.evidence_ids
+            for evidence_id in evidence_ids
         ]
-        return self._remember(
-            KnowledgeBindingResolution(
-                messages=[*guidance, *evidence_messages],
-                evidence_ids=list(hint.evidence_ids),
-                references=[found_lookup[evidence_id] for evidence_id in hint.evidence_ids],
-                retrieval_path="bound_evidence_ids",
-            )
+        return KnowledgeBindingResolution(
+            messages=messages,
+            evidence_ids=list(evidence_ids),
+            references=[found_lookup[evidence_id] for evidence_id in evidence_ids],
+            retrieval_path="bound_evidence_ids",
         )
 
     def _degraded(
@@ -150,6 +195,20 @@ class KnowledgeBindingResolver:
         from app.services.vector_store import get_knowledge_store
 
         return get_knowledge_store()
+
+
+def resolve_evidence_by_ids(
+    repository,
+    *,
+    evidence_ids: list[str],
+    expected_hashes: dict[str, str],
+    expected_manifest_sha256: str | None,
+) -> KnowledgeBindingResolution:
+    return KnowledgeBindingResolver(repository).resolve_bound_evidence(
+        evidence_ids=evidence_ids,
+        expected_hashes=expected_hashes,
+        expected_manifest_sha256=expected_manifest_sha256,
+    )
 
 
 def _chunk_value(chunk: Any, key: str):
