@@ -22,6 +22,7 @@ class RuntimeOutboxDispatcher:
         *,
         batch_size: int = 20,
         lease_seconds: int = 60,
+        heartbeat_seconds: float | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
@@ -31,6 +32,11 @@ class RuntimeOutboxDispatcher:
         self.sink = sink
         self.batch_size = batch_size
         self.lease_seconds = lease_seconds
+        self.heartbeat_seconds = (
+            max(0.1, lease_seconds / 3)
+            if heartbeat_seconds is None
+            else heartbeat_seconds
+        )
 
     def run_once(self, worker_id: str) -> int:
         claims = self.repository.claim_batch(
@@ -40,8 +46,23 @@ class RuntimeOutboxDispatcher:
         )
         for claim in claims:
             event_id = claim["event_id"]
+            heartbeat_stop = Event()
+            lease_lost = Event()
+            heartbeat = Thread(
+                target=self._heartbeat_lease,
+                args=(
+                    heartbeat_stop,
+                    lease_lost,
+                    event_id,
+                    worker_id,
+                ),
+                daemon=True,
+            )
+            heartbeat.start()
             try:
                 self.sink.publish(claim["payload"])
+                if lease_lost.is_set():
+                    raise RuntimeError("outbox_lease_lost")
             except Exception as exc:
                 failure = classify_runtime_failure(exc)
                 if (
@@ -66,7 +87,27 @@ class RuntimeOutboxDispatcher:
                 )
             else:
                 self.repository.mark_published(event_id, worker_id)
+            finally:
+                heartbeat_stop.set()
+                heartbeat.join()
         return len(claims)
+
+    def _heartbeat_lease(
+        self,
+        stop: Event,
+        lease_lost: Event,
+        event_id: str,
+        worker_id: str,
+    ) -> None:
+        while not stop.wait(self.heartbeat_seconds):
+            extend = getattr(
+                self.repository, "extend_outbox_lease", None
+            )
+            if extend is None:
+                return
+            if not extend(event_id, worker_id, self.lease_seconds):
+                lease_lost.set()
+                return
 
 
 class RuntimeOutboxService:
@@ -127,12 +168,22 @@ class LocalRuntimeEventSink:
         control_store,
         worker_id: str,
         store=None,
+        interview_consumer=None,
     ) -> None:
         self.control_store = control_store
         self.worker_id = worker_id
         self.store = store
+        self.interview_consumer = interview_consumer
 
     def publish(self, payload: dict[str, Any]) -> None:
+        if payload["event_type"] in {
+            "interview_command_ready",
+            "interview_retry_due",
+        }:
+            if self.interview_consumer is None:
+                raise RuntimeError("interview workflow consumer is unavailable")
+            self.interview_consumer.consume(payload)
+            return
         from app.services.runtime_event_consumer import (
             consume_round_review_event_payload,
         )
@@ -158,4 +209,13 @@ class CeleryRuntimeEventSink:
         self.celery_app = celery_app
 
     def publish(self, payload: dict[str, Any]) -> None:
-        self.celery_app.send_task(self.task_name, args=[payload])
+        task_name = self.task_name
+        if payload["event_type"] in {
+            "interview_command_ready",
+            "interview_retry_due",
+        }:
+            task_name = (
+                "app.services.interview_workflow_tasks."
+                "run_interview_workflow_event"
+            )
+        self.celery_app.send_task(task_name, args=[payload])

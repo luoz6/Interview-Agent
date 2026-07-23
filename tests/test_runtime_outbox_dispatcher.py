@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from threading import Event
 
 from app.services.runtime_outbox_dispatcher import RuntimeOutboxDispatcher
 
@@ -32,6 +33,7 @@ class FakeRepository:
         self.published = []
         self.retried = []
         self.dead_lettered = []
+        self.heartbeats = 0
 
     def claim_batch(self, *, worker_id, limit, lease_seconds):
         self.claim_args = (worker_id, limit, lease_seconds)
@@ -64,6 +66,10 @@ class FakeRepository:
     ):
         self.dead_lettered.append((event_id, worker_id, error_code))
 
+    def extend_outbox_lease(self, event_id, worker_id, lease_seconds):
+        self.heartbeats += 1
+        return True
+
 
 class CapturingSink:
     def __init__(self):
@@ -79,6 +85,14 @@ class FailingSink:
 
     def publish(self, payload):
         raise self.error
+
+
+class BlockingSink:
+    def __init__(self, release):
+        self.release = release
+
+    def publish(self, payload):
+        self.release.wait(0.25)
 
 
 def test_success_is_marked_published():
@@ -121,3 +135,17 @@ def test_exhausted_delivery_dead_letters():
     assert repository.dead_lettered == [
         ("event-1", "worker-1", "unexpected_error")
     ]
+
+
+def test_dispatcher_heartbeats_long_running_sink():
+    repository = FakeRepository([make_claim("event-1")])
+    release = Event()
+
+    RuntimeOutboxDispatcher(
+        repository,
+        BlockingSink(release),
+        lease_seconds=3,
+        heartbeat_seconds=0.05,
+    ).run_once("worker-1")
+
+    assert repository.heartbeats >= 1

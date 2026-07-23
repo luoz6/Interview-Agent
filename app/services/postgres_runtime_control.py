@@ -456,6 +456,30 @@ class PostgresRuntimeControlStore:
                 row = cursor.fetchone()
         return self._outbox_row_to_dict(row)
 
+    def extend_outbox_lease(
+        self,
+        event_id: str,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        _, sql = self._import_psycopg2()
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        UPDATE {outbox}
+                        SET lease_expires_at =
+                                NOW() + (%s * INTERVAL '1 second'),
+                            updated_at = NOW()
+                        WHERE event_id = %s AND status = 'running'
+                          AND lease_owner = %s
+                        """
+                    ).format(outbox=sql.Identifier(self.outbox_table)),
+                    (lease_seconds, event_id, worker_id),
+                )
+                return cursor.rowcount == 1
+
     def mark_dead_letter(
         self,
         event_id: str,
