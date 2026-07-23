@@ -103,6 +103,41 @@ def get_runtime_receipt_lease_seconds() -> int:
     return _positive_int("RUNTIME_RECEIPT_LEASE_SECONDS", 300)
 
 
+def get_interview_langgraph_rollout_percent() -> int:
+    raw = os.getenv("INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT", "0")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT must be between 0 and 100"
+        ) from exc
+    if not 0 <= value <= 100:
+        raise ValueError(
+            "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT must be between 0 and 100"
+        )
+    return value
+
+
+def get_interview_langgraph_version() -> str:
+    value = os.getenv(
+        "INTERVIEW_LANGGRAPH_VERSION", "langgraph-v1"
+    ).strip()
+    if value != "langgraph-v1":
+        raise ValueError("unsupported INTERVIEW_LANGGRAPH_VERSION")
+    return value
+
+
+def get_interview_langgraph_runtime_enabled() -> bool:
+    value = os.getenv(
+        "INTERVIEW_LANGGRAPH_RUNTIME_ENABLED", "true"
+    ).strip().lower()
+    if value not in {"true", "false"}:
+        raise ValueError(
+            "INTERVIEW_LANGGRAPH_RUNTIME_ENABLED must be true or false"
+        )
+    return value == "true"
+
+
 def _positive_int(name: str, default: int) -> int:
     value = int(os.getenv(name, str(default)))
     if value < 1:
