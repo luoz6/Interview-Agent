@@ -867,6 +867,24 @@ def test_list_reports_survives_store_reinstantiation():
     assert "messages" not in completed_reports[0]["session_summary"]
 
 
+def test_postgres_schema_backfills_existing_sessions_as_legacy():
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+    turn = store.start(
+        make_plan(),
+        job_description="Backend role",
+        resume_text="Built APIs",
+        job_tags=["python"],
+    )
+
+    recovered = store.get(turn.session_id)
+
+    assert recovered["workflow_engine"] == "legacy"
+    assert recovered["graph_schema_version"] is None
+
+
 def test_postgres_store_upserts_single_question_evaluation():
     dsn = require_dsn()
     table_prefix = make_table_prefix()

@@ -144,7 +144,8 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                                job_description, resume_text, job_tags,
                                decision_json, pending_output, skipped_question_ids,
                                started_at, finished_at, state_version,
-                               checkpoint_version, last_checkpoint_at, last_command_id
+                               checkpoint_version, last_checkpoint_at, last_command_id,
+                               workflow_engine, graph_schema_version, projection_sha256
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -678,6 +679,21 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 )
                 cursor.execute(
                     sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS workflow_engine TEXT NOT NULL DEFAULT 'legacy' CHECK (workflow_engine IN ('legacy', 'langgraph-v1'))"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS graph_schema_version TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS projection_sha256 TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
                         """
                         CREATE TABLE IF NOT EXISTS {messages} (
                             id BIGSERIAL PRIMARY KEY,
@@ -763,13 +779,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             job_description, resume_text, job_tags,
                             decision_json, pending_output, skipped_question_ids,
                             started_at, finished_at, state_version,
-                            checkpoint_version, last_checkpoint_at, last_command_id
+                            checkpoint_version, last_checkpoint_at, last_command_id,
+                            workflow_engine, graph_schema_version, projection_sha256
                         )
                         VALUES (
                             %s, %s::jsonb, %s, %s,
                             %s, %s, %s,
                             %s, %s, %s::jsonb,
                             %s::jsonb, %s, %s::jsonb,
+                            %s, %s, %s,
                             %s, %s, %s,
                             %s, %s, %s
                         )
@@ -800,6 +818,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         session_row["checkpoint_version"],
                         session_row["last_checkpoint_at"],
                         session_row["last_command_id"],
+                        session_row["workflow_engine"],
+                        session_row["graph_schema_version"],
+                        session_row["projection_sha256"],
                     ),
                 )
                 for index, message in enumerate(state["messages"], start=1):
@@ -925,6 +946,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     session_row["checkpoint_version"],
                     session_row["last_checkpoint_at"],
                     session_row["last_command_id"],
+                    session_row["workflow_engine"],
+                    session_row["graph_schema_version"],
+                    session_row["projection_sha256"],
                     session_row["status"],
                     session_row["finished_at"],
                     *update_params_suffix,
@@ -950,6 +974,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             checkpoint_version = %s,
                             last_checkpoint_at = %s,
                             last_command_id = %s,
+                            workflow_engine = %s,
+                            graph_schema_version = %s,
+                            projection_sha256 = %s,
                             updated_at = NOW(),
                             finished_at = CASE
                                 WHEN %s = 'finished' THEN COALESCE(finished_at, %s)
@@ -1105,6 +1132,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "checkpoint_version": row[16],
             "last_checkpoint_at": PostgresInterviewSessionStore._iso_timestamp(row[17]),
             "last_command_id": row[18],
+            "workflow_engine": row[19],
+            "graph_schema_version": row[20],
+            "projection_sha256": row[21],
         }
 
     @staticmethod

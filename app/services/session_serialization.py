@@ -32,6 +32,9 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "checkpoint_version": state["checkpoint_version"],
         "last_checkpoint_at": state.get("last_checkpoint_at"),
         "last_command_id": state.get("last_command_id"),
+        "workflow_engine": state.get("workflow_engine", "legacy"),
+        "graph_schema_version": state.get("graph_schema_version"),
+        "projection_sha256": state.get("projection_sha256"),
     }
 
 
@@ -81,6 +84,9 @@ def state_from_rows(
         "checkpoint_version": int(session_row.get("checkpoint_version", 1)),
         "last_checkpoint_at": session_row.get("last_checkpoint_at"),
         "last_command_id": session_row.get("last_command_id"),
+        "workflow_engine": session_row.get("workflow_engine", "legacy"),
+        "graph_schema_version": session_row.get("graph_schema_version"),
+        "projection_sha256": session_row.get("projection_sha256"),
     }
 
 
