@@ -8,7 +8,10 @@ from app.services.agent_runtime import AgentExecutionRunner
 from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.prep import InterviewPlan
-from app.services.question_evaluations import QuestionEvaluationRecord
+from app.services.question_evaluations import (
+    QuestionEvaluationInputConflict,
+    QuestionEvaluationRecord,
+)
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
 from app.services.session import (
@@ -605,7 +608,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     sql.SQL(
                         """
                         SELECT session_id, question_id, answer_state, status,
-                               feedback_json, error, created_at
+                               feedback_json, error, created_at,
+                               review_input_sha256, question_input_sha256,
+                               review_engine, review_graph_schema_version,
+                               output_sha256, completed_at
                         FROM {question_evaluations}
                         WHERE session_id = %s
                         ORDER BY question_id
@@ -628,6 +634,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     "feedback_json": row[4],
                     "error": row[5],
                     "created_at": self._iso_timestamp(row[6]),
+                    "review_input_sha256": row[7],
+                    "question_input_sha256": row[8],
+                    "review_engine": row[9],
+                    "review_graph_schema_version": row[10],
+                    "output_sha256": row[11],
+                    "completed_at": self._iso_timestamp(row[12]),
                 }
             )
             for row in rows
@@ -779,6 +791,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             status TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
                             feedback_json JSONB,
                             error TEXT,
+                            review_input_sha256 TEXT,
+                            question_input_sha256 TEXT,
+                            review_engine TEXT,
+                            review_graph_schema_version TEXT,
+                            output_sha256 TEXT,
+                            completed_at TIMESTAMPTZ,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             PRIMARY KEY (session_id, question_id)
@@ -791,6 +809,23 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         sessions=sql.Identifier(self.sessions_table),
                     )
                 )
+                for column_name, column_type in (
+                    ("review_input_sha256", "TEXT"),
+                    ("question_input_sha256", "TEXT"),
+                    ("review_engine", "TEXT"),
+                    ("review_graph_schema_version", "TEXT"),
+                    ("output_sha256", "TEXT"),
+                    ("completed_at", "TIMESTAMPTZ"),
+                ):
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {type}"
+                        ).format(
+                            table=sql.Identifier(self.question_evaluations_table),
+                            column=sql.Identifier(column_name),
+                            type=sql.SQL(column_type),
+                        )
+                    )
 
     def _insert_state(self, state: InterviewState) -> None:
         psycopg2, sql = self._import_psycopg2()
@@ -1104,19 +1139,54 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         record: QuestionEvaluationRecord,
     ) -> None:
         row = question_evaluation_record_to_row(record)
+        if row["review_engine"] is not None:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    SELECT review_engine, question_input_sha256
+                    FROM {question_evaluations}
+                    WHERE session_id = %s AND question_id = %s
+                    FOR UPDATE
+                    """
+                ).format(
+                    question_evaluations=sql.Identifier(
+                        self.question_evaluations_table
+                    )
+                ),
+                (row["session_id"], row["question_id"]),
+            )
+            existing = cursor.fetchone()
+            if (
+                existing is not None
+                and existing[0] is not None
+                and existing[1] != row["question_input_sha256"]
+            ):
+                raise QuestionEvaluationInputConflict(
+                    f"question evaluation input changed: {row['question_id']}"
+                )
         cursor.execute(
             sql.SQL(
                 """
                 INSERT INTO {question_evaluations} (
                     session_id, question_id, answer_state, status,
-                    feedback_json, error, created_at
+                    feedback_json, error, created_at,
+                    review_input_sha256, question_input_sha256,
+                    review_engine, review_graph_schema_version,
+                    output_sha256, completed_at
                 )
-                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s,
+                        %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, question_id) DO UPDATE
                 SET status = EXCLUDED.status,
                     answer_state = EXCLUDED.answer_state,
                     feedback_json = EXCLUDED.feedback_json,
                     error = EXCLUDED.error,
+                    review_input_sha256 = EXCLUDED.review_input_sha256,
+                    question_input_sha256 = EXCLUDED.question_input_sha256,
+                    review_engine = EXCLUDED.review_engine,
+                    review_graph_schema_version = EXCLUDED.review_graph_schema_version,
+                    output_sha256 = EXCLUDED.output_sha256,
+                    completed_at = EXCLUDED.completed_at,
                     updated_at = NOW()
                 """
             ).format(
@@ -1134,6 +1204,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 else None,
                 row["error"],
                 row["created_at"],
+                row["review_input_sha256"],
+                row["question_input_sha256"],
+                row["review_engine"],
+                row["review_graph_schema_version"],
+                row["output_sha256"],
+                row["completed_at"],
             ),
         )
 

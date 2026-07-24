@@ -1,8 +1,14 @@
 from typing import Literal
+import hashlib
+import json
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.services.report import InterviewFeedback, utc_now_iso
+
+
+class QuestionEvaluationInputConflict(ValueError):
+    pass
 
 
 class QuestionEvaluationRecord(BaseModel):
@@ -15,6 +21,12 @@ class QuestionEvaluationRecord(BaseModel):
     retrieval_path: str | None = None
     degraded_reason: str | None = None
     evidence_content_sha256: dict[str, str] = Field(default_factory=dict)
+    review_input_sha256: str | None = None
+    question_input_sha256: str | None = None
+    review_engine: str | None = None
+    review_graph_schema_version: str | None = None
+    output_sha256: str | None = None
+    completed_at: str | None = None
     created_at: str = Field(default_factory=utc_now_iso)
 
     @model_validator(mode="after")
@@ -34,7 +46,12 @@ def question_evaluation_from_feedback(
     retrieval_path: str | None = None,
     degraded_reason: str | None = None,
     evidence_content_sha256: dict[str, str] | None = None,
+    review_input_sha256: str | None = None,
+    question_input_sha256: str | None = None,
+    review_engine: str | None = None,
+    review_graph_schema_version: str | None = None,
 ) -> QuestionEvaluationRecord:
+    output_payload = feedback.model_dump(mode="json")
     return QuestionEvaluationRecord(
         session_id=session_id,
         question_id=feedback.question_id,
@@ -44,4 +61,17 @@ def question_evaluation_from_feedback(
         retrieval_path=retrieval_path,
         degraded_reason=degraded_reason,
         evidence_content_sha256=dict(evidence_content_sha256 or {}),
+        review_input_sha256=review_input_sha256,
+        question_input_sha256=question_input_sha256,
+        review_engine=review_engine,
+        review_graph_schema_version=review_graph_schema_version,
+        output_sha256=hashlib.sha256(
+            json.dumps(
+                output_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
+        completed_at=utc_now_iso(),
     )
