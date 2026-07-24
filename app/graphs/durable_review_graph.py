@@ -20,6 +20,12 @@ class DurableReviewGraphDependencies:
     max_quality_repairs: int = 2
     repair_report: object | None = None
     max_parallel_reviews: int = 3
+    fault_injector: object | None = None
+
+
+def _inject_fault(deps: DurableReviewGraphDependencies, point: str, state) -> None:
+    if deps.fault_injector is not None:
+        deps.fault_injector(point, state)
 
 
 def initialize_review(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
@@ -29,6 +35,7 @@ def initialize_review(state: DurableReviewState, deps: DurableReviewGraphDepende
         graph_schema_version=state["review_graph_schema_version"],
         input_sha256=state["review_input_manifest"]["input_sha256"],
     )
+    _inject_fault(deps, "after_review_run_initialize", state)
     return {}
 
 
@@ -78,6 +85,7 @@ def dispatch_question_batch(state: DurableReviewState):
 def review_one_question(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
     question_id = state["current_question_id"]
     deps.review_question(state, question_id)
+    _inject_fault(deps, "after_question_projection", state)
     return {
         "question_outcomes": [
             {
@@ -122,6 +130,7 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
             ),
             "error_code": "provider_unavailable",
         }
+    _inject_fault(deps, "after_coach_generation", state)
     return {
         "report_ref": artifact["report_ref"],
         "report_sha256": artifact["report_sha256"],
@@ -132,6 +141,7 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
 
 def validate_report_quality(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
     result = deps.validate_report(state)
+    _inject_fault(deps, "after_quality_validation", state)
     if isinstance(result, tuple):
         outcome, issues = result
     else:
@@ -141,6 +151,7 @@ def validate_report_quality(state: DurableReviewState, deps: DurableReviewGraphD
 
 def commit_report(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
     deps.commit_report(state)
+    _inject_fault(deps, "after_final_commit", state)
     return {}
 
 

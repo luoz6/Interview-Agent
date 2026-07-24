@@ -11,9 +11,65 @@ from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.review_workflow import ReviewWorkflowService
 from app.services.review_workflow_store import PostgresReviewWorkflowStore
+from tests.test_durable_review_graph import FakeStore
+from tests.test_durable_review_state import make_finished_state, make_job
 
 
 pytestmark = pytest.mark.langgraph_review_recovery
+
+
+@pytest.mark.parametrize(
+    "fault_point",
+    [
+        "after_review_run_initialize",
+        "after_question_projection",
+        "after_coach_generation",
+        "after_quality_validation",
+        "after_final_commit",
+    ],
+)
+def test_graph_node_process_loss_replays_to_one_business_result(fault_point):
+    dsn = os.getenv("POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("POSTGRES_DSN is required")
+    runtime = PostgresCheckpointerRuntime(dsn)
+    saver = runtime.start()
+    thread_id = f"review:fault-{fault_point}-{uuid4().hex}"
+    config = {"configurable": {"thread_id": thread_id}}
+    store = FakeStore()
+    reviewed = set()
+    committed = set()
+    raised = set()
+
+    def inject(point, _state):
+        if point == fault_point and point not in raised:
+            raised.add(point)
+            raise RuntimeError("injected process loss")
+
+    def deps(fault_injector=None):
+        return DurableReviewGraphDependencies(
+            workflow_store=store,
+            review_question=lambda state, question_id: reviewed.add(question_id),
+            generate_report=lambda state: {"report_ref": "report:one", "report_sha256": "digest"},
+            validate_report=lambda state: "passed",
+            commit_report=lambda state: committed.add(state["report_sha256"]),
+            fault_injector=fault_injector,
+        )
+
+    try:
+        first = build_durable_review_graph(deps(inject), checkpointer=saver)
+        with pytest.raises(RuntimeError, match="injected process loss"):
+            first.invoke(make_durable_review_initial_state(make_job(), make_finished_state()), config)
+
+        recovered = build_durable_review_graph(deps(), checkpointer=saver)
+        result = recovered.invoke(None, config)
+
+        assert result["report_sha256"] == "digest"
+        assert reviewed == {"q1"}
+        assert committed == {"digest"}
+    finally:
+        runtime.delete_thread(thread_id)
+        runtime.shutdown()
 
 
 def test_provider_retry_survives_saver_restart(monkeypatch):
