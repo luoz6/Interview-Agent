@@ -184,6 +184,8 @@ class PostgresReviewWorkflowStore:
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """))
+                cursor.execute(self._sql("CREATE INDEX IF NOT EXISTS {runs_status_index} ON {runs} (status, updated_at)"))
+                cursor.execute(self._sql("CREATE INDEX IF NOT EXISTS {runs_session_index} ON {runs} (session_id, status)"))
                 cursor.execute(self._sql("""
                     CREATE TABLE IF NOT EXISTS {artifacts} (
                         job_id UUID PRIMARY KEY REFERENCES {jobs}(job_id) ON DELETE CASCADE,
@@ -194,4 +196,4 @@ class PostgresReviewWorkflowStore:
 
     def _sql(self, statement: str):
         _, sql = self.control._import_psycopg2()
-        return sql.SQL(statement).format(runs=sql.Identifier(self.runs_table), artifacts=sql.Identifier(self.artifacts_table), jobs=sql.Identifier(self.jobs_table), sessions=sql.Identifier(self.sessions_table), reports=sql.Identifier(self.reports_table), question_evaluations=sql.Identifier(f"{self.table_prefix}_question_evaluations"), outbox=sql.Identifier(self.control.outbox_table))
+        return sql.SQL(statement).format(runs=sql.Identifier(self.runs_table), artifacts=sql.Identifier(self.artifacts_table), runs_status_index=sql.Identifier(f"{self.runs_table}_status_updated_idx"), runs_session_index=sql.Identifier(f"{self.runs_table}_session_status_idx"), jobs=sql.Identifier(self.jobs_table), sessions=sql.Identifier(self.sessions_table), reports=sql.Identifier(self.reports_table), question_evaluations=sql.Identifier(f"{self.table_prefix}_question_evaluations"), outbox=sql.Identifier(self.control.outbox_table))

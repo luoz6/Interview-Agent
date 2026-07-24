@@ -13,6 +13,8 @@ from app.services.config import (
     get_interview_chunk_retention_hours,
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
+    get_report_langgraph_rollout_percent,
+    get_report_langgraph_runtime_enabled,
     get_postgres_dsn,
     get_redis_url,
     get_runtime_table_prefix,
@@ -76,6 +78,7 @@ def check_langgraph_runtime() -> dict[str, object]:
     )
     from app.services.langgraph_runtime import PostgresCheckpointerRuntime
     from app.services.postgres_session import PostgresInterviewSessionStore
+    from app.services.review_workflow_store import PostgresReviewWorkflowStore
     from scripts.audit_agent_runtime import audit_runtime_control_payloads
 
     dsn = get_postgres_dsn()
@@ -89,17 +92,22 @@ def check_langgraph_runtime() -> dict[str, object]:
     generation_store = PostgresInterviewGenerationStore(
         dsn=dsn, table_prefix=prefix
     )
+    review_store = PostgresReviewWorkflowStore(dsn=dsn, table_prefix=prefix)
     expected_tables = [
         workflow_store.commands_table,
         generation_store.generations_table,
         generation_store.attempts_table,
         generation_store.chunks_table,
+        review_store.runs_table,
+        review_store.artifacts_table,
     ]
     expected_indexes = [
         f"{workflow_store.commands_table}_status_updated_idx",
         f"{session_store._runtime_control.outbox_table}_status_available_idx",
         f"{generation_store.generations_table}_session_source_idx",
         f"{generation_store.chunks_table}_replay_idx",
+        f"{review_store.runs_table}_status_updated_idx",
+        f"{review_store.runs_table}_session_status_idx",
     ]
     psycopg2, _ = session_store._import_psycopg2()
     with psycopg2.connect(dsn) as connection:
@@ -312,6 +320,13 @@ def main() -> int:
             rollout_percent=get_interview_langgraph_rollout_percent(),
             strict_msgpack=os.getenv("LANGGRAPH_STRICT_MSGPACK", "true"),
             retention_hours=get_interview_chunk_retention_hours(),
+        )
+        result["review_langgraph"] = validate_langgraph_configuration(
+            runtime_store=os.getenv("INTERVIEW_RUNTIME_STORE", "postgres"),
+            runtime_enabled=get_report_langgraph_runtime_enabled(),
+            rollout_percent=get_report_langgraph_rollout_percent(),
+            strict_msgpack=os.getenv("LANGGRAPH_STRICT_MSGPACK", "true"),
+            retention_hours=1,
         )
         if (
             result["langgraph"]["runtime_store"] == "postgres"
