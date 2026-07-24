@@ -3,6 +3,7 @@ from collections.abc import Callable
 from app.graphs.interview_state import InterviewState
 from app.services.evaluator_ext import ExpertShadowEvaluator
 from app.services.llm import InterviewLLM
+from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.report import InterviewReport, ReportProgress
 from app.services.vector_store import KnowledgeSearchStore
 
@@ -13,6 +14,7 @@ class ShadowReviewerAgent:
         *,
         llm: InterviewLLM,
         vector_store: KnowledgeSearchStore,
+        execution_runner: AgentExecutionRunner | None = None,
     ) -> None:
         self.llm = llm
         self.vector_store = vector_store
@@ -20,6 +22,7 @@ class ShadowReviewerAgent:
             llm=llm,
             vector_store=vector_store,
         )
+        self._execution_runner = execution_runner or AgentExecutionRunner()
 
     @property
     def last_retrieval_by_question(self) -> dict[str, dict]:
@@ -31,3 +34,16 @@ class ShadowReviewerAgent:
         on_progress: Callable[[ReportProgress], None] | None = None,
     ) -> InterviewReport:
         return self._evaluator.evaluate(state, on_progress=on_progress)
+
+    def evaluate_attempt(
+        self,
+        state: InterviewState,
+        *,
+        execution_context: AgentExecutionContext,
+        on_progress: Callable[[ReportProgress], None] | None = None,
+    ) -> InterviewReport:
+        return self._execution_runner.run(
+            execution_context,
+            lambda: self._evaluator.evaluate(state, on_progress=on_progress),
+            fallback=None,
+        )

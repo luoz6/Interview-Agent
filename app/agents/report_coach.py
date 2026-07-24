@@ -45,6 +45,56 @@ class ReportCoachAgent:
             },
         )
 
+    def generate_report_attempt(
+        self,
+        *,
+        plan,
+        evaluation_items: list[dict],
+        session_id: str,
+        execution_context: AgentExecutionContext,
+        trace_metadata: dict | None = None,
+    ) -> InterviewReport:
+        llm = self.llm or self._default_llm()
+        return self._execution_runner.run(
+            execution_context,
+            lambda: llm.generate_report(
+                plan=plan,
+                evaluation_items=evaluation_items,
+                session_id=session_id,
+            ),
+            fallback=None,
+            metadata=lambda report: {
+                "feedback_count": len(report.feedbacks),
+                **dict(trace_metadata or {}),
+            },
+        )
+
+    def repair_report_attempt(
+        self,
+        *,
+        plan,
+        evaluation_items: list[dict],
+        session_id: str,
+        issues: list[dict],
+        prior_report: InterviewReport,
+        execution_context: AgentExecutionContext,
+    ) -> InterviewReport:
+        repair_items = [
+            *evaluation_items,
+            {
+                "source": "quality_repair",
+                "quality_issues": list(issues),
+                "prior_report": prior_report.model_dump(mode="json"),
+            },
+        ]
+        return self.generate_report_attempt(
+            plan=plan,
+            evaluation_items=repair_items,
+            session_id=session_id,
+            execution_context=execution_context,
+            trace_metadata={"quality_repair": True, "issue_count": len(issues)},
+        )
+
     @staticmethod
     def _default_llm() -> InterviewLLM:
         from app.services.llm import OpenAIInterviewLLM
