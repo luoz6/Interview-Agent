@@ -53,6 +53,14 @@ record is complete. Reducing rollout later changes assignment for new sessions
 only. Existing v1 graph definitions and workers must remain available for
 already-created v1 sessions.
 
+Final-report generation has an independent durable rollout. Keep
+`REPORT_LANGGRAPH_ROLLOUT_PERCENT=0` until
+`docs/langgraph-durable-review-acceptance.md` passes. New report jobs record an
+immutable `legacy` or `langgraph-review-v1` assignment; requeue never changes
+that assignment. The durable review graph reuses matching question projections,
+bounds question fan-out and quality repair, and resumes provider retries from
+the PostgreSQL checkpointer.
+
 ## Prerequisites
 
 - Python 3.11

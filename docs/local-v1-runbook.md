@@ -438,3 +438,26 @@ then cleanup may remove them. Active and retrying generations are never removed
 by retention cleanup.
 
 See `docs/langgraph-interview-recovery-acceptance.md` for the release gates.
+
+## Durable Review Recovery
+
+Durable final-report execution is assigned independently from the interview
+workflow. Use these safe initial values:
+
+```text
+REPORT_LANGGRAPH_ROLLOUT_PERCENT=0
+REPORT_LANGGRAPH_RUNTIME_ENABLED=true
+REPORT_LANGGRAPH_VERSION=langgraph-review-v1
+REPORT_LANGGRAPH_MAX_PARALLEL_QUESTION_REVIEWS=3
+REPORT_LANGGRAPH_MAX_PROVIDER_ATTEMPTS=3
+REPORT_LANGGRAPH_MAX_QUALITY_REPAIRS=2
+```
+
+Each assigned job uses thread ID `review:{job_id}`. Question evaluations are
+reused only when their input, evidence and graph provenance matches. Provider
+retry timers are delivered through the runtime outbox; quality repairs are
+bounded separately. Reducing rollout to zero affects only new report jobs, so
+workers and the `langgraph-review-v1` graph must stay available for already
+assigned jobs.
+
+See `docs/langgraph-durable-review-acceptance.md` for the release gates.
