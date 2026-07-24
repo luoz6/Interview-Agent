@@ -5,7 +5,11 @@ import time
 
 from app.services.report import ReportGenerationFailed, ReportGenerationTimeout
 from app.services.report_tasks import execute_report_generation
-from app.services.runtime import get_report_executor, get_report_job_store
+from app.services.runtime import (
+    get_report_executor,
+    get_report_job_store,
+    get_review_workflow_service,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -21,11 +25,17 @@ def run_one_job(
     job_store,
     executor,
     worker_id: str,
+    review_workflow=None,
 ):
     job_store.repair_orphan_processing_reports()
     job = job_store.claim_next(worker_id=worker_id)
     if job is None:
         return None
+
+    if job.get("review_engine") == "langgraph-review-v1":
+        workflow = review_workflow or get_review_workflow_service()
+        workflow.run_claimed_job(job)
+        return job_store.get_job(job["job_id"])
 
     try:
         report = execute_report_generation(

@@ -9,6 +9,8 @@ from app.services.config import (
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
     get_interview_langgraph_version,
+    get_report_langgraph_runtime_enabled,
+    get_report_langgraph_version,
     get_runtime_event_backend,
     get_runtime_outbox_batch_size,
     get_runtime_outbox_lease_seconds,
@@ -58,6 +60,7 @@ _langgraph_checkpointer_runtime = None
 _langgraph_checkpointer_started = False
 _interview_workflow_service = None
 _interview_workflow_consumer = None
+_review_workflow_service = None
 
 
 def build_session_store(llm=None):
@@ -183,7 +186,10 @@ def get_langgraph_checkpointer_runtime():
     global _langgraph_checkpointer_runtime
     if get_runtime_store() != "postgres":
         return None
-    if not get_interview_langgraph_runtime_enabled():
+    if not (
+        get_interview_langgraph_runtime_enabled()
+        or get_report_langgraph_runtime_enabled()
+    ):
         return None
     if _langgraph_checkpointer_runtime is None:
         from app.services.langgraph_runtime import PostgresCheckpointerRuntime
@@ -272,6 +278,86 @@ def get_interview_workflow_consumer():
     return _interview_workflow_consumer
 
 
+def build_review_workflow_service():
+    from app.agents.report_coach import ReportCoachAgent
+    from app.graphs.durable_review_graph import (
+        DurableReviewGraphDependencies,
+        build_durable_review_graph,
+    )
+    from app.services.agent_runtime import AgentExecutionContext, correlation_id_from_plan
+    from app.services.report_microbatch import build_report_coach_items_from_question_evaluations
+    from app.services.report_runtime_quality import evaluate_runtime_report_quality
+    from app.services.review_workflow import ReviewWorkflowService
+    from app.services.review_workflow_store import PostgresReviewWorkflowStore
+    from app.services.round_review_runner import evaluate_round_review_event
+    from app.services.runtime_domain_events import RoundClosedEvent
+    from app.services.langgraph_runtime import VersionedGraphRegistry
+
+    checkpointer = get_langgraph_checkpointer_runtime()
+    if checkpointer is None:
+        raise RuntimeError("LangGraph runtime is disabled")
+    store = get_session_store()
+    workflow_store = PostgresReviewWorkflowStore(
+        dsn=get_postgres_dsn(), table_prefix=get_runtime_table_prefix()
+    )
+    runner = get_agent_execution_runner()
+    vector_store = get_knowledge_store()
+
+    def review_question(graph_state, question_id):
+        state = store.get(graph_state["session_id"])
+        question = next(item for item in graph_state["review_input_manifest"]["questions"] if item["question_id"] == question_id)
+        record = evaluate_round_review_event(
+            RoundClosedEvent(
+                session_id=state["session_id"], question_id=question_id,
+                answer_state=question["answer_state"], job_tags=list(state["job_tags"]),
+                state_version=state["state_version"],
+            ), state=state, llm=resolve_runtime_llm(store), vector_store=vector_store,
+            execution_runner=runner, attempt_number=graph_state["provider_attempt"],
+        ).model_copy(update={
+            "review_input_sha256": graph_state["review_input_manifest"]["input_sha256"],
+            "question_input_sha256": question["input_sha256"],
+            "review_engine": "langgraph-review-v1",
+            "review_graph_schema_version": graph_state["review_graph_schema_version"],
+        })
+        store.upsert_question_evaluation(state["session_id"], record)
+
+    def generate_report(graph_state):
+        state = store.get(graph_state["session_id"])
+        records = store.list_question_evaluations(state["session_id"])
+        report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).generate_report_attempt(
+            plan=state["plan"],
+            evaluation_items=build_report_coach_items_from_question_evaluations(records),
+            session_id=state["session_id"],
+            execution_context=AgentExecutionContext(
+                correlation_id=correlation_id_from_plan(state["plan"], session_id=state["session_id"]),
+                agent="report_coach", operation="generate_durable_report", phase="review",
+                session_id=state["session_id"], attempt_number=graph_state["provider_attempt"],
+            ),
+        )
+        return workflow_store.save_report_artifact(job_id=graph_state["job_id"], report=report)
+
+    def validate_report(graph_state):
+        report = workflow_store.load_report_artifact(graph_state["job_id"])
+        expected = len(graph_state["review_input_manifest"]["questions"])
+        return "passed" if not evaluate_runtime_report_quality(report, expected_question_count=expected).blocking_issues else "failed"
+
+    def commit_report(graph_state):
+        workflow_store.commit_report(job_id=graph_state["job_id"], report=workflow_store.load_report_artifact(graph_state["job_id"]))
+
+    deps = DurableReviewGraphDependencies(workflow_store=workflow_store, review_question=review_question, generate_report=generate_report, validate_report=validate_report, commit_report=commit_report)
+    version = get_report_langgraph_version()
+    registry = VersionedGraphRegistry()
+    registry.register(version, build_durable_review_graph(deps, checkpointer=checkpointer.start()))
+    return ReviewWorkflowService(session_store=store, workflow_store=workflow_store, graph_registry=registry, checkpointer_runtime=checkpointer)
+
+
+def get_review_workflow_service():
+    global _review_workflow_service
+    if _review_workflow_service is None:
+        _review_workflow_service = build_review_workflow_service()
+    return _review_workflow_service
+
+
 def get_agent_execution_runner(
     *,
     control_store=None,
@@ -339,6 +425,7 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
 
 def start_runtime() -> None:
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
+    global _review_workflow_service
     global _interview_workflow_service, _interview_workflow_consumer
     global _runtime_outbox_service
     if get_runtime_store() != "postgres":
@@ -384,6 +471,7 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _langgraph_checkpointer_started = False
     _interview_workflow_service = None
     _interview_workflow_consumer = None
+    _review_workflow_service = None
     _agent_execution_runner = None
     _agent_composite_recorder = None
     _agent_postgres_control_ids.clear()

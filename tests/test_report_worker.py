@@ -46,6 +46,9 @@ class FakeJobStore:
             "status": "completed",
         }
 
+    def get_job(self, job_id: str) -> dict:
+        return dict(self.claimed_job)
+
     def mark_retryable_failure(
         self,
         job_id: str,
@@ -151,6 +154,29 @@ def test_run_one_job_returns_none_when_no_job_is_available():
     assert result is None
     assert job_store.repair_calls == 1
     assert job_store.claim_calls == ["worker-1"]
+
+
+def test_durable_job_is_owned_by_review_workflow():
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "review_engine": "langgraph-review-v1",
+    }
+    job_store = FakeJobStore(claimed_job=job)
+    calls = []
+    workflow = SimpleNamespace(run_claimed_job=lambda claimed: calls.append(claimed))
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(),
+        worker_id="worker-1",
+        review_workflow=workflow,
+    )
+
+    assert result == job
+    assert calls == [job]
+    assert job_store.completed_calls == []
+    assert job_store.retry_calls == []
 
 
 def test_run_one_job_repairs_orphan_before_claiming(monkeypatch):
