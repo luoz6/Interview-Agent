@@ -1,6 +1,6 @@
 # LangGraph Durable Review Acceptance
 
-Status: PENDING_BROWSER_ACCEPTANCE
+Status: PASS
 
 ## Verified Gates
 
@@ -16,14 +16,17 @@ Status: PENDING_BROWSER_ACCEPTANCE
 - Bounded quality repair with structured issue codes: PASS.
 - Review runtime preflight at rollout 1 and rollout 0: PASS.
 - Focused durable-review contracts: 77 passed.
+- Focused PostgreSQL recovery and graph contracts: 10 passed.
 - Full Python regression: 997 passed, 1 skipped.
+- Full Playwright regression: 27 passed, 9 skipped.
+- Desktop and mobile report-processing recovery coverage: PASS.
 
-## Remaining Release Gate
+## Release Decision
 
-- Deterministic desktop and mobile browser coverage for report-processing
-  refresh during partial question review, quality repair completion, terminal
-  quality failure, and duplicate worker delivery.
+- Durable review workflow acceptance is complete.
+- Review assignment remains disabled by default with rollout set to zero.
+- Existing jobs assigned to `langgraph-review-v1` remain resumable when new
+  assignment is disabled.
 
-Rollout remains zero until the remaining browser gate passes. Existing jobs
-assigned to `langgraph-review-v1` must remain resumable when new assignment is
-disabled.
+Production rollout can proceed incrementally by increasing the rollout
+percentage after deployment preflight succeeds in the target environment.
