@@ -719,7 +719,16 @@ def get_interview_question_evaluations(
     return {
         "session_id": session_id,
         "items": [
-            record.model_dump(exclude={"evidence_content_sha256"})
+            record.model_dump(
+                exclude={
+                    "evidence_content_sha256",
+                    "review_input_sha256",
+                    "question_input_sha256",
+                    "review_engine",
+                    "review_graph_schema_version",
+                    "output_sha256",
+                }
+            )
             for record in records
         ],
         "total": len(records),
