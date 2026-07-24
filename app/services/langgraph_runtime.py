@@ -48,7 +48,7 @@ class PostgresCheckpointerRuntime:
         return PostgresSaver.from_conn_string(dsn)
 
 
-class VersionedInterviewGraphRegistry:
+class VersionedGraphRegistry:
     def __init__(self) -> None:
         self._graphs: dict[str, Any] = {}
 
@@ -66,3 +66,7 @@ class VersionedInterviewGraphRegistry:
             raise ValueError(
                 f"unsupported graph version: {graph_schema_version}"
             ) from exc
+
+
+# Kept while interview callers migrate to the generic registry name.
+VersionedInterviewGraphRegistry = VersionedGraphRegistry

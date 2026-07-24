@@ -142,6 +142,53 @@ def get_interview_langgraph_runtime_enabled() -> bool:
     return value == "true"
 
 
+def get_report_langgraph_rollout_percent() -> int:
+    raw = os.getenv("REPORT_LANGGRAPH_ROLLOUT_PERCENT", "0")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "REPORT_LANGGRAPH_ROLLOUT_PERCENT must be between 0 and 100"
+        ) from exc
+    if not 0 <= value <= 100:
+        raise ValueError(
+            "REPORT_LANGGRAPH_ROLLOUT_PERCENT must be between 0 and 100"
+        )
+    return value
+
+
+def get_report_langgraph_version() -> str:
+    value = os.getenv(
+        "REPORT_LANGGRAPH_VERSION", "langgraph-review-v1"
+    ).strip()
+    if value != "langgraph-review-v1":
+        raise ValueError("unsupported REPORT_LANGGRAPH_VERSION")
+    return value
+
+
+def get_report_langgraph_runtime_enabled() -> bool:
+    value = os.getenv(
+        "REPORT_LANGGRAPH_RUNTIME_ENABLED", "true"
+    ).strip().lower()
+    if value not in {"true", "false"}:
+        raise ValueError(
+            "REPORT_LANGGRAPH_RUNTIME_ENABLED must be true or false"
+        )
+    return value == "true"
+
+
+def get_report_langgraph_max_parallel_question_reviews() -> int:
+    return _positive_int("REPORT_LANGGRAPH_MAX_PARALLEL_QUESTION_REVIEWS", 3)
+
+
+def get_report_langgraph_max_provider_attempts() -> int:
+    return _positive_int("REPORT_LANGGRAPH_MAX_PROVIDER_ATTEMPTS", 3)
+
+
+def get_report_langgraph_max_quality_repairs() -> int:
+    return _positive_int("REPORT_LANGGRAPH_MAX_QUALITY_REPAIRS", 2)
+
+
 def _positive_int(name: str, default: int) -> int:
     value = int(os.getenv(name, str(default)))
     if value < 1:

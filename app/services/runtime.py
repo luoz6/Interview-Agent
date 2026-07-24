@@ -208,7 +208,7 @@ def build_interview_workflow_service():
         PostgresInterviewWorkflowStore,
     )
     from app.services.langgraph_runtime import (
-        VersionedInterviewGraphRegistry,
+        VersionedGraphRegistry,
     )
 
     if get_runtime_store() != "postgres":
@@ -237,7 +237,7 @@ def build_interview_workflow_service():
         report_job_queue=get_report_job_store(),
     )
     graph = build_durable_interview_graph(deps, checkpointer=saver)
-    registry = VersionedInterviewGraphRegistry()
+    registry = VersionedGraphRegistry()
     version = get_interview_langgraph_version()
     registry.register(version, graph)
     return InterviewWorkflowService(

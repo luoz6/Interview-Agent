@@ -179,6 +179,8 @@ def test_report_requeue_rejects_second_attempt_without_mutating_replay_count(sto
 
     job = stores["job_store"].get_job_by_session(session_id)
     assert job["status"] == "queued"
+    assert job["review_engine"] == "legacy"
+    assert job["review_graph_schema_version"] is None
     assert job["replay_count"] == 1
 
 
@@ -188,8 +190,51 @@ def test_enqueue_report_request_is_idempotent_for_same_session(stores):
     second = stores["job_store"].enqueue_report_request(session_id=session_id)
 
     assert first["job_id"] == second["job_id"]
+    assert first["review_engine"] == second["review_engine"]
+    assert (
+        first["review_graph_schema_version"]
+        == second["review_graph_schema_version"]
+    )
     assert stores["job_store"].count_jobs() == 1
     assert stores["job_store"].count_reports() == 1
+
+
+def test_enqueue_existing_failed_job_does_not_reset_assignment_or_status(stores):
+    session_id, job_id = seed_running_report(stores)
+    stores["job_store"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+
+    returned = stores["job_store"].enqueue_report_request(session_id)
+    job = stores["job_store"].get_job_by_session(session_id)
+    report = stores["job_store"].get_report_row(session_id)
+
+    assert returned["job_id"] == job_id
+    assert job["status"] == "failed"
+    assert report["status"] == "failed"
+
+
+def test_requeue_preserves_immutable_review_assignment(stores, monkeypatch):
+    monkeypatch.setenv("REPORT_LANGGRAPH_ROLLOUT_PERCENT", "100")
+    session_id, _ = seed_running_report(stores)
+    first = stores["job_store"].get_job_by_session(session_id)
+    stores["job_store"].mark_failed(
+        first["job_id"],
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+
+    replayed = stores["job_store"].requeue_failed(session_id)
+
+    assert first["review_engine"] == "langgraph-review-v1"
+    assert first["review_graph_schema_version"] == "langgraph-review-v1"
+    assert replayed["review_engine"] == first["review_engine"]
+    assert (
+        replayed["review_graph_schema_version"]
+        == first["review_graph_schema_version"]
+    )
 
 
 def test_claim_marks_job_running(stores):

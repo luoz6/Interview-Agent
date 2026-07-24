@@ -1,5 +1,30 @@
 import json
+import hashlib
+from typing import Literal
 from uuid import uuid4
+
+from app.services.config import (
+    get_report_langgraph_rollout_percent,
+    get_report_langgraph_runtime_enabled,
+    get_report_langgraph_version,
+    get_runtime_store,
+)
+
+
+ReviewWorkflowEngine = Literal["legacy", "langgraph-review-v1"]
+
+
+def choose_report_workflow_engine(
+    job_id: str,
+    *,
+    runtime_store: str,
+    runtime_enabled: bool,
+    rollout_percent: int,
+) -> ReviewWorkflowEngine:
+    if runtime_store != "postgres" or not runtime_enabled or rollout_percent == 0:
+        return "legacy"
+    bucket = int(hashlib.sha256(job_id.encode("utf-8")).hexdigest()[:8], 16) % 100
+    return "langgraph-review-v1" if bucket < rollout_percent else "legacy"
 
 
 class PostgresReportJobStore:
@@ -46,7 +71,8 @@ class PostgresReportJobStore:
                 """
                 SELECT job_id, session_id, status, lease_owner, lease_expires_at,
                        attempt_count, max_attempts, last_error,
-                       last_error_code, replay_count, queued_at,
+                       last_error_code, replay_count, review_engine,
+                       review_graph_schema_version, queued_at,
                        started_at, finished_at, updated_at
                 FROM {jobs}
                 WHERE session_id = %s
@@ -63,7 +89,8 @@ class PostgresReportJobStore:
                 """
                 SELECT job_id, session_id, status, lease_owner, lease_expires_at,
                        attempt_count, max_attempts, last_error,
-                       last_error_code, replay_count, queued_at,
+                       last_error_code, replay_count, review_engine,
+                       review_graph_schema_version, queued_at,
                        started_at, finished_at, updated_at
                 FROM {jobs}
                 WHERE job_id = %s::uuid
@@ -97,9 +124,46 @@ class PostgresReportJobStore:
     def enqueue_report_request(self, session_id: str) -> dict:
         psycopg2, sql = self._import_psycopg2()
         job_id = str(uuid4())
+        review_engine = choose_report_workflow_engine(
+            job_id,
+            runtime_store=get_runtime_store(),
+            runtime_enabled=get_report_langgraph_runtime_enabled(),
+            rollout_percent=get_report_langgraph_rollout_percent(),
+        )
+        review_graph_schema_version = (
+            get_report_langgraph_version()
+            if review_engine == "langgraph-review-v1"
+            else None
+        )
         progress_json = json.dumps(self._processing_progress_payload(), ensure_ascii=False)
         with psycopg2.connect(self.dsn) as connection:
             with connection.cursor() as cursor:
+                # The session row serializes enqueue-or-get for this session.
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT session_id FROM {sessions} WHERE session_id = %s FOR UPDATE"
+                    ).format(sessions=sql.Identifier(self.sessions_table)),
+                    (session_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise ValueError("session not found")
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT job_id, session_id, status, lease_owner, lease_expires_at,
+                               attempt_count, max_attempts, last_error,
+                               last_error_code, replay_count, review_engine,
+                               review_graph_schema_version, queued_at,
+                               started_at, finished_at, updated_at
+                        FROM {jobs}
+                        WHERE session_id = %s
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table)),
+                    (session_id,),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    return self._job_row_to_dict(existing)
                 cursor.execute(
                     sql.SQL(
                         """
@@ -119,18 +183,24 @@ class PostgresReportJobStore:
                     sql.SQL(
                         """
                         INSERT INTO {jobs} (
-                            job_id, session_id, status, attempt_count, max_attempts
+                            job_id, session_id, status, attempt_count,
+                            max_attempts, review_engine,
+                            review_graph_schema_version
                         )
-                        VALUES (%s::uuid, %s, 'queued', 0, 3)
-                        ON CONFLICT (session_id) DO UPDATE
-                        SET session_id = EXCLUDED.session_id
+                        VALUES (%s::uuid, %s, 'queued', 0, 3, %s, %s)
                         RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                   attempt_count, max_attempts, last_error,
-                                  last_error_code, replay_count, queued_at,
+                                  last_error_code, replay_count, review_engine,
+                                  review_graph_schema_version, queued_at,
                                   started_at, finished_at, updated_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
-                    (job_id, session_id),
+                    (
+                        job_id,
+                        session_id,
+                        review_engine,
+                        review_graph_schema_version,
+                    ),
                 )
                 row = cursor.fetchone()
         return self._job_row_to_dict(row)
@@ -164,7 +234,8 @@ class PostgresReportJobStore:
                         RETURNING jobs.job_id, jobs.session_id, jobs.status, jobs.lease_owner,
                                   jobs.lease_expires_at, jobs.attempt_count, jobs.max_attempts,
                                   jobs.last_error, jobs.last_error_code,
-                                  jobs.replay_count, jobs.queued_at,
+                                  jobs.replay_count, jobs.review_engine,
+                                  jobs.review_graph_schema_version, jobs.queued_at,
                                   jobs.started_at,
                                   jobs.finished_at, jobs.updated_at
                         """
@@ -190,7 +261,8 @@ class PostgresReportJobStore:
                         WHERE job_id = %s::uuid
                         RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                   attempt_count, max_attempts, last_error,
-                                  last_error_code, replay_count, queued_at,
+                                  last_error_code, replay_count, review_engine,
+                                  review_graph_schema_version, queued_at,
                                   started_at, finished_at, updated_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
@@ -232,7 +304,8 @@ class PostgresReportJobStore:
                             WHERE job_id = %s::uuid
                             RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                       attempt_count, max_attempts, last_error,
-                                      last_error_code, replay_count, queued_at,
+                                      last_error_code, replay_count, review_engine,
+                                      review_graph_schema_version, queued_at,
                                       started_at, finished_at, updated_at
                         )
                         UPDATE {reports} AS reports
@@ -258,6 +331,8 @@ class PostgresReportJobStore:
                                   updated_job.last_error,
                                   updated_job.last_error_code,
                                   updated_job.replay_count,
+                                  updated_job.review_engine,
+                                  updated_job.review_graph_schema_version,
                                   updated_job.queued_at,
                                   updated_job.started_at, updated_job.finished_at,
                                   updated_job.updated_at
@@ -302,7 +377,8 @@ class PostgresReportJobStore:
                             WHERE job_id = %s::uuid
                             RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                       attempt_count, max_attempts, last_error,
-                                      last_error_code, replay_count, queued_at,
+                                      last_error_code, replay_count, review_engine,
+                                      review_graph_schema_version, queued_at,
                                       started_at, finished_at, updated_at
                         )
                         UPDATE {reports} AS reports
@@ -320,6 +396,8 @@ class PostgresReportJobStore:
                                   updated_job.last_error,
                                   updated_job.last_error_code,
                                   updated_job.replay_count,
+                                  updated_job.review_engine,
+                                  updated_job.review_graph_schema_version,
                                   updated_job.queued_at,
                                   updated_job.started_at, updated_job.finished_at,
                                   updated_job.updated_at
@@ -362,7 +440,8 @@ class PostgresReportJobStore:
                                       lease_owner, lease_expires_at,
                                       attempt_count, max_attempts,
                                       last_error, last_error_code,
-                                      replay_count, queued_at, started_at,
+                                      replay_count, review_engine,
+                                      review_graph_schema_version, queued_at, started_at,
                                       finished_at, updated_at
                         )
                         UPDATE {reports} AS reports
@@ -383,6 +462,8 @@ class PostgresReportJobStore:
                                   requeued.last_error,
                                   requeued.last_error_code,
                                   requeued.replay_count,
+                                  requeued.review_engine,
+                                  requeued.review_graph_schema_version,
                                   requeued.queued_at,
                                   requeued.started_at,
                                   requeued.finished_at,
@@ -496,6 +577,9 @@ class PostgresReportJobStore:
                             last_error TEXT,
                             last_error_code TEXT,
                             replay_count INTEGER NOT NULL DEFAULT 0,
+                            review_engine TEXT NOT NULL DEFAULT 'legacy'
+                                CHECK (review_engine IN ('legacy', 'langgraph-review-v1')),
+                            review_graph_schema_version TEXT,
                             queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             started_at TIMESTAMPTZ,
                             finished_at TIMESTAMPTZ,
@@ -517,6 +601,22 @@ class PostgresReportJobStore:
                         status_index=sql.Identifier(f"{self.jobs_table}_status_idx"),
                         jobs=sql.Identifier(self.jobs_table),
                     )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS review_engine TEXT NOT NULL DEFAULT 'legacy'
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS review_graph_schema_version TEXT
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
                 )
                 cursor.execute(
                     sql.SQL(
@@ -631,10 +731,12 @@ class PostgresReportJobStore:
             "last_error": row[7],
             "last_error_code": row[8],
             "replay_count": row[9],
-            "queued_at": row[10],
-            "started_at": row[11],
-            "finished_at": row[12],
-            "updated_at": row[13],
+            "review_engine": row[10],
+            "review_graph_schema_version": row[11],
+            "queued_at": row[12],
+            "started_at": row[13],
+            "finished_at": row[14],
+            "updated_at": row[15],
         }
 
     @staticmethod
