@@ -43,7 +43,7 @@ def stores():
     psycopg2, sql = PostgresReportJobStore._import_psycopg2()
     with psycopg2.connect(dsn) as connection:
         with connection.cursor() as cursor:
-            for suffix in ("review_runs", "runtime_event_receipts", "runtime_outbox", "agent_runs"):
+            for suffix in ("review_artifacts", "review_runs", "runtime_event_receipts", "runtime_outbox", "agent_runs"):
                 cursor.execute(sql.SQL("DROP TABLE IF EXISTS {table}").format(table=sql.Identifier(f"{prefix}_{suffix}")))
     PostgresReportJobStore(dsn=dsn, table_prefix=prefix).drop_tables()
     with psycopg2.connect(dsn) as connection:
@@ -87,3 +87,13 @@ def test_retry_event_is_idempotent(stores):
 
     assert first == second == f"review-{job['job_id']}-retry-2"
     assert workflow.control.count_outbox(first) == 1
+
+
+def test_report_artifact_round_trips_outside_checkpoint(stores):
+    _, _, workflow, session_id, job = stores
+    report = make_report(session_id)
+
+    artifact = workflow.save_report_artifact(job_id=job["job_id"], report=report)
+
+    assert artifact["report_ref"] == f"review-report:{job['job_id']}"
+    assert workflow.load_report_artifact(job["job_id"]) == report

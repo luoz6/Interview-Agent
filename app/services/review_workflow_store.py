@@ -32,6 +32,7 @@ class PostgresReviewWorkflowStore:
         self.reports_table = f"{table_prefix}_reports"
         self.jobs_table = f"{table_prefix}_report_jobs"
         self.runs_table = f"{table_prefix}_review_runs"
+        self.artifacts_table = f"{table_prefix}_review_artifacts"
         self.control = PostgresRuntimeControlStore(dsn=dsn, table_prefix=table_prefix)
         self._ensure_schema()
 
@@ -105,6 +106,29 @@ class PostgresReviewWorkflowStore:
                 """), (digest, job_id))
                 return state_version
 
+    def save_report_artifact(self, *, job_id: str, report) -> dict:
+        payload = report.model_dump(mode="json")
+        digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(self._sql("""
+                    INSERT INTO {artifacts} (job_id, report_json, report_sha256)
+                    VALUES (%s::uuid, %s::jsonb, %s)
+                    ON CONFLICT (job_id) DO UPDATE SET report_json = EXCLUDED.report_json,
+                        report_sha256 = EXCLUDED.report_sha256, updated_at = NOW()
+                """), (job_id, json.dumps(payload, ensure_ascii=False), digest))
+        return {"report_ref": f"review-report:{job_id}", "report_sha256": digest}
+
+    def load_report_artifact(self, job_id: str):
+        from app.services.report import InterviewReport
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(self._sql("SELECT report_json FROM {artifacts} WHERE job_id = %s::uuid"), (job_id,))
+                row = cursor.fetchone()
+        if row is None:
+            raise ValueError("review report artifact not found")
+        return InterviewReport.model_validate(row[0])
+
     def reusable_question_ids(self, session_id: str, manifest: dict, graph_schema_version: str) -> list[str]:
         expected = {item["question_id"]: item["input_sha256"] for item in manifest["questions"]}
         with self.control.connection() as connection:
@@ -160,7 +184,14 @@ class PostgresReviewWorkflowStore:
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """))
+                cursor.execute(self._sql("""
+                    CREATE TABLE IF NOT EXISTS {artifacts} (
+                        job_id UUID PRIMARY KEY REFERENCES {jobs}(job_id) ON DELETE CASCADE,
+                        report_json JSONB NOT NULL, report_sha256 TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """))
 
     def _sql(self, statement: str):
         _, sql = self.control._import_psycopg2()
-        return sql.SQL(statement).format(runs=sql.Identifier(self.runs_table), jobs=sql.Identifier(self.jobs_table), sessions=sql.Identifier(self.sessions_table), reports=sql.Identifier(self.reports_table), question_evaluations=sql.Identifier(f"{self.table_prefix}_question_evaluations"), outbox=sql.Identifier(self.control.outbox_table))
+        return sql.SQL(statement).format(runs=sql.Identifier(self.runs_table), artifacts=sql.Identifier(self.artifacts_table), jobs=sql.Identifier(self.jobs_table), sessions=sql.Identifier(self.sessions_table), reports=sql.Identifier(self.reports_table), question_evaluations=sql.Identifier(f"{self.table_prefix}_question_evaluations"), outbox=sql.Identifier(self.control.outbox_table))
