@@ -105,6 +105,36 @@ class PostgresReviewWorkflowStore:
                 """), (digest, job_id))
                 return state_version
 
+    def reusable_question_ids(self, session_id: str, manifest: dict, graph_schema_version: str) -> list[str]:
+        expected = {item["question_id"]: item["input_sha256"] for item in manifest["questions"]}
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(self._sql("""
+                    SELECT question_id, question_input_sha256 FROM {question_evaluations}
+                    WHERE session_id = %s AND status = 'completed'
+                      AND review_input_sha256 = %s AND review_graph_schema_version = %s
+                      AND output_sha256 IS NOT NULL
+                """), (session_id, manifest["input_sha256"], graph_schema_version))
+                return [row[0] for row in cursor.fetchall() if expected.get(row[0]) == row[1]]
+
+    def fail_review(self, job_id: str, error_code: str) -> None:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                run = self._get_run(cursor, job_id, lock=True)
+                cursor.execute(self._sql("""
+                    UPDATE {runs} SET status = 'failed', error_code = %s, updated_at = NOW()
+                    WHERE job_id = %s::uuid
+                """), (error_code, job_id))
+                cursor.execute(self._sql("""
+                    UPDATE {jobs} SET status = 'failed', last_error_code = %s,
+                        lease_owner = NULL, lease_expires_at = NULL, finished_at = NOW(), updated_at = NOW()
+                    WHERE job_id = %s::uuid
+                """), (error_code, job_id))
+                cursor.execute(self._sql("""
+                    UPDATE {reports} SET status = 'failed', error = %s, progress_json = NULL,
+                        failed_at = NOW(), updated_at = NOW() WHERE session_id = %s
+                """), (error_code, run.session_id))
+
     def _get_run(self, cursor, job_id: str, *, lock: bool = False) -> ReviewRun:
         cursor.execute(self._sql("""
             SELECT job_id::text, session_id, graph_schema_version, input_sha256, status, result_sha256,
@@ -133,4 +163,4 @@ class PostgresReviewWorkflowStore:
 
     def _sql(self, statement: str):
         _, sql = self.control._import_psycopg2()
-        return sql.SQL(statement).format(runs=sql.Identifier(self.runs_table), jobs=sql.Identifier(self.jobs_table), sessions=sql.Identifier(self.sessions_table), reports=sql.Identifier(self.reports_table), outbox=sql.Identifier(self.control.outbox_table))
+        return sql.SQL(statement).format(runs=sql.Identifier(self.runs_table), jobs=sql.Identifier(self.jobs_table), sessions=sql.Identifier(self.sessions_table), reports=sql.Identifier(self.reports_table), question_evaluations=sql.Identifier(f"{self.table_prefix}_question_evaluations"), outbox=sql.Identifier(self.control.outbox_table))
