@@ -61,6 +61,7 @@ _langgraph_checkpointer_started = False
 _interview_workflow_service = None
 _interview_workflow_consumer = None
 _review_workflow_service = None
+_review_workflow_consumer = None
 
 
 def build_session_store(llm=None):
@@ -358,6 +359,16 @@ def get_review_workflow_service():
     return _review_workflow_service
 
 
+def get_review_workflow_consumer():
+    global _review_workflow_consumer
+    if _review_workflow_consumer is None:
+        from app.services.review_workflow_consumer import ReviewWorkflowConsumer
+        _review_workflow_consumer = ReviewWorkflowConsumer(
+            get_review_workflow_service(), get_report_job_store()
+        )
+    return _review_workflow_consumer
+
+
 def get_agent_execution_runner(
     *,
     control_store=None,
@@ -391,6 +402,7 @@ def build_runtime_outbox_service() -> RuntimeOutboxService:
         worker_id=f"{worker_id}:consumer",
         store=get_session_store(),
         interview_consumer=get_interview_workflow_consumer(),
+        review_consumer=get_review_workflow_consumer(),
     )
     return RuntimeOutboxService(
         RuntimeOutboxDispatcher(
@@ -426,6 +438,7 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
 def start_runtime() -> None:
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
     global _review_workflow_service
+    global _review_workflow_consumer
     global _interview_workflow_service, _interview_workflow_consumer
     global _runtime_outbox_service
     if get_runtime_store() != "postgres":
@@ -472,6 +485,7 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _interview_workflow_service = None
     _interview_workflow_consumer = None
     _review_workflow_service = None
+    _review_workflow_consumer = None
     _agent_execution_runner = None
     _agent_composite_recorder = None
     _agent_postgres_control_ids.clear()

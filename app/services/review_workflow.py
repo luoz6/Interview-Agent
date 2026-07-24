@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.graphs.durable_review_state import make_durable_review_initial_state, review_thread_id
+from langgraph.types import Command
 
 
 class ReviewWorkflowService:
@@ -36,6 +37,17 @@ class ReviewWorkflowService:
             "total_question_count": len(values.get("review_input_manifest", {}).get("questions", [])),
             "quality_repair_count": values.get("quality_repair_count", 0),
         }
+
+    def resume_retry(self, job: dict, next_attempt_number: int):
+        graph = self.graph_for_job(job)
+        config = {"configurable": {"thread_id": review_thread_id(job["job_id"])}}
+        snapshot = graph.get_state(config)
+        if snapshot.next != ("wait_for_retry",):
+            return "discarded_stale_retry"
+        if snapshot.values.get("expected_retry_attempt") != next_attempt_number:
+            return "discarded_stale_retry"
+        graph.invoke(Command(resume={"next_attempt_number": next_attempt_number}), config=config)
+        return "completed"
 
     def purge_job(self, job_id: str) -> None:
         if self.checkpointer_runtime is not None:

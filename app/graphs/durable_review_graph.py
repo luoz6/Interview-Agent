@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from app.graphs.durable_review_state import DurableReviewState
 
@@ -15,6 +16,7 @@ class DurableReviewGraphDependencies:
     generate_report: object
     validate_report: object
     commit_report: object
+    max_provider_attempts: int = 3
 
 
 def initialize_review(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
@@ -51,10 +53,22 @@ def review_one_question(state: DurableReviewState, deps: DurableReviewGraphDepen
 
 
 def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
-    artifact = deps.generate_report(state)
+    try:
+        artifact = deps.generate_report(state)
+    except Exception:
+        return {
+            "generation_outcome": (
+                "retryable"
+                if state["provider_attempt"] < deps.max_provider_attempts
+                else "terminal"
+            ),
+            "error_code": "provider_unavailable",
+        }
     return {
         "report_ref": artifact["report_ref"],
         "report_sha256": artifact["report_sha256"],
+        "generation_outcome": "completed",
+        "error_code": None,
     }
 
 
@@ -79,6 +93,48 @@ def route_after_validation(state: DurableReviewState) -> str:
     return "commit_report" if state["validation_outcome"] == "passed" else "fail_review"
 
 
+def route_after_generation(state: DurableReviewState) -> str:
+    if state["generation_outcome"] == "completed":
+        return "validate_report_quality"
+    if state["generation_outcome"] == "retryable":
+        return "enqueue_retry"
+    return "fail_review"
+
+
+def enqueue_retry(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
+    next_attempt = state["provider_attempt"] + 1
+    deps.workflow_store.schedule_retry(
+        job_id=state["job_id"],
+        next_attempt_number=next_attempt,
+        delay_seconds=0.25 * (2 ** (state["provider_attempt"] - 1)),
+    )
+    return {"expected_retry_attempt": next_attempt}
+
+
+def wait_for_retry(state: DurableReviewState) -> dict:
+    payload = interrupt({
+        "kind": "review_retry_timer",
+        "job_id": state["job_id"],
+        "next_attempt_number": state["expected_retry_attempt"],
+    })
+    return {"retry_resume_attempt": payload["next_attempt_number"]}
+
+
+def validate_retry(state: DurableReviewState) -> dict:
+    if state["retry_resume_attempt"] != state["expected_retry_attempt"]:
+        return {"retry_resume_attempt": None}
+    return {
+        "provider_attempt": state["expected_retry_attempt"],
+        "expected_retry_attempt": None,
+        "retry_resume_attempt": None,
+        "generation_outcome": None,
+    }
+
+
+def route_validated_retry(state: DurableReviewState) -> str:
+    return "wait_for_retry" if state["expected_retry_attempt"] is not None else "generate_coach_report"
+
+
 def fail_review(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
     deps.workflow_store.fail_review(state["job_id"], "report_quality_failed")
     return {"error_code": "report_quality_failed"}
@@ -93,12 +149,18 @@ def build_durable_review_graph(deps: DurableReviewGraphDependencies, *, checkpoi
     builder.add_node("validate_report_quality", partial(validate_report_quality, deps=deps))
     builder.add_node("commit_report", partial(commit_report, deps=deps))
     builder.add_node("fail_review", partial(fail_review, deps=deps))
+    builder.add_node("enqueue_retry", partial(enqueue_retry, deps=deps))
+    builder.add_node("wait_for_retry", wait_for_retry)
+    builder.add_node("validate_retry", validate_retry)
     builder.add_edge(START, "initialize_review")
     builder.add_edge("initialize_review", "plan_question_work")
     builder.add_conditional_edges("plan_question_work", route_after_plan)
     builder.add_conditional_edges("review_one_question", route_after_review)
-    builder.add_edge("generate_coach_report", "validate_report_quality")
+    builder.add_conditional_edges("generate_coach_report", route_after_generation)
     builder.add_conditional_edges("validate_report_quality", route_after_validation)
     builder.add_edge("commit_report", END)
     builder.add_edge("fail_review", END)
+    builder.add_edge("enqueue_retry", "wait_for_retry")
+    builder.add_edge("wait_for_retry", "validate_retry")
+    builder.add_conditional_edges("validate_retry", route_validated_retry)
     return builder.compile(checkpointer=checkpointer)

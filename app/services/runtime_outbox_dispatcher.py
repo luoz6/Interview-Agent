@@ -169,11 +169,13 @@ class LocalRuntimeEventSink:
         worker_id: str,
         store=None,
         interview_consumer=None,
+        review_consumer=None,
     ) -> None:
         self.control_store = control_store
         self.worker_id = worker_id
         self.store = store
         self.interview_consumer = interview_consumer
+        self.review_consumer = review_consumer
 
     def publish(self, payload: dict[str, Any]) -> None:
         if payload["event_type"] in {
@@ -183,6 +185,11 @@ class LocalRuntimeEventSink:
             if self.interview_consumer is None:
                 raise RuntimeError("interview workflow consumer is unavailable")
             self.interview_consumer.consume(payload)
+            return
+        if payload["event_type"] == "review_retry_due":
+            if self.review_consumer is None:
+                raise RuntimeError("review workflow consumer is unavailable")
+            self.review_consumer.consume(payload)
             return
         from app.services.runtime_event_consumer import (
             consume_round_review_event_payload,

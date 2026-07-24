@@ -164,6 +164,7 @@ class DurableReviewState(TypedDict):
     error_code: str | None
     current_question_id: str | None
     validation_outcome: Literal["passed", "failed"] | None
+    generation_outcome: Literal["completed", "retryable", "terminal"] | None
 
 
 def make_durable_review_initial_state(job: dict, finished_state: dict) -> DurableReviewState:
@@ -188,6 +189,7 @@ def make_durable_review_initial_state(job: dict, finished_state: dict) -> Durabl
         "error_code": None,
         "current_question_id": None,
         "validation_outcome": None,
+        "generation_outcome": None,
     }
 
 
