@@ -55,3 +55,27 @@ def test_provider_failure_waits_for_durable_retry_then_resumes():
 
     assert attempts == [1, 2]
     assert store.retries[0]["next_attempt_number"] == 2
+
+
+def test_quality_repair_is_bounded_and_receives_structured_issues():
+    store = FakeStore(); repairs = []
+    deps = DurableReviewGraphDependencies(
+        workflow_store=store,
+        review_question=lambda state, question_id: None,
+        generate_report=lambda state: {"report_ref": "r1", "report_sha256": "d1"},
+        repair_report=lambda state: repairs.append(state["quality_issues"]) or {"report_ref": "r2", "report_sha256": "d2"},
+        validate_report=lambda state: ("failed", [{"code": "summary_no_chinese", "description": "bad"}]),
+        commit_report=lambda state: None,
+        max_quality_repairs=2,
+    )
+    graph = build_durable_review_graph(deps, checkpointer=InMemorySaver())
+
+    result = graph.invoke(
+        make_durable_review_initial_state(make_job(), make_finished_state()),
+        {"configurable": {"thread_id": "review:quality"}},
+    )
+
+    assert result["quality_repair_count"] == 2
+    assert len(repairs) == 2
+    assert repairs[0][0]["code"] == "summary_no_chinese"
+    assert store.failed[-1][1] == "report_quality_failed"

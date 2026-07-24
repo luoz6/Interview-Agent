@@ -280,6 +280,7 @@ def get_interview_workflow_consumer():
 
 
 def build_review_workflow_service():
+    from dataclasses import asdict
     from app.agents.report_coach import ReportCoachAgent
     from app.graphs.durable_review_graph import (
         DurableReviewGraphDependencies,
@@ -340,12 +341,41 @@ def build_review_workflow_service():
     def validate_report(graph_state):
         report = workflow_store.load_report_artifact(graph_state["job_id"])
         expected = len(graph_state["review_input_manifest"]["questions"])
-        return "passed" if not evaluate_runtime_report_quality(report, expected_question_count=expected).blocking_issues else "failed"
+        result = evaluate_runtime_report_quality(report, expected_question_count=expected)
+        return (
+            "passed" if not result.blocking_issues else "failed",
+            [asdict(item) for item in result.structured_blocking_issues],
+        )
+
+    def repair_report(graph_state):
+        state = store.get(graph_state["session_id"])
+        records = store.list_question_evaluations(state["session_id"])
+        prior = workflow_store.load_report_artifact(graph_state["job_id"])
+        report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).repair_report_attempt(
+            plan=state["plan"],
+            evaluation_items=build_report_coach_items_from_question_evaluations(records),
+            session_id=state["session_id"],
+            issues=graph_state["quality_issues"],
+            prior_report=prior,
+            execution_context=AgentExecutionContext(
+                correlation_id=correlation_id_from_plan(state["plan"], session_id=state["session_id"]),
+                agent="report_coach", operation="repair_durable_report", phase="review",
+                session_id=state["session_id"], attempt_number=graph_state["quality_repair_count"],
+            ),
+        )
+        return workflow_store.save_report_artifact(job_id=graph_state["job_id"], report=report)
 
     def commit_report(graph_state):
         workflow_store.commit_report(job_id=graph_state["job_id"], report=workflow_store.load_report_artifact(graph_state["job_id"]))
 
-    deps = DurableReviewGraphDependencies(workflow_store=workflow_store, review_question=review_question, generate_report=generate_report, validate_report=validate_report, commit_report=commit_report)
+    deps = DurableReviewGraphDependencies(
+        workflow_store=workflow_store,
+        review_question=review_question,
+        generate_report=generate_report,
+        repair_report=repair_report,
+        validate_report=validate_report,
+        commit_report=commit_report,
+    )
     version = get_report_langgraph_version()
     registry = VersionedGraphRegistry()
     registry.register(version, build_durable_review_graph(deps, checkpointer=checkpointer.start()))

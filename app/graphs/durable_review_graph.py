@@ -17,6 +17,8 @@ class DurableReviewGraphDependencies:
     validate_report: object
     commit_report: object
     max_provider_attempts: int = 3
+    max_quality_repairs: int = 2
+    repair_report: object | None = None
 
 
 def initialize_review(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
@@ -54,7 +56,11 @@ def review_one_question(state: DurableReviewState, deps: DurableReviewGraphDepen
 
 def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
     try:
-        artifact = deps.generate_report(state)
+        artifact = (
+            deps.repair_report(state)
+            if state["quality_repair_count"] > 0 and deps.repair_report is not None
+            else deps.generate_report(state)
+        )
     except Exception:
         return {
             "generation_outcome": (
@@ -73,7 +79,12 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
 
 
 def validate_report_quality(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
-    return {"validation_outcome": deps.validate_report(state)}
+    result = deps.validate_report(state)
+    if isinstance(result, tuple):
+        outcome, issues = result
+    else:
+        outcome, issues = result, []
+    return {"validation_outcome": outcome, "quality_issues": issues}
 
 
 def commit_report(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
@@ -89,8 +100,18 @@ def route_after_review(state: DurableReviewState) -> str:
     return "review_one_question" if state["missing_question_ids"] else "generate_coach_report"
 
 
-def route_after_validation(state: DurableReviewState) -> str:
-    return "commit_report" if state["validation_outcome"] == "passed" else "fail_review"
+def route_after_validation(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> str:
+    if state["validation_outcome"] == "passed":
+        return "commit_report"
+    return "prepare_quality_repair" if state["quality_repair_count"] < deps.max_quality_repairs else "fail_review"
+
+
+def prepare_quality_repair(state: DurableReviewState) -> dict:
+    return {
+        "quality_repair_count": state["quality_repair_count"] + 1,
+        "validation_outcome": None,
+        "generation_outcome": None,
+    }
 
 
 def route_after_generation(state: DurableReviewState) -> str:
@@ -147,6 +168,7 @@ def build_durable_review_graph(deps: DurableReviewGraphDependencies, *, checkpoi
     builder.add_node("review_one_question", partial(review_one_question, deps=deps))
     builder.add_node("generate_coach_report", partial(generate_coach_report, deps=deps))
     builder.add_node("validate_report_quality", partial(validate_report_quality, deps=deps))
+    builder.add_node("prepare_quality_repair", prepare_quality_repair)
     builder.add_node("commit_report", partial(commit_report, deps=deps))
     builder.add_node("fail_review", partial(fail_review, deps=deps))
     builder.add_node("enqueue_retry", partial(enqueue_retry, deps=deps))
@@ -157,7 +179,10 @@ def build_durable_review_graph(deps: DurableReviewGraphDependencies, *, checkpoi
     builder.add_conditional_edges("plan_question_work", route_after_plan)
     builder.add_conditional_edges("review_one_question", route_after_review)
     builder.add_conditional_edges("generate_coach_report", route_after_generation)
-    builder.add_conditional_edges("validate_report_quality", route_after_validation)
+    builder.add_conditional_edges(
+        "validate_report_quality", partial(route_after_validation, deps=deps)
+    )
+    builder.add_edge("prepare_quality_repair", "generate_coach_report")
     builder.add_edge("commit_report", END)
     builder.add_edge("fail_review", END)
     builder.add_edge("enqueue_retry", "wait_for_retry")
