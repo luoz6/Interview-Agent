@@ -18,6 +18,7 @@ test("durable review progress survives browser refresh", async ({ page, request 
   await expect(page.locator("#reportProgressText")).toHaveText("20%");
   await page.reload();
   await expect(page.locator("#reportProgressText")).toHaveText("20%");
+  await request.delete(`/test-support/reports/${sessionId}`);
 });
 
 test("durable review failure exposes only stable public status", async ({ request }) => {
@@ -29,4 +30,5 @@ test("durable review failure exposes only stable public status", async ({ reques
   expect(progress.workflow_engine).toBe("langgraph-review-v1");
   expect(JSON.stringify(progress)).not.toContain("browser-safe-input");
   expect(JSON.stringify(progress)).not.toContain("browser-safe-question");
+  await request.delete(`/test-support/reports/${sessionId}`);
 });

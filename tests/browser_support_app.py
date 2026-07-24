@@ -779,3 +779,12 @@ def seed_report_state(status: str, age_days: int = 0):
         "status": persisted_status,
         "age_days": age_days,
     }
+
+
+@app.delete("/test-support/reports/{session_id}")
+def delete_seeded_report(session_id: str):
+    store._reports.pop(session_id, None)
+    store._question_evaluations.pop(session_id, None)
+    store._sessions.pop(session_id, None)
+    job_store.jobs.pop(session_id, None)
+    return {"session_id": session_id, "deleted": True}
