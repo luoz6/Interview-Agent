@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -12,6 +13,9 @@ from app.main import app
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.event_publisher import NoopRuntimeEventPublisher
+from app.services.runtime_events import _format_sse
+from app.services.runtime_events import AcceptedInterviewCommand
+from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -178,6 +182,321 @@ class BrowserReportJobStore:
         job["status"] = "queued"
         job["replay_count"] = int(job.get("replay_count", 0)) + 1
         return dict(job)
+
+
+class FakeGenerationStore:
+    """Deterministic generation history used by browser recovery tests."""
+
+    def __init__(self) -> None:
+        self.generations: dict[str, dict] = {}
+        self.next_event_id = 0
+
+    def prepare_generation(self, generation_id: str) -> dict:
+        return self.generations.setdefault(
+            generation_id, {"attempts": {}, "events": []}
+        )
+
+    def start_attempt(self, generation_id: str, attempt_number: int) -> dict:
+        generation = self.prepare_generation(generation_id)
+        return generation["attempts"].setdefault(
+            attempt_number, {"chunks": [], "status": "running"}
+        )
+
+    def append_chunk(
+        self,
+        generation_id: str,
+        attempt_number: int,
+        sequence: int,
+        text: str,
+    ) -> None:
+        attempt = self.start_attempt(generation_id, attempt_number)
+        attempt["chunks"].append((sequence, text))
+        self.next_event_id += 1
+        self.prepare_generation(generation_id)["events"].append(
+            {
+                "id": self.next_event_id,
+                "kind": "chunk",
+                "attempt_number": attempt_number,
+                "sequence": sequence,
+                "text": text,
+            }
+        )
+
+    def complete_attempt(
+        self,
+        generation_id: str,
+        attempt_number: int,
+        final_text: str,
+    ) -> None:
+        attempt = self.start_attempt(generation_id, attempt_number)
+        attempt["status"] = "completed"
+        attempt["final_text"] = final_text
+        self.next_event_id += 1
+        self.prepare_generation(generation_id)["events"].append(
+            {
+                "id": self.next_event_id,
+                "kind": "completed",
+                "attempt_number": attempt_number,
+                "sequence": 0,
+                "text": "",
+            }
+        )
+
+    def append_reset(self, generation_id: str, attempt_number: int) -> None:
+        self.start_attempt(generation_id, attempt_number)
+        self.next_event_id += 1
+        self.prepare_generation(generation_id)["events"].append(
+            {
+                "id": self.next_event_id,
+                "kind": "generation_reset",
+                "attempt_number": attempt_number,
+                "sequence": 0,
+                "text": "",
+            }
+        )
+
+    def list_events(self, generation_id: str, after_id: int = 0) -> list[dict]:
+        return [
+            event
+            for event in self.prepare_generation(generation_id)["events"]
+            if event["id"] > after_id
+        ]
+
+
+class FakeDurableEventStream:
+    def __init__(self, workflow) -> None:
+        self.workflow = workflow
+
+    def iter_sse(
+        self,
+        session_id: str,
+        command_id: str,
+        *,
+        after_event_id: str | None = None,
+    ):
+        generation_id = self.workflow.command_generations.get(command_id)
+        if generation_id is None:
+            yield _format_sse("done", {"command_id": command_id})
+            return
+        after = self.workflow.event_id_to_number(after_event_id)
+        disconnect_after_first_chunk = (
+            command_id in self.workflow.disconnect_once_commands
+            and after_event_id is None
+        )
+        for item in self.workflow.generation_store.list_events(
+            generation_id, after
+        ):
+            event_id = (
+                f"{generation_id}:{item['attempt_number']}:{item['sequence']}"
+            )
+            if item["kind"] == "generation_reset":
+                yield _format_sse(
+                    "generation_reset",
+                    {
+                        "generation_id": generation_id,
+                        "attempt_number": item["attempt_number"],
+                    },
+                    event_id=event_id,
+                )
+            elif item["kind"] == "chunk":
+                yield _format_sse(
+                    "chunk",
+                    {
+                        "generation_id": generation_id,
+                        "attempt_number": item["attempt_number"],
+                        "sequence": item["sequence"],
+                        "delta": item["text"],
+                    },
+                    event_id=event_id,
+                )
+                if disconnect_after_first_chunk:
+                    self.workflow.disconnect_once_commands.remove(command_id)
+                    return
+        self.workflow.commit_generation(command_id)
+        yield _format_sse(
+            "done",
+            {
+                "command_id": command_id,
+                "state_version": self.workflow.state_versions[session_id],
+            },
+        )
+
+
+class FakeDurableWorkflow:
+    def __init__(self, session_store: InterviewSessionStore) -> None:
+        self.session_store = session_store
+        self.generation_store = FakeGenerationStore()
+        self.event_stream = FakeDurableEventStream(self)
+        self.command_generations: dict[str, str] = {}
+        self.command_status: dict[str, str] = {}
+        self.state_versions: dict[str, int] = {}
+        self.command_sessions: dict[str, str] = {}
+        self.disconnect_once_commands: set[str] = set()
+
+    def seed(self, session_id: str, *, mode: str) -> None:
+        state = self.session_store.get(session_id)
+        state["workflow_engine"] = "langgraph-v1"
+        state["graph_schema_version"] = "langgraph-v1"
+        state["state_version"] = 1
+        self.state_versions[session_id] = 1
+        if mode == "duplicate":
+            return
+        command_id = f"browser-durable-{session_id}"
+        generation_id = f"browser-generation-{session_id}"
+        self.command_generations[command_id] = generation_id
+        self.command_status[command_id] = "pending"
+        self.command_sessions[command_id] = session_id
+        self.generation_store.prepare_generation(generation_id)
+        if mode == "refresh":
+            self.generation_store.start_attempt(generation_id, 1)
+            self.generation_store.append_chunk(
+                generation_id, 1, 1, "Recovered "
+            )
+            self.generation_store.append_chunk(
+                generation_id, 1, 2, "after refresh."
+            )
+            self.generation_store.complete_attempt(
+                generation_id, 1, "Recovered after refresh."
+            )
+            self.disconnect_once_commands.add(command_id)
+        elif mode == "replacement":
+            self.generation_store.start_attempt(generation_id, 1)
+            self.generation_store.append_chunk(
+                generation_id, 1, 1, "abandoned old partial"
+            )
+            self.generation_store.append_reset(generation_id, 2)
+            self.generation_store.append_chunk(
+                generation_id, 2, 1, "replacement complete"
+            )
+            self.generation_store.complete_attempt(
+                generation_id, 2, "replacement complete"
+            )
+        else:
+            self.generation_store.start_attempt(generation_id, 1)
+
+    def snapshot(self, session_id: str) -> dict:
+        snapshot = self.session_store.snapshot(session_id)
+        command_id = next(
+            (
+                command
+                for command, value in self.command_sessions.items()
+                if value == session_id
+            ),
+            None,
+        )
+        generation_id = (
+            self.command_generations.get(command_id) if command_id else None
+        )
+        if command_id and self.command_status.get(command_id) != "applied":
+            snapshot.update(
+                {
+                    "workflow_engine": "langgraph-v1",
+                    "active_command_id": command_id,
+                    "active_generation_id": generation_id,
+                    "active_attempt_number": 1,
+                    "active_stream_url": (
+                        f"/api/interviews/{session_id}/commands/"
+                        f"{command_id}/stream"
+                    ),
+                    "last_generation_event_id": None,
+                }
+            )
+        else:
+            snapshot["workflow_engine"] = "langgraph-v1"
+        return snapshot
+
+    def submit_command(
+        self,
+        session_id: str,
+        *,
+        command_type: str,
+        expected_version: int | None,
+        command_id: str | None,
+        answer_text: str | None = None,
+    ) -> AcceptedInterviewCommand:
+        command_id = command_id or f"browser-command-{uuid4().hex}"
+        if command_id not in self.command_generations:
+            generation_id = f"browser-generation-{command_id}"
+            self.command_generations[command_id] = generation_id
+            self.command_status[command_id] = "pending"
+            self.command_sessions[command_id] = session_id
+            self.generation_store.prepare_generation(generation_id)
+            self.generation_store.start_attempt(generation_id, 1)
+            self.generation_store.append_chunk(
+                generation_id, 1, 1, "deduplicated follow-up"
+            )
+            self.generation_store.complete_attempt(
+                generation_id, 1, "deduplicated follow-up"
+            )
+            state = deepcopy(self.session_store.get(session_id))
+            state["messages"] = [
+                *state["messages"],
+                {
+                    "role": "candidate",
+                    "content": answer_text or "answer",
+                    "question_id": state["plan"].questions[
+                        state["current_index"]
+                    ].id,
+                },
+            ]
+            self.session_store._sessions[session_id] = state
+        return AcceptedInterviewCommand(
+            session_id=session_id,
+            command_id=command_id,
+            stream_url=(
+                f"/api/interviews/{session_id}/commands/"
+                f"{command_id}/stream"
+            ),
+        )
+
+    def commit_generation(self, command_id: str) -> None:
+        if self.command_status.get(command_id) == "applied":
+            return
+        session_id = self.command_sessions[command_id]
+        generation_id = self.command_generations[command_id]
+        events = self.generation_store.prepare_generation(generation_id)[
+            "events"
+        ]
+        latest_attempt = max(
+            event["attempt_number"] for event in events if event["kind"] == "chunk"
+        )
+        text = "".join(
+            event["text"]
+            for event in events
+            if event["kind"] == "chunk"
+            and event["attempt_number"] == latest_attempt
+        )
+        state = deepcopy(self.session_store.get(session_id))
+        state["messages"] = [
+            *state["messages"],
+            {
+                "role": "interviewer",
+                "content": text,
+                "question_id": state["plan"].questions[
+                    state["current_index"]
+                ].id,
+            },
+        ]
+        state["state_version"] = self.state_versions[session_id] = 3
+        self.session_store._sessions[session_id] = state
+        self.command_status[command_id] = "applied"
+
+    def event_id_to_number(self, value: str | None) -> int:
+        if not value:
+            return 0
+        try:
+            generation_id, attempt, sequence = value.rsplit(":", 2)
+            for event in self.generation_store.prepare_generation(
+                generation_id
+            )["events"]:
+                if (
+                    event["attempt_number"] == int(attempt)
+                    and event["sequence"] == int(sequence)
+                ):
+                    return event["id"]
+        except (TypeError, ValueError):
+            pass
+        return 0
 
 
 browser_llm = BrowserTestLLM()
@@ -353,6 +672,7 @@ route_module.prepare_interview = prepare_browser_interview
 store = InterviewSessionStore(llm=browser_llm)
 publisher = NoopRuntimeEventPublisher()
 job_store = BrowserReportJobStore(store)
+durable_workflow = FakeDurableWorkflow(store)
 
 original_report_job_dependency = route_module.get_report_job_store
 original_report_queue_dependency = route_module.get_report_job_queue
@@ -361,6 +681,7 @@ app.dependency_overrides[route_module.get_event_publisher] = lambda: publisher
 app.dependency_overrides[original_report_job_dependency] = lambda: job_store
 app.dependency_overrides[original_report_queue_dependency] = lambda: job_store
 route_module.get_report_job_store = lambda: job_store
+route_module.get_interview_workflow_service = lambda: durable_workflow
 
 
 @app.get("/test-support/interviews/{session_id}/prep-run-id")
@@ -371,9 +692,37 @@ def browser_prep_run_id(session_id: str):
     }
 
 
+@app.post("/test-support/langgraph/{mode}")
+def seed_langgraph_interview(mode: str):
+    if mode not in {"refresh", "replacement", "duplicate"}:
+        raise HTTPException(status_code=422, detail="unsupported recovery mode")
+    plan = browser_llm.generate_plan("Backend engineer", "Redis project")
+    turn = store.start(
+        plan,
+        job_description="Backend engineer",
+        resume_text="Redis project",
+        job_tags=["Redis", "Backend"],
+    )
+    durable_workflow.seed(turn.session_id, mode=mode)
+    command_id = next(
+        (
+            command
+            for command, session_id in durable_workflow.command_sessions.items()
+            if session_id == turn.session_id
+        ),
+        None,
+    )
+    return {
+        "session_id": turn.session_id,
+        "mode": mode,
+        "command_id": command_id,
+        "generation_id": durable_workflow.command_generations.get(command_id),
+    }
+
+
 @app.post("/test-support/reports/{status}")
 def seed_report_state(status: str, age_days: int = 0):
-    if status not in {"processing", "failed"}:
+    if status not in {"processing", "failed", "durable-processing", "durable-failed"}:
         raise HTTPException(status_code=422, detail="unsupported report seed status")
     if age_days < 0:
         raise HTTPException(status_code=422, detail="age_days must be non-negative")
@@ -387,13 +736,30 @@ def seed_report_state(status: str, age_days: int = 0):
     )
     store.finish(turn.session_id)
     store.mark_report_processing(turn.session_id)
+    durable = status.startswith("durable-")
+    persisted_status = status.removeprefix("durable-") if durable else status
     job_store.jobs[turn.session_id] = {
         "job_id": f"browser-job-{turn.session_id}",
         "session_id": turn.session_id,
-        "status": status,
+        "status": persisted_status,
         "replay_count": 0,
+        "review_engine": "langgraph-review-v1" if durable else "legacy",
+        "review_graph_schema_version": "langgraph-review-v1" if durable else None,
     }
-    if status == "failed":
+    if durable:
+        report = make_report(turn.session_id, plan.questions[0])
+        store.upsert_question_evaluation(
+            turn.session_id,
+            question_evaluation_from_feedback(
+                session_id=turn.session_id,
+                feedback=report.feedbacks[0],
+                review_input_sha256="browser-safe-input",
+                question_input_sha256="browser-safe-question",
+                review_engine="langgraph-review-v1",
+                review_graph_schema_version="langgraph-review-v1",
+            ),
+        )
+    if persisted_status == "failed":
         store.fail_report(turn.session_id, "provider_timeout")
 
     if age_days:
@@ -404,12 +770,12 @@ def seed_report_state(status: str, age_days: int = 0):
         store._reports[turn.session_id] = record.model_copy(
             update={
                 "created_at": seeded_at,
-                "finished_at": seeded_at if status == "failed" else None,
+                "finished_at": seeded_at if persisted_status == "failed" else None,
             }
         )
 
     return {
         "session_id": turn.session_id,
-        "status": status,
+        "status": persisted_status,
         "age_days": age_days,
     }
