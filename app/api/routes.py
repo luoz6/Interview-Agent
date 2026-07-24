@@ -650,11 +650,36 @@ def get_interview_report_progress(
         raise HTTPException(status_code=404, detail="interview is not finished")
 
     record = store.get_report_record(session_id)
-    return _report_progress_detail(
+    job = _report_job_for_session(session_id)
+    detail = _report_progress_detail(
         session_id,
         record,
-        report_job_id=_report_job_id_for_session(session_id),
+        report_job_id=job.get("job_id") if job else None,
     )
+    if job and job.get("review_engine") == "langgraph-review-v1":
+        completed = len(
+            [
+                item
+                for item in store.list_question_evaluations(session_id)
+                if item.status == "completed"
+            ]
+        )
+        detail.update(
+            {
+                "workflow_engine": "langgraph-review-v1",
+                "workflow_status": {
+                    "queued": "queued",
+                    "running": "running",
+                    "retrying": "waiting_for_retry",
+                    "completed": "completed",
+                    "failed": "failed",
+                }.get(job.get("status"), "processing"),
+                "completed_question_count": completed,
+                "total_question_count": len(state["plan"].questions),
+                "retrying": job.get("status") == "retrying",
+            }
+        )
+    return detail
 
 
 @router.post(
@@ -747,13 +772,18 @@ def _turn_to_dict(turn):
 
 
 def _report_job_id_for_session(session_id: str) -> str | None:
+    job = _report_job_for_session(session_id)
+    return job.get("job_id") if job else None
+
+
+def _report_job_for_session(session_id: str) -> dict | None:
     try:
         job = get_report_job_store().get_job_by_session(session_id)
     except (AttributeError, RuntimeError):
         return None
     if not job:
         return None
-    return job.get("job_id")
+    return job
 
 
 _PUBLIC_REPORT_PATHS = {
