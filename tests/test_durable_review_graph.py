@@ -4,6 +4,7 @@ from langgraph.types import Command
 from app.graphs.durable_review_graph import DurableReviewGraphDependencies, build_durable_review_graph
 from app.graphs.durable_review_state import make_durable_review_initial_state
 from tests.test_durable_review_state import make_finished_state, make_job
+from app.services.prep import InterviewPlan, InterviewQuestion
 
 
 class FakeStore:
@@ -79,3 +80,36 @@ def test_quality_repair_is_bounded_and_receives_structured_issues():
     assert len(repairs) == 2
     assert repairs[0][0]["code"] == "summary_no_chinese"
     assert store.failed[-1][1] == "report_quality_failed"
+
+
+def test_question_send_fanout_uses_checkpointed_batches():
+    finished = make_finished_state()
+    finished["plan"] = InterviewPlan(
+        title="Backend",
+        questions=[
+            InterviewQuestion(id=f"q{i}", kind="project", prompt=f"p{i}", focus="f")
+            for i in range(5)
+        ],
+    )
+    finished["messages"] = [
+        {"role": "interviewer", "content": f"p{i}", "question_id": f"q{i}"}
+        for i in range(5)
+    ]
+    reviewed = []
+    graph = build_durable_review_graph(DurableReviewGraphDependencies(
+        workflow_store=FakeStore(),
+        review_question=lambda state, question_id: reviewed.append(question_id),
+        generate_report=lambda state: {"report_ref": "r", "report_sha256": "d"},
+        validate_report=lambda state: "passed",
+        commit_report=lambda state: None,
+        max_parallel_reviews=2,
+    ), checkpointer=InMemorySaver())
+
+    result = graph.invoke(
+        make_durable_review_initial_state(make_job(), finished),
+        {"configurable": {"thread_id": "review:batches"}},
+    )
+
+    assert set(reviewed) == {"q0", "q1", "q2", "q3", "q4"}
+    assert result["next_batch_start"] == 5
+    assert result["completed_question_ids"] == ["q0", "q1", "q2", "q3", "q4"]

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+from langgraph.types import Send, interrupt
 
 from app.graphs.durable_review_state import DurableReviewState
 
@@ -19,6 +19,7 @@ class DurableReviewGraphDependencies:
     max_provider_attempts: int = 3
     max_quality_repairs: int = 2
     repair_report: object | None = None
+    max_parallel_reviews: int = 3
 
 
 def initialize_review(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
@@ -44,13 +45,64 @@ def plan_question_work(state: DurableReviewState, deps: DurableReviewGraphDepend
     }
 
 
+def prepare_question_batch(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
+    batch = state["missing_question_ids"][: deps.max_parallel_reviews]
+    return {"current_batch_question_ids": batch}
+
+
+def dispatch_question_batch(state: DurableReviewState):
+    if not state["current_batch_question_ids"]:
+        return "generate_coach_report"
+    inputs = {
+        item["question_id"]: item["input_sha256"]
+        for item in state["review_input_manifest"]["questions"]
+    }
+    return [
+        Send(
+            "review_question",
+            {
+                "job_id": state["job_id"],
+                "session_id": state["session_id"],
+                "review_graph_schema_version": state["review_graph_schema_version"],
+                "review_input_manifest": state["review_input_manifest"],
+                "provider_attempt": state["provider_attempt"],
+                "current_question_id": question_id,
+                "question_input_sha256": inputs[question_id],
+                "question_outcomes": [],
+            },
+        )
+        for question_id in state["current_batch_question_ids"]
+    ]
+
+
 def review_one_question(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
-    question_id = state["missing_question_ids"][0]
+    question_id = state["current_question_id"]
     deps.review_question(state, question_id)
     return {
-        "current_question_id": question_id,
-        "completed_question_ids": [*state["completed_question_ids"], question_id],
-        "missing_question_ids": state["missing_question_ids"][1:],
+        "question_outcomes": [
+            {
+                "question_id": question_id,
+                "question_input_sha256": state["question_input_sha256"],
+                "outcome": "completed",
+            }
+        ],
+    }
+
+
+def join_question_reviews(state: DurableReviewState) -> dict:
+    batch = state["current_batch_question_ids"]
+    completed_outcomes = {
+        item["question_id"]
+        for item in state["question_outcomes"]
+        if item.get("outcome") == "completed"
+    }
+    if any(question_id not in completed_outcomes for question_id in batch):
+        return {"error_code": "question_review_failed", "failed_question_ids": batch}
+    return {
+        "completed_question_ids": [*state["completed_question_ids"], *batch],
+        "missing_question_ids": [item for item in state["missing_question_ids"] if item not in batch],
+        "next_batch_start": state["next_batch_start"] + len(batch),
+        "current_batch_question_ids": [],
     }
 
 
@@ -93,11 +145,13 @@ def commit_report(state: DurableReviewState, deps: DurableReviewGraphDependencie
 
 
 def route_after_plan(state: DurableReviewState) -> str:
-    return "review_one_question" if state["missing_question_ids"] else "generate_coach_report"
+    return "prepare_question_batch" if state["missing_question_ids"] else "generate_coach_report"
 
 
 def route_after_review(state: DurableReviewState) -> str:
-    return "review_one_question" if state["missing_question_ids"] else "generate_coach_report"
+    if state.get("error_code") == "question_review_failed":
+        return "fail_review"
+    return "prepare_question_batch" if state["missing_question_ids"] else "generate_coach_report"
 
 
 def route_after_validation(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> str:
@@ -165,7 +219,9 @@ def build_durable_review_graph(deps: DurableReviewGraphDependencies, *, checkpoi
     builder = StateGraph(DurableReviewState)
     builder.add_node("initialize_review", partial(initialize_review, deps=deps))
     builder.add_node("plan_question_work", partial(plan_question_work, deps=deps))
-    builder.add_node("review_one_question", partial(review_one_question, deps=deps))
+    builder.add_node("review_question", partial(review_one_question, deps=deps))
+    builder.add_node("prepare_question_batch", partial(prepare_question_batch, deps=deps))
+    builder.add_node("join_question_reviews", join_question_reviews)
     builder.add_node("generate_coach_report", partial(generate_coach_report, deps=deps))
     builder.add_node("validate_report_quality", partial(validate_report_quality, deps=deps))
     builder.add_node("prepare_quality_repair", prepare_quality_repair)
@@ -177,7 +233,9 @@ def build_durable_review_graph(deps: DurableReviewGraphDependencies, *, checkpoi
     builder.add_edge(START, "initialize_review")
     builder.add_edge("initialize_review", "plan_question_work")
     builder.add_conditional_edges("plan_question_work", route_after_plan)
-    builder.add_conditional_edges("review_one_question", route_after_review)
+    builder.add_conditional_edges("prepare_question_batch", dispatch_question_batch)
+    builder.add_edge("review_question", "join_question_reviews")
+    builder.add_conditional_edges("join_question_reviews", route_after_review)
     builder.add_conditional_edges("generate_coach_report", route_after_generation)
     builder.add_conditional_edges(
         "validate_report_quality", partial(route_after_validation, deps=deps)

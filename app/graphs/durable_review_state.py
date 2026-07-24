@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal, TypedDict
+import operator
+from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -163,9 +164,11 @@ class DurableReviewState(TypedDict):
     report_ref: str | None
     error_code: str | None
     current_question_id: str | None
+    question_input_sha256: str | None
     validation_outcome: Literal["passed", "failed"] | None
     generation_outcome: Literal["completed", "retryable", "terminal"] | None
     quality_issues: list[dict]
+    question_outcomes: Annotated[list[dict], operator.add]
 
 
 def make_durable_review_initial_state(job: dict, finished_state: dict) -> DurableReviewState:
@@ -189,9 +192,11 @@ def make_durable_review_initial_state(job: dict, finished_state: dict) -> Durabl
         "report_ref": None,
         "error_code": None,
         "current_question_id": None,
+        "question_input_sha256": None,
         "validation_outcome": None,
         "generation_outcome": None,
         "quality_issues": [],
+        "question_outcomes": [],
     }
 
 
