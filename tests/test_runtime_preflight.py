@@ -4,7 +4,9 @@ from scripts.runtime_preflight import (
     PreflightError,
     check_redis,
     redact_connection_url,
+    should_check_langgraph_postgres,
     validate_langgraph_configuration,
+    validate_registered_graph_versions,
     validate_langgraph_schema_snapshot,
     validate_runtime_control_snapshot,
     validate_runtime_versions,
@@ -154,3 +156,41 @@ def test_langgraph_schema_snapshot_requires_tables_and_indexes():
     )
 
     assert result == {"workflow_tables": 4, "recovery_indexes": 4}
+
+
+@pytest.mark.parametrize(
+    (
+        "runtime_store",
+        "interview_enabled",
+        "review_enabled",
+        "profile",
+        "expected",
+    ),
+    [
+        ("postgres", True, False, "core", True),
+        ("postgres", False, True, "core", True),
+        ("postgres", True, True, "core", True),
+        ("postgres", False, False, "core", False),
+        ("memory", False, True, "core", False),
+        ("postgres", False, True, "runtime", False),
+    ],
+)
+def test_shared_postgres_check_runs_when_either_runtime_is_enabled(
+    runtime_store,
+    interview_enabled,
+    review_enabled,
+    profile,
+    expected,
+):
+    assert should_check_langgraph_postgres(
+        runtime_store=runtime_store,
+        interview_runtime_enabled=interview_enabled,
+        review_runtime_enabled=review_enabled,
+        profile=profile,
+    ) is expected
+
+
+def test_preflight_graph_registry_requires_exact_versions():
+    assert validate_registered_graph_versions(
+        "langgraph-v1", "langgraph-review-v1"
+    ) == ["langgraph-v1", "langgraph-review-v1"]

@@ -13,8 +13,10 @@ from app.services.config import (
     get_interview_chunk_retention_hours,
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
+    get_interview_langgraph_version,
     get_report_langgraph_rollout_percent,
     get_report_langgraph_runtime_enabled,
+    get_report_langgraph_version,
     get_postgres_dsn,
     get_redis_url,
     get_runtime_table_prefix,
@@ -69,6 +71,43 @@ def validate_langgraph_schema_snapshot(
     }
 
 
+def should_check_langgraph_postgres(
+    *,
+    runtime_store: str,
+    interview_runtime_enabled: bool,
+    review_runtime_enabled: bool,
+    profile: str,
+) -> bool:
+    return (
+        runtime_store == "postgres"
+        and (interview_runtime_enabled or review_runtime_enabled)
+        and profile == "core"
+    )
+
+
+def validate_registered_graph_versions(
+    interview_version: str, review_version: str
+) -> list[str]:
+    from app.services.langgraph_runtime import VersionedGraphRegistry
+
+    registry = VersionedGraphRegistry()
+    interview_graph = object()
+    review_graph = object()
+    registry.register(interview_version, interview_graph)
+    registry.register(review_version, review_graph)
+    if registry.get(interview_version) is not interview_graph:
+        raise PreflightError("Interview graph registration failed")
+    if registry.get(review_version) is not review_graph:
+        raise PreflightError("Review graph registration failed")
+    try:
+        registry.get("unsupported-preflight-version")
+    except ValueError:
+        pass
+    else:
+        raise PreflightError("unknown graph versions must fail closed")
+    return [interview_version, review_version]
+
+
 def check_langgraph_runtime() -> dict[str, object]:
     from app.services.interview_generation_store import (
         PostgresInterviewGenerationStore,
@@ -78,6 +117,7 @@ def check_langgraph_runtime() -> dict[str, object]:
     )
     from app.services.langgraph_runtime import PostgresCheckpointerRuntime
     from app.services.postgres_session import PostgresInterviewSessionStore
+    from app.services.report_jobs import PostgresReportJobStore
     from app.services.review_workflow_store import PostgresReviewWorkflowStore
     from scripts.audit_agent_runtime import audit_runtime_control_payloads
 
@@ -86,6 +126,7 @@ def check_langgraph_runtime() -> dict[str, object]:
     session_store = PostgresInterviewSessionStore(
         dsn=dsn, table_prefix=prefix
     )
+    PostgresReportJobStore(dsn=dsn, table_prefix=prefix)
     workflow_store = PostgresInterviewWorkflowStore(
         dsn=dsn, table_prefix=prefix
     )
@@ -131,6 +172,18 @@ def check_langgraph_runtime() -> dict[str, object]:
                 (expected_indexes,),
             )
             indexes = [row[0] for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = %s
+                  AND column_name = 'lease_token'
+                """,
+                (f"{prefix}_report_jobs",),
+            )
+            if cursor.fetchone() is None:
+                raise PreflightError("report job lease fencing is incomplete")
     result: dict[str, object] = validate_langgraph_schema_snapshot(
         tables=tables,
         indexes=indexes,
@@ -158,6 +211,17 @@ def check_langgraph_runtime() -> dict[str, object]:
     if privacy["status"] != "PASS":
         raise PreflightError("runtime diagnostics privacy audit failed")
     result["privacy_allowlist"] = "PASS"
+    result["graph_versions"] = validate_registered_graph_versions(
+        get_interview_langgraph_version(),
+        get_report_langgraph_version(),
+    )
+    result["consumer_event_types"] = [
+        "interview_command_ready",
+        "interview_retry_due",
+        "round_closed",
+        "review_retry_due",
+    ]
+    result["report_lease_fencing"] = True
     return result
 
 
@@ -328,12 +392,25 @@ def main() -> int:
             strict_msgpack=os.getenv("LANGGRAPH_STRICT_MSGPACK", "true"),
             retention_hours=1,
         )
-        if (
-            result["langgraph"]["runtime_store"] == "postgres"
-            and result["langgraph"]["runtime_enabled"]
-            and args.profile == "core"
+        if should_check_langgraph_postgres(
+            runtime_store=result["langgraph"]["runtime_store"],
+            interview_runtime_enabled=result["langgraph"][
+                "runtime_enabled"
+            ],
+            review_runtime_enabled=result["review_langgraph"][
+                "runtime_enabled"
+            ],
+            profile=args.profile,
         ):
             result["langgraph"]["postgres"] = check_langgraph_runtime()
+        if (
+            not result["langgraph"]["runtime_enabled"]
+            and result["langgraph"]["rollout_percent"] == 0
+            and result["review_langgraph"]["runtime_enabled"]
+        ):
+            result["warnings"] = [
+                "interview_resume_capability_unverified"
+            ]
         if args.profile == "celery":
             url = get_redis_url()
             result["redis_url"] = redact_connection_url(url)
