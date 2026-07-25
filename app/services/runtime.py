@@ -5,10 +5,12 @@ from uuid import uuid4
 
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
+    get_durable_workflow_maintenance_seconds,
     get_postgres_dsn,
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
     get_interview_langgraph_version,
+    get_interview_chunk_retention_hours,
     get_report_langgraph_runtime_enabled,
     get_report_langgraph_version,
     get_runtime_event_backend,
@@ -62,6 +64,8 @@ _interview_workflow_service = None
 _interview_workflow_consumer = None
 _review_workflow_service = None
 _review_workflow_consumer = None
+_durable_workflow_maintenance_service = None
+_durable_workflow_maintenance_started = False
 
 
 def build_session_store(llm=None):
@@ -199,6 +203,49 @@ def get_langgraph_checkpointer_runtime():
             get_postgres_dsn()
         )
     return _langgraph_checkpointer_runtime
+
+
+def build_durable_workflow_maintenance_service():
+    from app.services.durable_workflow_maintenance import (
+        DurableWorkflowMaintenanceService,
+    )
+    from app.services.interview_generation_store import (
+        PostgresInterviewGenerationStore,
+    )
+    from app.services.interview_workflow_store import (
+        PostgresInterviewWorkflowStore,
+    )
+
+    if get_runtime_store() != "postgres":
+        raise RuntimeError("durable maintenance requires PostgreSQL")
+    dsn = get_postgres_dsn()
+    prefix = get_runtime_table_prefix()
+    return DurableWorkflowMaintenanceService(
+        workflow_store=PostgresInterviewWorkflowStore(
+            dsn=dsn, table_prefix=prefix
+        ),
+        generation_store=PostgresInterviewGenerationStore(
+            dsn=dsn, table_prefix=prefix
+        ),
+        retention_hours=get_interview_chunk_retention_hours(),
+        interval_seconds=get_durable_workflow_maintenance_seconds(),
+    )
+
+
+def get_durable_workflow_maintenance_service():
+    global _durable_workflow_maintenance_service
+    if get_runtime_store() != "postgres":
+        return None
+    if not (
+        get_interview_langgraph_runtime_enabled()
+        or get_report_langgraph_runtime_enabled()
+    ):
+        return None
+    if _durable_workflow_maintenance_service is None:
+        _durable_workflow_maintenance_service = (
+            build_durable_workflow_maintenance_service()
+        )
+    return _durable_workflow_maintenance_service
 
 
 def build_interview_workflow_service():
@@ -479,6 +526,8 @@ def start_runtime() -> None:
     global _review_workflow_consumer
     global _interview_workflow_service, _interview_workflow_consumer
     global _runtime_outbox_service
+    global _durable_workflow_maintenance_service
+    global _durable_workflow_maintenance_started
     if get_runtime_store() != "postgres":
         return
     if _langgraph_checkpointer_runtime is None:
@@ -487,6 +536,16 @@ def start_runtime() -> None:
     if checkpointer_runtime is not None and not _langgraph_checkpointer_started:
         checkpointer_runtime.start()
         _langgraph_checkpointer_started = True
+    if _durable_workflow_maintenance_service is None:
+        _durable_workflow_maintenance_service = (
+            get_durable_workflow_maintenance_service()
+        )
+    if (
+        _durable_workflow_maintenance_service is not None
+        and not _durable_workflow_maintenance_started
+    ):
+        _durable_workflow_maintenance_service.start()
+        _durable_workflow_maintenance_started = True
     if get_runtime_event_backend() != "local":
         return
     if _runtime_outbox_service is None:
@@ -506,8 +565,12 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
+    global _durable_workflow_maintenance_service
+    global _durable_workflow_maintenance_started
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
+    if _durable_workflow_maintenance_service is not None:
+        _durable_workflow_maintenance_service.shutdown(wait=wait)
     if _langgraph_checkpointer_runtime is not None:
         _langgraph_checkpointer_runtime.shutdown()
     _shutdown_cached_publisher(_event_publisher, wait=wait)
@@ -520,6 +583,8 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _runtime_outbox_service = None
     _langgraph_checkpointer_runtime = None
     _langgraph_checkpointer_started = False
+    _durable_workflow_maintenance_service = None
+    _durable_workflow_maintenance_started = False
     _interview_workflow_service = None
     _interview_workflow_consumer = None
     _review_workflow_service = None

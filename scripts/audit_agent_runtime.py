@@ -20,6 +20,11 @@ _CONTROL_BLOCKED_KEYS = AGENT_TRACE_BLOCKED_KEYS | {
     "payload_json",
     "safe_metadata",
     "lease_owner",
+    "lease_token",
+    "checkpoint_id",
+    "messages",
+    "answer_text",
+    "provider_payload",
 }
 
 

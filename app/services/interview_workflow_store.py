@@ -365,6 +365,27 @@ class PostgresInterviewWorkflowStore:
                 )
                 return cursor.rowcount
 
+    def clear_applied_command_payloads_older_than(
+        self, *, hours: int
+    ) -> int:
+        if hours < 1:
+            raise ValueError("retention hours must be positive")
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        UPDATE {commands}
+                        SET answer_text = NULL, updated_at = NOW()
+                        WHERE status = 'applied' AND answer_text IS NOT NULL
+                          AND completed_at <
+                              NOW() - (%s * INTERVAL '1 hour')
+                        """
+                    ),
+                    (hours,),
+                )
+                return cursor.rowcount
+
     def delete_session_control_rows(self, session_id: str) -> int:
         with self.control.connection() as connection:
             with connection.cursor() as cursor:

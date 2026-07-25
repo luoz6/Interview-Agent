@@ -40,9 +40,9 @@ def _drop_prefix(dsn: str, prefix: str) -> None:
     suffixes = (
         "review_artifacts",
         "review_runs",
-        "workflow_generations_chunks",
-        "workflow_generation_attempts",
-        "workflow_generations",
+        "generation_chunks",
+        "generation_attempts",
+        "generations",
         "workflow_commands",
         "runtime_event_receipts",
         "runtime_outbox",

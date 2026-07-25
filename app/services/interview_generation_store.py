@@ -438,6 +438,27 @@ class PostgresInterviewGenerationStore:
                 )
                 return cursor.rowcount
 
+    def cleanup_completed_chunks_older_than(self, *, hours: int) -> int:
+        if hours < 1:
+            raise ValueError("retention hours must be positive")
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        DELETE FROM {chunks}
+                        USING {generations}
+                        WHERE {chunks}.generation_id =
+                              {generations}.generation_id
+                          AND {generations}.status = 'completed'
+                          AND {generations}.completed_at <
+                              NOW() - (%s * INTERVAL '1 hour')
+                        """
+                    ),
+                    (hours,),
+                )
+                return cursor.rowcount
+
     def delete_session_rows(self, session_id: str) -> int:
         with self._connection() as connection:
             with connection.cursor() as cursor:

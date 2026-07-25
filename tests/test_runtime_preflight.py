@@ -8,6 +8,7 @@ from scripts.runtime_preflight import (
     validate_langgraph_configuration,
     validate_registered_graph_versions,
     validate_langgraph_schema_snapshot,
+    validate_maintenance_configuration,
     validate_runtime_control_snapshot,
     validate_runtime_versions,
 )
@@ -194,3 +195,13 @@ def test_preflight_graph_registry_requires_exact_versions():
     assert validate_registered_graph_versions(
         "langgraph-v1", "langgraph-review-v1"
     ) == ["langgraph-v1", "langgraph-review-v1"]
+
+
+def test_maintenance_configuration_requires_positive_bounds():
+    assert validate_maintenance_configuration(
+        retention_hours=24, interval_seconds=3600
+    ) == {"retention_hours": 24, "interval_seconds": 3600}
+    with pytest.raises(PreflightError, match="maintenance interval"):
+        validate_maintenance_configuration(
+            retention_hours=24, interval_seconds=0
+        )

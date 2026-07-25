@@ -10,6 +10,7 @@ from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit
 
 from app.services.config import (
+    get_durable_workflow_maintenance_seconds,
     get_interview_chunk_retention_hours,
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
@@ -51,6 +52,19 @@ def validate_langgraph_configuration(
         "rollout_percent": rollout_percent,
         "strict_msgpack": True,
         "chunk_retention_hours": retention_hours,
+    }
+
+
+def validate_maintenance_configuration(
+    *, retention_hours: int, interval_seconds: int
+) -> dict[str, int]:
+    if retention_hours < 1:
+        raise PreflightError("chunk retention must be positive")
+    if interval_seconds < 1:
+        raise PreflightError("maintenance interval must be positive")
+    return {
+        "retention_hours": retention_hours,
+        "interval_seconds": interval_seconds,
     }
 
 
@@ -391,6 +405,10 @@ def main() -> int:
             rollout_percent=get_report_langgraph_rollout_percent(),
             strict_msgpack=os.getenv("LANGGRAPH_STRICT_MSGPACK", "true"),
             retention_hours=1,
+        )
+        result["durable_maintenance"] = validate_maintenance_configuration(
+            retention_hours=get_interview_chunk_retention_hours(),
+            interval_seconds=get_durable_workflow_maintenance_seconds(),
         )
         if should_check_langgraph_postgres(
             runtime_store=result["langgraph"]["runtime_store"],

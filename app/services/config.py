@@ -107,6 +107,10 @@ def get_interview_chunk_retention_hours() -> int:
     return _positive_int("INTERVIEW_CHUNK_RETENTION_HOURS", 24)
 
 
+def get_durable_workflow_maintenance_seconds() -> int:
+    return _positive_int("DURABLE_WORKFLOW_MAINTENANCE_SECONDS", 3600)
+
+
 def get_interview_langgraph_rollout_percent() -> int:
     raw = os.getenv("INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT", "0")
     try:
