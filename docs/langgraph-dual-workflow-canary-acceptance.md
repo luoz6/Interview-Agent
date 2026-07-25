@@ -1,6 +1,6 @@
 # LangGraph Dual-Workflow Canary Acceptance
 
-Status: PENDING_REPOSITORY_GATES
+Status: READY_FOR_OPERATOR_CANARY
 
 This record separates deterministic repository acceptance from an explicitly
 authorized deployed canary. Repository tests may prove readiness, but they do
@@ -11,27 +11,44 @@ observed.
 
 | Interview engine | Review engine | Repository gate |
 | --- | --- | --- |
-| `legacy` | `legacy` | Pending |
-| `langgraph-v1` | `legacy` | Pending |
-| `legacy` | `langgraph-review-v1` | Pending |
-| `langgraph-v1` | `langgraph-review-v1` | Pending |
+| `legacy` | `legacy` | PASS |
+| `langgraph-v1` | `legacy` | PASS |
+| `legacy` | `langgraph-review-v1` | PASS |
+| `langgraph-v1` | `langgraph-review-v1` | PASS |
 
 Engine assignments are immutable. Requeue and rollout changes must preserve
 the engine and graph version stored when the Session or Report Job was created.
 
 ## Repository Gates
 
-- Deterministic assignment matrix: PENDING.
-- PostgreSQL joint handoff and restart recovery: PENDING.
-- Browser refresh, reconnect, duplicate delivery, and joint handoff: PENDING.
-- Shared-saver namespace isolation: PENDING.
-- Runtime preflight at `0/0`, `1/0`, `0/1`, and `1/1`: PENDING.
-- Privacy and diagnostic allowlists: PENDING.
-- Full Python and Playwright regressions: PENDING.
+- Deterministic assignment matrix: PASS.
+- PostgreSQL joint handoff and restart recovery: PASS.
+- Review cold start before the first checkpoint: PASS.
+- Wrong-engine event discard: PASS.
+- Browser refresh, reconnect, duplicate delivery, and joint handoff: PASS.
+- Shared-saver namespace isolation: PASS.
+- Runtime preflight at `0/0`, `1/0`, `0/1`, and `1/1`: PASS.
+- Applied-command and completed-chunk maintenance: PASS.
+- Privacy and diagnostic allowlists: PASS.
+- Full Python and Playwright regressions: PASS.
 
-Repository completion changes this record only to
-`READY_FOR_OPERATOR_CANARY`. It does not change either committed rollout
+Repository completion has changed this record to
+`READY_FOR_OPERATOR_CANARY`. It has not changed either committed rollout
 default from zero.
+
+## Repository Evidence
+
+- Executed at: 2026-07-25T06:14:00Z
+- Implementation base: `c0839ce`
+- Combined focused acceptance: 134 passed, 0 skipped.
+- PostgreSQL Interview recovery: 10 passed.
+- Shared Durable Review regression: 98 passed.
+- Cross-workflow focused gate: 49 passed.
+- Full Python regression: 1055 passed, 1 skipped.
+- Full Playwright regression: 37 passed, 9 skipped.
+- Repository privacy: PASS.
+- Rollout/preflight sequence: `0/0 -> 1/0 -> 0/1 -> 1/1 -> 0/0`, PASS.
+- Deployed operator canary: NOT_RUN.
 
 ## Checkpoint Privacy Boundary
 

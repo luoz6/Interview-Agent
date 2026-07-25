@@ -30,3 +30,13 @@ Status: PASS
 
 Production rollout can proceed incrementally by increasing the rollout
 percentage after deployment preflight succeeds in the target environment.
+
+## Stage 45 Shared-Runtime Regression
+
+- Implementation base: `c0839ce`.
+- Focused Durable Review regression: 98 passed.
+- Combined focused dual-workflow acceptance: 134 passed, 0 skipped.
+- Full Python regression: 1055 passed, 1 skipped.
+- Full Playwright regression: 37 passed, 9 skipped.
+- Review-only and joint runtime preflight: PASS.
+- Durable Review status remains `PASS`; committed rollout remains zero.

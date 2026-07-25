@@ -11,19 +11,18 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_interview_acceptance_remains_pending_until_final_gates():
+def test_interview_acceptance_records_completed_final_gates():
     record = _read(INTERVIEW_RECORD)
 
-    assert "Status: PENDING_RECOVERY_ACCEPTANCE" in record
+    assert "Status: PASS" in record
     assert "Task 15" in record
     assert "operator rollout" in record.lower()
 
 
-def test_dual_canary_starts_pending_repository_gates():
+def test_dual_canary_is_ready_without_claiming_operator_execution():
     record = _read(DUAL_RECORD)
 
-    assert "Status: PENDING_REPOSITORY_GATES" in record
-    assert "READY_FOR_OPERATOR_CANARY" in record
+    assert "Status: READY_FOR_OPERATOR_CANARY" in record
     assert "Status: NOT_RUN" in record
     assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in record
     for combination in (
@@ -32,7 +31,7 @@ def test_dual_canary_starts_pending_repository_gates():
         ("`legacy`", "`langgraph-review-v1`"),
         ("`langgraph-v1`", "`langgraph-review-v1`"),
     ):
-        assert f"| {combination[0]} | {combination[1]} |" in record
+        assert f"| {combination[0]} | {combination[1]} | PASS |" in record
 
 
 def test_dual_canary_documents_privacy_and_deferred_boundaries():

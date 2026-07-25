@@ -1,6 +1,6 @@
 # LangGraph Interview Recovery Acceptance
 
-Status: PENDING_RECOVERY_ACCEPTANCE
+Status: PASS
 
 This record tracks the release gates for the versioned interview workflow.
 Legacy sessions remain on the legacy engine; only sessions assigned after
@@ -44,8 +44,7 @@ Task 14 status: PASS
 - Duplicate report jobs: 0
 - Privacy allowlist: PASS
 
-The overall release status remains pending until the browser, compatibility,
-operational, and full regression gates in Task 15 pass.
+The PostgreSQL recovery gate remains valid and was rerun during Task 15.
 
 ## Release Decision
 
@@ -54,12 +53,39 @@ runtime integration of `langgraph-review-v1`, including focused compatibility,
 browser recovery, operational privacy, full regression, and deterministic
 rollout/rollback checks.
 
-Only completion of every Task 15 repository gate changes this record to
-`Status: PASS`. A passing repository record makes the workflow eligible for an
-operator canary; it does not authorize or perform an operator rollout.
+Every Task 15 repository gate has completed. This record is `Status: PASS` and
+makes the workflow eligible for an operator canary; it does not authorize or
+perform an operator rollout.
 
 The Interview v1 checkpoint intentionally retains bounded conversation
 `messages` required to resume follow-up generation. Job-description, resume,
 evidence, provider, credential, lease, and internal operational content remains
 outside the checkpoint, and no message text may enter diagnostics or acceptance
 artifacts. Reference-only Interview messages require a future graph version.
+
+## Task 15 Final Repository Gate
+
+- Executed at: 2026-07-25T06:14:00Z
+- Implementation base: `c0839ce`
+- Focused Interview contracts: 76 passed.
+- PostgreSQL Interview recovery: 10 passed.
+- Recovery acceptance checks: 10 passed in 16.642 seconds.
+- Shared Durable Review regression: 98 passed.
+- Cross-workflow, privacy, maintenance, and preflight contracts: 49 passed.
+- Combined focused acceptance: 134 passed, 0 skipped.
+- Full Python regression: 1055 passed, 1 skipped.
+- Full Playwright regression: 37 passed, 9 skipped.
+- Static JavaScript checks: PASS.
+- Tailwind CSS build: PASS.
+- Runtime preflight `0/0`: PASS.
+- Runtime preflight `1/0`: PASS.
+- Runtime preflight `0/1`: PASS.
+- Runtime preflight `1/1`: PASS.
+- Assignment rollback to `0/0`: PASS.
+- Privacy allowlist: PASS.
+- Acknowledged command RPO: zero.
+- Duplicate Candidate/Interviewer messages: zero.
+- Duplicate logical Report Jobs/reports: zero.
+
+Both committed rollout defaults remain zero. Existing `langgraph-v1` threads
+remain resumable when new Interview assignment is disabled.

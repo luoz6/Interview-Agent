@@ -463,10 +463,9 @@ def test_docs_define_dual_langgraph_repository_and_operator_gates():
     review = read_text("docs/langgraph-durable-review-acceptance.md")
     dual = read_text("docs/langgraph-dual-workflow-canary-acceptance.md")
 
-    assert "Status: PENDING_RECOVERY_ACCEPTANCE" in interview
+    assert "Status: PASS" in interview
     assert "Status: PASS" in review
-    assert "Status: PENDING_REPOSITORY_GATES" in dual
-    assert "READY_FOR_OPERATOR_CANARY" in dual
+    assert "Status: READY_FOR_OPERATOR_CANARY" in dual
     assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in dual
     assert "assignment-only rollback" in dual
     assert "Cooperative SSE shutdown" in dual
