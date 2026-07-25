@@ -52,12 +52,13 @@ def test_run_once_uses_bounded_database_retention_methods():
     assert service.last_error_code is None
 
 
-def test_failed_pass_is_retryable_without_raising():
+def test_failed_pass_is_retryable_without_logging_private_detail(caplog):
     workflow = WorkflowStore(error=RuntimeError("private database detail"))
     service = make_service(workflow, GenerationStore())
 
     assert service.run_once() is None
     assert service.last_error_code == "durable_maintenance_failed"
+    assert "private database detail" not in caplog.text
 
     workflow.error = None
     assert service.run_once() is not None

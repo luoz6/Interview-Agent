@@ -86,7 +86,7 @@ class DurableWorkflowMaintenanceService:
             return result
         except Exception:
             self.last_error_code = "durable_maintenance_failed"
-            logger.exception(
+            logger.error(
                 "Durable workflow retention maintenance failed",
                 extra={"error_code": self.last_error_code},
             )
