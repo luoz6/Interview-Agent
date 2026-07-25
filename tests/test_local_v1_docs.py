@@ -465,7 +465,10 @@ def test_docs_define_dual_langgraph_repository_and_operator_gates():
 
     assert "Status: PASS" in interview
     assert "Status: PASS" in review
-    assert "Status: READY_FOR_OPERATOR_CANARY" in dual
+    assert "Status: PASS" in dual
+    assert "Status: PASS_LOCAL_SYNTHETIC" in dual
+    assert "Environment: Local V1" in dual
+    assert "Production Canary: NOT_RUN" in dual
     assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in dual
     assert "assignment-only rollback" in dual
     assert "Cooperative SSE shutdown" in dual

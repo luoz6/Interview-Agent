@@ -19,11 +19,18 @@ def test_interview_acceptance_records_completed_final_gates():
     assert "operator rollout" in record.lower()
 
 
-def test_dual_canary_is_ready_without_claiming_operator_execution():
+def test_dual_canary_records_local_pass_without_claiming_production_execution():
     record = _read(DUAL_RECORD)
 
-    assert "Status: READY_FOR_OPERATOR_CANARY" in record
-    assert "Status: NOT_RUN" in record
+    assert "Status: PASS" in record
+    assert "Status: PASS_LOCAL_SYNTHETIC" in record
+    assert "Environment: Local V1" in record
+    assert "Production Canary: NOT_RUN" in record
+    assert "Phase probes: 7 passed, 0 failed" in record
+    assert (
+        "Exact-ownership rollback/drain sample: 1 Interview and 1 Review Job"
+        in record
+    )
     assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in record
     for combination in (
         ("`legacy`", "`legacy`"),
@@ -54,6 +61,10 @@ def test_release_records_contain_no_infrastructure_or_fixture_secrets():
         "one durable answer",
         "browser-safe-input",
         "browser-safe-question",
+        "synthetic role",
+        "synthetic resume",
+        "deterministic answer",
+        "deterministic follow-up",
     )
 
     for value in forbidden:

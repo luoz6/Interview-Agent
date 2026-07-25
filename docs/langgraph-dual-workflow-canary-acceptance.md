@@ -1,11 +1,11 @@
 # LangGraph Dual-Workflow Canary Acceptance
 
-Status: READY_FOR_OPERATOR_CANARY
+Status: PASS
 
-This record separates deterministic repository acceptance from an explicitly
-authorized deployed canary. Repository tests may prove readiness, but they do
-not change rollout configuration or claim that production traffic was
-observed.
+This record separates deterministic repository acceptance and the explicitly
+authorized Local V1 synthetic Canary from a production deployment. Neither
+the repository gates nor the local observation changed committed rollout
+defaults or observed production traffic.
 
 ## Supported Engine Matrix
 
@@ -32,9 +32,10 @@ the engine and graph version stored when the Session or Report Job was created.
 - Privacy and diagnostic allowlists: PASS.
 - Full Python and Playwright regressions: PASS.
 
-Repository completion has changed this record to
-`READY_FOR_OPERATOR_CANARY`. It has not changed either committed rollout
-default from zero.
+Repository completion first moved this record to
+`READY_FOR_OPERATOR_CANARY`. The later Local V1 synthetic observation moved
+the record to `PASS` for the authorized local scope only. Neither step changed
+either committed rollout default from zero.
 
 ## Repository Evidence
 
@@ -48,7 +49,8 @@ default from zero.
 - Full Playwright regression: 37 passed, 9 skipped.
 - Repository privacy: PASS.
 - Rollout/preflight sequence: `0/0 -> 1/0 -> 0/1 -> 1/1 -> 0/0`, PASS.
-- Deployed operator canary: NOT_RUN.
+- Local V1 synthetic Canary: PASS.
+- Production Canary: NOT_RUN.
 
 ## Checkpoint Privacy Boundary
 
@@ -96,12 +98,34 @@ tool is read-only and never changes deployment configuration.
 
 ## Operator Observation
 
-Status: NOT_RUN
+Status: PASS_LOCAL_SYNTHETIC
 
-No deployed canary is authorized or claimed by this record. An operator may
-later move the record through `CANARY_IN_PROGRESS` to `PASS` or `ROLLED_BACK`
-after recording only sanitized UTC times, aggregate counts/rates, rollout
-pairs, stable reason codes, and a deployment revision.
+- Environment: Local V1.
+- Completed at: 2026-07-25T06:56:34Z.
+- Implementation base: `45a672a`.
+- Fixed phase sequence:
+  `0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0`.
+- Phase probes: 7 passed, 0 failed.
+- Exact-ownership rollback/drain sample: 1 Interview and 1 Review Job.
+- Stable business outcome: 1 Report Job, 1 Review Run, 1 final report; no
+  duplicate Candidate or Interviewer projection.
+- Post-rollback preflight: PASS at `0/0`.
+- Post-rollback privacy snapshot: PASS; no pending outbox work, stale durable
+  ownership, projection conflict, or report commit conflict.
+- Production Canary: NOT_RUN.
+
+The observation used isolated PostgreSQL test tables, deterministic synthetic
+inputs, and fake provider dependencies. It resumed the exact durable ownership
+created before rollback through newly constructed runtime objects after both
+assignment percentages returned to zero. It did not call a model, use real
+candidate traffic, modify committed defaults, or retain synthetic business
+rows after verification.
+
+No production Canary is authorized or claimed by this record. A production
+operator must create a separate observation record and may move that record
+through `CANARY_IN_PROGRESS` to `PASS` or `ROLLED_BACK` only after recording
+sanitized UTC times, aggregate counts/rates, rollout pairs, stable reason
+codes, and a deployment revision.
 
 ## Operator Runbook Contract
 
