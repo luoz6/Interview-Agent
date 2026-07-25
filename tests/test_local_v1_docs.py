@@ -456,3 +456,17 @@ def test_stage44b1_docs_record_passed_isolated_rc():
     assert "20260722T115946Z-stage44b1-zh" in record
     assert "Excluded-chunk violation rate | 0.00" in record
     assert "Production promotion requires a separate explicit operator approval" in record
+
+
+def test_docs_define_dual_langgraph_repository_and_operator_gates():
+    interview = read_text("docs/langgraph-interview-recovery-acceptance.md")
+    review = read_text("docs/langgraph-durable-review-acceptance.md")
+    dual = read_text("docs/langgraph-dual-workflow-canary-acceptance.md")
+
+    assert "Status: PENDING_RECOVERY_ACCEPTANCE" in interview
+    assert "Status: PASS" in review
+    assert "Status: PENDING_REPOSITORY_GATES" in dual
+    assert "READY_FOR_OPERATOR_CANARY" in dual
+    assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in dual
+    assert "assignment-only rollback" in dual
+    assert "Cooperative SSE shutdown" in dual

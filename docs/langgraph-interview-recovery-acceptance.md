@@ -46,3 +46,20 @@ Task 14 status: PASS
 
 The overall release status remains pending until the browser, compatibility,
 operational, and full regression gates in Task 15 pass.
+
+## Release Decision
+
+Task 14 recovery evidence remains valid. Task 15 must be rerun after the shared
+runtime integration of `langgraph-review-v1`, including focused compatibility,
+browser recovery, operational privacy, full regression, and deterministic
+rollout/rollback checks.
+
+Only completion of every Task 15 repository gate changes this record to
+`Status: PASS`. A passing repository record makes the workflow eligible for an
+operator canary; it does not authorize or perform an operator rollout.
+
+The Interview v1 checkpoint intentionally retains bounded conversation
+`messages` required to resume follow-up generation. Job-description, resume,
+evidence, provider, credential, lease, and internal operational content remains
+outside the checkpoint, and no message text may enter diagnostics or acceptance
+artifacts. Reference-only Interview messages require a future graph version.

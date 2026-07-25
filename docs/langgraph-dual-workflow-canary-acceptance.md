@@ -1,0 +1,95 @@
+# LangGraph Dual-Workflow Canary Acceptance
+
+Status: PENDING_REPOSITORY_GATES
+
+This record separates deterministic repository acceptance from an explicitly
+authorized deployed canary. Repository tests may prove readiness, but they do
+not change rollout configuration or claim that production traffic was
+observed.
+
+## Supported Engine Matrix
+
+| Interview engine | Review engine | Repository gate |
+| --- | --- | --- |
+| `legacy` | `legacy` | Pending |
+| `langgraph-v1` | `legacy` | Pending |
+| `legacy` | `langgraph-review-v1` | Pending |
+| `langgraph-v1` | `langgraph-review-v1` | Pending |
+
+Engine assignments are immutable. Requeue and rollout changes must preserve
+the engine and graph version stored when the Session or Report Job was created.
+
+## Repository Gates
+
+- Deterministic assignment matrix: PENDING.
+- PostgreSQL joint handoff and restart recovery: PENDING.
+- Browser refresh, reconnect, duplicate delivery, and joint handoff: PENDING.
+- Shared-saver namespace isolation: PENDING.
+- Runtime preflight at `0/0`, `1/0`, `0/1`, and `1/1`: PENDING.
+- Privacy and diagnostic allowlists: PENDING.
+- Full Python and Playwright regressions: PENDING.
+
+Repository completion changes this record only to
+`READY_FOR_OPERATOR_CANARY`. It does not change either committed rollout
+default from zero.
+
+## Checkpoint Privacy Boundary
+
+The Interview v1 checkpoint intentionally contains bounded conversation
+`messages` so follow-up generation can resume without rebuilding context from
+a mutable projection. It excludes job descriptions, resumes, evidence content,
+provider payloads, credentials, leases, and internal operational metadata.
+Message text must never be exported through diagnostics, logs, canary
+snapshots, or acceptance artifacts.
+
+Review checkpoints remain reference/hash only and contain no answer, feedback,
+evidence, report, or provider text. Moving Interview messages to a
+reference-only model requires a new graph version and is post-Stage-45 work.
+
+## Operator Canary Sequence
+
+The only approved initial sequence is:
+
+```text
+0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0
+```
+
+The first value is the percentage of newly created Interviews assigned to
+`langgraph-v1`; the second is the percentage of newly created Report Jobs
+assigned to `langgraph-review-v1`. Returning to zero changes new assignment
+only. Both graph versions, the saver, and their consumers remain available for
+already assigned work.
+
+## Canary Stop Gates
+
+Correctness or privacy failures require an assignment-only rollback:
+
+- acknowledged command loss;
+- duplicate Candidate or Interviewer projection;
+- duplicate Report Job or final report;
+- public state-version regression;
+- stale retry cursor advancement;
+- conflicting final report digest acceptance;
+- unknown graph-version fallback;
+- prohibited content in diagnostics or acceptance evidence.
+
+Backlog, latency, retry, fallback, repair, or terminal-failure thresholds block
+promotion and require an explicit hold-or-rollback decision. The canary status
+tool is read-only and never changes deployment configuration.
+
+## Operator Observation
+
+Status: NOT_RUN
+
+No deployed canary is authorized or claimed by this record. An operator may
+later move the record through `CANARY_IN_PROGRESS` to `PASS` or `ROLLED_BACK`
+after recording only sanitized UTC times, aggregate counts/rates, rollout
+pairs, stable reason codes, and a deployment revision.
+
+## Deferred Versioned Work
+
+- Reference-only or application-encrypted Interview message state requires
+  `langgraph-v2` and new recovery acceptance.
+- Cooperative SSE shutdown requires a separate transport-lifecycle change;
+  Stage 45 proves durable reconnect after forced disconnect.
+- Legacy retirement requires a separate approval and zero active ownership.
