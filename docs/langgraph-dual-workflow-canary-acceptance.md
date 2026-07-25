@@ -86,6 +86,18 @@ later move the record through `CANARY_IN_PROGRESS` to `PASS` or `ROLLED_BACK`
 after recording only sanitized UTC times, aggregate counts/rates, rollout
 pairs, stable reason codes, and a deployment revision.
 
+## Operator Runbook Contract
+
+Before this record can move to `CANARY_IN_PROGRESS`, an operator must verify
+repository acceptance, identify the target environment, supply infrastructure
+configuration through secret management, and approve the fixed sequential
+matrix. The read-only Canary CLI never applies rollout or rollback.
+
+Rollback changes new assignment only. Both runtime-enabled settings, graph
+registrations, consumers, and the shared saver remain available until all
+assigned durable ownership has drained. No active durable control or content
+rows are deleted during rollback.
+
 ## Deferred Versioned Work
 
 - Reference-only or application-encrypted Interview message state requires

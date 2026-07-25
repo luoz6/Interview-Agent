@@ -470,3 +470,26 @@ def test_docs_define_dual_langgraph_repository_and_operator_gates():
     assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in dual
     assert "assignment-only rollback" in dual
     assert "Cooperative SSE shutdown" in dual
+
+
+def test_docs_define_safe_dual_langgraph_canary_and_rollback():
+    env = read_text(".env.example")
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    dual = read_text("docs/langgraph-dual-workflow-canary-acceptance.md")
+
+    for expected in (
+        "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0",
+        "REPORT_LANGGRAPH_ROLLOUT_PERCENT=0",
+        "INTERVIEW_LANGGRAPH_RUNTIME_ENABLED=true",
+        "REPORT_LANGGRAPH_RUNTIME_ENABLED=true",
+        "DURABLE_WORKFLOW_MAINTENANCE_SECONDS=3600",
+    ):
+        assert expected in env
+        assert expected in runbook
+    for document in (readme, runbook, dual):
+        assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in document
+        assert "assignment" in document
+    assert "python -m scripts.langgraph_canary snapshot" in runbook
+    assert "python -m scripts.langgraph_canary evaluate" in runbook
+    assert "never changes deployment configuration" in runbook

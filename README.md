@@ -61,6 +61,17 @@ that assignment. The durable review graph reuses matching question projections,
 bounds question fan-out and quality repair, and resumes provider retries from
 the PostgreSQL checkpointer.
 
+The two durable engines are released independently. Repository acceptance uses
+the fixed `0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0` matrix to prove
+assignment and rollback, but it leaves both committed rollout defaults at
+zero. Rollback affects only new assignment; already assigned Interview and
+Review threads keep their graph version, saver, consumers, and retry support.
+Use `python -m scripts.langgraph_canary snapshot` for an aggregate read-only
+view and `python -m scripts.langgraph_canary evaluate` for stable hold/rollback
+reasons. See `docs/langgraph-dual-workflow-canary-acceptance.md` and the Dual
+LangGraph Canary section of `docs/local-v1-runbook.md` before any deployed
+canary.
+
 ## Prerequisites
 
 - Python 3.11

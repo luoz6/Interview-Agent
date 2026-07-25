@@ -461,3 +461,77 @@ workers and the `langgraph-review-v1` graph must stay available for already
 assigned jobs.
 
 See `docs/langgraph-durable-review-acceptance.md` for the release gates.
+
+## Dual LangGraph Canary and Assignment-Only Rollback
+
+Do not start a deployed canary until all three repository records are ready:
+
+- `docs/langgraph-interview-recovery-acceptance.md` is `PASS`;
+- `docs/langgraph-durable-review-acceptance.md` is `PASS`;
+- `docs/langgraph-dual-workflow-canary-acceptance.md` is
+  `READY_FOR_OPERATOR_CANARY`.
+
+The target environment must use PostgreSQL, strict msgpack, both registered
+graph versions, healthy Interview/Review consumers, and the durable maintenance
+service. Supply `POSTGRES_DSN` through deployment secret management and run:
+
+```powershell
+$env:INTERVIEW_RUNTIME_STORE='postgres'
+python -m scripts.runtime_preflight --profile core
+python -m scripts.langgraph_canary snapshot --window-minutes 60
+```
+
+The initial canary sequence is fixed and requires an explicit hold-point
+decision between phases:
+
+```text
+0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0
+```
+
+The first value is `INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT`; the second is
+`REPORT_LANGGRAPH_ROLLOUT_PERCENT`. At every phase:
+
+1. run core preflight before applying configuration;
+2. apply only the two assignment percentages;
+3. capture a sanitized canary snapshot;
+4. observe until both the operator-defined minimum duration and sample are met;
+5. run `python -m scripts.langgraph_canary evaluate --window-minutes 60`;
+6. explicitly hold, roll back, or continue;
+7. return to `0/0` between the independent Interview and Review experiments;
+8. prove already assigned durable work still finishes after rollback.
+
+Correctness and privacy stop signals—including acknowledged command loss,
+duplicate business projection, public version regression, and unknown graph
+version—are supplied only as stable codes:
+
+```powershell
+python -m scripts.langgraph_canary evaluate `
+  --window-minutes 60 `
+  --external-stop-signal acknowledged_command_loss
+```
+
+The command is read-only. It returns `ROLL_BACK`, `HOLD`, or
+`ELIGIBLE_TO_CONTINUE`; it never changes deployment configuration.
+
+Rollback sets the affected new-assignment percentage to zero. It must not:
+
+- disable either durable runtime while assigned work exists;
+- stop the PostgreSQL saver or runtime consumers;
+- unregister `langgraph-v1` or `langgraph-review-v1`;
+- rewrite `workflow_engine`, `review_engine`, or graph-version columns;
+- requeue Durable work as Legacy;
+- purge active checkpoints, generations, commands, chunks, or Review artifacts.
+
+Keep these committed defaults:
+
+```text
+INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0
+REPORT_LANGGRAPH_ROLLOUT_PERCENT=0
+INTERVIEW_LANGGRAPH_RUNTIME_ENABLED=true
+REPORT_LANGGRAPH_RUNTIME_ENABLED=true
+DURABLE_WORKFLOW_MAINTENANCE_SECONDS=3600
+```
+
+Repository acceptance does not authorize a deployed 1% canary. Record deployed
+observations only after the operator explicitly identifies the environment and
+authorizes configuration changes.
