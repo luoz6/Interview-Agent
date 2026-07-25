@@ -22,7 +22,8 @@ from app.services.interview_workflow_store import (
 from app.services.langgraph_runtime import PostgresCheckpointerRuntime
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
-from tests.test_postgres_session_store import make_plan, require_dsn
+from tests.postgres_support import require_postgres_dsn as require_dsn
+from tests.test_postgres_session_store import make_plan
 
 
 pytestmark = pytest.mark.langgraph_recovery

@@ -1,4 +1,3 @@
-import os
 from uuid import uuid4
 
 import pytest
@@ -6,16 +5,10 @@ import pytest
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report_jobs import PostgresReportJobStore
+from tests.postgres_support import require_postgres_dsn as require_dsn
 
 
 pytestmark = pytest.mark.pg_jobs
-
-
-def require_dsn():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required for pg_jobs tests")
-    return dsn
 
 
 def make_table_prefix():

@@ -124,6 +124,30 @@ class PostgresInterviewWorkflowStore:
             with connection.cursor() as cursor:
                 return self._get_command(cursor, session_id, command_id)
 
+    def get_command_or_none(
+        self, session_id: str, command_id: str
+    ) -> InterviewCommandRecord | None:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT session_id, command_id, command_type,
+                               expected_version, answer_text, payload_sha256,
+                               status, result_state_version, error_code
+                        FROM {commands}
+                        WHERE session_id = %s AND command_id = %s
+                        """
+                    ),
+                    (session_id, command_id),
+                )
+                row = cursor.fetchone()
+                return (
+                    InterviewCommandRecord(*row)
+                    if row is not None
+                    else None
+                )
+
     def mark_command_applied(
         self, session_id: str, command_id: str, state_version: int
     ) -> None:

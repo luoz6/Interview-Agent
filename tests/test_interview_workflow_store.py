@@ -107,6 +107,15 @@ def test_duplicate_command_with_changed_payload_is_rejected(workflow_store):
         )
 
 
+def test_missing_command_lookup_returns_none(workflow_store):
+    assert (
+        workflow_store.get_command_or_none(
+            workflow_store.session_id, "missing-command"
+        )
+        is None
+    )
+
+
 def test_applied_command_payload_can_be_cleared(workflow_store):
     command = workflow_store.enqueue_command(
         session_id=workflow_store.session_id,

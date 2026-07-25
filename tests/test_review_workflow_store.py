@@ -1,4 +1,3 @@
-import os
 from uuid import uuid4
 
 import pytest
@@ -11,16 +10,10 @@ from app.services.review_workflow_store import (
     PostgresReviewWorkflowStore,
     ReportCommitConflict,
 )
+from tests.postgres_support import require_postgres_dsn as require_dsn
 
 
 pytestmark = pytest.mark.pg_jobs
-
-
-def require_dsn():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required")
-    return dsn
 
 
 @pytest.fixture

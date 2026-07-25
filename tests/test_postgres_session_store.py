@@ -1,4 +1,3 @@
-import os
 from uuid import uuid4
 
 import pytest
@@ -26,16 +25,10 @@ from tests.test_knowledge_binding_resolver import (
     make_repository as make_binding_repository,
     make_v2_plan as make_bound_v2_plan,
 )
+from tests.postgres_support import require_postgres_dsn as require_dsn
 
 
 pytestmark = pytest.mark.pg_runtime
-
-
-def require_dsn():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required for pg_runtime tests")
-    return dsn
 
 
 def make_table_prefix():

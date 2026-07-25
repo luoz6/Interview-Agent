@@ -1,4 +1,3 @@
-import os
 from uuid import uuid4
 
 import pytest
@@ -13,6 +12,7 @@ from app.services.review_workflow import ReviewWorkflowService
 from app.services.review_workflow_store import PostgresReviewWorkflowStore
 from tests.test_durable_review_graph import FakeStore
 from tests.test_durable_review_state import make_finished_state, make_job
+from tests.postgres_support import require_postgres_dsn
 
 
 pytestmark = pytest.mark.langgraph_review_recovery
@@ -29,9 +29,7 @@ pytestmark = pytest.mark.langgraph_review_recovery
     ],
 )
 def test_graph_node_process_loss_replays_to_one_business_result(fault_point):
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required")
+    dsn = require_postgres_dsn()
     runtime = PostgresCheckpointerRuntime(dsn)
     saver = runtime.start()
     thread_id = f"review:fault-{fault_point}-{uuid4().hex}"
@@ -73,9 +71,7 @@ def test_graph_node_process_loss_replays_to_one_business_result(fault_point):
 
 
 def test_provider_retry_survives_saver_restart(monkeypatch):
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required")
+    dsn = require_postgres_dsn()
     monkeypatch.setenv("REPORT_LANGGRAPH_ROLLOUT_PERCENT", "100")
     prefix = "test_review_recovery_" + uuid4().hex[:12]
     session_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=prefix)

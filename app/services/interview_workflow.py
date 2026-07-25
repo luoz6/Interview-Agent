@@ -111,6 +111,16 @@ class InterviewWorkflowService:
             return getattr(self.legacy_store, command_type)(
                 session_id, **kwargs
             )
+        if state.get("status") == "finished":
+            existing = (
+                self.workflow_store.get_command_or_none(
+                    session_id, command_id
+                )
+                if command_id
+                else None
+            )
+            if existing is None:
+                raise ValueError("interview is already finished")
         if expected_version is None:
             raise ValueError("expected_version is required")
         command_id = command_id or f"command-{uuid4().hex}"
