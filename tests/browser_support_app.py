@@ -34,6 +34,7 @@ from app.services.report import (
 )
 from app.services.report_microbatch import generate_microbatch_report
 from app.services.session import InterviewSessionStore
+from app.services.session_errors import SessionVersionConflict
 
 
 class BrowserTestLLM:
@@ -130,8 +131,14 @@ class BrowserReportJobStore:
     def __init__(self, store: InterviewSessionStore) -> None:
         self.store = store
         self.jobs = {}
+        self.enqueue_counts = {}
 
     def enqueue_report_request(self, session_id: str) -> dict:
+        if session_id in self.jobs:
+            return dict(self.jobs[session_id])
+        self.enqueue_counts[session_id] = (
+            self.enqueue_counts.get(session_id, 0) + 1
+        )
         self.store.mark_report_processing(session_id)
         state = self.store.get(session_id)
         report = generate_microbatch_report(
@@ -332,6 +339,7 @@ class FakeDurableWorkflow:
         self.state_versions: dict[str, int] = {}
         self.command_sessions: dict[str, str] = {}
         self.disconnect_once_commands: set[str] = set()
+        self.report_job_store = None
 
     def seed(self, session_id: str, *, mode: str) -> None:
         state = self.session_store.get(session_id)
@@ -339,7 +347,7 @@ class FakeDurableWorkflow:
         state["graph_schema_version"] = "langgraph-v1"
         state["state_version"] = 1
         self.state_versions[session_id] = 1
-        if mode == "duplicate":
+        if mode in {"duplicate", "version-conflict", "duplicate-finish"}:
             return
         command_id = f"browser-durable-{session_id}"
         generation_id = f"browser-generation-{session_id}"
@@ -415,6 +423,47 @@ class FakeDurableWorkflow:
         answer_text: str | None = None,
     ) -> AcceptedInterviewCommand:
         command_id = command_id or f"browser-command-{uuid4().hex}"
+        if command_id in self.command_status:
+            return AcceptedInterviewCommand(
+                session_id=session_id,
+                command_id=command_id,
+                stream_url=(
+                    f"/api/interviews/{session_id}/commands/"
+                    f"{command_id}/stream"
+                ),
+            )
+        actual_version = self.state_versions.get(session_id, 0)
+        if (
+            expected_version is not None
+            and expected_version != actual_version
+        ):
+            raise SessionVersionConflict(
+                expected_version=expected_version,
+                actual_version=actual_version,
+            )
+        if command_type == "finish":
+            self.command_status[command_id] = "applied"
+            self.command_sessions[command_id] = session_id
+            state = deepcopy(self.session_store.get(session_id))
+            state["status"] = "finished"
+            state["phase"] = "review"
+            state["phase_status"] = "completed"
+            state["current_index"] = len(state["plan"].questions)
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            state["state_version"] = self.state_versions[session_id] = (
+                actual_version + 1
+            )
+            self.session_store._sessions[session_id] = state
+            if self.report_job_store is not None:
+                self.report_job_store.enqueue_report_request(session_id)
+            return AcceptedInterviewCommand(
+                session_id=session_id,
+                command_id=command_id,
+                stream_url=(
+                    f"/api/interviews/{session_id}/commands/"
+                    f"{command_id}/stream"
+                ),
+            )
         if command_id not in self.command_generations:
             generation_id = f"browser-generation-{command_id}"
             self.command_generations[command_id] = generation_id
@@ -673,6 +722,7 @@ store = InterviewSessionStore(llm=browser_llm)
 publisher = NoopRuntimeEventPublisher()
 job_store = BrowserReportJobStore(store)
 durable_workflow = FakeDurableWorkflow(store)
+durable_workflow.report_job_store = job_store
 
 original_report_job_dependency = route_module.get_report_job_store
 original_report_queue_dependency = route_module.get_report_job_queue
@@ -694,7 +744,14 @@ def browser_prep_run_id(session_id: str):
 
 @app.post("/test-support/langgraph/{mode}")
 def seed_langgraph_interview(mode: str):
-    if mode not in {"refresh", "replacement", "duplicate"}:
+    if mode not in {
+        "refresh",
+        "replacement",
+        "duplicate",
+        "version-conflict",
+        "duplicate-finish",
+        "legacy",
+    }:
         raise HTTPException(status_code=422, detail="unsupported recovery mode")
     plan = browser_llm.generate_plan("Backend engineer", "Redis project")
     turn = store.start(
@@ -703,7 +760,8 @@ def seed_langgraph_interview(mode: str):
         resume_text="Redis project",
         job_tags=["Redis", "Backend"],
     )
-    durable_workflow.seed(turn.session_id, mode=mode)
+    if mode != "legacy":
+        durable_workflow.seed(turn.session_id, mode=mode)
     command_id = next(
         (
             command
@@ -717,7 +775,61 @@ def seed_langgraph_interview(mode: str):
         "mode": mode,
         "command_id": command_id,
         "generation_id": durable_workflow.command_generations.get(command_id),
+        "state_version": (
+            durable_workflow.state_versions.get(turn.session_id)
+            if mode != "legacy"
+            else store.get(turn.session_id)["state_version"]
+        ),
     }
+
+
+@app.get("/test-support/langgraph/{session_id}/stats")
+def langgraph_interview_stats(session_id: str):
+    state = store.get(session_id)
+    commands = [
+        command_id
+        for command_id, value in durable_workflow.command_sessions.items()
+        if value == session_id
+    ]
+    return {
+        "session_id": session_id,
+        "status": state["status"],
+        "state_version": state["state_version"],
+        "command_count": len(commands),
+        "candidate_message_count": sum(
+            1 for item in state["messages"] if item["role"] == "candidate"
+        ),
+        "interviewer_message_count": sum(
+            1 for item in state["messages"] if item["role"] == "interviewer"
+        ),
+        "report_job_count": job_store.enqueue_counts.get(session_id, 0),
+    }
+
+
+@app.delete("/test-support/langgraph/{session_id}")
+def delete_seeded_langgraph_interview(session_id: str):
+    command_ids = [
+        command_id
+        for command_id, value in durable_workflow.command_sessions.items()
+        if value == session_id
+    ]
+    for command_id in command_ids:
+        generation_id = durable_workflow.command_generations.pop(
+            command_id, None
+        )
+        if generation_id is not None:
+            durable_workflow.generation_store.generations.pop(
+                generation_id, None
+            )
+        durable_workflow.command_sessions.pop(command_id, None)
+        durable_workflow.command_status.pop(command_id, None)
+    durable_workflow.state_versions.pop(session_id, None)
+    store._reports.pop(session_id, None)
+    store._question_evaluations.pop(session_id, None)
+    store._sessions.pop(session_id, None)
+    job_store.jobs.pop(session_id, None)
+    job_store.enqueue_counts.pop(session_id, None)
+    return {"session_id": session_id, "deleted": True}
 
 
 @app.post("/test-support/reports/{status}")
@@ -787,4 +899,20 @@ def delete_seeded_report(session_id: str):
     store._question_evaluations.pop(session_id, None)
     store._sessions.pop(session_id, None)
     job_store.jobs.pop(session_id, None)
+    job_store.enqueue_counts.pop(session_id, None)
     return {"session_id": session_id, "deleted": True}
+
+
+@app.post("/test-support/reports/{session_id}/deliver")
+def redeliver_seeded_report(session_id: str):
+    job = job_store.jobs.get(session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="seeded report not found")
+    before = dict(job)
+    job_store.jobs[session_id] = dict(before)
+    return {
+        "session_id": session_id,
+        "job_id": before["job_id"],
+        "logical_job_count": 1,
+        "status": before["status"],
+    }
