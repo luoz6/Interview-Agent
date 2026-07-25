@@ -19,10 +19,13 @@ class InterviewWorkflowConsumer:
 
     def consume(self, payload: dict) -> ConsumerOutcome:
         event_type = payload["event_type"]
+        session_id = payload["session_id"]
+        if not self.workflow.is_durable_session(session_id):
+            return ConsumerOutcome("discarded_wrong_engine")
         config = {
-            "configurable": {"thread_id": payload["session_id"]}
+            "configurable": {"thread_id": session_id}
         }
-        graph = self.workflow.graph_for_session(payload["session_id"])
+        graph = self.workflow.graph_for_session(session_id)
         if event_type == "interview_command_ready":
             event = InterviewCommandReadyEvent.model_validate(payload)
             resume = {

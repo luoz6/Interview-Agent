@@ -82,6 +82,16 @@ class InterviewWorkflowService:
     def graph_for_version(self, version: str):
         return self.graph_registry.get(version)
 
+    def is_durable_session(self, session_id: str) -> bool:
+        try:
+            state = self.legacy_store.get(session_id)
+        except ValueError:
+            return False
+        return (
+            state.get("workflow_engine") == "langgraph-v1"
+            and bool(state.get("graph_schema_version"))
+        )
+
     def graph_for_session(self, session_id: str):
         state = self.legacy_store.get(session_id)
         version = state.get("graph_schema_version")

@@ -379,7 +379,15 @@ def build_review_workflow_service():
     version = get_report_langgraph_version()
     registry = VersionedGraphRegistry()
     registry.register(version, build_durable_review_graph(deps, checkpointer=checkpointer.start()))
-    return ReviewWorkflowService(session_store=store, workflow_store=workflow_store, graph_registry=registry, checkpointer_runtime=checkpointer)
+    job_store = get_report_job_store()
+    return ReviewWorkflowService(
+        session_store=store,
+        workflow_store=workflow_store,
+        graph_registry=registry,
+        checkpointer_runtime=checkpointer,
+        job_store=job_store,
+        lease_seconds=job_store.lease_seconds,
+    )
 
 
 def get_review_workflow_service():

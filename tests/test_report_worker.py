@@ -164,7 +164,11 @@ def test_durable_job_is_owned_by_review_workflow():
     }
     job_store = FakeJobStore(claimed_job=job)
     calls = []
-    workflow = SimpleNamespace(run_claimed_job=lambda claimed: calls.append(claimed))
+    workflow = SimpleNamespace(
+        run_claimed_job=lambda claimed, **kwargs: calls.append(
+            (claimed, kwargs)
+        )
+    )
 
     result = run_one_job(
         job_store=job_store,
@@ -174,7 +178,7 @@ def test_durable_job_is_owned_by_review_workflow():
     )
 
     assert result == job
-    assert calls == [job]
+    assert calls == [(job, {"worker_id": "worker-1"})]
     assert job_store.completed_calls == []
     assert job_store.retry_calls == []
 

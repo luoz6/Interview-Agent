@@ -34,7 +34,7 @@ def run_one_job(
 
     if job.get("review_engine") == "langgraph-review-v1":
         workflow = review_workflow or get_review_workflow_service()
-        workflow.run_claimed_job(job)
+        workflow.run_claimed_job(job, worker_id=worker_id)
         return job_store.get_job(job["job_id"])
 
     try:

@@ -97,7 +97,8 @@ class PostgresReviewWorkflowStore:
                 if cursor.rowcount != 1:
                     raise ValueError("report record not found")
                 cursor.execute(self._sql("""
-                    UPDATE {jobs} SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL,
+                    UPDATE {jobs} SET status = 'completed', lease_owner = NULL,
+                        lease_token = NULL, lease_expires_at = NULL,
                         finished_at = NOW(), updated_at = NOW() WHERE job_id = %s::uuid
                 """), (job_id,))
                 cursor.execute(self._sql("""
@@ -151,7 +152,8 @@ class PostgresReviewWorkflowStore:
                 """), (error_code, job_id))
                 cursor.execute(self._sql("""
                     UPDATE {jobs} SET status = 'failed', last_error_code = %s,
-                        lease_owner = NULL, lease_expires_at = NULL, finished_at = NOW(), updated_at = NOW()
+                        lease_owner = NULL, lease_token = NULL,
+                        lease_expires_at = NULL, finished_at = NOW(), updated_at = NOW()
                     WHERE job_id = %s::uuid
                 """), (error_code, job_id))
                 cursor.execute(self._sql("""

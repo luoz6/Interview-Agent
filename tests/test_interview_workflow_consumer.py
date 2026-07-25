@@ -30,6 +30,10 @@ class FakeGraph:
 class FakeWorkflow:
     def __init__(self):
         self.graph = FakeGraph()
+        self.durable = True
+
+    def is_durable_session(self, session_id):
+        return self.durable
 
     def graph_for_session(self, session_id):
         return self.graph
@@ -83,4 +87,20 @@ def test_duplicate_retry_event_is_discarded_before_graph_invoke():
     )
 
     assert outcome.status == "discarded_stale_retry"
+    assert consumer.graph.invocations == []
+
+
+def test_wrong_engine_event_is_discarded_before_graph_lookup():
+    consumer = make_consumer()
+    consumer.workflow.durable = False
+
+    outcome = consumer.consume(
+        InterviewRetryDueEvent(
+            session_id="legacy-session",
+            generation_id="gen-1",
+            next_attempt_number=2,
+        ).model_dump()
+    )
+
+    assert outcome.status == "discarded_wrong_engine"
     assert consumer.graph.invocations == []

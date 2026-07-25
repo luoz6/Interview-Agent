@@ -239,6 +239,33 @@ def test_claim_marks_job_running(stores):
     assert claimed is not None
     assert claimed["status"] == "running"
     assert claimed["lease_owner"] == "worker-1"
+    assert claimed["lease_token"]
+    assert stores["job_store"].assert_lease(
+        claimed["job_id"],
+        worker_id="worker-1",
+        lease_token=claimed["lease_token"],
+    )
+
+
+def test_report_lease_token_fences_stale_worker(stores):
+    session_id = create_session(stores["session_store"])
+    stores["job_store"].enqueue_report_request(session_id=session_id)
+    first = stores["job_store"].claim_next(
+        worker_id="worker-1", lease_seconds=-1
+    )
+    second = stores["job_store"].claim_next(worker_id="worker-2")
+
+    assert first["lease_token"] != second["lease_token"]
+    assert not stores["job_store"].heartbeat(
+        first["job_id"],
+        worker_id="worker-1",
+        lease_token=first["lease_token"],
+    )
+    assert stores["job_store"].heartbeat(
+        second["job_id"],
+        worker_id="worker-2",
+        lease_token=second["lease_token"],
+    )
 
 
 def test_expired_running_job_can_be_reclaimed(stores):
