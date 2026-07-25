@@ -950,4 +950,7 @@ def test_reference_ui_desktop_browser_acceptance_is_wired_to_test_support():
     assert "page.setViewportSize({ width: 1440, height: 1000 })" in spec
     assert "page.setViewportSize({ width: 1280, height: 800 })" in spec
     assert '@app.post("/test-support/reports/{status}")' in support
-    assert 'status not in {"processing", "failed"}' in support
+    assert (
+        'status not in {"processing", "failed", "durable-processing", '
+        '"durable-failed"}'
+    ) in support
