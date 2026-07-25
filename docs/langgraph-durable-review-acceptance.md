@@ -33,7 +33,7 @@ percentage after deployment preflight succeeds in the target environment.
 
 ## Stage 45 Shared-Runtime Regression
 
-- Implementation base: `c0839ce`.
+- Implementation base: `119d078`.
 - Focused Durable Review regression: 98 passed.
 - Combined focused dual-workflow acceptance: 134 passed, 0 skipped.
 - Full Python regression: 1055 passed, 1 skipped.
