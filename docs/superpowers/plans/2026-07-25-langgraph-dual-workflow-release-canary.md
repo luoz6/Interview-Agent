@@ -68,6 +68,15 @@ This stage covers:
 - Do not expose Session IDs, Job IDs, command payloads, answers, chunks,
   feedback, evidence, hashes, checkpoint IDs, DSNs, or credentials in canary
   status output or committed acceptance artifacts.
+- Do not treat the bounded `messages` content intentionally stored in
+  `DurableInterviewState` as a Stage 45 privacy regression. Interview v1 needs
+  that conversation context to resume follow-up generation. Externalizing or
+  encrypting message content requires a new graph schema version and is tracked
+  as post-Stage-45 work.
+- Do not redesign the SSE transport shutdown protocol in this stage. An active
+  polling iterator can be disconnected during process shutdown; durable event
+  replay must make reconnect correct. Cooperative SSE shutdown is tracked as a
+  separate transport-lifecycle improvement.
 - Do not automatically promote rollout above zero from application code,
   migrations, test scripts, CI, or preflight.
 - Do not mark an operator canary `PASS` merely because repository tests pass.
@@ -132,6 +141,34 @@ This stage covers:
     registry, saver lifecycle, outbox routing, report assignment, or shared
     preflight requires its focused regression gate before release.
 
+13. **Interview checkpoint content has an explicit v1 privacy boundary.**
+    `DurableInterviewState.messages` contains bounded conversation text by
+    design so generation can resume without rebuilding history from mutable
+    projections. JD text, resume text, evidence content, provider payloads,
+    credentials, leases, and internal checkpoint metadata remain prohibited.
+    Diagnostics and acceptance artifacts must never export message text. A
+    reference-only message state is a future `langgraph-v2` decision and cannot
+    be introduced by mutating `langgraph-v1` in place.
+
+14. **Retention requires an executing owner, not only store methods.** Stage 45
+    adds a bounded maintenance service that invokes completed-generation chunk
+    cleanup and applied-command payload clearing at startup and periodically.
+    It uses database time, never deletes active/retrying generations, and shuts
+    down with the runtime.
+
+15. **Consumers reject wrong-engine work explicitly.** Review and Interview
+    consumers return a stable discarded outcome for missing, Legacy, stale, or
+    mismatched events before resolving or invoking a graph. Wrong-engine
+    outbox events must not become dead letters through an implicit
+    `graph_for_session()` exception.
+
+16. **A Review cold start is lease-guarded and replay-idempotent.** A worker
+    initializes the unique Review Run under a valid Report Job lease before
+    invoking an empty thread. The lease is heartbeated during graph execution.
+    If a worker dies before the first checkpoint, the next valid claimant may
+    rebuild the same deterministic initial state; business projections and the
+    final digest commit remain idempotent.
+
 ## Release State Model
 
 ```text
@@ -194,6 +231,13 @@ The canary record must name, without embedding infrastructure values:
 - correctness, privacy, backlog, and latency stop gates;
 - the distinction between `READY_FOR_OPERATOR_CANARY` and `PASS`.
 
+Also require the documents to state that bounded Interview `messages` are
+intentionally present in the v1 checkpoint, while Review checkpoint content
+remains reference/hash only; the former is a versioned architecture decision,
+not an accidental privacy-audit omission. Require explicit post-Stage-45
+backlog entries for reference-only Interview messages and cooperative SSE
+shutdown.
+
 Test that neither acceptance document contains a DSN, an absolute local path,
 a checkpoint identifier, a raw interrupt payload, or fixture answer text.
 
@@ -237,13 +281,43 @@ git commit -m "docs: define dual langgraph release gates"
 
 **Files:**
 
+- Create: `tests/conftest.py`
+- Create: `tests/postgres_support.py`
 - Create: `tests/test_dual_langgraph_rollout.py`
 - Modify: `tests/test_langgraph_runtime_contract.py`
 - Modify: `tests/test_durable_review_runtime_contract.py`
 - Modify: `tests/test_report_jobs.py`
 - Modify: `tests/test_interview_workflow_store.py`
+- Modify: `tests/test_review_workflow_store.py`
+- Modify: `tests/test_postgres_session_store.py`
+- Modify: `tests/test_langgraph_recovery_postgres.py`
+- Modify: `tests/test_durable_review_recovery_postgres.py`
 
-- [ ] **Step 1: Add a test-only bucket selector**
+- [ ] **Step 1: Centralize PostgreSQL test availability and isolated prefixes**
+
+Create narrowly scoped shared test infrastructure. Put ordinary importable
+helpers in `tests/postgres_support.py` and pytest hooks/fixtures in
+`tests/conftest.py`:
+
+- a session-scoped configured-PostgreSQL availability check;
+- a `postgres_dsn` fixture that skips with one stable reason when PostgreSQL is
+  unavailable;
+- a unique, bounded `runtime_table_prefix` fixture;
+- one marker hook for `langgraph_recovery`,
+  `langgraph_review_recovery`, and `langgraph_dual_canary` so their skip
+  behavior is consistent;
+- cleanup helpers that verify an isolated prefix before dropping test-owned
+  tables.
+
+Migrate the duplicated `require_dsn()` definitions used by Report Job, Review
+Workflow Store, PostgreSQL Session Store, and both LangGraph PostgreSQL recovery
+tests to the shared support module/fixture. Keep
+domain-specific `make_plan()` helpers local unless their semantics are exactly
+identical; this task centralizes infrastructure, not unrelated business
+fixtures. A skipped PostgreSQL marker must be visible as a skip and must never
+be converted into a passing test.
+
+- [ ] **Step 2: Add a test-only bucket selector**
 
 Implement the selector inside test support, not production code. It should
 search deterministic UUID values until it finds IDs on either side of the
@@ -254,10 +328,12 @@ def find_session_id_for_interview_engine(engine, rollout_percent): ...
 def find_job_id_for_review_engine(engine, rollout_percent): ...
 ```
 
-Bound the search and fail loudly if no value is found. Never monkeypatch the
-hash calculation or production assignment result.
+Bound each search to 1,000 candidates and fail loudly if no value is found.
+At 1% the expected search is approximately 100 candidates, while 1,000 keeps
+the test deterministic without permitting an accidental infinite loop. Never
+monkeypatch the hash calculation or production assignment result.
 
-- [ ] **Step 2: Test the complete configuration matrix**
+- [ ] **Step 3: Test the complete configuration matrix**
 
 For memory and PostgreSQL modes, runtime enabled/disabled, and rollout
 `0`, `1`, and `100`, prove:
@@ -270,7 +346,7 @@ For memory and PostgreSQL modes, runtime enabled/disabled, and rollout
 - invalid values fail closed;
 - Interview and Review assignment decisions are independent.
 
-- [ ] **Step 3: Prove immutable assignment across configuration changes**
+- [ ] **Step 4: Prove immutable assignment across configuration changes**
 
 Create rows under one rollout value, then change the environment and reload
 them:
@@ -285,17 +361,25 @@ them:
 - a Report Job created from a Legacy Interview can independently receive a
   durable Review assignment.
 
-- [ ] **Step 4: Prove unknown versions never fall back**
+- [ ] **Step 5: Reject cross-round and post-Finish command reordering**
+
+Deliver an Answer for an earlier question after a Finish command has already
+committed. Also deliver an old-round Answer after the graph has advanced to a
+new question. Assert both commands reach a stable rejected/conflict outcome,
+do not append a Candidate Message, do not increment the public version, do not
+start generation, and do not enqueue a second Report Job.
+
+- [ ] **Step 6: Prove unknown versions never fall back**
 
 The generic `VersionedGraphRegistry` must raise for an unknown version. Neither
 the Interview facade nor Review worker may silently send unknown versioned work
 to Legacy or to the newest graph.
 
-- [ ] **Step 5: Run and commit**
+- [ ] **Step 7: Run and commit**
 
 ```powershell
-python -m pytest tests/test_dual_langgraph_rollout.py tests/test_langgraph_runtime_contract.py tests/test_durable_review_runtime_contract.py tests/test_report_jobs.py tests/test_interview_workflow_store.py -q
-git add tests/test_dual_langgraph_rollout.py tests/test_langgraph_runtime_contract.py tests/test_durable_review_runtime_contract.py tests/test_report_jobs.py tests/test_interview_workflow_store.py
+python -m pytest tests/test_dual_langgraph_rollout.py tests/test_langgraph_runtime_contract.py tests/test_durable_review_runtime_contract.py tests/test_report_jobs.py tests/test_interview_workflow_store.py tests/test_review_workflow_store.py tests/test_postgres_session_store.py tests/test_langgraph_recovery_postgres.py tests/test_durable_review_recovery_postgres.py -q
+git add tests/conftest.py tests/postgres_support.py tests/test_dual_langgraph_rollout.py tests/test_langgraph_runtime_contract.py tests/test_durable_review_runtime_contract.py tests/test_report_jobs.py tests/test_interview_workflow_store.py tests/test_review_workflow_store.py tests/test_postgres_session_store.py tests/test_langgraph_recovery_postgres.py tests/test_durable_review_recovery_postgres.py
 git commit -m "test: prove independent langgraph assignment"
 ```
 
@@ -369,6 +453,12 @@ For a deterministic all-durable fixture:
 - verify no internal input digest, evidence hash, graph version, checkpoint
   identifier, or provider output is present in public JSON or rendered text.
 
+Assert concrete forbidden JSON keys such as `review_input_sha256`,
+`question_input_sha256`, `evidence_content_sha256`,
+`review_graph_schema_version`, `checkpoint_id`, and `provider_payload`, plus
+fixture sentinel values planted in internal rows. Assert the same key names and
+sentinels are absent from the relevant DOM subtree and serialized page text.
+
 - [ ] **Step 6: Run static and browser gates**
 
 ```powershell
@@ -401,7 +491,17 @@ Only add production static files that actually changed.
 **Files:**
 
 - Create: `tests/test_dual_langgraph_canary_postgres.py`
+- Create: `tests/test_review_workflow_consumer.py`
 - Modify: `pytest.ini`
+- Modify: `app/services/interview_workflow.py`
+- Modify: `app/services/interview_workflow_consumer.py`
+- Modify: `app/services/review_workflow.py`
+- Modify: `app/services/report_worker.py`
+- Modify: `app/services/report_jobs.py`
+- Modify: `app/graphs/durable_review_graph.py`
+- Modify: `tests/test_durable_review_graph.py`
+- Modify: `tests/test_interview_workflow_consumer.py`
+- Modify: `tests/test_report_worker.py`
 - Reuse: `tests/test_langgraph_recovery_postgres.py`
 - Reuse: `tests/test_durable_review_recovery_postgres.py`
 
@@ -413,12 +513,32 @@ Add:
 langgraph_dual_canary: tests requiring PostgreSQL dual-workflow handoff acceptance
 ```
 
-Use a unique table prefix per test run. Reuse the configured PostgreSQL
+Use the shared `tests/conftest.py` marker policy and a unique table prefix per
+test run. Reuse the configured PostgreSQL
 server; do not create, start, stop, or delete a user container. Use fake
 Examiner, Reviewer, Coach, embedding, and knowledge dependencies. The fixture
 must clean only its verified isolated prefix.
 
-- [ ] **Step 2: Parameterize all four engine combinations**
+- [ ] **Step 2: Add explicit wrong-engine consumer guards**
+
+Create the missing `tests/test_review_workflow_consumer.py` using the same
+`FakeGraph`/`FakeWorkflow` style as the Interview consumer tests. Cover:
+
+- missing Report Job returns `discarded_stale_retry`;
+- Legacy Report Job returns `discarded_stale_retry`;
+- durable Review Job with a stale attempt returns
+  `discarded_stale_retry`;
+- matching durable Review retry resumes once;
+- duplicate delivery does not invoke the graph twice.
+
+Add `InterviewWorkflowService.is_durable_session(session_id)` or an equivalent
+stable engine lookup and make `InterviewWorkflowConsumer.consume()` call it
+before `graph_for_session()`. A command/retry event for a missing or Legacy
+Session returns `ConsumerOutcome("discarded_wrong_engine")` (or one other
+documented stable discard code) instead of raising and becoming a dead letter.
+Keep stale retry cursor outcomes distinct from wrong-engine outcomes.
+
+- [ ] **Step 3: Parameterize all four engine combinations**
 
 For every matrix row:
 
@@ -433,20 +553,59 @@ The test may use rollout 100 to simplify path construction, but must also use
 the deterministic selector from Task 2 to prove the 1% bucket semantics in a
 separate test.
 
-- [ ] **Step 3: Inject failure at the cross-workflow boundary**
+- [ ] **Step 4: Fence Review cold start with the Report Job lease**
+
+Do not treat `snapshot.values == {}` as sufficient authority to start a graph.
+Add a nullable `lease_token` to Report Jobs. Every successful claim writes a
+new UUID token and returns it with `lease_owner` and `lease_expires_at`; the
+token fences an older process even when a restarted worker reuses the same
+human-readable worker ID. Pass `worker_id` and the claimed lease token into
+`ReviewWorkflowService.run_claimed_job()`. Before an empty-thread invoke:
+
+1. verify the worker still owns the matching, unexpired Report Job lease token;
+2. initialize or load the unique Review Run outside the first graph checkpoint;
+3. build the same deterministic initial state for a resumed empty thread;
+4. heartbeat with `WHERE job_id = ? AND lease_owner = ? AND lease_token = ?`
+   while `graph.invoke()` is running;
+5. stop heartbeating before returning or propagating failure;
+6. keep final report commit and Review Run initialization digest-idempotent.
+
+Expose guarded `assert_lease()` and `heartbeat()` store operations. Inject a
+lease guard into the Review graph dependencies and check it before starting a
+provider attempt and before final commit. Losing the lease produces a stable
+retryable/abandoned outcome; it must not let the stale worker perform another
+business commit. Provider work already in flight may finish, but its business
+projection remains idempotent and the stale token cannot authorize final
+commit.
+
+If the first worker dies before the first checkpoint, the next valid lease
+owner may cold-start the same thread. If the first worker is merely slow and
+still heartbeating, a second worker cannot claim it. If a network partition
+creates overlapping execution despite lease loss, idempotent projections and
+final digest guards must still produce one logical result.
+
+Add unit tests for heartbeat start/stop and invalid lease rejection.
+Treat `lease_token` as internal control metadata: it is never copied into a
+LangGraph checkpoint, runtime outbox payload, public Report Job response,
+diagnostic export, log record, or acceptance artifact.
+
+- [ ] **Step 5: Inject failure at the cross-workflow boundary**
 
 Cover at least these restart points:
 
 - after final Interview projection but before Report Job enqueue;
 - after Report Job enqueue but before Review thread initialization;
+- after Review Run initialization but before the first LangGraph checkpoint;
 - after Review initialization but before the first question projection;
 - after final Review commit acknowledgement is lost.
 
 After each simulated process loss, construct a fresh saver/runtime and resume.
 Assert exactly one finished Session, one Report Job, one terminal Review Run,
-and one final report.
+and one final report. The pre-checkpoint case must allow the first lease to
+expire, let a second worker claim the same job, and prove that the recovered
+cold start does not create a second logical Review Run or report.
 
-- [ ] **Step 4: Prove rollback after assignment**
+- [ ] **Step 6: Prove rollback after assignment**
 
 Create one durable Interview and one durable Report Job. Set both rollout
 values to zero before resuming. Assert:
@@ -458,18 +617,25 @@ values to zero before resuming. Assert:
 - no durable row is rerouted to Legacy;
 - no Legacy row is upgraded.
 
-- [ ] **Step 5: Prove shared-saver namespace isolation**
+Use `monkeypatch.setenv()` within the test that owns the configuration and
+construct fresh `InterviewWorkflowService`/`ReviewWorkflowService` instances
+after the change. Do not mutate process-wide environment outside pytest's
+restoration boundary, and do not rely on a service instance that cached the old
+rollout value.
+
+- [ ] **Step 7: Prove shared-saver namespace isolation**
 
 Persist an Interview checkpoint and a Review checkpoint in the same saver.
 Verify the thread IDs are distinct, then purge one workflow through its public
 cleanup path. The other workflow must remain resumable. Do not inspect or emit
 checkpoint payloads in acceptance output.
 
-- [ ] **Step 6: Run and commit**
+- [ ] **Step 8: Run and commit**
 
 ```powershell
+python -m pytest tests/test_review_workflow_consumer.py tests/test_interview_workflow_consumer.py tests/test_report_worker.py tests/test_durable_review_graph.py -q
 python -m pytest tests/test_dual_langgraph_canary_postgres.py -q -m langgraph_dual_canary
-git add tests/test_dual_langgraph_canary_postgres.py pytest.ini
+git add tests/test_dual_langgraph_canary_postgres.py tests/test_review_workflow_consumer.py tests/test_interview_workflow_consumer.py tests/test_report_worker.py tests/test_durable_review_graph.py app/services/interview_workflow.py app/services/interview_workflow_consumer.py app/services/review_workflow.py app/services/report_worker.py app/services/report_jobs.py app/graphs/durable_review_graph.py pytest.ini
 git commit -m "test: prove dual langgraph postgres handoff"
 ```
 
@@ -496,15 +662,41 @@ Cover this matrix:
 | `0/true` | `0/true` | PASS; saver available for existing work. |
 | `1/true` | `0/true` | PASS. |
 | `0/true` | `1/true` | PASS. |
+| `0/false` | `1/true` | PASS Review-only schema/saver checks; emit an Interview resume warning. |
 | `1/true` | `1/true` | PASS. |
 | `1/false` | any | FAIL. |
 | any | `1/false` | FAIL. |
 | positive rollout with memory store | any | FAIL. |
 
-Zero rollout with runtime disabled is allowed only when the preflight input can
-prove there is no assigned active work. Because the current preflight does not
-own that proof, its safe default is to require runtime support in the release
-profile.
+Zero Interview rollout with Interview runtime disabled is configuration-valid
+for a Review-only deployment, but it may strand an already assigned Interview
+thread. Because the current preflight does not own a complete active-thread
+proof, return a stable warning such as
+`interview_resume_capability_unverified`; do not skip the shared PostgreSQL
+checks and do not claim rollback safety. The Stage 45 release profile keeps both
+runtimes enabled, while the Review-only regression exists to prove the
+preflight condition itself is correct.
+
+The PostgreSQL schema/saver check must run when either durable runtime is
+enabled. Replace the current Interview-only trigger with the equivalent of:
+
+```python
+any_durable_runtime_enabled = (
+    result["langgraph"]["runtime_enabled"]
+    or result["review_langgraph"]["runtime_enabled"]
+)
+if (
+    result["langgraph"]["runtime_store"] == "postgres"
+    and any_durable_runtime_enabled
+    and args.profile == "core"
+):
+    result["langgraph"]["postgres"] = check_langgraph_runtime()
+```
+
+Add a regression test with Interview runtime disabled and Review runtime
+enabled that proves the shared six tables, six indexes, saver setup, and privacy
+allowlist are still checked. A Review-only deployment must never skip schema
+validation merely because the Interview runtime is disabled.
 
 - [ ] **Step 2: Validate both graph versions and saver lifecycle**
 
@@ -522,6 +714,11 @@ The core profile must verify:
 
 Return only booleans, version labels, table/index counts, rollout values, and
 privacy status.
+
+The core profile is an infrastructure check: it requires a configured, running
+PostgreSQL instance, `INTERVIEW_RUNTIME_STORE=postgres`, and an operator-supplied
+`POSTGRES_DSN`. Switching rollout environment values alone does not make the
+preflight self-contained.
 
 - [ ] **Step 3: Validate all durable workflow tables and indexes**
 
@@ -550,18 +747,64 @@ Only add production service files that actually changed.
 
 ---
 
-## Task 6: Add a Privacy-Safe Read-Only Canary Snapshot
+## Task 6: Add Durable Maintenance and a Privacy-Safe Canary Snapshot
 
 **Files:**
 
+- Create: `app/services/durable_workflow_maintenance.py`
 - Create: `app/services/langgraph_canary_status.py`
 - Create: `scripts/langgraph_canary.py`
+- Create: `tests/test_durable_workflow_maintenance.py`
 - Create: `tests/test_langgraph_canary_status.py`
 - Create: `tests/test_langgraph_canary_cli.py`
+- Modify: `app/services/config.py`
+- Modify: `app/services/runtime.py`
+- Modify: `app/services/interview_generation_store.py`
+- Modify: `app/services/interview_workflow_store.py`
+- Modify: `.env.example`
+- Modify: `tests/test_runtime_lifecycle.py`
+- Modify: `scripts/runtime_preflight.py`
+- Modify: `tests/test_runtime_preflight.py`
 - Modify: `scripts/audit_agent_runtime.py`
 - Modify: `tests/test_agent_runtime_audit.py`
 
-- [ ] **Step 1: Define an allowlisted aggregate model**
+- [ ] **Step 1: Give retention an executing runtime owner**
+
+Add a bounded maintenance service with dependency-injected stores, clock, and
+wait primitive. On runtime startup it performs one maintenance pass, then runs
+at a positive configurable interval. On shutdown it stops and joins before the
+checkpointer and stores are released.
+
+Start maintenance in PostgreSQL mode whenever either durable runtime is
+enabled, independently of both rollout percentages. A Review-only process can
+still share a database containing retained Interview chunks from previously
+assigned work, so the maintenance owner must not be gated only by current
+Interview rollout.
+
+Each pass:
+
+- clears `answer_text` only for applied commands older than the same configured
+  Interview retention cutoff;
+- deletes chunks only for completed generations older than
+  `INTERVIEW_CHUNK_RETENTION_HOURS`;
+- never deletes pending, running, retrying, failed-with-replay-needed, or active
+  generation data;
+- uses PostgreSQL `NOW()` to derive cutoffs rather than application wall time;
+- logs only aggregate deleted-row counts and a stable error code;
+- prevents overlapping passes in one process;
+- treats one failed pass as retryable on the next interval without stopping the
+  workflow runtime.
+
+Add and validate a positive bounded configuration:
+
+```text
+DURABLE_WORKFLOW_MAINTENANCE_SECONDS=3600
+```
+
+The default must not create a tight loop. Tests inject a fake wait/clock and do
+not sleep. Preflight validates both retention hours and maintenance interval.
+
+- [ ] **Step 2: Define an allowlisted aggregate model**
 
 The service may report, for a caller-supplied observation window:
 
@@ -586,6 +829,9 @@ class WorkflowCanarySnapshot(BaseModel):
     stale_review_count: int
     projection_conflict_count: int
     report_commit_conflict_count: int
+    checkpoint_row_count: int
+    generation_chunk_row_count: int
+    review_artifact_row_count: int
     privacy_audit: Literal["PASS", "FAIL"]
     recommendation: Literal["HOLD", "ROLL_BACK", "ELIGIBLE_TO_CONTINUE"]
     reasons: list[str]
@@ -594,14 +840,18 @@ class WorkflowCanarySnapshot(BaseModel):
 Do not add per-Session, per-Job, per-command, or per-thread fields. Do not emit
 provider error messages; map them to stable aggregate error codes if needed.
 
-- [ ] **Step 2: Read existing stores without adding a public API**
+- [ ] **Step 3: Read existing stores without adding a public API**
 
 Query through narrowly scoped store/service methods or parameterized SQL. The
 command must be read-only and must not claim leases, change statuses, delete
 rows, resume graphs, or update rollout configuration. Use PostgreSQL `NOW()`
 for age comparisons so application clock skew cannot change the result.
+Checkpoint, generation-chunk, and Review-artifact row counts are aggregate
+growth indicators. The CLI may compare two sanitized snapshots, but it must not
+enumerate threads or perform checkpoint retention. Completed-thread purge
+remains an explicit ownership operation.
 
-- [ ] **Step 3: Encode stop-gate policy as a pure function**
+- [ ] **Step 4: Encode stop-gate policy as a pure function**
 
 Immediate `ROLL_BACK` reasons:
 
@@ -626,7 +876,25 @@ Configurable `HOLD` reasons:
 With insufficient sample size and no correctness breach, return `HOLD`, not
 `ELIGIBLE_TO_CONTINUE`.
 
-- [ ] **Step 4: Implement the CLI**
+Some correctness signals, especially acknowledged-command loss, require
+cross-system observation and cannot be inferred from one database snapshot.
+Define a bounded stable-code input such as:
+
+```python
+ExternalStopSignal = Literal[
+    "acknowledged_command_loss",
+    "duplicate_business_projection",
+    "public_version_regression",
+    "unknown_graph_version",
+]
+```
+
+`evaluate_canary(snapshot, external_stop_signals=...)` merges these signals
+into allowlisted `reasons` and returns `ROLL_BACK`. The CLI may accept repeated
+`--external-stop-signal` values from an approved monitor or operator. It must
+not accept or serialize arbitrary free-form reason text.
+
+- [ ] **Step 5: Implement the CLI**
 
 Support:
 
@@ -641,17 +909,17 @@ for `ROLL_BACK`, uses a distinct nonzero exit for `HOLD`, and exits zero only
 for `ELIGIBLE_TO_CONTINUE`. It prints the recommended operator action but never
 executes it.
 
-- [ ] **Step 5: Add adversarial privacy tests**
+- [ ] **Step 6: Add adversarial privacy tests**
 
 Seed raw answers, chunks, provider messages, evidence identifiers, DSNs,
 checkpoint-like values, and absolute paths into fake source rows. Assert none
 appear in the serialized model, stdout, JSON, Markdown, or audit payload.
 
-- [ ] **Step 6: Run and commit**
+- [ ] **Step 7: Run and commit**
 
 ```powershell
-python -m pytest tests/test_langgraph_canary_status.py tests/test_langgraph_canary_cli.py tests/test_agent_runtime_audit.py -q
-git add app/services/langgraph_canary_status.py scripts/langgraph_canary.py tests/test_langgraph_canary_status.py tests/test_langgraph_canary_cli.py scripts/audit_agent_runtime.py tests/test_agent_runtime_audit.py
+python -m pytest tests/test_durable_workflow_maintenance.py tests/test_langgraph_canary_status.py tests/test_langgraph_canary_cli.py tests/test_agent_runtime_audit.py tests/test_runtime_lifecycle.py tests/test_runtime_preflight.py -q
+git add app/services/durable_workflow_maintenance.py app/services/langgraph_canary_status.py app/services/config.py app/services/runtime.py app/services/interview_generation_store.py app/services/interview_workflow_store.py scripts/langgraph_canary.py scripts/runtime_preflight.py tests/test_durable_workflow_maintenance.py tests/test_langgraph_canary_status.py tests/test_langgraph_canary_cli.py tests/test_runtime_lifecycle.py tests/test_runtime_preflight.py scripts/audit_agent_runtime.py tests/test_agent_runtime_audit.py .env.example
 git commit -m "ops: observe dual langgraph canary"
 ```
 
@@ -681,7 +949,11 @@ assignment_matrix
 rollback_existing_interview_resume
 rollback_existing_review_resume
 joint_postgres_handoff
+review_cold_start_fenced
 shared_saver_namespace_isolation
+wrong_engine_events_discarded
+out_of_order_command_rejected
+retention_maintenance_active
 runtime_preflight_zero_zero
 runtime_preflight_interview_only
 runtime_preflight_review_only
@@ -758,8 +1030,8 @@ Only add `.gitignore` if it changed.
 
 - Modify: `docs/local-v1-runbook.md`
 - Modify: `README.md`
-- Modify: `.env.example` only if comments are needed; keep both rollout
-  defaults at zero
+- Modify: `.env.example` to document the maintenance interval; keep both
+  rollout defaults at zero
 - Modify: `tests/test_local_v1_docs.py`
 - Modify: `docs/langgraph-dual-workflow-canary-acceptance.md`
 
@@ -845,6 +1117,7 @@ INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0
 REPORT_LANGGRAPH_ROLLOUT_PERCENT=0
 INTERVIEW_LANGGRAPH_RUNTIME_ENABLED=true
 REPORT_LANGGRAPH_RUNTIME_ENABLED=true
+DURABLE_WORKFLOW_MAINTENANCE_SECONDS=3600
 ```
 
 - [ ] **Step 6: Run and commit**
@@ -856,7 +1129,7 @@ git add docs/local-v1-runbook.md README.md .env.example tests/test_local_v1_docs
 git commit -m "docs: operate dual langgraph canary"
 ```
 
-Only add `.env.example` if it changed.
+The maintenance interval is a runtime retention control, not a rollout switch.
 
 ---
 
@@ -898,10 +1171,25 @@ python -m pytest tests/test_durable_review_runtime_contract.py tests/test_durabl
 - [ ] **Step 4: Run the cross-workflow and privacy gates**
 
 ```powershell
-python -m pytest tests/test_dual_langgraph_rollout.py tests/test_dual_langgraph_canary_postgres.py tests/test_agent_runtime_audit.py tests/test_runtime_preflight.py tests/test_runtime_boundary_api.py -q
+python -m pytest tests/test_dual_langgraph_rollout.py tests/test_dual_langgraph_canary_postgres.py tests/test_durable_workflow_maintenance.py tests/test_agent_runtime_audit.py tests/test_runtime_preflight.py tests/test_runtime_boundary_api.py -q
 python -m scripts.runtime_preflight --profile core
 python -m scripts.langgraph_dual_workflow_acceptance --mode focused --timeout 120
 ```
+
+The privacy result must describe the v1 boundary accurately:
+
+- bounded `DurableInterviewState.messages` conversation text is allowed inside
+  the access-controlled PostgreSQL checkpoint boundary because v1 resume
+  requires it;
+- JD text, resume text, evidence content, provider payloads, credentials,
+  leases, and operational identifiers are prohibited from Interview state;
+- Review checkpoints remain reference/hash only and contain no review,
+  evidence, answer, or report text;
+- runtime APIs, diagnostics, logs, canary snapshots, and acceptance artifacts
+  expose no Interview message text from either workflow.
+
+Record reference-only Interview messages as a future graph-version backlog
+item, not as an unacknowledged PASS exception.
 
 - [ ] **Step 5: Run frontend and full browser recovery**
 
@@ -925,7 +1213,11 @@ skip. Any new unexpected skip blocks acceptance.
 
 - [ ] **Step 7: Exercise the local rollout/rollback matrix**
 
-In an isolated runtime environment, never by editing committed defaults:
+This PowerShell matrix requires a configured and running PostgreSQL instance,
+an operator-supplied `POSTGRES_DSN`, an isolated
+`RUNTIME_TABLE_PREFIX`, and `INTERVIEW_RUNTIME_STORE=postgres`. Merely setting
+the rollout variables is not enough. Run it in an isolated runtime environment,
+never by editing committed defaults:
 
 ```powershell
 $env:INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT='0'
@@ -1096,6 +1388,12 @@ hold or roll back according to severity:
 - [ ] Assignment is immutable across rollout changes, restart, and requeue.
 - [ ] Legacy behavior remains compatible and no Legacy row is migrated.
 - [ ] Existing durable work resumes after assignment rollback.
+- [ ] Wrong-engine and missing-work events are discarded before graph lookup;
+      they do not become dead letters.
+- [ ] A Review worker heartbeats its Report Job lease, and a crash before the
+      first checkpoint recovers to one logical Review Run and report.
+- [ ] Cross-round and post-Finish Answer commands are rejected without state
+      advancement or generation.
 - [ ] Shared saver namespaces are isolated and targeted purge is safe.
 - [ ] Browser refresh, reconnect, replacement reset, stale version, duplicate
       command, duplicate Finish, Legacy resume, and joint report handoff pass on
@@ -1106,12 +1404,34 @@ hold or roll back according to severity:
       indexes, consumers, and privacy.
 - [ ] Canary status is read-only, aggregate, database-clock based, and
       allowlisted.
+- [ ] Runtime maintenance clears old applied-command answer payloads and old
+      completed-generation chunks while preserving active/retryable data.
+- [ ] Interview checkpoint privacy documentation explicitly allows bounded v1
+      messages while prohibiting their export through diagnostics or evidence.
 - [ ] Acceptance artifacts contain no secrets, raw content, infrastructure
       identifiers, or absolute paths.
 - [ ] Full Python, static JavaScript, CSS build, Playwright, privacy, preflight,
       and `git diff --check` gates pass.
 - [ ] No production rollout change occurs without a separate explicit operator
       authorization.
+
+## Explicit Post-Stage-45 Backlog
+
+These items are documented rather than silently treated as solved:
+
+- **Reference-only Interview messages:** `langgraph-v1` checkpoints contain
+  bounded conversation messages required for resumable follow-up generation.
+  Moving message text to an immutable content store, optionally with
+  application-layer encryption, requires `langgraph-v2`, migration-free new
+  assignment, new integrity checks, and fresh recovery acceptance.
+- **Cooperative SSE shutdown:** `InterviewEventStreamService.iter_sse()` polls
+  until a command becomes terminal and does not currently consume an
+  application shutdown signal. Stage 45 proves that forced disconnect does not
+  lose graph progress and that reconnect replays correctly. A future transport
+  lifecycle stage may add a stop token, terminal reconnect hint, and bounded
+  drain without changing graph execution authority.
+- **Legacy retirement:** no Legacy path is removed until a separately approved
+  stage proves zero active ownership and preserves historical read access.
 
 ## Completion Definition
 
