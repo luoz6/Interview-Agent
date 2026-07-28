@@ -32,7 +32,7 @@ from app.services.context_selection import (
     select_interview_messages,
     truncate_text_to_tokens,
 )
-from app.services.token_estimation import CompositeTokenEstimator
+from app.services.context_runtime import ContextRuntime, get_context_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +83,19 @@ class ExpertShadowEvaluator:
         llm: InterviewLLM,
         vector_store: KnowledgeSearchStore,
         execution_runner: AgentExecutionRunner | None = None,
+        context_runtime: ContextRuntime | None = None,
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store
         self._execution_runner = execution_runner or AgentExecutionRunner()
+        # Reuse the LLM's runtime when available and otherwise resolve only
+        # when review enforcement is exercised. This preserves the legacy path
+        # while production composition may inject a preflighted runtime.
+        self._context_runtime = context_runtime or getattr(
+            llm,
+            "context_runtime",
+            None,
+        )
         self.last_retrieval_by_question: dict[str, dict] = {}
 
     def evaluate(
@@ -124,6 +133,7 @@ class ExpertShadowEvaluator:
                 bounded_messages, bounded_references = _budget_question_review_input(
                     chunk,
                     reference_dicts,
+                    context_runtime=self._context_runtime,
                 )
             else:
                 bounded_messages = chunk.model_dump()["messages"]
@@ -252,9 +262,15 @@ class ExpertShadowEvaluator:
         return reference.model_dump()
 
 
-def _budget_question_review_input(chunk, reference_dicts: list[dict]):
-    model = "deepseek-v4-pro"
-    estimator = CompositeTokenEstimator().resolve(model=model).estimator
+def _budget_question_review_input(
+    chunk,
+    reference_dicts: list[dict],
+    *,
+    context_runtime: ContextRuntime | None = None,
+):
+    runtime = context_runtime or get_context_runtime()
+    model = runtime.model_profile.model
+    estimator = runtime.estimator_resolution.estimator
     messages, _ = select_interview_messages(
         chunk.messages,
         current_question_id=chunk.question_id,

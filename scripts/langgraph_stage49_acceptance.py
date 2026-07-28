@@ -58,6 +58,7 @@ def main() -> int:
                 "tests/test_token_estimation.py",
                 "tests/test_context_budget.py",
                 "tests/test_context_selection.py",
+                "tests/test_context_runtime.py",
                 "tests/test_context_enforcement.py",
             ]
         ),

@@ -68,6 +68,36 @@ def test_rendered_prompt_guard_rejects_one_unit_over_budget():
         )
 
 
+def test_rendered_prompt_guard_can_publish_measurement_before_enforcement():
+    profile = ModelCapabilityRegistry().resolve(
+        model="gpt-4o",
+        configured_context_window_tokens=10,
+        protocol_reserve_tokens=0,
+        safety_margin_tokens=0,
+    )
+    budget = ContextBudgetResolver().resolve(
+        profile=profile,
+        policy=OperationContextPolicy(
+            operation="test",
+            input_cap_tokens=9,
+            max_output_tokens=1,
+        ),
+    )
+    guard = RenderedPromptGuard()
+    measurement = guard.measure(
+        prompt="0123456789",
+        budget=budget,
+        estimator=TokenEstimatorResolution(
+            ConservativeUtf8TokenEstimator(),
+            "conservative_utf8",
+            True,
+        ),
+    )
+    assert measurement.estimated_input_tokens == 10
+    with pytest.raises(ContextBudgetExceeded):
+        guard.enforce(measurement, budget=budget)
+
+
 def test_rendered_prompt_measurement_contains_only_machine_evidence():
     profile = ModelCapabilityRegistry().resolve(
         model="gpt-4o",

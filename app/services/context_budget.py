@@ -170,13 +170,21 @@ class RenderedPromptGuard:
             budget=budget,
             estimator=estimator,
         )
+        self.enforce(measurement, budget=budget)
+        return measurement
+
+    @staticmethod
+    def enforce(
+        measurement: RenderedPromptMeasurement,
+        *,
+        budget: ContextBudget,
+    ) -> None:
         if measurement.estimated_input_tokens > budget.available_input_tokens:
             raise ContextBudgetExceeded(
                 operation=budget.operation,
                 estimated_input_tokens=measurement.estimated_input_tokens,
                 available_input_tokens=budget.available_input_tokens,
             )
-        return measurement
 
 
 _ENFORCEMENT_FLAGS = {

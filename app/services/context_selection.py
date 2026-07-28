@@ -221,18 +221,20 @@ def select_evidence_messages(
     remaining = total_token_budget
     truncated = 0
     for raw in messages[:max_items]:
+        if remaining <= 0:
+            break
         bounded, was_truncated = truncate_text_to_tokens(
             str(raw.get("content", "")),
             token_budget=min(max_item_tokens, remaining),
             estimator=estimator,
             model=model,
         )
-        if not bounded or remaining <= 0:
-            break
+        if not bounded:
+            continue
         message = {"role": str(raw.get("role", "")), "content": bounded}
         cost = estimator.estimate_messages([message], model=model)
         if cost > remaining:
-            break
+            continue
         selected.append(message)
         remaining -= cost
         truncated += int(was_truncated)
@@ -256,8 +258,13 @@ def truncate_text_to_tokens(
     if estimator.estimate_text(text, model=model) <= token_budget:
         return text, False
 
-    marker_cost = estimator.estimate_text(OMISSION_MARKER, model=model)
-    content_budget = max(1, token_budget - marker_cost)
+    # A partial omission marker is neither useful context nor an honest
+    # representation of the source. Require enough room for the complete
+    # marker, delimiters, and at least one source character; otherwise let the
+    # caller skip this item and continue considering later items.
+    minimum = f"{text[:1]}\n{OMISSION_MARKER}\n"
+    if estimator.estimate_text(minimum, model=model) > token_budget:
+        return "", True
     low, high = 0, len(text)
     while low < high:
         middle = (low + high + 1) // 2

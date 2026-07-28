@@ -25,7 +25,7 @@ from app.services.context_budget import (
     context_enforcement_enabled,
 )
 from app.services.context_selection import build_interview_context
-from app.services.token_estimation import CompositeTokenEstimator
+from app.services.context_runtime import ContextRuntime, get_context_runtime
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
@@ -37,6 +37,7 @@ class InterviewGraphRunner:
         examiner=None,
         knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
         execution_runner: AgentExecutionRunner | None = None,
+        context_runtime: ContextRuntime | None = None,
     ) -> None:
         self._llm = llm
         self._examiner = examiner or ExaminerAgent(
@@ -45,6 +46,14 @@ class InterviewGraphRunner:
         )
         self._knowledge_binding_resolver = (
             knowledge_binding_resolver or KnowledgeBindingResolver()
+        )
+        # Reuse the LLM's runtime when available, but keep global resolution
+        # lazy. With enforcement disabled, the legacy graph must not require
+        # production context-window configuration.
+        self._context_runtime = context_runtime or getattr(
+            llm,
+            "context_runtime",
+            None,
         )
 
     def start(
@@ -76,6 +85,7 @@ class InterviewGraphRunner:
             self._llm,
             examiner=self._examiner,
             knowledge_binding_resolver=self._knowledge_binding_resolver,
+            context_runtime=self._context_runtime,
             command_id=command_id,
         )
         return speaker_node(next_state)
@@ -93,6 +103,7 @@ class InterviewGraphRunner:
             self._llm,
             examiner=self._examiner,
             knowledge_binding_resolver=self._knowledge_binding_resolver,
+            context_runtime=self._context_runtime,
             generate_followup_text=False,
             command_id=command_id,
         )
@@ -113,7 +124,11 @@ class InterviewGraphRunner:
         focus = question.focus if question is not None else "current question"
         yield from _stream_examiner_followup(
             self._examiner,
-            context=_build_followup_context(state, self._knowledge_binding_resolver),
+            context=_build_followup_context(
+                state,
+                self._knowledge_binding_resolver,
+                context_runtime=self._context_runtime,
+            ),
             focus=focus,
             execution_context=_examiner_execution_context(state),
         )
@@ -125,6 +140,7 @@ def brain_node(
     *,
     examiner=None,
     knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+    context_runtime: ContextRuntime | None = None,
     generate_followup_text: bool = True,
     command_id: str | None = None,
 ) -> InterviewState:
@@ -159,7 +175,11 @@ def brain_node(
         resolved_examiner = examiner or ExaminerAgent(llm=llm)
         follow_up = _generate_examiner_followup(
             resolved_examiner,
-            context=_build_followup_context(state, knowledge_binding_resolver),
+            context=_build_followup_context(
+                state,
+                knowledge_binding_resolver,
+                context_runtime=context_runtime,
+            ),
             focus=question.focus,
             execution_context=_examiner_execution_context(
                 state,
@@ -253,6 +273,8 @@ def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewSta
 def _build_followup_context(
     state: InterviewState,
     knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+    *,
+    context_runtime: ContextRuntime | None = None,
 ) -> list[dict[str, str]]:
     question = get_current_question(state)
     question_id = question.id if question is not None else ""
@@ -264,16 +286,16 @@ def _build_followup_context(
             for message in state["messages"][-4:]
         ]
         return recent_messages + resolution.messages
-    estimator = CompositeTokenEstimator().resolve(
-        model="deepseek-v4-pro"
-    ).estimator
+    runtime = context_runtime or get_context_runtime()
+    estimator = runtime.estimator_resolution.estimator
+    model = runtime.model_profile.model
     context, _ = build_interview_context(
         state["messages"],
         current_question_id=question_id,
         evidence_messages=resolution.messages,
         policy=FOLLOWUP_CONTEXT_POLICY,
         estimator=estimator,
-        model="deepseek-v4-pro",
+        model=model,
     )
     return context
 

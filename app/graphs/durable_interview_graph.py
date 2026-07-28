@@ -25,7 +25,7 @@ from app.services.context_budget import (
     context_enforcement_enabled,
 )
 from app.services.context_selection import build_interview_context
-from app.services.token_estimation import CompositeTokenEstimator
+from app.services.context_runtime import ContextRuntime, get_context_runtime
 
 
 class GenerationLeaseHeartbeat:
@@ -106,6 +106,7 @@ class DurableInterviewGraphDependencies:
     knowledge_repository: Any | None = None
     report_job_queue: Any | None = None
     context_builder: Callable[[DurableInterviewState], list[dict[str, str]]] | None = None
+    context_runtime: ContextRuntime | None = None
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
     worker_id: str = "durable-interview-worker"
     generation_lease_seconds: int = 60
@@ -268,7 +269,11 @@ def generate_followup(state, deps) -> dict:
     context = (
         deps.context_builder(state)
         if deps.context_builder is not None
-        else _build_examiner_context(state, deps.knowledge_repository)
+        else _build_examiner_context(
+            state,
+            deps.knowledge_repository,
+            deps.context_runtime,
+        )
     )
     try:
         heartbeat_context = deps.generation_heartbeat_factory(
@@ -507,33 +512,38 @@ def _current_question(state) -> dict:
     return state["plan_snapshot"]["questions"][state["current_index"]]
 
 
-def _recent_conversation_messages(state) -> list[dict[str, str]]:
+def _recent_conversation_messages(
+    state,
+    context_runtime: ContextRuntime | None = None,
+) -> list[dict[str, str]]:
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
         return [
             {"role": message["role"], "content": message["content"]}
             for message in state["messages"][-4:]
         ]
     question_id = _current_question(state)["id"]
-    estimator = CompositeTokenEstimator().resolve(
-        model="deepseek-v4-pro"
-    ).estimator
+    runtime = context_runtime or get_context_runtime()
+    estimator = runtime.estimator_resolution.estimator
+    model = runtime.model_profile.model
     selected, _ = build_interview_context(
         state["messages"],
         current_question_id=question_id,
         policy=FOLLOWUP_CONTEXT_POLICY,
         estimator=estimator,
-        model="deepseek-v4-pro",
+        model=model,
     )
     return selected
 
 
 def _build_examiner_context(
-    state, repository
+    state,
+    repository,
+    context_runtime: ContextRuntime | None = None,
 ) -> list[dict[str, str]]:
     question = _current_question(state)
     evidence_messages = []
     if repository is None:
-        return _recent_conversation_messages(state)
+        return _recent_conversation_messages(state, context_runtime)
     resolution = resolve_evidence_by_ids(
         repository,
         evidence_ids=question.get("evidence_ids", []),
@@ -545,17 +555,20 @@ def _build_examiner_context(
     if resolution.retrieval_path == "bound_evidence_ids":
         evidence_messages = resolution.messages
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
-        return [*_recent_conversation_messages(state), *evidence_messages]
-    estimator = CompositeTokenEstimator().resolve(
-        model="deepseek-v4-pro"
-    ).estimator
+        return [
+            *_recent_conversation_messages(state, context_runtime),
+            *evidence_messages,
+        ]
+    runtime = context_runtime or get_context_runtime()
+    estimator = runtime.estimator_resolution.estimator
+    model = runtime.model_profile.model
     context, _ = build_interview_context(
         state["messages"],
         current_question_id=question["id"],
         evidence_messages=evidence_messages,
         policy=FOLLOWUP_CONTEXT_POLICY,
         estimator=estimator,
-        model="deepseek-v4-pro",
+        model=model,
     )
     return context
 

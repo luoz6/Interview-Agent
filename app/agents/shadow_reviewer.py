@@ -6,6 +6,7 @@ from app.services.llm import InterviewLLM
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.report import InterviewReport, ReportProgress
 from app.services.vector_store import KnowledgeSearchStore
+from app.services.context_runtime import ContextRuntime
 
 
 class ShadowReviewerAgent:
@@ -15,12 +16,14 @@ class ShadowReviewerAgent:
         llm: InterviewLLM,
         vector_store: KnowledgeSearchStore,
         execution_runner: AgentExecutionRunner | None = None,
+        context_runtime: ContextRuntime | None = None,
     ) -> None:
         self.llm = llm
         self.vector_store = vector_store
         self._evaluator = ExpertShadowEvaluator(
             llm=llm,
             vector_store=vector_store,
+            context_runtime=context_runtime,
         )
         self._execution_runner = execution_runner or AgentExecutionRunner()
 

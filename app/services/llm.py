@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
 from pydantic import ValidationError
 
 from app.services.context_budget import (
-    ContextBudgetResolver,
     context_enforcement_enabled,
     FOLLOWUP_CONTEXT_POLICY,
     OperationContextPolicy,
@@ -15,13 +14,16 @@ from app.services.context_budget import (
     REPORT_CONTEXT_POLICY,
     RenderedPromptGuard,
 )
-from app.services.model_capabilities import ModelCapabilityRegistry
-from app.services.token_estimation import CompositeTokenEstimator
 from app.services.context_selection import truncate_text_to_tokens
 from app.services.provider_usage import (
     begin_provider_attempt,
     publish_prompt_measurement,
     publish_provider_response,
+)
+from app.services.context_runtime import (
+    ContextRuntime,
+    ContextRuntimeConfig,
+    build_context_runtime,
 )
 
 if TYPE_CHECKING:
@@ -114,6 +116,7 @@ class OpenAIInterviewLLM:
         chat_model=None,
         trace_recorder=None,
         report_output_mode: Literal["structured_first", "raw_only"] | None = None,
+        context_runtime: ContextRuntime | None = None,
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
@@ -124,20 +127,29 @@ class OpenAIInterviewLLM:
         )
         self.config = resolved_config
         self.chat_model = chat_model or self._build_chat_model(resolved_config)
-        self.model_profile = ModelCapabilityRegistry().resolve(
-            model=resolved_config.model,
-            configured_context_window_tokens=resolved_config.context_window_tokens,
-            protocol_reserve_tokens=resolved_config.protocol_reserve_tokens,
-            structured_output_reserve_tokens=(
-                resolved_config.structured_output_reserve_tokens
-            ),
-            safety_margin_tokens=resolved_config.context_safety_margin_tokens,
-            custom_base_url=bool(resolved_config.base_url),
+        runtime = context_runtime or build_context_runtime(
+            ContextRuntimeConfig(
+                model=resolved_config.model,
+                base_url=resolved_config.base_url,
+                context_window_tokens=resolved_config.context_window_tokens,
+                protocol_reserve_tokens=resolved_config.protocol_reserve_tokens,
+                structured_output_reserve_tokens=(
+                    resolved_config.structured_output_reserve_tokens
+                ),
+                safety_margin_tokens=resolved_config.context_safety_margin_tokens,
+                tokenizer_family=resolved_config.tokenizer_family,
+            )
         )
-        self.token_estimator = CompositeTokenEstimator(
-            configured_family=resolved_config.tokenizer_family
-        ).resolve(model=resolved_config.model)
-        self._budget_resolver = ContextBudgetResolver()
+        if runtime.model_profile.model != resolved_config.model:
+            from app.services.model_capabilities import ContextConfigurationError
+
+            raise ContextConfigurationError(
+                "LLM model and ContextRuntime model must match"
+            )
+        self.context_runtime = runtime
+        self.model_profile = runtime.model_profile
+        self.token_estimator = runtime.estimator_resolution
+        self._budget_resolver = runtime.budget_resolver
         self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
         configured_mode = report_output_mode or os.getenv(
@@ -560,17 +572,11 @@ class OpenAIInterviewLLM:
             estimator=self.token_estimator,
         )
         publish_prompt_measurement(measurement)
-        if (
-            context_enforcement_enabled(policy.operation)
-            and measurement.estimated_input_tokens > budget.available_input_tokens
-        ):
-            from app.services.context_budget import ContextBudgetExceeded
-
-            raise ContextBudgetExceeded(
-                operation=budget.operation,
-                estimated_input_tokens=measurement.estimated_input_tokens,
-                available_input_tokens=measurement.available_input_tokens,
-            )
+        # Publish the privacy-safe measurement before enforcement. Calling
+        # validate() directly would raise before rejected requests can be
+        # observed by Agent telemetry and Context Canary.
+        if context_enforcement_enabled(policy.operation):
+            self._prompt_guard.enforce(measurement, budget=budget)
         return measurement
 
     def _fit_plan_inputs(

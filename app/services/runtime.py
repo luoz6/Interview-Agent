@@ -330,6 +330,7 @@ def build_interview_workflow_service():
     from app.services.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
     )
+    from app.services.context_runtime import get_context_runtime
     from app.services.langgraph_runtime import (
         VersionedGraphRegistry,
     )
@@ -363,6 +364,7 @@ def build_interview_workflow_service():
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),
         ),
+        context_runtime=get_context_runtime(),
         knowledge_repository=get_knowledge_store(
             connection_provider=domains.business,
             schema_mode="validate",
