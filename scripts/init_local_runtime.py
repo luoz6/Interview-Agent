@@ -2,7 +2,12 @@ import argparse
 import json
 import re
 
-from app.services.config import get_pgvector_table, get_postgres_dsn, get_runtime_table_prefix
+from app.services.config import (
+    derive_pgvector_table_names,
+    get_pgvector_table,
+    get_postgres_dsn,
+    get_runtime_table_prefix,
+)
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.vector_store import PgVectorKnowledgeStore
@@ -22,15 +27,15 @@ _RUNTIME_TABLE_SUFFIXES = (
 def check_runtime(*, dsn: str, table_prefix: str, knowledge_table: str, connect=None) -> dict:
     if not _IDENTIFIER_PATTERN.fullmatch(table_prefix):
         raise ValueError("runtime table prefix must be a valid PostgreSQL identifier")
-    if not _IDENTIFIER_PATTERN.fullmatch(knowledge_table):
-        raise ValueError("knowledge table must be a valid PostgreSQL identifier")
+    versions_table, releases_table = derive_pgvector_table_names(knowledge_table)
     if connect is None:
         import psycopg2
 
         connect = psycopg2.connect
 
     runtime_tables = [f"{table_prefix}_{suffix}" for suffix in _RUNTIME_TABLE_SUFFIXES]
-    expected_tables = [*runtime_tables, knowledge_table]
+    required_knowledge_tables = [versions_table, releases_table]
+    expected_tables = [*runtime_tables, *required_knowledge_tables]
     with connect(dsn) as connection:
         connection.set_session(readonly=True, autocommit=True)
         with connection.cursor() as cursor:
@@ -47,11 +52,23 @@ def check_runtime(*, dsn: str, table_prefix: str, knowledge_table: str, connect=
                 (expected_tables,),
             )
             existing_tables = {row[0] for row in cursor.fetchall()}
+            knowledge_corpus_version = None
             knowledge_chunks = 0
-            if knowledge_table in existing_tables:
-                cursor.execute(f'SELECT COUNT(*) FROM "{knowledge_table}"')
+            if set(required_knowledge_tables) <= existing_tables:
+                cursor.execute(
+                    f"""
+                    SELECT r.corpus_version, COUNT(v.chunk_id)
+                    FROM "{releases_table}" AS r
+                    LEFT JOIN "{versions_table}" AS v
+                      ON v.corpus_version = r.corpus_version
+                    WHERE r.status = 'active'
+                    GROUP BY r.corpus_version
+                    """
+                )
                 row = cursor.fetchone()
-                knowledge_chunks = int(row[0]) if row is not None else 0
+                if row is not None:
+                    knowledge_corpus_version = str(row[0])
+                    knowledge_chunks = int(row[1])
 
     present_runtime_tables = [name for name in runtime_tables if name in existing_tables]
     return {
@@ -60,6 +77,8 @@ def check_runtime(*, dsn: str, table_prefix: str, knowledge_table: str, connect=
         "vector_extension": vector_extension,
         "runtime_tables": present_runtime_tables,
         "knowledge_table": knowledge_table,
+        "required_knowledge_tables": required_knowledge_tables,
+        "knowledge_corpus_version": knowledge_corpus_version,
         "knowledge_chunks": knowledge_chunks,
         "table_prefix": table_prefix,
     }
@@ -98,10 +117,13 @@ def initialize_runtime(
     knowledge_store,
     seed_knowledge: bool,
     seed_loader=load_knowledge,
+    corpus_version: str | None = None,
 ) -> dict:
     knowledge_store.ensure_schema()
     if seed_knowledge:
-        seed_loader(knowledge_store)
+        if not corpus_version:
+            raise ValueError("corpus_version is required when seeding knowledge")
+        seed_loader(store=knowledge_store, corpus_version=corpus_version)
     runtime_tables = list(session_store.list_runtime_tables())
     if job_store.jobs_table not in runtime_tables:
         runtime_tables.append(job_store.jobs_table)
@@ -109,6 +131,7 @@ def initialize_runtime(
         "runtime_tables": runtime_tables,
         "knowledge_table": knowledge_store.table_name,
         "knowledge_chunks": knowledge_store.count_chunks(),
+        "knowledge_corpus_version": knowledge_store.get_active_corpus_version(),
         "seeded": seed_knowledge,
     }
 
@@ -126,6 +149,7 @@ def build_runtime_components():
 def main() -> int:
     parser = argparse.ArgumentParser(description="Initialize Local V1 PostgreSQL runtime")
     parser.add_argument("--seed-knowledge", action="store_true")
+    parser.add_argument("--corpus-version")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     try:
@@ -144,6 +168,7 @@ def main() -> int:
                 job_store=job_store,
                 knowledge_store=knowledge_store,
                 seed_knowledge=args.seed_knowledge,
+                corpus_version=args.corpus_version,
             )
     except Exception as exc:
         print(json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False))

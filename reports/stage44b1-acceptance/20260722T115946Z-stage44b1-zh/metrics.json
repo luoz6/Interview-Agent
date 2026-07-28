@@ -1,0 +1,55 @@
+{
+  "chunk_count": 25,
+  "corpus_manifest_sha256": "68a410d4cf24c283c9a17d766e4036ce8cf4f5fd4b91546bba304744b204033f",
+  "corpus_version": "stage44b1-zh-v2",
+  "dimension": 1024,
+  "failure_reasons": [],
+  "ingestion": {
+    "activated": 25,
+    "discovered": 25,
+    "embedded": 0,
+    "reused": 25
+  },
+  "model_name": "BAAI/bge-m3",
+  "model_revision": "siliconflow-bge-m3-20260721",
+  "passed": true,
+  "pilot_dataset_sha256": "1130339f153204557a349ff98c767c8a7cbcd192afd6a0173c2f31863811d395",
+  "pilot_dataset_version": "stage44b1-knowledge-retrieval-v2-pilot",
+  "pilot_metrics": {
+    "evidence_replay_stability_rate": 1.0,
+    "excluded_chunk_violation_rate": 0.0,
+    "failed_gates": [],
+    "filter_correctness_rate": 1.0,
+    "mrr_at_5": 1.0,
+    "ndcg_at_5": 0.9701813724177124,
+    "observation_completeness_rate": 1.0,
+    "p95_latency_ms": 557.392,
+    "passed": true,
+    "recall_at_5": 1.0,
+    "vector_validity_rate": 1.0
+  },
+  "provider_metrics": {
+    "error_counts": {},
+    "latency_p50_ms": 241.87880000681616,
+    "latency_p95_ms": 348.1643899962365,
+    "request_count": 44,
+    "retry_count": 0
+  },
+  "provider_name": "siliconflow",
+  "run_id": "20260722T115946Z-stage44b1-zh",
+  "storage_strategy": "exact_pgvector_cosine",
+  "v1_dataset_sha256": "c6007ab316add69d16338c2338e941feeb6711c0a04cc4fc303044565a7c96cc",
+  "v1_dataset_version": "stage42-knowledge-retrieval-v1",
+  "v1_metrics": {
+    "evidence_continuity_rate": 1.0,
+    "failed_gates": [],
+    "false_positive_rate": 0.0,
+    "hit_rate_at_3": 1.0,
+    "invalid_reference_rate": 0.0,
+    "mean_reciprocal_rank": 0.94,
+    "observation_completeness_rate": 1.0,
+    "p95_latency_ms": 392.282,
+    "passed": true,
+    "question_evidence_binding_rate": 1.0
+  }
+}

@@ -1,18 +1,105 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 from time import perf_counter
 from typing import Any
+import unicodedata
 
 from pydantic import BaseModel
 
 from app.ports.runtime import KnowledgeLookupResult, KnowledgeRepository
-from app.services.config import get_pgvector_table, get_postgres_dsn
+from app.services.config import (
+    derive_pgvector_table_names,
+    get_embedding_settings,
+    get_pgvector_table,
+    get_postgres_dsn,
+)
+from app.services.embedding_providers import (
+    build_embedding_provider,
+    validate_embedding_batch,
+)
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 
 
 KnowledgeSearchStore = KnowledgeRepository
 DEFAULT_KNOWLEDGE_MIN_SCORE = 0.45
+
+_ENGLISH_TECHNICAL_TERM = re.compile(r"[a-z0-9]+(?:\+\+|#)?")
+_CJK_TERM = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,}")
+_TECHNICAL_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "for",
+    "with",
+    "how",
+    "what",
+    "why",
+}
+
+
+def _normalize_technical_terms(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    english = {
+        term
+        for term in _ENGLISH_TECHNICAL_TERM.findall(normalized)
+        if term not in _TECHNICAL_STOPWORDS
+    }
+    return english | set(_CJK_TERM.findall(normalized))
+
+
+def _rerank_chunks(
+    chunks: list["KnowledgeChunk"],
+    *,
+    query_text: str,
+    requested_tags: list[str],
+    minimum_score: float,
+    limit: int,
+) -> list["KnowledgeChunk"]:
+    terms = _normalize_technical_terms(query_text)
+    boost_tags = {
+        tag.strip().casefold()
+        for tag in requested_tags
+        if tag and tag.strip() and tag.strip().casefold() != "general"
+    }
+    ranked: list[KnowledgeChunk] = []
+    for chunk in chunks:
+        raw_aliases = chunk.metadata.get("aliases", [])
+        if isinstance(raw_aliases, str):
+            aliases = [raw_aliases]
+        elif isinstance(raw_aliases, list):
+            aliases = [alias for alias in raw_aliases if isinstance(alias, str)]
+        else:
+            aliases = []
+        searchable = _normalize_technical_terms(" ".join([chunk.title, *aliases]))
+        exact_boost = 0.06 if terms & searchable else 0.0
+        metadata_values = {
+            chunk.domain.casefold(),
+            *(tag.casefold() for tag in chunk.tags),
+        }
+        tag_boost = 0.04 if boost_tags & metadata_values else 0.0
+        final_score = min(
+            1.0,
+            max(0.0, float(chunk.score or 0.0) + exact_boost + tag_boost),
+        )
+        if final_score >= minimum_score:
+            ranked.append(chunk.model_copy(update={"score": final_score}))
+    return sorted(
+        ranked,
+        key=lambda item: (-float(item.score or 0.0), item.chunk_id),
+    )[: max(0, int(limit))]
 
 
 class KnowledgeChunk(BaseModel):
@@ -22,7 +109,7 @@ class KnowledgeChunk(BaseModel):
     source_type: str
     domain: str
     tags: list[str]
-    metadata: dict[str, str | int | float | bool | None]
+    metadata: dict[str, Any]
     score: float | None = None
 
 
@@ -30,89 +117,60 @@ class PgVectorKnowledgeStore:
     def __init__(
         self,
         *,
-        dsn: str,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
         table_name: str,
-        embedding_model_name: str,
-        embedding_dimension: int,
-        embedding_model=None,
+        embedding_provider,
         minimum_score: float = DEFAULT_KNOWLEDGE_MIN_SCORE,
+        schema_mode: str | None = None,
     ) -> None:
-        self.dsn = dsn
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
+        self.legacy_table = table_name
         self.table_name = table_name
-        self.embedding_model_name = embedding_model_name
-        self.embedding_dimension = embedding_dimension
-        self._embedding_model = embedding_model
+        self.versions_table, self.releases_table = derive_pgvector_table_names(table_name)
+        self.embedding_provider = embedding_provider
+        self.embedding_dimension = embedding_provider.dimension
         self.minimum_score = float(minimum_score)
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "validate":
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.versions_table,
+                    self.releases_table,
+                ),
+            )
         self.last_search_trace: dict[str, Any] | None = None
         self.last_lookup_trace: dict[str, Any] | None = None
 
     @classmethod
-    def from_env(cls) -> "PgVectorKnowledgeStore":
+    def from_env(
+        cls,
+        *,
+        connection_provider: ConnectionProvider | None = None,
+        schema_mode: str = "migrate",
+    ) -> "PgVectorKnowledgeStore":
+        settings = get_embedding_settings()
         return cls(
             dsn=get_postgres_dsn(),
+            connection_provider=connection_provider,
+            schema_mode=schema_mode,
             table_name=get_pgvector_table(),
-            embedding_model_name=os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3"),
-            embedding_dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
+            embedding_provider=build_embedding_provider(settings),
             minimum_score=float(
                 os.getenv("KNOWLEDGE_MIN_SCORE", str(DEFAULT_KNOWLEDGE_MIN_SCORE))
             ),
         )
-
-    def upsert_chunks(self, chunks: list[KnowledgeChunk]) -> None:
-        if not chunks:
-            return
-
-        psycopg2, sql = self._import_psycopg2()
-        statement = sql.SQL(
-            """
-            INSERT INTO {table} (
-                chunk_id,
-                title,
-                content,
-                source_type,
-                domain,
-                tags,
-                metadata,
-                embedding
-            )
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::vector)
-            ON CONFLICT (chunk_id) DO UPDATE
-            SET
-                title = EXCLUDED.title,
-                content = EXCLUDED.content,
-                source_type = EXCLUDED.source_type,
-                domain = EXCLUDED.domain,
-                tags = EXCLUDED.tags,
-                metadata = EXCLUDED.metadata,
-                embedding = EXCLUDED.embedding,
-                updated_at = NOW()
-            """
-        ).format(table=sql.Identifier(self.table_name))
-
-        rows = []
-        for chunk in chunks:
-            embedding = self.embed_text(self._chunk_embedding_text(chunk))
-            rows.append(
-                (
-                    chunk.chunk_id,
-                    chunk.title,
-                    chunk.content,
-                    chunk.source_type,
-                    chunk.domain,
-                    json.dumps(chunk.tags, ensure_ascii=False),
-                    json.dumps(chunk.metadata, ensure_ascii=False),
-                    self._to_vector_literal(embedding),
-                )
-            )
-
-        try:
-            with psycopg2.connect(self.dsn) as connection:
-                self._ensure_schema(connection)
-                with connection.cursor() as cursor:
-                    for row in rows:
-                        cursor.execute(statement, row)
-        except Exception as exc:
-            raise RuntimeError("pgvector knowledge store is unavailable") from exc
 
     def search(
         self,
@@ -129,10 +187,10 @@ class PgVectorKnowledgeStore:
         query_embedding = self.embed_text(query_text)
         vector_literal = self._to_vector_literal(query_embedding)
 
-        clauses: list[Any] = []
+        clauses: list[Any] = [sql.SQL("r.status = 'active'")]
         params: list[Any] = []
         if normalized_sources:
-            clauses.append(sql.SQL("source_type = ANY(%s)"))
+            clauses.append(sql.SQL("v.source_type = ANY(%s)"))
             params.append(normalized_sources)
         if normalized_tags:
             clauses.append(
@@ -140,7 +198,7 @@ class PgVectorKnowledgeStore:
                     """
                     EXISTS (
                         SELECT 1
-                        FROM jsonb_array_elements_text(tags) AS tag(value)
+                        FROM jsonb_array_elements_text(v.tags) AS tag(value)
                         WHERE tag.value = ANY(%s)
                     )
                     """
@@ -149,50 +207,87 @@ class PgVectorKnowledgeStore:
             params.append(normalized_tags)
 
         where_sql = (
-            sql.SQL("WHERE ") + sql.SQL(" AND ").join(clauses) if clauses else sql.SQL("")
+            sql.SQL("WHERE ") + sql.SQL(" AND ").join(clauses)
         )
+        candidate_limit = max(12, int(limit))
         statement = sql.SQL(
             """
             SELECT
-                chunk_id,
-                title,
-                content,
-                source_type,
-                domain,
-                tags,
-                metadata,
-                1 - (embedding <=> %s::vector) AS score
-            FROM {table}
+                v.chunk_id,
+                v.title,
+                v.content,
+                v.source_type,
+                v.domain,
+                v.tags,
+                v.metadata,
+                1 - (v.embedding <=> %s::vector) AS score,
+                r.corpus_version,
+                r.manifest_sha256
+            FROM {releases} AS r
+            JOIN {versions} AS v ON v.corpus_version = r.corpus_version
             {where_sql}
-            ORDER BY embedding <=> %s::vector, chunk_id ASC
+            ORDER BY v.embedding <=> %s::vector, v.chunk_id ASC
             LIMIT %s
             """
         ).format(
-            table=sql.Identifier(self.table_name),
+            releases=sql.Identifier(self.releases_table),
+            versions=sql.Identifier(self.versions_table),
             where_sql=where_sql,
         )
 
+        corpus_version = None
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
-                    cursor.execute(statement, [vector_literal, *params, vector_literal, limit])
-                    rows = cursor.fetchall()
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT corpus_version
+                            FROM {releases}
+                            WHERE status = 'active'
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table))
+                    )
+                    active_row = cursor.fetchone()
+                    if active_row is None:
+                        rows = []
+                    else:
+                        corpus_version = active_row[0]
+                        cursor.execute(
+                            statement,
+                            [
+                                vector_literal,
+                                *params,
+                                vector_literal,
+                                candidate_limit,
+                            ],
+                        )
+                        rows = cursor.fetchall()
         except Exception as exc:
             raise RuntimeError("pgvector knowledge store is unavailable") from exc
 
-        results: list[KnowledgeChunk] = []
-        seen_ids: set[str] = set()
+        candidates: list[KnowledgeChunk] = []
         for row in rows:
             chunk = self._row_to_chunk(row)
-            if chunk.chunk_id in seen_ids:
-                continue
-            if chunk.score is None or chunk.score < self.minimum_score:
-                continue
-            seen_ids.add(chunk.chunk_id)
-            results.append(chunk)
-        results.sort(key=lambda chunk: (-float(chunk.score or 0.0), chunk.chunk_id))
+            chunk.metadata = {
+                **chunk.metadata,
+                "corpus_manifest_sha256": row[9],
+            }
+            candidates.append(chunk)
+        results = _rerank_chunks(
+            candidates,
+            query_text=query_text,
+            requested_tags=normalized_tags,
+            minimum_score=self.minimum_score,
+            limit=limit,
+        )
         self.last_search_trace = {
+            "provider_name": self.embedding_provider.provider_name,
+            "model_name": self.embedding_provider.model_name,
+            "model_revision": self.embedding_provider.model_revision,
+            "corpus_version": corpus_version,
+            "candidate_count": len(candidates),
             "latency_ms": round((perf_counter() - started_at) * 1000, 3),
             "filters": {
                 "job_tags": normalized_tags,
@@ -201,6 +296,7 @@ class PgVectorKnowledgeStore:
                 "limit": limit,
             },
             "hit_ids": [chunk.chunk_id for chunk in results],
+            "scores": [round(float(chunk.score or 0.0), 6) for chunk in results],
         }
         return results
 
@@ -227,21 +323,34 @@ class PgVectorKnowledgeStore:
         statement = sql.SQL(
             """
             SELECT
-                chunk_id,
-                title,
-                content,
-                source_type,
-                domain,
-                tags,
-                metadata,
-                NULL::DOUBLE PRECISION AS score
-            FROM {table}
-            WHERE chunk_id = ANY(%s)
+                v.chunk_id,
+                v.title,
+                v.content,
+                v.source_type,
+                v.domain,
+                v.tags,
+                v.metadata,
+                NULL::DOUBLE PRECISION AS score,
+                v.content_sha256,
+                r.manifest_sha256,
+                r.status
+            FROM {versions} AS v
+            JOIN {releases} AS r ON r.corpus_version = v.corpus_version
+            WHERE v.chunk_id = ANY(%s)
+            ORDER BY
+                v.chunk_id,
+                (r.status = 'active') DESC,
+                r.activated_at DESC NULLS LAST,
+                r.created_at DESC,
+                v.created_at DESC
             """
-        ).format(table=sql.Identifier(self.table_name))
+        ).format(
+            versions=sql.Identifier(self.versions_table),
+            releases=sql.Identifier(self.releases_table),
+        )
 
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(statement, (requested,))
@@ -249,19 +358,39 @@ class PgVectorKnowledgeStore:
         except Exception as exc:
             raise RuntimeError("pgvector knowledge store is unavailable") from exc
 
-        by_id = {row[0]: self._row_to_chunk(row) for row in rows}
+        rows_by_id: dict[str, list[Any]] = {}
+        for row in rows:
+            rows_by_id.setdefault(row[0], []).append(row)
         expected = expected_hashes or {}
         result = KnowledgeLookupResult()
         for chunk_id in requested:
-            chunk = by_id.get(chunk_id)
-            if chunk is None:
+            candidates = rows_by_id.get(chunk_id, [])
+            if not candidates:
                 result.missing.append(chunk_id)
                 continue
             expected_hash = expected.get(chunk_id)
-            actual_hash = chunk.metadata.get("content_sha256")
-            if expected_hash is not None and actual_hash != expected_hash:
+            if expected_hash is not None:
+                selected = next(
+                    (row for row in candidates if row[8] == expected_hash),
+                    None,
+                )
+            else:
+                selected = next(
+                    (row for row in candidates if row[10] == "active"),
+                    None,
+                )
+            if selected is None and expected_hash is not None:
                 result.version_mismatch.append(chunk_id)
                 continue
+            if selected is None:
+                result.missing.append(chunk_id)
+                continue
+            chunk = self._row_to_chunk(selected)
+            chunk.metadata = {
+                **chunk.metadata,
+                "content_sha256": selected[8],
+                "corpus_manifest_sha256": selected[9],
+            }
             result.found.append(chunk)
 
         self.last_lookup_trace = {
@@ -273,23 +402,21 @@ class PgVectorKnowledgeStore:
         }
         return result
 
+    def warm_embedding(self, text: str) -> list[float]:
+        return self.embedding_provider.embed_query(text.strip() or "general knowledge")
+
     def embed_text(self, text: str) -> list[float]:
-        model = self._get_embedding_model()
         payload = text.strip() or "general knowledge"
-        vector = model.encode(payload, normalize_embeddings=True)
-        if hasattr(vector, "tolist"):
-            vector = vector.tolist()
-        normalized = [float(value) for value in vector]
-        if len(normalized) != self.embedding_dimension:
-            raise RuntimeError(
-                f"embedding dimension mismatch: expected {self.embedding_dimension}, got {len(normalized)}"
-            )
-        return normalized
+        return validate_embedding_batch(
+            [self.embedding_provider.embed_query(payload)],
+            expected_count=1,
+            dimension=self.embedding_dimension,
+        )[0]
 
     def ensure_schema(self) -> None:
         psycopg2, _ = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
         except Exception as exc:
             raise RuntimeError('pgvector knowledge store is unavailable') from exc
@@ -297,12 +424,21 @@ class PgVectorKnowledgeStore:
     def count_chunks(self) -> int:
         psycopg2, sql = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        sql.SQL('SELECT COUNT(*) FROM {table}').format(
-                            table=sql.Identifier(self.table_name)
+                        sql.SQL(
+                            """
+                            SELECT COUNT(v.chunk_id)
+                            FROM {releases} AS r
+                            LEFT JOIN {versions} AS v
+                              ON v.corpus_version = r.corpus_version
+                            WHERE r.status = 'active'
+                            """
+                        ).format(
+                            releases=sql.Identifier(self.releases_table),
+                            versions=sql.Identifier(self.versions_table),
                         )
                     )
                     row = cursor.fetchone()
@@ -310,16 +446,9 @@ class PgVectorKnowledgeStore:
             raise RuntimeError('pgvector knowledge store is unavailable') from exc
         return int(row[0]) if row is not None else 0
 
-    def _get_embedding_model(self):
-        if self._embedding_model is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise RuntimeError("sentence-transformers is required") from exc
-            self._embedding_model = SentenceTransformer(self.embedding_model_name)
-        return self._embedding_model
-
     def _ensure_schema(self, connection) -> None:
+        if self.schema_mode == "validate":
+            return
         _, sql = self._import_psycopg2()
         dimension_sql = sql.SQL(str(int(self.embedding_dimension)))
         with connection.cursor() as cursor:
@@ -327,8 +456,46 @@ class PgVectorKnowledgeStore:
             cursor.execute(
                 sql.SQL(
                     """
-                    CREATE TABLE IF NOT EXISTS {table} (
-                        chunk_id TEXT PRIMARY KEY,
+                    CREATE TABLE IF NOT EXISTS {releases} (
+                        corpus_version TEXT PRIMARY KEY,
+                        manifest_sha256 TEXT NOT NULL,
+                        embedding_provider TEXT NOT NULL,
+                        embedding_model TEXT NOT NULL,
+                        embedding_revision TEXT NOT NULL,
+                        embedding_dimension INTEGER NOT NULL
+                            CHECK (embedding_dimension > 0),
+                        chunk_count INTEGER NOT NULL CHECK (chunk_count >= 0),
+                        status TEXT NOT NULL
+                            CHECK (status IN ('staged', 'active', 'retired')),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        activated_at TIMESTAMPTZ
+                    )
+                    """
+                ).format(releases=sql.Identifier(self.releases_table))
+            )
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS {index_name}
+                    ON {releases} ((1)) WHERE status = 'active'
+                    """
+                ).format(
+                    index_name=sql.Identifier(self._index_name("one_active")),
+                    releases=sql.Identifier(self.releases_table),
+                )
+            )
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS {versions} (
+                        corpus_version TEXT NOT NULL
+                            REFERENCES {releases}(corpus_version) ON DELETE RESTRICT,
+                        chunk_id TEXT NOT NULL,
+                        content_sha256 TEXT NOT NULL,
+                        embedding_provider TEXT NOT NULL,
+                        embedding_model TEXT NOT NULL,
+                        embedding_revision TEXT NOT NULL,
+                        embedding_dimension INTEGER NOT NULL,
                         title TEXT NOT NULL,
                         content TEXT NOT NULL,
                         source_type TEXT NOT NULL,
@@ -337,30 +504,478 @@ class PgVectorKnowledgeStore:
                         metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                         embedding VECTOR({dimension}) NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        PRIMARY KEY (corpus_version, chunk_id)
                     )
                     """
                 ).format(
-                    table=sql.Identifier(self.table_name),
+                    versions=sql.Identifier(self.versions_table),
+                    releases=sql.Identifier(self.releases_table),
                     dimension=dimension_sql,
                 )
             )
             cursor.execute(
                 sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {index_name} ON {table} USING GIN (tags)"
+                    """
+                    CREATE INDEX IF NOT EXISTS {index_name}
+                    ON {versions} (corpus_version, source_type)
+                    """
                 ).format(
-                    index_name=sql.Identifier(f"{self.table_name}_tags_gin"),
-                    table=sql.Identifier(self.table_name),
+                    index_name=sql.Identifier(self._index_name("source")),
+                    versions=sql.Identifier(self.versions_table),
                 )
             )
             cursor.execute(
                 sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {index_name} ON {table} (source_type)"
+                    """
+                    CREATE INDEX IF NOT EXISTS {index_name}
+                    ON {versions} USING GIN (tags)
+                    """
                 ).format(
-                    index_name=sql.Identifier(f"{self.table_name}_source_type_idx"),
-                    table=sql.Identifier(self.table_name),
+                    index_name=sql.Identifier(self._index_name("tags")),
+                    versions=sql.Identifier(self.versions_table),
                 )
             )
+            cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS {index_name}
+                    ON {versions} (
+                        content_sha256,
+                        embedding_provider,
+                        embedding_model,
+                        embedding_revision,
+                        embedding_dimension
+                    )
+                    """
+                ).format(
+                    index_name=sql.Identifier(self._index_name("reuse")),
+                    versions=sql.Identifier(self.versions_table),
+                )
+            )
+
+    def migrate_legacy_rows(self) -> int:
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with self._connection_provider.connection() as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT to_regclass(%s)", (f"public.{self.legacy_table}",))
+                    if cursor.fetchone()[0] is None:
+                        return 0
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, title, content, source_type, domain,
+                                   tags, metadata, embedding::text
+                            FROM {legacy}
+                            ORDER BY chunk_id
+                            """
+                        ).format(legacy=sql.Identifier(self.legacy_table))
+                    )
+                    source_rows = cursor.fetchall()
+                    if not source_rows:
+                        return 0
+
+                    prepared = self._prepare_legacy_rows(source_rows)
+                    manifest_sha256 = self._legacy_manifest_sha256(prepared)
+                    identity = (
+                        manifest_sha256,
+                        "legacy-unknown",
+                        "legacy-unknown",
+                        "legacy-stage42-v1",
+                        self.embedding_dimension,
+                        len(prepared),
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT manifest_sha256, embedding_provider,
+                                   embedding_model, embedding_revision,
+                                   embedding_dimension, chunk_count
+                            FROM {releases}
+                            WHERE corpus_version = %s
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table)),
+                        ("legacy-stage42-v1",),
+                    )
+                    existing = cursor.fetchone()
+                    if existing is not None and tuple(existing) != identity:
+                        raise ValueError("legacy corpus identity conflict")
+                    if existing is None:
+                        cursor.execute(
+                            sql.SQL(
+                                """
+                                INSERT INTO {releases} (
+                                    corpus_version, manifest_sha256,
+                                    embedding_provider, embedding_model,
+                                    embedding_revision, embedding_dimension,
+                                    chunk_count, status
+                                )
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, 'retired')
+                                """
+                            ).format(releases=sql.Identifier(self.releases_table)),
+                            ("legacy-stage42-v1", *identity),
+                        )
+
+                    insert_statement = sql.SQL(
+                        """
+                        INSERT INTO {versions} (
+                            corpus_version, chunk_id, content_sha256,
+                            embedding_provider, embedding_model,
+                            embedding_revision, embedding_dimension,
+                            title, content, source_type, domain, tags,
+                            metadata, embedding
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::vector
+                        )
+                        ON CONFLICT (corpus_version, chunk_id) DO NOTHING
+                        """
+                    ).format(versions=sql.Identifier(self.versions_table))
+                    for row in prepared:
+                        cursor.execute(insert_statement, row["insert_values"])
+
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, content_sha256,
+                                   embedding_provider, embedding_model,
+                                   embedding_revision, embedding_dimension
+                            FROM {versions}
+                            WHERE corpus_version = %s
+                            ORDER BY chunk_id
+                            """
+                        ).format(versions=sql.Identifier(self.versions_table)),
+                        ("legacy-stage42-v1",),
+                    )
+                    persisted = cursor.fetchall()
+                    expected = [row["verification"] for row in prepared]
+                    if [tuple(row) for row in persisted] != expected:
+                        raise ValueError("legacy corpus identity conflict")
+                    return len(prepared)
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+
+    def find_reusable_embeddings(
+        self,
+        chunks: list[KnowledgeChunk],
+        *,
+        provider_name: str,
+        model_name: str,
+        model_revision: str,
+        dimension: int,
+    ) -> dict[str, list[float]]:
+        if not chunks:
+            return {}
+        requested_hashes = {
+            chunk.chunk_id: chunk.metadata.get("content_sha256") for chunk in chunks
+        }
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with self._connection_provider.connection() as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, content_sha256, embedding::text
+                            FROM {versions}
+                            WHERE chunk_id = ANY(%s)
+                              AND embedding_provider = %s
+                              AND embedding_model = %s
+                              AND embedding_revision = %s
+                              AND embedding_dimension = %s
+                            ORDER BY chunk_id, created_at DESC
+                            """
+                        ).format(versions=sql.Identifier(self.versions_table)),
+                        (
+                            list(requested_hashes),
+                            provider_name,
+                            model_name,
+                            model_revision,
+                            int(dimension),
+                        ),
+                    )
+                    rows = cursor.fetchall()
+        except Exception as exc:
+            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+
+        reusable: dict[str, list[float]] = {}
+        for chunk_id, content_sha256, vector_text in rows:
+            if chunk_id in reusable:
+                continue
+            if requested_hashes.get(chunk_id) != content_sha256:
+                continue
+            try:
+                vector = validate_embedding_batch(
+                    [json.loads(vector_text)],
+                    expected_count=1,
+                    dimension=int(dimension),
+                )[0]
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError("pgvector knowledge store is unavailable") from exc
+            reusable[chunk_id] = vector
+        return reusable
+
+    def activate_corpus(
+        self,
+        *,
+        corpus_version: str,
+        manifest_sha256: str,
+        provider,
+        chunks,
+    ) -> None:
+        prepared = list(chunks)
+        chunk_ids = [item.chunk.chunk_id for item in prepared]
+        if not prepared or len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("corpus version identity conflict")
+        vectors = validate_embedding_batch(
+            [item.embedding for item in prepared],
+            expected_count=len(prepared),
+            dimension=provider.dimension,
+        )
+        rows = []
+        for item, vector in zip(prepared, vectors, strict=True):
+            chunk = item.chunk
+            metadata = {**chunk.metadata, "content_sha256": item.content_sha256}
+            rows.append(
+                (
+                    corpus_version,
+                    chunk.chunk_id,
+                    item.content_sha256,
+                    provider.provider_name,
+                    provider.model_name,
+                    provider.model_revision,
+                    provider.dimension,
+                    chunk.title,
+                    chunk.content,
+                    chunk.source_type,
+                    chunk.domain,
+                    json.dumps(chunk.tags, ensure_ascii=False),
+                    json.dumps(metadata, ensure_ascii=False),
+                    self._to_vector_literal(vector),
+                )
+            )
+
+        release_identity = (
+            manifest_sha256,
+            provider.provider_name,
+            provider.model_name,
+            provider.model_revision,
+            int(provider.dimension),
+            len(rows),
+        )
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with self._connection_provider.connection() as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT manifest_sha256, embedding_provider,
+                                   embedding_model, embedding_revision,
+                                   embedding_dimension, chunk_count, status
+                            FROM {releases}
+                            WHERE corpus_version = %s
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table)),
+                        (corpus_version,),
+                    )
+                    existing = cursor.fetchone()
+                    existing_status = None
+                    if existing is not None:
+                        existing_status = existing[6]
+                        if tuple(existing[:6]) != release_identity:
+                            raise ValueError("corpus version identity conflict")
+                    else:
+                        cursor.execute(
+                            sql.SQL(
+                                """
+                                INSERT INTO {releases} (
+                                    corpus_version, manifest_sha256,
+                                    embedding_provider, embedding_model,
+                                    embedding_revision, embedding_dimension,
+                                    chunk_count, status
+                                )
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, 'staged')
+                                """
+                            ).format(releases=sql.Identifier(self.releases_table)),
+                            (corpus_version, *release_identity),
+                        )
+
+                    insert_statement = sql.SQL(
+                        """
+                        INSERT INTO {versions} (
+                            corpus_version, chunk_id, content_sha256,
+                            embedding_provider, embedding_model,
+                            embedding_revision, embedding_dimension,
+                            title, content, source_type, domain, tags,
+                            metadata, embedding
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::vector
+                        )
+                        ON CONFLICT (corpus_version, chunk_id) DO NOTHING
+                        """
+                    ).format(versions=sql.Identifier(self.versions_table))
+                    for row in rows:
+                        cursor.execute(insert_statement, row)
+
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, content_sha256,
+                                   embedding_provider, embedding_model,
+                                   embedding_revision, embedding_dimension
+                            FROM {versions}
+                            WHERE corpus_version = %s
+                            ORDER BY chunk_id
+                            """
+                        ).format(versions=sql.Identifier(self.versions_table)),
+                        (corpus_version,),
+                    )
+                    persisted = [tuple(row) for row in cursor.fetchall()]
+                    expected = sorted(
+                        (
+                            item.chunk.chunk_id,
+                            item.content_sha256,
+                            provider.provider_name,
+                            provider.model_name,
+                            provider.model_revision,
+                            int(provider.dimension),
+                        )
+                        for item in prepared
+                    )
+                    if persisted != expected:
+                        raise ValueError("corpus version identity conflict")
+                    if existing_status == "active":
+                        return
+
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            UPDATE {releases}
+                            SET status = 'retired'
+                            WHERE status = 'active' AND corpus_version <> %s
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table)),
+                        (corpus_version,),
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            UPDATE {releases}
+                            SET status = 'active', activated_at = NOW()
+                            WHERE corpus_version = %s
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table)),
+                        (corpus_version,),
+                    )
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+
+    def get_active_corpus_version(self) -> str | None:
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with self._connection_provider.connection() as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT corpus_version
+                            FROM {releases}
+                            WHERE status = 'active'
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table))
+                    )
+                    row = cursor.fetchone()
+        except Exception as exc:
+            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+        return str(row[0]) if row is not None else None
+
+    def _prepare_legacy_rows(self, source_rows) -> list[dict[str, Any]]:
+        prepared: list[dict[str, Any]] = []
+        for row in source_rows:
+            tags = self._coerce_json_value(row[5], default=[])
+            metadata = self._coerce_json_value(row[6], default={})
+            content = str(row[2])
+            source_content_sha256 = self._content_sha256(content)
+            mapped_hash = metadata.get("content_sha256")
+            content_sha256 = (
+                mapped_hash.strip()
+                if isinstance(mapped_hash, str) and mapped_hash.strip()
+                else source_content_sha256
+            )
+            metadata = {**metadata, "content_sha256": content_sha256}
+            vector = [float(value) for value in json.loads(row[7])]
+            if len(vector) != self.embedding_dimension:
+                raise ValueError("legacy corpus identity conflict")
+            chunk_id = str(row[0])
+            prepared.append(
+                {
+                    "source_identity": {
+                        "chunk_id": chunk_id,
+                        "source_content_sha256": source_content_sha256,
+                        "content_sha256": content_sha256,
+                        "embedding_dimension": len(vector),
+                    },
+                    "insert_values": (
+                        "legacy-stage42-v1",
+                        chunk_id,
+                        content_sha256,
+                        "legacy-unknown",
+                        "legacy-unknown",
+                        "legacy-stage42-v1",
+                        self.embedding_dimension,
+                        row[1],
+                        content,
+                        row[3],
+                        row[4],
+                        json.dumps(tags, ensure_ascii=False),
+                        json.dumps(metadata, ensure_ascii=False),
+                        self._to_vector_literal(vector),
+                    ),
+                    "verification": (
+                        chunk_id,
+                        content_sha256,
+                        "legacy-unknown",
+                        "legacy-unknown",
+                        "legacy-stage42-v1",
+                        self.embedding_dimension,
+                    ),
+                }
+            )
+        return prepared
+
+    @staticmethod
+    def _legacy_manifest_sha256(prepared: list[dict[str, Any]]) -> str:
+        payload = [row["source_identity"] for row in prepared]
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _content_sha256(content: str) -> str:
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def _index_name(self, purpose: str) -> str:
+        digest = hashlib.sha256(
+            f"{self.versions_table}:{purpose}".encode("ascii")
+        ).hexdigest()[:12]
+        return f"knowledge_{purpose}_{digest}"
 
     def _chunk_embedding_text(self, chunk: KnowledgeChunk) -> str:
         return f"{chunk.title}\n{chunk.content}"
@@ -435,8 +1050,20 @@ class PgVectorKnowledgeStore:
 _knowledge_store: PgVectorKnowledgeStore | None = None
 
 
-def get_knowledge_store() -> PgVectorKnowledgeStore:
+def get_knowledge_store(
+    *,
+    connection_provider: ConnectionProvider | None = None,
+    schema_mode: str = "migrate",
+) -> PgVectorKnowledgeStore:
     global _knowledge_store
     if _knowledge_store is None:
-        _knowledge_store = PgVectorKnowledgeStore.from_env()
+        _knowledge_store = PgVectorKnowledgeStore.from_env(
+            connection_provider=connection_provider,
+            schema_mode=schema_mode,
+        )
+    elif (
+        connection_provider is not None
+        and _knowledge_store._connection_provider is not connection_provider
+    ):
+        raise RuntimeError("knowledge store provider identity changed")
     return _knowledge_store

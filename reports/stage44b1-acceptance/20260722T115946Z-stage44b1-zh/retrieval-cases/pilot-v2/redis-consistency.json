@@ -1,0 +1,23 @@
+{
+  "bound_evidence_ids": [
+    "redis_consistency"
+  ],
+  "case_id": "redis-consistency",
+  "latency_ms": 340.189,
+  "replayed_evidence_ids": [
+    "redis_consistency"
+  ],
+  "retrieved_ids": [
+    "redis_consistency",
+    "cache_breakdown",
+    "redis_operations",
+    "redis_distributed_lock"
+  ],
+  "scores": {
+    "cache_breakdown": 0.694864,
+    "redis_consistency": 0.7186,
+    "redis_distributed_lock": 0.527875,
+    "redis_operations": 0.558383
+  },
+  "status": "completed"
+}

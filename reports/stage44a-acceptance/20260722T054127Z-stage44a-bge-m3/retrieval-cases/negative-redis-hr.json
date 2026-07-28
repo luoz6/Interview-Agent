@@ -1,0 +1,14 @@
+{
+  "bound_evidence_ids": [],
+  "case_id": "negative-redis-hr",
+  "category": "negative",
+  "latency_ms": 296.674,
+  "retrieved_ids": [
+    "redis_operations"
+  ],
+  "reused_evidence_ids": [],
+  "scores": {
+    "redis_operations": 0.46083
+  },
+  "status": "completed"
+}

@@ -5,7 +5,11 @@ from app.services.config import get_redis_url
 
 celery_app = Celery(
     "interview_agent",
-    include=["app.services.round_review_tasks"],
+    include=[
+        "app.services.round_review_tasks",
+        "app.services.interview_workflow_tasks",
+        "app.services.review_workflow_tasks",
+    ],
 )
 celery_app.conf.update(
     broker_url=get_redis_url(),

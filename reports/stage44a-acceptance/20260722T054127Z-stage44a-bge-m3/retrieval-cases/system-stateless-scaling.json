@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "service_scaling"
+  ],
+  "case_id": "system-stateless-scaling",
+  "category": "relevant",
+  "latency_ms": 266.306,
+  "retrieved_ids": [
+    "service_scaling",
+    "system_design_backend",
+    "capacity_planning"
+  ],
+  "reused_evidence_ids": [
+    "service_scaling"
+  ],
+  "scores": {
+    "capacity_planning": 0.66503,
+    "service_scaling": 0.830815,
+    "system_design_backend": 0.675284
+  },
+  "status": "completed"
+}

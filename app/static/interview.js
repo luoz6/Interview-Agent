@@ -1,5 +1,17 @@
-import { getJson, getSessionId, postJson, readSse } from "./api.js";
-import { byId, clear, createEl, questionStateLabels, renderEmptyState, renderTags, setBusy, setText, showNotice } from "./shared-ui.js";
+import { getJson, getQuestionEvaluations, getSessionId, postJson, readSse } from "./api.js";
+import {
+  byId,
+  clear,
+  createEl,
+  formatDuration,
+  questionStateLabels,
+  renderEmptyState,
+  renderTags,
+  setBusy,
+  setPressed,
+  setText,
+  showNotice,
+} from "./shared-ui.js";
 
 const sessionId = getSessionId();
 const conversation = byId("conversation");
@@ -9,6 +21,7 @@ const answerInput = byId("answerInput");
 const sendAnswerButton = byId("sendAnswerButton");
 const skipQuestionButton = byId("skipQuestionButton");
 const finishInterviewButton = byId("finishInterviewButton");
+const focusModeButton = byId("focusModeButton");
 const questionPlan = byId("questionPlan");
 const toggleQuestionPlanButton = byId("toggleQuestionPlanButton");
 const topicTags = byId("topicTags");
@@ -18,6 +31,14 @@ let latestStateVersion = null;
 let commandSequence = 0;
 let latestQuestions = [];
 let showAllQuestions = false;
+let currentQuestionId = null;
+let latestCompletedQuestions = 0;
+let draftTimer = null;
+let activeCommandId = null;
+let activeGenerationId = null;
+let activeAttemptNumber = 0;
+let lastGenerationEventId = null;
+let activeStreamingBubble = null;
 
 const collapsedQuestionLimit = 6;
 
@@ -62,6 +83,53 @@ async function recoverFromVersionConflict() {
   showNotice(interviewNotice, "会话状态已刷新，请检查最新题目后继续。", "warning");
 }
 
+function setFocusMode(enabled) {
+  document.body.classList.toggle("interview-focus-mode", enabled);
+  setPressed(focusModeButton, enabled);
+  focusModeButton.textContent = enabled ? "退出专注" : "专注模式";
+}
+
+function answerDraftKey(questionId = currentQuestionId) {
+  return questionId ? `interviewAnswerDraft:${sessionId}:${questionId}` : null;
+}
+
+function persistAnswerDraft(questionId = currentQuestionId) {
+  const key = answerDraftKey(questionId);
+  if (!key) return;
+  localStorage.setItem(key, answerInput.value);
+  setText("answerDraftStatus", "草稿已保存");
+}
+
+function restoreAnswerDraft(questionId) {
+  const key = answerDraftKey(questionId);
+  if (!key) return;
+  const value = localStorage.getItem(key);
+  if (value !== null && !answerInput.value) {
+    answerInput.value = value;
+    setText("answerDraftStatus", "草稿已恢复");
+  }
+  setText("answerCount", String(answerInput.value.length));
+}
+
+function clearAnswerDraft(questionId) {
+  const key = answerDraftKey(questionId);
+  if (key) localStorage.removeItem(key);
+}
+
+function flushAnswerDraft(questionId = currentQuestionId) {
+  if (draftTimer !== null) {
+    window.clearTimeout(draftTimer);
+    draftTimer = null;
+  }
+  persistAnswerDraft(questionId);
+}
+
+function resetAnswerEditor(status = "尚未保存") {
+  answerInput.value = "";
+  setText("answerCount", "0");
+  setText("answerDraftStatus", status);
+}
+
 function renderMessages(messages) {
   clear(conversation);
   if (!messages || !messages.length) {
@@ -74,9 +142,15 @@ function renderMessages(messages) {
 }
 
 function appendMessage(role, text) {
-  const item = createEl("article", `flex items-start gap-4 message-${role}`);
-  const bubble = createEl("div", "bg-white p-4 rounded-2xl rounded-tl-sm border border-gray-200 shadow-sm text-[13.5px] text-gray-700 inline-block leading-relaxed whitespace-pre-wrap", text || "");
-  item.appendChild(bubble);
+  const safeRole = role === "candidate" || role === "user" ? "candidate" : "assistant";
+  const item = createEl("article", `message message-${safeRole}`);
+  const avatar = createEl("span", "message-avatar", safeRole === "candidate" ? "你" : "AI");
+  const content = createEl("div", "message-content");
+  content.appendChild(createEl("span", "message-label", safeRole === "candidate" ? "你的回答" : "AI 面试官"));
+  const bubble = createEl("div", "message-bubble", text || "");
+  content.appendChild(bubble);
+  item.appendChild(avatar);
+  item.appendChild(content);
   conversation.appendChild(item);
   conversation.scrollTop = conversation.scrollHeight;
   return bubble;
@@ -86,14 +160,65 @@ function createStreamingAssistantMessage() {
   return appendMessage("assistant", "");
 }
 
+function applyGenerationReset(data) {
+  if (data.attempt_number <= activeAttemptNumber) return;
+  activeAttemptNumber = data.attempt_number;
+  lastGenerationEventId = data.event_id || null;
+  if (activeStreamingBubble) activeStreamingBubble.textContent = "";
+}
+
+async function resumeCommandStream(streamUrl) {
+  if (!streamUrl || !activeStreamingBubble) return;
+  const headers = lastGenerationEventId
+    ? { "Last-Event-ID": lastGenerationEventId }
+    : {};
+  const response = await fetch(streamUrl, { headers });
+  await readSse(response, {
+    generation_reset(data, id) {
+      applyGenerationReset(Object.assign({}, data, { event_id: id }));
+    },
+    chunk(data, id) {
+      if (data.attempt_number < activeAttemptNumber) return;
+      activeAttemptNumber = data.attempt_number;
+      activeGenerationId = data.generation_id;
+      lastGenerationEventId = id;
+      activeStreamingBubble.textContent += data.delta || "";
+      conversation.scrollTop = conversation.scrollHeight;
+    },
+    conflict() {
+      throw new Error("Interview state changed");
+    },
+    done() {
+      activeCommandId = null;
+      activeGenerationId = null;
+      activeStreamingBubble = null;
+    },
+  });
+}
+
+function resumePendingGeneration(snapshot) {
+  if (
+    snapshot.workflow_engine !== "langgraph-v1"
+    || !snapshot.active_stream_url
+  ) {
+    return;
+  }
+  activeCommandId = snapshot.active_command_id || null;
+  activeGenerationId = snapshot.active_generation_id || null;
+  activeAttemptNumber = snapshot.active_attempt_number || 0;
+  lastGenerationEventId = snapshot.last_generation_event_id || null;
+  activeStreamingBubble = createStreamingAssistantMessage();
+  void resumeCommandStream(snapshot.active_stream_url).catch((error) => {
+    showNotice(interviewNotice, error.message, "danger");
+  });
+}
+
 function renderCurrentQuestion(question) {
   clear(currentQuestion);
-  const icon = createEl("div", "mt-0.5 text-blue-500");
-  icon.innerHTML = '<i class="fa-solid fa-location-dot"></i>';
-  currentQuestion.appendChild(icon);
+  currentQuestion.appendChild(createEl("span", "question-chip", question?.id || "--"));
   const body = createEl("div");
-  body.appendChild(createEl("span", "text-[13px] text-blue-500 font-bold mr-1", "当前问题："));
-  body.appendChild(createEl("span", "text-[14px] text-gray-800 font-medium", question ? question.prompt : "当前没有待回答题目"));
+  body.appendChild(createEl("small", "", "当前问题"));
+  body.appendChild(createEl("strong", "", question ? question.prompt : "当前没有待回答题目"));
   currentQuestion.appendChild(body);
 }
 
@@ -106,14 +231,18 @@ function renderQuestions(questions) {
     return;
   }
   const visibleQuestions = showAllQuestions ? latestQuestions : latestQuestions.slice(0, collapsedQuestionLimit);
-  for (const question of visibleQuestions) {
+  for (const [index, question] of visibleQuestions.entries()) {
     const state = question.state || "pending";
-    const item = createEl("li", `question-${state} flex items-start justify-between gap-2`);
-    const body = createEl("div", "flex items-start gap-2");
-    body.appendChild(createEl("span", "w-3.5 h-3.5 rounded-full border border-gray-300 text-gray-500 text-[9px] flex items-center justify-center mt-0.5 shrink-0", question.id || ""));
-    body.appendChild(createEl("span", "line-clamp-2", question.prompt || question.id || ""));
+    const item = createEl("li", `question-item question-${state}`);
+    if (question.id === currentQuestionId) {
+      item.classList.add("question-current");
+      item.setAttribute("aria-current", "step");
+    }
+    item.appendChild(createEl("span", "question-number", String(index + 1)));
+    const body = createEl("div", "question-item-copy");
+    body.appendChild(createEl("strong", "", question.prompt || question.id || "未命名题目"));
+    body.appendChild(createEl("small", "", questionStateLabels[state] || state));
     item.appendChild(body);
-    item.appendChild(createEl("span", "text-[11px] text-blue-500 bg-blue-50 px-1.5 rounded shrink-0", questionStateLabels[state] || state));
     questionPlan.appendChild(item);
   }
   updateQuestionPlanToggle(latestQuestions.length);
@@ -129,13 +258,31 @@ function updateQuestionPlanToggle(totalQuestions) {
   toggleQuestionPlanButton.textContent = showAllQuestions ? "收起题目" : `查看全部 ${totalQuestions} 题`;
 }
 
+async function refreshRoundReviewStatus(snapshot) {
+  try {
+    const payload = await getQuestionEvaluations(sessionId);
+    const records = Array.isArray(payload.items) ? payload.items : [];
+    const reviewedCount = records.filter((record) => record.status === "completed" || record.status === "failed").length;
+    const closedCount = Math.max(0, Number(snapshot?.completed_questions) || 0);
+    setText("roundReviewStatus", `已评审 ${reviewedCount} / 已关闭 ${closedCount}`);
+  } catch {
+    setText("roundReviewStatus", "逐题评审状态暂不可用");
+  }
+}
+
 function renderSnapshot(snapshot) {
   rememberResumeMetadata(snapshot);
+  latestCompletedQuestions = Math.max(0, Number(snapshot.completed_questions) || 0);
   setText("sessionStatus", snapshot.status || "unknown");
+  setText("elapsedTime", formatDuration(snapshot.elapsed_seconds));
+  setText("estimatedRemainingTime", formatDuration(snapshot.estimated_remaining_seconds));
   renderTags(topicTags, snapshot.job_tags || []);
   renderMessages(snapshot.messages || []);
   renderCurrentQuestion(snapshot.current_question);
+  currentQuestionId = snapshot.current_question?.id || null;
   renderQuestions(snapshot.questions || []);
+  restoreAnswerDraft(currentQuestionId);
+  resumePendingGeneration(snapshot);
   if (snapshot.status === "finished") {
     window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
   }
@@ -144,6 +291,8 @@ function renderSnapshot(snapshot) {
 async function loadSnapshot() {
   const snapshot = await getJson(`/api/interviews/${sessionId}`);
   renderSnapshot(snapshot);
+  void refreshRoundReviewStatus(snapshot);
+  return snapshot;
 }
 
 async function submitAnswer(event) {
@@ -156,9 +305,12 @@ async function submitAnswer(event) {
     return;
   }
 
+  const submittedQuestionId = currentQuestionId;
+  flushAnswerDraft(submittedQuestionId);
   appendMessage("candidate", answer);
   const streamingBubble = createStreamingAssistantMessage();
-  answerInput.value = "";
+  activeStreamingBubble = streamingBubble;
+  resetAnswerEditor("提交中");
 
   setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], true);
   try {
@@ -168,8 +320,17 @@ async function submitAnswer(event) {
       body: JSON.stringify(createCommandPayload({ answer })),
     });
     let streamedText = "";
+    let streamError = null;
     await readSse(response, {
+      generation_reset(data, id) {
+        applyGenerationReset(Object.assign({}, data, { event_id: id }));
+        streamedText = "";
+      },
       chunk(data) {
+        const id = arguments[1];
+        if (data.attempt_number && data.attempt_number < activeAttemptNumber) return;
+        if (data.attempt_number) activeAttemptNumber = data.attempt_number;
+        lastGenerationEventId = id || lastGenerationEventId;
         streamedText += data.delta || "";
         streamingBubble.textContent = streamedText;
         conversation.scrollTop = conversation.scrollHeight;
@@ -178,12 +339,17 @@ async function submitAnswer(event) {
         // The SSE done payload is an InterviewTurn, not a full session snapshot.
       },
       error(data) {
-        showNotice(interviewNotice, data.detail || "提交失败", "danger");
+        streamError = new Error(data.detail || "提交失败");
       },
     });
+    if (streamError) throw streamError;
+    clearAnswerDraft(submittedQuestionId);
+    setText("answerDraftStatus", "已提交");
     await loadSnapshot();
   } catch (error) {
     answerInput.value = answer;
+    setText("answerCount", String(answerInput.value.length));
+    setText("answerDraftStatus", "草稿已保存");
     if (isVersionConflict(error)) {
       await recoverFromVersionConflict();
       return;
@@ -196,6 +362,8 @@ async function submitAnswer(event) {
 
 async function skipQuestion() {
   if (!hasSession()) return;
+  const submittedQuestionId = currentQuestionId;
+  flushAnswerDraft(submittedQuestionId);
   try {
     await postJson(`/api/interviews/${sessionId}/skip`, createCommandPayload());
   } catch (error) {
@@ -205,11 +373,15 @@ async function skipQuestion() {
     }
     throw error;
   }
+  clearAnswerDraft(submittedQuestionId);
+  resetAnswerEditor("已跳过");
   await loadSnapshot();
 }
 
 async function finishInterview() {
   if (!hasSession()) return;
+  const submittedQuestionId = currentQuestionId;
+  flushAnswerDraft(submittedQuestionId);
   try {
     await postJson(`/api/interviews/${sessionId}/finish`, createCommandPayload());
   } catch (error) {
@@ -219,6 +391,9 @@ async function finishInterview() {
     }
     throw error;
   }
+  clearAnswerDraft(submittedQuestionId);
+  setText("answerDraftStatus", "面试已结束");
+  void refreshRoundReviewStatus({ completed_questions: latestCompletedQuestions });
   window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
 }
 
@@ -234,11 +409,30 @@ function submitAnswerFromKeyboard() {
   sendAnswerButton.click();
 }
 
+answerInput.addEventListener("input", () => {
+  setText("answerCount", String(answerInput.value.length));
+  setText("answerDraftStatus", "保存中");
+  if (draftTimer !== null) window.clearTimeout(draftTimer);
+  const draftQuestionId = currentQuestionId;
+  draftTimer = window.setTimeout(() => {
+    draftTimer = null;
+    persistAnswerDraft(draftQuestionId);
+  }, 300);
+});
+
 answerInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     submitAnswerFromKeyboard();
   }
+});
+
+focusModeButton.addEventListener("click", () => {
+  setFocusMode(focusModeButton.getAttribute("aria-pressed") !== "true");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setFocusMode(false);
 });
 
 skipQuestionButton.addEventListener("click", () => {

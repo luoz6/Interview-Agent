@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "queue_backpressure"
+  ],
+  "case_id": "system-queue-backpressure",
+  "latency_ms": 269.971,
+  "replayed_evidence_ids": [
+    "queue_backpressure"
+  ],
+  "retrieved_ids": [
+    "queue_backpressure",
+    "cascading_failures",
+    "capacity_planning"
+  ],
+  "scores": {
+    "capacity_planning": 0.517182,
+    "cascading_failures": 0.567194,
+    "queue_backpressure": 0.696186
+  },
+  "status": "completed"
+}

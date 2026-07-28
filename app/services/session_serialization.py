@@ -32,6 +32,9 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "checkpoint_version": state["checkpoint_version"],
         "last_checkpoint_at": state.get("last_checkpoint_at"),
         "last_command_id": state.get("last_command_id"),
+        "workflow_engine": state.get("workflow_engine", "legacy"),
+        "graph_schema_version": state.get("graph_schema_version"),
+        "projection_sha256": state.get("projection_sha256"),
     }
 
 
@@ -81,6 +84,9 @@ def state_from_rows(
         "checkpoint_version": int(session_row.get("checkpoint_version", 1)),
         "last_checkpoint_at": session_row.get("last_checkpoint_at"),
         "last_command_id": session_row.get("last_command_id"),
+        "workflow_engine": session_row.get("workflow_engine", "legacy"),
+        "graph_schema_version": session_row.get("graph_schema_version"),
+        "projection_sha256": session_row.get("projection_sha256"),
     }
 
 
@@ -137,6 +143,12 @@ def question_evaluation_record_to_row(record: QuestionEvaluationRecord) -> dict:
                 "retrieval_path": record.retrieval_path,
                 "degraded_reason": record.degraded_reason,
                 "evidence_content_sha256": record.evidence_content_sha256,
+                "review_input_sha256": record.review_input_sha256,
+                "question_input_sha256": record.question_input_sha256,
+                "review_engine": record.review_engine,
+                "review_graph_schema_version": record.review_graph_schema_version,
+                "output_sha256": record.output_sha256,
+                "completed_at": record.completed_at,
             },
         }
     return {
@@ -147,6 +159,12 @@ def question_evaluation_record_to_row(record: QuestionEvaluationRecord) -> dict:
         "feedback_json": feedback_json,
         "error": record.error,
         "created_at": record.created_at,
+        "review_input_sha256": record.review_input_sha256,
+        "question_input_sha256": record.question_input_sha256,
+        "review_engine": record.review_engine,
+        "review_graph_schema_version": record.review_graph_schema_version,
+        "output_sha256": record.output_sha256,
+        "completed_at": record.completed_at,
     }
 
 
@@ -168,6 +186,15 @@ def question_evaluation_record_from_row(row: dict) -> QuestionEvaluationRecord:
         retrieval_path=metadata.get("retrieval_path"),
         degraded_reason=metadata.get("degraded_reason"),
         evidence_content_sha256=metadata.get("evidence_content_sha256") or {},
+        review_input_sha256=row.get("review_input_sha256")
+        or metadata.get("review_input_sha256"),
+        question_input_sha256=row.get("question_input_sha256")
+        or metadata.get("question_input_sha256"),
+        review_engine=row.get("review_engine") or metadata.get("review_engine"),
+        review_graph_schema_version=row.get("review_graph_schema_version")
+        or metadata.get("review_graph_schema_version"),
+        output_sha256=row.get("output_sha256") or metadata.get("output_sha256"),
+        completed_at=row.get("completed_at") or metadata.get("completed_at"),
         error=row["error"],
         created_at=row["created_at"],
     )

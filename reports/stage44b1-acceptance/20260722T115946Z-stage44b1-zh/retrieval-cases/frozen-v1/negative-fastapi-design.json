@@ -1,0 +1,9 @@
+{
+  "bound_evidence_ids": [],
+  "case_id": "negative-fastapi-design",
+  "latency_ms": 267.485,
+  "replayed_evidence_ids": [],
+  "retrieved_ids": [],
+  "scores": {},
+  "status": "completed"
+}

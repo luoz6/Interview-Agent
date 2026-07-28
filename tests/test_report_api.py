@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 import app.api.routes as route_module
@@ -144,6 +145,8 @@ def make_client():
             self._store = store
             self.enqueue_calls: list[str] = []
             self._jobs_by_session: dict[str, dict] = {}
+            self.requeue_calls: list[str] = []
+            self.raise_requeue_race = False
 
         def enqueue_report_request(self, session_id: str) -> dict:
             self.enqueue_calls.append(session_id)
@@ -158,6 +161,28 @@ def make_client():
 
         def get_job_by_session(self, session_id: str) -> dict | None:
             return self._jobs_by_session.get(session_id)
+
+        def seed_job(self, session_id: str, *, status: str) -> dict:
+            job = {
+                "job_id": f"job-{session_id}",
+                "session_id": session_id,
+                "status": status,
+                "replay_count": 0,
+            }
+            self._jobs_by_session[session_id] = job
+            return job
+
+        def requeue_failed(self, session_id: str) -> dict:
+            self.requeue_calls.append(session_id)
+            if self.raise_requeue_race:
+                raise ValueError("simulated status race")
+            job = self._jobs_by_session.get(session_id)
+            if job is None or job["status"] != "failed":
+                raise ValueError("report job is not failed")
+            self._store.mark_report_processing(session_id)
+            job["status"] = "queued"
+            job["replay_count"] += 1
+            return dict(job)
 
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
@@ -315,6 +340,66 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     assert body["items"][2]["summary"] == "Completed summary."
     assert body["items"][2]["report_url"] == f"/api/interviews/{completed}/report"
     assert body["items"][2]["report_pdf_url"] == f"/api/interviews/{completed}/report.pdf"
+
+
+@pytest.mark.parametrize(
+    ("stored_path", "public_path"),
+    [
+        ("microbatch", "microbatch"),
+        ("full_session", "full_session"),
+        ("full_session_fallback", "full_session_fallback"),
+        ("fallback_failed", None),
+        (None, None),
+    ],
+)
+def test_reports_endpoint_exposes_only_safe_joined_metadata(
+    stored_path: str | None,
+    public_path: str | None,
+):
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    state = store.get(session_id)
+    state["status"] = "finished"
+    state["current_index"] = len(state["plan"].questions)
+    state["started_at"] = "2026-07-17T08:00:00Z"
+    state["finished_at"] = "2026-07-17T08:01:05Z"
+    store.mark_report_processing(session_id)
+    store.update_report_progress(
+        session_id,
+        ReportProgress(
+            stage="analyzing",
+            percent=60,
+            message="Analyzing interview evidence.",
+            metadata={"report_path": stored_path} if stored_path is not None else {},
+        ),
+    )
+    store.save_report(session_id, make_report_model(session_id))
+
+    response = client.get("/api/reports")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["job_title"] == "Backend mock interview"
+    assert item["job_tags"] == ["python", "redis"]
+    assert item["question_count"] == 1
+    assert item["started_at"] == state["started_at"]
+    assert item["duration_seconds"] == 65
+    assert item["report_path"] == public_path
+    assert "job_description" not in item
+    assert "resume_text" not in item
+    assert "messages" not in item
+
+
+def test_reports_endpoint_omits_duration_without_finished_timestamp():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+
+    response = client.get("/api/reports")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["duration_seconds"] is None
 
 
 def test_reports_endpoint_filters_status_and_limit():
@@ -560,6 +645,124 @@ def test_report_progress_endpoint_rejects_active_interview():
 
     assert response.status_code == 404
     assert response.json()["detail"] == "interview is not finished"
+
+
+def test_failed_report_can_be_requeued():
+    client, store, _, job_store = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    job_store.seed_job(session_id, status="failed")
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "session_id": session_id,
+        "status": "queued",
+        "report_progress_url": f"/api/interviews/{session_id}/report/progress",
+    }
+    assert job_store.requeue_calls == [session_id]
+    assert job_store.get_job_by_session(session_id)["replay_count"] == 1
+
+
+def test_report_requeue_returns_404_for_unknown_session():
+    client, _, _, _ = make_client()
+
+    response = client.post("/api/interviews/missing/report/requeue")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "interview session not found"}
+
+
+def test_report_requeue_returns_404_when_job_is_missing():
+    client, _, _, _ = make_client()
+    session_id = start_interview(client)
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "report job not found"}
+
+
+@pytest.mark.parametrize("status", ["queued", "retrying", "running"])
+def test_report_requeue_rejects_queued_or_processing_jobs(status):
+    client, _, _, job_store = make_client()
+    session_id = start_interview(client)
+    job_store.seed_job(session_id, status=status)
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "report job is already queued or processing"
+    }
+    assert job_store.requeue_calls == []
+
+
+def test_report_requeue_rejects_completed_job():
+    client, _, _, job_store = make_client()
+    session_id = start_interview(client)
+    job_store.seed_job(session_id, status="completed")
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "completed report cannot be requeued"}
+    assert job_store.requeue_calls == []
+
+
+def test_report_requeue_rejects_unknown_non_failed_job_state():
+    client, _, _, job_store = make_client()
+    session_id = start_interview(client)
+    job_store.seed_job(session_id, status="cancelled")
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "report job is not failed"}
+    assert job_store.requeue_calls == []
+
+
+def test_report_requeue_maps_status_race_to_stable_conflict():
+    client, _, _, job_store = make_client()
+    session_id = start_interview(client)
+    job_store.seed_job(session_id, status="failed")
+    job_store.raise_requeue_race = True
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "report job is not failed"}
+
+
+def test_second_report_requeue_returns_processing_conflict():
+    client, store, _, job_store = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    job_store.seed_job(session_id, status="failed")
+
+    first = client.post(f"/api/interviews/{session_id}/report/requeue")
+    second = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+    assert second.json() == {
+        "detail": "report job is already queued or processing"
+    }
+    assert job_store.requeue_calls == [session_id]
+
+
+def test_report_requeue_returns_503_when_queue_is_unavailable():
+    client, _, _, _ = make_client()
+    route_module.get_report_job_store = lambda: (_ for _ in ()).throw(
+        RuntimeError("database is unavailable")
+    )
+    session_id = start_interview(client)
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "report queue is unavailable"}
 
 
 def test_finished_answer_enqueues_report_generation_once_and_leaves_processing():

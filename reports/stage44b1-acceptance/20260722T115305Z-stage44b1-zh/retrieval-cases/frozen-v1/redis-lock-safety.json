@@ -1,0 +1,19 @@
+{
+  "bound_evidence_ids": [
+    "redis_distributed_lock"
+  ],
+  "case_id": "redis-lock-safety",
+  "latency_ms": 328.127,
+  "replayed_evidence_ids": [
+    "redis_distributed_lock"
+  ],
+  "retrieved_ids": [
+    "redis_distributed_lock",
+    "cache_breakdown"
+  ],
+  "scores": {
+    "cache_breakdown": 0.487719,
+    "redis_distributed_lock": 0.720343
+  },
+  "status": "completed"
+}

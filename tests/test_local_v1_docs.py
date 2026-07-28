@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,27 @@ def test_env_example_documents_local_v1_runtime():
     assert "OPENAI_REPORT_OUTPUT_MODE=structured_first" in env
     assert "AGENT_TRACE_DIR=" in env
     assert "DEEPSEEK_API_KEY" not in env
+
+
+def test_docs_define_remote_embedding_enablement_without_local_model_or_secret():
+    env = read_text(".env.example")
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    assert "EMBEDDING_PROVIDER=disabled" in env
+    assert "SILICONFLOW_API_KEY=" in env
+    for document in (readme, runbook):
+        assert "EMBEDDING_PROVIDER=disabled" in document
+        assert "SILICONFLOW_API_KEY" in document
+        assert "rotate the SiliconFlow key" in document
+        assert "does not download a local embedding model" in document
+        assert (
+            "python -m scripts.load_knowledge --corpus-version "
+            "stage44a-bge-m3-v1"
+        ) in document
+        assert "existing `interview` PostgreSQL database" in document
+        assert "Reviewer `get_by_ids()` makes no embedding call" in document
+        assert re.search(r"sk-[A-Za-z0-9_-]{8,}", document) is None
 
 
 def test_docs_describe_stage43a_agent_runtime_audit():
@@ -423,4 +445,85 @@ def test_docs_describe_stage43b_durable_recovery():
             "python -m scripts.runtime_recovery list "
             "--status dead_letter"
         ) in document
-    assert "Status: `PENDING_RECOVERY_ACCEPTANCE`" in acceptance
+    assert "Status: `PASS`" in acceptance
+
+
+def test_stage44b1_docs_record_passed_isolated_rc():
+    record = read_text("docs/stage-44b1-chinese-corpus-acceptance.md")
+    assert "Status: `PASS`" in record
+    assert "knowledge_chunks_stage44b_rc" in record
+    assert "stage44b1-zh-v2" in record
+    assert "20260722T115946Z-stage44b1-zh" in record
+    assert "Excluded-chunk violation rate | 0.00" in record
+    assert "Production promotion requires a separate explicit operator approval" in record
+
+
+def test_docs_define_dual_langgraph_repository_and_operator_gates():
+    interview = read_text("docs/langgraph-interview-recovery-acceptance.md")
+    review = read_text("docs/langgraph-durable-review-acceptance.md")
+    dual = read_text("docs/langgraph-dual-workflow-canary-acceptance.md")
+
+    assert "Status: PASS" in interview
+    assert "Status: PASS" in review
+    assert "Status: PASS" in dual
+    assert "Status: PASS_LOCAL_SYNTHETIC" in dual
+    assert "Environment: Local V1" in dual
+    assert "Production Canary: NOT_RUN" in dual
+    assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in dual
+    assert "assignment-only rollback" in dual
+    assert "Cooperative SSE shutdown" in dual
+
+
+def test_docs_define_safe_dual_langgraph_canary_and_rollback():
+    env = read_text(".env.example")
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    dual = read_text("docs/langgraph-dual-workflow-canary-acceptance.md")
+
+    for expected in (
+        "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0",
+        "REPORT_LANGGRAPH_ROLLOUT_PERCENT=0",
+        "INTERVIEW_LANGGRAPH_RUNTIME_ENABLED=true",
+        "REPORT_LANGGRAPH_RUNTIME_ENABLED=true",
+        "DURABLE_WORKFLOW_MAINTENANCE_SECONDS=3600",
+    ):
+        assert expected in env
+        assert expected in runbook
+    for document in (readme, runbook, dual):
+        assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in document
+        assert "assignment" in document
+    assert "python -m scripts.langgraph_canary snapshot" in runbook
+    assert "python -m scripts.langgraph_canary evaluate" in runbook
+    assert "never changes deployment configuration" in runbook
+
+
+def test_docs_separate_stage47_repository_and_operator_fencing_authority():
+    repository = read_text("docs/langgraph-stage47-fencing-canary-acceptance.md")
+    operator = read_text("docs/langgraph-stage47-fencing-canary-observation.md")
+
+    assert "Status: READY_FOR_OPERATOR_FENCING_CANARY" in repository
+    assert "Status: NOT_RUN" in operator
+    assert "READY_FOR_OPERATOR_FENCING_CANARY" in repository
+    assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in operator
+    assert "assignment-only" in repository
+    assert "Exactly-once external provider invocation is not claimed" in repository
+
+
+def test_stage47_runbook_requires_phase_utc_samples_and_read_only_cli():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    env = read_text(".env.example")
+
+    for expected in (
+        "langgraph-canary-v2",
+        "--phase interview",
+        "--since-utc <PHASE_START_UTC>",
+        "--minimum-interview-sample <APPROVED_SAMPLE>",
+        "READY_FOR_OPERATOR_FENCING_CANARY",
+        "never changes deployment configuration",
+    ):
+        assert expected in readme + runbook
+    assert "LANGGRAPH_CANARY_SIGNAL_RETENTION_HOURS=168" in env
+    assert "interview_drain  0/0" in runbook
+    assert "review_drain     0/0" in runbook
+    assert "final_drain      0/0" in runbook

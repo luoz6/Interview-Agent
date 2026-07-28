@@ -1,4 +1,5 @@
 import logging
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -23,6 +24,15 @@ from app.services.report import (
     ReportProgress,
 )
 from app.services.vector_store import KnowledgeChunk, KnowledgeSearchStore
+from app.services.context_budget import (
+    QUESTION_REVIEW_CONTEXT_POLICY,
+    context_enforcement_enabled,
+)
+from app.services.context_selection import (
+    select_interview_messages,
+    truncate_text_to_tokens,
+)
+from app.services.token_estimation import CompositeTokenEstimator
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +120,14 @@ class ExpertShadowEvaluator:
                 self._reference_to_dict(reference)
                 for reference in retrieval.references
             ]
+            if context_enforcement_enabled(QUESTION_REVIEW_CONTEXT_POLICY.operation):
+                bounded_messages, bounded_references = _budget_question_review_input(
+                    chunk,
+                    reference_dicts,
+                )
+            else:
+                bounded_messages = chunk.model_dump()["messages"]
+                bounded_references = reference_dicts
             self.last_retrieval_by_question[chunk.question_id] = {
                 "retrieval_path": retrieval.retrieval_path,
                 "degraded_reason": retrieval.degraded_reason,
@@ -128,9 +146,9 @@ class ExpertShadowEvaluator:
                     "question_text": chunk.question_text,
                     "question_kind": chunk.question_kind,
                     "focus": chunk.focus,
-                    "messages": chunk.model_dump()["messages"],
-                    "scoring_references": reference_dicts,
-                    "answer_references": reference_dicts,
+                    "messages": bounded_messages,
+                    "scoring_references": bounded_references,
+                    "answer_references": [],
                     "retrieval_path": retrieval.retrieval_path,
                     "degraded_reason": retrieval.degraded_reason,
                 }
@@ -232,6 +250,46 @@ class ExpertShadowEvaluator:
         if isinstance(reference, dict):
             return reference
         return reference.model_dump()
+
+
+def _budget_question_review_input(chunk, reference_dicts: list[dict]):
+    model = "deepseek-v4-pro"
+    estimator = CompositeTokenEstimator().resolve(model=model).estimator
+    messages, _ = select_interview_messages(
+        chunk.messages,
+        current_question_id=chunk.question_id,
+        token_budget=9_000,
+        max_single_message_tokens=(
+            QUESTION_REVIEW_CONTEXT_POLICY.max_single_message_tokens
+        ),
+        estimator=estimator,
+        model=model,
+    )
+    selected_references: list[dict] = []
+    remaining = QUESTION_REVIEW_CONTEXT_POLICY.max_total_evidence_tokens
+    for reference in reference_dicts[: QUESTION_REVIEW_CONTEXT_POLICY.max_evidence_items]:
+        bounded = dict(reference)
+        content = str(bounded.get("content", ""))
+        if content:
+            content, _ = truncate_text_to_tokens(
+                content,
+                token_budget=min(
+                    QUESTION_REVIEW_CONTEXT_POLICY.max_evidence_item_tokens,
+                    remaining,
+                ),
+                estimator=estimator,
+                model=model,
+            )
+            bounded["content"] = content
+        cost = estimator.estimate_text(
+            json.dumps(bounded, ensure_ascii=False, sort_keys=True, default=str),
+            model=model,
+        )
+        if cost > remaining:
+            break
+        selected_references.append(bounded)
+        remaining -= cost
+    return messages, selected_references
 
 
 def _enforce_v2_report_references(

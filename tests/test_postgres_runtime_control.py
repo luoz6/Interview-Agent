@@ -139,6 +139,46 @@ def test_claim_batch_leases_pending_event_and_increments_attempt(stores):
     assert claims[0]["payload"]["question_id"] == "q1"
 
 
+def test_claim_batch_does_not_run_future_pending_event(stores):
+    control = stores["control"]
+    event = make_round_event(stores["session_id"])
+    with control.connection() as connection:
+        with connection.cursor() as cursor:
+            control.enqueue_event(cursor, event)
+            cursor.execute(
+                f"UPDATE {control.outbox_table} SET available_at = NOW() + INTERVAL '30 seconds' WHERE event_id = %s",
+                (event.event_id,),
+            )
+
+    assert control.claim_batch(
+        worker_id="dispatcher-early", limit=1, lease_seconds=60
+    ) == []
+
+
+def test_outbox_has_partial_running_lease_index(stores):
+    control = stores["control"]
+    with control.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND tablename = %s
+                """,
+                (control.outbox_table,),
+            )
+            definitions = [row[0].lower() for row in cursor.fetchall()]
+
+    matches = [
+        definition
+        for definition in definitions
+        if "(lease_expires_at)" in definition
+        and "where (status = 'running'::text)" in definition
+    ]
+    assert len(matches) == 1
+
+
 def test_guarded_completion_requires_matching_lease_owner(stores):
     control = stores["control"]
     event = make_round_event(stores["session_id"])

@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "fastapi_blocking_io"
+  ],
+  "case_id": "fastapi-blocking-io",
+  "latency_ms": 279.464,
+  "replayed_evidence_ids": [
+    "fastapi_blocking_io"
+  ],
+  "retrieved_ids": [
+    "fastapi_blocking_io",
+    "fastapi_backend",
+    "fastapi_dependency_lifecycle"
+  ],
+  "scores": {
+    "fastapi_backend": 0.474127,
+    "fastapi_blocking_io": 0.582325,
+    "fastapi_dependency_lifecycle": 0.472023
+  },
+  "status": "completed"
+}

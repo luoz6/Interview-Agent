@@ -1,4 +1,5 @@
 from app.ports.runtime import (
+    EmbeddingProvider,
     InterviewSessionRepository,
     KnowledgeRepository,
     QuestionEvaluationRepository,
@@ -25,6 +26,7 @@ def test_runtime_protocols_are_runtime_checkable():
         InterviewSessionRepository,
         ReportJobQueue,
         KnowledgeRepository,
+        EmbeddingProvider,
         RuntimeLLMProvider,
         RuntimeEventPublisher,
     ):
@@ -54,6 +56,10 @@ def test_postgres_job_store_matches_report_queue_protocol_without_connecting():
     queue = object.__new__(PostgresReportJobStore)
 
     assert isinstance(queue, ReportJobQueue)
+
+
+def test_report_job_queue_requires_requeue_failed():
+    assert hasattr(ReportJobQueue, "requeue_failed")
 
 
 def test_noop_event_publisher_makes_local_v1_publisher_boundary_explicit():

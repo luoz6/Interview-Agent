@@ -1,0 +1,227 @@
+{
+  "artifact_count": 44,
+  "artifacts": [
+    {
+      "path": "metrics.json",
+      "sha256": "58ba491c5c3dd489cca9a474fe14c771d0816759750a605356eb4b1f68d3cecc",
+      "size": 1805
+    },
+    {
+      "path": "report.md",
+      "sha256": "b198e78b846ee699fa6d6d39c0a9cac9b8c7bf80f5850f8bcd93da604e90e7a0",
+      "size": 530
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/fastapi-blocking-io.json",
+      "sha256": "24b9b58fce1b35af41facb58af39c21eb11e7104554a86cf9730c00779ca7d92",
+      "size": 472
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/fastapi-dependency-scope.json",
+      "sha256": "7578ed2ebff5c6f282b1f84d8ec833704cd87cead79b947d196663231e9000af",
+      "size": 513
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/fastapi-production-engineering.json",
+      "sha256": "c529fdce3a832fd92fcd24a22a6663d60035b9466ad0bde625ade689f8b0fa9e",
+      "size": 478
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/fastapi-request-lifecycle.json",
+      "sha256": "7b1038d2c2a312bd48592fe7d2c8c3b5f698e5a346d828df2b708ee7e2766d71",
+      "size": 502
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/kafka-consumer-operations.json",
+      "sha256": "f5198a7c89fd574a21425b36396dac9cab7ae81680073caf1b470b81da613daa",
+      "size": 440
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/kafka-delivery-semantics.json",
+      "sha256": "cf770ae4a607bbf511b7f31f7139989cd26ec7ac971593f051b72a80cb7a326a",
+      "size": 430
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/kafka-group-rebalancing.json",
+      "sha256": "71d9244b6e6fc7e566563a5e96b2db9d3f26888ce75a84805db0d0940529c5a4",
+      "size": 440
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/kafka-poison-message.json",
+      "sha256": "fd35e6334338cfb6ea3a27726ddf63591feceba5c9964c01d3a4ce0f535c14e1",
+      "size": 457
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/mysql-covering-index.json",
+      "sha256": "579c817381cd26d9ee1723da2585300b2167f2228ddec5ffd8dbb36d3d39262c",
+      "size": 436
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/mysql-deadlock-failure.json",
+      "sha256": "ecefeb1a3bc18c148e4730aaf14c47054b8e0def4275f79a0ad8776f9ada547e",
+      "size": 446
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/mysql-online-schema-change.json",
+      "sha256": "c866f210f65214af9796cda9c6c87e1193bdc076671cb65c08101165ba0493c6",
+      "size": 458
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/mysql-transaction-isolation.json",
+      "sha256": "4a764cad69e096da60013878653159fc5fd5f0134c119b34c41de4a8b34abb27",
+      "size": 452
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/negative-fastapi-design.json",
+      "sha256": "1f42b720e536a7f042837ce31871f4d8ac5845f53e49f6e0a702c463a2c8c774",
+      "size": 200
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/negative-kafka-travel.json",
+      "sha256": "bde219d7370365e925eadbecc4668d64737b293d7a9be8f94d6633f201b5e5da",
+      "size": 198
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/negative-mysql-recipe.json",
+      "sha256": "78d0cc2f38cecb4ef198c93896b15b3b7d0c293a59ed20e036105269a10415eb",
+      "size": 198
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/negative-redis-hr.json",
+      "sha256": "5382f64f11bef06c2599c4a37ca0f8dd2579f9fb016cf48af72967af1af13ee5",
+      "size": 194
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/negative-system-music.json",
+      "sha256": "1a072888b93970b1a192b93a9591c35b246cedc3652f04b7e6c92906fce34a43",
+      "size": 198
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/redis-consistency-mechanism.json",
+      "sha256": "a60f465ac7b51f5b4f55b7106cd6fd0fe4873f554389ddfcc0c566e83d870b3d",
+      "size": 442
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/redis-hot-key-breakdown.json",
+      "sha256": "ce7cc22220caa85a18358724698fbc20d65ae16ceb46f6e24ee74143c3062aba",
+      "size": 451
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/redis-lock-safety.json",
+      "sha256": "bceb3964c011b695dcdb7057ffa2cb5f16957b219283f7c839b60504f7f8034e",
+      "size": 398
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/redis-production-operations.json",
+      "sha256": "6efd54d165cb5a0220d44229e4517feb4bfdf553d731d1d941038336f654400b",
+      "size": 452
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/system-capacity-planning.json",
+      "sha256": "6b22f9799527b6bc2e56bac108fb8c2e7fc982bca76204fc4ea02a76c38a5930",
+      "size": 449
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/system-cascading-failure.json",
+      "sha256": "db2de7370f6c43d5f7d518f83a91cb393db17e19102962c693f9f1bf875d2283",
+      "size": 465
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/system-queue-backpressure.json",
+      "sha256": "0a79f42f0929b9290dc5368cbbd4e50b63c0efe113612e6c958defa47ab39adb",
+      "size": 458
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/system-stateless-scaling.json",
+      "sha256": "6e99286d3143470fec7dc54a301066e1eece15e860c485390021af5caf29899e",
+      "size": 451
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/weak-fastapi-sync-call.json",
+      "sha256": "a0fd22da92812a4bc13bb9fb9aace2669892a9e9b1c8384aa12232bbf6f8dba0",
+      "size": 486
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/weak-kafka-bad-record.json",
+      "sha256": "75e5d0385c5ba3b061e0b5926871bfd0e0d3428cc0e01b703414331a962f9032",
+      "size": 458
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/weak-mysql-large-table-change.json",
+      "sha256": "ab417e96c5fa87b0541863a78aa44e202d509af686b7f32e67873354d2cacb80",
+      "size": 466
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/weak-redis-hotspot.json",
+      "sha256": "fbaf227a4f017ae979435f26078eb33492fa157414cae681aac16dd95d6ac4b2",
+      "size": 428
+    },
+    {
+      "path": "retrieval-cases/frozen-v1/weak-system-downstream-slow.json",
+      "sha256": "a7280e927a6aae54675008ffe9e70bb7504b2a89fd1b02ba224e64d5dce40f19",
+      "size": 468
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/capacity-planning.json",
+      "sha256": "9d3ae925b10f789fd7142ef34c41763e87c24a759fd73967c52dca79c8d203a3",
+      "size": 576
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/cascading-failure.json",
+      "sha256": "d05656b1f75e4d719d635d23fc071d2da54eac98c161bf1fb16ca2786d78179c",
+      "size": 446
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/fastapi-blocking-io.json",
+      "sha256": "a44d999273c00368ff0abb722055c0366ed5e1d9f62c6da1fbeef2416226077f",
+      "size": 556
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/fastapi-request-lifecycle.json",
+      "sha256": "92c523df1084b466c2a77ca45586b7e6ce0c34c759c1cc27c558e3fc271fadb1",
+      "size": 510
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/kafka-delivery.json",
+      "sha256": "25a1d15ed343f88b232bc402b139a5e423d68060fc8f0e161455ace2f783c56b",
+      "size": 491
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/kafka-poison-message.json",
+      "sha256": "bd4d9e8921f48816e207930d9c607bb8cee3865e26dd456e0d6dea5a73a89344",
+      "size": 516
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/mysql-covering-index.json",
+      "sha256": "353d8e542ce9c8b60cf26c8fd0e3b2f1c4ecd54d9dd27660b0a75436ee3f8bc9",
+      "size": 480
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/mysql-deadlock.json",
+      "sha256": "63ae916d93d052f93d2f7993bf5cb22ec0344e5e9c07532eec4a4497155265a1",
+      "size": 492
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/queue-backpressure.json",
+      "sha256": "68e06fdf8324dacb52fd2956ceb366a042df629bd5dbf9310fccd3254b9b5c16",
+      "size": 508
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/redis-consistency.json",
+      "sha256": "0732e42ac303f1a933eb91dc361ab68b6b070155fa0cb4869bcf0a23cf36e7d1",
+      "size": 508
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/redis-hot-key-breakdown.json",
+      "sha256": "06a1b4842f2d6d0545e9e46cca98fe65ea5f1c63160d75b4e59863b4701a3bf2",
+      "size": 512
+    },
+    {
+      "path": "retrieval-cases/pilot-v2/service-scaling.json",
+      "sha256": "5dbe6ef08369a0e6776c8c34bcf21a26259fae576bd256d6d4b57f57cca20cef",
+      "size": 570
+    }
+  ],
+  "run_id": "20260722T115946Z-stage44b1-zh",
+  "total_bytes": 20884
+}

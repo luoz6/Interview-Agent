@@ -1,4 +1,3 @@
-import os
 from uuid import uuid4
 
 import pytest
@@ -6,16 +5,10 @@ import pytest
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.report_jobs import PostgresReportJobStore
+from tests.postgres_support import require_postgres_dsn as require_dsn
 
 
 pytestmark = pytest.mark.pg_jobs
-
-
-def require_dsn():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required for pg_jobs tests")
-    return dsn
 
 
 def make_table_prefix():
@@ -165,14 +158,76 @@ def test_report_requeue_updates_job_and_report(stores):
     assert report["status"] == "processing"
 
 
+def test_report_requeue_rejects_second_attempt_without_mutating_replay_count(stores):
+    session_id, job_id = seed_running_report(stores)
+    stores["job_store"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+    stores["job_store"].requeue_failed(session_id)
+
+    with pytest.raises(ValueError, match="report job is not failed"):
+        stores["job_store"].requeue_failed(session_id)
+
+    job = stores["job_store"].get_job_by_session(session_id)
+    assert job["status"] == "queued"
+    assert job["review_engine"] == "legacy"
+    assert job["review_graph_schema_version"] is None
+    assert job["replay_count"] == 1
+
+
 def test_enqueue_report_request_is_idempotent_for_same_session(stores):
     session_id = create_session(stores["session_store"])
     first = stores["job_store"].enqueue_report_request(session_id=session_id)
     second = stores["job_store"].enqueue_report_request(session_id=session_id)
 
     assert first["job_id"] == second["job_id"]
+    assert first["review_engine"] == second["review_engine"]
+    assert (
+        first["review_graph_schema_version"]
+        == second["review_graph_schema_version"]
+    )
     assert stores["job_store"].count_jobs() == 1
     assert stores["job_store"].count_reports() == 1
+
+
+def test_enqueue_existing_failed_job_does_not_reset_assignment_or_status(stores):
+    session_id, job_id = seed_running_report(stores)
+    stores["job_store"].mark_failed(
+        job_id,
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+
+    returned = stores["job_store"].enqueue_report_request(session_id)
+    job = stores["job_store"].get_job_by_session(session_id)
+    report = stores["job_store"].get_report_row(session_id)
+
+    assert returned["job_id"] == job_id
+    assert job["status"] == "failed"
+    assert report["status"] == "failed"
+
+
+def test_requeue_preserves_immutable_review_assignment(stores, monkeypatch):
+    monkeypatch.setenv("REPORT_LANGGRAPH_ROLLOUT_PERCENT", "100")
+    session_id, _ = seed_running_report(stores)
+    first = stores["job_store"].get_job_by_session(session_id)
+    stores["job_store"].mark_failed(
+        first["job_id"],
+        "internal detail",
+        error_code="domain_validation_failed",
+    )
+
+    replayed = stores["job_store"].requeue_failed(session_id)
+
+    assert first["review_engine"] == "langgraph-review-v1"
+    assert first["review_graph_schema_version"] == "langgraph-review-v1"
+    assert replayed["review_engine"] == first["review_engine"]
+    assert (
+        replayed["review_graph_schema_version"]
+        == first["review_graph_schema_version"]
+    )
 
 
 def test_claim_marks_job_running(stores):
@@ -184,6 +239,33 @@ def test_claim_marks_job_running(stores):
     assert claimed is not None
     assert claimed["status"] == "running"
     assert claimed["lease_owner"] == "worker-1"
+    assert claimed["lease_token"]
+    assert stores["job_store"].assert_lease(
+        claimed["job_id"],
+        worker_id="worker-1",
+        lease_token=claimed["lease_token"],
+    )
+
+
+def test_report_lease_token_fences_stale_worker(stores):
+    session_id = create_session(stores["session_store"])
+    stores["job_store"].enqueue_report_request(session_id=session_id)
+    first = stores["job_store"].claim_next(
+        worker_id="worker-1", lease_seconds=-1
+    )
+    second = stores["job_store"].claim_next(worker_id="worker-2")
+
+    assert first["lease_token"] != second["lease_token"]
+    assert not stores["job_store"].heartbeat(
+        first["job_id"],
+        worker_id="worker-1",
+        lease_token=first["lease_token"],
+    )
+    assert stores["job_store"].heartbeat(
+        second["job_id"],
+        worker_id="worker-2",
+        lease_token=second["lease_token"],
+    )
 
 
 def test_expired_running_job_can_be_reclaimed(stores):
@@ -198,6 +280,93 @@ def test_expired_running_job_can_be_reclaimed(stores):
     assert reclaimed["session_id"] == session_id
     assert reclaimed["lease_owner"] == "worker-2"
     assert reclaimed["status"] == "running"
+
+
+def make_durable_review_job(stores):
+    session_id = create_session(stores["session_store"])
+    created = stores["job_store"].enqueue_report_request(
+        session_id=session_id
+    )
+    psycopg2, sql = PostgresReportJobStore._import_psycopg2()
+    with psycopg2.connect(stores["dsn"]) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    UPDATE {jobs}
+                    SET review_engine = 'langgraph-review-v1',
+                        review_graph_schema_version = 'langgraph-review-v1'
+                    WHERE job_id = %s::uuid
+                    """
+                ).format(
+                    jobs=sql.Identifier(stores["job_store"].jobs_table)
+                ),
+                (created["job_id"],),
+            )
+    return stores["job_store"].get_job(created["job_id"])
+
+
+def test_review_retry_due_time_controls_claimability(stores):
+    job = make_durable_review_job(stores)
+
+    assert stores["job_store"].schedule_review_retry(
+        job["job_id"], next_attempt_number=2, delay_seconds=30
+    ) == "scheduled"
+    assert stores["job_store"].claim_next("early-worker") is None
+
+    psycopg2, sql = PostgresReportJobStore._import_psycopg2()
+    with psycopg2.connect(stores["dsn"]) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    UPDATE {jobs} SET available_at = NOW()
+                    WHERE job_id = %s::uuid
+                    """
+                ).format(
+                    jobs=sql.Identifier(stores["job_store"].jobs_table)
+                ),
+                (job["job_id"],),
+            )
+
+    claimed = stores["job_store"].claim_next("due-worker")
+    assert claimed["job_id"] == job["job_id"]
+    assert claimed["scheduled_attempt"] == 2
+
+
+def test_duplicate_review_retry_does_not_steal_fresh_claim(stores):
+    job = make_durable_review_job(stores)
+    store = stores["job_store"]
+    store.schedule_review_retry(job["job_id"], next_attempt_number=2)
+    claimed = store.claim_next("owner-worker")
+
+    assert store.schedule_review_retry(
+        job["job_id"], next_attempt_number=2
+    ) == "scheduled"
+    current = store.get_job(job["job_id"])
+    assert current["status"] == "running"
+    assert current["lease_token"] == claimed["lease_token"]
+
+
+def test_release_claim_for_retry_is_token_fenced(stores):
+    job = make_durable_review_job(stores)
+    stores["job_store"].schedule_review_retry(
+        job["job_id"], next_attempt_number=2
+    )
+    claimed = stores["job_store"].claim_next("owner-worker")
+
+    assert not stores["job_store"].release_claim_for_retry(
+        job["job_id"],
+        worker_id="owner-worker",
+        lease_token=str(uuid4()),
+    )
+    assert stores["job_store"].release_claim_for_retry(
+        job["job_id"],
+        worker_id="owner-worker",
+        lease_token=claimed["lease_token"],
+        delay_seconds=0,
+    )
+    assert stores["job_store"].get_job(job["job_id"])["status"] == "retrying"
 
 
 def test_retryable_failure_marks_retrying_until_max_attempts(stores):

@@ -170,6 +170,17 @@ def test_list_reports_returns_completed_failed_and_processing_records():
         "failed",
         "completed",
     ]
+    processing_state = store.get(third.session_id)
+    assert reports[0]["session_summary"] == {
+        "job_title": processing_state["plan"].title,
+        "job_tags": processing_state["job_tags"],
+        "question_count": len(processing_state["plan"].questions),
+        "started_at": processing_state["started_at"],
+        "finished_at": processing_state["finished_at"],
+    }
+    assert "job_description" not in reports[0]["session_summary"]
+    assert "resume_text" not in reports[0]["session_summary"]
+    assert "messages" not in reports[0]["session_summary"]
 
 
 def test_list_reports_filters_status_and_limit():

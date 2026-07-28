@@ -56,35 +56,48 @@ $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
 ```
 
+Remote embeddings are explicitly disabled by default:
+
+```text
+EMBEDDING_PROVIDER=disabled
+```
+
+This mode keeps Prep's degraded knowledge fallback available and does not download a local embedding model.
+Before a SiliconFlow run, rotate the SiliconFlow key
+and supply `SILICONFLOW_API_KEY` only through a secure local process environment.
+Never place the value in `.env`, logs, screenshots, or Git.
+
 ## 3. Database Check
 
+Use the existing `interview` PostgreSQL database; do not create a new database
+or container. The read-only check validates pgvector, the runtime tables, both
+derived knowledge tables, and the active release:
+
 ```powershell
-@'
-import psycopg2
-conn = psycopg2.connect("postgresql://postgres:postgres@127.0.0.1:5432/interview")
-cur = conn.cursor()
-cur.execute("select current_database(), current_user")
-print(cur.fetchone())
-cur.execute("select extname from pg_extension where extname='vector'")
-print(cur.fetchone())
-cur.execute("select count(*) from knowledge_chunks")
-print(cur.fetchone())
-conn.close()
-'@ | python -
+python -m scripts.init_local_runtime --check
 ```
 
 Expected:
 
 - Database is `interview`.
 - Current user is `postgres`.
-- Extension row is `('vector',)`.
-- `knowledge_chunks` count is greater than zero.
+- `vector_extension` is `true`.
+- `required_knowledge_tables` contains the versions and releases tables.
+- `knowledge_corpus_version` is the active release, or `null` before ingestion.
 
-If `knowledge_chunks` is empty, run:
+To activate the Stage 44A corpus, configure the non-secret provider identity,
+set the rotated key securely, and run:
 
 ```powershell
-python scripts/load_knowledge.py
+$env:EMBEDDING_PROVIDER="siliconflow"
+$env:EMBEDDING_MODEL_NAME="BAAI/bge-m3"
+$env:EMBEDDING_MODEL_REVISION="siliconflow-bge-m3-20260721"
+# Set SILICONFLOW_API_KEY through a secure local mechanism without displaying it.
+python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 ```
+
+The loader prepares all vectors before the activation transaction. Reviewer `get_by_ids()` makes no embedding call
+and resolves bound historical evidence by content hash.
 
 ## 4. Start Server And Report Worker
 
@@ -246,8 +259,8 @@ Keep the run directory, `metrics.json`, attempt artifacts, traces, hashes, model
 | Symptom | Check |
 | --- | --- |
 | Plan falls back to generic questions | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` |
-| Report fails with knowledge store unavailable | `POSTGRES_DSN`, pgvector extension, and `knowledge_chunks` count |
-| First report generation is slow | SentenceTransformer model loading and embedding cache warm-up |
+| Report fails with knowledge store unavailable | `POSTGRES_DSN`, pgvector extension, derived tables, and active corpus version |
+| Knowledge retrieval is degraded | `EMBEDDING_PROVIDER`, active corpus version, and SiliconFlow availability |
 | Static page is unstyled | Run `npm run build:prototype-css` |
 | Browser cannot find session | Confirm URL contains `session_id` and runtime store did not reset |
 
@@ -270,8 +283,9 @@ python -m scripts.audit_stage40_artifacts
 ```
 
 `python -m scripts.init_local_runtime --check` is read-only. Use
-`python -m scripts.init_local_runtime --seed-knowledge` only when the knowledge
-table must be loaded. Use a unique `INTERVIEW_RUNTIME_TABLE_PREFIX` and
+`python -m scripts.init_local_runtime --seed-knowledge --corpus-version stage44a-bge-m3-v1`
+only when the knowledge corpus must be loaded. Use a unique
+`INTERVIEW_RUNTIME_TABLE_PREFIX` and
 `PGVECTOR_TABLE` for acceptance runs.
 
 The optional Redis/Celery profile requires both the Redis data-path smoke and a
@@ -343,6 +357,51 @@ and the optional Celery publisher must preserve the same runtime-event-v1
 envelope. Celery support may be declared only after the authenticated Celery
 preflight and persisted event acceptance pass.
 
+### Stage 47.2 Agent Runtime Telemetry Hardening
+
+Run the focused privacy and composition gate:
+
+```powershell
+python -m pytest -q `
+  tests/test_agent_runtime.py `
+  tests/test_agent_runtime_hardening.py `
+  tests/test_agent_runtime_composition.py `
+  tests/test_agent_runtime_audit.py `
+  tests/test_agent_runtime_release_contract.py
+```
+
+Run the mandatory PostgreSQL gate with the local/test DSN:
+
+```powershell
+$env:POSTGRES_DSN='postgresql://postgres:postgres@127.0.0.1:5432/interview'
+python -m pytest -q `
+  tests/test_agent_recorders.py `
+  tests/test_agent_runtime_metrics_postgres.py
+```
+
+Run the machine acceptance:
+
+```powershell
+$env:POSTGRES_DSN='postgresql://postgres:postgres@127.0.0.1:5432/interview'
+python -m scripts.agent_runtime_stage47_2_acceptance
+```
+
+`completed`, `degraded`, `failed`, and `cancelled` remain the public AgentRun
+states. Metadata sanitization or recorder failure never changes the business
+result. Safe warnings use `agent_metadata_extraction_failed`,
+`agent_outcome_classification_failed`, `agent_metadata_sanitized`, or
+`agent_run_emission_failed` and must not contain exception messages.
+
+`safe_metadata` is persisted for internal diagnostics but is intentionally
+excluded from public AgentRun APIs and browser pages. Operation aggregates
+contain only Agent, operation, counts, rates, latency percentiles, and bounded
+timestamps.
+
+Before accepting the gate, verify temporary `test_agent_*` PostgreSQL tables,
+trace directories, Playwright artifacts, and owned server processes have
+been removed. Production observation remains `NOT_RUN`; committed Interview
+and Review rollout defaults remain `0/0`.
+
 ## 12. Stage 43B Durable Agent Recovery
 
 PostgreSQL is the source of truth. Redis and Celery are transport and scheduling
@@ -370,3 +429,279 @@ Preflight and recovery commands:
 Recovery commands expose stable IDs, statuses, attempts, timestamps, and error
 codes only. They do not expose event payloads, Agent safe metadata, candidate
 text, raw provider errors, leases, paths, or connection configuration.
+
+## 13. Stage 44B1 Chinese Corpus RC
+
+Stage 44B1 preserves `app/data/knowledge/` as the frozen v1 root and loads the
+Chinese v2 corpus only from `app/data/knowledge_v2/`. Do not point the v1 loader
+at the v2 root or regenerate the v1 manifest. All v2 natural-language corpus
+content and runtime retrieval queries must be Chinese. Technical identifiers,
+code, and SQL may keep their official spelling.
+
+Corpus authors may use only sources already approved in
+`docs/stage-44b1-chinese-source-matrix.md`. A source addition or replacement
+requires a new source review before the corresponding corpus content changes.
+
+Use the persistent isolated RC prefix and fixed corpus identity:
+
+```powershell
+$env:PGVECTOR_TABLE=knowledge_chunks_stage44b_rc
+python -m scripts.load_knowledge_v2 --corpus-version stage44b1-zh-v2
+```
+
+The first load into a clean RC prefix is expected to report `embedded=25` and
+`reused=0`. An idempotent rerun against the retained RC tables may report
+`embedded=0` and `reused=25`. In both cases, `embedded + reused` and the active
+chunk count must equal 25.
+
+Run the Stage 44B1 acceptance runner and artifact auditor only after the
+deterministic and PostgreSQL gates are green. Keep the RC on
+`knowledge_chunks_stage44b_rc`: the runner must never change the production
+table prefix or promote `stage44b1-zh-v2` automatically. Production promotion
+requires separate explicit operator approval after
+`docs/stage-44b1-chinese-corpus-acceptance.md` is complete.
+
+# Local V1 Runbook
+
+## Durable Interview Recovery
+
+Use PostgreSQL runtime mode with the LangGraph runtime enabled. Keep rollout
+at zero while validating the recovery acceptance record, then increase it
+gradually for newly created sessions.
+
+The durable graph persists command identity separately from answer content,
+waits on retry timers without blocking a worker, and streams generation chunks
+by `(generation_id, attempt_number, sequence)`. A replacement attempt starts
+with `generation_reset`; clients must clear the old partial text.
+
+Rollback changes only assignment for new sessions. Workers serving existing
+`langgraph-v1` threads and the corresponding graph version must remain
+available until those sessions finish or are purged.
+
+Completed generation chunks are retained for 24 hours for reconnect and audit,
+then cleanup may remove them. Active and retrying generations are never removed
+by retention cleanup.
+
+See `docs/langgraph-interview-recovery-acceptance.md` for the release gates.
+
+## Durable Review Recovery
+
+Durable final-report execution is assigned independently from the interview
+workflow. Use these safe initial values:
+
+```text
+REPORT_LANGGRAPH_ROLLOUT_PERCENT=0
+REPORT_LANGGRAPH_RUNTIME_ENABLED=true
+REPORT_LANGGRAPH_VERSION=langgraph-review-v1
+REPORT_LANGGRAPH_MAX_PARALLEL_QUESTION_REVIEWS=3
+REPORT_LANGGRAPH_MAX_PROVIDER_ATTEMPTS=3
+REPORT_LANGGRAPH_MAX_QUALITY_REPAIRS=2
+```
+
+Each assigned job uses thread ID `review:{job_id}`. Question evaluations are
+reused only when their input, evidence and graph provenance matches. Provider
+retry timers are delivered through the runtime outbox; quality repairs are
+bounded separately. Reducing rollout to zero affects only new report jobs, so
+workers and the `langgraph-review-v1` graph must stay available for already
+assigned jobs.
+
+See `docs/langgraph-durable-review-acceptance.md` for the release gates.
+
+## Dual LangGraph Canary and Assignment-Only Rollback
+
+Do not start a deployed canary until all three repository records are ready:
+
+- `docs/langgraph-interview-recovery-acceptance.md` is `PASS`;
+- `docs/langgraph-durable-review-acceptance.md` is `PASS`;
+- `docs/langgraph-dual-workflow-canary-acceptance.md` is
+  `PASS` for the authorized Local V1 synthetic scope;
+- `docs/langgraph-stage46-acceptance.md` is
+  `READY_FOR_FENCING_CANARY`;
+- `docs/langgraph-stage47-fencing-canary-acceptance.md` is
+  `READY_FOR_OPERATOR_FENCING_CANARY`.
+
+The separate
+`docs/langgraph-stage47-fencing-canary-observation.md` remains `NOT_RUN` until
+an operator explicitly authorizes a deployed environment and revision.
+
+The target environment must use PostgreSQL, strict msgpack, both registered
+graph versions, healthy Interview/Review consumers, and the durable maintenance
+service. Supply `POSTGRES_DSN` through deployment secret management and run:
+
+```powershell
+$env:INTERVIEW_RUNTIME_STORE='postgres'
+python -m scripts.runtime_preflight --profile core
+python -m scripts.langgraph_canary snapshot `
+  --phase baseline `
+  --since-utc <BASELINE_START_UTC> `
+  --window-minutes 60
+```
+
+The initial canary sequence is fixed and requires an explicit hold-point
+decision between phases:
+
+```text
+0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0
+```
+
+The first value is `INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT`; the second is
+`REPORT_LANGGRAPH_ROLLOUT_PERCENT`. At every phase:
+
+1. run core preflight before applying configuration;
+2. apply only the two assignment percentages;
+3. capture a sanitized canary snapshot;
+4. observe until both the operator-defined minimum duration and sample are met;
+5. run `python -m scripts.langgraph_canary evaluate` with the exact phase and
+   UTC phase start;
+6. explicitly hold, roll back, or continue;
+7. return to `0/0` between the independent Interview and Review experiments;
+8. prove already assigned durable work still finishes after rollback.
+
+Correctness and privacy stop signals—including acknowledged command loss,
+duplicate business projection, public version regression, and unknown graph
+version—are supplied only as stable codes:
+
+```powershell
+python -m scripts.langgraph_canary evaluate `
+  --phase interview `
+  --since-utc <PHASE_START_UTC> `
+  --window-minutes 60 `
+  --minimum-interview-sample <APPROVED_SAMPLE> `
+  --minimum-review-sample 0 `
+  --output-dir <EMPTY_SANITIZED_PHASE_DIRECTORY> `
+  --external-stop-signal acknowledged_command_loss
+```
+
+The first Stage 47 phase/rollout pairs are fixed:
+
+```text
+baseline         0/0
+interview        1/0
+interview_drain  0/0
+review           0/1
+review_drain     0/0
+joint            1/1
+final_drain      0/0
+```
+
+The evaluator rejects a mismatched phase/rollout pair. Interview and Review
+sample minima are independent; one workflow cannot satisfy the other
+workflow's sample gate. A phase must meet both its approved minimum duration
+and its workflow-specific sample requirement.
+
+Correctness/privacy conflicts recommend `ROLL_BACK`. Lock/lease loss, fenced
+write rejection, expired ownership, excessive live-owner busy signals,
+backlog, or stale work recommend `HOLD`. A running Review effect with a live
+claim is informational; an effect claim older than the lease grace is a hold
+signal.
+
+Stage 47.1 treats a background heartbeat renewal exception as an inability to
+prove ownership. `generation_lease_lost`, `report_lease_lost`, and
+`fenced_write_rejected` can therefore mean either that another owner replaced
+the worker or that PostgreSQL renewal could not verify the existing owner. In
+both cases, hold promotion and investigate in this order:
+
+1. PostgreSQL availability and connection saturation;
+2. worker restart or replacement events;
+3. expired lease/claim counts after the configured grace period;
+4. privacy-safe runtime signal bucket counts;
+5. unfinished Outbox and Report Job age;
+6. fenced-write rejection counts;
+7. active worker topology.
+
+Do not paste a DSN, workflow identifier, lease token, fencing version,
+checkpoint content, provider payload, or raw exception message into the
+operator observation. Review Effect claim renewal loss is represented by the
+catch-compatible `ReviewEffectLeaseLost` subtype and the existing
+`fenced_write_rejected` stable code. Under Review v1 this remains terminal for
+the current Job; question-level retry is deferred to Review v2.
+
+The command is read-only. It returns `ROLL_BACK`, `HOLD`, or
+`ELIGIBLE_TO_CONTINUE`; it never changes deployment configuration.
+
+Rollback sets the affected new-assignment percentage to zero. It must not:
+
+- disable either durable runtime while assigned work exists;
+- stop the PostgreSQL saver or runtime consumers;
+- unregister `langgraph-v1` or `langgraph-review-v1`;
+- rewrite `workflow_engine`, `review_engine`, or graph-version columns;
+- requeue Durable work as Legacy;
+- purge active checkpoints, generations, commands, chunks, or Review artifacts.
+
+Keep these committed defaults:
+
+```text
+INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0
+REPORT_LANGGRAPH_ROLLOUT_PERCENT=0
+INTERVIEW_LANGGRAPH_RUNTIME_ENABLED=true
+REPORT_LANGGRAPH_RUNTIME_ENABLED=true
+DURABLE_WORKFLOW_MAINTENANCE_SECONDS=3600
+LANGGRAPH_CANARY_SIGNAL_RETENTION_HOURS=168
+```
+
+Repository acceptance does not authorize a deployed 1% canary. Record deployed
+observations only after the operator explicitly identifies the environment and
+authorizes configuration changes.
+
+## Stage 48 PostgreSQL Connection Ownership and Capacity
+
+Runtime processes use four separately bounded connection domains:
+
+```text
+Checkpointer  psycopg3 ConnectionPool / PostgresSaver
+Business      psycopg2 bounded transaction pool
+Lock          psycopg2 session-exclusive advisory-lock pool
+Telemetry     psycopg2 bounded best-effort telemetry pool
+```
+
+`PostgresConnectionDomains` is the process-local owner. Stores borrow a
+provider and must never close it. A lost advisory-lock session is discarded;
+Telemetry exhaustion cannot consume Business capacity. Runtime startup never
+runs DDL and `PostgresSaver.setup()` is migration-only.
+
+Before starting a fresh or upgraded runtime, keep Interview and Review rollout
+at `0/0`, drain deployed workers for the prefix, and inspect the migration
+plan without connecting:
+
+```powershell
+python -m scripts.postgres_runtime_migrate
+```
+
+Only an operator-authorized maintenance window may apply a deployed migration:
+
+```powershell
+python -m scripts.postgres_runtime_migrate --apply
+python -m scripts.runtime_preflight --profile core
+python -m scripts.postgres_capacity_acceptance
+```
+
+Repository acceptance uses an isolated validated prefix for `--apply`. It must
+delete only that prefix after the capacity run. Never use an existing business
+prefix for repository rehearsal.
+
+The capacity artifact schema is `postgres-capacity-v1`. It contains aggregate
+limits, peaks, waits and counts only. It must not contain a DSN, host, database,
+user, client address, backend PID, SQL text, workflow identity, token or
+payload. `ELIGIBLE_FOR_CAPACITY_CANARY` is repository evidence, not deployed
+PASS. Production observation remains `NOT_RUN` until an operator authorizes a
+specific environment, revision, capacity budget and observation window.
+
+The accepted capacity run must contain `simultaneous_capacity.verified=true`,
+an observed application peak at least equal to the four-domain configured
+lease total, and a granted advisory-lock count equal to the Lock pool maximum.
+Per-domain peaks collected one after another are diagnostic only and do not
+authorize a capacity canary. Runtime schema validation also requires the
+latest migration contract row, critical lease/fencing/scheduling columns,
+critical indexes, and the complete LangGraph Checkpointer 3.1 migration set.
+
+Pool exhaustion triage order:
+
+1. identify the saturated domain from aggregate pool metrics;
+2. verify configured process counts and per-role capacity budget;
+3. compare application budget with `max_connections`, reserved connections
+   and the external reserve;
+4. check for leaked Stage 48 application-name sessions and advisory locks;
+5. confirm Checkpointer observed peak is no greater than max plus configured
+   overhead;
+6. keep rollout at `0/0` until the capacity artifact and recovery/fencing gates
+   are healthy.

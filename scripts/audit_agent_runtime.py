@@ -3,7 +3,11 @@ import json
 import re
 from pathlib import Path
 
-from app.services.trace_sanitization import AGENT_TRACE_BLOCKED_KEYS
+from app.services.trace_sanitization import (
+    AGENT_SAFE_METADATA_BLOCKED_KEY_PARTS,
+    AGENT_TRACE_BLOCKED_KEYS,
+    is_blocked_trace_key,
+)
 
 
 REQUIRED_AGENTS = {
@@ -20,6 +24,11 @@ _CONTROL_BLOCKED_KEYS = AGENT_TRACE_BLOCKED_KEYS | {
     "payload_json",
     "safe_metadata",
     "lease_owner",
+    "lease_token",
+    "checkpoint_id",
+    "messages",
+    "answer_text",
+    "provider_payload",
 }
 
 
@@ -84,7 +93,15 @@ def _scan(
     if isinstance(value, dict):
         for key, item in value.items():
             child = f"{path}.{key}"
-            if str(key).casefold() in blocked_keys:
+            if is_blocked_trace_key(
+                str(key),
+                blocked_keys=blocked_keys,
+                blocked_key_parts=(
+                    AGENT_SAFE_METADATA_BLOCKED_KEY_PARTS
+                    if blocked_keys == AGENT_TRACE_BLOCKED_KEYS
+                    else ()
+                ),
+            ):
                 violations.append(child)
             _scan(
                 item,

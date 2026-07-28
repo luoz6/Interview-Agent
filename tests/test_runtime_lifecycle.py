@@ -15,6 +15,8 @@ class FakeService:
 
 def test_start_runtime_starts_postgres_local_dispatcher(monkeypatch):
     service = FakeService()
+    checkpointer = FakeService()
+    maintenance = FakeService()
     runtime.reset_runtime_for_tests()
     monkeypatch.setattr(runtime, "get_runtime_store", lambda: "postgres")
     monkeypatch.setattr(
@@ -27,6 +29,16 @@ def test_start_runtime_starts_postgres_local_dispatcher(monkeypatch):
         "build_runtime_outbox_service",
         lambda: service,
     )
+    monkeypatch.setattr(
+        runtime,
+        "get_langgraph_checkpointer_runtime",
+        lambda: checkpointer,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "get_durable_workflow_maintenance_service",
+        lambda: maintenance,
+    )
 
     runtime.start_runtime()
     runtime.start_runtime()
@@ -34,6 +46,10 @@ def test_start_runtime_starts_postgres_local_dispatcher(monkeypatch):
 
     assert service.starts == 1
     assert service.shutdowns == [True]
+    assert checkpointer.starts == 1
+    assert checkpointer.shutdowns == [True]
+    assert maintenance.starts == 1
+    assert maintenance.shutdowns == [True]
 
 
 def test_start_runtime_does_not_start_memory_dispatcher(monkeypatch):

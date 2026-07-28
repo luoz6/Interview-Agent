@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "fastapi_production"
+  ],
+  "case_id": "fastapi-production-engineering",
+  "category": "relevant",
+  "latency_ms": 306.659,
+  "retrieved_ids": [
+    "fastapi_production",
+    "fastapi_backend",
+    "fastapi_request_lifecycle"
+  ],
+  "reused_evidence_ids": [
+    "fastapi_production"
+  ],
+  "scores": {
+    "fastapi_backend": 0.743237,
+    "fastapi_production": 0.834371,
+    "fastapi_request_lifecycle": 0.7131
+  },
+  "status": "completed"
+}

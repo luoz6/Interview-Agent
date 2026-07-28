@@ -1,0 +1,176 @@
+const { test, expect } = require("@playwright/test");
+
+async function seed(request, mode) {
+  const response = await request.post(`/test-support/langgraph/${mode}`);
+  expect(response.status()).toBe(200);
+  return response.json();
+}
+
+test("refresh replays an active durable generation", async ({ page, request }) => {
+  const { session_id: sessionId } = await seed(request, "refresh");
+
+  await page.goto(`/interview?session_id=${sessionId}`);
+  await expect(page.locator("#conversation")).toContainText("Recovered");
+  await expect(page.locator("#conversation")).not.toContainText(
+    "Recovered after refresh.",
+  );
+
+  await page.reload();
+  await expect(
+    page.locator(".message-bubble", { hasText: "Recovered after refresh." }),
+  ).toHaveCount(1);
+});
+
+test("reconnect honors Last-Event-ID", async ({ request }) => {
+  const {
+    session_id: sessionId,
+    command_id: commandId,
+    generation_id: generationId,
+  } = await seed(request, "refresh");
+
+  const response = await request.get(
+    `/api/interviews/${sessionId}/commands/${commandId}/stream`,
+    { headers: { "Last-Event-ID": `${generationId}:1:1` } },
+  );
+  expect(response.status()).toBe(200);
+  const body = await response.text();
+  expect(body).toContain("after refresh.");
+  expect(body).not.toContain("Recovered ");
+});
+
+test("replacement attempt resets abandoned partial text", async ({ page, request }) => {
+  const { session_id: sessionId } = await seed(request, "replacement");
+
+  await page.goto(`/interview?session_id=${sessionId}`);
+
+  await expect(page.locator("#conversation")).toContainText(
+    "replacement complete",
+  );
+  await expect(page.locator("#conversation")).not.toContainText(
+    "abandoned old partial",
+  );
+});
+
+test("duplicate command commits one candidate message", async ({ request }) => {
+  const { session_id: sessionId } = await seed(request, "duplicate");
+  const payload = {
+    answer: "one durable answer",
+    expected_version: 1,
+    command_id: `browser-fixed-command-${sessionId}`,
+  };
+
+  const first = await request.post(
+    `/api/interviews/${sessionId}/answer/stream`,
+    { data: payload },
+  );
+  const second = await request.post(
+    `/api/interviews/${sessionId}/answer/stream`,
+    { data: payload },
+  );
+  expect(first.status()).toBe(200);
+  expect(second.status()).toBe(200);
+
+  const snapshot = await request.get(`/api/interviews/${sessionId}`);
+  const body = await snapshot.json();
+  expect(
+    body.messages.filter(
+      (message) =>
+        message.role === "candidate" &&
+        message.content === "one durable answer",
+    ),
+  ).toHaveLength(1);
+  expect(
+    body.messages.filter(
+      (message) =>
+        message.role === "interviewer" &&
+        message.content === "deduplicated follow-up",
+    ),
+  ).toHaveLength(1);
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("stale browser command is rejected without a second generation", async ({ browser, request }) => {
+  const { session_id: sessionId, state_version: version } = await seed(
+    request,
+    "version-conflict",
+  );
+  const firstContext = await browser.newContext();
+  const secondContext = await browser.newContext();
+  try {
+    const first = await firstContext.request.post(
+      `/api/interviews/${sessionId}/answer/stream`,
+      {
+        data: {
+          answer: "first accepted answer",
+          expected_version: version,
+          command_id: `first-${sessionId}`,
+        },
+      },
+    );
+    expect(first.status()).toBe(200);
+
+    const stale = await secondContext.request.post(
+      `/api/interviews/${sessionId}/answer`,
+      {
+        data: {
+          answer: "stale second answer",
+          expected_version: version,
+          command_id: `stale-${sessionId}`,
+        },
+      },
+    );
+    expect(stale.status()).toBe(409);
+
+    const stats = await request.get(
+      `/test-support/langgraph/${sessionId}/stats`,
+    );
+    const body = await stats.json();
+    expect(body.candidate_message_count).toBe(1);
+    expect(body.command_count).toBe(1);
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+    await request.delete(`/test-support/langgraph/${sessionId}`);
+  }
+});
+
+test("duplicate finish creates one report job", async ({ request }) => {
+  const { session_id: sessionId, state_version: version } = await seed(
+    request,
+    "duplicate-finish",
+  );
+  const payload = {
+    expected_version: version,
+    command_id: `finish-${sessionId}`,
+  };
+
+  const first = await request.post(`/api/interviews/${sessionId}/finish`, {
+    data: payload,
+  });
+  const second = await request.post(`/api/interviews/${sessionId}/finish`, {
+    data: payload,
+  });
+  expect(first.status()).toBe(202);
+  expect(second.status()).toBe(202);
+
+  const stats = await request.get(
+    `/test-support/langgraph/${sessionId}/stats`,
+  );
+  const body = await stats.json();
+  expect(body.status).toBe("finished");
+  expect(body.command_count).toBe(1);
+  expect(body.report_job_count).toBe(1);
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("legacy session refresh remains on the legacy contract", async ({ page, request }) => {
+  const { session_id: sessionId } = await seed(request, "legacy");
+
+  await page.goto(`/interview?session_id=${sessionId}`);
+  await page.reload();
+  const snapshot = await request.get(`/api/interviews/${sessionId}`);
+  const body = await snapshot.json();
+  expect(body.workflow_engine).toBe("legacy");
+  expect(body.active_stream_url).toBeUndefined();
+  await request.delete(`/test-support/langgraph/${sessionId}`);
+});

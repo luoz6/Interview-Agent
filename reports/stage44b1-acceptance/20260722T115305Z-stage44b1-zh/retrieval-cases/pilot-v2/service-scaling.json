@@ -1,0 +1,25 @@
+{
+  "bound_evidence_ids": [
+    "service_scaling"
+  ],
+  "case_id": "service-scaling",
+  "latency_ms": 356.585,
+  "replayed_evidence_ids": [
+    "service_scaling"
+  ],
+  "retrieved_ids": [
+    "service_scaling",
+    "capacity_planning",
+    "cascading_failures",
+    "queue_backpressure",
+    "system_design_backend"
+  ],
+  "scores": {
+    "capacity_planning": 0.634942,
+    "cascading_failures": 0.630583,
+    "queue_backpressure": 0.629882,
+    "service_scaling": 0.770426,
+    "system_design_backend": 0.547259
+  },
+  "status": "completed"
+}

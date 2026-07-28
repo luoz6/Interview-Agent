@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "capacity_planning"
+  ],
+  "case_id": "system-capacity-planning",
+  "category": "relevant",
+  "latency_ms": 298.036,
+  "retrieved_ids": [
+    "capacity_planning",
+    "queue_backpressure",
+    "system_design_backend"
+  ],
+  "reused_evidence_ids": [
+    "capacity_planning"
+  ],
+  "scores": {
+    "capacity_planning": 0.700223,
+    "queue_backpressure": 0.575684,
+    "system_design_backend": 0.572093
+  },
+  "status": "completed"
+}

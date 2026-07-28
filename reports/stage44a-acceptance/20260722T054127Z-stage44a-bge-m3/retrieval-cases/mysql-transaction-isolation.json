@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "mysql_isolation"
+  ],
+  "case_id": "mysql-transaction-isolation",
+  "category": "relevant",
+  "latency_ms": 251.426,
+  "retrieved_ids": [
+    "mysql_isolation",
+    "mysql_deadlocks",
+    "mysql_indexing"
+  ],
+  "reused_evidence_ids": [
+    "mysql_isolation"
+  ],
+  "scores": {
+    "mysql_deadlocks": 0.595305,
+    "mysql_indexing": 0.493165,
+    "mysql_isolation": 0.661125
+  },
+  "status": "completed"
+}

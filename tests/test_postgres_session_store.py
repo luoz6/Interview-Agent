@@ -1,4 +1,3 @@
-import os
 from uuid import uuid4
 
 import pytest
@@ -26,16 +25,10 @@ from tests.test_knowledge_binding_resolver import (
     make_repository as make_binding_repository,
     make_v2_plan as make_bound_v2_plan,
 )
+from tests.postgres_support import require_postgres_dsn as require_dsn
 
 
 pytestmark = pytest.mark.pg_runtime
-
-
-def require_dsn():
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        pytest.skip("POSTGRES_DSN is required for pg_runtime tests")
-    return dsn
 
 
 def make_table_prefix():
@@ -854,6 +847,35 @@ def test_list_reports_survives_store_reinstantiation():
     assert len(completed_reports) == 1
     assert completed_reports[0]["session_id"] == completed.session_id
     assert completed_reports[0]["record"].report.summary == "Solid interview."
+    completed_state = recovered_store.get(completed.session_id)
+    assert completed_reports[0]["session_summary"] == {
+        "job_title": completed_state["plan"].title,
+        "job_tags": completed_state["job_tags"],
+        "question_count": len(completed_state["plan"].questions),
+        "started_at": completed_state["started_at"],
+        "finished_at": completed_state["finished_at"],
+    }
+    assert "job_description" not in completed_reports[0]["session_summary"]
+    assert "resume_text" not in completed_reports[0]["session_summary"]
+    assert "messages" not in completed_reports[0]["session_summary"]
+
+
+def test_postgres_schema_backfills_existing_sessions_as_legacy():
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+    turn = store.start(
+        make_plan(),
+        job_description="Backend role",
+        resume_text="Built APIs",
+        job_tags=["python"],
+    )
+
+    recovered = store.get(turn.session_id)
+
+    assert recovered["workflow_engine"] == "legacy"
+    assert recovered["graph_schema_version"] is None
 
 
 def test_postgres_store_upserts_single_question_evaluation():

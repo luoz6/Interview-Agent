@@ -90,6 +90,22 @@ def test_auditor_rejects_blocked_keys(tmp_path):
     assert "$.safe_metadata.prompt" in result["privacy_violations"]
 
 
+def test_auditor_rejects_blocked_key_substrings(tmp_path):
+    payloads = valid_chain()
+    payloads[0]["safe_metadata"]["user_prompt"] = "secret"
+    payloads[0]["safe_metadata"]["provider_response_debug"] = "secret"
+    write_chain(tmp_path, payloads)
+
+    result = audit_agent_runtime(tmp_path)
+
+    assert result["status"] == "FAIL"
+    assert "$.safe_metadata.user_prompt" in result["privacy_violations"]
+    assert (
+        "$.safe_metadata.provider_response_debug"
+        in result["privacy_violations"]
+    )
+
+
 def test_auditor_rejects_raw_candidate_text(tmp_path):
     payloads = valid_chain()
     payloads[0]["safe_metadata"]["note"] = "I used cache aside in production"
@@ -140,3 +156,22 @@ def test_control_auditor_rejects_payload_and_safe_metadata():
     assert result["status"] == "FAIL"
     assert "$[0].payload_json" in result["privacy_violations"]
     assert "$[0].safe_metadata" in result["privacy_violations"]
+
+
+def test_control_auditor_rejects_durable_control_tokens_and_messages():
+    result = audit_runtime_control_payloads(
+        [
+            {
+                "lease_token": "token-1",
+                "checkpoint_id": "checkpoint-1",
+                "answer_text": "private answer",
+                "messages": ["private answer"],
+            }
+        ]
+    )
+
+    assert result["status"] == "FAIL"
+    assert "$[0].lease_token" in result["privacy_violations"]
+    assert "$[0].checkpoint_id" in result["privacy_violations"]
+    assert "$[0].answer_text" in result["privacy_violations"]
+    assert "$[0].messages" in result["privacy_violations"]

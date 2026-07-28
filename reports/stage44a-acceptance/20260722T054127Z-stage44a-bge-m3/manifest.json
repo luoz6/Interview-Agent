@@ -1,0 +1,167 @@
+{
+  "artifact_count": 32,
+  "artifacts": [
+    {
+      "path": "metrics.json",
+      "sha256": "ec783f8712ab9a1a511ab4e1c4c8be772f1d7942af0c50cb7bca5c37803e86f3",
+      "size": 1059
+    },
+    {
+      "path": "report.md",
+      "sha256": "35692959c1258e5eebbc9883f3c12a43e7656804b1ca903c9dd3da86b6bf1c5e",
+      "size": 379
+    },
+    {
+      "path": "retrieval-cases/fastapi-blocking-io.json",
+      "sha256": "3735da0754f9422c068cb7df724f4a385741202fc9b274249e0cc83c7ec40258",
+      "size": 517
+    },
+    {
+      "path": "retrieval-cases/fastapi-dependency-scope.json",
+      "sha256": "a9e231b64b79e7038bc7f8c6cc397dc7584bf757f84e3f23848b7b88848fe4bf",
+      "size": 532
+    },
+    {
+      "path": "retrieval-cases/fastapi-production-engineering.json",
+      "sha256": "cf579a96709456e1f52a2cd9d36559c90f0426dc2287d06eedfc3a3398dd6148",
+      "size": 496
+    },
+    {
+      "path": "retrieval-cases/fastapi-request-lifecycle.json",
+      "sha256": "e93a766ebb3530b7150aba00a75642ffebe2eacd36dc69c09db86c71877c17bf",
+      "size": 526
+    },
+    {
+      "path": "retrieval-cases/kafka-consumer-operations.json",
+      "sha256": "30cde042f1c0c8e38a7f58653f5043ab5eb4fadcc0027f726d89962e8bca0a7a",
+      "size": 465
+    },
+    {
+      "path": "retrieval-cases/kafka-delivery-semantics.json",
+      "sha256": "8643db1fc09fa62fd66c91dcc0a0fda59846bd7f40bc4c9b150b17be5b44733a",
+      "size": 470
+    },
+    {
+      "path": "retrieval-cases/kafka-group-rebalancing.json",
+      "sha256": "45352d4f2e1293ababf5ee2c0c253491fea5a09d63d2f7342df0ad2789bf8627",
+      "size": 465
+    },
+    {
+      "path": "retrieval-cases/kafka-poison-message.json",
+      "sha256": "0f950d7df2074b4310d20c9162c9a597cfddcac7bede28937416f2e9b00d2bdd",
+      "size": 474
+    },
+    {
+      "path": "retrieval-cases/mysql-covering-index.json",
+      "sha256": "6c58b958e5b88ddae523d4598fb164e9fcf5f5489fa69b5a2a70c98a4d753358",
+      "size": 462
+    },
+    {
+      "path": "retrieval-cases/mysql-deadlock-failure.json",
+      "sha256": "b803ab5094983cc18bdb5fdec1287be997dd78b32d40d89526f0621136e4ad19",
+      "size": 471
+    },
+    {
+      "path": "retrieval-cases/mysql-online-schema-change.json",
+      "sha256": "7675f0709f39038827f1bcdbe820451b37603b3949afc7d474cc3aed0337257e",
+      "size": 485
+    },
+    {
+      "path": "retrieval-cases/mysql-transaction-isolation.json",
+      "sha256": "5e34ffa97c8ec2e4273d76cdf435963e8fe9dbe588a1200f49ba3eaa10dbbc72",
+      "size": 461
+    },
+    {
+      "path": "retrieval-cases/negative-fastapi-design.json",
+      "sha256": "d62415f3880fb77d345b1a16597b9c7d157adf72b998e7c52b510224cf81833c",
+      "size": 225
+    },
+    {
+      "path": "retrieval-cases/negative-kafka-travel.json",
+      "sha256": "6c84968a550e772a7a75d7786e5724ee18b2bf9ccaa20d5ef33ebb5655371eaa",
+      "size": 223
+    },
+    {
+      "path": "retrieval-cases/negative-mysql-recipe.json",
+      "sha256": "0359290ebcdd44d7c069f1987d3a57e5e550c8b2db6d6da86ee6daeb50c533b7",
+      "size": 223
+    },
+    {
+      "path": "retrieval-cases/negative-redis-hr.json",
+      "sha256": "6ed37159fd025eac5c3c89561cb9d35902c62ebb3f55bd83855d2c9a701b7075",
+      "size": 284
+    },
+    {
+      "path": "retrieval-cases/negative-system-music.json",
+      "sha256": "3bd3f295eac2684c576441850eca9f06101e06fefc669ac6d245c27c03afb450",
+      "size": 223
+    },
+    {
+      "path": "retrieval-cases/redis-consistency-mechanism.json",
+      "sha256": "67574b7f24886d7202ac4aa06714d0653ea10c20a2c7088c4888efa559ab6819",
+      "size": 473
+    },
+    {
+      "path": "retrieval-cases/redis-hot-key-breakdown.json",
+      "sha256": "f9c1d69d4c3556a224efc432758c9d610f15a4c58673b217b6dcdbcf1ae57b5a",
+      "size": 465
+    },
+    {
+      "path": "retrieval-cases/redis-lock-safety.json",
+      "sha256": "4d6d609a9c7a3dff9bff7d139e6f6d3b061b52575238c03818f4e03e3e429c41",
+      "size": 483
+    },
+    {
+      "path": "retrieval-cases/redis-production-operations.json",
+      "sha256": "2f6d7c6634c9c6776fef09498693742d3ecabd42fdc70d868e88de4ad3451b03",
+      "size": 476
+    },
+    {
+      "path": "retrieval-cases/system-capacity-planning.json",
+      "sha256": "19bfdb962b2d264ca73f58f000553b8aac54138a2342f270dd6e28ab9cc5b632",
+      "size": 486
+    },
+    {
+      "path": "retrieval-cases/system-cascading-failure.json",
+      "sha256": "97759e9deac49946d7cc84375bde1730736252bdb83b48ae289a4a390bd7f7ae",
+      "size": 482
+    },
+    {
+      "path": "retrieval-cases/system-queue-backpressure.json",
+      "sha256": "e6049667b35e714f390c15b192849c1866cf6e009ba79fcfd3303a423b9d9d06",
+      "size": 483
+    },
+    {
+      "path": "retrieval-cases/system-stateless-scaling.json",
+      "sha256": "4dd781de5201b6351254a49011eb7cd25aec9cd75eadccb28ae5ca1c684477b4",
+      "size": 475
+    },
+    {
+      "path": "retrieval-cases/weak-fastapi-sync-call.json",
+      "sha256": "2c2e819d082b375f4af6dc06926eee66003faedb9200c55aaf54f90750d82a2e",
+      "size": 510
+    },
+    {
+      "path": "retrieval-cases/weak-kafka-bad-record.json",
+      "sha256": "6b4bd300f38a2e1daa510a2fef7f279f07b9c418e9400d1db8a0ba6a9ec86528",
+      "size": 491
+    },
+    {
+      "path": "retrieval-cases/weak-mysql-large-table-change.json",
+      "sha256": "100b87e8550f0e9fced4a7a7b3eb224f1e3baf935e0cada826a5679b6683e005",
+      "size": 497
+    },
+    {
+      "path": "retrieval-cases/weak-redis-hotspot.json",
+      "sha256": "c93ca8f3bafbbb2cb27ec136a3c25b853dd7e29d41ba0b4c2e174e7ebcd387cf",
+      "size": 462
+    },
+    {
+      "path": "retrieval-cases/weak-system-downstream-slow.json",
+      "sha256": "e05428f22c81a260af49912e5bc90603da1543239c7e20222495235253d18863",
+      "size": 484
+    }
+  ],
+  "run_id": "20260722T054127Z-stage44a-bge-m3",
+  "total_bytes": 14707
+}

@@ -1,10 +1,31 @@
-import { getJson } from "./api.js";
-import { byId, clear, createEl, renderEmptyState, showNotice } from "./shared-ui.js";
+import { downloadPdf, getJson, postJson } from "./api.js";
+import {
+  byId,
+  clear,
+  createEl,
+  setBusy,
+  setPressed,
+  showNotice,
+} from "./shared-ui.js";
 
 const reportsStatus = byId("reportsStatus");
-const reportsList = byId("reportsList");
+const reportsTableBody = byId("reportsTableBody");
+const reportsEmptyState = byId("reportsEmptyState");
 const refreshReportsButton = byId("refreshReportsButton");
 const startNewInterviewButton = byId("startNewInterviewButton");
+const reportSearch = byId("reportSearch");
+const reportDateFilter = byId("reportDateFilter");
+const paginationPrevious = byId("paginationPrevious");
+const paginationPages = byId("paginationPages");
+const paginationNext = byId("paginationNext");
+const statusFilters = [...document.querySelectorAll("[data-report-status]")];
+
+const overviewNodes = {
+  all: byId("reportOverviewTotal"),
+  completed: byId("reportOverviewCompleted"),
+  processing: byId("reportOverviewProcessing"),
+  failed: byId("reportOverviewFailed"),
+};
 
 const statusLabels = {
   completed: "已完成",
@@ -12,60 +33,309 @@ const statusLabels = {
   failed: "生成失败",
 };
 
-function statusLabel(status) {
-  return statusLabels[status] || "未知状态";
+const reportPathLabels = {
+  microbatch: "Microbatch reuse",
+  full_session: "Full-session review",
+  full_session_fallback: "Full-session fallback",
+};
+
+const viewState = {
+  items: [],
+  query: "",
+  status: "all",
+  days: "30",
+  page: 1,
+  pageSize: 5,
+};
+
+function matchesQuery(item) {
+  const haystack = [
+    item.job_title,
+    item.session_id,
+    ...(item.job_tags || []),
+    item.summary,
+    item.status,
+  ].filter(Boolean).join(" ").toLocaleLowerCase();
+  return haystack.includes(viewState.query.toLocaleLowerCase());
 }
 
-function createActionLink(label, href, variant = "secondary") {
-  const link = createEl("a", variant === "primary"
-    ? "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-[13px] font-medium transition-colors"
-    : "px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-[13px] font-medium transition-colors", label);
+function matchesDate(item) {
+  if (viewState.days === "all") return true;
+  const timestamp = Date.parse(item.finished_at || item.created_at || "");
+  if (!Number.isFinite(timestamp)) return false;
+  return timestamp >= Date.now() - Number(viewState.days) * 24 * 60 * 60 * 1000;
+}
+
+function filteredReports() {
+  return viewState.items.filter((item) =>
+    (viewState.status === "all" || item.status === viewState.status)
+    && matchesDate(item)
+    && matchesQuery(item)
+  );
+}
+
+function countByStatus(status) {
+  if (status === "all") return viewState.items.length;
+  return viewState.items.filter((item) => item.status === status).length;
+}
+
+function formatDate(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "时间不可用";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(timestamp));
+}
+
+function formatElapsed(seconds) {
+  if (seconds === null || seconds === undefined || seconds === "") {
+    return "时长不可用";
+  }
+  if (!Number.isFinite(Number(seconds))) return "时长不可用";
+  const total = Math.max(0, Math.floor(Number(seconds)));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${minutes} 分 ${remainder} 秒`;
+}
+
+function createLink(label, href, primary = false) {
+  const link = createEl("a", primary ? "ui-button ui-button-primary" : "ui-button", label);
   link.href = href;
   return link;
 }
 
-function renderReports(payload) {
-  clear(reportsList);
-  const items = payload.items || [];
-  reportsStatus.textContent = `${items.length} 条报告`;
-  if (!items.length) {
-    renderEmptyState(reportsList, "暂无报告，先开始一次模拟面试。");
-    return;
+function createButton(label, onClick, primary = false) {
+  const button = createEl("button", primary ? "ui-button ui-button-primary" : "ui-button", label);
+  button.type = "button";
+  button.addEventListener("click", () => onClick(button));
+  return button;
+}
+
+function createInterviewCell(report) {
+  const cell = createEl("td", "report-interview-cell");
+  const title = createEl("strong", "report-job-title", report.job_title || "未命名岗位");
+  const session = createEl("span", "report-session-id", report.session_id || "会话不可用");
+  const tags = createEl("div", "report-row-tags");
+  for (const tag of (report.job_tags || []).slice(0, 3)) {
+    tags.appendChild(createEl("span", "tag", tag));
+  }
+  cell.append(title, session);
+  if (tags.childElementCount) cell.appendChild(tags);
+  if (report.summary) {
+    cell.appendChild(createEl("p", "report-row-summary", report.summary));
+  }
+  return cell;
+}
+
+function createStatusCell(report) {
+  const cell = createEl("td");
+  const status = statusLabels[report.status] ? report.status : "unknown";
+  cell.appendChild(createEl(
+    "span",
+    `report-status report-status-${status}`,
+    statusLabels[report.status] || "状态不可用",
+  ));
+  return cell;
+}
+
+function createScoreCell(report) {
+  const score = report.overall_score;
+  return createEl(
+    "td",
+    "report-score",
+    score === null || score === undefined ? "--" : `${score}/100`,
+  );
+}
+
+function createTimeCell(report) {
+  const cell = createEl("td", "report-time");
+  cell.appendChild(createEl("span", "", formatDate(report.finished_at || report.created_at)));
+  cell.appendChild(createEl("small", "", formatElapsed(report.duration_seconds)));
+  return cell;
+}
+
+function reportPathLabel(value) {
+  return reportPathLabels[value] || "Unavailable";
+}
+
+async function downloadReport(report, button) {
+  if (!report.report_pdf_url) return;
+  setBusy([button], true);
+  try {
+    await downloadPdf(
+      report.report_pdf_url,
+      `interview-report-${report.session_id}.pdf`,
+    );
+    showNotice(reportsStatus, "报告 PDF 下载已开始", "success");
+  } catch (error) {
+    showNotice(reportsStatus, error.message, "danger");
+  } finally {
+    setBusy([button], false);
+  }
+}
+
+function requeueErrorMessage(error) {
+  if (error.status === 409) return error.message || "报告任务当前无法重新排队";
+  if (error.status === 503) return "报告队列暂不可用，请稍后重试";
+  return error.message || "报告重新排队失败";
+}
+
+async function requeueReport(report, button) {
+  setBusy([button], true);
+  try {
+    await postJson(`/api/interviews/${report.session_id}/report/requeue`);
+    await loadReports();
+    showNotice(reportsStatus, "报告已重新进入队列", "success");
+  } catch (error) {
+    showNotice(reportsStatus, requeueErrorMessage(error), "danger");
+  } finally {
+    setBusy([button], false);
+  }
+}
+
+function createActionsCell(report) {
+  const cell = createEl("td");
+  const actions = createEl("div", "report-actions");
+
+  if (report.status === "completed") {
+    actions.appendChild(createLink(
+      "查看报告",
+      `/report-detail?session_id=${encodeURIComponent(report.session_id)}`,
+      true,
+    ));
+    const downloadButton = createButton("下载 PDF", (button) => downloadReport(report, button));
+    downloadButton.disabled = !report.report_pdf_url;
+    actions.appendChild(downloadButton);
+  } else if (report.status === "processing") {
+    actions.appendChild(createLink(
+      "查看进度",
+      `/report-processing?session_id=${encodeURIComponent(report.session_id)}`,
+      true,
+    ));
+  } else if (report.status === "failed") {
+    actions.appendChild(createButton("重新生成", (button) => requeueReport(report, button), true));
   }
 
+  actions.appendChild(createLink("再次面试", "/prep"));
+  cell.appendChild(actions);
+  return cell;
+}
+
+function renderOverview() {
+  for (const status of Object.keys(overviewNodes)) {
+    const count = countByStatus(status);
+    overviewNodes[status].textContent = String(count);
+    const filterCount = document.querySelector(`[data-status-count="${status}"]`);
+    if (filterCount) filterCount.textContent = String(count);
+  }
+  for (const filter of statusFilters) {
+    setPressed(filter, filter.dataset.reportStatus === viewState.status);
+  }
+}
+
+function renderRows(items) {
+  clear(reportsTableBody);
   for (const report of items) {
-    const article = createEl("article", "bg-white p-5 rounded-xl border border-gray-200 shadow-sm");
-    const header = createEl("div", "flex items-start justify-between gap-4 mb-3");
-    const titleGroup = createEl("div", "min-w-0");
-    titleGroup.appendChild(createEl("h2", "text-sm font-bold text-gray-800", `面试报告 ${report.session_id}`));
-    titleGroup.appendChild(createEl("p", "text-xs text-gray-400 mt-1", report.finished_at || report.created_at || "暂无时间"));
-    header.appendChild(titleGroup);
-    header.appendChild(createEl("span", "px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-100 rounded text-[12px]", statusLabel(report.status)));
-
-    const summary = report.summary || report.error || "报告仍在处理中。";
-    article.appendChild(header);
-    article.appendChild(createEl("p", "text-[13px] text-gray-600 leading-relaxed mb-4", summary));
-
-    const footer = createEl("div", "flex items-center justify-between gap-4");
-    footer.appendChild(createEl("span", "text-[13px] font-bold text-blue-600", report.overall_score === null || report.overall_score === undefined ? "-- /100" : `${report.overall_score}/100`));
-    const actions = createEl("div", "flex items-center gap-2");
-    if (report.status === "completed") {
-      actions.appendChild(createActionLink("查看报告", `/report-detail?session_id=${encodeURIComponent(report.session_id)}`, "primary"));
-    } else if (report.status === "processing") {
-      actions.appendChild(createActionLink("查看进度", `/report-processing?session_id=${encodeURIComponent(report.session_id)}`, "primary"));
-    }
-    actions.appendChild(createActionLink("再次模拟", "/prep"));
-    footer.appendChild(actions);
-    article.appendChild(footer);
-    reportsList.appendChild(article);
+    const row = createEl("tr");
+    row.append(
+      createInterviewCell(report),
+      createStatusCell(report),
+      createScoreCell(report),
+      createTimeCell(report),
+      createEl("td", "report-path", reportPathLabel(report.report_path)),
+      createActionsCell(report),
+    );
+    reportsTableBody.appendChild(row);
   }
+}
+
+function renderPagination(totalItems) {
+  const pageCount = Math.max(1, Math.ceil(totalItems / viewState.pageSize));
+  viewState.page = Math.min(viewState.page, pageCount);
+  paginationPrevious.disabled = viewState.page <= 1 || totalItems === 0;
+  paginationNext.disabled = viewState.page >= pageCount || totalItems === 0;
+  clear(paginationPages);
+
+  for (let page = 1; page <= pageCount; page += 1) {
+    const button = createEl("button", "pagination-page", String(page));
+    button.type = "button";
+    button.setAttribute("aria-label", `第 ${page} 页`);
+    setPressed(button, page === viewState.page);
+    button.addEventListener("click", () => {
+      viewState.page = page;
+      renderReportCenter();
+    });
+    paginationPages.appendChild(button);
+  }
+}
+
+function renderReportCenter() {
+  renderOverview();
+  const filtered = filteredReports();
+  const pageCount = Math.max(1, Math.ceil(filtered.length / viewState.pageSize));
+  viewState.page = Math.min(viewState.page, pageCount);
+  const start = (viewState.page - 1) * viewState.pageSize;
+  renderRows(filtered.slice(start, start + viewState.pageSize));
+
+  reportsEmptyState.hidden = filtered.length > 0;
+  clear(reportsEmptyState);
+  if (!filtered.length) {
+    reportsEmptyState.appendChild(createEl(
+      "p",
+      "",
+      viewState.items.length ? "没有符合当前筛选条件的报告" : "暂无报告，先开始一次模拟面试",
+    ));
+  }
+  renderPagination(filtered.length);
 }
 
 async function loadReports() {
-  reportsStatus.textContent = "加载中";
-  const payload = await getJson("/api/reports");
-  renderReports(payload);
+  setBusy([refreshReportsButton], true);
+  showNotice(reportsStatus, "正在刷新报告列表", "info");
+  try {
+    const payload = await getJson("/api/reports?limit=100");
+    viewState.items = Array.isArray(payload.items) ? payload.items : [];
+    renderReportCenter();
+    showNotice(reportsStatus, `已加载 ${viewState.items.length} 条报告`, "success");
+  } finally {
+    setBusy([refreshReportsButton], false);
+  }
 }
+
+reportSearch.addEventListener("input", () => {
+  viewState.query = reportSearch.value.trim();
+  viewState.page = 1;
+  renderReportCenter();
+});
+
+reportDateFilter.addEventListener("change", () => {
+  viewState.days = reportDateFilter.value;
+  viewState.page = 1;
+  renderReportCenter();
+});
+
+for (const filter of statusFilters) {
+  filter.addEventListener("click", () => {
+    viewState.status = filter.dataset.reportStatus;
+    viewState.page = 1;
+    renderReportCenter();
+  });
+}
+
+paginationPrevious.addEventListener("click", () => {
+  viewState.page = Math.max(1, viewState.page - 1);
+  renderReportCenter();
+});
+
+paginationNext.addEventListener("click", () => {
+  viewState.page += 1;
+  renderReportCenter();
+});
 
 refreshReportsButton.addEventListener("click", () => {
   loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));

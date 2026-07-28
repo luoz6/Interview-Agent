@@ -165,6 +165,8 @@ def test_state_round_trips_from_session_and_message_rows():
     assert restored["plan"].questions[0].prompt == "Describe your backend project."
     assert restored["messages"] == state["messages"]
     assert restored["job_tags"] == ["python", "fastapi"]
+    assert restored["workflow_engine"] == "legacy"
+    assert restored["graph_schema_version"] is None
 
 
 def test_legacy_plan_defaults_to_v1_prep_contract():

@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "cascading_failures"
+  ],
+  "case_id": "system-stateless-scaling",
+  "latency_ms": 299.779,
+  "replayed_evidence_ids": [
+    "cascading_failures"
+  ],
+  "retrieved_ids": [
+    "cascading_failures",
+    "service_scaling",
+    "capacity_planning"
+  ],
+  "scores": {
+    "capacity_planning": 0.515175,
+    "cascading_failures": 0.539314,
+    "service_scaling": 0.519889
+  },
+  "status": "completed"
+}

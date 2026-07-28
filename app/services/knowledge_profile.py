@@ -16,7 +16,8 @@ CANONICAL_TAXONOMY: dict[str, dict[str, str]] = {
     "spring": {"label": "Spring", "domain": "backend"},
     "kafka": {"label": "Kafka", "domain": "messaging"},
     "rabbitmq": {"label": "RabbitMQ", "domain": "messaging"},
-    "system-design": {"label": "System Design", "domain": "system-design"},
+    "system-design": {"label": "系统设计", "domain": "system-design"},
+    "reliability": {"label": "可靠性", "domain": "可靠性"},
 }
 
 # These tags are present in the current corpus metadata. Task 2B will derive the
@@ -26,8 +27,10 @@ KNOWLEDGE_COVERED_TAGS = {
     "fastapi",
     "redis",
     "mysql",
+    "postgresql",
     "kafka",
     "system-design",
+    "reliability",
 }
 
 _ROLE_PATTERN = re.compile(
@@ -44,6 +47,12 @@ _SENIORITY_PATTERNS = (
     ("senior", re.compile(r"\b(?:senior|sr\.?)\b", re.IGNORECASE)),
     ("mid", re.compile(r"\b(?:mid|middle)\b", re.IGNORECASE)),
     ("junior", re.compile(r"\b(?:junior|jr\.?)\b", re.IGNORECASE)),
+    ("senior", re.compile(r"高级|资深")),
+    ("mid", re.compile(r"中级")),
+    ("junior", re.compile(r"初级")),
+)
+_CHINESE_ROLE_PATTERN = re.compile(
+    r"(?:(?:高级|资深|中级|初级))?(?:后端|前端|全栈|软件|平台|数据|算法|测试|运维|云|安全)(?:工程师|开发|架构师)"
 )
 _URL_PATTERN = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _EMAIL_PATTERN = re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
@@ -99,7 +108,8 @@ def _technical_tags(text: str) -> list[str]:
 def _extract_role_title(text: str) -> str:
     match = _ROLE_PATTERN.search(text)
     if match is None:
-        return ""
+        chinese_match = _CHINESE_ROLE_PATTERN.search(text)
+        return chinese_match.group(0) if chinese_match else ""
     seniority, role = match.groups()
     words = [word for word in (seniority, role) if word]
     title = " ".join(words).replace("-", " ")

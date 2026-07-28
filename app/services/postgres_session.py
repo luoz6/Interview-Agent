@@ -6,9 +6,21 @@ from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.interview_rounds import round_closed_event_from_transition
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.prep import InterviewPlan
-from app.services.question_evaluations import QuestionEvaluationRecord
+from app.services.question_evaluations import (
+    QuestionEvaluationInputConflict,
+    QuestionEvaluationRecord,
+)
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
 from app.services.session import (
@@ -39,33 +51,63 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     def __init__(
         self,
         *,
-        dsn: str,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
+        agent_run_connection_provider: ConnectionProvider | None = None,
         table_prefix: str = "interview",
         llm: InterviewLLM | None = None,
         knowledge_repository=None,
         execution_runner: AgentExecutionRunner | None = None,
+        schema_mode: str | None = None,
     ) -> None:
         super().__init__(
             llm=llm,
             knowledge_repository=knowledge_repository,
             execution_runner=execution_runner,
         )
-        self.dsn = dsn
+        validate_runtime_table_prefix(table_prefix)
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"
         self.messages_table = f"{table_prefix}_messages"
         self.reports_table = f"{table_prefix}_reports"
         self.question_evaluations_table = f"{table_prefix}_question_evaluations"
-        self._ensure_schema()
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "migrate":
+            self._ensure_schema()
+        else:
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.sessions_table,
+                    self.messages_table,
+                    self.reports_table,
+                    self.question_evaluations_table,
+                    f"{table_prefix}_schema_migrations",
+                ),
+            )
         self._runtime_control = PostgresRuntimeControlStore(
             dsn=dsn,
+            connection_provider=connection_provider,
+            agent_run_connection_provider=agent_run_connection_provider,
             table_prefix=table_prefix,
+            schema_mode=self.schema_mode,
         )
         self.runtime_event_delivery = "transactional_outbox"
 
     def list_runtime_tables(self) -> list[str]:
         psycopg2, _ = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -88,7 +130,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def list_messages(self, session_id: str) -> list[dict]:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -120,8 +162,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        session_id: str | None = None,
     ) -> InterviewTurn:
-        session_id = str(uuid4())
+        session_id = session_id or str(uuid4())
         state = self._runner.start(
             session_id=session_id,
             plan=plan,
@@ -132,9 +175,35 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         self._insert_state(state)
         return self._to_turn(state, follow_up=None)
 
+    def insert_durable_session_shell(
+        self,
+        *,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+    ) -> None:
+        from app.graphs.interview_state import build_initial_state
+
+        state = build_initial_state(
+            session_id=session_id,
+            plan=plan,
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+        )
+        state["workflow_engine"] = "langgraph-v1"
+        state["graph_schema_version"] = "langgraph-v1"
+        state["messages"] = []
+        state["state_version"] = 0
+        state["checkpoint_version"] = 0
+        state["projection_sha256"] = None
+        self._insert_state(state)
+
     def get(self, session_id: str) -> InterviewState:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -144,7 +213,8 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                                job_description, resume_text, job_tags,
                                decision_json, pending_output, skipped_question_ids,
                                started_at, finished_at, state_version,
-                               checkpoint_version, last_checkpoint_at, last_command_id
+                               checkpoint_version, last_checkpoint_at, last_command_id,
+                               workflow_engine, graph_schema_version, projection_sha256
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -451,7 +521,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def get_report_record(self, session_id: str) -> ReportRecord | None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -489,44 +559,61 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         where_clause = sql.SQL("")
         params: list = []
         if status is not None:
-            where_clause = sql.SQL("WHERE status = %s")
+            where_clause = sql.SQL("WHERE reports.status = %s")
             params.append(status)
         params.append(limit)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
                         """
-                        SELECT session_id, status, progress_json, report_json, error,
-                               created_at, completed_at, failed_at
-                        FROM {reports}
+                        SELECT reports.session_id, reports.status,
+                               reports.progress_json, reports.report_json,
+                               reports.error, reports.created_at,
+                               reports.completed_at, reports.failed_at,
+                               sessions.plan_json, sessions.job_tags,
+                               sessions.started_at, sessions.finished_at
+                        FROM {reports} AS reports
+                        LEFT JOIN {sessions} AS sessions
+                          ON sessions.session_id = reports.session_id
                         {where_clause}
-                        ORDER BY created_at DESC
+                        ORDER BY reports.created_at DESC
                         LIMIT %s
                         """
                     ).format(
                         reports=sql.Identifier(self.reports_table),
+                        sessions=sql.Identifier(self.sessions_table),
                         where_clause=where_clause,
                     ),
                     tuple(params),
                 )
                 rows = cursor.fetchall()
-        return [
-            {
-                "session_id": row[0],
-                "record": report_record_from_row(
-                    {
-                        "status": row[1],
-                        "progress_json": row[2],
-                        "report_json": row[3],
-                        "error": row[4],
-                        "created_at": self._iso_timestamp(row[5]),
-                        "finished_at": self._iso_timestamp(row[6] or row[7]),
-                    }
-                ),
-            }
-            for row in rows
-        ]
+        items = []
+        for row in rows:
+            plan = InterviewPlan.model_validate(row[8])
+            items.append(
+                {
+                    "session_id": row[0],
+                    "record": report_record_from_row(
+                        {
+                            "status": row[1],
+                            "progress_json": row[2],
+                            "report_json": row[3],
+                            "error": row[4],
+                            "created_at": self._iso_timestamp(row[5]),
+                            "finished_at": self._iso_timestamp(row[6] or row[7]),
+                        }
+                    ),
+                    "session_summary": {
+                        "job_title": plan.title,
+                        "job_tags": list(row[9]),
+                        "question_count": len(plan.questions),
+                        "started_at": self._iso_timestamp(row[10]),
+                        "finished_at": self._iso_timestamp(row[11]),
+                    },
+                }
+            )
+        return items
 
     def save_question_evaluations(
         self,
@@ -535,7 +622,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     ) -> None:
         self.get(session_id)
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 for record in records:
                     self._upsert_question_evaluation_row(cursor, sql, record)
@@ -547,20 +634,23 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     ) -> None:
         self.get(session_id)
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 self._upsert_question_evaluation_row(cursor, sql, record)
 
     def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
         self.get(session_id)
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
                         """
                         SELECT session_id, question_id, answer_state, status,
-                               feedback_json, error, created_at
+                               feedback_json, error, created_at,
+                               review_input_sha256, question_input_sha256,
+                               review_engine, review_graph_schema_version,
+                               output_sha256, completed_at
                         FROM {question_evaluations}
                         WHERE session_id = %s
                         ORDER BY question_id
@@ -583,6 +673,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     "feedback_json": row[4],
                     "error": row[5],
                     "created_at": self._iso_timestamp(row[6]),
+                    "review_input_sha256": row[7],
+                    "question_input_sha256": row[8],
+                    "review_engine": row[9],
+                    "review_graph_schema_version": row[10],
+                    "output_sha256": row[11],
+                    "completed_at": self._iso_timestamp(row[12]),
                 }
             )
             for row in rows
@@ -590,7 +686,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def _ensure_schema(self) -> None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -661,6 +757,21 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 )
                 cursor.execute(
                     sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS workflow_engine TEXT NOT NULL DEFAULT 'legacy' CHECK (workflow_engine IN ('legacy', 'langgraph-v1'))"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS graph_schema_version TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS projection_sha256 TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
                         """
                         CREATE TABLE IF NOT EXISTS {messages} (
                             id BIGSERIAL PRIMARY KEY,
@@ -685,7 +796,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         ON {messages} (session_id, sequence_no)
                         """
                     ).format(
-                        index_name=sql.Identifier(f"{self.messages_table}_session_idx"),
+                        index_name=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table_prefix, "messages_session_idx"
+                            )
+                        ),
                         messages=sql.Identifier(self.messages_table),
                     )
                 )
@@ -719,6 +834,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             status TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
                             feedback_json JSONB,
                             error TEXT,
+                            review_input_sha256 TEXT,
+                            question_input_sha256 TEXT,
+                            review_engine TEXT,
+                            review_graph_schema_version TEXT,
+                            output_sha256 TEXT,
+                            completed_at TIMESTAMPTZ,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             PRIMARY KEY (session_id, question_id)
@@ -731,11 +852,28 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         sessions=sql.Identifier(self.sessions_table),
                     )
                 )
+                for column_name, column_type in (
+                    ("review_input_sha256", "TEXT"),
+                    ("question_input_sha256", "TEXT"),
+                    ("review_engine", "TEXT"),
+                    ("review_graph_schema_version", "TEXT"),
+                    ("output_sha256", "TEXT"),
+                    ("completed_at", "TIMESTAMPTZ"),
+                ):
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {type}"
+                        ).format(
+                            table=sql.Identifier(self.question_evaluations_table),
+                            column=sql.Identifier(column_name),
+                            type=sql.SQL(column_type),
+                        )
+                    )
 
     def _insert_state(self, state: InterviewState) -> None:
         psycopg2, sql = self._import_psycopg2()
         session_row = session_row_from_state(state)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -746,13 +884,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             job_description, resume_text, job_tags,
                             decision_json, pending_output, skipped_question_ids,
                             started_at, finished_at, state_version,
-                            checkpoint_version, last_checkpoint_at, last_command_id
+                            checkpoint_version, last_checkpoint_at, last_command_id,
+                            workflow_engine, graph_schema_version, projection_sha256
                         )
                         VALUES (
                             %s, %s::jsonb, %s, %s,
                             %s, %s, %s,
                             %s, %s, %s::jsonb,
                             %s::jsonb, %s, %s::jsonb,
+                            %s, %s, %s,
                             %s, %s, %s,
                             %s, %s, %s
                         )
@@ -783,6 +923,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         session_row["checkpoint_version"],
                         session_row["last_checkpoint_at"],
                         session_row["last_command_id"],
+                        session_row["workflow_engine"],
+                        session_row["graph_schema_version"],
+                        session_row["projection_sha256"],
                     ),
                 )
                 for index, message in enumerate(state["messages"], start=1):
@@ -819,7 +962,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if expected_previous_version is not None:
             where_clause = sql.SQL("WHERE session_id = %s AND state_version = %s")
             update_params_suffix.append(expected_previous_version)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -908,6 +1051,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     session_row["checkpoint_version"],
                     session_row["last_checkpoint_at"],
                     session_row["last_command_id"],
+                    session_row["workflow_engine"],
+                    session_row["graph_schema_version"],
+                    session_row["projection_sha256"],
                     session_row["status"],
                     session_row["finished_at"],
                     *update_params_suffix,
@@ -933,6 +1079,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             checkpoint_version = %s,
                             last_checkpoint_at = %s,
                             last_command_id = %s,
+                            workflow_engine = %s,
+                            graph_schema_version = %s,
+                            projection_sha256 = %s,
                             updated_at = NOW(),
                             finished_at = CASE
                                 WHEN %s = 'finished' THEN COALESCE(finished_at, %s)
@@ -981,7 +1130,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             row["finished_at"] if row["status"] == "completed" else None
         )
         failed_finished_at = row["finished_at"] if row["status"] == "failed" else None
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -1033,19 +1182,54 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         record: QuestionEvaluationRecord,
     ) -> None:
         row = question_evaluation_record_to_row(record)
+        if row["review_engine"] is not None:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    SELECT review_engine, question_input_sha256
+                    FROM {question_evaluations}
+                    WHERE session_id = %s AND question_id = %s
+                    FOR UPDATE
+                    """
+                ).format(
+                    question_evaluations=sql.Identifier(
+                        self.question_evaluations_table
+                    )
+                ),
+                (row["session_id"], row["question_id"]),
+            )
+            existing = cursor.fetchone()
+            if (
+                existing is not None
+                and existing[0] is not None
+                and existing[1] != row["question_input_sha256"]
+            ):
+                raise QuestionEvaluationInputConflict(
+                    f"question evaluation input changed: {row['question_id']}"
+                )
         cursor.execute(
             sql.SQL(
                 """
                 INSERT INTO {question_evaluations} (
                     session_id, question_id, answer_state, status,
-                    feedback_json, error, created_at
+                    feedback_json, error, created_at,
+                    review_input_sha256, question_input_sha256,
+                    review_engine, review_graph_schema_version,
+                    output_sha256, completed_at
                 )
-                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s,
+                        %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, question_id) DO UPDATE
                 SET status = EXCLUDED.status,
                     answer_state = EXCLUDED.answer_state,
                     feedback_json = EXCLUDED.feedback_json,
                     error = EXCLUDED.error,
+                    review_input_sha256 = EXCLUDED.review_input_sha256,
+                    question_input_sha256 = EXCLUDED.question_input_sha256,
+                    review_engine = EXCLUDED.review_engine,
+                    review_graph_schema_version = EXCLUDED.review_graph_schema_version,
+                    output_sha256 = EXCLUDED.output_sha256,
+                    completed_at = EXCLUDED.completed_at,
                     updated_at = NOW()
                 """
             ).format(
@@ -1063,6 +1247,12 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 else None,
                 row["error"],
                 row["created_at"],
+                row["review_input_sha256"],
+                row["question_input_sha256"],
+                row["review_engine"],
+                row["review_graph_schema_version"],
+                row["output_sha256"],
+                row["completed_at"],
             ),
         )
 
@@ -1088,6 +1278,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "checkpoint_version": row[16],
             "last_checkpoint_at": PostgresInterviewSessionStore._iso_timestamp(row[17]),
             "last_command_id": row[18],
+            "workflow_engine": row[19],
+            "graph_schema_version": row[20],
+            "projection_sha256": row[21],
         }
 
     @staticmethod

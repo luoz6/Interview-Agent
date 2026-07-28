@@ -19,3 +19,10 @@ def test_extract_job_tags_deduplicates_case_insensitive_matches():
     tags = extract_job_tags("Python python PYTHON Redis redis")
 
     assert tags == ["python", "redis"]
+
+
+def test_chinese_jd_extracts_postgresql_and_reliability_tags():
+    assert extract_job_tags("负责 PostgreSQL、可观测性、稳定性和容量规划") == [
+        "postgresql",
+        "reliability",
+    ]

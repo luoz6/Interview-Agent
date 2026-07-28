@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+
+import pytest
+
+import app.services.runtime as runtime_module
 from app.services.runtime import (
     DEFAULT_POSTGRES_DSN,
     build_report_executor,
@@ -13,6 +18,17 @@ from app.services.runtime import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_connection_domains(monkeypatch):
+    domains = SimpleNamespace(business=object(), telemetry=object())
+    monkeypatch.setattr(
+        runtime_module,
+        "get_postgres_connection_domains",
+        lambda: domains,
+    )
+    return domains
+
+
 def test_build_session_store_defaults_to_local_postgres(monkeypatch):
     monkeypatch.delenv("POSTGRES_DSN", raising=False)
     monkeypatch.delenv("INTERVIEW_RUNTIME_STORE", raising=False)
@@ -24,9 +40,12 @@ def test_build_session_store_defaults_to_local_postgres(monkeypatch):
             self,
             *,
             dsn,
+            connection_provider=None,
+            agent_run_connection_provider=None,
             table_prefix="interview",
             llm=None,
             execution_runner=None,
+            schema_mode="migrate",
         ):
             created["dsn"] = dsn
             created["table_prefix"] = table_prefix
@@ -55,9 +74,12 @@ def test_build_session_store_uses_postgres_when_enabled(monkeypatch):
             self,
             *,
             dsn,
+            connection_provider=None,
+            agent_run_connection_provider=None,
             table_prefix="interview",
             llm=None,
             execution_runner=None,
+            schema_mode="migrate",
         ):
             created["dsn"] = dsn
             created["table_prefix"] = table_prefix
@@ -87,9 +109,12 @@ def test_build_session_store_uses_runtime_table_prefix_with_legacy_fallback(monk
             self,
             *,
             dsn,
+            connection_provider=None,
+            agent_run_connection_provider=None,
             table_prefix="interview",
             llm=None,
             execution_runner=None,
+            schema_mode="migrate",
         ):
             created["table_prefix"] = table_prefix
 
@@ -112,7 +137,7 @@ def test_build_report_job_store_defaults_to_local_postgres_dsn(monkeypatch):
     created = {}
 
     class FakeReportJobStore:
-        def __init__(self, *, dsn, table_prefix="interview", lease_seconds=300):
+        def __init__(self, *, dsn, connection_provider=None, table_prefix="interview", lease_seconds=300, schema_mode="migrate"):
             created["dsn"] = dsn
             created["table_prefix"] = table_prefix
             created["lease_seconds"] = lease_seconds
@@ -136,7 +161,7 @@ def test_build_report_job_store_uses_postgres_dsn_and_runtime_prefix(monkeypatch
     created = {}
 
     class FakeReportJobStore:
-        def __init__(self, *, dsn, table_prefix="interview", lease_seconds=300):
+        def __init__(self, *, dsn, connection_provider=None, table_prefix="interview", lease_seconds=300, schema_mode="migrate"):
             created["dsn"] = dsn
             created["table_prefix"] = table_prefix
             created["lease_seconds"] = lease_seconds
@@ -202,7 +227,7 @@ def test_build_report_executor_reuses_session_store_llm_and_vector_store(monkeyp
             created["llm_factory_called"] = True
 
     monkeypatch.setattr("app.services.runtime.get_session_store", lambda: fake_store)
-    monkeypatch.setattr("app.services.runtime.get_knowledge_store", lambda: fake_vector_store)
+    monkeypatch.setattr("app.services.runtime.get_knowledge_store", lambda **kwargs: fake_vector_store)
     monkeypatch.setattr("app.services.runtime.OpenAIInterviewLLM", FakeOpenAIInterviewLLM)
 
     executor = build_report_executor()
@@ -219,7 +244,10 @@ def test_build_report_executor_creates_llm_when_store_has_none(monkeypatch):
     fake_llm = object()
 
     monkeypatch.setattr("app.services.runtime.get_session_store", lambda: fake_store)
-    monkeypatch.setattr("app.services.runtime.get_knowledge_store", lambda: fake_vector_store)
+    monkeypatch.setattr(
+        "app.services.runtime.get_knowledge_store",
+        lambda **kwargs: fake_vector_store,
+    )
     monkeypatch.setattr("app.services.runtime.OpenAIInterviewLLM", lambda: fake_llm)
 
     executor = build_report_executor()

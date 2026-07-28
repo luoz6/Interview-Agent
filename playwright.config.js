@@ -31,7 +31,11 @@ module.exports = defineConfig({
     command: `"${python}" -m uvicorn tests.browser_support_app:app --host 127.0.0.1 --port 8011`,
     url: "http://127.0.0.1:8011/api/health",
     timeout: 30_000,
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.REUSE_EXISTING_SERVER === "true",
+    gracefulShutdown: {
+      signal: "SIGINT",
+      timeout: 1_000,
+    },
     stdout: "pipe",
     stderr: "pipe",
   },

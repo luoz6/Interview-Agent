@@ -4,6 +4,12 @@ from scripts.runtime_preflight import (
     PreflightError,
     check_redis,
     redact_connection_url,
+    should_check_langgraph_postgres,
+    validate_langgraph_configuration,
+    validate_registered_graph_versions,
+    validate_langgraph_schema_snapshot,
+    validate_maintenance_configuration,
+    validate_runtime_signal_schema,
     validate_runtime_control_snapshot,
     validate_runtime_versions,
 )
@@ -108,3 +114,115 @@ def test_runtime_control_snapshot_rejects_slow_ledger():
             expected_tables=["outbox", "receipts", "agent_runs"],
             ledger_latencies_ms=[51.0] * 20,
         )
+
+
+def test_langgraph_rollout_requires_enabled_postgres_runtime():
+    with pytest.raises(PreflightError, match="PostgreSQL"):
+        validate_langgraph_configuration(
+            runtime_store="memory",
+            runtime_enabled=True,
+            rollout_percent=1,
+            strict_msgpack="true",
+            retention_hours=24,
+        )
+
+
+def test_langgraph_configuration_requires_strict_msgpack_and_retention():
+    with pytest.raises(PreflightError, match="STRICT_MSGPACK"):
+        validate_langgraph_configuration(
+            runtime_store="postgres",
+            runtime_enabled=True,
+            rollout_percent=0,
+            strict_msgpack="false",
+            retention_hours=24,
+        )
+    with pytest.raises(PreflightError, match="retention"):
+        validate_langgraph_configuration(
+            runtime_store="postgres",
+            runtime_enabled=True,
+            rollout_percent=0,
+            strict_msgpack="true",
+            retention_hours=0,
+        )
+
+
+def test_langgraph_schema_snapshot_requires_tables_and_indexes():
+    expected_tables = ["commands", "generations", "attempts", "chunks"]
+    expected_indexes = ["commands_status", "outbox_due", "source", "replay"]
+
+    result = validate_langgraph_schema_snapshot(
+        tables=expected_tables,
+        indexes=expected_indexes + ["extra"],
+        expected_tables=expected_tables,
+        expected_indexes=expected_indexes,
+    )
+
+    assert result == {"workflow_tables": 4, "recovery_indexes": 4}
+
+
+@pytest.mark.parametrize(
+    (
+        "runtime_store",
+        "interview_enabled",
+        "review_enabled",
+        "profile",
+        "expected",
+    ),
+    [
+        ("postgres", True, False, "core", True),
+        ("postgres", False, True, "core", True),
+        ("postgres", True, True, "core", True),
+        ("postgres", False, False, "core", False),
+        ("memory", False, True, "core", False),
+        ("postgres", False, True, "runtime", False),
+    ],
+)
+def test_shared_postgres_check_runs_when_either_runtime_is_enabled(
+    runtime_store,
+    interview_enabled,
+    review_enabled,
+    profile,
+    expected,
+):
+    assert should_check_langgraph_postgres(
+        runtime_store=runtime_store,
+        interview_runtime_enabled=interview_enabled,
+        review_runtime_enabled=review_enabled,
+        profile=profile,
+    ) is expected
+
+
+def test_preflight_graph_registry_requires_exact_versions():
+    assert validate_registered_graph_versions(
+        "langgraph-v1", "langgraph-review-v1"
+    ) == ["langgraph-v1", "langgraph-review-v1"]
+
+
+def test_maintenance_configuration_requires_positive_bounds():
+    assert validate_maintenance_configuration(
+        retention_hours=24,
+        interval_seconds=3600,
+        signal_retention_hours=168,
+    ) == {
+        "retention_hours": 24,
+        "signal_retention_hours": 168,
+        "interval_seconds": 3600,
+    }
+    with pytest.raises(PreflightError, match="maintenance interval"):
+        validate_maintenance_configuration(
+            retention_hours=24, interval_seconds=0
+        )
+
+
+def test_runtime_signal_schema_is_a_closed_privacy_contract():
+    columns = [
+        "bucket_start",
+        "workflow_type",
+        "signal_code",
+        "signal_count",
+        "updated_at",
+    ]
+
+    assert validate_runtime_signal_schema(columns) == columns
+    with pytest.raises(PreflightError, match="privacy contract"):
+        validate_runtime_signal_schema(columns + ["session_id"])

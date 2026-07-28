@@ -153,6 +153,7 @@ def test_prepare_interview_correlates_knowledge_run_with_binding_snapshot():
     )
 
     prep_run_id = plan.prep_context.binding_snapshot.prep_run_id
+    assert len(recorder.records) == 1
     assert recorder.records[0].agent == "knowledge"
     assert recorder.records[0].operation == "generate_plan"
     assert recorder.records[0].correlation_id == prep_run_id

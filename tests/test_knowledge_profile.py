@@ -17,14 +17,26 @@ def test_build_role_profile_uses_canonical_job_tags_and_resume_intersection():
 
     assert profile.role_title == "Senior Backend Engineer"
     assert profile.seniority == "senior"
-    assert profile.canonical_tags == ["python", "fastapi", "redis", "postgresql"]
-    assert profile.domains == ["backend", "cache", "database"]
-    assert profile.technologies == ["Python", "FastAPI", "Redis", "PostgreSQL"]
+    assert profile.canonical_tags == [
+        "python",
+        "fastapi",
+        "redis",
+        "postgresql",
+        "reliability",
+    ]
+    assert profile.domains == ["backend", "cache", "database", "可靠性"]
+    assert profile.technologies == [
+        "Python",
+        "FastAPI",
+        "Redis",
+        "PostgreSQL",
+        "可靠性",
+    ]
     assert profile.resume_signals == [
         "Resume mentions FastAPI experience.",
         "Resume mentions Redis experience.",
     ]
-    assert profile.uncovered_technologies == ["PostgreSQL"]
+    assert profile.uncovered_technologies == []
     serialized = profile.model_dump_json()
     assert "alice@example.com" not in serialized
     assert "138-0013-8000" not in serialized
@@ -67,3 +79,15 @@ def test_resume_only_technology_does_not_expand_job_scope():
     assert profile.resume_signals == ["Resume mentions Python experience."]
     assert "Java" not in profile.technologies
     assert "Spring" not in profile.technologies
+
+
+def test_chinese_role_profile_extracts_role_and_seniority():
+    profile = build_role_profile(
+        "高级后端工程师，负责 PostgreSQL 和系统可靠性。",
+        "参与 PostgreSQL 服务治理。",
+    )
+
+    assert profile.role_title == "高级后端工程师"
+    assert profile.seniority == "senior"
+    assert profile.canonical_tags == ["postgresql", "reliability"]
+    assert profile.uncovered_technologies == []

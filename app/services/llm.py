@@ -6,6 +6,24 @@ from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
 
 from pydantic import ValidationError
 
+from app.services.context_budget import (
+    ContextBudgetResolver,
+    context_enforcement_enabled,
+    FOLLOWUP_CONTEXT_POLICY,
+    OperationContextPolicy,
+    PLAN_CONTEXT_POLICY,
+    REPORT_CONTEXT_POLICY,
+    RenderedPromptGuard,
+)
+from app.services.model_capabilities import ModelCapabilityRegistry
+from app.services.token_estimation import CompositeTokenEstimator
+from app.services.context_selection import truncate_text_to_tokens
+from app.services.provider_usage import (
+    begin_provider_attempt,
+    publish_prompt_measurement,
+    publish_provider_response,
+)
+
 if TYPE_CHECKING:
     from app.services.report import InterviewReport
 
@@ -26,6 +44,11 @@ class LLMConfig:
     temperature: float = 0.2
     request_timeout_seconds: float = 120.0
     max_retries: int = 1
+    context_window_tokens: int | None = None
+    protocol_reserve_tokens: int = 512
+    structured_output_reserve_tokens: int = 2048
+    context_safety_margin_tokens: int = 1024
+    tokenizer_family: str | None = None
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -42,6 +65,21 @@ class LLMConfig:
                 os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "120")
             ),
             max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "1")),
+            context_window_tokens=(
+                int(os.environ["LLM_CONTEXT_WINDOW_TOKENS"])
+                if os.getenv("LLM_CONTEXT_WINDOW_TOKENS")
+                else None
+            ),
+            protocol_reserve_tokens=int(
+                os.getenv("LLM_CONTEXT_PROTOCOL_RESERVE_TOKENS", "512")
+            ),
+            structured_output_reserve_tokens=int(
+                os.getenv("LLM_STRUCTURED_OUTPUT_RESERVE_TOKENS", "2048")
+            ),
+            context_safety_margin_tokens=int(
+                os.getenv("LLM_CONTEXT_SAFETY_MARGIN_TOKENS", "1024")
+            ),
+            tokenizer_family=os.getenv("LLM_TOKENIZER_FAMILY") or None,
         )
 
 
@@ -79,8 +117,28 @@ class OpenAIInterviewLLM:
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
-        self.config = config
-        self.chat_model = chat_model or self._build_chat_model(config or LLMConfig.from_env())
+        resolved_config = config or (
+            LLMConfig(api_key="injected-chat-model")
+            if chat_model is not None
+            else LLMConfig.from_env()
+        )
+        self.config = resolved_config
+        self.chat_model = chat_model or self._build_chat_model(resolved_config)
+        self.model_profile = ModelCapabilityRegistry().resolve(
+            model=resolved_config.model,
+            configured_context_window_tokens=resolved_config.context_window_tokens,
+            protocol_reserve_tokens=resolved_config.protocol_reserve_tokens,
+            structured_output_reserve_tokens=(
+                resolved_config.structured_output_reserve_tokens
+            ),
+            safety_margin_tokens=resolved_config.context_safety_margin_tokens,
+            custom_base_url=bool(resolved_config.base_url),
+        )
+        self.token_estimator = CompositeTokenEstimator(
+            configured_family=resolved_config.tokenizer_family
+        ).resolve(model=resolved_config.model)
+        self._budget_resolver = ContextBudgetResolver()
+        self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
         configured_mode = report_output_mode or os.getenv(
             "OPENAI_REPORT_OUTPUT_MODE",
@@ -98,11 +156,18 @@ class OpenAIInterviewLLM:
     ):
         from app.services.prep import InterviewPlan
 
+        if context_enforcement_enabled(PLAN_CONTEXT_POLICY.operation):
+            job_description, resume_text, knowledge_context = self._fit_plan_inputs(
+                job_description=job_description,
+                resume_text=resume_text,
+                knowledge_context=knowledge_context,
+            )
         prompt = self._build_plan_prompt(
             job_description=job_description,
             resume_text=resume_text,
             knowledge_context=knowledge_context,
         )
+        self._guard_prompt(prompt, PLAN_CONTEXT_POLICY)
         try:
             return self._invoke_structured_plan(prompt, InterviewPlan)
         except Exception as exc:
@@ -176,7 +241,13 @@ class OpenAIInterviewLLM:
             schema,
             method="json_schema",
         )
+        if hasattr(structured_model, "bind"):
+            structured_model = structured_model.bind(
+                max_tokens=PLAN_CONTEXT_POLICY.max_output_tokens
+            )
+        begin_provider_attempt()
         result = structured_model.invoke(prompt)
+        publish_provider_response(result)
         if isinstance(result, schema):
             return result
         return schema.model_validate(result)
@@ -187,18 +258,21 @@ class OpenAIInterviewLLM:
             "Return valid JSON only. Use the JSON shape exactly. "
             "Do not wrap the JSON in markdown code fences."
         )
-        message = self.chat_model.invoke(fallback_prompt)
+        self._guard_prompt(fallback_prompt, PLAN_CONTEXT_POLICY)
+        message = self._invoke_chat(fallback_prompt, PLAN_CONTEXT_POLICY)
         content = str(getattr(message, "content", message)).strip()
         return self._parse_raw_json_payload(content)
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
         prompt = _build_followup_prompt(context)
-        message = self.chat_model.invoke(prompt)
+        self._guard_prompt(prompt, FOLLOWUP_CONTEXT_POLICY)
+        message = self._invoke_chat(prompt, FOLLOWUP_CONTEXT_POLICY)
         return str(getattr(message, "content", message)).strip()
 
     def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
         prompt = _build_followup_prompt(context)
-        for chunk in self.chat_model.stream(prompt):
+        self._guard_prompt(prompt, FOLLOWUP_CONTEXT_POLICY)
+        for chunk in self._stream_chat(prompt, FOLLOWUP_CONTEXT_POLICY):
             text = str(getattr(chunk, "content", "") or "")
             if text:
                 yield text
@@ -217,6 +291,7 @@ class OpenAIInterviewLLM:
             evaluation_items=evaluation_items,
             session_id=session_id,
         )
+        self._guard_prompt(prompt, REPORT_CONTEXT_POLICY)
         structured_error: Exception | None = None
         if self.report_output_mode == "structured_first":
             try:
@@ -324,6 +399,7 @@ class OpenAIInterviewLLM:
             "Do not put evaluator judgments, communication-quality summaries, or inferred capabilities in observed; put those only in rationale.\n"
             "Do not award evidence from the question text, job description, reference answer, or benchmark alone.\n"
             "Always return quality_signals as an empty list; the backend derives scoring signals deterministically from the candidate answer.\n"
+            "For evaluation items sourced from question_evaluation_record, preserve the supplied validated dimension_evidence observed excerpts exactly; do not invent replacement excerpts.\n"
             "Use this JSON shape exactly:\n"
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
             f"session_id: {session_id}\n\n"
@@ -339,7 +415,13 @@ class OpenAIInterviewLLM:
             schema,
             method="json_schema",
         )
+        if hasattr(structured_model, "bind"):
+            structured_model = structured_model.bind(
+                max_tokens=REPORT_CONTEXT_POLICY.max_output_tokens
+            )
+        begin_provider_attempt()
         result = structured_model.invoke(prompt)
+        publish_provider_response(result)
         return self._coerce_report_result(result, schema)
 
     def _invoke_raw_json_report(
@@ -353,7 +435,8 @@ class OpenAIInterviewLLM:
             "Return valid JSON only. Use the JSON shape exactly. "
             "Do not wrap the JSON in markdown code fences."
         )
-        message = self.chat_model.invoke(fallback_prompt)
+        self._guard_prompt(fallback_prompt, REPORT_CONTEXT_POLICY)
+        message = self._invoke_chat(fallback_prompt, REPORT_CONTEXT_POLICY)
         content = str(getattr(message, "content", message)).strip()
         self._record_trace(
             session_id,
@@ -461,6 +544,104 @@ class OpenAIInterviewLLM:
         if config.base_url:
             kwargs["base_url"] = config.base_url
         return ChatOpenAI(**kwargs)
+
+    def _guard_prompt(
+        self,
+        prompt: str,
+        policy: OperationContextPolicy,
+    ):
+        budget = self._budget_resolver.resolve(
+            profile=self.model_profile,
+            policy=policy,
+        )
+        measurement = self._prompt_guard.measure(
+            prompt=prompt,
+            budget=budget,
+            estimator=self.token_estimator,
+        )
+        publish_prompt_measurement(measurement)
+        if (
+            context_enforcement_enabled(policy.operation)
+            and measurement.estimated_input_tokens > budget.available_input_tokens
+        ):
+            from app.services.context_budget import ContextBudgetExceeded
+
+            raise ContextBudgetExceeded(
+                operation=budget.operation,
+                estimated_input_tokens=measurement.estimated_input_tokens,
+                available_input_tokens=measurement.available_input_tokens,
+            )
+        return measurement
+
+    def _fit_plan_inputs(
+        self,
+        *,
+        job_description: str,
+        resume_text: str,
+        knowledge_context: list[dict] | None,
+    ) -> tuple[str, str, list[dict] | None]:
+        budget = self._budget_resolver.resolve(
+            profile=self.model_profile,
+            policy=PLAN_CONTEXT_POLICY,
+        )
+        # Reserve 20% for fixed instructions, the response schema and JSON
+        # framing. The final rendered-prompt guard remains authoritative.
+        content_budget = max(1, budget.available_input_tokens * 80 // 100)
+        jd_budget = max(1, content_budget * 35 // 100)
+        resume_budget = max(1, content_budget * 50 // 100)
+        knowledge_budget = max(1, content_budget - jd_budget - resume_budget)
+        estimator = self.token_estimator.estimator
+        job_description, _ = truncate_text_to_tokens(
+            job_description,
+            token_budget=jd_budget,
+            estimator=estimator,
+            model=self.model_profile.model,
+        )
+        resume_text, _ = truncate_text_to_tokens(
+            resume_text,
+            token_budget=resume_budget,
+            estimator=estimator,
+            model=self.model_profile.model,
+        )
+        selected_knowledge: list[dict] = []
+        remaining = knowledge_budget
+        for item in knowledge_context or []:
+            serialized = json.dumps(item, ensure_ascii=False, sort_keys=True)
+            cost = estimator.estimate_text(
+                serialized,
+                model=self.model_profile.model,
+            )
+            if cost > remaining:
+                break
+            selected_knowledge.append(item)
+            remaining -= cost
+        return (
+            job_description,
+            resume_text,
+            selected_knowledge or None,
+        )
+
+    def _invoke_chat(self, prompt: str, policy: OperationContextPolicy):
+        model = self.chat_model
+        if hasattr(model, "bind"):
+            model = model.bind(max_tokens=policy.max_output_tokens)
+        begin_provider_attempt()
+        response = model.invoke(prompt)
+        publish_provider_response(response)
+        return response
+
+    def _stream_chat(self, prompt: str, policy: OperationContextPolicy):
+        model = self.chat_model
+        if hasattr(model, "bind"):
+            model = model.bind(max_tokens=policy.max_output_tokens)
+        begin_provider_attempt()
+
+        def iterate():
+            for chunk in model.stream(prompt):
+                publish_provider_response(chunk)
+                yield chunk
+
+        return iterate()
 
 
 def _build_followup_prompt(context: list[dict[str, str]]) -> str:

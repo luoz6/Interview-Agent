@@ -62,6 +62,7 @@ export async function readSse(response, handlers) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let lastEventId = null;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -72,19 +73,22 @@ export async function readSse(response, handlers) {
     for (const rawEvent of events) {
       const event = parseSseEvent(rawEvent);
       if (event && handlers[event.event]) {
-        handlers[event.event](event.data);
+        lastEventId = event.id || lastEventId;
+        handlers[event.event](event.data, event.id);
       }
     }
   }
+  return lastEventId;
 }
 
 function parseSseEvent(rawEvent) {
-  const event = { event: "message", data: {} };
+  const event = { id: null, event: "message", data: {} };
   for (const line of rawEvent.split("\n")) {
-    if (line.startsWith("event:")) {
+    if (line.startsWith("id:")) {
+      event.id = line.slice("id:".length).trim();
+    } else if (line.startsWith("event:")) {
       event.event = line.slice("event:".length).trim();
-    }
-    if (line.startsWith("data:")) {
+    } else if (line.startsWith("data:")) {
       event.data = JSON.parse(line.slice("data:".length).trim());
     }
   }

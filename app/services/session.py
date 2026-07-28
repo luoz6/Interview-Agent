@@ -80,8 +80,9 @@ class InterviewSessionStore:
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        session_id: str | None = None,
     ) -> InterviewTurn:
-        session_id = str(uuid4())
+        session_id = session_id or str(uuid4())
         state = self._runner.start(
             session_id=session_id,
             plan=plan,
@@ -130,6 +131,8 @@ class InterviewSessionStore:
             "checkpoint_version": state["checkpoint_version"],
             "last_checkpoint_at": state["last_checkpoint_at"],
             "last_command_id": state["last_command_id"],
+            "workflow_engine": state.get("workflow_engine", "legacy"),
+            "graph_schema_version": state.get("graph_schema_version"),
             "job_tags": list(state["job_tags"]),
             "current_question": current_question.model_dump() if current_question else None,
             "questions": questions,
@@ -373,7 +376,21 @@ class InterviewSessionStore:
         for index, (session_id, record) in enumerate(self._reports.items()):
             if status is not None and record.status != status:
                 continue
-            items.append({"session_id": session_id, "record": record, "_index": index})
+            state = self._sessions[session_id]
+            items.append(
+                {
+                    "session_id": session_id,
+                    "record": record,
+                    "session_summary": {
+                        "job_title": state["plan"].title,
+                        "job_tags": list(state["job_tags"]),
+                        "question_count": len(state["plan"].questions),
+                        "started_at": state["started_at"],
+                        "finished_at": state["finished_at"],
+                    },
+                    "_index": index,
+                }
+            )
         items.sort(
             key=lambda item: (item["record"].created_at, item["_index"]),
             reverse=True,

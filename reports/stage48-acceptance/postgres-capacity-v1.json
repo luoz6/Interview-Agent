@@ -1,0 +1,62 @@
+{
+  "checkpointer": {
+    "configured_overhead": 1,
+    "max_size": 2,
+    "observed_peak": 2,
+    "within_budgeted_max": true,
+    "within_pool_max": true
+  },
+  "domains": {
+    "advisory_lock": {
+      "acquire_timeout_count": 0,
+      "discard_count": 0,
+      "max_size": 4,
+      "p95_wait_ms": 93.326,
+      "peak_leased": 4
+    },
+    "business": {
+      "acquire_timeout_count": 0,
+      "discard_count": 0,
+      "max_size": 12,
+      "p95_wait_ms": 348.378,
+      "peak_leased": 12
+    },
+    "telemetry": {
+      "acquire_timeout_count": 0,
+      "discard_count": 0,
+      "max_size": 4,
+      "p95_wait_ms": 75.072,
+      "peak_leased": 4
+    }
+  },
+  "evidence_level": "repository",
+  "load_passed": true,
+  "privacy_violations": 0,
+  "process_budget": {
+    "allowed_at_utilization": 69,
+    "api": 23,
+    "available": 87,
+    "celery": 23,
+    "configured_total": 69,
+    "external_connection_reserve": 10,
+    "max_utilization": 0.8,
+    "outbox": 23
+  },
+  "production_observation": "NOT_RUN",
+  "schema_ready": true,
+  "schema_version": "postgres-capacity-v1",
+  "server": {
+    "current_connection_count": 6,
+    "max_connections": 100,
+    "stage48_application_connection_count": 0,
+    "superuser_reserved_connections": 3
+  },
+  "simultaneous_capacity": {
+    "expected_advisory_locks": 4,
+    "expected_application_peak": 22,
+    "observed_advisory_locks": 4,
+    "observed_application_peak": 22,
+    "verified": true
+  },
+  "status": "ELIGIBLE_FOR_CAPACITY_CANARY"
+}

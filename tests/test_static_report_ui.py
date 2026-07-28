@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -11,6 +12,138 @@ def read_app_file(name: str) -> str:
 
 def read_static_file(name: str) -> str:
     return (STATIC_DIR / name).read_text(encoding="utf-8")
+
+
+def test_production_visual_tokens_replace_reference_decorations():
+    css = read_static_file("prototype-source.css")
+    for token in (
+        "--color-text: #172033",
+        "--color-muted: #647084",
+        "--color-page: #f4f6f9",
+        "--color-line: #dce2ea",
+        "--color-primary: #2457d6",
+        "--color-primary-hover: #1d47b3",
+        "--color-success: #17845e",
+        "--color-warning: #b7791f",
+        "--color-danger: #c2413b",
+        "--color-control-border:",
+        "--color-primary-subtle:",
+        "--color-primary-ring:",
+        "--motion-fast: 160ms",
+        "--motion-state: 200ms",
+        "--radius-card: 8px",
+        "--radius-control: 6px",
+    ):
+        assert token in css
+    assert "linear-gradient" not in css
+
+
+def test_shared_elevation_command_and_motion_contracts_are_declared():
+    css = read_static_file("prototype-source.css")
+    html = read_app_file("test3.html")
+    card_block = re.search(r"\.ui-card \{(?P<body>.*?)\n  \}", css, re.DOTALL)
+
+    assert card_block is not None
+    assert "box-shadow" not in card_block.group("body")
+    assert ".ui-card-elevated" in css
+    assert ".ui-button-danger" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert "@keyframes page-shell-reveal" in css
+    assert "animation: page-shell-reveal var(--motion-state)" in css
+    assert "animation: none !important" in css
+    assert "transform: none !important" in css
+    assert "var(--motion-fast)" in css
+    assert "var(--motion-state)" in css
+    assert 'id="finishInterviewButton" type="button" class="ui-button ui-button-danger"' in html
+
+
+def test_shared_reference_components_are_declared():
+    css = read_static_file("prototype-source.css")
+    for selector in (
+        ".app-topbar",
+        ".app-brand",
+        ".app-nav",
+        ".workflow-shell",
+        ".workflow-sidebar",
+        ".workflow-step",
+        ".ui-card",
+        ".ui-button",
+        ".ui-badge",
+        ".ui-notice",
+        ".progress-track",
+    ):
+        assert selector in css
+
+
+def test_production_pages_share_real_http_navigation():
+    for name in (
+        "test0.html",
+        "test1.html",
+        "test2.html",
+        "test3.html",
+        "test4.html",
+        "test-help.html",
+    ):
+        html = read_app_file(name)
+        assert '<header class="app-topbar">' in html
+        assert '<a class="app-brand" href="/prep"' in html
+        assert '<nav class="app-nav" aria-label="主导航">' in html
+        assert 'href="/prep"' in html
+        assert 'href="/reports"' in html
+        assert 'href="/help"' in html
+
+    help_html = read_app_file("test-help.html")
+    assert '<a href="/help" aria-current="page">帮助</a>' in help_html
+
+
+def test_production_pages_do_not_copy_reference_demo_runtime():
+    combined = "\n".join(
+        read_app_file(name)
+        for name in (
+            "test0.html",
+            "test1.html",
+            "test2.html",
+            "test3.html",
+            "test4.html",
+            "test-help.html",
+        )
+    )
+    combined += "\n" + "\n".join(
+        read_static_file(path.name) for path in sorted(STATIC_DIR.glob("*.js"))
+    )
+
+    for forbidden in (
+        "data-view-target=",
+        "showView(",
+        "超过候选人",
+        "如何设计一个高并发缓存系统",
+        "2026-07-17 16:25",
+        "fallback_failed",
+        "本地数据库已连接",
+    ):
+        assert forbidden not in combined
+
+    assert "full_session_fallback" in combined
+
+
+def test_production_shell_uses_bounded_radii_and_no_inline_visual_system():
+    css = read_static_file("prototype-source.css")
+    html = "\n".join(
+        read_app_file(name)
+        for name in (
+            "test0.html",
+            "test1.html",
+            "test2.html",
+            "test3.html",
+            "test4.html",
+            "test-help.html",
+        )
+    )
+
+    assert "linear-gradient" not in css
+    assert not re.search(r"border-radius:\s*(?:1[0-9]|[2-9][0-9])px", css)
+    assert "rounded-xl" not in html
+    assert "<style" not in html
 
 
 def test_four_runtime_html_pages_exist():
@@ -32,18 +165,68 @@ def test_prep_page_has_runtime_hooks():
 
     for element_id in (
         "jobDescription",
+        "jobDescriptionFileInput",
+        "jobDescriptionFileButton",
+        "jobDescriptionFileMeta",
         "resumeText",
+        "resumeFileInput",
+        "resumeFileButton",
+        "resumeFileMeta",
         "saveDraftButton",
         "restoreDraftButton",
         "prepButton",
         "startButton",
         "topicTags",
         "planTitle",
+        "planState",
+        "planQuestionCount",
+        "planDuration",
         "planQuestions",
         "prepStatus",
+        "prepKnowledgeStatus",
+        "prepContextSummary",
+        "prepContextTopics",
+        "prepQuestionHints",
     ):
         assert f'id="{element_id}"' in html
+    assert 'accept=".txt,.md,text/plain,text/markdown"' in html
+    assert "app-topbar" in html
+    assert "workflow-shell" in html
+    assert 'href="/prep"' in html
+    assert 'href="/reports"' in html
+    assert 'href="/help"' in html
     assert "/static/prep.js" in html
+
+
+def test_prep_page_imports_text_files_and_renders_only_real_plan_metrics():
+    html = read_app_file("test4.html")
+    js = read_static_file("prep.js")
+
+    for marker in (
+        "const MAX_TEXT_FILE_BYTES = 1024 * 1024",
+        'const SUPPORTED_TEXT_EXTENSIONS = [".txt", ".md"]',
+        "async function importTextFile(file, textarea, metadataNode, label)",
+        "await file.text()",
+        'textarea.dispatchEvent(new Event("input", { bubbles: true }))',
+        "仅支持 .txt 或 .md 文件",
+        "文件不能超过 1 MiB",
+        'setText("planQuestionCount", `${questionCount} 题`)',
+        'setText("planDuration", `${questionCount * 4}-${questionCount * 6} 分钟`)',
+        'setText("planState", "已生成")',
+    ):
+        assert marker in js
+    assert "FormData" not in js
+    assert "<style" not in html
+    assert "data-view" not in html
+    assert 'href="#' not in html
+    for demo_value in (
+        "我们正在寻找一名后端开发工程师",
+        "5 年后端开发经验",
+        "18 题（预计 60 - 75 分钟）",
+        "请简述 Redis 的数据结构及其应用场景",
+        "张同学",
+    ):
+        assert demo_value not in html
 
 
 def test_prep_page_has_knowledge_preheat_runtime_hooks():
@@ -111,19 +294,100 @@ def test_interview_page_has_runtime_hooks():
     assert "/static/interview.js" in html
 
 
-def test_report_processing_page_has_runtime_hooks():
-    html = read_app_file("test2.html")
+def test_interview_page_has_focus_draft_timing_and_review_contracts():
+    html = read_app_file("test3.html")
+    js = read_static_file("interview.js")
+    css = read_static_file("prototype-source.css")
 
     for element_id in (
-        "reportProgressBar",
+        "focusModeButton",
+        "answerCount",
+        "answerDraftStatus",
+        "elapsedTime",
+        "estimatedRemainingTime",
+        "roundReviewStatus",
+    ):
+        assert f'id="{element_id}"' in html
+
+    for marker in (
+        "interviewAnswerDraft:",
+        "`interviewAnswerDraft:${sessionId}:${questionId}`",
+        'document.body.classList.toggle("interview-focus-mode"',
+        'event.key === "Escape"',
+        "getQuestionEvaluations",
+        "formatDuration(snapshot.elapsed_seconds)",
+        "formatDuration(snapshot.estimated_remaining_seconds)",
+        "}, 300);",
+        "clearAnswerDraft(submittedQuestionId)",
+    ):
+        assert marker in js
+
+    for selector in (
+        ".interview-shell",
+        ".question-nav",
+        ".question-item",
+        ".interview-main",
+        ".question-banner",
+        ".conversation-panel",
+        ".message",
+        ".answer-panel",
+        ".interview-side",
+        ".context-section",
+        ".interview-focus-mode",
+    ):
+        assert selector in css
+
+    assert "<style" not in html
+    assert "data-view" not in html
+    assert 'href="#' not in html
+    for demo_value in ("张同学", "sess_2025", "如何设计一个高并发缓存系统"):
+        assert demo_value not in html
+
+
+def test_report_processing_page_has_runtime_hooks():
+    html = read_app_file("test2.html")
+    js = read_static_file("report-processing.js")
+
+    for element_id in (
         "reportProgressStatus",
+        "reportProgressText",
+        "reportProgressBar",
+        "reportStageList",
         "reportEvents",
-        "reportRagSummary",
         "reportJobId",
+        "reportPath",
+        "reportMetrics",
+        "reportRagSummary",
+        "continueInBackgroundButton",
         "viewReportButton",
+        "processingNotice",
     ):
         assert f'id="{element_id}"' in html
     assert "/static/report-processing.js" in html
+    assert "setInterval" not in js
+    assert 'window.location.href = "/reports"' in js
+    assert "if (isFailedProgress(progress))" in js
+    assert "reportResponse.status === 200" in js
+    assert "reportResponse.status >= 500" in js
+    assert "reportResponse.status === 404" not in js
+    assert "reportResponse.status !== 202" not in js
+    assert 'window.location.href = "/report-detail?session_id=" + encodeURIComponent(sessionId)' in js
+
+
+def test_report_processing_page_allowlists_paths_and_numeric_metrics():
+    html = read_app_file("test2.html")
+    js = read_static_file("report-processing.js")
+
+    assert 'microbatch: "' in js
+    assert 'full_session: "' in js
+    assert 'full_session_fallback: "' in js
+    assert 'reportPathLabels[metadata.report_path] || "Unavailable"' in js
+    assert 'typeof value === "number" && Number.isFinite(value)' in js
+    assert "if (isNumeric(metadata[key]))" in js
+    assert 'id="reportPath">Unavailable</dd>' in html
+
+    for demo_value in ("68%", "job-20250704", "服务正常", "本地数据库已连接"):
+        assert demo_value not in html
 
 
 def test_report_detail_page_has_runtime_hooks():
@@ -149,7 +413,124 @@ def test_report_detail_page_has_runtime_hooks():
         "reportNotice",
     ):
         assert f'id="{element_id}"' in html
-    assert "/static/report-detail.js?v=20260710-score-cards" in html
+    assert "/static/report-detail.js?v=20260721-ui-polish" in html
+
+
+def test_report_detail_uses_reference_sections_and_safe_runtime_trace():
+    html = read_app_file("test1.html")
+    js = read_static_file("report-detail.js")
+    shared_js = read_static_file("shared-ui.js")
+
+    section_ids = (
+        "reportOverview",
+        "reportQuestionEvaluations",
+        "reportImprovements",
+        "reportRuntimeTrace",
+    )
+    for element_id in (
+        *section_ids,
+        "reportHighScoreCount",
+        "reportImprovementCount",
+        "reportStrengths",
+        "reportRisks",
+        "agentRunList",
+        "runtimeEventList",
+        "runtimeTraceNotice",
+    ):
+        assert f'id="{element_id}"' in html
+    for section_id in section_ids:
+        assert f'href="#{section_id}"' in html
+
+    for preserved_id in (
+        "reportStatus",
+        "reportScore",
+        "reportSummary",
+        "dimensionScores",
+        "reportHighlights",
+        "feedbackList",
+        "evidenceList",
+        "questionEvaluationStatus",
+        "questionEvaluationList",
+        "downloadReportButton",
+        "retryInterviewButton",
+        "reportCenterButton",
+        "reportNotice",
+    ):
+        assert f'id="{preserved_id}"' in html
+
+    assert "safe_metadata" not in js
+    assert "payload_json" not in js
+    assert "agent-runs?limit=100" in js
+    assert "runtime-events?limit=100" in js
+    assert js.count('from "./api.js";') == 1
+    assert "<style" not in html
+    assert "export function renderTextList(container, values, emptyMessage)" in shared_js
+    assert 'container.appendChild(createEl("li"' in shared_js
+    assert "node.replaceChildren()" in shared_js
+    assert "innerHTML" not in shared_js
+    for demo_value in (
+        "JD-20250523-Redis-001",
+        "2025-05-23 21:42",
+        "0.93",
+        "0.89",
+        "0.87",
+    ):
+        assert demo_value not in html
+
+
+def test_report_detail_declares_literal_report_layout_components():
+    css = read_static_file("prototype-source.css")
+
+    for selector in (
+        ".report-layout",
+        ".report-nav",
+        ".report-main",
+        ".score-card",
+        ".score-ring",
+        ".summary-metrics",
+        ".dimension-bars",
+        ".risk-grid",
+        ".evaluation-card",
+        ".evidence-grid",
+        ".runtime-trace-grid",
+    ):
+        assert selector in css
+
+
+def test_context_navigation_exposes_current_location_and_step_semantics():
+    report_html = read_app_file("test1.html")
+    report_js = read_static_file("report-detail.js")
+    interview_js = read_static_file("interview.js")
+
+    assert report_html.count('aria-current="location"') == 1
+    assert "data-report-section-link" in report_html
+    assert "function setupReportSectionNavigation()" in report_js
+    assert "new IntersectionObserver" in report_js
+    assert 'setAttribute("aria-current", "location")' in report_js
+    assert "window.location.hash" in report_js
+    assert 'item.setAttribute("aria-current", "step")' in interview_js
+
+
+def test_report_detail_text_and_scoring_evidence_are_valid_utf8():
+    html = read_app_file("test1.html")
+    js = read_static_file("report-detail.js")
+
+    for phrase in (
+        "结构化面评报告",
+        "逐题评估链路",
+        "运行轨迹",
+    ):
+        assert phrase in html
+    for phrase in (
+        "报告仍在生成中，请稍后刷新。",
+        "缺少 session_id，请从报告生成页进入。",
+        "适用维度：${dimensionText}",
+        '.join("、")',
+    ):
+        assert phrase in js
+    for corrupted in ("鎶ュ憡", "缂哄皯", "閫愰", "銆?", "锛?", "�"):
+        assert corrupted not in html
+        assert corrupted not in js
 
 
 def test_report_detail_top_score_cards_are_data_bound_not_mock_values():
@@ -198,15 +579,34 @@ def test_report_detail_renders_backend_scoring_evidence():
 
 def test_report_center_page_has_runtime_hooks():
     html = read_app_file("test0.html")
+    js = read_static_file("report-center.js")
 
     for element_id in (
+        "reportOverviewTotal",
+        "reportOverviewCompleted",
+        "reportOverviewProcessing",
+        "reportOverviewFailed",
+        "reportSearch",
+        "reportDateFilter",
+        "reportsTableBody",
+        "reportsEmptyState",
+        "paginationPrevious",
+        "paginationPages",
+        "paginationNext",
         "reportsStatus",
-        "reportsList",
         "refreshReportsButton",
         "startNewInterviewButton",
     ):
         assert f'id="{element_id}"' in html
-    assert "/static/report-center.js?v=20260707-report-actions" in html
+    for status in ("all", "completed", "processing", "failed"):
+        assert f'data-report-status="{status}"' in html
+    for marker in ("pageSize: 5", "report/requeue", "downloadPdf", "created_at"):
+        assert marker in js
+
+    assert "/static/report-center.js" in html
+    assert "data-toast" not in html
+    assert "fallback_failed" not in html + js
+    assert "innerHTML" not in js
 
 
 def test_runtime_top_navigation_uses_real_routes():
@@ -264,7 +664,14 @@ def test_page_scripts_use_real_api_endpoints():
 
 
 def test_runtime_pages_do_not_use_external_cdn_assets():
-    for page in ("test4.html", "test3.html", "test2.html", "test1.html", "test0.html"):
+    for page in (
+        "test4.html",
+        "test3.html",
+        "test2.html",
+        "test1.html",
+        "test0.html",
+        "test-help.html",
+    ):
         html = read_app_file(page)
 
         assert "https://cdn.tailwindcss.com" not in html
@@ -279,11 +686,11 @@ def test_old_single_page_static_assets_are_removed():
     assert not (STATIC_DIR / "styles.css").exists()
 
 
-def test_local_prototype_css_exists_and_contains_icon_fallbacks():
+def test_local_prototype_css_contains_runtime_state_styles_without_obsolete_icons():
     css = read_static_file("prototype.css")
 
-    assert ".fa-solid" in css
-    assert ".fa-regular" in css
+    assert ".fa-solid" not in css
+    assert ".fa-regular" not in css
     assert '[data-type=danger]' in css or '[data-type="danger"]' in css
     assert ".question-current" in css
     assert ".question-answered" in css
@@ -344,7 +751,10 @@ def test_report_detail_uses_reference_excerpt_field():
 def test_report_detail_renders_question_evaluation_records():
     js = read_static_file("report-detail.js")
 
-    assert 'import { downloadPdf, getQuestionEvaluations, getSessionId, parseJsonResponse } from "./api.js";' in js
+    assert "downloadPdf," in js
+    assert "getJson," in js
+    assert "getQuestionEvaluations," in js
+    assert 'from "./api.js";' in js
     assert 'const questionEvaluationStatus = byId("questionEvaluationStatus")' in js
     assert 'const questionEvaluationList = byId("questionEvaluationList")' in js
     assert "function renderQuestionEvaluations(payload)" in js
@@ -386,7 +796,7 @@ def test_interview_page_streams_followup_inside_conversation_and_enter_submits()
     js = read_static_file("interview.js")
 
     assert "按 Enter 提交，Shift+Enter 换行" in html
-    assert "/static/interview.js?v=20260710-question-toggle" in html
+    assert "/static/interview.js?v=20260721-ui-polish" in html
     assert "function appendMessage(" in js
     assert "function createStreamingAssistantMessage()" in js
     assert "function submitAnswerFromKeyboard()" in js
@@ -434,6 +844,21 @@ def test_interview_page_does_not_render_partial_turn_payload_after_sse_done():
     assert "renderSnapshot(data)" not in js
     assert "SSE done payload is an InterviewTurn" in js
     assert "await loadSnapshot();" in js
+
+
+def test_sse_parser_preserves_event_id():
+    js = read_static_file("api.js")
+
+    assert 'if (line.startsWith("id:"))' in js
+    assert "event.id =" in js
+
+
+def test_interview_client_handles_generation_reset():
+    js = read_static_file("interview.js")
+
+    assert "generation_reset(data" in js
+    assert "activeAttemptNumber" in js
+    assert "resumePendingGeneration(snapshot)" in js
 
 
 def test_interview_page_toggles_full_question_plan():
@@ -498,9 +923,34 @@ def test_report_detail_action_buttons_navigate_to_prep_and_report_center():
 def test_report_center_loads_reports_and_links_to_details():
     js = read_static_file("report-center.js")
 
-    assert 'import { getJson } from "./api.js";' in js
-    assert 'getJson("/api/reports")' in js
-    assert 'function renderReports(payload)' in js
+    assert 'getJson("/api/reports?limit=100")' in js
+    assert 'function renderReportCenter()' in js
     assert '`/report-detail?session_id=${encodeURIComponent(report.session_id)}`' in js
     assert '`/report-processing?session_id=${encodeURIComponent(report.session_id)}`' in js
     assert 'window.location.href = "/prep"' in js
+    assert "matchesQuery" in js
+    assert "matchesDate" in js
+    assert "setPressed" in js
+    assert 'seconds === null || seconds === undefined || seconds === ""' in js
+
+
+def test_reference_ui_desktop_browser_acceptance_is_wired_to_test_support():
+    root = APP_DIR.parent
+    spec = (root / "tests" / "browser" / "reference-ui.spec.js").read_text(
+        encoding="utf-8"
+    )
+    support = (root / "tests" / "browser_support_app.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'testInfo.project.name !== "desktop-chromium"' in spec
+    assert "jobDescriptionFileInput" in spec
+    assert "interviewAnswerDraft:" in spec
+    assert 'data-report-status="failed"' in spec
+    assert "page.setViewportSize({ width: 1440, height: 1000 })" in spec
+    assert "page.setViewportSize({ width: 1280, height: 800 })" in spec
+    assert '@app.post("/test-support/reports/{status}")' in support
+    assert (
+        'status not in {"processing", "failed", "durable-processing", '
+        '"durable-failed"}'
+    ) in support

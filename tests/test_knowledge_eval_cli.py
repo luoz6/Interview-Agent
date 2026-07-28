@@ -17,6 +17,16 @@ class FakeEvaluationRepository:
     def __init__(self) -> None:
         self.search_calls = 0
         self.lookup_calls = 0
+        self.warm_calls = 0
+        self.embedding_provider = type(
+            "ProviderIdentity",
+            (),
+            {
+                "provider_name": "fake",
+                "model_name": "fake-bge-m3",
+                "model_revision": "fake-v1",
+            },
+        )()
         self.chunks = {
             "redis_consistency": KnowledgeChunk(
                 chunk_id="redis_consistency",
@@ -66,6 +76,16 @@ class FakeEvaluationRepository:
                 result.found.append(chunk)
         return result
 
+    def warm_embedding(self, text):
+        self.warm_calls += 1
+        assert text == "knowledge retrieval warmup"
+
+    def embed_text(self, text):
+        raise AssertionError("evaluation warmup must use warm_embedding")
+
+    def get_active_corpus_version(self):
+        return "stage44a-test-v1"
+
 
 def make_dataset() -> KnowledgeRetrievalDataset:
     return KnowledgeRetrievalDataset(
@@ -105,10 +125,15 @@ def test_evaluation_runner_uses_repository_without_llm_and_preserves_hash_contin
 
     assert repository.search_calls == 3
     assert repository.lookup_calls == 2
+    assert repository.warm_calls == 1
     assert result["metrics"]["passed"] is True
     assert result["metrics"]["evidence_continuity_rate"] == 1.0
     assert result["metrics"]["invalid_reference_rate"] == 0.0
     assert result["corpus_manifest_sha256"] == "b" * 64
+    assert result["provider"] == "fake"
+    assert result["model"] == "fake-bge-m3"
+    assert result["model_revision"] == "fake-v1"
+    assert result["corpus_version"] == "stage44a-test-v1"
     assert result["cases"][0]["scores"] == {"redis_consistency": 0.9}
 
 
@@ -122,6 +147,8 @@ def test_evaluation_artifact_is_json_and_does_not_expose_connection_details(tmp_
     saved = output.read_text(encoding="utf-8")
     payload = json.loads(saved)
     assert payload["dataset_version"] == "runner-test"
+    assert payload["provider"] == "fake"
+    assert payload["corpus_version"] == "stage44a-test-v1"
     assert "internal_test_dsn" not in payload
     assert "postgresql://" not in saved
     assert "Internal content" not in saved
@@ -133,3 +160,17 @@ def test_evaluation_script_has_no_llm_dependency():
     assert "OpenAIInterviewLLM" not in source
     assert "generate_plan" not in source
     assert "generate_report" not in source
+
+
+def test_optional_corpus_identity_failure_does_not_replace_retrieval_metrics():
+    repository = FakeEvaluationRepository()
+
+    def fail_active_version():
+        raise RuntimeError("database unavailable")
+
+    repository.get_active_corpus_version = fail_active_version
+
+    result = evaluate_knowledge_retrieval(make_dataset(), repository)
+
+    assert result["metrics"]["passed"] is True
+    assert result["corpus_version"] == ""

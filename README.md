@@ -41,6 +41,45 @@ Stage 35 makes the review pipeline observable. Report progress now carries `meta
 
 Stage 37 cleans up the Postgres runtime contract. Memory and Postgres session stores now share the same versioned command behavior: mutating user commands accept `expected_version` plus `command_id`, stale commands raise `SessionVersionConflict` and return HTTP 409, duplicate `command_id` calls are idempotent, and snapshots expose `state_version`, `checkpoint_version`, `phase`, `phase_status`, and `review_status`. Streaming answer completion and report lifecycle updates advance version metadata without replacing the last user command id. The LangGraph orchestrator remains an internal phase router; Local V1 transport is still HTTP/SSE/polling.
 
+## Durable Interview Recovery
+
+The opt-in `langgraph-v1` engine applies only to newly assigned sessions.
+PostgreSQL checkpoints own its workflow cursor; command inbox rows and runtime
+outbox events provide resumable ingress and retry timers; generation chunks are
+attempt-scoped and replayable over SSE.
+
+Keep `INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0` until the recovery acceptance
+record is complete. Reducing rollout later changes assignment for new sessions
+only. Existing v1 graph definitions and workers must remain available for
+already-created v1 sessions.
+
+Final-report generation has an independent durable rollout. Keep
+`REPORT_LANGGRAPH_ROLLOUT_PERCENT=0` until
+`docs/langgraph-durable-review-acceptance.md` passes. New report jobs record an
+immutable `legacy` or `langgraph-review-v1` assignment; requeue never changes
+that assignment. The durable review graph reuses matching question projections,
+bounds question fan-out and quality repair, and resumes provider retries from
+the PostgreSQL checkpointer.
+
+The two durable engines are released independently. Repository acceptance uses
+the fixed `0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0` matrix to prove
+assignment and rollback, but it leaves both committed rollout defaults at
+zero. Rollback affects only new assignment; already assigned Interview and
+Review threads keep their graph version, saver, consumers, and retry support.
+Use `python -m scripts.langgraph_canary snapshot` for an aggregate read-only
+view and `python -m scripts.langgraph_canary evaluate` for stable hold/rollback
+reasons. See `docs/langgraph-dual-workflow-canary-acceptance.md` and the Dual
+LangGraph Canary section of `docs/local-v1-runbook.md` before any deployed
+canary.
+
+Stage 47 upgrades this operator gate to `langgraph-canary-v2`. A deployed
+evaluation requires an explicit phase and UTC phase start, validates the fixed
+1% rollout pair, keeps Interview and Review sample minima independent, and
+separates command-version conflicts from true projection divergence. Its
+privacy-safe runtime signal buckets contain only minute, workflow category,
+stable allowlisted code, and aggregate count. The CLI is read-only and never
+changes deployment configuration.
+
 ## Prerequisites
 
 - Python 3.11
@@ -73,6 +112,13 @@ $env:OPENAI_MODEL="deepseek-chat"
 
 The code reads `OPENAI_API_KEY` even when the provider is DeepSeek-compatible. For DeepSeek, get the key from `platform.deepseek.com` and put that value in `OPENAI_API_KEY`. Do not store real keys in git.
 
+Remote embeddings are opt-in. `EMBEDDING_PROVIDER=disabled` is the default, so
+Prep uses its existing degraded knowledge path and does not download a local embedding model.
+Before enabling SiliconFlow after any credential exposure,
+rotate the SiliconFlow key and set `SILICONFLOW_API_KEY` only through a secure
+local process environment. The provider uses `BAAI/bge-m3`; the key must never
+be written to `.env`, logs, screenshots, or Git.
+
 ## Install
 
 ```powershell
@@ -82,11 +128,43 @@ npm ci
 
 ## Load Knowledge
 
+Use the existing `interview` PostgreSQL database and its pgvector extension;
+do not create another database or container. Enable SiliconFlow explicitly,
+set a release-specific model revision, and run versioned ingestion:
+the module entry point is implemented in `scripts/load_knowledge.py`.
+
 ```powershell
-python scripts/load_knowledge.py
+$env:EMBEDDING_PROVIDER="siliconflow"
+$env:EMBEDDING_MODEL_NAME="BAAI/bge-m3"
+$env:EMBEDDING_MODEL_REVISION="siliconflow-bge-m3-20260721"
+# Set SILICONFLOW_API_KEY through a secure local mechanism without displaying it.
+python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 ```
 
-Expected result: `knowledge_chunks` contains theory and expert benchmark chunks, with 1024-dimension embeddings.
+Expected result: one complete 25-unit release becomes active in
+`knowledge_chunks_versions`/`knowledge_chunks_releases`. Activation is atomic;
+provider or validation failure leaves the previous active release unchanged.
+Reviewer `get_by_ids()` makes no embedding call and can replay retained evidence
+by its bound content hash.
+
+### Stage 44B1 Chinese Corpus RC
+
+Stage 44B1 keeps the frozen v1 corpus root at `app/data/knowledge/` and the
+Chinese v2 corpus root at `app/data/knowledge_v2/`. The roots, manifests, and
+loaders remain isolated even though stable chunk IDs may be shared. All v2
+natural-language corpus content and runtime retrieval queries are Chinese;
+technical identifiers, code, and SQL may retain their official spelling.
+
+The v2 corpus may use only the Chinese sources approved in
+`docs/stage-44b1-chinese-source-matrix.md`. Its release candidate is loaded as
+corpus `stage44b1-zh-v2` under the persistent isolated table prefix
+`knowledge_chunks_stage44b_rc`. A clean RC load is expected to report
+`embedded=25` and `reused=0`; an idempotent rerun may report `embedded=0` and
+`reused=25`.
+
+Stage 44B1 acceptance never promotes the RC to the production table prefix
+automatically. Production promotion requires a separate explicit operator
+approval after the acceptance record is complete.
 
 ## Start
 

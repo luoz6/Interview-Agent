@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from time import perf_counter
 from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Protocol, TypeVar
 from uuid import uuid4
@@ -8,6 +9,11 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.report import utc_now_iso
+from app.services.trace_sanitization import sanitize_agent_safe_metadata
+from app.services.provider_usage import (
+    consume_provider_context_metadata,
+    reset_provider_context_metadata,
+)
 
 
 AgentName = Literal[
@@ -20,6 +26,7 @@ AgentName = Literal[
 AgentPhase = Literal["prep", "interview", "review"]
 AgentRunStatus = Literal["completed", "degraded", "failed", "cancelled"]
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 class AgentExecutionContext(BaseModel):
@@ -29,6 +36,7 @@ class AgentExecutionContext(BaseModel):
     run_id: str = Field(default_factory=lambda: f"agent-{uuid4().hex}")
     correlation_id: str = Field(min_length=1)
     causation_id: str | None = None
+    parent_run_id: str | None = None
     agent: AgentName
     operation: str = Field(min_length=1)
     phase: AgentPhase
@@ -112,6 +120,8 @@ class AgentExecutionRunner:
         metadata: Callable[[T], dict[str, Any]] | None = None,
         classify: Callable[[T], AgentOutcome] | None = None,
     ) -> T:
+        reset_provider_context_metadata()
+        context = context.model_copy(deep=True)
         started_at = utc_now_iso()
         started = perf_counter()
         try:
@@ -144,10 +154,14 @@ class AgentExecutionRunner:
                 started=started,
                 fallback_reason=resolved.reason,
                 output=resolved.output,
-                safe_metadata=metadata(resolved.output) if metadata else {},
+                safe_metadata=self._resolve_metadata(
+                    context,
+                    metadata,
+                    resolved.output,
+                ),
             )
             return resolved.output
-        outcome = classify(output) if classify else AgentOutcome()
+        outcome = self._resolve_outcome(context, classify, output)
         self._emit(
             context,
             status=outcome.status,
@@ -155,7 +169,7 @@ class AgentExecutionRunner:
             started=started,
             fallback_reason=outcome.reason,
             output=output,
-            safe_metadata=metadata(output) if metadata else {},
+            safe_metadata=self._resolve_metadata(context, metadata, output),
         )
         return output
 
@@ -166,6 +180,21 @@ class AgentExecutionRunner:
         *,
         fallback: Callable[[Exception], AgentFallback[Iterable[T]]] | None = None,
     ) -> Iterator[T]:
+        context_snapshot = context.model_copy(deep=True)
+        return self._stream(
+            context_snapshot,
+            invoke,
+            fallback=fallback,
+        )
+
+    def _stream(
+        self,
+        context: AgentExecutionContext,
+        invoke: Callable[[], Iterable[T]],
+        *,
+        fallback: Callable[[Exception], AgentFallback[Iterable[T]]] | None,
+    ) -> Iterator[T]:
+        reset_provider_context_metadata()
         started_at = utc_now_iso()
         started = perf_counter()
         emitted = 0
@@ -208,6 +237,45 @@ class AgentExecutionRunner:
                 safe_metadata={"emitted_chunks": emitted},
             )
 
+    def _resolve_outcome(
+        self,
+        context: AgentExecutionContext,
+        classify: Callable[[T], AgentOutcome] | None,
+        output: T,
+    ) -> AgentOutcome:
+        if classify is None:
+            return AgentOutcome()
+        try:
+            outcome = classify(output)
+            if not isinstance(outcome, AgentOutcome):
+                raise TypeError("agent outcome classifier returned an invalid result")
+            return outcome
+        except Exception:
+            self._warn(
+                context,
+                message="agent telemetry helper failed",
+                error_code="agent_outcome_classification_failed",
+            )
+            return AgentOutcome()
+
+    def _resolve_metadata(
+        self,
+        context: AgentExecutionContext,
+        metadata: Callable[[T], dict[str, Any]] | None,
+        output: T,
+    ) -> dict[str, Any]:
+        if metadata is None:
+            return {}
+        try:
+            return metadata(output)
+        except Exception:
+            self._warn(
+                context,
+                message="agent telemetry helper failed",
+                error_code="agent_metadata_extraction_failed",
+            )
+            return {}
+
     def _emit(
         self,
         context: AgentExecutionContext,
@@ -221,6 +289,17 @@ class AgentExecutionRunner:
         output_type: str | None = None,
         safe_metadata: dict[str, Any] | None = None,
     ) -> None:
+        provider_metadata = consume_provider_context_metadata()
+        sanitized = sanitize_agent_safe_metadata(
+            {**provider_metadata, **(safe_metadata or {})}
+        )
+        if sanitized.rejected_count:
+            self._warn(
+                context,
+                message="agent metadata sanitized",
+                error_code="agent_metadata_sanitized",
+                rejected_count=sanitized.rejected_count,
+            )
         record = AgentRunRecord(
             **context.model_dump(),
             status=status,
@@ -231,9 +310,31 @@ class AgentExecutionRunner:
             error_code=error_code,
             output_type=output_type
             or (type(output).__name__ if output is not None else None),
-            safe_metadata=safe_metadata or {},
+            safe_metadata=sanitized.value,
         )
         try:
             self._recorder.record(record)
         except Exception:
-            return
+            self._warn(
+                context,
+                message="agent run emission failed",
+                error_code="agent_run_emission_failed",
+            )
+
+    @staticmethod
+    def _warn(
+        context: AgentExecutionContext,
+        *,
+        message: str,
+        error_code: str,
+        rejected_count: int | None = None,
+    ) -> None:
+        extra = {
+            "run_id": context.run_id,
+            "agent": context.agent,
+            "operation": context.operation,
+            "error_code": error_code,
+        }
+        if rejected_count is not None:
+            extra["rejected_count"] = rejected_count
+        logger.warning(message, extra=extra)

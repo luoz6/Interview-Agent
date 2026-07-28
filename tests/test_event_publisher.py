@@ -20,6 +20,7 @@ def test_celery_worker_imports_round_review_task():
     from app.services.celery_app import celery_app
 
     assert "app.services.round_review_tasks" in celery_app.conf.include
+    assert "app.services.review_workflow_tasks" in celery_app.conf.include
 
 
 class FakeExecutor:

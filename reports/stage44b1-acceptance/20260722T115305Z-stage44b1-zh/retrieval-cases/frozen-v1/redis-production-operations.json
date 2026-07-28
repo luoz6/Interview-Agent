@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "redis_operations"
+  ],
+  "case_id": "redis-production-operations",
+  "latency_ms": 330.058,
+  "replayed_evidence_ids": [
+    "redis_operations"
+  ],
+  "retrieved_ids": [
+    "redis_operations",
+    "redis_backend",
+    "redis_distributed_lock"
+  ],
+  "scores": {
+    "redis_backend": 0.644644,
+    "redis_distributed_lock": 0.576259,
+    "redis_operations": 0.689556
+  },
+  "status": "completed"
+}

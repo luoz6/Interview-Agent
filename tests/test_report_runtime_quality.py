@@ -103,6 +103,12 @@ def test_runtime_report_quality_blocks_grounded_report_with_stage27_issues():
     assert "summary must include Simplified Chinese text" in result.blocking_issues
     assert "feedback[q1].rationale must not be placeholder text" in result.blocking_issues
     assert result.warning_issues == []
+    details = result.structured_blocking_issues
+    assert details[0].code == "summary_no_chinese"
+    assert any(
+        item.code == "placeholder_feedback" and item.question_id == "q1"
+        for item in details
+    )
 
 
 def test_runtime_report_quality_does_not_block_fallback_report():

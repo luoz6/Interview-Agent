@@ -1,7 +1,11 @@
+import hashlib
 from datetime import datetime, timezone
 from typing import Literal, TypedDict
 
 from app.services.prep import InterviewPlan, InterviewQuestion
+
+
+WorkflowEngine = Literal["legacy", "langgraph-v1"]
 
 
 class InterviewMessage(TypedDict):
@@ -37,6 +41,25 @@ class InterviewState(TypedDict):
     checkpoint_version: int
     last_checkpoint_at: str | None
     last_command_id: str | None
+    workflow_engine: WorkflowEngine
+    graph_schema_version: str | None
+    projection_sha256: str | None
+
+
+def choose_workflow_engine(
+    session_id: str,
+    *,
+    runtime_store: str,
+    runtime_enabled: bool,
+    rollout_percent: int,
+) -> WorkflowEngine:
+    if runtime_store != "postgres" or not runtime_enabled or rollout_percent == 0:
+        return "legacy"
+    bucket = int(
+        hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:8],
+        16,
+    ) % 100
+    return "langgraph-v1" if bucket < rollout_percent else "legacy"
 
 
 def utc_now_iso() -> str:
@@ -84,6 +107,9 @@ def build_initial_state(
         "checkpoint_version": 1,
         "last_checkpoint_at": now,
         "last_command_id": None,
+        "workflow_engine": "legacy",
+        "graph_schema_version": None,
+        "projection_sha256": None,
     }
 
 

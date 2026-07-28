@@ -2,6 +2,7 @@ import logging
 import os
 from collections.abc import Iterator
 from copy import deepcopy
+from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -9,6 +10,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
 )
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -16,7 +18,13 @@ from pydantic import BaseModel, Field, field_validator
 from app.services.job_tags import extract_job_tags
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import prepare_interview, public_interview_plan_payload
-from app.services.config import get_runtime_event_backend, get_runtime_store
+from app.services.config import (
+    get_interview_langgraph_rollout_percent,
+    get_interview_langgraph_runtime_enabled,
+    get_interview_langgraph_version,
+    get_runtime_event_backend,
+    get_runtime_store,
+)
 from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
@@ -32,6 +40,7 @@ from app.services.runtime import (
     get_report_job_store,
     get_runtime_control_store,
     get_session_store,
+    get_interview_workflow_service,
 )
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
@@ -39,6 +48,16 @@ from app.services.session import InterviewSessionStore
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+
+
+def get_report_job_queue():
+    try:
+        return get_report_job_store()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="report queue is unavailable",
+        ) from exc
 
 
 class PrepRequest(BaseModel):
@@ -81,6 +100,8 @@ def health():
 def runtime_boundary():
     runtime_store = get_runtime_store()
     event_backend = get_runtime_event_backend()
+    runtime_enabled = get_interview_langgraph_runtime_enabled()
+    rollout_percent = get_interview_langgraph_rollout_percent()
     session_store = (
         "PostgresInterviewSessionStore"
         if runtime_store == "postgres"
@@ -103,9 +124,18 @@ def runtime_boundary():
             "langgraph": True,
         },
         "orchestration": {
-            "engine": "langgraph",
+            "engine": "versioned",
+            "default_engine": "legacy",
+            "langgraph_version": get_interview_langgraph_version(),
+            "langgraph_runtime_enabled": runtime_enabled,
+            "langgraph_rollout_percent": rollout_percent,
+            "checkpoint_backend": (
+                "postgres"
+                if runtime_enabled and runtime_store == "postgres"
+                else "disabled"
+            ),
             "phase_aware": True,
-            "resume_contract": "versioned_http",
+            "resume_contract": "checkpointed_http_sse",
         },
         "agent_runtime": {
             "schema_version": "agent-runtime-v1",
@@ -167,7 +197,11 @@ def list_reports(
     safe_limit = max(1, min(limit, 100))
     reports = store.list_reports(status=status, limit=safe_limit)
     items = [
-        _report_summary_to_dict(item["session_id"], item["record"])
+        _report_summary_to_dict(
+            item["session_id"],
+            item["record"],
+            session_summary=item["session_summary"],
+        )
         for item in reports
     ]
     return {"items": items, "total": len(items)}
@@ -186,12 +220,23 @@ def start_interview(
             execution_runner=get_agent_execution_runner(),
         )
         job_tags = extract_job_tags(payload.job_description)
-        turn = store.start(
-            plan,
-            job_description=payload.job_description,
-            resume_text=payload.resume_text,
-            job_tags=job_tags,
-        )
+        if (
+            get_runtime_store() == "postgres"
+            and get_interview_langgraph_rollout_percent() > 0
+        ):
+            turn = get_interview_workflow_service().start(
+                plan,
+                job_description=payload.job_description,
+                resume_text=payload.resume_text,
+                job_tags=job_tags,
+            )
+        else:
+            turn = store.start(
+                plan,
+                job_description=payload.job_description,
+                resume_text=payload.resume_text,
+                job_tags=job_tags,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
@@ -203,8 +248,12 @@ def get_interview_session(
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
-        snapshot = store.snapshot(session_id)
         state = store.get(session_id)
+        snapshot = (
+            get_interview_workflow_service().snapshot(session_id)
+            if state.get("workflow_engine") == "langgraph-v1"
+            else store.snapshot(session_id)
+        )
         public_plan = public_interview_plan_payload(state["plan"])
         snapshot["prep_context"] = public_plan.get("prep_context")
         return snapshot
@@ -278,6 +327,19 @@ def submit_answer(
     publisher=Depends(get_event_publisher),
 ):
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="answer",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+                answer_text=payload.answer,
+            )
+            return JSONResponse(
+                status_code=202,
+                content=accepted.model_dump(mode="json"),
+            )
         before_state = _snapshot_session_state(store, session_id)
         turn = store.submit_answer(
             session_id,
@@ -315,6 +377,27 @@ def submit_answer_stream(
     publisher=Depends(get_event_publisher),
 ):
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="answer",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+                answer_text=payload.answer,
+            )
+            workflow = get_interview_workflow_service()
+            return StreamingResponse(
+                workflow.event_stream.iter_sse(
+                    session_id, accepted.command_id
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
         before_state = _snapshot_session_state(store, session_id)
         prepared = store.prepare_streaming_answer(
             session_id,
@@ -385,6 +468,18 @@ def finish_interview(
 ):
     payload = payload or SessionCommandRequest()
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="finish",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+            )
+            return JSONResponse(
+                status_code=202,
+                content=accepted.model_dump(mode="json"),
+            )
         before_state = _snapshot_session_state(store, session_id)
         turn = store.finish(
             session_id,
@@ -422,6 +517,18 @@ def skip_interview_question(
 ):
     payload = payload or SessionCommandRequest()
     try:
+        state = store.get(session_id)
+        if state.get("workflow_engine") == "langgraph-v1":
+            accepted = get_interview_workflow_service().submit_command(
+                session_id,
+                command_type="skip",
+                expected_version=payload.expected_version,
+                command_id=payload.command_id,
+            )
+            return JSONResponse(
+                status_code=202,
+                content=accepted.model_dump(mode="json"),
+            )
         before_state = _snapshot_session_state(store, session_id)
         turn = store.skip(
             session_id,
@@ -447,6 +554,29 @@ def skip_interview_question(
         background_tasks=background_tasks,
     )
     return _turn_to_dict(turn)
+
+
+@router.get(
+    "/interviews/{session_id}/commands/{command_id}/stream"
+)
+def stream_interview_command(
+    session_id: str,
+    command_id: str,
+    request: Request,
+):
+    workflow = get_interview_workflow_service()
+    return StreamingResponse(
+        workflow.event_stream.iter_sse(
+            session_id,
+            command_id,
+            after_event_id=request.headers.get("Last-Event-ID"),
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/interviews/{session_id}/report")
@@ -520,11 +650,86 @@ def get_interview_report_progress(
         raise HTTPException(status_code=404, detail="interview is not finished")
 
     record = store.get_report_record(session_id)
-    return _report_progress_detail(
+    job = _report_job_for_session(session_id)
+    detail = _report_progress_detail(
         session_id,
         record,
-        report_job_id=_report_job_id_for_session(session_id),
+        report_job_id=job.get("job_id") if job else None,
     )
+    if job and job.get("review_engine") == "langgraph-review-v1":
+        completed = len(
+            [
+                item
+                for item in store.list_question_evaluations(session_id)
+                if item.status == "completed"
+            ]
+        )
+        detail.update(
+            {
+                "workflow_engine": "langgraph-review-v1",
+                "workflow_status": {
+                    "queued": "queued",
+                    "running": "running",
+                    "retrying": "waiting_for_retry",
+                    "completed": "completed",
+                    "failed": "failed",
+                }.get(job.get("status"), "processing"),
+                "completed_question_count": completed,
+                "total_question_count": len(state["plan"].questions),
+                "retrying": job.get("status") == "retrying",
+            }
+        )
+    return detail
+
+
+@router.post(
+    "/interviews/{session_id}/report/requeue",
+    status_code=202,
+)
+def requeue_failed_report(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+    queue=Depends(get_report_job_queue),
+):
+    try:
+        store.get(session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="interview session not found",
+        ) from exc
+
+    job = queue.get_job_by_session(session_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="report job not found")
+
+    status = job.get("status")
+    if status in {"queued", "retrying", "running"}:
+        raise HTTPException(
+            status_code=409,
+            detail="report job is already queued or processing",
+        )
+    if status == "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="completed report cannot be requeued",
+        )
+    if status != "failed":
+        raise HTTPException(status_code=409, detail="report job is not failed")
+
+    try:
+        queue.requeue_failed(session_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="report job is not failed",
+        ) from exc
+
+    return {
+        "session_id": session_id,
+        "status": "queued",
+        "report_progress_url": f"/api/interviews/{session_id}/report/progress",
+    }
 
 
 @router.get("/interviews/{session_id}/question-evaluations")
@@ -539,7 +744,16 @@ def get_interview_question_evaluations(
     return {
         "session_id": session_id,
         "items": [
-            record.model_dump(exclude={"evidence_content_sha256"})
+            record.model_dump(
+                exclude={
+                    "evidence_content_sha256",
+                    "review_input_sha256",
+                    "question_input_sha256",
+                    "review_engine",
+                    "review_graph_schema_version",
+                    "output_sha256",
+                }
+            )
             for record in records
         ],
         "total": len(records),
@@ -558,16 +772,49 @@ def _turn_to_dict(turn):
 
 
 def _report_job_id_for_session(session_id: str) -> str | None:
+    job = _report_job_for_session(session_id)
+    return job.get("job_id") if job else None
+
+
+def _report_job_for_session(session_id: str) -> dict | None:
     try:
         job = get_report_job_store().get_job_by_session(session_id)
     except (AttributeError, RuntimeError):
         return None
     if not job:
         return None
-    return job.get("job_id")
+    return job
 
 
-def _report_summary_to_dict(session_id: str, record) -> dict:
+_PUBLIC_REPORT_PATHS = {
+    "microbatch",
+    "full_session",
+    "full_session_fallback",
+}
+
+
+def _public_report_path(record) -> str | None:
+    metadata = record.progress.metadata if record.progress is not None else {}
+    value = metadata.get("report_path")
+    return value if value in _PUBLIC_REPORT_PATHS else None
+
+
+def _duration_seconds(summary: dict) -> int | None:
+    started_at = summary.get("started_at")
+    finished_at = summary.get("finished_at")
+    if not started_at or not finished_at:
+        return None
+    started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    finished = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+    return max(0, int((finished - started).total_seconds()))
+
+
+def _report_summary_to_dict(
+    session_id: str,
+    record,
+    *,
+    session_summary: dict,
+) -> dict:
     report = record.report
     return {
         "session_id": session_id,
@@ -578,6 +825,12 @@ def _report_summary_to_dict(session_id: str, record) -> dict:
         "summary": report.summary if report is not None else None,
         "is_fallback": report.is_fallback if report is not None else False,
         "error": record.error,
+        "job_title": session_summary.get("job_title"),
+        "job_tags": list(session_summary.get("job_tags") or []),
+        "question_count": session_summary.get("question_count"),
+        "started_at": session_summary.get("started_at"),
+        "duration_seconds": _duration_seconds(session_summary),
+        "report_path": _public_report_path(record),
         "report_url": f"/api/interviews/{session_id}/report",
         "report_pdf_url": f"/api/interviews/{session_id}/report.pdf"
         if record.status == "completed"
