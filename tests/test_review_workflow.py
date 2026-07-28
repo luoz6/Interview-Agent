@@ -1,5 +1,6 @@
 from langgraph.checkpoint.memory import InMemorySaver
 import pytest
+from threading import Event
 
 from app.graphs.durable_review_graph import DurableReviewGraphDependencies, build_durable_review_graph
 from app.services.langgraph_runtime import VersionedGraphRegistry
@@ -89,3 +90,85 @@ def test_report_lease_heartbeat_stops_cleanly():
     assert heartbeat._thread is not None
     assert not heartbeat._thread.is_alive()
     assert store.assertions == [("job-1", "worker-1", "token-1")]
+
+
+def test_report_lease_heartbeat_exception_fails_closed_with_original_cause():
+    failure = RuntimeError("renewal unavailable")
+
+    class RaisingHeartbeatStore(LeaseStore):
+        def __init__(self):
+            super().__init__()
+            self.called = Event()
+
+        def heartbeat(self, *args, **kwargs):
+            self.called.set()
+            raise failure
+
+    store = RaisingHeartbeatStore()
+    heartbeat = ReportLeaseHeartbeat(
+        job_store=store,
+        job_id="job-1",
+        worker_id="worker-1",
+        lease_token="token-1",
+        lease_seconds=30,
+    )
+    heartbeat.interval_seconds = 0.01
+
+    with heartbeat:
+        assert store.called.wait(timeout=1)
+        assert heartbeat._thread is not None
+        heartbeat._thread.join(timeout=1)
+        with pytest.raises(ReportLeaseLost) as caught:
+            heartbeat.ensure_owned()
+
+    assert caught.value.__cause__ is failure
+    assert heartbeat._thread is not None
+    assert not heartbeat._thread.is_alive()
+
+
+def test_report_lease_assertion_exception_is_normalized():
+    failure = RuntimeError("assertion unavailable")
+
+    class RaisingAssertionStore(LeaseStore):
+        def assert_lease(self, *args, **kwargs):
+            raise failure
+
+    heartbeat = ReportLeaseHeartbeat(
+        job_store=RaisingAssertionStore(),
+        job_id="job-1",
+        worker_id="worker-1",
+        lease_token="token-1",
+        lease_seconds=30,
+    )
+
+    with pytest.raises(ReportLeaseLost) as caught:
+        heartbeat.__enter__()
+
+    assert caught.value.__cause__ is failure
+
+
+def test_report_lease_rechecks_background_loss_after_synchronous_assertion():
+    failure = RuntimeError("renewal unavailable")
+
+    class RacingAssertionStore(LeaseStore):
+        heartbeat = None
+
+        def assert_lease(self, *args, **kwargs):
+            assert self.heartbeat is not None
+            self.heartbeat._mark_lost(failure)
+            return True
+
+    store = RacingAssertionStore()
+    heartbeat = ReportLeaseHeartbeat(
+        job_store=store,
+        job_id="job-1",
+        worker_id="worker-1",
+        lease_token="token-1",
+        lease_seconds=30,
+    )
+    store.heartbeat = heartbeat
+
+    with pytest.raises(ReportLeaseLost) as caught:
+        heartbeat.ensure_owned()
+
+    assert caught.value.__cause__ is failure

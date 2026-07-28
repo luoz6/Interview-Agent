@@ -11,4 +11,7 @@ class ReviewWorkflowConsumer:
         job = self.job_store.get_job(event.report_job_id)
         if job is None or job.get("review_engine") != "langgraph-review-v1":
             return "discarded_stale_retry"
-        return self.workflow.resume_retry(job, event.next_attempt_number)
+        return self.job_store.schedule_review_retry(
+            job["job_id"],
+            next_attempt_number=event.next_attempt_number,
+        )

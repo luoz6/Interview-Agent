@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "kafka_rebalancing"
+  ],
+  "case_id": "kafka-group-rebalancing",
+  "category": "relevant",
+  "latency_ms": 326.968,
+  "retrieved_ids": [
+    "kafka_rebalancing",
+    "kafka_operations",
+    "kafka_backend"
+  ],
+  "reused_evidence_ids": [
+    "kafka_rebalancing"
+  ],
+  "scores": {
+    "kafka_backend": 0.559071,
+    "kafka_operations": 0.671263,
+    "kafka_rebalancing": 0.788257
+  },
+  "status": "completed"
+}

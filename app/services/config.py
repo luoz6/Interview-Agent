@@ -2,6 +2,11 @@ from dataclasses import dataclass
 import os
 import re
 
+from app.services.postgres_identifiers import (
+    validate_postgres_identifier,
+    validate_runtime_table_prefix,
+)
+
 
 DEFAULT_POSTGRES_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/interview"
 DEFAULT_RUNTIME_STORE = "postgres"
@@ -25,6 +30,36 @@ class EmbeddingSettings:
     read_timeout_seconds: float
 
 
+@dataclass(frozen=True)
+class PostgresPoolSettings:
+    business_min_size: int
+    business_max_size: int
+    business_acquire_timeout_seconds: float
+    telemetry_min_size: int
+    telemetry_max_size: int
+    telemetry_acquire_timeout_seconds: float
+    lock_min_size: int
+    lock_max_size: int
+    lock_acquire_timeout_seconds: float
+    checkpointer_min_size: int
+    checkpointer_max_size: int
+    checkpointer_acquire_timeout_seconds: float
+    checkpointer_overhead: int
+    connect_timeout_seconds: int
+    drain_timeout_seconds: float
+    max_lifetime_seconds: float
+    max_idle_seconds: float
+
+
+@dataclass(frozen=True)
+class PostgresCapacitySettings:
+    expected_api_processes: int
+    expected_celery_processes: int
+    expected_outbox_processes: int
+    external_connection_reserve: int
+    max_utilization: float
+
+
 def get_postgres_dsn() -> str:
     return os.getenv("POSTGRES_DSN", DEFAULT_POSTGRES_DSN).strip() or DEFAULT_POSTGRES_DSN
 
@@ -35,7 +70,8 @@ def get_runtime_store() -> str:
 
 def get_runtime_table_prefix() -> str:
     prefix = os.getenv("INTERVIEW_RUNTIME_TABLE_PREFIX") or os.getenv("INTERVIEW_TABLE_PREFIX")
-    return prefix.strip() if prefix and prefix.strip() else DEFAULT_RUNTIME_TABLE_PREFIX
+    resolved = prefix.strip() if prefix and prefix.strip() else DEFAULT_RUNTIME_TABLE_PREFIX
+    return validate_runtime_table_prefix(resolved)
 
 
 def get_pgvector_table() -> str:
@@ -47,10 +83,14 @@ def get_pgvector_table() -> str:
 def derive_pgvector_table_names(base: str) -> tuple[str, str]:
     versions = f"{base}_versions"
     releases = f"{base}_releases"
-    if not _PG_IDENTIFIER.fullmatch(base):
-        raise ValueError("PGVECTOR_TABLE must be a valid PostgreSQL identifier")
-    if max(len(versions.encode("ascii")), len(releases.encode("ascii"))) > 63:
-        raise ValueError("PGVECTOR_TABLE is too long for derived tables")
+    try:
+        validate_postgres_identifier(base)
+        validate_postgres_identifier(versions)
+        validate_postgres_identifier(releases)
+    except ValueError as exc:
+        raise ValueError(
+            "PGVECTOR_TABLE must produce safe identifiers within 63 bytes"
+        ) from exc
     return versions, releases
 
 
@@ -76,6 +116,87 @@ def get_embedding_settings() -> EmbeddingSettings:
             "EMBEDDING_READ_TIMEOUT_SECONDS", 30.0
         ),
     )
+
+
+def get_postgres_pool_settings() -> PostgresPoolSettings:
+    settings = PostgresPoolSettings(
+        business_min_size=_non_negative_int("POSTGRES_BUSINESS_POOL_MIN_SIZE", 1),
+        business_max_size=_positive_int("POSTGRES_BUSINESS_POOL_MAX_SIZE", 12),
+        business_acquire_timeout_seconds=_positive_float(
+            "POSTGRES_BUSINESS_POOL_ACQUIRE_TIMEOUT_SECONDS", 2.0
+        ),
+        telemetry_min_size=_non_negative_int("POSTGRES_TELEMETRY_POOL_MIN_SIZE", 1),
+        telemetry_max_size=_positive_int("POSTGRES_TELEMETRY_POOL_MAX_SIZE", 4),
+        telemetry_acquire_timeout_seconds=_positive_float(
+            "POSTGRES_TELEMETRY_POOL_ACQUIRE_TIMEOUT_SECONDS", 1.0
+        ),
+        lock_min_size=_non_negative_int("POSTGRES_LOCK_POOL_MIN_SIZE", 1),
+        lock_max_size=_positive_int("POSTGRES_LOCK_POOL_MAX_SIZE", 4),
+        lock_acquire_timeout_seconds=_positive_float(
+            "POSTGRES_LOCK_POOL_ACQUIRE_TIMEOUT_SECONDS", 2.0
+        ),
+        checkpointer_min_size=_non_negative_int(
+            "POSTGRES_CHECKPOINTER_POOL_MIN_SIZE", 1
+        ),
+        checkpointer_max_size=_positive_int(
+            "POSTGRES_CHECKPOINTER_POOL_MAX_SIZE", 2
+        ),
+        checkpointer_acquire_timeout_seconds=_positive_float(
+            "POSTGRES_CHECKPOINTER_POOL_ACQUIRE_TIMEOUT_SECONDS", 2.0
+        ),
+        checkpointer_overhead=_non_negative_int(
+            "POSTGRES_CHECKPOINTER_POOL_OVERHEAD", 1
+        ),
+        connect_timeout_seconds=_positive_int("POSTGRES_CONNECT_TIMEOUT_SECONDS", 3),
+        drain_timeout_seconds=_positive_float(
+            "POSTGRES_POOL_DRAIN_TIMEOUT_SECONDS", 10.0
+        ),
+        max_lifetime_seconds=_positive_float(
+            "POSTGRES_POOL_MAX_LIFETIME_SECONDS", 1800.0
+        ),
+        max_idle_seconds=_positive_float("POSTGRES_POOL_MAX_IDLE_SECONDS", 300.0),
+    )
+    for domain, minimum, maximum in (
+        ("business", settings.business_min_size, settings.business_max_size),
+        ("telemetry", settings.telemetry_min_size, settings.telemetry_max_size),
+        ("lock", settings.lock_min_size, settings.lock_max_size),
+        (
+            "checkpointer",
+            settings.checkpointer_min_size,
+            settings.checkpointer_max_size,
+        ),
+    ):
+        if minimum > maximum:
+            raise ValueError(f"POSTGRES_{domain.upper()} pool min exceeds max")
+    return settings
+
+
+def get_postgres_capacity_settings() -> PostgresCapacitySettings:
+    maximum = float(os.getenv("POSTGRES_CAPACITY_MAX_UTILIZATION", "0.80"))
+    if not 0 < maximum <= 1:
+        raise ValueError("POSTGRES_CAPACITY_MAX_UTILIZATION must be in (0, 1]")
+    return PostgresCapacitySettings(
+        expected_api_processes=_non_negative_int(
+            "POSTGRES_EXPECTED_API_PROCESSES", 1
+        ),
+        expected_celery_processes=_non_negative_int(
+            "POSTGRES_EXPECTED_CELERY_PROCESSES", 1
+        ),
+        expected_outbox_processes=_non_negative_int(
+            "POSTGRES_EXPECTED_OUTBOX_PROCESSES", 1
+        ),
+        external_connection_reserve=_non_negative_int(
+            "POSTGRES_EXTERNAL_CONNECTION_RESERVE", 10
+        ),
+        max_utilization=maximum,
+    )
+
+
+def get_postgres_runtime_auto_migrate() -> bool:
+    value = os.getenv("POSTGRES_RUNTIME_AUTO_MIGRATE", "false").strip().lower()
+    if value not in {"true", "false"}:
+        raise ValueError("POSTGRES_RUNTIME_AUTO_MIGRATE must be true or false")
+    return value == "true"
 
 
 def get_runtime_event_backend() -> str:
@@ -109,6 +230,10 @@ def get_interview_chunk_retention_hours() -> int:
 
 def get_durable_workflow_maintenance_seconds() -> int:
     return _positive_int("DURABLE_WORKFLOW_MAINTENANCE_SECONDS", 3600)
+
+
+def get_langgraph_canary_signal_retention_hours() -> int:
+    return _positive_int("LANGGRAPH_CANARY_SIGNAL_RETENTION_HOURS", 168)
 
 
 def get_interview_langgraph_rollout_percent() -> int:
@@ -197,6 +322,13 @@ def _positive_int(name: str, default: int) -> int:
     value = int(os.getenv(name, str(default)))
     if value < 1:
         raise ValueError(f"{name} must be positive")
+    return value
+
+
+def _non_negative_int(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
     return value
 
 

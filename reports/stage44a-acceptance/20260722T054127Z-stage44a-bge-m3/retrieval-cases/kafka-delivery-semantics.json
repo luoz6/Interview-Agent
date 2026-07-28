@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "kafka_delivery"
+  ],
+  "case_id": "kafka-delivery-semantics",
+  "category": "relevant",
+  "latency_ms": 265.84,
+  "retrieved_ids": [
+    "kafka_delivery",
+    "kafka_rebalancing",
+    "kafka_poison_messages"
+  ],
+  "reused_evidence_ids": [
+    "kafka_delivery"
+  ],
+  "scores": {
+    "kafka_delivery": 0.88217,
+    "kafka_poison_messages": 0.745143,
+    "kafka_rebalancing": 0.771492
+  },
+  "status": "completed"
+}

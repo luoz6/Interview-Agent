@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "cascading_failures"
+  ],
+  "case_id": "system-cascading-failure",
+  "latency_ms": 282.581,
+  "replayed_evidence_ids": [
+    "cascading_failures"
+  ],
+  "retrieved_ids": [
+    "cascading_failures",
+    "queue_backpressure",
+    "system_design_backend"
+  ],
+  "scores": {
+    "cascading_failures": 0.587918,
+    "queue_backpressure": 0.546426,
+    "system_design_backend": 0.509414
+  },
+  "status": "completed"
+}

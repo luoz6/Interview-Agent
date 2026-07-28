@@ -1,18 +1,24 @@
 import os
 import socket
 from dataclasses import dataclass
+from threading import Lock, RLock
 from uuid import uuid4
 
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_durable_workflow_maintenance_seconds,
     get_postgres_dsn,
+    get_postgres_pool_settings,
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
     get_interview_langgraph_version,
     get_interview_chunk_retention_hours,
+    get_langgraph_canary_signal_retention_hours,
     get_report_langgraph_runtime_enabled,
     get_report_langgraph_version,
+    get_report_langgraph_max_parallel_question_reviews,
+    get_report_langgraph_max_provider_attempts,
+    get_report_langgraph_max_quality_repairs,
     get_runtime_event_backend,
     get_runtime_outbox_batch_size,
     get_runtime_outbox_lease_seconds,
@@ -57,7 +63,10 @@ _runtime_control_store = None
 _runtime_outbox_service = None
 _agent_execution_runner = None
 _agent_composite_recorder = None
-_agent_postgres_control_ids: set[int] = set()
+_agent_postgres_control_identities: set[tuple[str, object]] = set()
+_agent_runtime_lock = Lock()
+_postgres_domains_lock = Lock()
+_runtime_lifecycle_lock = RLock()
 _langgraph_checkpointer_runtime = None
 _langgraph_checkpointer_started = False
 _interview_workflow_service = None
@@ -66,17 +75,43 @@ _review_workflow_service = None
 _review_workflow_consumer = None
 _durable_workflow_maintenance_service = None
 _durable_workflow_maintenance_started = False
+_workflow_thread_lock = None
+_runtime_signal_store = None
+_postgres_connection_domains = None
+
+
+def get_postgres_connection_domains():
+    global _postgres_connection_domains
+    if get_runtime_store() != "postgres":
+        return None
+    with _postgres_domains_lock:
+        if _postgres_connection_domains is None:
+            from app.services.postgres_connection_domains import (
+                PostgresConnectionDomains,
+            )
+
+            domains = PostgresConnectionDomains(
+                dsn=get_postgres_dsn(),
+                settings=get_postgres_pool_settings(),
+            )
+            domains.open()
+            _postgres_connection_domains = domains
+    return _postgres_connection_domains
 
 
 def build_session_store(llm=None):
     store_kind = get_runtime_store()
     execution_runner = get_agent_execution_runner()
     if store_kind == "postgres":
+        domains = get_postgres_connection_domains()
         store = PostgresInterviewSessionStore(
             dsn=get_postgres_dsn(),
+            connection_provider=domains.business,
+            agent_run_connection_provider=domains.telemetry,
             table_prefix=get_runtime_table_prefix(),
             llm=llm,
             execution_runner=execution_runner,
+            schema_mode="validate",
         )
         control_store = getattr(store, "_runtime_control", None)
         if control_store is not None:
@@ -91,10 +126,13 @@ def build_session_store(llm=None):
 
 
 def build_report_job_store():
+    domains = get_postgres_connection_domains()
     return PostgresReportJobStore(
         dsn=get_postgres_dsn(),
+        connection_provider=domains.business,
         table_prefix=get_runtime_table_prefix(),
         lease_seconds=int(os.getenv("REPORT_JOB_LEASE_SECONDS", "300")),
+        schema_mode="validate",
     )
 
 
@@ -133,7 +171,11 @@ def build_report_executor(
 ) -> ReportExecutor:
     resolved_store = store or get_session_store()
     resolved_llm = resolve_runtime_llm(resolved_store, llm)
-    resolved_vector_store = vector_store or get_knowledge_store()
+    domains = get_postgres_connection_domains()
+    resolved_vector_store = vector_store or get_knowledge_store(
+        connection_provider=domains.business if domains is not None else None,
+        schema_mode="validate" if domains is not None else "migrate",
+    )
     return ReportExecutor(
         store=resolved_store,
         llm=resolved_llm,
@@ -197,10 +239,8 @@ def get_langgraph_checkpointer_runtime():
     ):
         return None
     if _langgraph_checkpointer_runtime is None:
-        from app.services.langgraph_runtime import PostgresCheckpointerRuntime
-
-        _langgraph_checkpointer_runtime = PostgresCheckpointerRuntime(
-            get_postgres_dsn()
+        _langgraph_checkpointer_runtime = (
+            get_postgres_connection_domains().checkpointer
         )
     return _langgraph_checkpointer_runtime
 
@@ -220,14 +260,25 @@ def build_durable_workflow_maintenance_service():
         raise RuntimeError("durable maintenance requires PostgreSQL")
     dsn = get_postgres_dsn()
     prefix = get_runtime_table_prefix()
+    domains = get_postgres_connection_domains()
     return DurableWorkflowMaintenanceService(
         workflow_store=PostgresInterviewWorkflowStore(
-            dsn=dsn, table_prefix=prefix
+            dsn=dsn,
+            connection_provider=domains.business,
+            table_prefix=prefix,
+            schema_mode="validate",
         ),
         generation_store=PostgresInterviewGenerationStore(
-            dsn=dsn, table_prefix=prefix
+            dsn=dsn,
+            connection_provider=domains.business,
+            table_prefix=prefix,
+            schema_mode="validate",
         ),
+        signal_store=get_runtime_signal_store(),
         retention_hours=get_interview_chunk_retention_hours(),
+        signal_retention_hours=(
+            get_langgraph_canary_signal_retention_hours()
+        ),
         interval_seconds=get_durable_workflow_maintenance_seconds(),
     )
 
@@ -246,6 +297,24 @@ def get_durable_workflow_maintenance_service():
             build_durable_workflow_maintenance_service()
         )
     return _durable_workflow_maintenance_service
+
+
+def get_runtime_signal_store():
+    global _runtime_signal_store
+    if get_runtime_store() != "postgres":
+        return None
+    if _runtime_signal_store is None:
+        from app.services.runtime_signal_metrics import (
+            PostgresRuntimeSignalStore,
+        )
+
+        _runtime_signal_store = PostgresRuntimeSignalStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=get_postgres_connection_domains().telemetry,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    return _runtime_signal_store
 
 
 def build_interview_workflow_service():
@@ -274,11 +343,18 @@ def build_interview_workflow_service():
     store = get_session_store()
     dsn = get_postgres_dsn()
     prefix = get_runtime_table_prefix()
+    domains = get_postgres_connection_domains()
     workflow_store = PostgresInterviewWorkflowStore(
-        dsn=dsn, table_prefix=prefix
+        dsn=dsn,
+        connection_provider=domains.business,
+        table_prefix=prefix,
+        schema_mode="validate",
     )
     generation_store = PostgresInterviewGenerationStore(
-        dsn=dsn, table_prefix=prefix
+        dsn=dsn,
+        connection_provider=domains.business,
+        table_prefix=prefix,
+        schema_mode="validate",
     )
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
@@ -287,8 +363,12 @@ def build_interview_workflow_service():
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),
         ),
-        knowledge_repository=get_knowledge_store(),
+        knowledge_repository=get_knowledge_store(
+            connection_provider=domains.business,
+            schema_mode="validate",
+        ),
         report_job_queue=get_report_job_store(),
+        worker_id=_runtime_worker_id("interview-graph"),
     )
     graph = build_durable_interview_graph(deps, checkpointer=saver)
     registry = VersionedGraphRegistry()
@@ -303,6 +383,7 @@ def build_interview_workflow_service():
         runtime_enabled=get_interview_langgraph_runtime_enabled(),
         rollout_percent=get_interview_langgraph_rollout_percent(),
         default_graph_version=version,
+        thread_lock=get_workflow_thread_lock(),
     )
 
 
@@ -326,6 +407,30 @@ def get_interview_workflow_consumer():
     return _interview_workflow_consumer
 
 
+def get_workflow_thread_lock():
+    global _workflow_thread_lock
+    if _workflow_thread_lock is None:
+        if get_runtime_store() != "postgres":
+            from app.services.workflow_thread_lock import NoopWorkflowThreadLock
+
+            _workflow_thread_lock = NoopWorkflowThreadLock()
+        else:
+            from app.services.workflow_thread_lock import (
+                PostgresWorkflowThreadLock,
+            )
+
+            _workflow_thread_lock = PostgresWorkflowThreadLock(
+                dsn=get_postgres_dsn(),
+                exclusive_provider=(
+                    get_postgres_connection_domains().advisory_lock
+                ),
+                default_timeout_seconds=float(
+                    os.getenv("WORKFLOW_THREAD_LOCK_TIMEOUT_SECONDS", "1")
+                ),
+            )
+    return _workflow_thread_lock
+
+
 def build_review_workflow_service():
     from dataclasses import asdict
     from app.agents.report_coach import ReportCoachAgent
@@ -335,6 +440,8 @@ def build_review_workflow_service():
     )
     from app.services.agent_runtime import AgentExecutionContext, correlation_id_from_plan
     from app.services.report_microbatch import build_report_coach_items_from_question_evaluations
+    from app.services.question_evaluations import QuestionEvaluationRecord
+    from app.services.report import InterviewReport
     from app.services.report_runtime_quality import evaluate_runtime_report_quality
     from app.services.review_workflow import ReviewWorkflowService
     from app.services.review_workflow_store import PostgresReviewWorkflowStore
@@ -347,46 +454,95 @@ def build_review_workflow_service():
         raise RuntimeError("LangGraph runtime is disabled")
     store = get_session_store()
     workflow_store = PostgresReviewWorkflowStore(
-        dsn=get_postgres_dsn(), table_prefix=get_runtime_table_prefix()
+        dsn=get_postgres_dsn(),
+        connection_provider=get_postgres_connection_domains().business,
+        table_prefix=get_runtime_table_prefix(),
+        schema_mode="validate",
     )
     runner = get_agent_execution_runner()
-    vector_store = get_knowledge_store()
+    vector_store = get_knowledge_store(
+        connection_provider=get_postgres_connection_domains().business,
+        schema_mode="validate",
+    )
 
     def review_question(graph_state, question_id):
-        state = store.get(graph_state["session_id"])
         question = next(item for item in graph_state["review_input_manifest"]["questions"] if item["question_id"] == question_id)
-        record = evaluate_round_review_event(
-            RoundClosedEvent(
-                session_id=state["session_id"], question_id=question_id,
-                answer_state=question["answer_state"], job_tags=list(state["job_tags"]),
-                state_version=state["state_version"],
-            ), state=state, llm=resolve_runtime_llm(store), vector_store=vector_store,
-            execution_runner=runner, attempt_number=graph_state["provider_attempt"],
-        ).model_copy(update={
-            "review_input_sha256": graph_state["review_input_manifest"]["input_sha256"],
-            "question_input_sha256": question["input_sha256"],
-            "review_engine": "langgraph-review-v1",
-            "review_graph_schema_version": graph_state["review_graph_schema_version"],
-        })
-        store.upsert_question_evaluation(state["session_id"], record)
+        operation_key = (
+            f"review-question:{graph_state['job_id']}:{question_id}:"
+            f"{question['input_sha256']}:{graph_state['provider_attempt']}"
+        )
+
+        def call_provider():
+            state = store.get(graph_state["session_id"])
+            record = evaluate_round_review_event(
+                RoundClosedEvent(
+                    session_id=state["session_id"], question_id=question_id,
+                    answer_state=question["answer_state"], job_tags=list(state["job_tags"]),
+                    state_version=state["state_version"],
+                ), state=state, llm=resolve_runtime_llm(store), vector_store=vector_store,
+                execution_runner=runner, attempt_number=graph_state["provider_attempt"],
+            ).model_copy(update={
+                "review_input_sha256": graph_state["review_input_manifest"]["input_sha256"],
+                "question_input_sha256": question["input_sha256"],
+                "review_engine": "langgraph-review-v1",
+                "review_graph_schema_version": graph_state["review_graph_schema_version"],
+            })
+            return record.model_dump(mode="json")
+
+        effect = workflow_store.run_effect(
+            operation_key=operation_key,
+            job_id=graph_state["job_id"],
+            effect_type="question_review",
+            question_id=question_id,
+            graph_schema_version=graph_state["review_graph_schema_version"],
+            input_sha256=question["input_sha256"],
+            provider=call_provider,
+        )
+        record = QuestionEvaluationRecord.model_validate(effect["payload"])
+        store.upsert_question_evaluation(graph_state["session_id"], record)
 
     def generate_report(graph_state):
-        state = store.get(graph_state["session_id"])
-        records = store.list_question_evaluations(state["session_id"])
-        report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).generate_report_attempt(
-            plan=state["plan"],
-            evaluation_items=build_report_coach_items_from_question_evaluations(records),
-            session_id=state["session_id"],
-            execution_context=AgentExecutionContext(
-                correlation_id=correlation_id_from_plan(state["plan"], session_id=state["session_id"]),
-                agent="report_coach", operation="generate_durable_report", phase="review",
-                session_id=state["session_id"], attempt_number=graph_state["provider_attempt"],
-            ),
+        operation_key = (
+            f"report-generation:{graph_state['job_id']}:"
+            f"{graph_state['review_input_manifest']['input_sha256']}:"
+            f"{graph_state['provider_attempt']}:"
+            f"{graph_state['quality_repair_count']}"
         )
-        return workflow_store.save_report_artifact(job_id=graph_state["job_id"], report=report)
+
+        def call_provider():
+            state = store.get(graph_state["session_id"])
+            records = store.list_question_evaluations(state["session_id"])
+            report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).generate_report_attempt(
+                plan=state["plan"],
+                evaluation_items=build_report_coach_items_from_question_evaluations(records),
+                session_id=state["session_id"],
+                execution_context=AgentExecutionContext(
+                    correlation_id=correlation_id_from_plan(state["plan"], session_id=state["session_id"]),
+                    agent="report_coach", operation="generate_durable_report", phase="review",
+                    session_id=state["session_id"], attempt_number=graph_state["provider_attempt"],
+                ),
+            )
+            return report.model_dump(mode="json")
+
+        effect = workflow_store.run_effect(
+            operation_key=operation_key,
+            job_id=graph_state["job_id"],
+            effect_type="report_generation",
+            graph_schema_version=graph_state["review_graph_schema_version"],
+            input_sha256=graph_state["review_input_manifest"]["input_sha256"],
+            provider=call_provider,
+        )
+        return {
+            "report_ref": f"review-effect:{operation_key}",
+            "report_sha256": effect["output_sha256"],
+        }
 
     def validate_report(graph_state):
-        report = workflow_store.load_report_artifact(graph_state["job_id"])
+        report = InterviewReport.model_validate(
+            workflow_store.load_effect_payload(
+                graph_state["report_ref"].removeprefix("review-effect:")
+            )
+        )
         expected = len(graph_state["review_input_manifest"]["questions"])
         result = evaluate_runtime_report_quality(report, expected_question_count=expected)
         return (
@@ -397,23 +553,55 @@ def build_review_workflow_service():
     def repair_report(graph_state):
         state = store.get(graph_state["session_id"])
         records = store.list_question_evaluations(state["session_id"])
-        prior = workflow_store.load_report_artifact(graph_state["job_id"])
-        report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).repair_report_attempt(
-            plan=state["plan"],
-            evaluation_items=build_report_coach_items_from_question_evaluations(records),
-            session_id=state["session_id"],
-            issues=graph_state["quality_issues"],
-            prior_report=prior,
-            execution_context=AgentExecutionContext(
-                correlation_id=correlation_id_from_plan(state["plan"], session_id=state["session_id"]),
-                agent="report_coach", operation="repair_durable_report", phase="review",
-                session_id=state["session_id"], attempt_number=graph_state["quality_repair_count"],
-            ),
+        prior = InterviewReport.model_validate(
+            workflow_store.load_effect_payload(
+                graph_state["report_ref"].removeprefix("review-effect:")
+            )
         )
-        return workflow_store.save_report_artifact(job_id=graph_state["job_id"], report=report)
+        operation_key = (
+            f"report-generation:{graph_state['job_id']}:"
+            f"{graph_state['review_input_manifest']['input_sha256']}:"
+            f"{graph_state['provider_attempt']}:"
+            f"{graph_state['quality_repair_count']}"
+        )
+
+        def call_provider():
+            report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).repair_report_attempt(
+                plan=state["plan"],
+                evaluation_items=build_report_coach_items_from_question_evaluations(records),
+                session_id=state["session_id"],
+                issues=graph_state["quality_issues"],
+                prior_report=prior,
+                execution_context=AgentExecutionContext(
+                    correlation_id=correlation_id_from_plan(state["plan"], session_id=state["session_id"]),
+                    agent="report_coach", operation="repair_durable_report", phase="review",
+                    session_id=state["session_id"], attempt_number=graph_state["quality_repair_count"],
+                ),
+            )
+            return report.model_dump(mode="json")
+
+        effect = workflow_store.run_effect(
+            operation_key=operation_key,
+            job_id=graph_state["job_id"],
+            effect_type="report_repair",
+            graph_schema_version=graph_state["review_graph_schema_version"],
+            input_sha256=graph_state["review_input_manifest"]["input_sha256"],
+            provider=call_provider,
+        )
+        return {
+            "report_ref": f"review-effect:{operation_key}",
+            "report_sha256": effect["output_sha256"],
+        }
 
     def commit_report(graph_state):
-        workflow_store.commit_report(job_id=graph_state["job_id"], report=workflow_store.load_report_artifact(graph_state["job_id"]))
+        report = InterviewReport.model_validate(
+            workflow_store.load_effect_payload(
+                graph_state["report_ref"].removeprefix("review-effect:")
+            )
+        )
+        workflow_store.commit_report(
+            job_id=graph_state["job_id"], report=report
+        )
 
     deps = DurableReviewGraphDependencies(
         workflow_store=workflow_store,
@@ -422,6 +610,11 @@ def build_review_workflow_service():
         repair_report=repair_report,
         validate_report=validate_report,
         commit_report=commit_report,
+        max_parallel_reviews=(
+            get_report_langgraph_max_parallel_question_reviews()
+        ),
+        max_provider_attempts=get_report_langgraph_max_provider_attempts(),
+        max_quality_repairs=get_report_langgraph_max_quality_repairs(),
     )
     version = get_report_langgraph_version()
     registry = VersionedGraphRegistry()
@@ -434,6 +627,7 @@ def build_review_workflow_service():
         checkpointer_runtime=checkpointer,
         job_store=job_store,
         lease_seconds=job_store.lease_seconds,
+        thread_lock=get_workflow_thread_lock(),
     )
 
 
@@ -459,22 +653,29 @@ def get_agent_execution_runner(
     control_store=None,
 ) -> AgentExecutionRunner:
     global _agent_execution_runner, _agent_composite_recorder
-    if _agent_execution_runner is None:
-        _agent_composite_recorder = CompositeAgentRunRecorder(
-            [AgentTraceRecorder.from_env()]
-        )
-        _agent_execution_runner = AgentExecutionRunner(
-            recorder=_agent_composite_recorder
-        )
-    if (
-        control_store is not None
-        and id(control_store) not in _agent_postgres_control_ids
-    ):
-        _agent_composite_recorder.add_recorder(
-            PostgresAgentRunRecorder(control_store)
-        )
-        _agent_postgres_control_ids.add(id(control_store))
-    return _agent_execution_runner
+    with _agent_runtime_lock:
+        if _agent_execution_runner is None:
+            _agent_composite_recorder = CompositeAgentRunRecorder(
+                [AgentTraceRecorder.from_env()]
+            )
+            _agent_execution_runner = AgentExecutionRunner(
+                recorder=_agent_composite_recorder
+            )
+        if control_store is not None:
+            identity = _agent_control_store_identity(control_store)
+            if identity not in _agent_postgres_control_identities:
+                _agent_composite_recorder.add_recorder(
+                    PostgresAgentRunRecorder(control_store)
+                )
+                _agent_postgres_control_identities.add(identity)
+        return _agent_execution_runner
+
+
+def _agent_control_store_identity(control_store) -> tuple[str, object]:
+    table_prefix = getattr(control_store, "table_prefix", None)
+    if isinstance(table_prefix, str) and table_prefix:
+        return ("table_prefix", table_prefix)
+    return ("object_id", id(control_store))
 
 
 def build_runtime_outbox_service() -> RuntimeOutboxService:
@@ -495,6 +696,7 @@ def build_runtime_outbox_service() -> RuntimeOutboxService:
             sink,
             batch_size=get_runtime_outbox_batch_size(),
             lease_seconds=get_runtime_outbox_lease_seconds(),
+            signal_store=get_runtime_signal_store(),
         ),
         worker_id=worker_id,
         poll_seconds=get_runtime_outbox_poll_seconds(),
@@ -514,6 +716,7 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
             CeleryRuntimeEventSink(celery_app=celery_app),
             batch_size=get_runtime_outbox_batch_size(),
             lease_seconds=get_runtime_outbox_lease_seconds(),
+            signal_store=get_runtime_signal_store(),
         ),
         worker_id=worker_id,
         poll_seconds=get_runtime_outbox_poll_seconds(),
@@ -521,6 +724,11 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
 
 
 def start_runtime() -> None:
+    with _runtime_lifecycle_lock:
+        _start_runtime_unlocked()
+
+
+def _start_runtime_unlocked() -> None:
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
     global _review_workflow_service
     global _review_workflow_consumer
@@ -561,18 +769,32 @@ def get_report_executor():
 
 
 def shutdown_runtime(*, wait: bool = True) -> None:
+    with _runtime_lifecycle_lock:
+        _shutdown_runtime_unlocked(wait=wait)
+
+
+def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _session_store, _report_job_store, _report_executor, _draft_store
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
     global _durable_workflow_maintenance_service
     global _durable_workflow_maintenance_started
+    global _interview_workflow_service, _interview_workflow_consumer
+    global _review_workflow_service, _review_workflow_consumer
+    global _workflow_thread_lock
+    global _runtime_signal_store
+    global _postgres_connection_domains
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
     if _durable_workflow_maintenance_service is not None:
         _durable_workflow_maintenance_service.shutdown(wait=wait)
     if _langgraph_checkpointer_runtime is not None:
         _langgraph_checkpointer_runtime.shutdown()
+    if _workflow_thread_lock is not None:
+        _workflow_thread_lock.close()
+    if _postgres_connection_domains is not None:
+        _postgres_connection_domains.close()
     _shutdown_cached_publisher(_event_publisher, wait=wait)
     _session_store = None
     _report_job_store = None
@@ -589,9 +811,13 @@ def shutdown_runtime(*, wait: bool = True) -> None:
     _interview_workflow_consumer = None
     _review_workflow_service = None
     _review_workflow_consumer = None
-    _agent_execution_runner = None
-    _agent_composite_recorder = None
-    _agent_postgres_control_ids.clear()
+    _workflow_thread_lock = None
+    _runtime_signal_store = None
+    _postgres_connection_domains = None
+    with _agent_runtime_lock:
+        _agent_execution_runner = None
+        _agent_composite_recorder = None
+        _agent_postgres_control_identities.clear()
 
 
 def reset_runtime_for_tests() -> None:

@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "cache_breakdown"
+  ],
+  "case_id": "weak-redis-hotspot",
+  "latency_ms": 269.046,
+  "replayed_evidence_ids": [
+    "cache_breakdown"
+  ],
+  "retrieved_ids": [
+    "cache_breakdown",
+    "redis_consistency",
+    "redis_backend"
+  ],
+  "scores": {
+    "cache_breakdown": 0.80033,
+    "redis_backend": 0.621377,
+    "redis_consistency": 0.687582
+  },
+  "status": "completed"
+}

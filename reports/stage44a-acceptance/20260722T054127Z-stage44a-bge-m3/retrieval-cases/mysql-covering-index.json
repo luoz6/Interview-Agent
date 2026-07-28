@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "mysql_indexing"
+  ],
+  "case_id": "mysql-covering-index",
+  "category": "relevant",
+  "latency_ms": 321.227,
+  "retrieved_ids": [
+    "mysql_indexing",
+    "mysql_backend",
+    "mysql_online_migration"
+  ],
+  "reused_evidence_ids": [
+    "mysql_indexing"
+  ],
+  "scores": {
+    "mysql_backend": 0.657737,
+    "mysql_indexing": 0.812058,
+    "mysql_online_migration": 0.593059
+  },
+  "status": "completed"
+}

@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "fastapi_request_lifecycle"
+  ],
+  "case_id": "weak-fastapi-sync-call",
+  "category": "weak_keyword",
+  "latency_ms": 295.239,
+  "retrieved_ids": [
+    "fastapi_request_lifecycle",
+    "fastapi_blocking_io",
+    "fastapi_backend"
+  ],
+  "reused_evidence_ids": [
+    "fastapi_request_lifecycle"
+  ],
+  "scores": {
+    "fastapi_backend": 0.583244,
+    "fastapi_blocking_io": 0.635399,
+    "fastapi_request_lifecycle": 0.635737
+  },
+  "status": "completed"
+}

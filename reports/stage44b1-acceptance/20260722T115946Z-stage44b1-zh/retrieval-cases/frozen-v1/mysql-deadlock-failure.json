@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "mysql_deadlocks"
+  ],
+  "case_id": "mysql-deadlock-failure",
+  "latency_ms": 295.23,
+  "replayed_evidence_ids": [
+    "mysql_deadlocks"
+  ],
+  "retrieved_ids": [
+    "mysql_deadlocks",
+    "mysql_isolation",
+    "mysql_online_migration"
+  ],
+  "scores": {
+    "mysql_deadlocks": 0.776152,
+    "mysql_isolation": 0.651074,
+    "mysql_online_migration": 0.548085
+  },
+  "status": "completed"
+}

@@ -1,4 +1,5 @@
 import logging
+from hashlib import sha256
 from typing import Literal, cast
 
 from pydantic import BaseModel, Field
@@ -286,32 +287,74 @@ def build_report_coach_items_from_question_evaluations(
             )
         feedback = record.feedback
         references = [reference.model_dump() for reference in feedback.references]
+        (
+            dimension_evidence,
+            observed_provenance,
+            observed_excerpts_verified,
+        ) = _validated_reduce_evidence(
+            feedback
+        )
         chunk = (chunks_by_question_id or {}).get(feedback.question_id)
         question_kind = getattr(chunk, "question_kind", "")
-        items.append(
-            {
+        item = {
                 "source": "question_evaluation_record",
                 "question_id": feedback.question_id,
                 "question_text": feedback.question_text,
                 "question_kind": question_kind,
                 "answer_state": record.answer_state,
-                "user_answer": feedback.user_answer,
                 "microbatch_score": feedback.score,
                 "score": feedback.score,
                 "dimension_scores": feedback.dimension_scores.model_dump(),
+                "applicable_dimensions": list(feedback.applicable_dimensions),
+                "dimension_evidence": dimension_evidence,
+                "observed_provenance": observed_provenance,
+                "observed_excerpts_verified": observed_excerpts_verified,
                 "rationale": feedback.rationale,
                 "critique": feedback.critique,
                 "better_answer": feedback.better_answer,
                 "scoring_references": references,
-                "answer_references": references,
-                "messages": [
-                    {"role": "candidate", "content": feedback.user_answer},
-                    {"role": "reviewer", "content": feedback.rationale},
-                    {"role": "reviewer", "content": feedback.critique},
+                "answer_references": [],
+                "reference_chunk_ids": [
+                    reference.get("chunk_id")
+                    for reference in references
+                    if reference.get("chunk_id")
                 ],
             }
-        )
+        if not observed_excerpts_verified:
+            # Legacy records may predate exact-excerpt validation. Preserve one
+            # source representation for Report Coach compatibility without
+            # reintroducing the rationale/critique duplication.
+            item["user_answer"] = feedback.user_answer
+            item["messages"] = [
+                {"role": "candidate", "content": feedback.user_answer}
+            ]
+        items.append(item)
     return items
+
+
+def _validated_reduce_evidence(
+    feedback,
+) -> tuple[list[dict], list[dict], bool]:
+    evidence_items: list[dict] = []
+    provenance: list[dict] = []
+    source_answer = feedback.user_answer or ""
+    source_sha256 = sha256(source_answer.encode("utf-8")).hexdigest()
+    all_verified = True
+    for raw in feedback.dimension_evidence:
+        evidence = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
+        for observed in evidence.get("observed", []):
+            excerpt = str(observed)
+            verified = not excerpt or excerpt in source_answer
+            all_verified = all_verified and verified
+            provenance.append(
+                {
+                    "dimension": evidence.get("dimension", ""),
+                    "source_message_sha256": source_sha256,
+                    "verified_against_source": verified,
+                }
+            )
+        evidence_items.append(evidence)
+    return evidence_items, provenance, all_verified
 
 
 def _is_completed_record(record: QuestionEvaluationRecord | None) -> bool:

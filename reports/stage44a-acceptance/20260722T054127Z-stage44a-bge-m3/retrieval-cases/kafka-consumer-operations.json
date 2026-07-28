@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "kafka_operations"
+  ],
+  "case_id": "kafka-consumer-operations",
+  "category": "relevant",
+  "latency_ms": 266.108,
+  "retrieved_ids": [
+    "kafka_operations",
+    "kafka_rebalancing",
+    "kafka_backend"
+  ],
+  "reused_evidence_ids": [
+    "kafka_operations"
+  ],
+  "scores": {
+    "kafka_backend": 0.578996,
+    "kafka_operations": 0.787187,
+    "kafka_rebalancing": 0.669856
+  },
+  "status": "completed"
+}

@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.services.interview_workflow_store import (
+    BootstrapConflict,
     CommandPayloadConflict,
     PostgresInterviewWorkflowStore,
     ProjectionConflict,
@@ -181,3 +182,55 @@ def test_projection_rejects_same_version_with_changed_payload(
 
     with pytest.raises(ProjectionConflict):
         durable_workflow_store.project_state(changed)
+
+
+def test_projection_rejects_replay_that_is_more_than_one_version_behind(
+    durable_workflow_store,
+):
+    original = make_durable_initial_state(
+        durable_workflow_store.session_id,
+        durable_workflow_store.plan,
+    )
+    durable_workflow_store.project_state(original)
+    next_state = deepcopy(original)
+    next_state["state_version"] = 1
+    durable_workflow_store.project_state(next_state)
+
+    with pytest.raises(ProjectionConflict):
+        durable_workflow_store.project_state(original)
+
+
+def test_bootstrap_digest_is_write_once_before_public_projection(
+    durable_workflow_store,
+):
+    store = durable_workflow_store
+    store.register_bootstrap_input(
+        session_id=store.session_id,
+        graph_schema_version="langgraph-v1",
+        bootstrap_input_sha256="a" * 64,
+    )
+    store.register_bootstrap_input(
+        session_id=store.session_id,
+        graph_schema_version="langgraph-v1",
+        bootstrap_input_sha256="a" * 64,
+    )
+
+    with pytest.raises(BootstrapConflict):
+        store.register_bootstrap_input(
+            session_id=store.session_id,
+            graph_schema_version="langgraph-v1",
+            bootstrap_input_sha256="b" * 64,
+        )
+
+    with store.control.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                store._sql(
+                    """
+                    SELECT bootstrap_input_sha256 FROM {sessions}
+                    WHERE session_id = %s
+                    """
+                ),
+                (store.session_id,),
+            )
+            assert cursor.fetchone() == ("a" * 64,)

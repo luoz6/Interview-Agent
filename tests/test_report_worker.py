@@ -17,6 +17,7 @@ from app.services.report import (
     ReportQualityFailed,
 )
 from app.services.report_worker import run_one_job
+from app.services.workflow_thread_lock import ReportLeaseLost
 
 
 class FakeJobStore:
@@ -29,6 +30,7 @@ class FakeJobStore:
         self.failed_calls: list[tuple[str, str]] = []
         self.retry_error_codes: list[str] = []
         self.failed_error_codes: list[str] = []
+        self.released_calls: list[tuple[str, str, str]] = []
 
     def repair_orphan_processing_reports(self) -> int:
         self.repair_calls += 1
@@ -48,6 +50,12 @@ class FakeJobStore:
 
     def get_job(self, job_id: str) -> dict:
         return dict(self.claimed_job)
+
+    def release_claim_for_retry(
+        self, job_id: str, *, worker_id: str, lease_token: str
+    ) -> bool:
+        self.released_calls.append((job_id, worker_id, lease_token))
+        return True
 
     def mark_retryable_failure(
         self,
@@ -88,6 +96,17 @@ class FakeStore:
 
     def fail_report(self, session_id: str, error: str) -> None:
         self.failed_reports.append((session_id, error))
+
+
+class RecordingSignalStore:
+    def __init__(self, *, fail=False) -> None:
+        self.calls = []
+        self.fail = fail
+
+    def increment(self, *, workflow_type, signal_code):
+        self.calls.append((workflow_type, signal_code))
+        if self.fail:
+            raise RuntimeError("signal database unavailable")
 
 
 def make_report(session_id: str = "s1") -> InterviewReport:
@@ -181,6 +200,139 @@ def test_durable_job_is_owned_by_review_workflow():
     assert calls == [(job, {"worker_id": "worker-1"})]
     assert job_store.completed_calls == []
     assert job_store.retry_calls == []
+
+
+def test_durable_thread_busy_outcome_records_exactly_one_incident():
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "review_engine": "langgraph-review-v1",
+    }
+    job_store = FakeJobStore(claimed_job=job)
+    signals = RecordingSignalStore()
+    workflow = SimpleNamespace(
+        run_claimed_job=lambda claimed, **kwargs: {
+            "status": "workflow_thread_busy"
+        }
+    )
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(),
+        worker_id="worker-1",
+        review_workflow=workflow,
+        signal_store=signals,
+    )
+
+    assert result == job
+    assert signals.calls == [("review", "workflow_thread_busy")]
+
+
+def test_durable_workflow_exception_releases_claim_without_legacy_writes():
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "review_engine": "langgraph-review-v1",
+        "lease_token": "token-1",
+    }
+    job_store = FakeJobStore(claimed_job=job)
+    store = FakeStore()
+
+    def fail_workflow(claimed, **kwargs):
+        raise RuntimeError("durable workflow failed")
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(store),
+        worker_id="worker-1",
+        review_workflow=SimpleNamespace(run_claimed_job=fail_workflow),
+    )
+
+    assert result == job
+    assert job_store.retry_error_codes == []
+    assert job_store.released_calls == [
+        ("job-1", "worker-1", "token-1")
+    ]
+    assert store.failed_reports == []
+
+
+def test_durable_lease_loss_never_mutates_replacement_job_or_report():
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "review_engine": "langgraph-review-v1",
+    }
+    job_store = FakeJobStore(claimed_job=job)
+    store = FakeStore()
+
+    def lose_lease(claimed, **kwargs):
+        raise ReportLeaseLost("lost")
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(store),
+        worker_id="worker-1",
+        review_workflow=SimpleNamespace(run_claimed_job=lose_lease),
+    )
+
+    assert result == job
+    assert job_store.retry_calls == []
+    assert job_store.failed_calls == []
+    assert store.failed_reports == []
+
+
+def test_durable_lease_loss_records_one_incident_without_mutating_job():
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "review_engine": "langgraph-review-v1",
+    }
+    job_store = FakeJobStore(claimed_job=job)
+    signals = RecordingSignalStore()
+    error = ReportLeaseLost("renewal ownership unavailable")
+    error.__cause__ = RuntimeError(
+        "postgresql://private lease_token=private provider payload"
+    )
+
+    def lose_lease(claimed, **kwargs):
+        raise error
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(),
+        worker_id="worker-1",
+        review_workflow=SimpleNamespace(run_claimed_job=lose_lease),
+        signal_store=signals,
+    )
+
+    assert result == job
+    assert signals.calls == [("review", "report_lease_lost")]
+    assert "private" not in repr(signals.calls)
+
+
+def test_durable_effect_lease_loss_outcome_records_one_fenced_incident():
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "review_engine": "langgraph-review-v1",
+    }
+    job_store = FakeJobStore(claimed_job=job)
+    signals = RecordingSignalStore()
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(),
+        worker_id="worker-1",
+        review_workflow=SimpleNamespace(
+            run_claimed_job=lambda claimed, **kwargs: {
+                "error_code": "fenced_write_rejected"
+            }
+        ),
+        signal_store=signals,
+    )
+
+    assert result == job
+    assert signals.calls == [("review", "fenced_write_rejected")]
 
 
 def test_run_one_job_repairs_orphan_before_claiming(monkeypatch):

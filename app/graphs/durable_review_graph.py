@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
+from typing import Callable
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
 
 from app.graphs.durable_review_state import DurableReviewState
+from app.services.runtime_work import RuntimeFailure, classify_runtime_failure
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,9 @@ class DurableReviewGraphDependencies:
     repair_report: object | None = None
     max_parallel_reviews: int = 3
     fault_injector: object | None = None
+    failure_classifier: Callable[[Exception], RuntimeFailure] = (
+        classify_runtime_failure
+    )
 
 
 def _inject_fault(deps: DurableReviewGraphDependencies, point: str, state) -> None:
@@ -84,7 +89,23 @@ def dispatch_question_batch(state: DurableReviewState):
 
 def review_one_question(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
     question_id = state["current_question_id"]
-    deps.review_question(state, question_id)
+    try:
+        deps.review_question(state, question_id)
+    except Exception as exc:
+        failure = deps.failure_classifier(exc)
+        return {
+            "question_outcomes": [
+                {
+                    "question_id": question_id,
+                    "question_input_sha256": state[
+                        "question_input_sha256"
+                    ],
+                    "outcome": "failed",
+                    "retryable": failure.retryable,
+                    "error_code": failure.code,
+                }
+            ],
+        }
     _inject_fault(deps, "after_question_projection", state)
     return {
         "question_outcomes": [
@@ -105,7 +126,22 @@ def join_question_reviews(state: DurableReviewState) -> dict:
         if item.get("outcome") == "completed"
     }
     if any(question_id not in completed_outcomes for question_id in batch):
-        return {"error_code": "question_review_failed", "failed_question_ids": batch}
+        failed = [
+            question_id
+            for question_id in batch
+            if question_id not in completed_outcomes
+        ]
+        failure_codes = [
+            item.get("error_code")
+            for item in state["question_outcomes"]
+            if item.get("question_id") in failed and item.get("error_code")
+        ]
+        return {
+            "error_code": failure_codes[0]
+            if failure_codes
+            else "question_review_failed",
+            "failed_question_ids": failed,
+        }
     return {
         "completed_question_ids": [*state["completed_question_ids"], *batch],
         "missing_question_ids": [item for item in state["missing_question_ids"] if item not in batch],
@@ -121,14 +157,16 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
             if state["quality_repair_count"] > 0 and deps.repair_report is not None
             else deps.generate_report(state)
         )
-    except Exception:
+    except Exception as exc:
+        failure = deps.failure_classifier(exc)
         return {
             "generation_outcome": (
                 "retryable"
-                if state["provider_attempt"] < deps.max_provider_attempts
+                if failure.retryable
+                and state["provider_attempt"] < deps.max_provider_attempts
                 else "terminal"
             ),
-            "error_code": "provider_unavailable",
+            "error_code": failure.code,
         }
     _inject_fault(deps, "after_coach_generation", state)
     return {
@@ -160,7 +198,7 @@ def route_after_plan(state: DurableReviewState) -> str:
 
 
 def route_after_review(state: DurableReviewState) -> str:
-    if state.get("error_code") == "question_review_failed":
+    if state.get("failed_question_ids"):
         return "fail_review"
     return "prepare_question_batch" if state["missing_question_ids"] else "generate_coach_report"
 
@@ -222,8 +260,9 @@ def route_validated_retry(state: DurableReviewState) -> str:
 
 
 def fail_review(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
-    deps.workflow_store.fail_review(state["job_id"], "report_quality_failed")
-    return {"error_code": "report_quality_failed"}
+    error_code = state.get("error_code") or "report_quality_failed"
+    deps.workflow_store.fail_review(state["job_id"], error_code)
+    return {"error_code": error_code}
 
 
 def build_durable_review_graph(deps: DurableReviewGraphDependencies, *, checkpointer):

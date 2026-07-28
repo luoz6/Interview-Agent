@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "cascading_failures"
+  ],
+  "case_id": "weak-system-downstream-slow",
+  "latency_ms": 268.367,
+  "replayed_evidence_ids": [
+    "cascading_failures"
+  ],
+  "retrieved_ids": [
+    "cascading_failures",
+    "queue_backpressure",
+    "system_design_backend"
+  ],
+  "scores": {
+    "cascading_failures": 0.725118,
+    "queue_backpressure": 0.620674,
+    "system_design_backend": 0.583611
+  },
+  "status": "completed"
+}

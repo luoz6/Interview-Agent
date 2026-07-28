@@ -1,0 +1,33 @@
+{
+  "chunk_count": 25,
+  "corpus_manifest_sha256": "44f2eba0bfb87e99cfd4bfb4834d2ed8e5f97b79eb51e0a46782decb075a8beb",
+  "corpus_version": "stage44a-bge-m3-v1",
+  "dataset_version": "stage42-knowledge-retrieval-v1",
+  "dimension": 1024,
+  "failure_reasons": [],
+  "model_name": "BAAI/bge-m3",
+  "model_revision": "siliconflow-bge-m3-20260721",
+  "passed": true,
+  "provider_metrics": {
+    "error_counts": {},
+    "latency_p50_ms": 255.7592500015744,
+    "latency_p95_ms": 298.4457400016254,
+    "request_count": 32,
+    "retry_count": 0
+  },
+  "provider_name": "siliconflow",
+  "retrieval_metrics": {
+    "evidence_continuity_rate": 1.0,
+    "failed_gates": [],
+    "false_positive_rate": 0.2,
+    "hit_rate_at_3": 1.0,
+    "invalid_reference_rate": 0.0,
+    "mean_reciprocal_rank": 0.98,
+    "observation_completeness_rate": 1.0,
+    "p95_latency_ms": 326.968,
+    "passed": true,
+    "question_evidence_binding_rate": 1.0
+  },
+  "run_id": "20260722T054127Z-stage44a-bge-m3",
+  "storage_strategy": "exact_pgvector_cosine"
+}

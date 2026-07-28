@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 from app.services.config import (
     get_durable_workflow_maintenance_seconds,
     get_interview_chunk_retention_hours,
+    get_langgraph_canary_signal_retention_hours,
     get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
     get_interview_langgraph_version,
@@ -56,16 +57,35 @@ def validate_langgraph_configuration(
 
 
 def validate_maintenance_configuration(
-    *, retention_hours: int, interval_seconds: int
+    *,
+    retention_hours: int,
+    interval_seconds: int,
+    signal_retention_hours: int = 168,
 ) -> dict[str, int]:
     if retention_hours < 1:
         raise PreflightError("chunk retention must be positive")
     if interval_seconds < 1:
         raise PreflightError("maintenance interval must be positive")
+    if signal_retention_hours < 1:
+        raise PreflightError("signal retention must be positive")
     return {
         "retention_hours": retention_hours,
+        "signal_retention_hours": signal_retention_hours,
         "interval_seconds": interval_seconds,
     }
+
+
+def validate_runtime_signal_schema(columns: list[str]) -> list[str]:
+    expected = [
+        "bucket_start",
+        "workflow_type",
+        "signal_code",
+        "signal_count",
+        "updated_at",
+    ]
+    if columns != expected:
+        raise PreflightError("runtime signal schema violates privacy contract")
+    return expected
 
 
 def validate_langgraph_schema_snapshot(
@@ -131,23 +151,52 @@ def check_langgraph_runtime() -> dict[str, object]:
     )
     from app.services.langgraph_runtime import PostgresCheckpointerRuntime
     from app.services.postgres_session import PostgresInterviewSessionStore
+    from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
     from app.services.report_jobs import PostgresReportJobStore
     from app.services.review_workflow_store import PostgresReviewWorkflowStore
+    from app.services.runtime_signal_metrics import PostgresRuntimeSignalStore
     from scripts.audit_agent_runtime import audit_runtime_control_payloads
 
     dsn = get_postgres_dsn()
     prefix = get_runtime_table_prefix()
+    provider = DirectPsycopg2ConnectionProvider(dsn)
     session_store = PostgresInterviewSessionStore(
-        dsn=dsn, table_prefix=prefix
+        dsn=dsn,
+        connection_provider=provider,
+        agent_run_connection_provider=provider,
+        table_prefix=prefix,
+        schema_mode="validate",
     )
-    PostgresReportJobStore(dsn=dsn, table_prefix=prefix)
+    PostgresReportJobStore(
+        dsn=dsn,
+        connection_provider=provider,
+        table_prefix=prefix,
+        schema_mode="validate",
+    )
     workflow_store = PostgresInterviewWorkflowStore(
-        dsn=dsn, table_prefix=prefix
+        dsn=dsn,
+        connection_provider=provider,
+        table_prefix=prefix,
+        schema_mode="validate",
     )
     generation_store = PostgresInterviewGenerationStore(
-        dsn=dsn, table_prefix=prefix
+        dsn=dsn,
+        connection_provider=provider,
+        table_prefix=prefix,
+        schema_mode="validate",
     )
-    review_store = PostgresReviewWorkflowStore(dsn=dsn, table_prefix=prefix)
+    review_store = PostgresReviewWorkflowStore(
+        dsn=dsn,
+        connection_provider=provider,
+        table_prefix=prefix,
+        schema_mode="validate",
+    )
+    signal_store = PostgresRuntimeSignalStore(
+        dsn=dsn,
+        connection_provider=provider,
+        table_prefix=prefix,
+        schema_mode="validate",
+    )
     expected_tables = [
         workflow_store.commands_table,
         generation_store.generations_table,
@@ -155,14 +204,16 @@ def check_langgraph_runtime() -> dict[str, object]:
         generation_store.chunks_table,
         review_store.runs_table,
         review_store.artifacts_table,
+        review_store.effects_table,
+        signal_store.table,
     ]
     expected_indexes = [
         f"{workflow_store.commands_table}_status_updated_idx",
         f"{session_store._runtime_control.outbox_table}_status_available_idx",
-        f"{generation_store.generations_table}_session_source_idx",
-        f"{generation_store.chunks_table}_replay_idx",
+        f"{session_store._runtime_control.outbox_table}_running_lease_idx",
         f"{review_store.runs_table}_status_updated_idx",
         f"{review_store.runs_table}_session_status_idx",
+        f"{review_store.effects_table}_job_status_idx",
     ]
     psycopg2, _ = session_store._import_psycopg2()
     with psycopg2.connect(dsn) as connection:
@@ -198,6 +249,61 @@ def check_langgraph_runtime() -> dict[str, object]:
             )
             if cursor.fetchone() is None:
                 raise PreflightError("report job lease fencing is incomplete")
+            cursor.execute(
+                """
+                SELECT table_name, column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND (
+                    (table_name = %s AND column_name IN (
+                        'lease_token', 'fencing_version'
+                    ))
+                    OR (table_name = %s AND column_name IN (
+                        'lease_token', 'available_at', 'scheduled_attempt'
+                    ))
+                    OR (table_name = %s AND column_name =
+                        'bootstrap_input_sha256')
+                  )
+                """,
+                (
+                    generation_store.attempts_table,
+                    f"{prefix}_report_jobs",
+                    f"{prefix}_sessions",
+                ),
+            )
+            fencing_columns = set(cursor.fetchall())
+            expected_fencing_columns = {
+                (generation_store.attempts_table, "lease_token"),
+                (generation_store.attempts_table, "fencing_version"),
+                (f"{prefix}_report_jobs", "lease_token"),
+                (f"{prefix}_report_jobs", "available_at"),
+                (f"{prefix}_report_jobs", "scheduled_attempt"),
+                (f"{prefix}_sessions", "bootstrap_input_sha256"),
+            }
+            if fencing_columns != expected_fencing_columns:
+                raise PreflightError("workflow fencing schema is incomplete")
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = %s
+                ORDER BY ordinal_position
+                """,
+                (signal_store.table,),
+            )
+            validate_runtime_signal_schema(
+                [row[0] for row in cursor.fetchall()]
+            )
+            from app.services.workflow_thread_lock import advisory_lock_key
+
+            probe_key = advisory_lock_key("preflight:workflow-thread-lock")
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (probe_key,))
+            if cursor.fetchone() != (True,):
+                raise PreflightError("workflow advisory lock is unavailable")
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (probe_key,))
+            if cursor.fetchone() != (True,):
+                raise PreflightError("workflow advisory lock cleanup failed")
     result: dict[str, object] = validate_langgraph_schema_snapshot(
         tables=tables,
         indexes=indexes,
@@ -207,7 +313,8 @@ def check_langgraph_runtime() -> dict[str, object]:
     checkpointer = PostgresCheckpointerRuntime(dsn)
     try:
         checkpointer.start()
-        result["saver_setup"] = True
+        result["schema_validation"] = True
+        result["runtime_ddl"] = False
     finally:
         checkpointer.shutdown()
 
@@ -236,6 +343,12 @@ def check_langgraph_runtime() -> dict[str, object]:
         "review_retry_due",
     ]
     result["report_lease_fencing"] = True
+    result["generation_lease_fencing"] = True
+    result["review_effect_claims"] = True
+    result["workflow_thread_lock"] = True
+    result["bootstrap_digest"] = True
+    result["runtime_signal_buckets"] = True
+    result["canary_schema_version"] = "langgraph-canary-v2"
     return result
 
 
@@ -326,6 +439,7 @@ def check_postgres_runtime() -> dict:
     store = PostgresInterviewSessionStore(
         dsn=get_postgres_dsn(),
         table_prefix=get_runtime_table_prefix(),
+        schema_mode="validate",
     )
     control = store._runtime_control
     correlation_id = f"preflight-{uuid4().hex}"
@@ -409,6 +523,9 @@ def main() -> int:
         result["durable_maintenance"] = validate_maintenance_configuration(
             retention_hours=get_interview_chunk_retention_hours(),
             interval_seconds=get_durable_workflow_maintenance_seconds(),
+            signal_retention_hours=(
+                get_langgraph_canary_signal_retention_hours()
+            ),
         )
         if should_check_langgraph_postgres(
             runtime_store=result["langgraph"]["runtime_store"],

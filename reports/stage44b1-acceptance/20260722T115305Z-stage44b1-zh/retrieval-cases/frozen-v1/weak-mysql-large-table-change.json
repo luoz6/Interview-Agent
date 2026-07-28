@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "mysql_online_migration"
+  ],
+  "case_id": "weak-mysql-large-table-change",
+  "latency_ms": 277.857,
+  "replayed_evidence_ids": [
+    "mysql_online_migration"
+  ],
+  "retrieved_ids": [
+    "mysql_online_migration",
+    "mysql_indexing",
+    "mysql_deadlocks"
+  ],
+  "scores": {
+    "mysql_deadlocks": 0.524923,
+    "mysql_indexing": 0.527428,
+    "mysql_online_migration": 0.628146
+  },
+  "status": "completed"
+}

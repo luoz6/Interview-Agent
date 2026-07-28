@@ -1,0 +1,10 @@
+{
+  "bound_evidence_ids": [],
+  "case_id": "negative-kafka-travel",
+  "category": "negative",
+  "latency_ms": 305.173,
+  "retrieved_ids": [],
+  "reused_evidence_ids": [],
+  "scores": {},
+  "status": "completed"
+}

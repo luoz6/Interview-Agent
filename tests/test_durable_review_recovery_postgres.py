@@ -82,7 +82,8 @@ def test_provider_retry_survives_saver_restart(monkeypatch):
         job_description="role", resume_text="resume", job_tags=["python"],
     )
     session_store.finish(turn.session_id)
-    job = jobs.enqueue_report_request(turn.session_id)
+    jobs.enqueue_report_request(turn.session_id)
+    job = jobs.claim_next(worker_id="review-worker-1")
     thread_id = review_thread_id(job["job_id"])
     attempts = []
 
@@ -101,13 +102,19 @@ def test_provider_retry_survives_saver_restart(monkeypatch):
         )
         registry = VersionedGraphRegistry()
         registry.register("langgraph-review-v1", build_durable_review_graph(deps, checkpointer=runtime.start()))
-        return ReviewWorkflowService(session_store=session_store, workflow_store=workflow_store, graph_registry=registry)
+        return ReviewWorkflowService(
+            session_store=session_store,
+            workflow_store=workflow_store,
+            graph_registry=registry,
+            job_store=jobs,
+            lease_seconds=jobs.lease_seconds,
+        )
 
     first = PostgresCheckpointerRuntime(dsn)
     second = None
     try:
         service = make_service(first)
-        service.run_claimed_job(job)
+        service.run_claimed_job(job, worker_id="review-worker-1")
         graph = service.graph_for_job(job)
         config = {"configurable": {"thread_id": thread_id}}
         assert graph.get_state(config).next == ("wait_for_retry",)
@@ -115,7 +122,13 @@ def test_provider_retry_survives_saver_restart(monkeypatch):
 
         second = PostgresCheckpointerRuntime(dsn)
         recovered = make_service(second)
-        assert recovered.resume_retry(job, 2) == "completed"
+        assert jobs.schedule_review_retry(
+            job["job_id"], next_attempt_number=2
+        ) == "scheduled"
+        claimed_retry = jobs.claim_next(worker_id="review-worker-2")
+        recovered.run_claimed_job(
+            claimed_retry, worker_id="review-worker-2"
+        )
         assert recovered.graph_for_job(job).get_state(config).next == ()
         assert attempts == [1, 2]
     finally:

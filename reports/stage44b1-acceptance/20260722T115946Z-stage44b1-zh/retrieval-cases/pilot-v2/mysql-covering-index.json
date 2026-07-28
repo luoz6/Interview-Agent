@@ -1,0 +1,23 @@
+{
+  "bound_evidence_ids": [
+    "mysql_indexing"
+  ],
+  "case_id": "mysql-covering-index",
+  "latency_ms": 293.83,
+  "replayed_evidence_ids": [
+    "mysql_indexing"
+  ],
+  "retrieved_ids": [
+    "mysql_indexing",
+    "mysql_deadlocks",
+    "mysql_backend",
+    "mysql_isolation"
+  ],
+  "scores": {
+    "mysql_backend": 0.521308,
+    "mysql_deadlocks": 0.533388,
+    "mysql_indexing": 0.762561,
+    "mysql_isolation": 0.507048
+  },
+  "status": "completed"
+}

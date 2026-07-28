@@ -5,6 +5,7 @@ from app.graphs.durable_review_graph import DurableReviewGraphDependencies, buil
 from app.graphs.durable_review_state import make_durable_review_initial_state
 from tests.test_durable_review_state import make_finished_state, make_job
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.workflow_thread_lock import ReviewEffectLeaseLost
 
 
 class FakeStore:
@@ -113,3 +114,84 @@ def test_question_send_fanout_uses_checkpointed_batches():
     assert set(reviewed) == {"q0", "q1", "q2", "q3", "q4"}
     assert result["next_batch_start"] == 5
     assert result["completed_question_ids"] == ["q0", "q1", "q2", "q3", "q4"]
+
+
+def test_question_failure_is_classified_before_the_join():
+    store = FakeStore()
+    graph = build_durable_review_graph(
+        DurableReviewGraphDependencies(
+            workflow_store=store,
+            review_question=lambda state, question_id: (_ for _ in ()).throw(
+                ValueError("invalid question input")
+            ),
+            generate_report=lambda state: {
+                "report_ref": "unused",
+                "report_sha256": "unused",
+            },
+            validate_report=lambda state: "passed",
+            commit_report=lambda state: None,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+
+    result = graph.invoke(
+        make_durable_review_initial_state(make_job(), make_finished_state()),
+        {"configurable": {"thread_id": "review:question-failure"}},
+    )
+
+    assert result["failed_question_ids"] == ["q1"]
+    assert result["error_code"] == "domain_validation_failed"
+    assert store.failed[-1][1] == "domain_validation_failed"
+
+
+def test_review_effect_lease_loss_keeps_v1_terminal_fenced_outcome():
+    store = FakeStore()
+    graph = build_durable_review_graph(
+        DurableReviewGraphDependencies(
+            workflow_store=store,
+            review_question=lambda state, question_id: (_ for _ in ()).throw(
+                ReviewEffectLeaseLost("claim lost")
+            ),
+            generate_report=lambda state: {
+                "report_ref": "unused",
+                "report_sha256": "unused",
+            },
+            validate_report=lambda state: "passed",
+            commit_report=lambda state: None,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+
+    result = graph.invoke(
+        make_durable_review_initial_state(make_job(), make_finished_state()),
+        {"configurable": {"thread_id": "review:effect-lease-loss"}},
+    )
+
+    assert result["failed_question_ids"] == ["q1"]
+    assert result["error_code"] == "fenced_write_rejected"
+    assert store.failed[-1][1] == "fenced_write_rejected"
+
+
+def test_non_retryable_report_error_fails_without_scheduling_retry():
+    store = FakeStore()
+    graph = build_durable_review_graph(
+        DurableReviewGraphDependencies(
+            workflow_store=store,
+            review_question=lambda state, question_id: None,
+            generate_report=lambda state: (_ for _ in ()).throw(
+                TypeError("report bug")
+            ),
+            validate_report=lambda state: "passed",
+            commit_report=lambda state: None,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+
+    result = graph.invoke(
+        make_durable_review_initial_state(make_job(), make_finished_state()),
+        {"configurable": {"thread_id": "review:report-failure"}},
+    )
+
+    assert result["generation_outcome"] == "terminal"
+    assert result["error_code"] == "domain_validation_failed"
+    assert store.retries == []

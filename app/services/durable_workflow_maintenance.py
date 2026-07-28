@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class MaintenanceResult:
     cleared_command_payloads: int
     deleted_generation_chunks: int
+    deleted_runtime_signal_buckets: int = 0
 
 
 class DurableWorkflowMaintenanceService:
@@ -20,7 +21,9 @@ class DurableWorkflowMaintenanceService:
         *,
         workflow_store,
         generation_store,
+        signal_store=None,
         retention_hours: int,
+        signal_retention_hours: int | None = None,
         interval_seconds: int,
     ) -> None:
         if retention_hours < 1:
@@ -29,7 +32,15 @@ class DurableWorkflowMaintenanceService:
             raise ValueError("interval_seconds must be positive")
         self.workflow_store = workflow_store
         self.generation_store = generation_store
+        self.signal_store = signal_store
         self.retention_hours = retention_hours
+        self.signal_retention_hours = (
+            retention_hours
+            if signal_retention_hours is None
+            else signal_retention_hours
+        )
+        if self.signal_retention_hours < 1:
+            raise ValueError("signal retention hours must be positive")
         self.interval_seconds = interval_seconds
         self._stop = Event()
         self._run_lock = Lock()
@@ -69,6 +80,13 @@ class DurableWorkflowMaintenanceService:
                         hours=self.retention_hours
                     )
                 ),
+                deleted_runtime_signal_buckets=(
+                    self.signal_store.cleanup_older_than(
+                        hours=self.signal_retention_hours
+                    )
+                    if self.signal_store is not None
+                    else 0
+                ),
             )
             self.last_result = result
             self.last_error_code = None
@@ -80,6 +98,9 @@ class DurableWorkflowMaintenanceService:
                     ),
                     "deleted_generation_chunk_count": (
                         result.deleted_generation_chunks
+                    ),
+                    "deleted_runtime_signal_bucket_count": (
+                        result.deleted_runtime_signal_buckets
                     ),
                 },
             )

@@ -38,6 +38,47 @@ class FakeWorkflow:
     def graph_for_session(self, session_id):
         return self.graph
 
+    def resume_command(self, session_id, command_id):
+        from langgraph.types import Command
+
+        self.graph.invoke(
+            Command(
+                resume={
+                    "kind": "answer_command",
+                    "command_id": command_id,
+                }
+            ),
+            config={"configurable": {"thread_id": session_id}},
+        )
+        return "completed"
+
+    def resume_generation_retry(
+        self, session_id, *, generation_id, next_attempt_number
+    ):
+        from langgraph.types import Command
+
+        snapshot = self.graph.get_state(
+            {"configurable": {"thread_id": session_id}}
+        )
+        if (
+            snapshot.next != ("wait_for_retry",)
+            or snapshot.values.get("generation_id") != generation_id
+            or snapshot.values.get("expected_retry_attempt")
+            != next_attempt_number
+        ):
+            return "discarded_stale_retry"
+        self.graph.invoke(
+            Command(
+                resume={
+                    "kind": "retry_timer",
+                    "generation_id": generation_id,
+                    "next_attempt_number": next_attempt_number,
+                }
+            ),
+            config={"configurable": {"thread_id": session_id}},
+        )
+        return "completed"
+
 
 def make_consumer():
     workflow = FakeWorkflow()

@@ -15,6 +15,7 @@ POSTGRES_RUNTIME_MARKERS = (
     "langgraph_recovery",
     "langgraph_review_recovery",
     "langgraph_dual_canary",
+    "langgraph_fencing_canary",
 )
 
 

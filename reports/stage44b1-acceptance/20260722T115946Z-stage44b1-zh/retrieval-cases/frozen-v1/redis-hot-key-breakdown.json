@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "cache_breakdown"
+  ],
+  "case_id": "redis-hot-key-breakdown",
+  "latency_ms": 268.22,
+  "replayed_evidence_ids": [
+    "cache_breakdown"
+  ],
+  "retrieved_ids": [
+    "cache_breakdown",
+    "redis_consistency",
+    "redis_distributed_lock"
+  ],
+  "scores": {
+    "cache_breakdown": 0.681728,
+    "redis_consistency": 0.610422,
+    "redis_distributed_lock": 0.532591
+  },
+  "status": "completed"
+}

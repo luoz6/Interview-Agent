@@ -282,6 +282,93 @@ def test_expired_running_job_can_be_reclaimed(stores):
     assert reclaimed["status"] == "running"
 
 
+def make_durable_review_job(stores):
+    session_id = create_session(stores["session_store"])
+    created = stores["job_store"].enqueue_report_request(
+        session_id=session_id
+    )
+    psycopg2, sql = PostgresReportJobStore._import_psycopg2()
+    with psycopg2.connect(stores["dsn"]) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    UPDATE {jobs}
+                    SET review_engine = 'langgraph-review-v1',
+                        review_graph_schema_version = 'langgraph-review-v1'
+                    WHERE job_id = %s::uuid
+                    """
+                ).format(
+                    jobs=sql.Identifier(stores["job_store"].jobs_table)
+                ),
+                (created["job_id"],),
+            )
+    return stores["job_store"].get_job(created["job_id"])
+
+
+def test_review_retry_due_time_controls_claimability(stores):
+    job = make_durable_review_job(stores)
+
+    assert stores["job_store"].schedule_review_retry(
+        job["job_id"], next_attempt_number=2, delay_seconds=30
+    ) == "scheduled"
+    assert stores["job_store"].claim_next("early-worker") is None
+
+    psycopg2, sql = PostgresReportJobStore._import_psycopg2()
+    with psycopg2.connect(stores["dsn"]) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    UPDATE {jobs} SET available_at = NOW()
+                    WHERE job_id = %s::uuid
+                    """
+                ).format(
+                    jobs=sql.Identifier(stores["job_store"].jobs_table)
+                ),
+                (job["job_id"],),
+            )
+
+    claimed = stores["job_store"].claim_next("due-worker")
+    assert claimed["job_id"] == job["job_id"]
+    assert claimed["scheduled_attempt"] == 2
+
+
+def test_duplicate_review_retry_does_not_steal_fresh_claim(stores):
+    job = make_durable_review_job(stores)
+    store = stores["job_store"]
+    store.schedule_review_retry(job["job_id"], next_attempt_number=2)
+    claimed = store.claim_next("owner-worker")
+
+    assert store.schedule_review_retry(
+        job["job_id"], next_attempt_number=2
+    ) == "scheduled"
+    current = store.get_job(job["job_id"])
+    assert current["status"] == "running"
+    assert current["lease_token"] == claimed["lease_token"]
+
+
+def test_release_claim_for_retry_is_token_fenced(stores):
+    job = make_durable_review_job(stores)
+    stores["job_store"].schedule_review_retry(
+        job["job_id"], next_attempt_number=2
+    )
+    claimed = stores["job_store"].claim_next("owner-worker")
+
+    assert not stores["job_store"].release_claim_for_retry(
+        job["job_id"],
+        worker_id="owner-worker",
+        lease_token=str(uuid4()),
+    )
+    assert stores["job_store"].release_claim_for_retry(
+        job["job_id"],
+        worker_id="owner-worker",
+        lease_token=claimed["lease_token"],
+        delay_seconds=0,
+    )
+    assert stores["job_store"].get_job(job["job_id"])["status"] == "retrying"
+
+
 def test_retryable_failure_marks_retrying_until_max_attempts(stores):
     session_id = create_session(stores["session_store"])
     created = stores["job_store"].enqueue_report_request(session_id=session_id)

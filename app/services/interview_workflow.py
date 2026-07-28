@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from uuid import uuid4
 
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.graphs.interview_state import choose_workflow_engine
 from app.services.interview_event_stream import InterviewEventStreamService
 from app.services.runtime_events import AcceptedInterviewCommand
+from app.services.workflow_thread_lock import (
+    NoopWorkflowThreadLock,
+    interview_thread_identity,
+)
 
 
 PENDING_ACTION_BY_NODE = {
@@ -28,6 +34,7 @@ class InterviewWorkflowService:
         runtime_enabled: bool,
         rollout_percent: int,
         default_graph_version: str,
+        thread_lock=None,
     ) -> None:
         self.legacy_store = legacy_store
         self.workflow_store = workflow_store
@@ -37,6 +44,7 @@ class InterviewWorkflowService:
         self.runtime_enabled = runtime_enabled
         self.rollout_percent = rollout_percent
         self.default_graph_version = default_graph_version
+        self.thread_lock = thread_lock or NoopWorkflowThreadLock()
         self.event_stream = InterviewEventStreamService(
             workflow_store, generation_store
         )
@@ -71,10 +79,7 @@ class InterviewWorkflowService:
             resume_text=resume_text,
             job_tags=job_tags,
         )
-        self.graph_for_version(self.default_graph_version).invoke(
-            make_durable_initial_state(session_id, plan),
-            config={"configurable": {"thread_id": session_id}},
-        )
+        self.ensure_interview_bootstrapped(session_id, plan=plan)
         return self.legacy_store._to_turn(
             self.legacy_store.get(session_id), follow_up=None
         )
@@ -98,6 +103,120 @@ class InterviewWorkflowService:
         if state.get("workflow_engine") != "langgraph-v1" or not version:
             raise ValueError("session is not a durable graph session")
         return self.graph_for_version(version)
+
+    def _invoke_locked(
+        self,
+        session_id: str,
+        graph_input,
+        *,
+        reason: str,
+        graph=None,
+        validate_snapshot=None,
+    ):
+        with self.thread_lock.hold(
+            interview_thread_identity(session_id),
+            workflow_type="interview",
+        ) as ownership:
+            active_graph = graph or self.graph_for_session(session_id)
+            config = {"configurable": {"thread_id": session_id}}
+            if validate_snapshot is not None:
+                snapshot = active_graph.get_state(config)
+                if not validate_snapshot(snapshot):
+                    return None
+            result = active_graph.invoke(graph_input, config=config)
+            if ownership is not None:
+                ownership.ensure_owned()
+            return result
+
+    def ensure_interview_bootstrapped(self, session_id: str, *, plan=None):
+        with self.thread_lock.hold(
+            interview_thread_identity(session_id),
+            workflow_type="interview",
+        ) as ownership:
+            public_state = self.legacy_store.get(session_id)
+            if public_state.get("workflow_engine") != "langgraph-v1":
+                raise ValueError("session is not a durable graph session")
+            version = public_state.get("graph_schema_version")
+            if not version:
+                raise ValueError("durable graph version is missing")
+            resolved_plan = plan or public_state["plan"]
+            initial_state = make_durable_initial_state(
+                session_id, resolved_plan
+            )
+            canonical = json.dumps(
+                {
+                    "graph_schema_version": version,
+                    "initial_state": initial_state,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            graph = self.graph_for_version(version)
+            config = {"configurable": {"thread_id": session_id}}
+            snapshot = graph.get_state(config)
+            self.workflow_store.register_bootstrap_input(
+                session_id=session_id,
+                graph_schema_version=version,
+                bootstrap_input_sha256=digest,
+                require_unstarted=not bool(snapshot.values),
+            )
+            if snapshot.values:
+                if ownership is not None:
+                    ownership.ensure_owned()
+                return snapshot.values
+            result = graph.invoke(initial_state, config=config)
+            if ownership is not None:
+                ownership.ensure_owned()
+            return result
+
+    def resume_command(self, session_id: str, command_id: str) -> str:
+        from langgraph.types import Command
+
+        self._invoke_locked(
+            session_id,
+            Command(
+                resume={
+                    "kind": "answer_command",
+                    "command_id": command_id,
+                }
+            ),
+            reason="command_resume",
+        )
+        return "completed"
+
+    def resume_generation_retry(
+        self,
+        session_id: str,
+        *,
+        generation_id: str,
+        next_attempt_number: int,
+    ) -> str:
+        from langgraph.types import Command
+
+        def is_current_retry(snapshot) -> bool:
+            state = snapshot.values
+            return (
+                snapshot.next == ("wait_for_retry",)
+                and state.get("generation_id") == generation_id
+                and state.get("expected_retry_attempt")
+                == next_attempt_number
+            )
+
+        result = self._invoke_locked(
+            session_id,
+            Command(
+                resume={
+                    "kind": "retry_timer",
+                    "generation_id": generation_id,
+                    "next_attempt_number": next_attempt_number,
+                }
+            ),
+            reason="retry_resume",
+            validate_snapshot=is_current_retry,
+        )
+        return "completed" if result is not None else "discarded_stale_retry"
 
     def submit_command(
         self,

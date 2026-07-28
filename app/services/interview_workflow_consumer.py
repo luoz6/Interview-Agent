@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from langgraph.types import Command
-
 from app.services.runtime_domain_events import (
     InterviewCommandReadyEvent,
     InterviewRetryDueEvent,
@@ -22,18 +20,15 @@ class InterviewWorkflowConsumer:
         session_id = payload["session_id"]
         if not self.workflow.is_durable_session(session_id):
             return ConsumerOutcome("discarded_wrong_engine")
-        config = {
-            "configurable": {"thread_id": session_id}
-        }
-        graph = self.workflow.graph_for_session(session_id)
         if event_type == "interview_command_ready":
             event = InterviewCommandReadyEvent.model_validate(payload)
-            resume = {
-                "kind": "answer_command",
-                "command_id": event.command_id,
-            }
+            return ConsumerOutcome(
+                self.workflow.resume_command(session_id, event.command_id)
+            )
         elif event_type == "interview_retry_due":
             event = InterviewRetryDueEvent.model_validate(payload)
+            config = {"configurable": {"thread_id": session_id}}
+            graph = self.workflow.graph_for_session(session_id)
             snapshot = graph.get_state(config)
             state = snapshot.values
             if (
@@ -43,12 +38,12 @@ class InterviewWorkflowConsumer:
                 != event.next_attempt_number
             ):
                 return ConsumerOutcome("discarded_stale_retry")
-            resume = {
-                "kind": "retry_timer",
-                "generation_id": event.generation_id,
-                "next_attempt_number": event.next_attempt_number,
-            }
+            return ConsumerOutcome(
+                self.workflow.resume_generation_retry(
+                    session_id,
+                    generation_id=event.generation_id,
+                    next_attempt_number=event.next_attempt_number,
+                )
+            )
         else:
             raise ValueError("unsupported interview workflow event")
-        graph.invoke(Command(resume=resume), config=config)
-        return ConsumerOutcome("completed")

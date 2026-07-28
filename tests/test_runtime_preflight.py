@@ -9,6 +9,7 @@ from scripts.runtime_preflight import (
     validate_registered_graph_versions,
     validate_langgraph_schema_snapshot,
     validate_maintenance_configuration,
+    validate_runtime_signal_schema,
     validate_runtime_control_snapshot,
     validate_runtime_versions,
 )
@@ -199,9 +200,29 @@ def test_preflight_graph_registry_requires_exact_versions():
 
 def test_maintenance_configuration_requires_positive_bounds():
     assert validate_maintenance_configuration(
-        retention_hours=24, interval_seconds=3600
-    ) == {"retention_hours": 24, "interval_seconds": 3600}
+        retention_hours=24,
+        interval_seconds=3600,
+        signal_retention_hours=168,
+    ) == {
+        "retention_hours": 24,
+        "signal_retention_hours": 168,
+        "interval_seconds": 3600,
+    }
     with pytest.raises(PreflightError, match="maintenance interval"):
         validate_maintenance_configuration(
             retention_hours=24, interval_seconds=0
         )
+
+
+def test_runtime_signal_schema_is_a_closed_privacy_contract():
+    columns = [
+        "bucket_start",
+        "workflow_type",
+        "signal_code",
+        "signal_count",
+        "updated_at",
+    ]
+
+    assert validate_runtime_signal_schema(columns) == columns
+    with pytest.raises(PreflightError, match="privacy contract"):
+        validate_runtime_signal_schema(columns + ["session_id"])

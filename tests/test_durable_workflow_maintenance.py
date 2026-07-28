@@ -27,11 +27,23 @@ class GenerationStore:
         return self.result
 
 
-def make_service(workflow=None, generations=None):
+class SignalStore:
+    def __init__(self, result=4):
+        self.result = result
+        self.hours = []
+
+    def cleanup_older_than(self, *, hours):
+        self.hours.append(hours)
+        return self.result
+
+
+def make_service(workflow=None, generations=None, signals=None):
     return DurableWorkflowMaintenanceService(
         workflow_store=workflow or WorkflowStore(),
         generation_store=generations or GenerationStore(),
+        signal_store=signals,
         retention_hours=24,
+        signal_retention_hours=168,
         interval_seconds=3600,
     )
 
@@ -39,16 +51,19 @@ def make_service(workflow=None, generations=None):
 def test_run_once_uses_bounded_database_retention_methods():
     workflow = WorkflowStore()
     generations = GenerationStore()
-    service = make_service(workflow, generations)
+    signals = SignalStore()
+    service = make_service(workflow, generations, signals)
 
     result = service.run_once()
 
     assert result == MaintenanceResult(
         cleared_command_payloads=2,
         deleted_generation_chunks=3,
+        deleted_runtime_signal_buckets=4,
     )
     assert workflow.hours == [24]
     assert generations.hours == [24]
+    assert signals.hours == [168]
     assert service.last_error_code is None
 
 

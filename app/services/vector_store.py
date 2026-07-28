@@ -21,6 +21,11 @@ from app.services.embedding_providers import (
     build_embedding_provider,
     validate_embedding_batch,
 )
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 
 
 KnowledgeSearchStore = KnowledgeRepository
@@ -112,26 +117,54 @@ class PgVectorKnowledgeStore:
     def __init__(
         self,
         *,
-        dsn: str,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
         table_name: str,
         embedding_provider,
         minimum_score: float = DEFAULT_KNOWLEDGE_MIN_SCORE,
+        schema_mode: str | None = None,
     ) -> None:
-        self.dsn = dsn
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
         self.legacy_table = table_name
         self.table_name = table_name
         self.versions_table, self.releases_table = derive_pgvector_table_names(table_name)
         self.embedding_provider = embedding_provider
         self.embedding_dimension = embedding_provider.dimension
         self.minimum_score = float(minimum_score)
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "validate":
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.versions_table,
+                    self.releases_table,
+                ),
+            )
         self.last_search_trace: dict[str, Any] | None = None
         self.last_lookup_trace: dict[str, Any] | None = None
 
     @classmethod
-    def from_env(cls) -> "PgVectorKnowledgeStore":
+    def from_env(
+        cls,
+        *,
+        connection_provider: ConnectionProvider | None = None,
+        schema_mode: str = "migrate",
+    ) -> "PgVectorKnowledgeStore":
         settings = get_embedding_settings()
         return cls(
             dsn=get_postgres_dsn(),
+            connection_provider=connection_provider,
+            schema_mode=schema_mode,
             table_name=get_pgvector_table(),
             embedding_provider=build_embedding_provider(settings),
             minimum_score=float(
@@ -204,7 +237,7 @@ class PgVectorKnowledgeStore:
 
         corpus_version = None
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -317,7 +350,7 @@ class PgVectorKnowledgeStore:
         )
 
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(statement, (requested,))
@@ -383,7 +416,7 @@ class PgVectorKnowledgeStore:
     def ensure_schema(self) -> None:
         psycopg2, _ = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
         except Exception as exc:
             raise RuntimeError('pgvector knowledge store is unavailable') from exc
@@ -391,7 +424,7 @@ class PgVectorKnowledgeStore:
     def count_chunks(self) -> int:
         psycopg2, sql = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -414,6 +447,8 @@ class PgVectorKnowledgeStore:
         return int(row[0]) if row is not None else 0
 
     def _ensure_schema(self, connection) -> None:
+        if self.schema_mode == "validate":
+            return
         _, sql = self._import_psycopg2()
         dimension_sql = sql.SQL(str(int(self.embedding_dimension)))
         with connection.cursor() as cursor:
@@ -521,7 +556,7 @@ class PgVectorKnowledgeStore:
     def migrate_legacy_rows(self) -> int:
         psycopg2, sql = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT to_regclass(%s)", (f"public.{self.legacy_table}",))
@@ -640,7 +675,7 @@ class PgVectorKnowledgeStore:
         }
         psycopg2, sql = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -735,7 +770,7 @@ class PgVectorKnowledgeStore:
         )
         psycopg2, sql = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -849,7 +884,7 @@ class PgVectorKnowledgeStore:
     def get_active_corpus_version(self) -> str | None:
         psycopg2, sql = self._import_psycopg2()
         try:
-            with psycopg2.connect(self.dsn) as connection:
+            with self._connection_provider.connection() as connection:
                 self._ensure_schema(connection)
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -1015,8 +1050,20 @@ class PgVectorKnowledgeStore:
 _knowledge_store: PgVectorKnowledgeStore | None = None
 
 
-def get_knowledge_store() -> PgVectorKnowledgeStore:
+def get_knowledge_store(
+    *,
+    connection_provider: ConnectionProvider | None = None,
+    schema_mode: str = "migrate",
+) -> PgVectorKnowledgeStore:
     global _knowledge_store
     if _knowledge_store is None:
-        _knowledge_store = PgVectorKnowledgeStore.from_env()
+        _knowledge_store = PgVectorKnowledgeStore.from_env(
+            connection_provider=connection_provider,
+            schema_mode=schema_mode,
+        )
+    elif (
+        connection_provider is not None
+        and _knowledge_store._connection_provider is not connection_provider
+    ):
+        raise RuntimeError("knowledge store provider identity changed")
     return _knowledge_store

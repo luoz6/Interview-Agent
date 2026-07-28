@@ -6,11 +6,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
+from app.services.postgres_connections import ConnectionProvider
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.runtime_domain_events import (
     InterviewCommandReadyEvent,
     InterviewRetryDueEvent,
 )
+from app.services.workflow_thread_lock import ProjectionConflict
 
 
 CommandType = Literal["answer", "skip", "finish"]
@@ -21,7 +28,7 @@ class CommandPayloadConflict(ValueError):
     pass
 
 
-class ProjectionConflict(RuntimeError):
+class BootstrapConflict(RuntimeError):
     pass
 
 
@@ -52,16 +59,44 @@ class InterviewCommandRecord:
 
 
 class PostgresInterviewWorkflowStore:
-    def __init__(self, *, dsn: str, table_prefix: str = "interview") -> None:
-        self.dsn = dsn
+    def __init__(
+        self,
+        *,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
+        table_prefix: str = "interview",
+        schema_mode: str | None = None,
+    ) -> None:
+        validate_runtime_table_prefix(table_prefix)
+        if connection_provider is None and not dsn:
+            raise ValueError("dsn or connection_provider is required")
+        self.dsn = dsn or ""
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"
         self.commands_table = f"{table_prefix}_workflow_commands"
+        provider_is_owned = connection_provider is None
+        resolved_schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=provider_is_owned
+        )
         self.control = PostgresRuntimeControlStore(
             dsn=dsn,
+            connection_provider=connection_provider,
             table_prefix=table_prefix,
+            schema_mode=resolved_schema_mode,
         )
-        self._ensure_schema()
+        self._connection_provider = self.control._connection_provider
+        self.schema_mode = resolved_schema_mode
+        if self.schema_mode == "migrate":
+            self._ensure_schema()
+        else:
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.sessions_table,
+                    self.commands_table,
+                    f"{table_prefix}_schema_migrations",
+                ),
+            )
 
     def enqueue_command(
         self,
@@ -197,7 +232,7 @@ class PostgresInterviewWorkflowStore:
                 current_version = int(current[0])
                 current_digest = current[1]
                 if current_version > next_version:
-                    return ProjectionResult(current_version, current_digest)
+                    raise ProjectionConflict(state["session_id"])
                 if current_version == next_version:
                     if current_digest != digest:
                         raise ProjectionConflict(state["session_id"])
@@ -262,6 +297,64 @@ class PostgresInterviewWorkflowStore:
                     if cursor.rowcount != 1:
                         raise ProjectionConflict(state["session_id"])
         return ProjectionResult(next_version, digest)
+
+    def register_bootstrap_input(
+        self,
+        *,
+        session_id: str,
+        graph_schema_version: str,
+        bootstrap_input_sha256: str,
+        require_unstarted: bool = True,
+    ) -> None:
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT workflow_engine, graph_schema_version,
+                               state_version, bootstrap_input_sha256
+                        FROM {sessions}
+                        WHERE session_id = %s
+                        FOR UPDATE
+                        """
+                    ),
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise BootstrapConflict("durable bootstrap shell is missing")
+                if (
+                    row[0] != "langgraph-v1"
+                    or row[1] != graph_schema_version
+                ):
+                    raise BootstrapConflict(
+                        "durable bootstrap metadata conflicts"
+                    )
+                if require_unstarted and int(row[2]) != 0:
+                    raise BootstrapConflict(
+                        "durable bootstrap public version already advanced"
+                    )
+                if row[3] is not None and row[3] != bootstrap_input_sha256:
+                    raise BootstrapConflict(
+                        "durable bootstrap input digest conflicts"
+                    )
+                if row[3] is None:
+                    cursor.execute(
+                        self._sql(
+                            """
+                            UPDATE {sessions}
+                            SET bootstrap_input_sha256 = %s,
+                                updated_at = NOW()
+                            WHERE session_id = %s
+                              AND bootstrap_input_sha256 IS NULL
+                            """
+                        ),
+                        (bootstrap_input_sha256, session_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise BootstrapConflict(
+                            "durable bootstrap registration was lost"
+                        )
 
     def session_snapshot(self, session_id: str) -> dict[str, Any]:
         with self.control.connection() as connection:
@@ -482,7 +575,10 @@ class PostgresInterviewWorkflowStore:
                     )
                 )
                 _, sql = self.control._import_psycopg2()
-                named_constraint = f"{self.commands_table}_answer_payload_check"
+                named_constraint = runtime_schema_identifier(
+                    self.table_prefix,
+                    "workflow_commands_answer_payload_check",
+                )
                 cursor.execute(
                     sql.SQL(
                         "ALTER TABLE {commands} DROP CONSTRAINT IF EXISTS {constraint}"
@@ -490,6 +586,14 @@ class PostgresInterviewWorkflowStore:
                         commands=sql.Identifier(self.commands_table),
                         constraint=sql.Identifier(named_constraint),
                     )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {sessions}
+                        ADD COLUMN IF NOT EXISTS bootstrap_input_sha256 TEXT
+                        """
+                    ).format(sessions=sql.Identifier(self.sessions_table))
                 )
                 cursor.execute(
                     """
@@ -546,7 +650,10 @@ class PostgresInterviewWorkflowStore:
                         """
                     ).format(
                         index=sql.Identifier(
-                            f"{self.commands_table}_status_updated_idx"
+                            runtime_schema_identifier(
+                                self.table_prefix,
+                                "workflow_commands_status_updated_idx",
+                            )
                         ),
                         commands=sql.Identifier(self.commands_table),
                     )

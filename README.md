@@ -72,6 +72,14 @@ reasons. See `docs/langgraph-dual-workflow-canary-acceptance.md` and the Dual
 LangGraph Canary section of `docs/local-v1-runbook.md` before any deployed
 canary.
 
+Stage 47 upgrades this operator gate to `langgraph-canary-v2`. A deployed
+evaluation requires an explicit phase and UTC phase start, validates the fixed
+1% rollout pair, keeps Interview and Review sample minima independent, and
+separates command-version conflicts from true projection divergence. Its
+privacy-safe runtime signal buckets contain only minute, workflow category,
+stable allowlisted code, and aggregate count. The CLI is read-only and never
+changes deployment configuration.
+
 ## Prerequisites
 
 - Python 3.11

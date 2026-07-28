@@ -20,6 +20,12 @@ from app.services.agent_runtime import (
 )
 from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import InterviewPlan
+from app.services.context_budget import (
+    FOLLOWUP_CONTEXT_POLICY,
+    context_enforcement_enabled,
+)
+from app.services.context_selection import build_interview_context
+from app.services.token_estimation import CompositeTokenEstimator
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
@@ -248,15 +254,28 @@ def _build_followup_context(
     state: InterviewState,
     knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
 ) -> list[dict[str, str]]:
-    recent_messages = [
-        {"role": message["role"], "content": message["content"]}
-        for message in state["messages"][-4:]
-    ]
     question = get_current_question(state)
-    question_id = question.id if question is not None else None
+    question_id = question.id if question is not None else ""
     resolver = knowledge_binding_resolver or KnowledgeBindingResolver()
     resolution = resolver.resolve(state["plan"], question_id)
-    return recent_messages + resolution.messages
+    if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
+        recent_messages = [
+            {"role": message["role"], "content": message["content"]}
+            for message in state["messages"][-4:]
+        ]
+        return recent_messages + resolution.messages
+    estimator = CompositeTokenEstimator().resolve(
+        model="deepseek-v4-pro"
+    ).estimator
+    context, _ = build_interview_context(
+        state["messages"],
+        current_question_id=question_id,
+        evidence_messages=resolution.messages,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+        estimator=estimator,
+        model="deepseek-v4-pro",
+    )
+    return context
 
 
 def _examiner_execution_context(

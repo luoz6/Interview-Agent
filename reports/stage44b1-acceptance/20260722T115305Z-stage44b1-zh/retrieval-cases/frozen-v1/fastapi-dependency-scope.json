@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "fastapi_dependency_lifecycle"
+  ],
+  "case_id": "fastapi-dependency-scope",
+  "latency_ms": 331.002,
+  "replayed_evidence_ids": [
+    "fastapi_dependency_lifecycle"
+  ],
+  "retrieved_ids": [
+    "fastapi_dependency_lifecycle",
+    "fastapi_request_lifecycle",
+    "fastapi_production"
+  ],
+  "scores": {
+    "fastapi_dependency_lifecycle": 0.724819,
+    "fastapi_production": 0.514102,
+    "fastapi_request_lifecycle": 0.549109
+  },
+  "status": "completed"
+}

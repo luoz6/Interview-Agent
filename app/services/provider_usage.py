@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+from contextvars import ContextVar
+from typing import Any, Mapping
+
+from app.services.context_budget import RenderedPromptMeasurement
+
+
+_provider_context_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
+    "provider_context_metadata",
+    default=None,
+)
+
+
+def reset_provider_context_metadata() -> None:
+    _provider_context_metadata.set({})
+
+
+def publish_prompt_measurement(measurement: RenderedPromptMeasurement) -> None:
+    metadata = dict(_provider_context_metadata.get() or {})
+    metadata.update(
+        {
+            "estimated_input_tokens": measurement.estimated_input_tokens,
+            "available_input_tokens": measurement.available_input_tokens,
+            "budget_utilization_basis_points": (
+                measurement.budget_utilization_basis_points
+            ),
+            "estimator_path": measurement.estimator_path,
+            "estimator_fallback_used": measurement.estimator_fallback_used,
+        }
+    )
+    _provider_context_metadata.set(metadata)
+
+
+def begin_provider_attempt() -> None:
+    metadata = dict(_provider_context_metadata.get() or {})
+    metadata["provider_attempt_count"] = int(
+        metadata.get("provider_attempt_count", 0)
+    ) + 1
+    _provider_context_metadata.set(metadata)
+
+
+def publish_provider_response(response: Any) -> None:
+    metadata = dict(_provider_context_metadata.get() or {})
+    usage = _extract_usage(response)
+    if usage is None:
+        metadata.setdefault("provider_usage_available", False)
+        _provider_context_metadata.set(metadata)
+        return
+    metadata["provider_usage_available"] = True
+    for key, value in usage.items():
+        metadata[key] = int(metadata.get(key, 0)) + value
+    _provider_context_metadata.set(metadata)
+
+
+def consume_provider_context_metadata() -> dict[str, Any]:
+    metadata = dict(_provider_context_metadata.get() or {})
+    _provider_context_metadata.set({})
+    return metadata
+
+
+def _extract_usage(response: Any) -> dict[str, int] | None:
+    usage_metadata = getattr(response, "usage_metadata", None)
+    if isinstance(usage_metadata, Mapping):
+        normalized = _normalize_usage(usage_metadata)
+        if normalized:
+            return normalized
+    response_metadata = getattr(response, "response_metadata", None)
+    if isinstance(response_metadata, Mapping):
+        for key in ("token_usage", "usage"):
+            candidate = response_metadata.get(key)
+            if isinstance(candidate, Mapping):
+                normalized = _normalize_usage(candidate)
+                if normalized:
+                    return normalized
+    return None
+
+
+def _normalize_usage(usage: Mapping[str, Any]) -> dict[str, int]:
+    aliases = {
+        "provider_input_tokens": ("input_tokens", "prompt_tokens"),
+        "provider_output_tokens": ("output_tokens", "completion_tokens"),
+        "provider_total_tokens": ("total_tokens",),
+    }
+    result: dict[str, int] = {}
+    for target, sources in aliases.items():
+        for source in sources:
+            value = usage.get(source)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                result[target] = value
+                break
+    if (
+        "provider_total_tokens" not in result
+        and "provider_input_tokens" in result
+        and "provider_output_tokens" in result
+    ):
+        result["provider_total_tokens"] = (
+            result["provider_input_tokens"] + result["provider_output_tokens"]
+        )
+    return result

@@ -261,6 +261,13 @@ def test_build_report_coach_items_from_question_evaluations_preserves_microbatch
     )
     assert items[0]["scoring_references"] == []
     assert items[0]["answer_references"] == []
+    assert "messages" not in items[0]
+    assert "user_answer" not in items[0]
+    assert items[0]["observed_excerpts_verified"] is True
+    assert items[0]["dimension_evidence"][0]["observed"] == [
+        "候选人回答了 q1 的核心思路。"
+    ]
+    assert len(items[0]["observed_provenance"][0]["source_message_sha256"]) == 64
 
 
 def test_finalize_report_with_microbatch_feedback_locks_scores_to_shadow_reviewer_records():

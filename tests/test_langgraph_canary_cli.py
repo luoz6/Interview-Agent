@@ -1,7 +1,10 @@
 import json
 
+import argparse
+import pytest
+
 from scripts.audit_agent_runtime import audit_runtime_control_payloads
-from scripts.langgraph_canary import write_canary_artifacts
+from scripts.langgraph_canary import parse_utc_timestamp, write_canary_artifacts
 from tests.test_langgraph_canary_status import snapshot
 
 
@@ -27,6 +30,29 @@ def test_canary_artifacts_are_allowlisted_and_sanitized(tmp_path):
     ):
         assert forbidden not in json.dumps(json_payload)
         assert forbidden not in markdown
+    assert "Phase: joint" in markdown
+    assert "interview_assigned_count: 10" in markdown
+    assert "projection_divergence_count: 0" in markdown
+
+
+def test_canary_artifacts_refuse_to_overwrite_a_phase(tmp_path):
+    result = snapshot()
+
+    write_canary_artifacts(result, tmp_path)
+    with pytest.raises(FileExistsError, match="already exist"):
+        write_canary_artifacts(result, tmp_path)
+
+
+def test_phase_start_requires_explicit_utc():
+    assert parse_utc_timestamp("2026-07-25T10:00:00Z").utcoffset().total_seconds() == 0
+    assert parse_utc_timestamp("2026-07-25T10:00:00+00:00").utcoffset().total_seconds() == 0
+    for invalid in (
+        "2026-07-25T10:00:00",
+        "2026-07-25T10:00:00+08:00",
+        "not-a-time",
+    ):
+        with pytest.raises(argparse.ArgumentTypeError):
+            parse_utc_timestamp(invalid)
 
 
 def test_control_audit_rejects_adversarial_canary_source_fields():

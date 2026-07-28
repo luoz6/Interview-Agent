@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from time import sleep
+from time import monotonic, sleep
 
 from app.services.runtime_events import (
     InterviewGenerationChunkEvent,
@@ -10,9 +10,34 @@ from app.services.runtime_events import (
 
 
 class InterviewEventStreamService:
-    def __init__(self, workflow_store, generation_store) -> None:
+    def __init__(
+        self,
+        workflow_store,
+        generation_store,
+        *,
+        page_size: int = 200,
+        min_poll_seconds: float = 0.05,
+        max_poll_seconds: float = 0.5,
+        max_stream_seconds: float = 600,
+        keepalive_seconds: float = 15,
+        clock=monotonic,
+        sleeper=sleep,
+    ) -> None:
+        if page_size < 1:
+            raise ValueError("SSE event page size must be positive")
+        if min_poll_seconds <= 0 or max_poll_seconds < min_poll_seconds:
+            raise ValueError("invalid SSE poll interval")
+        if max_stream_seconds <= 0 or keepalive_seconds <= 0:
+            raise ValueError("SSE timeout bounds must be positive")
         self.workflow_store = workflow_store
         self.generation_store = generation_store
+        self.page_size = page_size
+        self.min_poll_seconds = min_poll_seconds
+        self.max_poll_seconds = max_poll_seconds
+        self.max_stream_seconds = max_stream_seconds
+        self.keepalive_seconds = keepalive_seconds
+        self._clock = clock
+        self._sleep = sleeper
 
     def iter_command_events(
         self,
@@ -27,24 +52,29 @@ class InterviewEventStreamService:
         if generation is None:
             return
         after = self._parse_cursor(after_event_id, generation.generation_id)
-        for item in self.generation_store.list_events(
-            generation.generation_id
-        ):
-            cursor = (item.attempt_number, item.sequence)
-            if cursor <= after:
-                continue
-            if item.event_type == "generation_reset":
-                yield InterviewGenerationResetEvent(
-                    generation_id=item.generation_id,
-                    attempt_number=item.attempt_number,
-                )
-            else:
-                yield InterviewGenerationChunkEvent(
-                    generation_id=item.generation_id,
-                    attempt_number=item.attempt_number,
-                    sequence=item.sequence,
-                    delta=item.delta,
-                )
+        while True:
+            page = self.generation_store.list_events_after(
+                generation.generation_id,
+                after_attempt=after[0],
+                after_sequence=after[1],
+                limit=self.page_size,
+            )
+            for item in page:
+                after = (item.attempt_number, item.sequence)
+                if item.event_type == "generation_reset":
+                    yield InterviewGenerationResetEvent(
+                        generation_id=item.generation_id,
+                        attempt_number=item.attempt_number,
+                    )
+                else:
+                    yield InterviewGenerationChunkEvent(
+                        generation_id=item.generation_id,
+                        attempt_number=item.attempt_number,
+                        sequence=item.sequence,
+                        delta=item.delta,
+                    )
+            if len(page) < self.page_size:
+                return
 
     def iter_sse(
         self,
@@ -54,7 +84,22 @@ class InterviewEventStreamService:
         after_event_id: str | None = None,
     ):
         cursor = after_event_id
+        started_at = self._clock()
+        last_keepalive_at = started_at
+        poll_seconds = self.min_poll_seconds
         while True:
+            now = self._clock()
+            if now - started_at >= self.max_stream_seconds:
+                yield _format_sse(
+                    "reconnect",
+                    {
+                        "command_id": command_id,
+                        "last_event_id": cursor,
+                        "retry_after_ms": round(poll_seconds * 1000),
+                    },
+                )
+                return
+            emitted = False
             for event in self.iter_command_events(
                 session_id,
                 command_id,
@@ -65,6 +110,7 @@ class InterviewEventStreamService:
                     f"{getattr(event, 'sequence', 0)}"
                 )
                 yield event.to_sse()
+                emitted = True
             command = self.workflow_store.get_command(
                 session_id, command_id
             )
@@ -89,7 +135,18 @@ class InterviewEventStreamService:
                     {"code": command.error_code or "workflow_failed"},
                 )
                 return
-            sleep(0.05)
+            now = self._clock()
+            if now - last_keepalive_at >= self.keepalive_seconds:
+                yield ": keepalive\n\n"
+                last_keepalive_at = now
+            if emitted:
+                poll_seconds = self.min_poll_seconds
+            else:
+                poll_seconds = min(
+                    self.max_poll_seconds,
+                    poll_seconds * 2,
+                )
+            self._sleep(poll_seconds)
 
     @staticmethod
     def _parse_cursor(

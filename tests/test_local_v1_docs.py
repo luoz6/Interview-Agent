@@ -495,3 +495,35 @@ def test_docs_define_safe_dual_langgraph_canary_and_rollback():
     assert "python -m scripts.langgraph_canary snapshot" in runbook
     assert "python -m scripts.langgraph_canary evaluate" in runbook
     assert "never changes deployment configuration" in runbook
+
+
+def test_docs_separate_stage47_repository_and_operator_fencing_authority():
+    repository = read_text("docs/langgraph-stage47-fencing-canary-acceptance.md")
+    operator = read_text("docs/langgraph-stage47-fencing-canary-observation.md")
+
+    assert "Status: READY_FOR_OPERATOR_FENCING_CANARY" in repository
+    assert "Status: NOT_RUN" in operator
+    assert "READY_FOR_OPERATOR_FENCING_CANARY" in repository
+    assert "0/0 -> 1/0 -> 0/0 -> 0/1 -> 0/0 -> 1/1 -> 0/0" in operator
+    assert "assignment-only" in repository
+    assert "Exactly-once external provider invocation is not claimed" in repository
+
+
+def test_stage47_runbook_requires_phase_utc_samples_and_read_only_cli():
+    readme = read_text("README.md")
+    runbook = read_text("docs/local-v1-runbook.md")
+    env = read_text(".env.example")
+
+    for expected in (
+        "langgraph-canary-v2",
+        "--phase interview",
+        "--since-utc <PHASE_START_UTC>",
+        "--minimum-interview-sample <APPROVED_SAMPLE>",
+        "READY_FOR_OPERATOR_FENCING_CANARY",
+        "never changes deployment configuration",
+    ):
+        assert expected in readme + runbook
+    assert "LANGGRAPH_CANARY_SIGNAL_RETENTION_HOURS=168" in env
+    assert "interview_drain  0/0" in runbook
+    assert "review_drain     0/0" in runbook
+    assert "final_drain      0/0" in runbook

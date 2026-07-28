@@ -1,0 +1,22 @@
+{
+  "bound_evidence_ids": [
+    "mysql_online_migration"
+  ],
+  "case_id": "mysql-online-schema-change",
+  "category": "relevant",
+  "latency_ms": 277.367,
+  "retrieved_ids": [
+    "mysql_online_migration",
+    "mysql_backend",
+    "mysql_deadlocks"
+  ],
+  "reused_evidence_ids": [
+    "mysql_online_migration"
+  ],
+  "scores": {
+    "mysql_backend": 0.54249,
+    "mysql_deadlocks": 0.512378,
+    "mysql_online_migration": 0.756155
+  },
+  "status": "completed"
+}

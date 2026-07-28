@@ -90,6 +90,22 @@ def test_auditor_rejects_blocked_keys(tmp_path):
     assert "$.safe_metadata.prompt" in result["privacy_violations"]
 
 
+def test_auditor_rejects_blocked_key_substrings(tmp_path):
+    payloads = valid_chain()
+    payloads[0]["safe_metadata"]["user_prompt"] = "secret"
+    payloads[0]["safe_metadata"]["provider_response_debug"] = "secret"
+    write_chain(tmp_path, payloads)
+
+    result = audit_agent_runtime(tmp_path)
+
+    assert result["status"] == "FAIL"
+    assert "$.safe_metadata.user_prompt" in result["privacy_violations"]
+    assert (
+        "$.safe_metadata.provider_response_debug"
+        in result["privacy_violations"]
+    )
+
+
 def test_auditor_rejects_raw_candidate_text(tmp_path):
     payloads = valid_chain()
     payloads[0]["safe_metadata"]["note"] = "I used cache aside in production"

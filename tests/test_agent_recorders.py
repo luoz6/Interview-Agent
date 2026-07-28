@@ -11,6 +11,7 @@ from app.services.agent_runtime import AgentRunRecord
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
+from tests.test_runtime_signal_metrics_postgres import _drop_prefix
 
 
 def make_record(
@@ -75,7 +76,7 @@ def require_dsn() -> str:
 @pytest.fixture
 def pg_control():
     dsn = require_dsn()
-    prefix = "test_agent_runs_" + uuid4().hex[:10]
+    prefix = "test_agent_runs_" + uuid4().hex[:12]
     session_store = PostgresInterviewSessionStore(
         dsn=dsn,
         table_prefix=prefix,
@@ -100,7 +101,10 @@ def pg_control():
         resume_text="Built trace pipelines",
         job_tags=["python"],
     )
-    yield control, turn.session_id
+    try:
+        yield control, turn.session_id
+    finally:
+        _drop_prefix(dsn, prefix)
 
 
 @pytest.mark.pg_control

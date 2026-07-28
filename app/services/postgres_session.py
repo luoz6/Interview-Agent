@@ -6,6 +6,15 @@ from app.graphs.interview_state import InterviewState
 from app.services.llm import InterviewLLM
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.interview_rounds import round_closed_event_from_transition
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.prep import InterviewPlan
 from app.services.question_evaluations import (
@@ -42,33 +51,63 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     def __init__(
         self,
         *,
-        dsn: str,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
+        agent_run_connection_provider: ConnectionProvider | None = None,
         table_prefix: str = "interview",
         llm: InterviewLLM | None = None,
         knowledge_repository=None,
         execution_runner: AgentExecutionRunner | None = None,
+        schema_mode: str | None = None,
     ) -> None:
         super().__init__(
             llm=llm,
             knowledge_repository=knowledge_repository,
             execution_runner=execution_runner,
         )
-        self.dsn = dsn
+        validate_runtime_table_prefix(table_prefix)
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"
         self.messages_table = f"{table_prefix}_messages"
         self.reports_table = f"{table_prefix}_reports"
         self.question_evaluations_table = f"{table_prefix}_question_evaluations"
-        self._ensure_schema()
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "migrate":
+            self._ensure_schema()
+        else:
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.sessions_table,
+                    self.messages_table,
+                    self.reports_table,
+                    self.question_evaluations_table,
+                    f"{table_prefix}_schema_migrations",
+                ),
+            )
         self._runtime_control = PostgresRuntimeControlStore(
             dsn=dsn,
+            connection_provider=connection_provider,
+            agent_run_connection_provider=agent_run_connection_provider,
             table_prefix=table_prefix,
+            schema_mode=self.schema_mode,
         )
         self.runtime_event_delivery = "transactional_outbox"
 
     def list_runtime_tables(self) -> list[str]:
         psycopg2, _ = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -91,7 +130,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def list_messages(self, session_id: str) -> list[dict]:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -164,7 +203,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def get(self, session_id: str) -> InterviewState:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -482,7 +521,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def get_report_record(self, session_id: str) -> ReportRecord | None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -523,7 +562,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             where_clause = sql.SQL("WHERE reports.status = %s")
             params.append(status)
         params.append(limit)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -583,7 +622,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     ) -> None:
         self.get(session_id)
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 for record in records:
                     self._upsert_question_evaluation_row(cursor, sql, record)
@@ -595,14 +634,14 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     ) -> None:
         self.get(session_id)
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 self._upsert_question_evaluation_row(cursor, sql, record)
 
     def list_question_evaluations(self, session_id: str) -> list[QuestionEvaluationRecord]:
         self.get(session_id)
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -647,7 +686,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
 
     def _ensure_schema(self) -> None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -757,7 +796,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         ON {messages} (session_id, sequence_no)
                         """
                     ).format(
-                        index_name=sql.Identifier(f"{self.messages_table}_session_idx"),
+                        index_name=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table_prefix, "messages_session_idx"
+                            )
+                        ),
                         messages=sql.Identifier(self.messages_table),
                     )
                 )
@@ -830,7 +873,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
     def _insert_state(self, state: InterviewState) -> None:
         psycopg2, sql = self._import_psycopg2()
         session_row = session_row_from_state(state)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -919,7 +962,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         if expected_previous_version is not None:
             where_clause = sql.SQL("WHERE session_id = %s AND state_version = %s")
             update_params_suffix.append(expected_previous_version)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -1087,7 +1130,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             row["finished_at"] if row["status"] == "completed" else None
         )
         failed_finished_at = row["finished_at"] if row["status"] == "failed" else None
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(

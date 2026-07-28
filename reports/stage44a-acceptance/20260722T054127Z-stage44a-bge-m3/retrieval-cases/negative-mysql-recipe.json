@@ -1,0 +1,10 @@
+{
+  "bound_evidence_ids": [],
+  "case_id": "negative-mysql-recipe",
+  "category": "negative",
+  "latency_ms": 299.369,
+  "retrieved_ids": [],
+  "reused_evidence_ids": [],
+  "scores": {},
+  "status": "completed"
+}

@@ -8,6 +8,15 @@ from typing import Any
 
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.agent_runtime import AgentRunRecord
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.runtime_domain_events import RuntimeEventEnvelope
 from app.services.session_serialization import (
     question_evaluation_record_to_row,
@@ -31,10 +40,25 @@ class PostgresRuntimeControlStore:
     def __init__(
         self,
         *,
-        dsn: str,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
+        agent_run_connection_provider: ConnectionProvider | None = None,
         table_prefix: str = "interview",
+        schema_mode: str | None = None,
     ) -> None:
-        self.dsn = dsn
+        validate_runtime_table_prefix(table_prefix)
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
+        self._agent_run_connection_provider = (
+            agent_run_connection_provider or connection_provider
+        )
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"
         self.question_evaluations_table = (
@@ -43,12 +67,30 @@ class PostgresRuntimeControlStore:
         self.outbox_table = f"{table_prefix}_runtime_outbox"
         self.receipts_table = f"{table_prefix}_runtime_event_receipts"
         self.agent_runs_table = f"{table_prefix}_agent_runs"
-        self._ensure_schema()
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "migrate":
+            self._ensure_schema()
+        else:
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.outbox_table,
+                    self.receipts_table,
+                    self.agent_runs_table,
+                    f"{table_prefix}_schema_migrations",
+                ),
+            )
 
     @contextmanager
     def connection(self) -> Iterator[Any]:
-        psycopg2, _ = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
+            yield connection
+
+    @contextmanager
+    def agent_run_connection(self) -> Iterator[Any]:
+        with self._agent_run_connection_provider.connection() as connection:
             yield connection
 
     def enqueue_event(self, cursor, event: RuntimeEventEnvelope) -> bool:
@@ -112,7 +154,7 @@ class PostgresRuntimeControlStore:
             else sql.SQL("")
         )
         params.append(limit)
-        with self.connection() as connection:
+        with self.agent_run_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -479,6 +521,33 @@ class PostgresRuntimeControlStore:
                 )
                 return cursor.rowcount == 1
 
+    def extend_outbox_leases(
+        self,
+        event_ids: list[str],
+        worker_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        if not event_ids:
+            return True
+        _, sql = self._import_psycopg2()
+        with self.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        UPDATE {outbox}
+                        SET lease_expires_at =
+                                NOW() + (%s * INTERVAL '1 second'),
+                            updated_at = NOW()
+                        WHERE event_id = ANY(%s)
+                          AND status = 'running'
+                          AND lease_owner = %s
+                        """
+                    ).format(outbox=sql.Identifier(self.outbox_table)),
+                    (lease_seconds, event_ids, worker_id),
+                )
+                return cursor.rowcount == len(event_ids)
+
     def mark_dead_letter(
         self,
         event_id: str,
@@ -602,7 +671,7 @@ class PostgresRuntimeControlStore:
 
     def record_agent_run(self, record: AgentRunRecord) -> bool:
         _, sql = self._import_psycopg2()
-        with self.connection() as connection:
+        with self.agent_run_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -666,7 +735,7 @@ class PostgresRuntimeControlStore:
         if run_id is not None:
             statement += sql.SQL(" WHERE run_id = %s")
             params = (run_id,)
-        with self.connection() as connection:
+        with self.agent_run_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(statement, params)
                 row = cursor.fetchone()
@@ -759,6 +828,106 @@ class PostgresRuntimeControlStore:
             }
             for row in rows
         ]
+
+    def aggregate_agent_runs(
+        self,
+        *,
+        started_at: datetime,
+        finished_before: datetime,
+        agent: str | None = None,
+        operation: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if finished_before <= started_at:
+            raise ValueError("finished_before must be after started_at")
+        safe_limit = max(1, min(int(limit), 100))
+        _, sql = self._import_psycopg2()
+        clauses = [
+            sql.SQL("started_at >= %s"),
+            sql.SQL("started_at < %s"),
+        ]
+        params: list[Any] = [started_at, finished_before]
+        if agent is not None:
+            clauses.append(sql.SQL("agent = %s"))
+            params.append(agent)
+        if operation is not None:
+            clauses.append(sql.SQL("operation = %s"))
+            params.append(operation)
+        params.append(safe_limit)
+        with self.agent_run_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT
+                            agent,
+                            operation,
+                            COUNT(*) AS invocation_count,
+                            COUNT(*) FILTER (
+                                WHERE status = 'completed'
+                            ) AS completed_count,
+                            COUNT(*) FILTER (
+                                WHERE status = 'degraded'
+                            ) AS degraded_count,
+                            COUNT(*) FILTER (
+                                WHERE status = 'failed'
+                            ) AS failed_count,
+                            COUNT(*) FILTER (
+                                WHERE status = 'cancelled'
+                            ) AS cancelled_count,
+                            COUNT(*) FILTER (
+                                WHERE fallback_reason IS NOT NULL
+                            ) AS fallback_count,
+                            percentile_cont(0.50) WITHIN GROUP (
+                                ORDER BY latency_ms
+                            ) AS latency_p50_ms,
+                            percentile_cont(0.95) WITHIN GROUP (
+                                ORDER BY latency_ms
+                            ) AS latency_p95_ms,
+                            percentile_cont(0.99) WITHIN GROUP (
+                                ORDER BY latency_ms
+                            ) AS latency_p99_ms,
+                            MIN(started_at) AS observed_from,
+                            MAX(started_at) AS observed_until
+                        FROM {agent_runs}
+                        WHERE {where}
+                        GROUP BY agent, operation
+                        ORDER BY agent, operation
+                        LIMIT %s
+                        """
+                    ).format(
+                        agent_runs=sql.Identifier(self.agent_runs_table),
+                        where=sql.SQL(" AND ").join(clauses),
+                    ),
+                    tuple(params),
+                )
+                rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            invocation_count = int(row[2])
+            result.append(
+                {
+                    "agent": row[0],
+                    "operation": row[1],
+                    "invocation_count": invocation_count,
+                    "completed_count": int(row[3]),
+                    "degraded_count": int(row[4]),
+                    "failed_count": int(row[5]),
+                    "cancelled_count": int(row[6]),
+                    "fallback_count": int(row[7]),
+                    "completed_rate": int(row[3]) / invocation_count,
+                    "degraded_rate": int(row[4]) / invocation_count,
+                    "failed_rate": int(row[5]) / invocation_count,
+                    "cancelled_rate": int(row[6]) / invocation_count,
+                    "fallback_rate": int(row[7]) / invocation_count,
+                    "latency_p50_ms": float(row[8]),
+                    "latency_p95_ms": float(row[9]),
+                    "latency_p99_ms": float(row[10]),
+                    "observed_from": row[11],
+                    "observed_until": row[12],
+                }
+            )
+        return result
 
     def claim_receipt(
         self,
@@ -1072,7 +1241,7 @@ class PostgresRuntimeControlStore:
 
     def _ensure_schema(self) -> None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -1208,44 +1377,69 @@ class PostgresRuntimeControlStore:
     def _ensure_indexes(self, cursor, sql) -> None:
         indexes = [
             (
-                f"{self.outbox_table}_status_available_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "runtime_outbox_status_available_idx"
+                ),
                 self.outbox_table,
                 "status, available_at",
             ),
             (
-                f"{self.outbox_table}_session_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "runtime_outbox_session_idx"
+                ),
                 self.outbox_table,
                 "session_id",
             ),
             (
-                f"{self.outbox_table}_correlation_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "runtime_outbox_correlation_idx"
+                ),
                 self.outbox_table,
                 "correlation_id",
             ),
             (
-                f"{self.receipts_table}_status_available_idx",
+                runtime_schema_identifier(
+                    self.table_prefix,
+                    "runtime_event_receipts_status_available_idx",
+                ),
                 self.receipts_table,
                 "status, available_at",
             ),
             (
-                f"{self.receipts_table}_session_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "runtime_event_receipts_session_idx"
+                ),
                 self.receipts_table,
                 "session_id",
             ),
             (
-                f"{self.agent_runs_table}_session_started_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "agent_runs_session_started_idx"
+                ),
                 self.agent_runs_table,
                 "session_id, started_at",
             ),
             (
-                f"{self.agent_runs_table}_correlation_started_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "agent_runs_correlation_started_idx"
+                ),
                 self.agent_runs_table,
                 "correlation_id, started_at",
             ),
             (
-                f"{self.agent_runs_table}_agent_status_started_idx",
+                runtime_schema_identifier(
+                    self.table_prefix, "agent_runs_agent_status_started_idx"
+                ),
                 self.agent_runs_table,
                 "agent, status, started_at",
+            ),
+            (
+                runtime_schema_identifier(
+                    self.table_prefix,
+                    "agent_runs_agent_operation_started_idx",
+                ),
+                self.agent_runs_table,
+                "agent, operation, started_at",
             ),
         ]
         for index_name, table_name, columns in indexes:
@@ -1258,6 +1452,20 @@ class PostgresRuntimeControlStore:
                     table=sql.Identifier(table_name),
                 )
             )
+        cursor.execute(
+            sql.SQL(
+                "CREATE INDEX IF NOT EXISTS {index} "
+                "ON {outbox} (lease_expires_at) "
+                "WHERE status = 'running'"
+            ).format(
+                index=sql.Identifier(
+                    runtime_schema_identifier(
+                        self.table_prefix, "runtime_outbox_running_lease_idx"
+                    )
+                ),
+                outbox=sql.Identifier(self.outbox_table),
+            )
+        )
 
     @staticmethod
     def _outbox_row_to_dict(row) -> dict[str, Any] | None:

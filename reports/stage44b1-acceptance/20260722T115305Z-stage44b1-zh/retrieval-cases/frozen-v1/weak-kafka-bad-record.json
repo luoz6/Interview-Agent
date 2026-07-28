@@ -1,0 +1,21 @@
+{
+  "bound_evidence_ids": [
+    "kafka_poison_messages"
+  ],
+  "case_id": "weak-kafka-bad-record",
+  "latency_ms": 303.737,
+  "replayed_evidence_ids": [
+    "kafka_poison_messages"
+  ],
+  "retrieved_ids": [
+    "kafka_poison_messages",
+    "kafka_rebalancing",
+    "kafka_delivery"
+  ],
+  "scores": {
+    "kafka_delivery": 0.608489,
+    "kafka_poison_messages": 0.736356,
+    "kafka_rebalancing": 0.628035
+  },
+  "status": "completed"
+}

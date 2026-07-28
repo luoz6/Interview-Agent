@@ -127,6 +127,13 @@ through `CANARY_IN_PROGRESS` to `PASS` or `ROLLED_BACK` only after recording
 sanitized UTC times, aggregate counts/rates, rollout pairs, stable reason
 codes, and a deployment revision.
 
+Stage 47 supersedes the v1 canary evaluator for fencing observation without
+changing this Local V1 synthetic result. Its repository and deployed records
+are `docs/langgraph-stage47-fencing-canary-acceptance.md` and
+`docs/langgraph-stage47-fencing-canary-observation.md`. The Stage 47 gate uses
+`langgraph-canary-v2`, an explicit phase start, workflow-specific samples, and
+separate command-conflict/projection-divergence signals.
+
 ## Operator Runbook Contract
 
 Before this record can move to `CANARY_IN_PROGRESS`, an operator must verify

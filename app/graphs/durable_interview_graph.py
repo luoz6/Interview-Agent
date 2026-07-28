@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
+from threading import Event, Lock, Thread
 from typing import Any, Callable
 
 from langgraph.graph import END, START, StateGraph
@@ -14,9 +15,86 @@ from app.services.interview_generation_store import ChunkCoalescer
 from app.services.interview_generation_store import GenerationAlreadyCompleted
 from app.services.knowledge_binding import resolve_evidence_by_ids
 from app.services.runtime_work import (
+    RuntimeFailure,
     classify_runtime_failure,
     retry_delay_seconds,
 )
+from app.services.workflow_thread_lock import GenerationLeaseLost
+from app.services.context_budget import (
+    FOLLOWUP_CONTEXT_POLICY,
+    context_enforcement_enabled,
+)
+from app.services.context_selection import build_interview_context
+from app.services.token_estimation import CompositeTokenEstimator
+
+
+class GenerationLeaseHeartbeat:
+    def __init__(
+        self,
+        *,
+        generation_store,
+        attempt,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> None:
+        self.generation_store = generation_store
+        self.attempt = attempt
+        self.worker_id = worker_id
+        self.lease_seconds = lease_seconds
+        self.interval_seconds = max(0.1, lease_seconds / 3)
+        self._stop = Event()
+        self._lost = Event()
+        self._failure_lock = Lock()
+        self._failure: Exception | None = None
+        self._thread: Thread | None = None
+
+    def __enter__(self):
+        self._thread = Thread(
+            target=self._run,
+            name="generation-lease-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(1.0, self.interval_seconds * 2))
+
+    def ensure_owned(self) -> None:
+        if self._lost.is_set():
+            error = GenerationLeaseLost(
+                "generation attempt lease is no longer owned"
+            )
+            with self._failure_lock:
+                failure = self._failure
+            if failure is not None:
+                raise error from failure
+            raise error
+
+    def _mark_lost(self, failure: Exception | None = None) -> None:
+        with self._failure_lock:
+            if self._lost.is_set():
+                return
+            self._failure = failure
+            self._lost.set()
+
+    def _run(self) -> None:
+        try:
+            while not self._stop.wait(self.interval_seconds):
+                if not self.generation_store.heartbeat_attempt(
+                    self.attempt.generation_id,
+                    self.attempt.attempt_number,
+                    self.worker_id,
+                    lease_token=self.attempt.lease_token,
+                    fencing_version=self.attempt.fencing_version,
+                    lease_seconds=self.lease_seconds,
+                ):
+                    self._mark_lost()
+                    return
+        except Exception as exc:
+            self._mark_lost(exc)
 
 
 @dataclass
@@ -31,12 +109,11 @@ class DurableInterviewGraphDependencies:
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
     worker_id: str = "durable-interview-worker"
     generation_lease_seconds: int = 60
-    retryable_provider_errors: tuple[type[Exception], ...] = (
-        TimeoutError,
-        ConnectionError,
+    failure_classifier: Callable[[Exception], RuntimeFailure] = (
+        classify_runtime_failure
     )
-    terminal_provider_errors: tuple[type[Exception], ...] = (
-        PermissionError,
+    generation_heartbeat_factory: Callable[..., Any] = (
+        GenerationLeaseHeartbeat
     )
 
 
@@ -79,6 +156,8 @@ def validate_command(state, deps) -> dict:
     )
     if command.status == "applied":
         return {"active_command_id": None, "command_outcome": "duplicate"}
+    if command.status == "conflict":
+        return {"active_command_id": None, "command_outcome": "conflict"}
     if command.expected_version != state["state_version"]:
         deps.workflow_store.mark_command_conflict(
             state["session_id"],
@@ -170,6 +249,7 @@ def prepare_generation(state, deps) -> dict:
 
 def generate_followup(state, deps) -> dict:
     coalescer = deps.coalescer_factory()
+    attempt = None
     try:
         attempt = deps.generation_store.start_or_reclaim_attempt(
             state["generation_id"],
@@ -191,72 +271,89 @@ def generate_followup(state, deps) -> dict:
         else _build_examiner_context(state, deps.knowledge_repository)
     )
     try:
-        for chunk in deps.examiner.stream_followup_attempt(
-            context=context,
-            execution_context=AgentExecutionContext(
-                correlation_id=state["session_id"],
-                causation_id=state["active_command_id"],
-                agent="examiner",
-                operation="generate_followup",
-                phase="interview",
-                session_id=state["session_id"],
-                question_id=_current_question(state)["id"],
-                state_version=state["state_version"],
-                command_id=state["active_command_id"],
-                attempt_number=attempt.attempt_number,
-            ),
-        ):
-            chunks.append(chunk)
-            persisted = coalescer.add(chunk)
-            if persisted:
+        heartbeat_context = deps.generation_heartbeat_factory(
+            generation_store=deps.generation_store,
+            attempt=attempt,
+            worker_id=deps.worker_id,
+            lease_seconds=deps.generation_lease_seconds,
+        )
+        with heartbeat_context as heartbeat:
+            for chunk in deps.examiner.stream_followup_attempt(
+                context=context,
+                execution_context=AgentExecutionContext(
+                    correlation_id=state["session_id"],
+                    causation_id=state["active_command_id"],
+                    agent="examiner",
+                    operation="generate_followup",
+                    phase="interview",
+                    session_id=state["session_id"],
+                    question_id=_current_question(state)["id"],
+                    state_version=state["state_version"],
+                    command_id=state["active_command_id"],
+                    attempt_number=attempt.attempt_number,
+                ),
+            ):
+                chunks.append(chunk)
+                persisted = coalescer.add(chunk)
+                if not persisted:
+                    continue
+                heartbeat.ensure_owned()
                 sequence += 1
                 deps.generation_store.append_chunk(
                     attempt.generation_id,
                     attempt.attempt_number,
                     sequence,
                     persisted,
+                    lease_token=attempt.lease_token,
+                    fencing_version=attempt.fencing_version,
                 )
-                deps.generation_store.heartbeat_attempt(
+            final_chunk = coalescer.flush()
+            if final_chunk:
+                heartbeat.ensure_owned()
+                sequence += 1
+                deps.generation_store.append_chunk(
                     attempt.generation_id,
                     attempt.attempt_number,
-                    deps.worker_id,
-                    lease_seconds=deps.generation_lease_seconds,
+                    sequence,
+                    final_chunk,
+                    lease_token=attempt.lease_token,
+                    fencing_version=attempt.fencing_version,
                 )
-        final_chunk = coalescer.flush()
-        if final_chunk:
-            sequence += 1
-            deps.generation_store.append_chunk(
+            final_text = "".join(chunks).strip()
+            heartbeat.ensure_owned()
+            deps.generation_store.complete_attempt(
                 attempt.generation_id,
                 attempt.attempt_number,
-                sequence,
-                final_chunk,
+                final_text,
+                lease_token=attempt.lease_token,
+                fencing_version=attempt.fencing_version,
             )
-        final_text = "".join(chunks).strip()
-        deps.generation_store.complete_attempt(
-            attempt.generation_id,
-            attempt.attempt_number,
-            final_text,
-        )
         return {
             "generation_outcome": "completed",
             "generated_text": final_text,
         }
-    except deps.retryable_provider_errors as exc:
-        code = classify_runtime_failure(exc).code
-        deps.generation_store.fail_attempt(
-            attempt.generation_id, attempt.attempt_number, code
-        )
+    except Exception as exc:
+        failure = deps.failure_classifier(exc)
+        # Unknown exceptions include programming defects and injected/process
+        # loss after a durable write. Treating them as provider failures would
+        # both hide the original interruption and may attempt to fail an
+        # already-completed generation. Let LangGraph recovery replay the
+        # checkpoint boundary instead.
+        if failure.code in {"unexpected_error", "generation_lease_lost"}:
+            raise
+        code = failure.code
+        if attempt is not None:
+            deps.generation_store.fail_attempt(
+                attempt.generation_id,
+                attempt.attempt_number,
+                code,
+                lease_token=attempt.lease_token,
+                fencing_version=attempt.fencing_version,
+            )
         return {
-            "generation_outcome": "retryable",
-            "last_error_code": code,
-        }
-    except deps.terminal_provider_errors as exc:
-        code = classify_runtime_failure(exc).code
-        deps.generation_store.fail_attempt(
-            attempt.generation_id, attempt.attempt_number, code
-        )
-        return {
-            "generation_outcome": "terminal",
+            "generation_outcome": (
+                "retryable" if failure.retryable else "terminal"
+            ),
             "last_error_code": code,
         }
 
@@ -411,19 +508,32 @@ def _current_question(state) -> dict:
 
 
 def _recent_conversation_messages(state) -> list[dict[str, str]]:
-    return [
-        {"role": message["role"], "content": message["content"]}
-        for message in state["messages"][-4:]
-    ]
+    if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
+        return [
+            {"role": message["role"], "content": message["content"]}
+            for message in state["messages"][-4:]
+        ]
+    question_id = _current_question(state)["id"]
+    estimator = CompositeTokenEstimator().resolve(
+        model="deepseek-v4-pro"
+    ).estimator
+    selected, _ = build_interview_context(
+        state["messages"],
+        current_question_id=question_id,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+        estimator=estimator,
+        model="deepseek-v4-pro",
+    )
+    return selected
 
 
 def _build_examiner_context(
     state, repository
 ) -> list[dict[str, str]]:
-    recent = _recent_conversation_messages(state)
-    if repository is None:
-        return recent
     question = _current_question(state)
+    evidence_messages = []
+    if repository is None:
+        return _recent_conversation_messages(state)
     resolution = resolve_evidence_by_ids(
         repository,
         evidence_ids=question.get("evidence_ids", []),
@@ -432,9 +542,22 @@ def _build_examiner_context(
             "corpus_manifest_sha256"
         ),
     )
-    if resolution.retrieval_path != "bound_evidence_ids":
-        return recent
-    return [*recent, *resolution.messages]
+    if resolution.retrieval_path == "bound_evidence_ids":
+        evidence_messages = resolution.messages
+    if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
+        return [*_recent_conversation_messages(state), *evidence_messages]
+    estimator = CompositeTokenEstimator().resolve(
+        model="deepseek-v4-pro"
+    ).estimator
+    context, _ = build_interview_context(
+        state["messages"],
+        current_question_id=question["id"],
+        evidence_messages=evidence_messages,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+        estimator=estimator,
+        model="deepseek-v4-pro",
+    )
+    return context
 
 
 def build_durable_interview_graph(

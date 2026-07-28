@@ -11,6 +11,18 @@ class FakeJobStore:
             return None
         return dict(self.job)
 
+    def schedule_review_retry(self, job_id, *, next_attempt_number):
+        if self.job is None or self.job["job_id"] != job_id:
+            return "discarded_stale_retry"
+        previous = self.job.get("scheduled_attempt")
+        if previous is not None and previous > next_attempt_number:
+            return "discarded_stale_retry"
+        if previous == next_attempt_number:
+            return "scheduled"
+        self.job["scheduled_attempt"] = next_attempt_number
+        self.job["status"] = "retrying"
+        return "scheduled"
+
 
 class FakeWorkflow:
     def __init__(self, outcomes=None):
@@ -57,19 +69,18 @@ def test_legacy_job_retry_is_discarded():
     assert workflow.calls == []
 
 
-def test_matching_retry_resumes_once():
+def test_matching_retry_only_schedules_job():
     workflow = FakeWorkflow(["completed"])
     consumer = ReviewWorkflowConsumer(workflow, FakeJobStore(durable_job()))
 
-    assert consumer.consume(payload()) == "completed"
-    assert len(workflow.calls) == 1
-    assert workflow.calls[0][1] == 2
+    assert consumer.consume(payload()) == "scheduled"
+    assert workflow.calls == []
 
 
-def test_duplicate_retry_does_not_complete_twice():
+def test_duplicate_retry_is_idempotently_scheduled_once():
     workflow = FakeWorkflow(["completed", "discarded_stale_retry"])
     consumer = ReviewWorkflowConsumer(workflow, FakeJobStore(durable_job()))
 
-    assert consumer.consume(payload()) == "completed"
-    assert consumer.consume(payload()) == "discarded_stale_retry"
-    assert len(workflow.calls) == 2
+    assert consumer.consume(payload()) == "scheduled"
+    assert consumer.consume(payload()) == "scheduled"
+    assert workflow.calls == []

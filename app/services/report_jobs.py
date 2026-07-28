@@ -9,6 +9,15 @@ from app.services.config import (
     get_report_langgraph_version,
     get_runtime_store,
 )
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
 
 
 ReviewWorkflowEngine = Literal["legacy", "langgraph-review-v1"]
@@ -31,21 +40,46 @@ class PostgresReportJobStore:
     def __init__(
         self,
         *,
-        dsn: str,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
         table_prefix: str = "interview",
         lease_seconds: int = 300,
+        schema_mode: str | None = None,
     ) -> None:
-        self.dsn = dsn
+        validate_runtime_table_prefix(table_prefix)
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
         self.table_prefix = table_prefix
         self.lease_seconds = lease_seconds
         self.sessions_table = f"{table_prefix}_sessions"
         self.reports_table = f"{table_prefix}_reports"
         self.jobs_table = f"{table_prefix}_report_jobs"
-        self._ensure_schema()
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "migrate":
+            self._ensure_schema()
+        else:
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.sessions_table,
+                    self.reports_table,
+                    self.jobs_table,
+                    f"{table_prefix}_schema_migrations",
+                ),
+            )
 
     def drop_tables(self) -> None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL("DROP TABLE IF EXISTS {jobs}").format(
@@ -73,7 +107,8 @@ class PostgresReportJobStore:
                        attempt_count, max_attempts, last_error,
                        last_error_code, replay_count, review_engine,
                        review_graph_schema_version, queued_at,
-                       started_at, finished_at, updated_at, lease_token
+                       started_at, finished_at, updated_at, lease_token,
+                       available_at, scheduled_attempt
                 FROM {jobs}
                 WHERE session_id = %s
                 """
@@ -91,7 +126,8 @@ class PostgresReportJobStore:
                        attempt_count, max_attempts, last_error,
                        last_error_code, replay_count, review_engine,
                        review_graph_schema_version, queued_at,
-                       started_at, finished_at, updated_at, lease_token
+                       started_at, finished_at, updated_at, lease_token,
+                       available_at, scheduled_attempt
                 FROM {jobs}
                 WHERE job_id = %s::uuid
                 """
@@ -136,7 +172,7 @@ class PostgresReportJobStore:
             else None
         )
         progress_json = json.dumps(self._processing_progress_payload(), ensure_ascii=False)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 # The session row serializes enqueue-or-get for this session.
                 cursor.execute(
@@ -192,7 +228,8 @@ class PostgresReportJobStore:
                                   attempt_count, max_attempts, last_error,
                                   last_error_code, replay_count, review_engine,
                                   review_graph_schema_version, queued_at,
-                                  started_at, finished_at, updated_at, lease_token
+                                  started_at, finished_at, updated_at, lease_token,
+                                  available_at, scheduled_attempt
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
                     (
@@ -209,7 +246,7 @@ class PostgresReportJobStore:
         psycopg2, sql = self._import_psycopg2()
         lease_duration = self.lease_seconds if lease_seconds is None else lease_seconds
         lease_token = str(uuid4())
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -217,10 +254,10 @@ class PostgresReportJobStore:
                         WITH next_job AS (
                             SELECT job_id
                             FROM {jobs}
-                            WHERE status = 'queued'
-                               OR status = 'retrying'
+                            WHERE (status IN ('queued', 'retrying')
+                                   AND available_at <= NOW())
                                OR (status = 'running' AND lease_expires_at <= NOW())
-                            ORDER BY queued_at
+                            ORDER BY available_at, queued_at
                             FOR UPDATE SKIP LOCKED
                             LIMIT 1
                         )
@@ -240,13 +277,101 @@ class PostgresReportJobStore:
                                   jobs.review_graph_schema_version, jobs.queued_at,
                                   jobs.started_at,
                                   jobs.finished_at, jobs.updated_at,
-                                  jobs.lease_token
+                                  jobs.lease_token, jobs.available_at,
+                                  jobs.scheduled_attempt
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
                     (worker_id, lease_token, lease_duration),
                 )
                 row = cursor.fetchone()
         return self._job_row_to_dict(row)
+
+    def schedule_review_retry(
+        self,
+        job_id: str,
+        *,
+        next_attempt_number: int,
+        delay_seconds: float = 0,
+    ) -> str:
+        if next_attempt_number < 1:
+            raise ValueError("next_attempt_number must be positive")
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds must be non-negative")
+        psycopg2, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT status, review_engine, scheduled_attempt
+                        FROM {jobs}
+                        WHERE job_id = %s::uuid
+                        FOR UPDATE
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table)),
+                    (job_id,),
+                )
+                current = cursor.fetchone()
+                if current is None or current[1] != "langgraph-review-v1":
+                    return "discarded_stale_retry"
+                if current[0] in {"completed", "failed"}:
+                    return "discarded_stale_retry"
+                scheduled = current[2]
+                if scheduled is not None:
+                    scheduled = int(scheduled)
+                    if scheduled > next_attempt_number:
+                        return "discarded_stale_retry"
+                    if scheduled == next_attempt_number:
+                        return "scheduled"
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        UPDATE {jobs}
+                        SET status = 'retrying',
+                            scheduled_attempt = %s,
+                            available_at = NOW() + (%s * INTERVAL '1 second'),
+                            lease_owner = NULL,
+                            lease_token = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE job_id = %s::uuid
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table)),
+                    (next_attempt_number, delay_seconds, job_id),
+                )
+        return "scheduled"
+
+    def release_claim_for_retry(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        delay_seconds: float = 0.25,
+    ) -> bool:
+        psycopg2, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        UPDATE {jobs}
+                        SET status = 'retrying',
+                            available_at = NOW() + (%s * INTERVAL '1 second'),
+                            lease_owner = NULL,
+                            lease_token = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE job_id = %s::uuid
+                          AND status = 'running'
+                          AND lease_owner = %s
+                          AND lease_token = %s::uuid
+                          AND lease_expires_at > NOW()
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table)),
+                    (delay_seconds, job_id, worker_id, lease_token),
+                )
+                return cursor.rowcount == 1
 
     def assert_lease(
         self, job_id: str, *, worker_id: str, lease_token: str
@@ -279,7 +404,7 @@ class PostgresReportJobStore:
     ) -> bool:
         psycopg2, sql = self._import_psycopg2()
         duration = self.lease_seconds if lease_seconds is None else lease_seconds
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -301,7 +426,7 @@ class PostgresReportJobStore:
 
     def mark_completed(self, job_id: str) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -335,7 +460,7 @@ class PostgresReportJobStore:
     ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
         progress_json = json.dumps(self._processing_progress_payload(), ensure_ascii=False)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -416,7 +541,7 @@ class PostgresReportJobStore:
         error_code: str = "unexpected_error",
     ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -474,7 +599,7 @@ class PostgresReportJobStore:
             self._processing_progress_payload(),
             ensure_ascii=False,
         )
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -541,7 +666,7 @@ class PostgresReportJobStore:
     def insert_processing_report_only(self, session_id: str) -> None:
         psycopg2, sql = self._import_psycopg2()
         progress_json = json.dumps(self._processing_progress_payload(), ensure_ascii=False)
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -561,7 +686,7 @@ class PostgresReportJobStore:
 
     def repair_orphan_processing_reports(self) -> int:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -595,7 +720,7 @@ class PostgresReportJobStore:
 
     def _ensure_schema(self) -> None:
         psycopg2, sql = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
@@ -631,6 +756,8 @@ class PostgresReportJobStore:
                             lease_owner TEXT,
                             lease_token UUID,
                             lease_expires_at TIMESTAMPTZ,
+                            available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            scheduled_attempt INTEGER,
                             attempt_count INTEGER NOT NULL DEFAULT 0,
                             max_attempts INTEGER NOT NULL DEFAULT 3,
                             last_error TEXT,
@@ -657,9 +784,30 @@ class PostgresReportJobStore:
                         ON {jobs} (status, queued_at)
                         """
                     ).format(
-                        status_index=sql.Identifier(f"{self.jobs_table}_status_idx"),
+                        status_index=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table_prefix, "report_jobs_status_idx"
+                            )
+                        ),
                         jobs=sql.Identifier(self.jobs_table),
                     )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ
+                            NOT NULL DEFAULT NOW()
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS scheduled_attempt INTEGER
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
                 )
                 cursor.execute(
                     sql.SQL(
@@ -668,6 +816,21 @@ class PostgresReportJobStore:
                         ADD COLUMN IF NOT EXISTS lease_token UUID
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE INDEX IF NOT EXISTS {available_index}
+                        ON {jobs} (status, available_at, queued_at)
+                        """
+                    ).format(
+                        available_index=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table_prefix, "report_jobs_available_idx"
+                            )
+                        ),
+                        jobs=sql.Identifier(self.jobs_table),
+                    )
                 )
                 cursor.execute(
                     sql.SQL(
@@ -705,12 +868,16 @@ class PostgresReportJobStore:
                 self._ensure_foreign_key(
                     cursor=cursor,
                     table_name=self.reports_table,
-                    constraint_name=f"{self.reports_table}_session_id_fkey",
+                    constraint_name=runtime_schema_identifier(
+                        self.table_prefix, "reports_session_id_fkey"
+                    ),
                 )
                 self._ensure_foreign_key(
                     cursor=cursor,
                     table_name=self.jobs_table,
-                    constraint_name=f"{self.jobs_table}_session_id_fkey",
+                    constraint_name=runtime_schema_identifier(
+                        self.table_prefix, "report_jobs_session_id_fkey"
+                    ),
                 )
                 cursor.execute(
                     sql.SQL(
@@ -719,7 +886,11 @@ class PostgresReportJobStore:
                         ON {jobs} (status, lease_expires_at)
                         """
                     ).format(
-                        lease_index=sql.Identifier(f"{self.jobs_table}_lease_idx"),
+                        lease_index=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table_prefix, "report_jobs_lease_idx"
+                            )
+                        ),
                         jobs=sql.Identifier(self.jobs_table),
                     )
                 )
@@ -734,7 +905,7 @@ class PostgresReportJobStore:
 
     def _fetchone(self, statement, params=None):
         psycopg2, _ = self._import_psycopg2()
-        with psycopg2.connect(self.dsn) as connection:
+        with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(statement, params)
                 return cursor.fetchone()
@@ -809,6 +980,8 @@ class PostgresReportJobStore:
                 if len(row) > 16 and row[16] is not None
                 else None
             ),
+            "available_at": row[17] if len(row) > 17 else None,
+            "scheduled_attempt": row[18] if len(row) > 18 else None,
         }
 
     @staticmethod

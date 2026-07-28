@@ -8,6 +8,7 @@ celery_app = Celery(
     include=[
         "app.services.round_review_tasks",
         "app.services.interview_workflow_tasks",
+        "app.services.review_workflow_tasks",
     ],
 )
 celery_app.conf.update(

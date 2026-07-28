@@ -5,6 +5,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from time import monotonic
 from typing import Callable
+from uuid import uuid4
+
+from app.services.postgres_connections import (
+    ConnectionProvider,
+    DirectPsycopg2ConnectionProvider,
+)
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
+from app.services.postgres_schema import resolve_schema_mode, validate_relations
+from app.services.workflow_thread_lock import GenerationLeaseLost
 
 
 class GenerationAlreadyCompleted(RuntimeError):
@@ -32,6 +44,9 @@ class GenerationAttempt:
     attempt_number: int
     status: str
     lease_owner: str | None
+    lease_token: str
+    fencing_version: int
+    lease_expires_at: datetime
 
 
 @dataclass(frozen=True)
@@ -44,14 +59,44 @@ class GenerationEvent:
 
 
 class PostgresInterviewGenerationStore:
-    def __init__(self, *, dsn: str, table_prefix: str = "interview") -> None:
-        self.dsn = dsn
+    def __init__(
+        self,
+        *,
+        dsn: str | None = None,
+        connection_provider: ConnectionProvider | None = None,
+        table_prefix: str = "interview",
+        schema_mode: str | None = None,
+    ) -> None:
+        validate_runtime_table_prefix(table_prefix)
+        if connection_provider is None:
+            if not dsn:
+                raise ValueError("dsn or connection_provider is required")
+            connection_provider = DirectPsycopg2ConnectionProvider(dsn)
+            self._provider_is_owned = True
+        else:
+            self._provider_is_owned = False
+        self.dsn = dsn or ""
+        self._connection_provider = connection_provider
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"
         self.generations_table = f"{table_prefix}_generations"
         self.attempts_table = f"{table_prefix}_generation_attempts"
         self.chunks_table = f"{table_prefix}_generation_chunks"
-        self._ensure_schema()
+        self.schema_mode = resolve_schema_mode(
+            schema_mode, provider_is_owned=self._provider_is_owned
+        )
+        if self.schema_mode == "migrate":
+            self._ensure_schema()
+        else:
+            validate_relations(
+                self._connection_provider,
+                (
+                    self.generations_table,
+                    self.attempts_table,
+                    self.chunks_table,
+                    f"{table_prefix}_schema_migrations",
+                ),
+            )
 
     def prepare_generation(
         self,
@@ -112,6 +157,7 @@ class PostgresInterviewGenerationStore:
         worker_id: str = "worker",
         lease_seconds: int = 60,
     ) -> GenerationAttempt:
+        lease_token = str(uuid4())
         with self._connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -135,22 +181,33 @@ class PostgresInterviewGenerationStore:
                         """
                         INSERT INTO {attempts} (
                             generation_id, attempt_number, status,
-                            lease_owner, lease_expires_at, started_at
+                            lease_owner, lease_token, fencing_version,
+                            lease_expires_at, started_at
                         )
                         VALUES (
-                            %s, %s, 'running', %s,
+                            %s, %s, 'running', %s, %s::uuid, 1,
                             NOW() + (%s * INTERVAL '1 second'), NOW()
                         )
                         ON CONFLICT (generation_id, attempt_number) DO UPDATE
                         SET status = 'running', lease_owner = EXCLUDED.lease_owner,
+                            lease_token = EXCLUDED.lease_token,
+                            fencing_version = {attempts}.fencing_version + 1,
                             lease_expires_at = EXCLUDED.lease_expires_at,
                             started_at = COALESCE({attempts}.started_at, NOW()),
                             updated_at = NOW()
                         WHERE {attempts}.status IN ('pending', 'failed', 'abandoned')
-                        RETURNING generation_id, attempt_number, status, lease_owner
+                        RETURNING generation_id, attempt_number, status,
+                                  lease_owner, lease_token::text,
+                                  fencing_version, lease_expires_at
                         """
                     ),
-                    (generation_id, attempt_number, worker_id, lease_seconds),
+                    (
+                        generation_id,
+                        attempt_number,
+                        worker_id,
+                        lease_token,
+                        lease_seconds,
+                    ),
                 )
                 row = cursor.fetchone()
                 if row is None:
@@ -199,7 +256,10 @@ class PostgresInterviewGenerationStore:
                             """
                             SELECT a.status, a.lease_owner,
                                    a.lease_expires_at <= NOW(),
-                                   g.status, g.active_attempt
+                                   g.status, g.active_attempt,
+                                   a.lease_token::text,
+                                   a.fencing_version,
+                                   a.lease_expires_at
                             FROM {attempts} AS a
                             JOIN {generations} AS g
                               ON g.generation_id = a.generation_id
@@ -221,6 +281,9 @@ class PostgresInterviewGenerationStore:
                                     attempt_number,
                                     "running",
                                     worker_id,
+                                    row[5],
+                                    int(row[6]),
+                                    row[7],
                                 )
                             raise GenerationLeaseConflict(generation_id)
                         replacement = max(attempt_number, int(row[4])) + 1
@@ -258,43 +321,108 @@ class PostgresInterviewGenerationStore:
         attempt_number: int,
         sequence: int,
         delta: str,
+        *,
+        lease_token: str,
+        fencing_version: int,
     ) -> None:
         with self._connection() as connection:
             with connection.cursor() as cursor:
-                inserted = self._insert_event(
-                    cursor,
-                    generation_id,
-                    attempt_number,
-                    sequence,
-                    "chunk",
-                    delta,
+                cursor.execute(
+                    self._sql(
+                        """
+                        INSERT INTO {chunks} (
+                            generation_id, attempt_number, sequence,
+                            event_type, delta
+                        )
+                        SELECT %s, %s, %s, 'chunk', %s
+                        FROM {attempts}
+                        WHERE generation_id = %s AND attempt_number = %s
+                          AND status = 'running'
+                          AND lease_token = %s::uuid
+                          AND fencing_version = %s
+                          AND lease_expires_at > NOW()
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    (
+                        generation_id,
+                        attempt_number,
+                        sequence,
+                        delta,
+                        generation_id,
+                        attempt_number,
+                        lease_token,
+                        fencing_version,
+                    ),
                 )
-                if not inserted:
+                if cursor.rowcount != 1:
                     cursor.execute(
                         self._sql(
                             """
-                            SELECT event_type, delta FROM {chunks}
-                            WHERE generation_id = %s
-                              AND attempt_number = %s AND sequence = %s
+                            SELECT c.event_type, c.delta,
+                                   a.status = 'running'
+                                   AND a.lease_token = %s::uuid
+                                   AND a.fencing_version = %s
+                                   AND a.lease_expires_at > NOW()
+                            FROM {attempts} AS a
+                            LEFT JOIN {chunks} AS c
+                              ON c.generation_id = a.generation_id
+                             AND c.attempt_number = a.attempt_number
+                             AND c.sequence = %s
+                            WHERE a.generation_id = %s
+                              AND a.attempt_number = %s
                             """
                         ),
-                        (generation_id, attempt_number, sequence),
+                        (
+                            lease_token,
+                            fencing_version,
+                            sequence,
+                            generation_id,
+                            attempt_number,
+                        ),
                     )
-                    if cursor.fetchone() != ("chunk", delta):
+                    existing = cursor.fetchone()
+                    if existing is None or not existing[2]:
+                        raise GenerationLeaseLost(
+                            "generation attempt lease is no longer owned"
+                        )
+                    if existing[:2] != ("chunk", delta):
                         raise ValueError("generation chunk conflict")
 
     def abandon_attempt(
-        self, generation_id: str, attempt_number: int, error_code: str
+        self,
+        generation_id: str,
+        attempt_number: int,
+        error_code: str,
+        *,
+        lease_token: str,
+        fencing_version: int,
     ) -> None:
         self._set_attempt_status(
-            generation_id, attempt_number, "abandoned", error_code
+            generation_id,
+            attempt_number,
+            "abandoned",
+            error_code,
+            lease_token=lease_token,
+            fencing_version=fencing_version,
         )
 
     def fail_attempt(
-        self, generation_id: str, attempt_number: int, error_code: str
+        self,
+        generation_id: str,
+        attempt_number: int,
+        error_code: str,
+        *,
+        lease_token: str,
+        fencing_version: int,
     ) -> None:
         self._set_attempt_status(
-            generation_id, attempt_number, "failed", error_code
+            generation_id,
+            attempt_number,
+            "failed",
+            error_code,
+            lease_token=lease_token,
+            fencing_version=fencing_version,
         )
 
     def complete_attempt(
@@ -302,6 +430,9 @@ class PostgresInterviewGenerationStore:
         generation_id: str,
         attempt_number: int,
         final_text: str,
+        *,
+        lease_token: str,
+        fencing_version: int,
     ) -> None:
         with self._connection() as connection:
             with connection.cursor() as cursor:
@@ -314,12 +445,22 @@ class PostgresInterviewGenerationStore:
                             updated_at = NOW()
                         WHERE generation_id = %s AND attempt_number = %s
                           AND status = 'running'
+                          AND lease_token = %s::uuid
+                          AND fencing_version = %s
+                          AND lease_expires_at > NOW()
                         """
                     ),
-                    (generation_id, attempt_number),
+                    (
+                        generation_id,
+                        attempt_number,
+                        lease_token,
+                        fencing_version,
+                    ),
                 )
                 if cursor.rowcount != 1:
-                    raise GenerationLeaseConflict(generation_id)
+                    raise GenerationLeaseLost(
+                        "generation attempt lease is no longer owned"
+                    )
                 cursor.execute(
                     self._sql(
                         """
@@ -341,6 +482,8 @@ class PostgresInterviewGenerationStore:
         attempt_number: int,
         worker_id: str,
         *,
+        lease_token: str,
+        fencing_version: int,
         lease_seconds: int = 60,
     ) -> bool:
         with self._connection() as connection:
@@ -354,6 +497,9 @@ class PostgresInterviewGenerationStore:
                             updated_at = NOW()
                         WHERE generation_id = %s AND attempt_number = %s
                           AND status = 'running' AND lease_owner = %s
+                          AND lease_token = %s::uuid
+                          AND fencing_version = %s
+                          AND lease_expires_at > NOW()
                         """
                     ),
                     (
@@ -361,11 +507,24 @@ class PostgresInterviewGenerationStore:
                         generation_id,
                         attempt_number,
                         worker_id,
+                        lease_token,
+                        fencing_version,
                     ),
                 )
                 return cursor.rowcount == 1
 
-    def list_events(self, generation_id: str) -> list[GenerationEvent]:
+    def list_events_after(
+        self,
+        generation_id: str,
+        *,
+        after_attempt: int = 0,
+        after_sequence: int = -1,
+        limit: int = 200,
+    ) -> list[GenerationEvent]:
+        if after_attempt < 0 or after_sequence < -1:
+            raise ValueError("generation event cursor must be non-negative")
+        if limit < 1:
+            raise ValueError("generation event limit must be positive")
         with self._connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -375,12 +534,35 @@ class PostgresInterviewGenerationStore:
                                event_type, delta
                         FROM {chunks}
                         WHERE generation_id = %s
+                          AND (attempt_number, sequence) > (%s, %s)
                         ORDER BY attempt_number, sequence
+                        LIMIT %s
                         """
                     ),
-                    (generation_id,),
+                    (
+                        generation_id,
+                        after_attempt,
+                        after_sequence,
+                        limit,
+                    ),
                 )
                 return [GenerationEvent(*row) for row in cursor.fetchall()]
+
+    def list_events(self, generation_id: str) -> list[GenerationEvent]:
+        """Compatibility helper for maintenance and diagnostics callers."""
+        events: list[GenerationEvent] = []
+        cursor = (0, -1)
+        while True:
+            page = self.list_events_after(
+                generation_id,
+                after_attempt=cursor[0],
+                after_sequence=cursor[1],
+            )
+            events.extend(page)
+            if len(page) < 200:
+                return events
+            last = page[-1]
+            cursor = (last.attempt_number, last.sequence)
 
     def get_by_source_command(
         self, session_id: str, source_command_id: str
@@ -487,6 +669,9 @@ class PostgresInterviewGenerationStore:
         attempt_number: int,
         status: str,
         error_code: str,
+        *,
+        lease_token: str,
+        fencing_version: int,
     ) -> None:
         with self._connection() as connection:
             with connection.cursor() as cursor:
@@ -498,13 +683,25 @@ class PostgresInterviewGenerationStore:
                             lease_owner = NULL, lease_expires_at = NULL,
                             completed_at = NOW(), updated_at = NOW()
                         WHERE generation_id = %s AND attempt_number = %s
-                          AND status IN ('running', 'pending')
+                          AND status = 'running'
+                          AND lease_token = %s::uuid
+                          AND fencing_version = %s
+                          AND lease_expires_at > NOW()
                         """
                     ),
-                    (status, error_code, generation_id, attempt_number),
+                    (
+                        status,
+                        error_code,
+                        generation_id,
+                        attempt_number,
+                        lease_token,
+                        fencing_version,
+                    ),
                 )
                 if cursor.rowcount != 1:
-                    raise GenerationLeaseConflict(generation_id)
+                    raise GenerationLeaseLost(
+                        "generation attempt lease is no longer owned"
+                    )
 
     def _insert_event(
         self,
@@ -571,6 +768,8 @@ class PostgresInterviewGenerationStore:
                                 )
                             ),
                             lease_owner TEXT,
+                            lease_token UUID,
+                            fencing_version BIGINT NOT NULL DEFAULT 0,
                             lease_expires_at TIMESTAMPTZ,
                             last_error_code TEXT,
                             started_at TIMESTAMPTZ,
@@ -578,6 +777,23 @@ class PostgresInterviewGenerationStore:
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             PRIMARY KEY (generation_id, attempt_number)
                         )
+                        """
+                    )
+                )
+                cursor.execute(
+                    self._sql(
+                        """
+                        ALTER TABLE {attempts}
+                        ADD COLUMN IF NOT EXISTS lease_token UUID
+                        """
+                    )
+                )
+                cursor.execute(
+                    self._sql(
+                        """
+                        ALTER TABLE {attempts}
+                        ADD COLUMN IF NOT EXISTS fencing_version BIGINT
+                            NOT NULL DEFAULT 0
                         """
                     )
                 )
@@ -606,39 +822,26 @@ class PostgresInterviewGenerationStore:
                 )
                 from psycopg2 import sql
 
-                cursor.execute(
-                    sql.SQL(
-                        """
-                        CREATE INDEX IF NOT EXISTS {index}
-                        ON {generations} (session_id, source_command_id)
-                        """
-                    ).format(
-                        index=sql.Identifier(
-                            f"{self.generations_table}_session_source_idx"
-                        ),
-                        generations=sql.Identifier(self.generations_table),
-                    )
-                )
-                cursor.execute(
-                    sql.SQL(
-                        """
-                        CREATE INDEX IF NOT EXISTS {index}
-                        ON {chunks} (
-                            generation_id, attempt_number, sequence
+                # UNIQUE(session_id, source_command_id) and the chunks primary
+                # key already own equivalent B-tree indexes. Remove the older
+                # duplicate indexes from existing runtime schemas as well as
+                # avoiding their creation for new schemas.
+                for redundant_index in (
+                    runtime_schema_identifier(
+                        self.table_prefix, "generations_session_source_idx"
+                    ),
+                    runtime_schema_identifier(
+                        self.table_prefix, "generation_chunks_replay_idx"
+                    ),
+                ):
+                    cursor.execute(
+                        sql.SQL("DROP INDEX IF EXISTS {index}").format(
+                            index=sql.Identifier(redundant_index)
                         )
-                        """
-                    ).format(
-                        index=sql.Identifier(
-                            f"{self.chunks_table}_replay_idx"
-                        ),
-                        chunks=sql.Identifier(self.chunks_table),
                     )
-                )
 
     def _connection(self):
-        import psycopg2
-
-        return psycopg2.connect(self.dsn)
+        return self._connection_provider.connection()
 
     def _sql(self, statement: str):
         from psycopg2 import sql
