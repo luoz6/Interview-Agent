@@ -67,6 +67,7 @@ AGENT_SAFE_METADATA_STRING_KEYS = frozenset(
         "rerun_question_ids",
         "failed_question_ids",
         "context_policy_version",
+        "artifact_type",
         "estimator_path",
         "report_path",
     }
@@ -89,6 +90,8 @@ AGENT_CONTEXT_NUMERIC_METADATA_KEYS = frozenset(
         "dropped_evidence_count",
         "truncated_evidence_count",
         "provider_attempt_count",
+        "source_segment_count",
+        "target_output_tokens",
     }
 )
 AGENT_CONTEXT_BOOLEAN_METADATA_KEYS = frozenset(

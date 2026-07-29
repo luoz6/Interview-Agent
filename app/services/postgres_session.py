@@ -183,6 +183,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        graph_version: str = "langgraph-v1",
     ) -> None:
         from app.graphs.interview_state import build_initial_state
 
@@ -193,8 +194,10 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             resume_text=resume_text,
             job_tags=job_tags,
         )
-        state["workflow_engine"] = "langgraph-v1"
-        state["graph_schema_version"] = "langgraph-v1"
+        if graph_version not in {"langgraph-v1", "langgraph-v2"}:
+            raise ValueError("unsupported durable interview graph version")
+        state["workflow_engine"] = graph_version
+        state["graph_schema_version"] = graph_version
         state["messages"] = []
         state["state_version"] = 0
         state["checkpoint_version"] = 0

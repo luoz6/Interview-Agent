@@ -22,6 +22,7 @@ AgentName = Literal[
     "examiner",
     "shadow_reviewer",
     "report_coach",
+    "context_compressor",
 ]
 AgentPhase = Literal["prep", "interview", "review"]
 AgentRunStatus = Literal["completed", "degraded", "failed", "cancelled"]

@@ -132,7 +132,8 @@ def test_completed_review_effect_is_reused_without_provider_call(stores):
     _, _, workflow, _, job = stores
     calls = []
 
-    def provider():
+    def provider(ownership):
+        ownership.ensure_owned()
         calls.append("called")
         return {"value": "winner"}
 
@@ -171,7 +172,7 @@ def test_review_effect_identity_conflict_fails_closed(stores):
             effect_type="report_generation",
             graph_schema_version="langgraph-review-v1",
             input_sha256="input-1",
-            provider=lambda: {"value": "one"},
+            provider=lambda ownership: {"value": "one"},
         )
         with pytest.raises(ReviewEffectConflict):
             workflow.run_effect(
@@ -180,7 +181,7 @@ def test_review_effect_identity_conflict_fails_closed(stores):
                 effect_type="report_generation",
                 graph_schema_version="langgraph-review-v1",
                 input_sha256="input-2",
-                provider=lambda: {"value": "two"},
+                provider=lambda ownership: {"value": "two"},
             )
 
 
@@ -202,7 +203,9 @@ def test_running_review_effect_returns_busy_without_provider_call(stores):
                 effect_type="report_generation",
                 graph_schema_version="langgraph-review-v1",
                 input_sha256="input-1",
-                provider=lambda: pytest.fail("provider must not be called"),
+                provider=lambda ownership: pytest.fail(
+                    "provider must not be called"
+                ),
             )
 
 

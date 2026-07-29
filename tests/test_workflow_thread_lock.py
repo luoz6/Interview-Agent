@@ -192,6 +192,9 @@ def test_review_effect_heartbeat_exception_fails_closed_with_original_cause():
         def __init__(self):
             self.called = Event()
 
+        def assert_effect_owned(self, claim):
+            return True
+
         def heartbeat_effect(self, *args, **kwargs):
             self.called.set()
             raise failure

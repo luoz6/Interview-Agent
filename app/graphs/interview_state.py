@@ -5,7 +5,14 @@ from typing import Literal, TypedDict
 from app.services.prep import InterviewPlan, InterviewQuestion
 
 
-WorkflowEngine = Literal["legacy", "langgraph-v1"]
+WorkflowEngine = Literal["legacy", "langgraph-v1", "langgraph-v2"]
+SUPPORTED_INTERVIEW_GRAPH_VERSIONS = frozenset(
+    {"langgraph-v1", "langgraph-v2"}
+)
+
+
+def is_durable_interview_version(value: str | None) -> bool:
+    return value in SUPPORTED_INTERVIEW_GRAPH_VERSIONS
 
 
 class InterviewMessage(TypedDict):
@@ -52,14 +59,17 @@ def choose_workflow_engine(
     runtime_store: str,
     runtime_enabled: bool,
     rollout_percent: int,
+    durable_version: str = "langgraph-v1",
 ) -> WorkflowEngine:
+    if durable_version not in SUPPORTED_INTERVIEW_GRAPH_VERSIONS:
+        raise ValueError("unsupported durable interview graph version")
     if runtime_store != "postgres" or not runtime_enabled or rollout_percent == 0:
         return "legacy"
     bucket = int(
         hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:8],
         16,
     ) % 100
-    return "langgraph-v1" if bucket < rollout_percent else "legacy"
+    return durable_version if bucket < rollout_percent else "legacy"  # type: ignore[return-value]
 
 
 def utc_now_iso() -> str:

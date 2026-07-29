@@ -78,6 +78,9 @@ class RaisingEffectRenewal:
         self.failure = failure
         self.called = Event()
 
+    def assert_effect_owned(self, claim):
+        return True
+
     def heartbeat_effect(self, *args, **kwargs):
         self.called.set()
         raise self.failure

@@ -107,6 +107,8 @@ class DurableInterviewGraphDependencies:
     report_job_queue: Any | None = None
     context_builder: Callable[[DurableInterviewState], list[dict[str, str]]] | None = None
     context_runtime: ContextRuntime | None = None
+    context_artifact_coordinator: Any | None = None
+    evidence_artifact_coordinator: Any | None = None
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
     worker_id: str = "durable-interview-worker"
     generation_lease_seconds: int = 60
@@ -137,6 +139,18 @@ def project_state_node(state, deps) -> dict:
     if state["command_outcome"] == "completed":
         updates["active_command_id"] = None
         updates["command_type"] = None
+    if state.get("workflow_engine") == "langgraph-v2" and state.get(
+        "active_context_artifact_ref"
+    ):
+        updates.update(
+            {
+                "active_context_artifact_ref": None,
+                "active_context_artifact_sha256": None,
+                "active_context_artifact_type": None,
+                "active_context_policy_version": None,
+                "context_route": None,
+            }
+        )
     return updates
 
 
@@ -266,15 +280,20 @@ def generate_followup(state, deps) -> dict:
         }
     chunks: list[str] = []
     sequence = 0
-    context = (
-        deps.context_builder(state)
-        if deps.context_builder is not None
-        else _build_examiner_context(
-            state,
-            deps.knowledge_repository,
-            deps.context_runtime,
+    is_v2 = state.get("workflow_engine") == "langgraph-v2"
+    context = None
+    if not is_v2:
+        context = (
+            deps.context_builder(state)
+            if deps.context_builder is not None
+            else _build_examiner_context(
+                state,
+                deps.knowledge_repository,
+                deps.context_runtime,
+            )
         )
-    )
+    artifact_context = None
+    parent_ownership = None
     try:
         heartbeat_context = deps.generation_heartbeat_factory(
             generation_store=deps.generation_store,
@@ -283,8 +302,54 @@ def generate_followup(state, deps) -> dict:
             lease_seconds=deps.generation_lease_seconds,
         )
         with heartbeat_context as heartbeat:
+            if is_v2:
+                from app.services.interview_context_artifacts import (
+                    GenerationAttemptOwnership,
+                )
+
+                parent_ownership = GenerationAttemptOwnership(
+                    deps.generation_store,
+                    attempt,
+                    worker_id=deps.worker_id,
+                )
+                deterministic_context = (
+                    deps.context_builder(state)
+                    if deps.context_builder is not None
+                    else _build_examiner_context(
+                        state,
+                        deps.knowledge_repository,
+                        deps.context_runtime,
+                    )
+                )
+                artifact_context = (
+                    deps.context_artifact_coordinator.build_context(
+                        state=state,
+                        deterministic_context=deterministic_context,
+                        parent_ownership=parent_ownership,
+                    )
+                    if deps.context_artifact_coordinator is not None
+                    else None
+                )
+                context = (
+                    artifact_context.context_messages
+                    if artifact_context is not None
+                    else deterministic_context
+                )
+                if deps.evidence_artifact_coordinator is not None:
+                    evidence_context = (
+                        deps.evidence_artifact_coordinator.build_interview_context(
+                            state=state,
+                            context_messages=context,
+                            parent_ownership=parent_ownership,
+                            worker_id=deps.worker_id,
+                        )
+                    )
+                    context = evidence_context.context_messages
+                    if evidence_context.artifact_ref is not None:
+                        artifact_context = evidence_context
+                parent_ownership.ensure_owned()
             for chunk in deps.examiner.stream_followup_attempt(
-                context=context,
+                context=context or [],
                 execution_context=AgentExecutionContext(
                     correlation_id=state["session_id"],
                     causation_id=state["active_command_id"],
@@ -326,6 +391,8 @@ def generate_followup(state, deps) -> dict:
                 )
             final_text = "".join(chunks).strip()
             heartbeat.ensure_owned()
+            if parent_ownership is not None:
+                parent_ownership.ensure_owned()
             deps.generation_store.complete_attempt(
                 attempt.generation_id,
                 attempt.attempt_number,
@@ -333,9 +400,23 @@ def generate_followup(state, deps) -> dict:
                 lease_token=attempt.lease_token,
                 fencing_version=attempt.fencing_version,
             )
+        if parent_ownership is not None:
+            parent_ownership.ensure_owned()
+        artifact_updates = (
+            {
+                "active_context_artifact_ref": artifact_context.artifact_ref,
+                "active_context_artifact_sha256": artifact_context.artifact_sha256,
+                "active_context_artifact_type": artifact_context.artifact_type,
+                "active_context_policy_version": artifact_context.policy_version,
+                "context_route": artifact_context.route,
+            }
+            if artifact_context is not None
+            else {}
+        )
         return {
             "generation_outcome": "completed",
             "generated_text": final_text,
+            **artifact_updates,
         }
     except Exception as exc:
         failure = deps.failure_classifier(exc)
@@ -578,7 +659,20 @@ def build_durable_interview_graph(
     *,
     checkpointer,
 ):
-    builder = StateGraph(DurableInterviewState)
+    return build_durable_interview_graph_for_schema(
+        deps,
+        state_schema=DurableInterviewState,
+        checkpointer=checkpointer,
+    )
+
+
+def build_durable_interview_graph_for_schema(
+    deps: DurableInterviewGraphDependencies,
+    *,
+    state_schema,
+    checkpointer,
+):
+    builder = StateGraph(state_schema)
     builder.add_node("initialize_session", initialize_session)
     builder.add_node("project_state", partial(project_state_node, deps=deps))
     builder.add_node("wait_for_answer", wait_for_answer)

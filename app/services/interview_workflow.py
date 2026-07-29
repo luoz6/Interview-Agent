@@ -5,7 +5,11 @@ import json
 from uuid import uuid4
 
 from app.graphs.durable_interview_state import make_durable_initial_state
-from app.graphs.interview_state import choose_workflow_engine
+from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
+from app.graphs.interview_state import (
+    choose_workflow_engine,
+    is_durable_interview_version,
+)
 from app.services.interview_event_stream import InterviewEventStreamService
 from app.services.runtime_events import AcceptedInterviewCommand
 from app.services.workflow_thread_lock import (
@@ -63,6 +67,7 @@ class InterviewWorkflowService:
             runtime_store=self.runtime_store,
             runtime_enabled=self.runtime_enabled,
             rollout_percent=self.rollout_percent,
+            durable_version=self.default_graph_version,
         )
         if engine == "legacy":
             return self.legacy_store.start(
@@ -78,6 +83,7 @@ class InterviewWorkflowService:
             job_description=job_description,
             resume_text=resume_text,
             job_tags=job_tags,
+            graph_version=self.default_graph_version,
         )
         self.ensure_interview_bootstrapped(session_id, plan=plan)
         return self.legacy_store._to_turn(
@@ -93,14 +99,14 @@ class InterviewWorkflowService:
         except ValueError:
             return False
         return (
-            state.get("workflow_engine") == "langgraph-v1"
+            is_durable_interview_version(state.get("workflow_engine"))
             and bool(state.get("graph_schema_version"))
         )
 
     def graph_for_session(self, session_id: str):
         state = self.legacy_store.get(session_id)
         version = state.get("graph_schema_version")
-        if state.get("workflow_engine") != "langgraph-v1" or not version:
+        if not is_durable_interview_version(state.get("workflow_engine")) or not version:
             raise ValueError("session is not a durable graph session")
         return self.graph_for_version(version)
 
@@ -134,14 +140,16 @@ class InterviewWorkflowService:
             workflow_type="interview",
         ) as ownership:
             public_state = self.legacy_store.get(session_id)
-            if public_state.get("workflow_engine") != "langgraph-v1":
+            if not is_durable_interview_version(public_state.get("workflow_engine")):
                 raise ValueError("session is not a durable graph session")
             version = public_state.get("graph_schema_version")
             if not version:
                 raise ValueError("durable graph version is missing")
             resolved_plan = plan or public_state["plan"]
-            initial_state = make_durable_initial_state(
-                session_id, resolved_plan
+            initial_state = (
+                make_durable_initial_state_v2(session_id, resolved_plan)
+                if version == "langgraph-v2"
+                else make_durable_initial_state(session_id, resolved_plan)
             )
             canonical = json.dumps(
                 {
@@ -228,7 +236,7 @@ class InterviewWorkflowService:
         answer_text: str | None = None,
     ):
         state = self.legacy_store.get(session_id)
-        if state.get("workflow_engine") != "langgraph-v1":
+        if not is_durable_interview_version(state.get("workflow_engine")):
             kwargs = {
                 "expected_version": expected_version,
                 "command_id": command_id,
@@ -271,16 +279,19 @@ class InterviewWorkflowService:
 
     def snapshot(self, session_id: str) -> dict:
         snapshot = self.legacy_store.snapshot(session_id)
-        if snapshot.get("workflow_engine") != "langgraph-v1":
+        if not is_durable_interview_version(snapshot.get("workflow_engine")):
             state = self.legacy_store.get(session_id)
-            if state.get("workflow_engine") != "langgraph-v1":
+            if not is_durable_interview_version(state.get("workflow_engine")):
                 return snapshot
         graph_state = self.graph_for_session(session_id).get_state(
             {"configurable": {"thread_id": session_id}}
         )
         next_node = graph_state.next[0] if graph_state.next else None
         snapshot["pending_action"] = PENDING_ACTION_BY_NODE.get(next_node)
-        snapshot["workflow_engine"] = "langgraph-v1"
+        snapshot["workflow_engine"] = graph_state.values.get(
+            "workflow_engine",
+            snapshot.get("workflow_engine"),
+        )
         values = graph_state.values
         active_command_id = values.get("active_command_id")
         generation_id = values.get("generation_id")

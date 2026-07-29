@@ -255,7 +255,7 @@ def get_interview_langgraph_version() -> str:
     value = os.getenv(
         "INTERVIEW_LANGGRAPH_VERSION", "langgraph-v1"
     ).strip()
-    if value != "langgraph-v1":
+    if value not in {"langgraph-v1", "langgraph-v2"}:
         raise ValueError("unsupported INTERVIEW_LANGGRAPH_VERSION")
     return value
 
@@ -316,6 +316,65 @@ def get_report_langgraph_max_provider_attempts() -> int:
 
 def get_report_langgraph_max_quality_repairs() -> int:
     return _positive_int("REPORT_LANGGRAPH_MAX_QUALITY_REPAIRS", 2)
+
+
+def get_context_compression_shadow_enabled() -> bool:
+    return _strict_bool("CONTEXT_COMPRESSION_SHADOW_ENABLED", False)
+
+
+def get_context_compression_prep_enabled() -> bool:
+    return _strict_bool("CONTEXT_COMPRESSION_PREP_ENABLED", False)
+
+
+def get_context_compression_interview_enabled() -> bool:
+    return _strict_bool("CONTEXT_COMPRESSION_INTERVIEW_ENABLED", False)
+
+
+def get_context_compression_evidence_enabled() -> bool:
+    return _strict_bool("CONTEXT_COMPRESSION_EVIDENCE_ENABLED", False)
+
+
+def get_context_compression_review_enabled() -> bool:
+    return _strict_bool("CONTEXT_COMPRESSION_REVIEW_ENABLED", False)
+
+
+def get_context_artifact_lease_seconds() -> int:
+    return _positive_int("CONTEXT_ARTIFACT_LEASE_SECONDS", 60)
+
+
+def get_context_artifact_unreferenced_retention_hours() -> int:
+    return _positive_int("CONTEXT_ARTIFACT_UNREFERENCED_RETENTION_HOURS", 24)
+
+
+def get_context_artifact_failed_retention_hours() -> int:
+    return _positive_int("CONTEXT_ARTIFACT_FAILED_RETENTION_HOURS", 24)
+
+
+def get_context_artifact_prep_ref_retention_hours() -> int:
+    return _positive_int("CONTEXT_ARTIFACT_PREP_REF_RETENTION_HOURS", 168)
+
+
+def get_context_artifact_cleanup_batch_size() -> int:
+    return _positive_int("CONTEXT_ARTIFACT_CLEANUP_BATCH_SIZE", 200)
+
+
+def get_context_artifact_deployment_scope() -> str:
+    value = os.getenv(
+        "CONTEXT_ARTIFACT_DEPLOYMENT_SCOPE",
+        "single-tenant-default",
+    ).strip()
+    if not value or len(value) > 256:
+        raise ValueError(
+            "CONTEXT_ARTIFACT_DEPLOYMENT_SCOPE must be a stable identifier"
+        )
+    return value
+
+
+def _strict_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "true" if default else "false").strip().lower()
+    if raw not in {"true", "false"}:
+        raise ValueError(f"{name} must be true or false")
+    return raw == "true"
 
 
 def _positive_int(name: str, default: int) -> int:

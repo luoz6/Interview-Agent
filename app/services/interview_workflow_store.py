@@ -324,7 +324,7 @@ class PostgresInterviewWorkflowStore:
                 if row is None:
                     raise BootstrapConflict("durable bootstrap shell is missing")
                 if (
-                    row[0] != "langgraph-v1"
+                    row[0] != graph_schema_version
                     or row[1] != graph_schema_version
                 ):
                     raise BootstrapConflict(

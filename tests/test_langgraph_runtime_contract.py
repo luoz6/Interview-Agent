@@ -61,6 +61,12 @@ def test_rollout_rejects_invalid_percentage(monkeypatch, value):
         get_interview_langgraph_rollout_percent()
 
 
+def test_interview_graph_v2_is_an_explicit_supported_version(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_LANGGRAPH_VERSION", "langgraph-v2")
+
+    assert get_interview_langgraph_version() == "langgraph-v2"
+
+
 def test_checkpointer_starts_once_and_closes():
     context = FakeSaverContext()
     runtime = PostgresCheckpointerRuntime(

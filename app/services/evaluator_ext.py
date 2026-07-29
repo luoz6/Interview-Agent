@@ -84,6 +84,7 @@ class ExpertShadowEvaluator:
         vector_store: KnowledgeSearchStore,
         execution_runner: AgentExecutionRunner | None = None,
         context_runtime: ContextRuntime | None = None,
+        reference_transform: Callable | None = None,
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store
@@ -97,6 +98,7 @@ class ExpertShadowEvaluator:
             None,
         )
         self.last_retrieval_by_question: dict[str, dict] = {}
+        self._reference_transform = reference_transform
 
     def evaluate(
         self,
@@ -129,15 +131,24 @@ class ExpertShadowEvaluator:
                 self._reference_to_dict(reference)
                 for reference in retrieval.references
             ]
+            effective_reference_dicts = (
+                self._reference_transform(
+                    state=state,
+                    chunk=chunk,
+                    references=reference_dicts,
+                )
+                if self._reference_transform is not None
+                else reference_dicts
+            )
             if context_enforcement_enabled(QUESTION_REVIEW_CONTEXT_POLICY.operation):
                 bounded_messages, bounded_references = _budget_question_review_input(
                     chunk,
-                    reference_dicts,
+                    effective_reference_dicts,
                     context_runtime=self._context_runtime,
                 )
             else:
                 bounded_messages = chunk.model_dump()["messages"]
-                bounded_references = reference_dicts
+                bounded_references = effective_reference_dicts
             self.last_retrieval_by_question[chunk.question_id] = {
                 "retrieval_path": retrieval.retrieval_path,
                 "degraded_reason": retrieval.degraded_reason,

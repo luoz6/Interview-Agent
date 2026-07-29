@@ -7,6 +7,12 @@ from uuid import uuid4
 from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_durable_workflow_maintenance_seconds,
+    get_context_artifact_cleanup_batch_size,
+    get_context_artifact_deployment_scope,
+    get_context_artifact_failed_retention_hours,
+    get_context_artifact_lease_seconds,
+    get_context_artifact_prep_ref_retention_hours,
+    get_context_artifact_unreferenced_retention_hours,
     get_postgres_dsn,
     get_postgres_pool_settings,
     get_interview_langgraph_rollout_percent,
@@ -78,6 +84,10 @@ _durable_workflow_maintenance_started = False
 _workflow_thread_lock = None
 _runtime_signal_store = None
 _postgres_connection_domains = None
+_context_artifact_store = None
+_context_compression_runner = None
+_context_compressor_agent = None
+_context_compression_lock = RLock()
 
 
 def get_postgres_connection_domains():
@@ -229,6 +239,75 @@ def get_runtime_control_store():
     return _runtime_control_store
 
 
+def build_context_artifact_store():
+    if get_runtime_store() == "postgres":
+        from app.services.context_artifact_store import (
+            PostgresContextArtifactStore,
+        )
+
+        domains = get_postgres_connection_domains()
+        return PostgresContextArtifactStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=domains.business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    if get_runtime_store() == "memory":
+        from app.services.in_memory_context_artifact_store import (
+            InMemoryContextArtifactStore,
+        )
+
+        return InMemoryContextArtifactStore()
+    raise RuntimeError("context artifacts require postgres or memory runtime")
+
+
+def get_context_artifact_store():
+    global _context_artifact_store
+    with _context_compression_lock:
+        if _context_artifact_store is None:
+            _context_artifact_store = build_context_artifact_store()
+        return _context_artifact_store
+
+
+def get_context_compression_runner():
+    global _context_compression_runner
+    with _context_compression_lock:
+        if _context_compression_runner is None:
+            from app.services.context_compression_runner import (
+                ContextCompressionRunner,
+            )
+
+            _context_compression_runner = ContextCompressionRunner(
+                get_context_artifact_store(),
+                lease_seconds=get_context_artifact_lease_seconds(),
+            )
+        return _context_compression_runner
+
+
+def get_context_compressor_agent():
+    global _context_compressor_agent
+    with _context_compression_lock:
+        if _context_compressor_agent is None:
+            from app.agents.context_compressor import ContextCompressorAgent
+            from app.services.context_compression import OpenAIContextCompressor
+
+            llm = resolve_runtime_llm(get_session_store())
+            provider = (
+                OpenAIContextCompressor(
+                    llm_config=llm.config,
+                    chat_model=llm.chat_model,
+                    context_runtime=llm.context_runtime,
+                )
+                if isinstance(llm, OpenAIInterviewLLM)
+                else OpenAIContextCompressor()
+            )
+            _context_compressor_agent = ContextCompressorAgent(
+                provider=provider,
+                execution_runner=get_agent_execution_runner(),
+            )
+        return _context_compressor_agent
+
+
 def get_langgraph_checkpointer_runtime():
     global _langgraph_checkpointer_runtime
     if get_runtime_store() != "postgres":
@@ -275,9 +354,22 @@ def build_durable_workflow_maintenance_service():
             schema_mode="validate",
         ),
         signal_store=get_runtime_signal_store(),
+        context_artifact_store=get_context_artifact_store(),
         retention_hours=get_interview_chunk_retention_hours(),
         signal_retention_hours=(
             get_langgraph_canary_signal_retention_hours()
+        ),
+        context_artifact_unreferenced_retention_hours=(
+            get_context_artifact_unreferenced_retention_hours()
+        ),
+        context_artifact_failed_retention_hours=(
+            get_context_artifact_failed_retention_hours()
+        ),
+        context_artifact_prep_ref_retention_hours=(
+            get_context_artifact_prep_ref_retention_hours()
+        ),
+        context_artifact_cleanup_batch_size=(
+            get_context_artifact_cleanup_batch_size()
         ),
         interval_seconds=get_durable_workflow_maintenance_seconds(),
     )
@@ -322,7 +414,9 @@ def build_interview_workflow_service():
     from app.graphs.durable_interview_graph import (
         DurableInterviewGraphDependencies,
         build_durable_interview_graph,
+        build_durable_interview_graph_for_schema,
     )
+    from app.graphs.durable_interview_state_v2 import DurableInterviewStateV2
     from app.services.interview_generation_store import (
         PostgresInterviewGenerationStore,
     )
@@ -372,10 +466,54 @@ def build_interview_workflow_service():
         report_job_queue=get_report_job_store(),
         worker_id=_runtime_worker_id("interview-graph"),
     )
-    graph = build_durable_interview_graph(deps, checkpointer=saver)
+    from app.services.context_compression_gating import ContextCompressionGates
+
+    compression_gates = ContextCompressionGates.from_env()
+    if compression_gates.creation_enabled(workflow="interview"):
+        from app.services.interview_context_artifacts import (
+            InterviewContextArtifactCoordinator,
+        )
+        from app.services.evidence_context_artifacts import (
+            EvidenceContextArtifactCoordinator,
+        )
+
+        compressor_agent = get_context_compressor_agent()
+        deps.context_artifact_coordinator = InterviewContextArtifactCoordinator(
+            runner=get_context_compression_runner(),
+            compressor_agent=compressor_agent,
+            compressor_config=compressor_agent.provider.config,
+            context_runtime=get_context_runtime(),
+            gates=compression_gates,
+            deployment_scope=get_context_artifact_deployment_scope(),
+        )
+        if compression_gates.shadow_enabled or (
+            compression_gates.interview_enabled
+            and compression_gates.evidence_enabled
+        ):
+            deps.evidence_artifact_coordinator = (
+                EvidenceContextArtifactCoordinator(
+                    runner=get_context_compression_runner(),
+                    compressor_agent=compressor_agent,
+                    compressor_config=compressor_agent.provider.config,
+                    context_runtime=get_context_runtime(),
+                    gates=compression_gates,
+                    deployment_scope=get_context_artifact_deployment_scope(),
+                )
+            )
     registry = VersionedGraphRegistry()
     version = get_interview_langgraph_version()
-    registry.register(version, graph)
+    registry.register(
+        "langgraph-v1",
+        build_durable_interview_graph(deps, checkpointer=saver),
+    )
+    registry.register(
+        "langgraph-v2",
+        build_durable_interview_graph_for_schema(
+            deps,
+            state_schema=DurableInterviewStateV2,
+            checkpointer=saver,
+        ),
+    )
     return InterviewWorkflowService(
         legacy_store=store,
         workflow_store=workflow_store,
@@ -436,6 +574,7 @@ def get_workflow_thread_lock():
 def build_review_workflow_service():
     from dataclasses import asdict
     from app.agents.report_coach import ReportCoachAgent
+    from app.agents.shadow_reviewer import ShadowReviewerAgent
     from app.graphs.durable_review_graph import (
         DurableReviewGraphDependencies,
         build_durable_review_graph,
@@ -466,6 +605,27 @@ def build_review_workflow_service():
         connection_provider=get_postgres_connection_domains().business,
         schema_mode="validate",
     )
+    from app.services.context_compression_gating import ContextCompressionGates
+
+    review_compression_gates = ContextCompressionGates.from_env()
+    review_evidence_coordinator = None
+    if review_compression_gates.shadow_enabled or (
+        review_compression_gates.review_enabled
+        and review_compression_gates.evidence_enabled
+    ):
+        from app.services.evidence_context_artifacts import (
+            EvidenceContextArtifactCoordinator,
+        )
+
+        compressor_agent = get_context_compressor_agent()
+        review_evidence_coordinator = EvidenceContextArtifactCoordinator(
+            runner=get_context_compression_runner(),
+            compressor_agent=compressor_agent,
+            compressor_config=compressor_agent.provider.config,
+            context_runtime=compressor_agent.provider.context_runtime,
+            gates=review_compression_gates,
+            deployment_scope=get_context_artifact_deployment_scope(),
+        )
 
     def review_question(graph_state, question_id):
         question = next(item for item in graph_state["review_input_manifest"]["questions"] if item["question_id"] == question_id)
@@ -474,14 +634,36 @@ def build_review_workflow_service():
             f"{question['input_sha256']}:{graph_state['provider_attempt']}"
         )
 
-        def call_provider():
+        def call_provider(effect_ownership):
+            effect_ownership.ensure_owned()
             state = store.get(graph_state["session_id"])
+            reviewer_factory = None
+            if review_evidence_coordinator is not None:
+                def reviewer_factory(*, llm, vector_store):
+                    return ShadowReviewerAgent(
+                        llm=llm,
+                        vector_store=vector_store,
+                        execution_runner=runner,
+                        reference_transform=lambda *, state, chunk, references: (
+                            review_evidence_coordinator.transform_review_references(
+                                state=state,
+                                question_id=chunk.question_id,
+                                focus=chunk.focus,
+                                references=references,
+                                job_id=graph_state["job_id"],
+                                attempt_number=graph_state["provider_attempt"],
+                                parent_ownership=effect_ownership,
+                                worker_id=effect_ownership.claim.worker_id,
+                            )
+                        ),
+                    )
             record = evaluate_round_review_event(
                 RoundClosedEvent(
                     session_id=state["session_id"], question_id=question_id,
                     answer_state=question["answer_state"], job_tags=list(state["job_tags"]),
                     state_version=state["state_version"],
                 ), state=state, llm=resolve_runtime_llm(store), vector_store=vector_store,
+                reviewer_factory=reviewer_factory,
                 execution_runner=runner, attempt_number=graph_state["provider_attempt"],
             ).model_copy(update={
                 "review_input_sha256": graph_state["review_input_manifest"]["input_sha256"],
@@ -511,7 +693,8 @@ def build_review_workflow_service():
             f"{graph_state['quality_repair_count']}"
         )
 
-        def call_provider():
+        def call_provider(effect_ownership):
+            effect_ownership.ensure_owned()
             state = store.get(graph_state["session_id"])
             records = store.list_question_evaluations(state["session_id"])
             report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).generate_report_attempt(
@@ -567,7 +750,8 @@ def build_review_workflow_service():
             f"{graph_state['quality_repair_count']}"
         )
 
-        def call_provider():
+        def call_provider(effect_ownership):
+            effect_ownership.ensure_owned()
             report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).repair_report_attempt(
                 plan=state["plan"],
                 evaluation_items=build_report_coach_items_from_question_evaluations(records),
@@ -787,6 +971,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _workflow_thread_lock
     global _runtime_signal_store
     global _postgres_connection_domains
+    global _context_artifact_store, _context_compression_runner
+    global _context_compressor_agent
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
     if _durable_workflow_maintenance_service is not None:
@@ -816,6 +1002,9 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _workflow_thread_lock = None
     _runtime_signal_store = None
     _postgres_connection_domains = None
+    _context_artifact_store = None
+    _context_compression_runner = None
+    _context_compressor_agent = None
     with _agent_runtime_lock:
         _agent_execution_runner = None
         _agent_composite_recorder = None

@@ -68,6 +68,7 @@ class ReviewEffectHeartbeat:
         self._thread: Thread | None = None
 
     def __enter__(self):
+        self.ensure_owned()
         self._thread = Thread(
             target=self._run,
             name="review-effect-heartbeat",
@@ -83,12 +84,30 @@ class ReviewEffectHeartbeat:
 
     def ensure_owned(self):
         if self._lost.is_set():
-            error = ReviewEffectLeaseLost("review effect claim was lost")
-            with self._failure_lock:
-                failure = self._failure
-            if failure is not None:
-                raise error from failure
-            raise error
+            self._raise_lost()
+        try:
+            owned = self.store.assert_effect_owned(self.claim)
+        except Exception as exc:
+            self._mark_lost(exc)
+            self._raise_lost(
+                "review effect ownership could not be verified"
+            )
+        if not owned:
+            self._mark_lost()
+            self._raise_lost()
+        if self._lost.is_set():
+            self._raise_lost()
+
+    def _raise_lost(
+        self,
+        message: str = "review effect claim was lost",
+    ) -> None:
+        error = ReviewEffectLeaseLost(message)
+        with self._failure_lock:
+            failure = self._failure
+        if failure is not None:
+            raise error from failure
+        raise error
 
     def _mark_lost(self, failure: Exception | None = None) -> None:
         with self._failure_lock:
@@ -299,7 +318,7 @@ class PostgresReviewWorkflowStore:
             self, claim, self.effect_lease_seconds
         ) as heartbeat:
             try:
-                payload = provider()
+                payload = provider(heartbeat)
             except Exception:
                 heartbeat.ensure_owned()
                 self.fail_effect(claim)
@@ -545,6 +564,40 @@ class PostgresReviewWorkflowStore:
                     ),
                 )
                 return cursor.rowcount == 1
+
+    def assert_effect_owned(self, claim: ReviewEffectClaim) -> bool:
+        """Synchronously verify Report Job and Review Effect ownership."""
+
+        with self.control.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT 1
+                        FROM {effects} AS effects
+                        JOIN {jobs} AS jobs ON jobs.job_id = effects.job_id
+                        WHERE effects.operation_key = %s
+                          AND effects.status = 'running'
+                          AND effects.claim_token = %s::uuid
+                          AND effects.fencing_version = %s
+                          AND effects.claim_expires_at > NOW()
+                          AND jobs.job_id = %s::uuid
+                          AND jobs.status = 'running'
+                          AND jobs.lease_owner = %s
+                          AND jobs.lease_token = %s::uuid
+                          AND jobs.lease_expires_at > NOW()
+                        """
+                    ),
+                    (
+                        claim.operation_key,
+                        claim.claim_token,
+                        claim.fencing_version,
+                        claim.job_id,
+                        claim.worker_id,
+                        claim.job_lease_token,
+                    ),
+                )
+                return cursor.fetchone() is not None
 
     def load_effect_payload(self, operation_key: str) -> dict:
         with self.control.connection() as connection:

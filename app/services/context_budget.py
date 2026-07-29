@@ -77,6 +77,21 @@ REPORT_CONTEXT_POLICY = OperationContextPolicy(
     input_cap_tokens=24_000,
     max_output_tokens=4_096,
 )
+CONTEXT_COMPRESSION_QUESTION_POLICY = OperationContextPolicy(
+    operation="context_compressor.question_conversation",
+    input_cap_tokens=16_000,
+    max_output_tokens=2_000,
+)
+CONTEXT_COMPRESSION_EVIDENCE_POLICY = OperationContextPolicy(
+    operation="context_compressor.evidence",
+    input_cap_tokens=16_000,
+    max_output_tokens=2_000,
+)
+CONTEXT_COMPRESSION_PREP_POLICY = OperationContextPolicy(
+    operation="context_compressor.prep",
+    input_cap_tokens=24_000,
+    max_output_tokens=3_000,
+)
 
 
 @dataclass(frozen=True)

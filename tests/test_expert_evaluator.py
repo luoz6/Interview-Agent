@@ -267,6 +267,33 @@ def test_expert_evaluator_injects_references_and_reports_progress():
     ]
 
 
+def test_reference_transform_changes_only_provider_context_not_provenance():
+    llm = FakeExpertLLM()
+    calls = []
+
+    def transform(*, state, chunk, references):
+        calls.append((state["session_id"], chunk.question_id, references))
+        transformed = dict(references[0])
+        transformed["content"] = "Compressed Redis consistency guidance."
+        return [transformed]
+
+    evaluator = ExpertShadowEvaluator(
+        llm=llm,
+        vector_store=FakeVectorStore(),
+        reference_transform=transform,
+    )
+
+    evaluator.evaluate(make_state())
+
+    assert calls[0][0:2] == ("s1", "q1")
+    assert llm.last_items[0]["scoring_references"][0]["content"] == (
+        "Compressed Redis consistency guidance."
+    )
+    assert evaluator.last_retrieval_by_question["q1"]["retrieval_path"] == (
+        "legacy_semantic_search"
+    )
+
+
 def test_expert_evaluator_accepts_round_review_state_without_version_metadata():
     state = make_state()
     state.pop("state_version")

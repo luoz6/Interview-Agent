@@ -7,9 +7,11 @@ import pytest
 
 from app.graphs.durable_interview_graph import validate_command
 from app.graphs.interview_state import choose_workflow_engine
+from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
 from app.services.interview_workflow import InterviewWorkflowService
 from app.services.langgraph_runtime import VersionedGraphRegistry
 from app.services.report_jobs import choose_report_workflow_engine
+from tests.test_postgres_session_store import make_plan
 
 
 def _find_id(selector, expected: str, rollout_percent: int) -> str:
@@ -130,6 +132,34 @@ def test_interview_and_review_assignments_are_independent():
         runtime_enabled=True,
         rollout_percent=1,
     ) == "legacy"
+
+
+def test_new_interview_assignment_uses_configured_v2_without_changing_v1_default():
+    fixed_id = str(UUID(int=1))
+
+    assert choose_workflow_engine(
+        fixed_id,
+        runtime_store="postgres",
+        runtime_enabled=True,
+        rollout_percent=100,
+    ) == "langgraph-v1"
+    assert choose_workflow_engine(
+        fixed_id,
+        runtime_store="postgres",
+        runtime_enabled=True,
+        rollout_percent=100,
+        durable_version="langgraph-v2",
+    ) == "langgraph-v2"
+
+
+def test_v2_initial_state_contains_only_bounded_artifact_references():
+    state = make_durable_initial_state_v2("session-1", make_plan())
+
+    assert state["workflow_engine"] == "langgraph-v2"
+    assert state["graph_schema_version"] == "langgraph-v2"
+    assert state["active_context_artifact_ref"] is None
+    assert state["active_context_artifact_sha256"] is None
+    assert "context_artifact_payload" not in state
 
 
 def test_registry_never_falls_back_to_another_graph_version():

@@ -11,6 +11,7 @@ from app.graphs.durable_interview_graph import (
     GenerationLeaseHeartbeat,
     build_durable_interview_graph,
     generate_followup,
+    project_state_node,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.interview_generation_store import (
@@ -26,6 +27,33 @@ from app.services.report import ReportGenerationFailed
 from app.services.workflow_thread_lock import GenerationLeaseLost
 from tests.test_durable_interview_state import make_start_kwargs
 from tests.test_postgres_session_store import require_dsn
+
+
+def test_v2_projection_clears_only_bounded_active_artifact_reference_fields():
+    projection = type("Projection", (), {"state_version": 4})()
+    deps = type(
+        "Deps",
+        (),
+        {
+            "project_state": None,
+            "workflow_store": type(
+                "Store", (), {"project_state": lambda self, state: projection}
+            )(),
+        },
+    )()
+    state = {
+        "workflow_engine": "langgraph-v2",
+        "command_outcome": None,
+        "active_context_artifact_ref": "context-artifact-ref:abc",
+    }
+
+    result = project_state_node(state, deps)
+
+    assert result["active_context_artifact_ref"] is None
+    assert result["active_context_artifact_sha256"] is None
+    assert result["active_context_artifact_type"] is None
+    assert result["active_context_policy_version"] is None
+    assert result["context_route"] is None
 
 
 @dataclass
