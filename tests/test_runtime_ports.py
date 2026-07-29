@@ -9,11 +9,15 @@ from app.ports.runtime import (
     RuntimeLLMProvider,
     SessionCommandRepository,
 )
+from app.ports.context_artifacts import ContextArtifactStore
 from app.services.event_publisher import NoopRuntimeEventPublisher
 from app.services.llm import OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.session import InterviewSessionStore
+from app.services.in_memory_context_artifact_store import (
+    InMemoryContextArtifactStore,
+)
 from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.vector_store import KnowledgeSearchStore
 
@@ -29,6 +33,7 @@ def test_runtime_protocols_are_runtime_checkable():
         EmbeddingProvider,
         RuntimeLLMProvider,
         RuntimeEventPublisher,
+        ContextArtifactStore,
     ):
         assert getattr(protocol, "_is_runtime_protocol", False)
 
@@ -94,3 +99,7 @@ def test_search_only_fake_does_not_claim_v2_repository_contract():
             return []
 
     assert not isinstance(SearchOnlyFake(), KnowledgeRepository)
+
+
+def test_in_memory_context_artifact_store_matches_runtime_port():
+    assert isinstance(InMemoryContextArtifactStore(), ContextArtifactStore)
