@@ -46,6 +46,8 @@ _RUNTIME_TABLE_SUFFIXES = (
     "review_runs",
     "review_artifacts",
     "review_effects",
+    "context_artifacts",
+    "context_artifact_refs",
     "runtime_signal_buckets",
     "schema_migrations",
 )
@@ -74,6 +76,13 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "review_runs_status_updated_idx",
     "review_runs_session_status_idx",
     "review_effects_job_status_idx",
+    "context_artifacts_status_claim_idx",
+    "context_artifacts_status_updated_idx",
+    "context_artifacts_type_completed_idx",
+    "context_artifact_refs_artifact_idx",
+    "context_artifact_refs_owner_purpose_idx",
+    "context_artifact_refs_retention_idx",
+    "sessions_workflow_engine_check",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (

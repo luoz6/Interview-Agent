@@ -135,6 +135,91 @@ RUNTIME_SCHEMA_V2_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V2_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# Stage 48 migration checksums above are immutable. Stage 50 extends the
+# runtime validation registry only after the Stage 48 manifest has been
+# materialized, so an already-applied Stage 48 row never changes checksum.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
+    {
+        "_context_artifacts": frozenset(
+            {
+                "artifact_id",
+                "artifact_key",
+                "artifact_type",
+                "privacy_scope_sha256",
+                "source_sha256",
+                "compression_policy_version",
+                "prompt_contract_version",
+                "output_schema_version",
+                "compressor_provider",
+                "compressor_model",
+                "compressor_settings_sha256",
+                "target_output_tokens",
+                "status",
+                "claim_token",
+                "claim_expires_at",
+                "fencing_version",
+                "output_json",
+                "output_sha256",
+            }
+        ),
+        "_context_artifact_refs": frozenset(
+            {
+                "ref_id",
+                "artifact_id",
+                "owner_type",
+                "owner_key",
+                "purpose",
+                "artifact_sha256",
+                "last_used_at",
+                "retain_until",
+            }
+        ),
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
+    {
+        "_context_artifacts": (
+            frozenset({"status", "claim_expires_at"}),
+            frozenset({"status", "updated_at"}),
+            frozenset({"artifact_type", "completed_at"}),
+        ),
+        "_context_artifact_refs": (
+            frozenset({"artifact_id"}),
+            frozenset({"owner_type", "owner_key", "purpose"}),
+            frozenset({"owner_type", "retain_until", "where"}),
+        ),
+    }
+)
+
+RUNTIME_SCHEMA_V3_MANIFEST = json.dumps(
+    {
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+        "required_columns": {
+            suffix: sorted(columns)
+            for suffix, columns in sorted(RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.items())
+        },
+        "required_index_tokens": {
+            suffix: [sorted(tokens) for tokens in requirements]
+            for suffix, requirements in sorted(
+                RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.items()
+            )
+        },
+        "context_artifact_contract": "fenced-owner-ref-v1",
+        "interview_workflow_engines": [
+            "legacy",
+            "langgraph-v1",
+            "langgraph-v2",
+        ],
+        "langgraph_checkpointer": "3.1",
+        "write_authority": "single-writer-lease-token-fencing-v1",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V3_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V3_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -144,6 +229,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v2_contract",
         checksum=RUNTIME_SCHEMA_V2_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="stage50_context_artifacts_and_interview_v2",
+        checksum=RUNTIME_SCHEMA_V3_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

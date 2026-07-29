@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import logging
 from threading import Event, Lock, Thread
 
@@ -13,6 +14,9 @@ class MaintenanceResult:
     cleared_command_payloads: int
     deleted_generation_chunks: int
     deleted_runtime_signal_buckets: int = 0
+    deleted_context_artifact_refs: int = 0
+    deleted_completed_context_artifacts: int = 0
+    deleted_failed_context_artifacts: int = 0
 
 
 class DurableWorkflowMaintenanceService:
@@ -22,8 +26,13 @@ class DurableWorkflowMaintenanceService:
         workflow_store,
         generation_store,
         signal_store=None,
+        context_artifact_store=None,
         retention_hours: int,
         signal_retention_hours: int | None = None,
+        context_artifact_unreferenced_retention_hours: int = 24,
+        context_artifact_failed_retention_hours: int = 24,
+        context_artifact_prep_ref_retention_hours: int = 168,
+        context_artifact_cleanup_batch_size: int = 200,
         interval_seconds: int,
     ) -> None:
         if retention_hours < 1:
@@ -33,6 +42,7 @@ class DurableWorkflowMaintenanceService:
         self.workflow_store = workflow_store
         self.generation_store = generation_store
         self.signal_store = signal_store
+        self.context_artifact_store = context_artifact_store
         self.retention_hours = retention_hours
         self.signal_retention_hours = (
             retention_hours
@@ -41,6 +51,26 @@ class DurableWorkflowMaintenanceService:
         )
         if self.signal_retention_hours < 1:
             raise ValueError("signal retention hours must be positive")
+        artifact_bounds = (
+            context_artifact_unreferenced_retention_hours,
+            context_artifact_failed_retention_hours,
+            context_artifact_prep_ref_retention_hours,
+            context_artifact_cleanup_batch_size,
+        )
+        if any(value < 1 for value in artifact_bounds):
+            raise ValueError("context artifact maintenance bounds must be positive")
+        self.context_artifact_unreferenced_retention_hours = (
+            context_artifact_unreferenced_retention_hours
+        )
+        self.context_artifact_failed_retention_hours = (
+            context_artifact_failed_retention_hours
+        )
+        self.context_artifact_prep_ref_retention_hours = (
+            context_artifact_prep_ref_retention_hours
+        )
+        self.context_artifact_cleanup_batch_size = (
+            context_artifact_cleanup_batch_size
+        )
         self.interval_seconds = interval_seconds
         self._stop = Event()
         self._run_lock = Lock()
@@ -69,6 +99,7 @@ class DurableWorkflowMaintenanceService:
         if not self._run_lock.acquire(blocking=False):
             return None
         try:
+            artifact_cleanup = self._cleanup_context_artifacts()
             result = MaintenanceResult(
                 cleared_command_payloads=(
                     self.workflow_store.clear_applied_command_payloads_older_than(
@@ -85,6 +116,21 @@ class DurableWorkflowMaintenanceService:
                         hours=self.signal_retention_hours
                     )
                     if self.signal_store is not None
+                    else 0
+                ),
+                deleted_context_artifact_refs=(
+                    artifact_cleanup.deleted_owner_refs
+                    if artifact_cleanup is not None
+                    else 0
+                ),
+                deleted_completed_context_artifacts=(
+                    artifact_cleanup.deleted_completed_artifacts
+                    if artifact_cleanup is not None
+                    else 0
+                ),
+                deleted_failed_context_artifacts=(
+                    artifact_cleanup.deleted_failed_artifacts
+                    if artifact_cleanup is not None
                     else 0
                 ),
             )
@@ -114,6 +160,28 @@ class DurableWorkflowMaintenanceService:
             return None
         finally:
             self._run_lock.release()
+
+    def _cleanup_context_artifacts(self):
+        if self.context_artifact_store is None:
+            return None
+        from app.services.context_artifacts import ContextArtifactCleanupPolicy
+
+        now = datetime.now(timezone.utc)
+        return self.context_artifact_store.cleanup(
+            ContextArtifactCleanupPolicy(
+                completed_before=now
+                - timedelta(
+                    hours=self.context_artifact_unreferenced_retention_hours
+                ),
+                failed_before=now
+                - timedelta(hours=self.context_artifact_failed_retention_hours),
+                prep_ref_expires_before=now
+                - timedelta(
+                    hours=self.context_artifact_prep_ref_retention_hours
+                ),
+                batch_size=self.context_artifact_cleanup_batch_size,
+            )
+        )
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval_seconds):

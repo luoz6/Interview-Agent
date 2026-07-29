@@ -212,6 +212,20 @@ def test_reclaimed_attempt_rejects_every_stale_mutation(store):
 
     assert current.lease_token != first.lease_token
     assert current.fencing_version > first.fencing_version
+    assert store.assert_attempt_owned(
+        generation.generation_id,
+        1,
+        "worker",
+        lease_token=first.lease_token,
+        fencing_version=first.fencing_version,
+    ) is False
+    assert store.assert_attempt_owned(
+        generation.generation_id,
+        1,
+        "replacement-worker",
+        lease_token=current.lease_token,
+        fencing_version=current.fencing_version,
+    ) is True
     assert store.heartbeat_attempt(
         generation.generation_id,
         1,

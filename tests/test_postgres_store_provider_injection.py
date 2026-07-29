@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import pytest
 
 from app.services.interview_generation_store import PostgresInterviewGenerationStore
+from app.services.context_artifact_store import PostgresContextArtifactStore
 from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
 from app.services.postgres_identifiers import PostgresIdentifierInvalid
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
@@ -36,6 +37,7 @@ def no_schema_setup(monkeypatch):
         PostgresReportJobStore,
         PostgresReviewWorkflowStore,
         PostgresRuntimeSignalStore,
+        PostgresContextArtifactStore,
     )
     for cls in classes:
         monkeypatch.setattr(cls, "_ensure_schema", lambda self: None)
@@ -48,6 +50,7 @@ def no_schema_setup(monkeypatch):
         PostgresInterviewGenerationStore,
         PostgresReportJobStore,
         PostgresRuntimeSignalStore,
+        PostgresContextArtifactStore,
     ],
 )
 def test_store_uses_injected_provider_as_only_connection_source(

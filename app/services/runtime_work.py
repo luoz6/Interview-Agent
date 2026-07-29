@@ -3,6 +3,14 @@ from typing import Literal
 
 from app.services.postgres_connections import PostgresPoolExhausted
 from app.services.context_budget import ContextBudgetExceeded
+from app.services.context_artifacts import (
+    ContextArtifactBusy,
+    ContextArtifactConflict,
+    ContextArtifactLeaseLost,
+    ContextArtifactMissing,
+    ContextArtifactProviderFailed,
+    ContextArtifactValidationFailed,
+)
 from app.services.model_capabilities import ContextConfigurationError
 from app.services.token_estimation import ContextEstimatorUnavailable
 
@@ -55,6 +63,22 @@ def retry_delay_seconds(attempt_count: int) -> int:
 
 
 def classify_runtime_failure(exc: Exception) -> RuntimeFailure:
+    if isinstance(exc, ContextArtifactBusy):
+        return RuntimeFailure("context_artifact_busy", True)
+    if isinstance(exc, ContextArtifactLeaseLost):
+        return RuntimeFailure("context_artifact_lease_lost", True)
+    if isinstance(exc, ContextArtifactConflict):
+        return RuntimeFailure("context_artifact_conflict", False)
+    if isinstance(exc, ContextArtifactMissing):
+        return RuntimeFailure("context_artifact_missing", False)
+    if isinstance(exc, ContextArtifactValidationFailed):
+        return RuntimeFailure("context_artifact_validation_failed", False)
+    if isinstance(exc, ContextArtifactProviderFailed):
+        if isinstance(exc.__cause__, Exception):
+            cause_failure = classify_runtime_failure(exc.__cause__)
+            if cause_failure.code != "unexpected_error":
+                return cause_failure
+        return RuntimeFailure("context_artifact_provider_failed", True)
     if isinstance(exc, ContextBudgetExceeded):
         return RuntimeFailure("context_budget_exceeded", False)
     if isinstance(exc, ContextConfigurationError):

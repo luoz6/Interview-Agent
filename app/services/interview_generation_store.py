@@ -513,6 +513,42 @@ class PostgresInterviewGenerationStore:
                 )
                 return cursor.rowcount == 1
 
+    def assert_attempt_owned(
+        self,
+        generation_id: str,
+        attempt_number: int,
+        worker_id: str,
+        *,
+        lease_token: str,
+        fencing_version: int,
+    ) -> bool:
+        """Synchronously verify the authoritative Generation lease predicate."""
+
+        with self._connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    self._sql(
+                        """
+                        SELECT 1 FROM {attempts}
+                        WHERE generation_id = %s
+                          AND attempt_number = %s
+                          AND status = 'running'
+                          AND lease_owner = %s
+                          AND lease_token = %s::uuid
+                          AND fencing_version = %s
+                          AND lease_expires_at > NOW()
+                        """
+                    ),
+                    (
+                        generation_id,
+                        attempt_number,
+                        worker_id,
+                        lease_token,
+                        fencing_version,
+                    ),
+                )
+                return cursor.fetchone() is not None
+
     def list_events_after(
         self,
         generation_id: str,

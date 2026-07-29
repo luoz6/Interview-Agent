@@ -10,6 +10,14 @@ from app.services.runtime_work import (
     retry_delay_seconds,
 )
 from app.services.context_budget import ContextBudgetExceeded
+from app.services.context_artifacts import (
+    ContextArtifactBusy,
+    ContextArtifactConflict,
+    ContextArtifactLeaseLost,
+    ContextArtifactMissing,
+    ContextArtifactProviderFailed,
+    ContextArtifactValidationFailed,
+)
 from app.services.model_capabilities import ContextConfigurationError
 from app.services.token_estimation import ContextEstimatorUnavailable
 from app.services.workflow_thread_lock import (
@@ -111,3 +119,35 @@ def test_programming_and_domain_errors_are_not_retried():
 )
 def test_context_failures_are_stable_and_non_retryable(exc, code):
     assert classify_runtime_failure(exc) == RuntimeFailure(code, False)
+
+
+@pytest.mark.parametrize(
+    ("exc", "code", "retryable"),
+    [
+        (ContextArtifactBusy(), "context_artifact_busy", True),
+        (ContextArtifactLeaseLost(), "context_artifact_lease_lost", True),
+        (ContextArtifactConflict(), "context_artifact_conflict", False),
+        (ContextArtifactMissing(), "context_artifact_missing", False),
+        (
+            ContextArtifactValidationFailed(),
+            "context_artifact_validation_failed",
+            False,
+        ),
+        (
+            ContextArtifactProviderFailed(),
+            "context_artifact_provider_failed",
+            True,
+        ),
+    ],
+)
+def test_context_artifact_failure_taxonomy(exc, code, retryable):
+    assert classify_runtime_failure(exc) == RuntimeFailure(code, retryable)
+
+
+def test_context_artifact_provider_failure_preserves_cause_classification():
+    try:
+        raise ContextArtifactProviderFailed() from TimeoutError()
+    except ContextArtifactProviderFailed as exc:
+        failure = classify_runtime_failure(exc)
+
+    assert failure == RuntimeFailure("provider_timeout", True)

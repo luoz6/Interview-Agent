@@ -10,7 +10,11 @@ from app.services.embedding_providers import DisabledEmbeddingProvider
 from app.services.langgraph_runtime import PostgresCheckpointerRuntime
 from app.services.postgres_connections import PooledPsycopg2ConnectionProvider
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
-from app.services.postgres_runtime_migrations import migrate_postgres_runtime
+from app.services.postgres_runtime_migrations import (
+    PostgresMigrationConflict,
+    migrate_postgres_runtime,
+)
+from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
 from tests.postgres_support import make_runtime_table_prefix, require_postgres_dsn
 
 
@@ -104,6 +108,82 @@ def test_migration_is_idempotent_and_runtime_validation_is_read_only(isolated_sc
         assert before == after
     finally:
         provider.close()
+
+
+def test_stage50_migration_installs_artifacts_and_v2_engine_constraint(
+    isolated_schema,
+):
+    dsn, prefix, _, result = isolated_schema
+    import psycopg2
+
+    with psycopg2.connect(dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT to_regclass(%s), to_regclass(%s)",
+                (
+                    f"public.{prefix}_context_artifacts",
+                    f"public.{prefix}_context_artifact_refs",
+                ),
+            )
+            artifacts, refs = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT pg_get_constraintdef(c.oid)
+                FROM pg_constraint c
+                WHERE c.conrelid = to_regclass(%s)
+                  AND c.contype = 'c'
+                  AND pg_get_constraintdef(c.oid) ILIKE '%%workflow_engine%%'
+                """,
+                (f"public.{prefix}_sessions",),
+            )
+            engine_constraints = [row[0] for row in cursor.fetchall()]
+            cursor.execute(
+                f'SELECT checksum, transaction_mode FROM "{prefix}_schema_migrations" '
+                "WHERE migration_id = %s",
+                (LATEST_RUNTIME_MIGRATION.migration_id,),
+            )
+            migration_row = cursor.fetchone()
+
+    assert artifacts == f"{prefix}_context_artifacts"
+    assert refs == f"{prefix}_context_artifact_refs"
+    assert len(engine_constraints) == 1
+    assert "langgraph-v2" in engine_constraints[0]
+    assert result.migration_id == LATEST_RUNTIME_MIGRATION.migration_id
+    assert migration_row == (
+        LATEST_RUNTIME_MIGRATION.checksum,
+        LATEST_RUNTIME_MIGRATION.transaction_mode,
+    )
+
+
+def test_stage50_applied_checksum_conflict_fails_closed(isolated_schema):
+    dsn, prefix, vector, _ = isolated_schema
+    import psycopg2
+    from psycopg2 import sql
+
+    with psycopg2.connect(dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    "UPDATE {migrations} SET checksum = %s "
+                    "WHERE migration_id = %s"
+                ).format(
+                    migrations=sql.Identifier(
+                        f"{prefix}_schema_migrations"
+                    )
+                ),
+                ("0" * 64, LATEST_RUNTIME_MIGRATION.migration_id),
+            )
+
+    with pytest.raises(PostgresMigrationConflict, match="checksum diverged"):
+        migrate_postgres_runtime(
+            dsn=dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled",
+                dimension=3,
+            ),
+        )
 
 
 def test_business_pool_reuses_connection_and_never_exceeds_max(isolated_schema):

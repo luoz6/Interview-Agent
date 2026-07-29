@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from app.services.config import derive_pgvector_table_names
+from app.services.context_artifact_store import PostgresContextArtifactStore
 from app.services.interview_generation_store import PostgresInterviewGenerationStore
 from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
 from app.services.postgres_identifiers import (
     derive_runtime_identifiers,
+    runtime_schema_identifier,
     validate_runtime_table_prefix,
 )
 from app.services.postgres_session import PostgresInterviewSessionStore
@@ -19,13 +21,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V2_MANIFEST,
+    RUNTIME_SCHEMA_V3_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V2_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V3_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -169,6 +171,16 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
+            PostgresContextArtifactStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            _upgrade_interview_workflow_engine_constraint(
+                connection,
+                table_prefix=table_prefix,
+            )
             vector_store = PgVectorKnowledgeStore(
                 dsn=dsn,
                 connection_provider=provider,
@@ -243,3 +255,46 @@ def _setup_langgraph_checkpointer(dsn: str) -> None:
 
     with PostgresSaver.from_conn_string(dsn) as saver:
         saver.setup()
+
+
+def _upgrade_interview_workflow_engine_constraint(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Replace the v1-only CHECK without rewriting existing business rows."""
+
+    from psycopg2 import sql
+
+    sessions_table = f"{table_prefix}_sessions"
+    constraint_name = runtime_schema_identifier(
+        table_prefix, "sessions_workflow_engine_check"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            WHERE c.conrelid = to_regclass(%s)
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) ILIKE '%%workflow_engine%%'
+            """,
+            (f"public.{sessions_table}",),
+        )
+        for (existing_name,) in cursor.fetchall():
+            cursor.execute(
+                sql.SQL("ALTER TABLE {sessions} DROP CONSTRAINT {constraint}").format(
+                    sessions=sql.Identifier(sessions_table),
+                    constraint=sql.Identifier(existing_name),
+                )
+            )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} ADD CONSTRAINT {constraint} "
+                "CHECK (workflow_engine IN "
+                "('legacy', 'langgraph-v1', 'langgraph-v2'))"
+            ).format(
+                sessions=sql.Identifier(sessions_table),
+                constraint=sql.Identifier(constraint_name),
+            )
+        )

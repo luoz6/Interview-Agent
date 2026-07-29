@@ -2,6 +2,7 @@ from app.services.durable_workflow_maintenance import (
     DurableWorkflowMaintenanceService,
     MaintenanceResult,
 )
+from app.services.context_artifacts import ContextArtifactCleanupResult
 
 
 class WorkflowStore:
@@ -35,6 +36,15 @@ class SignalStore:
     def cleanup_older_than(self, *, hours):
         self.hours.append(hours)
         return self.result
+
+
+class ContextArtifactStore:
+    def __init__(self):
+        self.policies = []
+
+    def cleanup(self, policy):
+        self.policies.append(policy)
+        return ContextArtifactCleanupResult(1, 2, 3)
 
 
 def make_service(workflow=None, generations=None, signals=None):
@@ -78,6 +88,25 @@ def test_failed_pass_is_retryable_without_logging_private_detail(caplog):
     workflow.error = None
     assert service.run_once() is not None
     assert service.last_error_code is None
+
+
+def test_context_artifact_cleanup_is_bounded_and_reported():
+    artifacts = ContextArtifactStore()
+    service = DurableWorkflowMaintenanceService(
+        workflow_store=WorkflowStore(),
+        generation_store=GenerationStore(),
+        context_artifact_store=artifacts,
+        retention_hours=24,
+        context_artifact_cleanup_batch_size=6,
+        interval_seconds=3600,
+    )
+
+    result = service.run_once()
+
+    assert result.deleted_context_artifact_refs == 1
+    assert result.deleted_completed_context_artifacts == 2
+    assert result.deleted_failed_context_artifacts == 3
+    assert artifacts.policies[0].batch_size == 6
 
 
 def test_start_is_idempotent_and_shutdown_joins():
