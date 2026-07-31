@@ -17,6 +17,10 @@ class BudgetShadowPreflight:
     long_context_gate_passed: bool
     python_baseline_passed: bool
     browser_baseline_passed: bool
+    staging_preflight_passed: bool
+    principal_memory_disabled: bool
+    operation_window_approved: bool
+    stop_owner_role: str
     question_memory_consumption_enabled: bool = False
     long_term_consumption_available: bool = False
     budget_shadow_currently_enabled: bool = False
@@ -35,8 +39,13 @@ def evaluate_preflight(value: BudgetShadowPreflight) -> dict:
         "long_context_gate_not_passed": value.long_context_gate_passed,
         "python_baseline_not_passed": value.python_baseline_passed,
         "browser_baseline_not_passed": value.browser_baseline_passed,
+        "staging_preflight_not_passed": value.staging_preflight_passed,
+        "principal_memory_must_remain_disabled": value.principal_memory_disabled,
+        "operation_window_not_approved": value.operation_window_approved,
     }
     failures.extend(code for code, passed in checks.items() if not passed)
+    if not value.stop_owner_role.strip():
+        failures.append("stop_owner_role_missing")
     if value.question_memory_consumption_enabled:
         failures.append("question_memory_consumption_must_remain_disabled")
     if value.long_term_consumption_available:
@@ -50,6 +59,7 @@ def evaluate_preflight(value: BudgetShadowPreflight) -> dict:
             value.question_memory_consumption_enabled
         ),
         "long_term_consumption_available": value.long_term_consumption_available,
+        "stop_owner_role": value.stop_owner_role.strip(),
     }
     canonical = json.dumps(config_payload, sort_keys=True, separators=(",", ":"))
     config_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -126,8 +136,12 @@ def build_observation_record(*, preflight: dict, aggregate: dict) -> dict:
 
 
 def _load_bool_record(path: str, key: str) -> bool:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return bool(payload.get(key))
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    for part in key.split("."):
+        if not isinstance(value, dict):
+            return False
+        value = value.get(part)
+    return bool(value)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,18 +155,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--knowledge-p1-ready", action="store_true")
     parser.add_argument("--python-baseline-passed", action="store_true")
     parser.add_argument("--browser-baseline-passed", action="store_true")
+    parser.add_argument("--staging-preflight-passed", action="store_true")
+    parser.add_argument("--principal-memory-disabled", action="store_true")
+    parser.add_argument("--operation-window-approved", action="store_true")
+    parser.add_argument("--stop-owner-role", required=True)
     args = parser.parse_args(argv)
     preflight = BudgetShadowPreflight(
         target_environment=args.target_environment,
         observation_hours=args.observation_hours,
         durable_metrics_available=args.durable_metrics_ready,
         postgres_validation_passed=_load_bool_record(
-            args.postgres_validation_record, "cleaned"
+            args.postgres_validation_record, "pg_runtime.cleanup_verified"
         ),
         knowledge_p1_ready=args.knowledge_p1_ready,
-        long_context_gate_passed=_load_bool_record(args.quality_record, "passed"),
+        long_context_gate_passed=_load_bool_record(
+            args.quality_record, "quality.passed"
+        ),
         python_baseline_passed=args.python_baseline_passed,
         browser_baseline_passed=args.browser_baseline_passed,
+        staging_preflight_passed=args.staging_preflight_passed,
+        principal_memory_disabled=args.principal_memory_disabled,
+        operation_window_approved=args.operation_window_approved,
+        stop_owner_role=args.stop_owner_role,
     )
     result = evaluate_preflight(preflight)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

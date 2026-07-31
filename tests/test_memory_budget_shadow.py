@@ -4,6 +4,7 @@ from scripts.memory_budget_shadow import (
     build_observation_record,
     evaluate_preflight,
     evaluate_stop_gates,
+    _load_bool_record,
 )
 
 
@@ -17,6 +18,10 @@ def _ready_preflight(**overrides):
         "long_context_gate_passed": True,
         "python_baseline_passed": True,
         "browser_baseline_passed": True,
+        "staging_preflight_passed": True,
+        "principal_memory_disabled": True,
+        "operation_window_approved": True,
+        "stop_owner_role": "memory-shadow-rollback-owner",
     }
     values.update(overrides)
     return BudgetShadowPreflight(**values)
@@ -93,3 +98,15 @@ def test_hypothetical_observation_never_claims_provider_input_changed():
 
     assert observation.hypothetical_dropped_count == 8
     assert observation.provider_input_unchanged is True
+
+
+def test_preflight_reads_nested_operational_evidence(tmp_path):
+    path = tmp_path / "evidence.json"
+    path.write_text(
+        '{"pg_runtime":{"cleanup_verified":true},"quality":{"passed":true}}',
+        encoding="utf-8",
+    )
+
+    assert _load_bool_record(str(path), "pg_runtime.cleanup_verified") is True
+    assert _load_bool_record(str(path), "quality.passed") is True
+    assert _load_bool_record(str(path), "missing.value") is False
