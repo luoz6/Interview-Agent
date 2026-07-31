@@ -1,0 +1,169 @@
+{
+  "approval_status": "PENDING",
+  "bundle_sha256": "3e7d6c337e9dc2680dd8cee338283d7b364b7e988a3dd32ec79710c493b20d5f",
+  "change_preflight": "BLOCKED",
+  "file_count": 24,
+  "files": [
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-budget-shadow-observation.json",
+      "schema_version": "memory-budget-shadow-observation-v1",
+      "sha256": "296f87d8131feb238d4ed5a8debb93f1a9891294f9d494b8fa62e55408b5d661",
+      "size_bytes": 2080
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-operational-regression-evidence.json",
+      "schema_version": "memory-operational-regression-evidence-v1",
+      "sha256": "31c5de794218d8411c5590ca2243501647a2d45aeb1282aadefd757854d7df46",
+      "size_bytes": 1032
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-operational-shadow-acceptance.md",
+      "sha256": "3b7621eb14d838271aeb9be99b5644c4b5f70938a6bd20bc11aa0e38b3d12f7c",
+      "size_bytes": 2558
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-operational-shadow-evidence.json",
+      "schema_version": "memory-operational-shadow-evidence-v1",
+      "sha256": "ca16411d02335258fc7bbc247985be3d86c5f8f8d55864be31186463f815c876",
+      "size_bytes": 1596
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-budget-shadow-runbook.md",
+      "sha256": "a83a01acf336a31cac01fb88d87dcd68abafafa99295c9ca3073069307ce2953",
+      "size_bytes": 6117
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-production-shadow-approval-evidence.json",
+      "schema_version": "memory-production-shadow-approval-packet-v1",
+      "sha256": "25dab8c4a9f9eb456379f4e02af968249f00e9cf51c347da610b7b851f4a2a65",
+      "size_bytes": 2133
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-shadow-approval-record-contract.md",
+      "sha256": "167cffe89ab34598fa9f3e58570729d4f42223e00691aac5dddd77a67a8c1271",
+      "size_bytes": 5413
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-shadow-approval-request.md",
+      "sha256": "a88e5e886a6dcdc87da4a5245b31beb097dcd35b46d0420960b26c05143b6632",
+      "size_bytes": 6325
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-production-shadow-change-preflight-evidence.json",
+      "schema_version": "memory-production-shadow-change-preflight-v1",
+      "sha256": "94836a13b21f358fe1262348a07d3b916d68f55561226e44877899c8c2f5d46f",
+      "size_bytes": 480
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-shadow-change-preflight.md",
+      "sha256": "d440bc94384ae11705e5aed6eb12b5083a9ab45c54fff63fbb0fbdb60fef15e2",
+      "size_bytes": 3891
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-shadow-observability-runbook.md",
+      "sha256": "93d8496bc49b75b9cd81295ea9a3a06ca0eda72066277e74620322a4d0e360a5",
+      "size_bytes": 2592
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-shadow-restore-drill-evidence.json",
+      "schema_version": "memory-shadow-restore-drill-v1",
+      "sha256": "fd60ad28ad5f0288661543c300795220a18080ddaa9bfaff71579e9889b7b5eb",
+      "size_bytes": 1055
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-shadow-restore-drill.md",
+      "sha256": "e4d334363ba5e048c5ebccd476967911f7708c2295ab7ca66a1686b09d8fc54a",
+      "size_bytes": 2782
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-shadow-security-review-evidence.json",
+      "schema_version": "memory-shadow-security-review-v1",
+      "sha256": "23205c0e2462181b690e76b53ad1789b06c7ad01323b8cc1e748edda0fff7871",
+      "size_bytes": 676
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-shadow-security-review.md",
+      "sha256": "1987ed7b71378da8040433b3e243bebf295bc813dd3e20cb866d935db2424a6b",
+      "size_bytes": 3244
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-shadow-status.json",
+      "schema_version": "memory-shadow-status-v1",
+      "sha256": "30b9dfc6058826b5e38a9c04bfd3605359eae77bc3437ad1a7c5ff43c75109f2",
+      "size_bytes": 3257
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-validation-operational-evidence.json",
+      "schema_version": "memory-validation-operational-evidence-v1",
+      "sha256": "d9c8ec7a48d33450b111705ed8b7c2e6b669d0f2ffe2664fc1918e1c85a33fd9",
+      "size_bytes": 3134
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/principal-memory-consumption-risk-review.md",
+      "sha256": "70d15ac71927ece17a508db850fb0594f815ca78c3f0354f9fcd697a6ac53a0e",
+      "size_bytes": 8220
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/principal-memory-consumption-spec.md",
+      "sha256": "cc1134ba314e9f1efdfabb3d9052e70ce76ae9604974816945eba55b5d09ec2b",
+      "size_bytes": 14851
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/principal-memory-lifecycle-drill-evidence.json",
+      "schema_version": "principal-memory-lifecycle-drill-v1",
+      "sha256": "b08ae7d2fd53fb547822ea99613b9aa337ed9cc65ca10d6e968088ca38f458cc",
+      "size_bytes": 813
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/principal-memory-proposal-quality.json",
+      "schema_version": "principal-memory-proposal-quality-v1",
+      "sha256": "5802dbaffa00f1daa86756f306393c669290a711b053a7ac090b69c0008f74f4",
+      "size_bytes": 845
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/principal-memory-read-shadow-observation.json",
+      "schema_version": "principal-memory-read-shadow-observation-v1",
+      "sha256": "704bb6aa5114a566fed68734726ddad37b6ad5d4174445bb2e590cef255f136e",
+      "size_bytes": 1582
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/principal-memory-threat-model.md",
+      "sha256": "dc78b88233fe6f84dd79e329028433ff6943fd69864d09743b44d9477d4c184a",
+      "size_bytes": 5742
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/principal-memory-write-shadow-observation.json",
+      "schema_version": "principal-memory-write-shadow-observation-v1",
+      "sha256": "0435e96eb557468f1dee500f592a414d1c9d1a67ee1a8db795c6ca60a9f8c330",
+      "size_bytes": 1491
+    }
+  ],
+  "long_term_memory_consumption": "BLOCKED",
+  "production_observation": "NOT_RUN",
+  "schema_version": "memory-production-shadow-evidence-manifest-v1",
+  "source_revision": "3a8334e68ba93a0c8520127f924d4a105e1d92a2"
+}
