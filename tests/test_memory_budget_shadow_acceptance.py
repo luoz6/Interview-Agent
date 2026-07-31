@@ -14,6 +14,7 @@ from scripts.memory_budget_shadow_acceptance import (
 
 ROOT = Path(__file__).resolve().parents[1]
 OBSERVATION = ROOT / "docs" / "memory-budget-shadow-observation.json"
+ACCEPTANCE = ROOT / "docs" / "memory-budget-shadow-acceptance.md"
 
 
 def _observation():
@@ -81,3 +82,22 @@ def test_statistical_regressions_block_at_200_or_more_samples():
 def test_cli_prints_only_the_exact_success_lines(capsys):
     assert main(["--observation", str(OBSERVATION)]) == 0
     assert capsys.readouterr().out.strip().splitlines() == list(SUCCESS_LINES)
+
+
+def test_acceptance_record_is_bound_and_keeps_enforcement_blocked():
+    text = ACCEPTANCE.read_text(encoding="utf-8")
+
+    for required in (
+        "adcbe68",
+        "dbc44b2",
+        "ec43d7d",
+        "18 passed",
+        "approximately 6.65%",
+        "BUDGET_SHADOW_STAGING=PASS",
+        "BUDGET_ENFORCEMENT=BLOCKED",
+        "PRINCIPAL_MEMORY_SHADOW=NOT_RUN",
+        "PRODUCTION_OBSERVATION=NOT_RUN",
+    ):
+        assert required in text
+    assert "PASS_FOR_PRODUCTION" not in text
+    assert "postgresql://" not in text
