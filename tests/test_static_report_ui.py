@@ -17,7 +17,12 @@ def read_frontend_file(name: str) -> str:
 
 
 def test_production_visual_tokens_and_motion_contracts_remain_declared():
-    css = read_static_file("prototype-source.css")
+    css = "\n".join(
+        (
+            read_frontend_file("src/styles/tokens.css"),
+            read_frontend_file("src/styles/index.css"),
+        )
+    )
 
     for token in (
         "--primitive-stone-100: #f6f6f3",
@@ -43,9 +48,9 @@ def test_production_visual_tokens_and_motion_contracts_remain_declared():
         assert token in css
     assert "purple-gradient" not in css
     assert "@media (prefers-reduced-motion: reduce)" in css
-    assert "@keyframes page-shell-reveal" in css
-    assert "animation: none !important" in css
-    assert "transform: none !important" in css
+    assert "animation-duration: .01ms !important" in css
+    assert "animation-iteration-count: 1 !important" in css
+    assert "transition-duration: .01ms !important" in css
 
 
 def test_static_compatibility_components_remain_bounded_and_accessible():
