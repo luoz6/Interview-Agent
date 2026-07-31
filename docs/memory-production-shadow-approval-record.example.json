@@ -1,0 +1,39 @@
+{
+  "schema_version": "memory-production-shadow-approval-record-v1",
+  "approval_status": "PENDING",
+  "requested_phase": "BUDGET_SHADOW_ONLY",
+  "approved_revision": null,
+  "deployment_scope_sha256": null,
+  "traffic_percent": 0.0,
+  "window_start": null,
+  "window_end": null,
+  "expires_at": null,
+  "change_ticket_sha256": null,
+  "approvals": {
+    "change_owner": {
+      "decision": "PENDING",
+      "approver_ref_sha256": null,
+      "decided_at": null
+    },
+    "operations": {
+      "decision": "PENDING",
+      "approver_ref_sha256": null,
+      "decided_at": null
+    },
+    "privacy": {
+      "decision": "PENDING",
+      "approver_ref_sha256": null,
+      "decided_at": null
+    },
+    "security": {
+      "decision": "PENDING",
+      "approver_ref_sha256": null,
+      "decided_at": null
+    },
+    "fairness": {
+      "decision": "PENDING",
+      "approver_ref_sha256": null,
+      "decided_at": null
+    }
+  }
+}
