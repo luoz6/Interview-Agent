@@ -1,0 +1,36 @@
+{
+  "backup_restore_tombstone_replay": "PASS",
+  "fault_boundaries_exercised": 6,
+  "fault_reclaims_completed": 6,
+  "long_term_memory_consumption": "BLOCKED",
+  "production_observation": "NOT_RUN",
+  "provider_calls": 0,
+  "public_knowledge_file_count": 58,
+  "public_knowledge_unchanged": true,
+  "residue_by_category": {
+    "artifact_owner_refs": 0,
+    "business_sessions": 0,
+    "messages": 0,
+    "principal_memory_effects": 0,
+    "principal_memory_facts": 0,
+    "question_memory": 0,
+    "reports": 0,
+    "session_bound_consent_bindings": 0,
+    "workflow_state": 0
+  },
+  "restore_cycles": 3,
+  "restored_private_data_residue": 0,
+  "restored_rows_by_category": {
+    "artifact_owner_refs": 6,
+    "business_sessions": 3,
+    "messages": 6,
+    "principal_memory_effects": 3,
+    "principal_memory_facts": 3,
+    "question_memory": 3,
+    "reports": 3,
+    "session_bound_consent_bindings": 0,
+    "workflow_state": 9
+  },
+  "schema_version": "memory-shadow-restore-drill-v1",
+  "tombstones_replayed": 3
+}
