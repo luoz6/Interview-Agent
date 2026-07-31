@@ -12,6 +12,7 @@ from scripts import memory_shadow_staging_preflight as staging
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "docs" / "memory-shadow-staging-runbook.md"
+ACCEPTANCE = ROOT / "docs" / "memory-shadow-staging-acceptance.md"
 
 
 def _declaration(**overrides):
@@ -258,6 +259,27 @@ def test_runbook_is_an_executable_how_to_and_keeps_shadow_disabled():
         assert required in text
     assert "postgresql://" not in text
     assert "PASS_FOR_PRODUCTION" not in text
+
+
+def test_acceptance_binds_the_clean_preflight_revision_without_overclaiming():
+    text = ACCEPTANCE.read_text(encoding="utf-8")
+
+    for required in (
+        "a982b1f",
+        "5280c9d",
+        "42 passed",
+        "cleanup_residue=0",
+        "STAGING_PREFLIGHT=PASS",
+        "MIGRATION_SCOPE=ISOLATED",
+        "ROLLBACK_DRILL=PASS",
+        "ALL_MEMORY_SHADOWS=DISABLED",
+        "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
+        "PRODUCTION_OBSERVATION=NOT_RUN",
+    ):
+        assert required in text
+    assert "postgresql://" not in text
+    assert "PASS_FOR_PRODUCTION" not in text
+    assert "Budget Shadow is enabled or accepted" in text
 
 
 @pytest.mark.pg_runtime
