@@ -11,6 +11,7 @@ from scripts.principal_memory_write_shadow import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "docs" / "principal-memory-write-shadow-runbook.md"
+OBSERVATION = ROOT / "docs" / "principal-memory-write-shadow-observation.json"
 
 
 def test_write_shadow_is_the_only_enabled_axis():
@@ -60,3 +61,16 @@ def test_runbook_requires_proposed_only_and_keeps_read_shadow_blocked():
         assert required in text
     assert "postgresql://" not in text
     assert "PASS_FOR_PRODUCTION" not in text
+
+
+def test_committed_observation_binds_clean_revision_and_all_invariants_are_zero():
+    record = json.loads(OBSERVATION.read_text(encoding="utf-8"))
+    validate_artifact(record)
+    assert record["write_shadow_revision"] == "75a21da"
+    assert record["sample_count"] == 300
+    assert record["proposal_created_count"] == 300
+    assert record["proposed_fact_count"] == 300
+    assert record["duplicate_fact_count"] == 0
+    assert not any(record["hard_invariants"].values())
+    assert record["cleanup_residue"] == 0
+    assert record["production_observation"] == "NOT_RUN"
