@@ -143,7 +143,9 @@ def classify_path(path: str) -> Ownership:
     if normalized in {
         "app/static/prototype-source.css",
         "app/static/prototype.css",
+        "frontend/src/pages/ReportsPage.jsx",
         "frontend/src/styles/reports-app.css",
+        "tests/browser/reports-ui.spec.js",
     }:
         return _ownership(
             "user_ui_design_overlap",

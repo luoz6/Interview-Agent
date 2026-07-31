@@ -20,7 +20,9 @@ def test_classifies_memory_frontend_design_and_unknown_boundaries():
     assert classify_path(".hallmark/log.json").policy == "exclude"
     assert classify_path(".gitattributes").policy == "exclude"
     assert classify_path("app/static/prototype-source.css").policy == "exclude"
+    assert classify_path("frontend/src/pages/ReportsPage.jsx").policy == "exclude"
     assert classify_path("frontend/src/styles/reports-app.css").policy == "exclude"
+    assert classify_path("tests/browser/reports-ui.spec.js").policy == "exclude"
     assert classify_path("unexpected.bin").category == "unclassified"
 
 

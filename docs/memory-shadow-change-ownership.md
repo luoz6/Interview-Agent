@@ -68,6 +68,10 @@ revision.
 - `app/static/prototype.css`.
 - `frontend/src/styles/reports-app.css`, created after the isolated RC candidate
   was assembled and therefore outside the validated candidate boundary.
+- the post-candidate worktree revisions of
+  `frontend/src/pages/ReportsPage.jsx` and
+  `tests/browser/reports-ui.spec.js`. The RC retains their previously validated
+  candidate revisions; the newer files remain available to the user.
 
 These paths contain design-analysis or large visual-system changes and are not
 owned by the memory RC. They remain untouched in the worktree.
@@ -106,7 +110,7 @@ intermediate revision.
 - The proposed RC topology is compile/test coherent.
 - No Shadow mode or trusted-local API is enabled.
 
-## Current audit snapshot
+## Pre-commit audit snapshot
 
 - Changed paths: 264.
 - Clearly included: 188.
@@ -123,8 +127,10 @@ The browser count differs from the previous foundation evidence because the
 candidate contains the current 76-test browser project. It is a complete-suite
 result, not a partial selection.
 
-After candidate validation, a concurrent user edit changed
+After candidate validation, concurrent user edits changed
 `frontend/src/pages/ReportsPage.jsx` and created
-`frontend/src/styles/reports-app.css`. The RC index retains the validated
-  candidate version of `ReportsPage.jsx`; the newer worktree version and CSS are
-  preserved outside the RC for the user.
+`frontend/src/styles/reports-app.css`, then expanded
+`tests/browser/reports-ui.spec.js` with tests for that new UI. The RC index
+retains the validated candidate versions of `ReportsPage.jsx` and the browser
+spec; all three newer worktree assets are preserved outside the RC. The current
+worktree exclusion count is 9.

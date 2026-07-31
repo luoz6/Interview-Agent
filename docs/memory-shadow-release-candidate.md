@@ -51,7 +51,8 @@ long-term-memory consumption approval.
 - `.gitattributes`, whose only rule targets a prototype artifact outside the
   memory RC.
 - the post-candidate `frontend/src/styles/reports-app.css` user asset and the
-  corresponding newer worktree-only `ReportsPage.jsx` revision.
+  corresponding newer worktree-only `ReportsPage.jsx` and Reports browser-spec
+  revisions.
 
 ## Required verification after candidate construction
 
