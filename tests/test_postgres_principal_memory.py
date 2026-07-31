@@ -43,7 +43,36 @@ def test_postgres_principal_fact_store_dedup_cas_isolation_and_purge(
             principal_id="principal-other",
             limit=6,
         ) == []
-        assert store.purge_by_session(fact.source_session_id) == 1
+        import psycopg2
+        from psycopg2 import sql
+
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {effects} (effect_id,deployment_id,"
+                        "principal_id,source_session_id,status,created_at,updated_at) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s)"
+                    ).format(effects=sql.Identifier(store.effects_table)),
+                    (
+                        "principal-effect-restore-drill",
+                        fact.deployment_id,
+                        fact.principal_id,
+                        fact.source_session_id,
+                        "queued",
+                        NOW,
+                        NOW,
+                    ),
+                )
+        assert store.purge_by_session(fact.source_session_id) == 2
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("SELECT COUNT(*) FROM {effects}").format(
+                        effects=sql.Identifier(store.effects_table)
+                    )
+                )
+                assert cursor.fetchone()[0] == 0
     finally:
         import psycopg2
         from psycopg2 import sql

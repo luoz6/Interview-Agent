@@ -147,7 +147,25 @@ class PostgresPrincipalMemoryFactStore:
                 return int(cursor.rowcount)
 
     def purge_by_session(self, source_session_id):
-        return self._delete("source_session_id=%s", (source_session_id,))
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {effects} WHERE source_session_id=%s"
+                    ).format(effects=sql.Identifier(self.effects_table)),
+                    (source_session_id,),
+                )
+                deleted_effects = int(cursor.rowcount)
+                cursor.execute(
+                    sql.SQL("DELETE FROM {table} WHERE source_session_id=%s").format(
+                        table=sql.Identifier(self.table)
+                    ),
+                    (source_session_id,),
+                )
+                deleted_facts = int(cursor.rowcount)
+        return deleted_facts + deleted_effects
 
     def purge_by_principal(self, *, deployment_id, principal_id):
         return self._delete(
