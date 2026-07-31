@@ -1,0 +1,110 @@
+{
+  "schema_version": "memory-validation-operational-evidence-v1",
+  "revision": "9132cf3",
+  "executed_at": "2026-07-31T08:49:32+08:00",
+  "environment": {
+    "python": "3.11.3",
+    "node": "22.21.0",
+    "postgresql": "16.13",
+    "browser": "Playwright Chromium"
+  },
+  "focused_tests": {
+    "passed": true,
+    "passed_count": 339,
+    "skipped": 12,
+    "failed": 0
+  },
+  "pg_runtime": {
+    "passed": true,
+    "executed": 37,
+    "deselected": 24,
+    "latest_migration": "principal_memory_v1",
+    "migration_scope": "isolated-prefix-validated",
+    "relation_count": 28,
+    "cleanup_verified": true
+  },
+  "full_python": {
+    "passed": true,
+    "passed_count": 1441,
+    "skipped": 162,
+    "failed": 0
+  },
+  "frontend_build": {
+    "passed": true,
+    "modules_transformed": 4587
+  },
+  "full_browser": {
+    "passed": true,
+    "scope": "full",
+    "passed_count": 53,
+    "skipped": 21,
+    "failed": 0
+  },
+  "deletion_replay": {
+    "passed": true,
+    "restore_simulation": true,
+    "fault_boundaries": 6
+  },
+  "durable_metrics": {
+    "passed": true,
+    "store_kind": "postgres_aggregate",
+    "data_complete": true,
+    "atomic_concurrency_verified": true,
+    "rollup_replay_verified": true
+  },
+  "knowledge": {
+    "passed": true,
+    "ready": true,
+    "corpus_version": "memory-p1-zh-v3",
+    "chunk_count": 31,
+    "corpus_manifest_sha256": "d68eaa532f58d711686b5dc94d606faf7b5bd4ff6a03e264f67be4c78707c1d3"
+  },
+  "quality": {
+    "passed": true,
+    "hard_invariant_pass_rate": 1.0,
+    "atomic_fact_recall": 1.0,
+    "unresolved_topic_recall": 1.0,
+    "unsupported_atomic_claim_rate": 0.0,
+    "route_conclusion_conflicts": 0
+  },
+  "budget_shadow": {
+    "passed": true,
+    "mode": "VALIDATE_ONLY",
+    "configuration_changed": false
+  },
+  "principal_memory": {
+    "contracts": "passed",
+    "identity_consent": "passed",
+    "fact_store": "passed",
+    "write_only_proposals": "passed",
+    "lifecycle_deletion": "passed",
+    "read_shadow_prompt_isolation": "passed",
+    "consumption": "BLOCKED"
+  },
+  "privacy": {
+    "passed": true,
+    "knowledge_firewall": true,
+    "cross_principal_isolation": true,
+    "artifact_audit": true
+  },
+  "compileall": {
+    "passed": true
+  },
+  "diff_check": {
+    "passed": true
+  },
+  "cleanup": {
+    "passed": true,
+    "test_listeners": 0,
+    "isolated_test_relation_residue": 0
+  },
+  "safe_defaults": {
+    "passed": true,
+    "long_term_mode": "disabled",
+    "write_shadow_enabled": false,
+    "read_shadow_enabled": false,
+    "trusted_local_api_enabled": false,
+    "consume_rejected": true
+  },
+  "production_observation": "NOT_RUN"
+}

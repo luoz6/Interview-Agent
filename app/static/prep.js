@@ -207,6 +207,7 @@ function renderPrepContext(prepContext) {
 
 function renderPlan(plan) {
   latestPlan = plan;
+  document.body.dataset.prepState = "ready";
   setText("planTitle", plan.title || "面试计划");
   setText("planState", "已生成");
   const questionCount = (plan.questions || []).length;
@@ -276,27 +277,38 @@ async function startInterview() {
   window.location.href = `/interview?session_id=${encodeURIComponent(turn.session_id)}`;
 }
 
-function withBusy(task) {
+function withBusy(task, busyState = "busy") {
+  document.body.dataset.prepState = busyState;
+  if (busyState === "generating") setText("planState", "生成中");
   setBusy([prepButton, startButton, saveDraftButton, restoreDraftButton], true);
   task()
-    .catch((error) => showNotice(prepStatus, error.message, "danger"))
-    .finally(() => setBusy([prepButton, startButton, saveDraftButton, restoreDraftButton], false));
+    .catch((error) => {
+      document.body.dataset.prepState = "error";
+      if (busyState === "generating") setText("planState", "生成失败");
+      showNotice(prepStatus, error.message, "danger");
+    })
+    .finally(() => {
+      setBusy([prepButton, startButton, saveDraftButton, restoreDraftButton], false);
+      if (document.body.dataset.prepState !== "error") {
+        document.body.dataset.prepState = latestPlan ? "ready" : "idle";
+      }
+    });
 }
 
 saveDraftButton.addEventListener("click", () => {
-  withBusy(saveDraft);
+  withBusy(saveDraft, "saving");
 });
 
 restoreDraftButton.addEventListener("click", () => {
-  withBusy(restoreDraft);
+  withBusy(restoreDraft, "restoring");
 });
 
 prepButton.addEventListener("click", () => {
-  withBusy(generatePlan);
+  withBusy(generatePlan, "generating");
 });
 
 startButton.addEventListener("click", () => {
-  withBusy(startInterview);
+  withBusy(startInterview, "starting");
 });
 
 bindTextFileImport(
@@ -316,3 +328,4 @@ bindTextFileImport(
 
 setCurrentTags([]);
 renderPrepContext(null);
+document.body.dataset.prepState = "idle";

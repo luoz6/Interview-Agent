@@ -63,22 +63,40 @@ export async function readSse(response, handlers) {
   const decoder = new TextDecoder();
   let buffer = "";
   let lastEventId = null;
+  let terminalEvent = null;
+  let terminalData = null;
+  const terminalEvents = new Set(["done", "error", "conflict", "reconnect"]);
+
+  function dispatch(rawEvent) {
+    const event = parseSseEvent(rawEvent);
+    if (!event) return;
+    lastEventId = event.id || lastEventId;
+    if (handlers[event.event]) handlers[event.event](event.data, event.id);
+    if (terminalEvents.has(event.event)) {
+      terminalEvent = event.event;
+      terminalData = event.data;
+    }
+  }
 
   while (true) {
     const { value, done } = await reader.read();
-    if (done) break;
+    if (done) {
+      buffer += decoder.decode();
+      break;
+    }
     buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, "\n");
     const events = buffer.split("\n\n");
     buffer = events.pop() || "";
     for (const rawEvent of events) {
-      const event = parseSseEvent(rawEvent);
-      if (event && handlers[event.event]) {
-        lastEventId = event.id || lastEventId;
-        handlers[event.event](event.data, event.id);
-      }
+      dispatch(rawEvent);
     }
   }
-  return lastEventId;
+  if (buffer.trim()) dispatch(buffer);
+  if (!terminalEvent) {
+    throw new Error("SSE stream ended before a terminal event");
+  }
+  return { lastEventId, terminalEvent, data: terminalData };
 }
 
 function parseSseEvent(rawEvent) {

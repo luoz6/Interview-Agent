@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.services.llm import InterviewLLM
 
@@ -99,11 +99,38 @@ class InterviewQuestion(BaseModel):
     prompt: str = Field(description="面试官要问的问题")
     focus: str = Field(description="本题重点考察方向")
 
+    @field_validator("id", "prompt", "focus", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: object, info) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{info.field_name} must not be blank")
+        return value.strip()
+
 
 class InterviewPlan(BaseModel):
     title: str
     questions: list[InterviewQuestion]
     prep_context: PrepContext | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("title must not be blank")
+        return value.strip()
+
+
+
+def validate_launchable_interview_plan(plan: InterviewPlan) -> InterviewPlan:
+    question_ids = [question.id for question in plan.questions]
+    if not 3 <= len(question_ids) <= 5:
+        raise ValueError("launchable interview plans require 3 to 5 questions")
+    if len(question_ids) != len(set(question_ids)):
+        raise ValueError("launchable interview question ids must be unique")
+    expected_ids = [f"q{index}" for index in range(1, len(question_ids) + 1)]
+    if question_ids != expected_ids:
+        raise ValueError("launchable interview question ids must be consecutive q1..qN")
+    return plan
 
 
 def public_interview_plan_payload(plan: InterviewPlan) -> dict:

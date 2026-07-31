@@ -28,7 +28,7 @@ EVALUATION_GROUP_DOMAIN_MAP: dict[str, set[str]] = {
     "relational-database": {"mysql", "postgresql"},
     "kafka": {"kafka"},
     "system-design": {"system-design"},
-    "reliability": {"reliability", "system-design"},
+    "reliability": {"reliability", "system-design", "postgresql"},
 }
 
 _CJK_CHARACTER = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")

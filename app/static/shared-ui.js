@@ -96,6 +96,7 @@ export function setBusy(elements, busy) {
     if (element) {
       element.disabled = busy;
       element.dataset.busy = busy ? "true" : "false";
+      element.setAttribute("aria-busy", busy ? "true" : "false");
     }
   }
 }
@@ -103,6 +104,9 @@ export function setBusy(elements, busy) {
 export function renderEmptyState(container, message) {
   clear(container);
   if (container) {
-    container.appendChild(createEl("p", "text-sm text-gray-500", message));
+    const content = createEl("div", "empty-state-content");
+    content.appendChild(createEl("span", "empty-state-mark", "—"));
+    content.appendChild(createEl("p", "", message));
+    container.appendChild(content);
   }
 }

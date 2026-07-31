@@ -9,6 +9,7 @@ from app.services.workflow_thread_lock import (
 
 from app.services.runtime_outbox_dispatcher import (
     CeleryRuntimeEventSink,
+    LocalRuntimeEventSink,
     RuntimeOutboxDispatcher,
 )
 
@@ -273,3 +274,27 @@ def test_celery_sink_routes_review_retry_to_review_workflow_task():
             [payload],
         )
     ]
+
+
+def test_local_sink_routes_principal_memory_event_without_round_review():
+    class Consumer:
+        def __init__(self):
+            self.payloads = []
+
+        def consume(self, payload):
+            self.payloads.append(payload)
+
+    consumer = Consumer()
+    sink = LocalRuntimeEventSink(
+        control_store=object(),
+        worker_id="worker",
+        principal_memory_consumer=consumer,
+    )
+    payload = {
+        "event_type": "principal_memory_proposal_requested_v1",
+        "event_id": "event-principal",
+    }
+
+    sink.publish(payload)
+
+    assert consumer.payloads == [payload]

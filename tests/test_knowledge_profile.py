@@ -1,4 +1,40 @@
-from app.services.knowledge_profile import build_role_profile
+import pytest
+
+from app.services.knowledge_profile import (
+    P1_REQUIRED_COVERED_TAGS,
+    build_role_profile,
+    derive_covered_tags_from_manifest,
+    load_active_knowledge_covered_tags,
+)
+
+
+def test_active_manifest_covers_every_p1_tag_with_reviewed_evidence_counts():
+    assert "postgresql" in P1_REQUIRED_COVERED_TAGS
+    assert P1_REQUIRED_COVERED_TAGS <= load_active_knowledge_covered_tags()
+
+
+def test_coverage_rejects_a_single_example_per_evidence_class():
+    manifest = {
+        "coverage": {
+            "schema_version": "knowledge-coverage-v1",
+            "canonical_tags": ["postgresql"],
+            "minimum_evidence_classes": [
+                "positive",
+                "negative",
+                "boundary",
+            ],
+            "evidence_class_counts": {
+                "postgresql": {
+                    "positive": 1,
+                    "negative": 1,
+                    "boundary": 1,
+                }
+            },
+        }
+    }
+
+    with pytest.raises(ValueError, match="minimum is unavailable"):
+        derive_covered_tags_from_manifest(manifest)
 
 
 def test_build_role_profile_uses_canonical_job_tags_and_resume_intersection():

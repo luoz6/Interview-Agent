@@ -237,38 +237,21 @@ def get_langgraph_canary_signal_retention_hours() -> int:
 
 
 def get_interview_langgraph_rollout_percent() -> int:
-    raw = os.getenv("INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT", "0")
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(
-            "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT must be between 0 and 100"
-        ) from exc
-    if not 0 <= value <= 100:
-        raise ValueError(
-            "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT must be between 0 and 100"
-        )
-    return value
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().interview_graph.rollout_percent
 
 
 def get_interview_langgraph_version() -> str:
-    value = os.getenv(
-        "INTERVIEW_LANGGRAPH_VERSION", "langgraph-v1"
-    ).strip()
-    if value not in {"langgraph-v1", "langgraph-v2"}:
-        raise ValueError("unsupported INTERVIEW_LANGGRAPH_VERSION")
-    return value
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().interview_graph.version
 
 
 def get_interview_langgraph_runtime_enabled() -> bool:
-    value = os.getenv(
-        "INTERVIEW_LANGGRAPH_RUNTIME_ENABLED", "true"
-    ).strip().lower()
-    if value not in {"true", "false"}:
-        raise ValueError(
-            "INTERVIEW_LANGGRAPH_RUNTIME_ENABLED must be true or false"
-        )
-    return value == "true"
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().interview_graph.runtime_enabled
 
 
 def get_report_langgraph_rollout_percent() -> int:
@@ -319,55 +302,69 @@ def get_report_langgraph_max_quality_repairs() -> int:
 
 
 def get_context_compression_shadow_enabled() -> bool:
-    return _strict_bool("CONTEXT_COMPRESSION_SHADOW_ENABLED", False)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().compression.mode == "shadow"
 
 
 def get_context_compression_prep_enabled() -> bool:
-    return _strict_bool("CONTEXT_COMPRESSION_PREP_ENABLED", False)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().compression.prep
 
 
 def get_context_compression_interview_enabled() -> bool:
-    return _strict_bool("CONTEXT_COMPRESSION_INTERVIEW_ENABLED", False)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().compression.interview_question_memory
 
 
 def get_context_compression_evidence_enabled() -> bool:
-    return _strict_bool("CONTEXT_COMPRESSION_EVIDENCE_ENABLED", False)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().compression.evidence
 
 
 def get_context_compression_review_enabled() -> bool:
-    return _strict_bool("CONTEXT_COMPRESSION_REVIEW_ENABLED", False)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().compression.review
 
 
 def get_context_artifact_lease_seconds() -> int:
-    return _positive_int("CONTEXT_ARTIFACT_LEASE_SECONDS", 60)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().artifact.lease_seconds
 
 
 def get_context_artifact_unreferenced_retention_hours() -> int:
-    return _positive_int("CONTEXT_ARTIFACT_UNREFERENCED_RETENTION_HOURS", 24)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().retention.artifact_unreferenced_hours
 
 
 def get_context_artifact_failed_retention_hours() -> int:
-    return _positive_int("CONTEXT_ARTIFACT_FAILED_RETENTION_HOURS", 24)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().retention.artifact_failed_hours
 
 
 def get_context_artifact_prep_ref_retention_hours() -> int:
-    return _positive_int("CONTEXT_ARTIFACT_PREP_REF_RETENTION_HOURS", 168)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().retention.prep_ref_hours
 
 
 def get_context_artifact_cleanup_batch_size() -> int:
-    return _positive_int("CONTEXT_ARTIFACT_CLEANUP_BATCH_SIZE", 200)
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().retention.cleanup_batch_size
 
 
 def get_context_artifact_deployment_scope() -> str:
-    value = os.getenv(
-        "CONTEXT_ARTIFACT_DEPLOYMENT_SCOPE",
-        "single-tenant-default",
-    ).strip()
-    if not value or len(value) > 256:
-        raise ValueError(
-            "CONTEXT_ARTIFACT_DEPLOYMENT_SCOPE must be a stable identifier"
-        )
-    return value
+    from app.services.memory_config import load_effective_memory_config
+
+    return load_effective_memory_config().privacy.deployment_id
 
 
 def _strict_bool(name: str, default: bool) -> bool:

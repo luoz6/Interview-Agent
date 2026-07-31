@@ -17,17 +17,22 @@ from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.review_workflow_store import PostgresReviewWorkflowStore
 from app.services.runtime_signal_metrics import PostgresRuntimeSignalStore
+from app.services.postgres_memory_metrics import PostgresMemoryMetricStore
+from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.services.postgres_principal_memory_consent import (
+    PostgresPrincipalMemoryConsentStore,
+)
 from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V3_MANIFEST,
+    RUNTIME_SCHEMA_V9_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V3_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V9_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -177,7 +182,59 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
+            from app.services.postgres_question_memory_index import (
+                PostgresQuestionMemoryIndexStore,
+            )
+
+            PostgresQuestionMemoryIndexStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            from app.services.postgres_session_deletion import (
+                PostgresSessionDeletionJobStore,
+            )
+
+            PostgresSessionDeletionJobStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            from app.services.postgres_session_deletion_tombstones import (
+                PostgresSessionDeletionTombstoneStore,
+            )
+
+            PostgresSessionDeletionTombstoneStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            PostgresMemoryMetricStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            PostgresPrincipalMemoryConsentStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            PostgresPrincipalMemoryFactStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
             _upgrade_interview_workflow_engine_constraint(
+                connection,
+                table_prefix=table_prefix,
+            )
+            _upgrade_interview_memory_policy_constraint(
                 connection,
                 table_prefix=table_prefix,
             )
@@ -283,7 +340,9 @@ def _upgrade_interview_workflow_engine_constraint(
         )
         for (existing_name,) in cursor.fetchall():
             cursor.execute(
-                sql.SQL("ALTER TABLE {sessions} DROP CONSTRAINT {constraint}").format(
+                sql.SQL(
+                    "ALTER TABLE {sessions} DROP CONSTRAINT {constraint}"
+                ).format(
                     sessions=sql.Identifier(sessions_table),
                     constraint=sql.Identifier(existing_name),
                 )
@@ -297,4 +356,73 @@ def _upgrade_interview_workflow_engine_constraint(
                 sessions=sql.Identifier(sessions_table),
                 constraint=sql.Identifier(constraint_name),
             )
+        )
+
+
+def _upgrade_interview_memory_policy_constraint(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    from psycopg2 import sql
+
+    sessions_table = f"{table_prefix}_sessions"
+    constraint_name = runtime_schema_identifier(
+        table_prefix,
+        "sessions_memory_policy_check",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS memory_policy_version TEXT"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "UPDATE {sessions} SET memory_policy_version = CASE "
+                "WHEN workflow_engine = 'langgraph-v2' "
+                "THEN 'question-conversation-v1' "
+                "ELSE 'deterministic-v1' END "
+                "WHERE memory_policy_version IS NULL"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        cursor.execute(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            WHERE c.conrelid = to_regclass(%s)
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) ILIKE '%%memory_policy_version%%'
+            """,
+            (f"public.{sessions_table}",),
+        )
+        for (existing_name,) in cursor.fetchall():
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {sessions} DROP CONSTRAINT {constraint}"
+                ).format(
+                    sessions=sql.Identifier(sessions_table),
+                    constraint=sql.Identifier(existing_name),
+                )
+            )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} ADD CONSTRAINT {constraint} "
+                "CHECK (memory_policy_version IN ("
+                "'deterministic-v1', 'question-conversation-v1', "
+                "'question-memory-v1'))"
+            ).format(
+                sessions=sql.Identifier(sessions_table),
+                constraint=sql.Identifier(constraint_name),
+            )
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET NOT NULL"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET DEFAULT 'deterministic-v1'"
+            ).format(sessions=sql.Identifier(sessions_table))
         )

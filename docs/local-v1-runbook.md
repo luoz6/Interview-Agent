@@ -99,15 +99,23 @@ python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 The loader prepares all vectors before the activation transaction. Reviewer `get_by_ids()` makes no embedding call
 and resolves bound historical evidence by content hash.
 
-## 4. Start Server And Report Worker
+## 4. Start API, Frontend And Report Worker
 
-Start the FastAPI web process:
+Start the FastAPI API-only process:
 
 ```powershell
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Start the report worker in a second PowerShell window. PostgreSQL mode stores report generation requests in `interview_report_jobs`; without this worker, `/report-processing` will remain in progress:
+Start the independent Vite/React frontend in a second PowerShell window:
+
+```powershell
+npm run dev:frontend
+```
+
+Vite serves the client routes on `http://127.0.0.1:5173` and proxies `/api` to the FastAPI process on port `8000`.
+
+Start the report worker in a third PowerShell window. PostgreSQL mode stores report generation requests in `interview_report_jobs`; without this worker, `/report-processing` will remain in progress:
 
 ```powershell
 python -m app.services.report_worker
@@ -126,13 +134,8 @@ celery -A app.services.celery_app.celery_app worker --loglevel=info
 ```powershell
 python -m pytest tests/test_page_routes.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q
 python -m pytest -q
-node --check app/static/api.js
-node --check app/static/shared-ui.js
-node --check app/static/prep.js
-node --check app/static/interview.js
-node --check app/static/report-processing.js
-node --check app/static/report-detail.js
-npm run build:prototype-css
+npm run build:frontend
+npm run test:browser
 ```
 
 PowerShell 5.1 note: run each command separately instead of joining commands with `&&`.
@@ -148,7 +151,7 @@ Invoke-RestMethod -Method Post `
 
 ## 6. 真实浏览器验收
 
-1. Open `http://127.0.0.1:8000/prep`.
+1. Open `http://127.0.0.1:5173/prep`.
 2. Enter a backend JD that mentions FastAPI, Redis, PostgreSQL, and system design.
 3. Enter a resume that mentions a FastAPI service, Redis cache-aside, PostgreSQL indexes, and production troubleshooting.
 4. Click generate plan.
@@ -261,7 +264,8 @@ Keep the run directory, `metrics.json`, attempt artifacts, traces, hashes, model
 | Plan falls back to generic questions | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` |
 | Report fails with knowledge store unavailable | `POSTGRES_DSN`, pgvector extension, derived tables, and active corpus version |
 | Knowledge retrieval is degraded | `EMBEDDING_PROVIDER`, active corpus version, and SiliconFlow availability |
-| Static page is unstyled | Run `npm run build:prototype-css` |
+| React page is unavailable | Confirm `npm run dev:frontend` is running on port `5173` |
+| Production frontend build fails | Run `npm run build:frontend` and inspect Vite output |
 | Browser cannot find session | Confirm URL contains `session_id` and runtime store did not reset |
 
 ## 9. Stage 41 Clean-Environment Release Gate
@@ -273,6 +277,7 @@ activate a Python 3.11 virtual environment, then run:
 python -m pip install --require-hashes -r requirements.lock.txt
 python -m pip check
 npm ci
+npm --prefix frontend ci
 npx playwright install chromium
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime
@@ -705,3 +710,77 @@ Pool exhaustion triage order:
    overhead;
 6. keep rollout at `0/0` until the capacity artifact and recovery/fencing gates
    are healthy.
+
+## Effective memory configuration compatibility
+
+The memory optimization foundation resolves legacy environment variables and
+the new `MEMORY_*` paths into one immutable
+`memory-runtime-config-v1` policy. During the compatibility window:
+
+- a new value alone is accepted;
+- a legacy value alone is adapted and reported as deprecated without logging
+  its value;
+- equal normalized new and legacy values are accepted;
+- conflicting values fail configuration preflight instead of selecting the
+  more aggressive rollout, enforcement, or compression mode.
+
+`GET /api/runtime` exposes only safe effective fields under `memory_runtime`:
+the schema version, configuration validity, budget/compression modes, durable
+graph version and rollout percentage, and whether any legacy variable was
+consumed. It never exposes provider URLs, credentials, deployment secrets, or
+configured values from deprecation warnings.
+
+The committed defaults remain safe: Interview rollout is `0`, budget mode is `disabled`,
+compression mode is `disabled`, all legacy enforcement and
+compression gates are `false`, and the structured examples in `.env.example`
+remain commented. A `langgraph-v2` rollout requires Interview budget
+enforcement. Compression consumption additionally requires an available
+Context Artifact store; Evidence consumption requires its parent Interview or
+Review compression workflow.
+
+All runtime consumers now read the resolved policy rather than parsing legacy
+environment variables independently. This includes Interview graph dispatch,
+model context windows and reserves, token-estimator selection, budget
+enforcement, compression creation/consumption gates, artifact lease and cleanup
+settings, deployment scope, and trusted-local deletion/metrics boundaries. The
+legacy variables remain compatibility inputs only; removing them from the
+adapter is a later breaking change and must not be done during a rollout.
+
+## Session deletion boundary
+
+Local V1 does not yet have a product user identity or administrator role. The
+session deletion API is therefore hidden by default and is exposed only when
+`MEMORY_TRUSTED_LOCAL_DELETION_ENABLED=true` is set in an explicitly trusted
+local deployment. Do not enable it on a shared or internet-reachable runtime.
+
+`DELETE /api/interviews/{session_id}` first marks the session as `deleting`,
+which blocks snapshot, answer, stream, skip, finish, report, evaluation, and
+SSE consumption. The response contains only a deletion job identifier, stable
+status, timestamps, error code, and aggregate row counts. Repeating the request
+returns the same logical job. `GET /api/interviews/{session_id}/deletion`
+returns its tombstone after the business session has been physically removed.
+
+PostgreSQL deletion jobs and the session deletion marker are migration-owned;
+application runtime stores validate the schema and never create it. Backups may
+retain physically deleted rows until the backup retention window expires. If
+an older backup is restored, operators must replay every completed deletion
+tombstone before opening the restored runtime to interview traffic. Tombstones
+must therefore be retained outside the restored backup boundary for at least
+the maximum backup retention period. A restore is incomplete until this replay
+and a deletion-count audit have succeeded.
+
+## Memory repository acceptance
+
+Run `python -m scripts.memory_system_optimization_acceptance` for the
+repository-only gate. The runner captures focused tests internally and emits
+only `READY_FOR_MEMORY_SYSTEM_SHADOW` plus
+`PRODUCTION_OBSERVATION=NOT_RUN` on success. It does not authorize a migration,
+rollout, destructive retention job, real-provider call, or production canary.
+### 持久化记忆指标
+
+记忆指标只写入按分钟和小时聚合的 bucket，不保存原始事件，也不允许 session、principal、question、fact、artifact、prompt、回答、摘要或 excerpt 等标识和内容字段。PostgreSQL 正常时，trusted-local 的 `GET /api/runtime/memory-metrics` 返回 `store_kind=postgres_aggregate`、`data_complete=true` 与最新 bucket 时间；数据库不可用时面试业务继续运行，端点明确回退为 `process_local` 且 `data_complete=false`。
+
+默认保留期为 minute 30 天、hour 180 天。缩短可通过经评审的部署策略执行；延长必须由隐私/合规、SRE 和技术负责人共同批准，并同步更新 retention policy version 与验收记录，不能用普通环境变量静默延长。
+Budget Shadow is prepared as a validate-only workflow documented in `docs/memory-budget-shadow-runbook.md`. Do not set `MEMORY_BUDGET_SHADOW_ENABLED=true` from this repository phase; the status endpoint is read-only and cannot activate it.
+Principal Memory is default-off. Supported repository modes are only `disabled`, `write_shadow`, and `read_shadow`; `MEMORY_LONG_TERM_MODE=consume` is rejected rather than downgraded. Identity must come from an explicit trusted resolver, never from resume text, contact data, browser/device identifiers, network metadata, candidate names, embeddings, or model output. Consent is versioned and checked again for every proposal, storage, and read-shadow operation.
+Final phase acceptance is produced by `python -m scripts.memory_validation_foundation_acceptance` only after full Python/browser/build/live-PostgreSQL evidence is recorded. A successful gate still reports `LONG_TERM_MEMORY_CONSUMPTION=BLOCKED` and `PRODUCTION_OBSERVATION=NOT_RUN`.

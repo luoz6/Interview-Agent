@@ -11,7 +11,11 @@ from app.services.knowledge_grounding import (
 from app.services.knowledge_profile import build_role_profile
 from app.services.knowledge_query import build_knowledge_queries
 from app.services.llm import InterviewLLM
-from app.services.prep import InterviewPlan, attach_prep_context
+from app.services.prep import (
+    InterviewPlan,
+    attach_prep_context,
+    validate_launchable_interview_plan,
+)
 
 
 class KnowledgeAgent:
@@ -33,7 +37,9 @@ class KnowledgeAgent:
         llm = self.llm or self._default_llm()
         vector_store = self.vector_store
         if vector_store is None and self.llm is not None:
-            plan = llm.generate_plan(job_description, resume_text)
+            plan = validate_launchable_interview_plan(
+                llm.generate_plan(job_description, resume_text)
+            )
             return attach_prep_context(
                 plan,
                 job_description=job_description,
@@ -48,11 +54,13 @@ class KnowledgeAgent:
             grounding = retrieve_grounding(queries, repository)
         except Exception:
             grounding = degraded_grounding(queries, "knowledge_unavailable")
-        plan = self._generate_provider_plan(
-            llm,
-            job_description=job_description,
-            resume_text=resume_text,
-            knowledge_context=provider_knowledge_context(grounding),
+        plan = validate_launchable_interview_plan(
+            self._generate_provider_plan(
+                llm,
+                job_description=job_description,
+                resume_text=resume_text,
+                knowledge_context=provider_knowledge_context(grounding),
+            )
         )
         grounded_plan = attach_grounded_prep_context(
             plan,

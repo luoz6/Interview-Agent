@@ -12,8 +12,10 @@ from app.services.context_artifacts import (
 from app.services.context_budget import ContextBudgetExceeded
 from app.services.context_compression import (
     OpenAIContextCompressor,
+    QUESTION_MEMORY_COMPRESSION_POLICY,
     compressor_config_from_llm,
 )
+from app.services.context_artifacts import QuestionMemoryArtifact
 from app.services.llm import LLMConfig
 
 
@@ -188,3 +190,50 @@ def test_agent_has_no_business_fallback_and_emits_only_safe_metadata():
         "provider_attempt_count",
         "provider_usage_available",
     }
+
+
+def test_question_memory_compressor_binds_non_authoritative_schema_and_identity():
+    content = "Candidate described a cache tradeoff."
+    digest = sha256(content.encode("utf-8")).hexdigest()
+    source = CompressionSourceSegment(
+        segment_index=0,
+        segment_type="conversation_message",
+        content=content,
+        content_sha256=digest,
+    )
+    payload = {
+        "schema_version": "question-memory-v1",
+        "authority": "non_authoritative",
+        "session_scope_sha256": "1" * 64,
+        "question_id_sha256": "2" * 64,
+        "question_focus_sha256": "3" * 64,
+        "source_manifest_sha256": "4" * 64,
+        "source_message_count": 1,
+        "claims": [
+            {
+                "claim_type": "tradeoff",
+                "summary": "Candidate described a cache tradeoff.",
+                "polarity": "positive",
+                "source_segment_sha256": [digest],
+                "supporting_excerpts": ["cache tradeoff"],
+                "confidence": "medium",
+            }
+        ],
+        "unresolved_topics": [],
+    }
+    chat = FakeStructuredModel(payload)
+    provider = make_provider(chat)
+
+    result = provider.compress(
+        policy=QUESTION_MEMORY_COMPRESSION_POLICY,
+        source_segments=[source],
+        expected_session_scope_sha256="1" * 64,
+        expected_question_id_sha256="2" * 64,
+        expected_question_focus_sha256="3" * 64,
+        expected_source_manifest_sha256="4" * 64,
+    )
+
+    assert result["authority"] == "non_authoritative"
+    assert chat.schema is QuestionMemoryArtifact
+    assert "authority must be exactly non_authoritative" in chat.prompts[0]
+    assert '"source_manifest_sha256":"' in chat.prompts[0]

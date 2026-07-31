@@ -49,7 +49,7 @@ class AcceptedInterviewCommand(BaseModel):
     session_id: str
     command_id: str
     status: Literal["pending"] = "pending"
-    workflow_engine: Literal["langgraph-v1"] = "langgraph-v1"
+    workflow_engine: Literal["langgraph-v1", "langgraph-v2"] = "langgraph-v1"
     stream_url: str
 
 

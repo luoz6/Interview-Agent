@@ -1,4 +1,5 @@
 from typing import Literal
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
@@ -44,3 +45,17 @@ class ReviewRetryDueEvent(RuntimeEventEnvelope):
     event_type: Literal["review_retry_due"] = "review_retry_due"
     report_job_id: str
     next_attempt_number: int = Field(ge=2, le=3)
+
+
+class PrincipalMemoryProposalRequestedEvent(RuntimeEventEnvelope):
+    event_type: Literal["principal_memory_proposal_requested_v1"] = (
+        "principal_memory_proposal_requested_v1"
+    )
+    effect_id: str = Field(pattern=r"^principal-effect-[0-9a-f]{32}$")
+    deployment_locator: str = Field(min_length=1, max_length=128)
+    principal_locator: str = Field(min_length=1, max_length=128)
+    consent_policy_version: str = Field(min_length=1, max_length=128)
+    source_state_version: int = Field(ge=1)
+    requested_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )

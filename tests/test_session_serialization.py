@@ -1,3 +1,5 @@
+import pytest
+
 from app.graphs.interview_state import build_initial_state
 from app.services.prep import (
     InterviewPlan,
@@ -167,6 +169,36 @@ def test_state_round_trips_from_session_and_message_rows():
     assert restored["job_tags"] == ["python", "fastapi"]
     assert restored["workflow_engine"] == "legacy"
     assert restored["graph_schema_version"] is None
+    assert restored["memory_policy_version"] == "deterministic-v1"
+
+
+def test_memory_policy_round_trip_and_old_v2_backfill_are_stable():
+    state = build_initial_state(
+        session_id="s-v2",
+        plan=make_plan(),
+        job_description="Backend role",
+        resume_text="Backend resume",
+        job_tags=[],
+        memory_policy_version="question-memory-v1",
+    )
+    state["workflow_engine"] = "langgraph-v2"
+    state["graph_schema_version"] = "langgraph-v2"
+    row = session_row_from_state(state)
+
+    assert state_from_rows(row, [])["memory_policy_version"] == "question-memory-v1"
+
+    row.pop("memory_policy_version")
+    assert state_from_rows(row, [])["memory_policy_version"] == (
+        "question-conversation-v1"
+    )
+
+
+def test_unsupported_stored_memory_policy_fails_closed():
+    row = session_row_from_state(make_state())
+    row["memory_policy_version"] = "question-memory-v99"
+
+    with pytest.raises(ValueError, match="unsupported stored"):
+        state_from_rows(row, [])
 
 
 def test_legacy_plan_defaults_to_v1_prep_contract():

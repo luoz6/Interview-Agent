@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.prep import (
@@ -7,6 +8,7 @@ from app.services.prep import (
     build_prep_context,
     fallback_interview_plan,
     prepare_interview,
+    validate_launchable_interview_plan,
 )
 from app.services.report import InterviewReport
 from tests.test_grounded_knowledge_agent import make_repository
@@ -73,6 +75,23 @@ class FailingPlanLLM:
         raise AssertionError("Prep tests do not generate reports")
 
 
+class InvalidPlanLLM(FailingPlanLLM):
+    def generate_plan(self, job_description: str, resume_text: str):
+        return InterviewPlan.model_validate(
+            {
+                "title": "Invalid generated plan",
+                "questions": [
+                    {
+                        "id": "q1",
+                        "kind": "technical",
+                        "prompt": "Explain Redis.",
+                        "focus": "Redis",
+                    }
+                ],
+            }
+        )
+
+
 class CapturingRecorder:
     def __init__(self):
         self.records = []
@@ -119,6 +138,76 @@ def test_prepare_interview_falls_back_when_llm_fails():
     assert plan.title == "基础模拟面试"
     assert len(plan.questions) == 3
     assert plan.questions[0].kind == "project"
+
+
+def test_prepare_interview_falls_back_when_provider_plan_violates_contract():
+    plan = prepare_interview(
+        job_description="Backend role using Redis.",
+        resume_text="Built a cache service.",
+        llm=InvalidPlanLLM(),
+    )
+
+    assert plan.title == fallback_interview_plan().title
+    assert [question.id for question in plan.questions] == ["q1", "q2", "q3"]
+
+
+def test_interview_plan_strips_required_text():
+    plan = InterviewPlan(
+        title="  Backend interview  ",
+        questions=[
+            InterviewQuestion(id=" q1 ", kind="project", prompt=" Project? ", focus=" ownership "),
+            InterviewQuestion(id=" q2 ", kind="technical", prompt=" Redis? ", focus=" caching "),
+            InterviewQuestion(id=" q3 ", kind="system-design", prompt=" Scale? ", focus=" design "),
+        ],
+    )
+
+    assert plan.title == "Backend interview"
+    assert [question.id for question in plan.questions] == ["q1", "q2", "q3"]
+    assert plan.questions[0].prompt == "Project?"
+    assert plan.questions[0].focus == "ownership"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"title": " ", "questions": []},
+        {
+            "title": "Too short",
+            "questions": [
+                {"id": "q1", "kind": "project", "prompt": "One", "focus": "One"},
+                {"id": "q2", "kind": "technical", "prompt": "Two", "focus": "Two"},
+            ],
+        },
+        {
+            "title": "Duplicate",
+            "questions": [
+                {"id": "q1", "kind": "project", "prompt": "One", "focus": "One"},
+                {"id": "q1", "kind": "technical", "prompt": "Two", "focus": "Two"},
+                {"id": "q3", "kind": "system-design", "prompt": "Three", "focus": "Three"},
+            ],
+        },
+        {
+            "title": "Gap",
+            "questions": [
+                {"id": "q1", "kind": "project", "prompt": "One", "focus": "One"},
+                {"id": "q3", "kind": "technical", "prompt": "Two", "focus": "Two"},
+                {"id": "q4", "kind": "system-design", "prompt": "Three", "focus": "Three"},
+            ],
+        },
+        {
+            "title": "Blank field",
+            "questions": [
+                {"id": "q1", "kind": "project", "prompt": " ", "focus": "One"},
+                {"id": "q2", "kind": "technical", "prompt": "Two", "focus": "Two"},
+                {"id": "q3", "kind": "system-design", "prompt": "Three", "focus": "Three"},
+            ],
+        },
+    ],
+)
+def test_interview_plan_rejects_invalid_provider_shape(payload):
+    with pytest.raises((ValidationError, ValueError)):
+        plan = InterviewPlan.model_validate(payload)
+        validate_launchable_interview_plan(plan)
 
 
 def test_prepare_interview_provider_failure_keeps_complete_v1_fallback():
@@ -201,6 +290,12 @@ def test_build_prep_context_extracts_topics_and_question_hints():
                 prompt="Design a scalable FastAPI service.",
                 focus="system design",
             ),
+            InterviewQuestion(
+                id="q3",
+                kind="project",
+                prompt="Describe an engineering tradeoff.",
+                focus="tradeoffs",
+            ),
         ],
     )
 
@@ -211,7 +306,7 @@ def test_build_prep_context_extracts_topics_and_question_hints():
         plan=plan,
     )
 
-    assert context.summary == "Knowledge Agent 预热了 5 个岗位考点，并为 2 道题生成追问线索。"
+    assert context.summary == "Knowledge Agent 预热了 5 个岗位考点，并为 3 道题生成追问线索。"
     assert [topic.id for topic in context.topics] == [
         "topic-python",
         "topic-fastapi",
@@ -239,7 +334,19 @@ def test_build_prep_context_uses_general_topic_when_tags_are_empty():
                 kind="project",
                 prompt="Introduce your project.",
                 focus="project depth",
-            )
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="Explain one technical decision.",
+                focus="technical depth",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="behavioral",
+                prompt="Describe a collaboration challenge.",
+                focus="communication",
+            ),
         ],
     )
 

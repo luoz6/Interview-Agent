@@ -41,42 +41,31 @@ const reportPathLabels = {
 
 const viewState = {
   items: [],
+  total: 0,
+  statusTotals: { all: 0, completed: 0, processing: 0, failed: 0 },
   query: "",
   status: "all",
   days: "30",
   page: 1,
   pageSize: 5,
 };
-
-function matchesQuery(item) {
-  const haystack = [
-    item.job_title,
-    item.session_id,
-    ...(item.job_tags || []),
-    item.summary,
-    item.status,
-  ].filter(Boolean).join(" ").toLocaleLowerCase();
-  return haystack.includes(viewState.query.toLocaleLowerCase());
-}
-
-function matchesDate(item) {
-  if (viewState.days === "all") return true;
-  const timestamp = Date.parse(item.finished_at || item.created_at || "");
-  if (!Number.isFinite(timestamp)) return false;
-  return timestamp >= Date.now() - Number(viewState.days) * 24 * 60 * 60 * 1000;
-}
-
-function filteredReports() {
-  return viewState.items.filter((item) =>
-    (viewState.status === "all" || item.status === viewState.status)
-    && matchesDate(item)
-    && matchesQuery(item)
-  );
-}
+let searchTimer = null;
 
 function countByStatus(status) {
-  if (status === "all") return viewState.items.length;
-  return viewState.items.filter((item) => item.status === status).length;
+  return viewState.statusTotals[status] || 0;
+}
+
+function reportsUrl({ status = viewState.status, includePage = true } = {}) {
+  const params = new URLSearchParams();
+  if (status !== "all") params.set("status", status);
+  if (viewState.query) params.set("query", viewState.query);
+  if (viewState.days !== "all") params.set("days", viewState.days);
+  params.set("limit", String(includePage ? viewState.pageSize : 1));
+  params.set(
+    "offset",
+    String(includePage ? (viewState.page - 1) * viewState.pageSize : 0),
+  );
+  return `/api/reports?${params.toString()}`;
 }
 
 function formatDate(value) {
@@ -268,7 +257,7 @@ function renderPagination(totalItems) {
     setPressed(button, page === viewState.page);
     button.addEventListener("click", () => {
       viewState.page = page;
-      renderReportCenter();
+      loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));
     });
     paginationPages.appendChild(button);
   }
@@ -276,65 +265,81 @@ function renderPagination(totalItems) {
 
 function renderReportCenter() {
   renderOverview();
-  const filtered = filteredReports();
-  const pageCount = Math.max(1, Math.ceil(filtered.length / viewState.pageSize));
+  const pageCount = Math.max(1, Math.ceil(viewState.total / viewState.pageSize));
   viewState.page = Math.min(viewState.page, pageCount);
-  const start = (viewState.page - 1) * viewState.pageSize;
-  renderRows(filtered.slice(start, start + viewState.pageSize));
+  renderRows(viewState.items);
 
-  reportsEmptyState.hidden = filtered.length > 0;
+  reportsEmptyState.hidden = viewState.items.length > 0;
   clear(reportsEmptyState);
-  if (!filtered.length) {
+  if (!viewState.items.length) {
     reportsEmptyState.appendChild(createEl(
       "p",
       "",
-      viewState.items.length ? "没有符合当前筛选条件的报告" : "暂无报告，先开始一次模拟面试",
+      viewState.total > 0 || viewState.query || viewState.status !== "all" || viewState.days !== "all"
+        ? "没有符合当前筛选条件的报告"
+        : "暂无报告，先开始一次模拟面试",
     ));
   }
-  renderPagination(filtered.length);
+  renderPagination(viewState.total);
 }
 
 async function loadReports() {
   setBusy([refreshReportsButton], true);
+  document.body.dataset.reportsState = "loading";
+  reportsTableBody.closest("table")?.setAttribute("aria-busy", "true");
   showNotice(reportsStatus, "正在刷新报告列表", "info");
   try {
-    const payload = await getJson("/api/reports?limit=100");
+    const payload = await getJson(reportsUrl());
     viewState.items = Array.isArray(payload.items) ? payload.items : [];
+    viewState.total = Number(payload.total) || 0;
+    viewState.statusTotals = {
+      ...viewState.statusTotals,
+      ...(payload.status_totals || {}),
+    };
     renderReportCenter();
+    document.body.dataset.reportsState = viewState.items.length ? "ready" : "empty";
     showNotice(reportsStatus, `已加载 ${viewState.items.length} 条报告`, "success");
+  } catch (error) {
+    document.body.dataset.reportsState = "error";
+    throw error;
   } finally {
     setBusy([refreshReportsButton], false);
+    reportsTableBody.closest("table")?.setAttribute("aria-busy", "false");
   }
 }
 
 reportSearch.addEventListener("input", () => {
   viewState.query = reportSearch.value.trim();
   viewState.page = 1;
-  renderReportCenter();
+  if (searchTimer !== null) window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => {
+    searchTimer = null;
+    loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));
+  }, 250);
 });
 
 reportDateFilter.addEventListener("change", () => {
   viewState.days = reportDateFilter.value;
   viewState.page = 1;
-  renderReportCenter();
+  loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));
 });
 
 for (const filter of statusFilters) {
   filter.addEventListener("click", () => {
     viewState.status = filter.dataset.reportStatus;
     viewState.page = 1;
-    renderReportCenter();
+    loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));
   });
 }
 
 paginationPrevious.addEventListener("click", () => {
   viewState.page = Math.max(1, viewState.page - 1);
-  renderReportCenter();
+  loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));
 });
 
 paginationNext.addEventListener("click", () => {
   viewState.page += 1;
-  renderReportCenter();
+  loadReports().catch((error) => showNotice(reportsStatus, error.message, "danger"));
 });
 
 refreshReportsButton.addEventListener("click", () => {

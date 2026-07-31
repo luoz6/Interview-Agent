@@ -164,6 +164,9 @@ class ContextCompressionRunner:
         retain_until: datetime | None = None,
         expected_question_id_sha256: str | None = None,
         expected_evidence_content_sha256: str | None = None,
+        expected_session_scope_sha256: str | None = None,
+        expected_question_focus_sha256: str | None = None,
+        expected_source_manifest_sha256: str | None = None,
     ) -> ContextCompressionResolution:
         identity = ContextArtifactIdentity.from_material(identity_material)
         claim = self.store.claim(
@@ -187,6 +190,9 @@ class ContextCompressionRunner:
                 expected_evidence_content_sha256=(
                     expected_evidence_content_sha256
                 ),
+                expected_session_scope_sha256=expected_session_scope_sha256,
+                expected_question_focus_sha256=expected_question_focus_sha256,
+                expected_source_manifest_sha256=expected_source_manifest_sha256,
             )
 
         try:
@@ -214,6 +220,9 @@ class ContextCompressionRunner:
                     expected_evidence_content_sha256=(
                         expected_evidence_content_sha256
                     ),
+                    expected_session_scope_sha256=expected_session_scope_sha256,
+                    expected_question_focus_sha256=expected_question_focus_sha256,
+                    expected_source_manifest_sha256=expected_source_manifest_sha256,
                 )
                 heartbeat.ensure_owned()
                 self._ensure_parent(parent_ownership)
@@ -238,6 +247,9 @@ class ContextCompressionRunner:
                     expected_evidence_content_sha256=(
                         expected_evidence_content_sha256
                     ),
+                    expected_session_scope_sha256=expected_session_scope_sha256,
+                    expected_question_focus_sha256=expected_question_focus_sha256,
+                    expected_source_manifest_sha256=expected_source_manifest_sha256,
                 )
                 if recovered is not None:
                     return recovered
@@ -263,6 +275,9 @@ class ContextCompressionRunner:
                     expected_evidence_content_sha256=(
                         expected_evidence_content_sha256
                     ),
+                    expected_session_scope_sha256=expected_session_scope_sha256,
+                    expected_question_focus_sha256=expected_question_focus_sha256,
+                    expected_source_manifest_sha256=expected_source_manifest_sha256,
                 )
                 if recovered is not None:
                     return recovered
@@ -310,6 +325,9 @@ class ContextCompressionRunner:
         retain_until: datetime | None,
         expected_question_id_sha256: str | None,
         expected_evidence_content_sha256: str | None,
+        expected_session_scope_sha256: str | None,
+        expected_question_focus_sha256: str | None,
+        expected_source_manifest_sha256: str | None,
     ) -> ContextCompressionResolution:
         record = self.store.get_terminal_by_key(identity.artifact_key)
         if record is None:
@@ -326,6 +344,9 @@ class ContextCompressionRunner:
             model=model,
             expected_question_id_sha256=expected_question_id_sha256,
             expected_evidence_content_sha256=expected_evidence_content_sha256,
+            expected_session_scope_sha256=expected_session_scope_sha256,
+            expected_question_focus_sha256=expected_question_focus_sha256,
+            expected_source_manifest_sha256=expected_source_manifest_sha256,
         )
         ref = self.store.create_owner_ref(
             record,

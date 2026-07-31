@@ -20,6 +20,10 @@ from app.services.context_artifacts import (
     compressor_settings_sha256,
 )
 from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_eligibility import (
+    ContextCompressionEligibilityPolicy,
+)
+from app.services.context_selection import ContextSelectionStats
 from app.services.context_compression_runner import (
     ContextCompressionParentOwnership,
     ContextCompressionRunner,
@@ -61,6 +65,7 @@ class EvidenceContextArtifactCoordinator:
         gates: ContextCompressionGates,
         deployment_scope: str,
         scope_resolver=None,
+        eligibility_policy=None,
     ) -> None:
         self.runner = runner
         self.compressor_agent = compressor_agent
@@ -71,6 +76,9 @@ class EvidenceContextArtifactCoordinator:
         self.scope_resolver = (
             scope_resolver or StableContextArtifactPrivacyScopeResolver()
         )
+        self.eligibility_policy = (
+            eligibility_policy or ContextCompressionEligibilityPolicy()
+        )
 
     def build_interview_context(
         self,
@@ -79,6 +87,7 @@ class EvidenceContextArtifactCoordinator:
         context_messages: list[dict[str, str]],
         parent_ownership: ContextCompressionParentOwnership,
         worker_id: str,
+        selection_stats: ContextSelectionStats | None = None,
     ) -> EvidenceArtifactContext:
         evidence = [
             item
@@ -103,6 +112,14 @@ class EvidenceContextArtifactCoordinator:
             for index, message in enumerate(evidence)
         ]
         evidence_digest = self._evidence_digest(sources)
+        eligibility = self.eligibility_policy.evaluate(
+            selection_stats=selection_stats,
+            target_artifact_type="evidence_compression",
+            source_unit_count=len(sources),
+            source_manifest_sha256=evidence_digest,
+        )
+        if not eligibility.eligible:
+            return self._deterministic(context_messages)
         question = state["plan_snapshot"]["questions"][state["current_index"]]
         identity = self._identity_material(
             state=state,
@@ -146,7 +163,7 @@ class EvidenceContextArtifactCoordinator:
             ContextArtifactProviderFailed,
             ContextArtifactValidationFailed,
         ):
-            return self._deterministic(context_messages)
+            return self._fallback(context_messages)
         if not self.gates.consumption_enabled(
             workflow="interview",
             artifact_type="evidence_compression",
@@ -486,4 +503,15 @@ class EvidenceContextArtifactCoordinator:
             artifact_type=None,
             policy_version=None,
             route="deterministic",
+        )
+
+    @staticmethod
+    def _fallback(context_messages):
+        return EvidenceArtifactContext(
+            context_messages=context_messages,
+            artifact_ref=None,
+            artifact_sha256=None,
+            artifact_type=None,
+            policy_version=None,
+            route="artifact_fallback",
         )

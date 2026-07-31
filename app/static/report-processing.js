@@ -36,11 +36,56 @@ const metricLabels = {
 };
 
 let timer = null;
+let pollInFlight = false;
+let retryAttempt = 0;
+let nextPollDelayMs = 3000;
+const POLL_INTERVAL_MS = 3000;
+const MAX_RETRY_DELAY_MS = 30000;
 
 function stopPolling() {
   if (timer) {
     window.clearTimeout(timer);
     timer = null;
+  }
+}
+
+function isRetryablePollingError(error) {
+  return !error.status || error.status === 429 || error.status >= 500;
+}
+
+function retryDelayMs() {
+  return Math.min(
+    MAX_RETRY_DELAY_MS,
+    POLL_INTERVAL_MS * (2 ** Math.max(0, retryAttempt - 1)),
+  );
+}
+
+async function runPoll() {
+  if (pollInFlight) return;
+  pollInFlight = true;
+  try {
+    await poll();
+    retryAttempt = 0;
+  } catch (error) {
+    if (isRetryablePollingError(error)) {
+      retryAttempt += 1;
+      nextPollDelayMs = retryDelayMs();
+      showNotice(
+        processingNotice,
+        error.message || "报告状态暂时不可用，正在重试。",
+        "warning",
+      );
+      schedulePoll();
+    } else {
+      stopPolling();
+      showNotice(
+        processingNotice,
+        error.message || "无法读取报告状态。",
+        "danger",
+      );
+    }
+  } finally {
+    pollInFlight = false;
   }
 }
 
@@ -79,6 +124,7 @@ function renderStageTimeline(progress) {
   for (const event of items) {
     const row = createEl("section", "processing-stage");
     row.dataset.stage = event.stage || "queued";
+    row.dataset.state = event.stage === progress.stage ? "current" : "history";
     row.appendChild(createEl("strong", "", stageLabels[event.stage] || event.stage || "等待处理"));
     row.appendChild(createEl("p", "", event.message || ""));
     reportStageList.appendChild(row);
@@ -155,6 +201,7 @@ function renderProgress(progress) {
   setText("reportJobId", progress.report_job_id || "暂无任务 ID");
   setText("reportPath", reportPathLabels[metadata.report_path] || "Unavailable");
   document.body.dataset.reportState = progress.status || progress.stage || "processing";
+  document.body.dataset.reportStage = progress.stage || "queued";
   renderStageTimeline(progress);
   renderReportEvents(progress, metadataDetails);
   renderMetrics(metadataDetails);
@@ -174,9 +221,12 @@ function renderProgress(progress) {
 }
 
 function schedulePoll() {
+  stopPolling();
+  const delayMs = nextPollDelayMs;
+  nextPollDelayMs = POLL_INTERVAL_MS;
   timer = window.setTimeout(() => {
     timer = null;
-    poll().catch((error) => {
+    runPoll().catch((error) => {
       stopPolling();
       showNotice(
         processingNotice,
@@ -184,7 +234,7 @@ function schedulePoll() {
         "danger",
       );
     });
-  }, 3000);
+  }, delayMs);
 }
 
 async function poll() {
@@ -200,15 +250,17 @@ async function poll() {
     window.location.href = "/report-detail?session_id=" + encodeURIComponent(sessionId);
     return;
   }
-  if (reportResponse.status >= 500) {
-    stopPolling();
+  if (reportResponse.status === 429 || reportResponse.status >= 500) {
     const body = await safeJson(reportResponse);
-    showNotice(
-      processingNotice,
-      body.detail || "报告暂不可用，请稍后重试。",
-      "danger",
-    );
-    return;
+    const error = new Error(body.detail || "报告暂不可用，请稍后重试。系统将自动重试。");
+    error.status = reportResponse.status;
+    throw error;
+  }
+  if (reportResponse.status >= 400 && reportResponse.status !== 202) {
+    const body = await safeJson(reportResponse);
+    const error = new Error(body.detail || "无法读取报告。");
+    error.status = reportResponse.status;
+    throw error;
   }
   schedulePoll();
 }
@@ -225,7 +277,7 @@ if (!sessionId) {
   viewReportButton.disabled = true;
   showNotice(processingNotice, "缺少 session_id，请从面试页进入。", "danger");
 } else {
-  poll().catch((error) => {
+  runPoll().catch((error) => {
     stopPolling();
     showNotice(
       processingNotice,
@@ -234,5 +286,17 @@ if (!sessionId) {
     );
   });
 }
+
+function retryPollingNow() {
+  if (!sessionId || pollInFlight) return;
+  retryAttempt = 0;
+  nextPollDelayMs = 0;
+  schedulePoll();
+}
+
+window.addEventListener("online", retryPollingNow);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") retryPollingNow();
+});
 
 window.addEventListener("beforeunload", stopPolling);

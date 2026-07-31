@@ -8,6 +8,7 @@ from app.graphs.durable_interview_state import make_durable_initial_state
 from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
 from app.graphs.interview_state import (
     choose_workflow_engine,
+    default_memory_policy_for_engine,
     is_durable_interview_version,
 )
 from app.services.interview_event_stream import InterviewEventStreamService
@@ -39,6 +40,7 @@ class InterviewWorkflowService:
         rollout_percent: int,
         default_graph_version: str,
         thread_lock=None,
+        memory_policy_resolver=None,
     ) -> None:
         self.legacy_store = legacy_store
         self.workflow_store = workflow_store
@@ -48,6 +50,9 @@ class InterviewWorkflowService:
         self.runtime_enabled = runtime_enabled
         self.rollout_percent = rollout_percent
         self.default_graph_version = default_graph_version
+        self.memory_policy_resolver = (
+            memory_policy_resolver or default_memory_policy_for_engine
+        )
         self.thread_lock = thread_lock or NoopWorkflowThreadLock()
         self.event_stream = InterviewEventStreamService(
             workflow_store, generation_store
@@ -69,6 +74,7 @@ class InterviewWorkflowService:
             rollout_percent=self.rollout_percent,
             durable_version=self.default_graph_version,
         )
+        memory_policy_version = self.memory_policy_resolver(engine)
         if engine == "legacy":
             return self.legacy_store.start(
                 plan,
@@ -76,6 +82,7 @@ class InterviewWorkflowService:
                 resume_text=resume_text,
                 job_tags=job_tags,
                 session_id=session_id,
+                memory_policy_version=memory_policy_version,
             )
         self.legacy_store.insert_durable_session_shell(
             session_id=session_id,
@@ -84,6 +91,7 @@ class InterviewWorkflowService:
             resume_text=resume_text,
             job_tags=job_tags,
             graph_version=self.default_graph_version,
+            memory_policy_version=memory_policy_version,
         )
         self.ensure_interview_bootstrapped(session_id, plan=plan)
         return self.legacy_store._to_turn(
@@ -147,7 +155,13 @@ class InterviewWorkflowService:
                 raise ValueError("durable graph version is missing")
             resolved_plan = plan or public_state["plan"]
             initial_state = (
-                make_durable_initial_state_v2(session_id, resolved_plan)
+                make_durable_initial_state_v2(
+                    session_id,
+                    resolved_plan,
+                    memory_policy_version=public_state[
+                        "memory_policy_version"
+                    ],
+                )
                 if version == "langgraph-v2"
                 else make_durable_initial_state(session_id, resolved_plan)
             )
@@ -271,6 +285,7 @@ class InterviewWorkflowService:
         return AcceptedInterviewCommand(
             session_id=session_id,
             command_id=record.command_id,
+            workflow_engine=state["workflow_engine"],
             stream_url=(
                 f"/api/interviews/{session_id}/commands/"
                 f"{record.command_id}/stream"
@@ -278,6 +293,8 @@ class InterviewWorkflowService:
         )
 
     def snapshot(self, session_id: str) -> dict:
+        from app.services.session import interview_assistance_metadata
+
         snapshot = self.legacy_store.snapshot(session_id)
         if not is_durable_interview_version(snapshot.get("workflow_engine")):
             state = self.legacy_store.get(session_id)
@@ -293,6 +310,13 @@ class InterviewWorkflowService:
             snapshot.get("workflow_engine"),
         )
         values = graph_state.values
+        snapshot.update(
+            interview_assistance_metadata(
+                self.legacy_store.get(session_id),
+                context_route=values.get("context_route"),
+                policy_version=values.get("memory_policy_version"),
+            )
+        )
         active_command_id = values.get("active_command_id")
         generation_id = values.get("generation_id")
         snapshot["active_command_id"] = active_command_id
@@ -307,7 +331,7 @@ class InterviewWorkflowService:
             )
         return snapshot
 
-    def purge_session(self, session_id: str) -> None:
+    def purge_session(self, session_id: str) -> dict[str, int]:
         from app.services.runtime import (
             get_langgraph_checkpointer_runtime,
         )
@@ -315,5 +339,11 @@ class InterviewWorkflowService:
         checkpointer = get_langgraph_checkpointer_runtime()
         if checkpointer is not None:
             checkpointer.delete_thread(session_id)
-        self.workflow_store.delete_session_control_rows(session_id)
-        self.generation_store.delete_session_rows(session_id)
+        return {
+            "workflow_control_rows": self.workflow_store.delete_session_control_rows(
+                session_id
+            ),
+            "generation_rows": self.generation_store.delete_session_rows(
+                session_id
+            ),
+        }

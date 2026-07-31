@@ -2,7 +2,7 @@
 
 ## 1. 文档说明
 
-本文档基于当前项目代码与 `app` 目录下 4 个 HTML 运行页生成，用于前后端联调、接口验收和本机部署验收。当前前端运行入口已经从旧 `app/static/index.html` 切换为四个页面：准备、面试、报告生成、报告详情。
+本文档基于当前 FastAPI API 与独立 `frontend/` Vite/React 服务生成，用于前后端联调、接口验收和本机部署验收。FastAPI 只提供 API；准备、面试、报告生成、报告详情、报告中心和帮助六个路由由 Vite/React 提供。
 
 分析范围：
 
@@ -13,11 +13,13 @@
 | `app/services/session.py`、`app/graphs/interview_graph.py` | 会话状态、答题流转、追问和结束规则 |
 | `app/services/report.py`、`app/services/report_contract.py` | 报告、评分、证据引用和进度模型 |
 | `app/services/report_jobs.py`、`app/services/runtime.py` | 报告任务队列与运行时存储设计 |
-| `app/test4.html` | 面试准备运行页，承载 JD/简历输入、草稿、标签、计划预览和开始面试 |
-| `app/test3.html` | 模拟面试运行页，承载对话、流式追问、跳题、结束、题目导航和会话快照 |
-| `app/test2.html` | 报告生成运行页，承载报告进度、事件时间线、RAG 摘要和报告轮询 |
-| `app/test1.html` | 结构化面评报告运行页，承载报告详情、维度分、逐题反馈、证据和 PDF 下载 |
-| `app/static/*.js`、`app/static/prototype.css` | 四页运行时共享脚本和本地 CSS；旧 `index.html/app.js/styles.css` 已移除 |
+| `frontend/src/pages/PrepPage.jsx` | 面试准备页，承载 JD/简历输入、草稿、标签、计划预览和开始面试 |
+| `frontend/src/pages/InterviewPage.jsx` | 模拟面试页，承载对话、SSE 追问、命令恢复、跳题、结束、题目导航和会话快照 |
+| `frontend/src/pages/ReportProcessingPage.jsx` | 报告生成页，承载报告进度、事件时间线、RAG 摘要和报告轮询 |
+| `frontend/src/pages/ReportDetailPage.jsx` | 结构化面评报告页，承载报告详情、维度分、逐题反馈、证据和 PDF 下载 |
+| `frontend/src/pages/ReportsPage.jsx` | 报告中心页，承载真实状态统计、搜索、日期筛选、分页、回看与失败任务重新排队 |
+| `frontend/src/pages/HelpPage.jsx` | 帮助页，承载流程说明、草稿恢复、流中断恢复和失败报告处理入口 |
+| `frontend/src/components/*.jsx`、`frontend/src/styles/index.css` | 六页共享 React 组件与本地设计系统；运行时不依赖 FastAPI HTML 模板 |
 
 当前后端已实现核心闭环：生成面试计划、创建面试会话、查询会话快照、提交回答、流式追问、跳题、主动结束面试、面试结束后生成报告、查询报告进度与结果、下载 PDF 报告，并已提供匿名草稿保存与恢复、报告中心列表与报告回看接口。
 
@@ -25,7 +27,7 @@
 
 ### 1.1 Local V1 运行状态
 
-截至 Stage 19，四个 HTML 原型页已经作为运行时页面接入 FastAPI 页面路由，旧 `app/static/index.html`、`app/static/app.js` 和 `app/static/styles.css` 不再作为运行契约。当前推荐本机运行配置为 PostgreSQL `127.0.0.1:5432/interview`、账号密码 `postgres/postgres`、pgvector 表 `knowledge_chunks`、DeepSeek 兼容 OpenAI API。
+六个前端路由已经接入独立 Vite/React 服务。FastAPI 根路径只返回 API 服务边界信息，`/prep` 等页面路由不再由后端提供。当前推荐本机运行配置为 PostgreSQL `127.0.0.1:5432/interview`、账号密码 `postgres/postgres`、pgvector 表 `knowledge_chunks`、DeepSeek 兼容 OpenAI API。
 
 LLM 调用策略为 structured output 优先；当 DeepSeek 兼容接口拒绝 `response_format` 时，题目计划和报告生成都会走 raw JSON fallback，再通过 Pydantic 模型或报告归一化层校验。`/api/prep` 在 LLM 完全不可用时仍返回本地兜底计划，避免准备页直接 500。
 
@@ -49,45 +51,50 @@ LLM 调用策略为 structured output 优先；当 DeepSeek 兼容接口拒绝 `
 | 方法 | 路径 | 用途 | 页面映射 |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | 健康检查 | 运维检查 |
-| `POST` | `/api/prep` | 根据 JD 和简历生成计划响应，顶层包含 `title`、`questions`、`job_tags` | `app/test4.html` 计划预览 |
-| `POST` | `/api/interview-drafts` | 匿名保存 JD 和简历草稿 | `app/test4.html` 保存草稿 |
-| `GET` | `/api/interview-drafts/{draft_id}` | 匿名恢复 JD 和简历草稿 | `app/test4.html` 恢复草稿 |
-| `POST` | `/api/interviews` | 创建面试会话并返回第一题 | `app/test4.html` 开始面试，随后跳转 `app/test3.html` |
-| `GET` | `/api/interviews/{session_id}` | 查询会话详情、进度、题目导航和消息记录 | `app/test3.html` 进度区和题目导航 |
-| `POST` | `/api/interviews/{session_id}/answer` | 提交回答并返回下一轮状态 | `app/test3.html` 非流式提交回答 |
-| `POST` | `/api/interviews/{session_id}/answer/stream` | 提交流式回答，SSE 返回追问片段和最终状态 | `app/test3.html` 推荐使用的提交方式 |
-| `POST` | `/api/interviews/{session_id}/skip` | 跳到下一题 | `app/test3.html` 下一题按钮 |
-| `POST` | `/api/interviews/{session_id}/finish` | 主动结束面试并触发报告生成 | `app/test3.html` 结束面试，随后跳转 `app/test2.html` |
-| `GET` | `/api/interviews/{session_id}/report` | 查询报告生成状态或完整报告 | `app/test2.html` 轮询完成状态；`app/test1.html` 渲染完整报告 |
-| `GET` | `/api/interviews/{session_id}/report/progress` | 查询更详细报告任务进度、时间线和 `report_job_id` | `app/test2.html` 报告生成页 |
-| `GET` | `/api/interviews/{session_id}/report.pdf` | 下载已完成的 PDF 报告 | `app/test1.html` 下载按钮 |
-| `GET` | `/api/reports` | 查询本机报告中心列表，支持状态过滤和数量限制 | 可作为 `app/test1.html` 返回报告中心入口的后续页面 |
+| `POST` | `/api/prep` | 根据 JD 和简历生成计划响应，顶层包含 `title`、`questions`、`job_tags` | React 准备页计划预览 |
+| `POST` | `/api/interview-drafts` | 匿名保存 JD 和简历草稿 | React 准备页保存草稿 |
+| `GET` | `/api/interview-drafts/{draft_id}` | 匿名恢复 JD 和简历草稿 | React 准备页恢复草稿 |
+| `POST` | `/api/interviews` | 创建面试会话并返回第一题 | React 准备页开始面试，随后跳转 `/interview` |
+| `GET` | `/api/interviews/{session_id}` | 查询会话详情、进度、题目导航和消息记录 | React 面试页 |
+| `POST` | `/api/interviews/{session_id}/answer` | 提交回答并返回下一轮状态 | 非流式兼容入口 |
+| `POST` | `/api/interviews/{session_id}/answer/stream` | 提交流式回答，SSE 返回追问片段和最终状态 | React 面试页默认入口 |
+| `POST` | `/api/interviews/{session_id}/skip` | 跳到下一题 | React 面试页 |
+| `POST` | `/api/interviews/{session_id}/finish` | 主动结束面试并触发报告生成 | React 面试页，随后跳转 `/report-processing` |
+| `GET` | `/api/interviews/{session_id}/report` | 查询报告生成状态或完整报告 | React 报告生成页与详情页 |
+| `GET` | `/api/interviews/{session_id}/report/progress` | 查询更详细报告任务进度、时间线和 `report_job_id` | React 报告生成页 |
+| `GET` | `/api/interviews/{session_id}/report.pdf` | 下载已完成的 PDF 报告 | React 报告详情页 |
+| `POST` | `/api/interviews/{session_id}/report/requeue` | 将失败的报告任务重新排队 | React 报告中心 |
+| `GET` | `/api/reports` | 查询本机报告中心列表，支持状态、搜索、日期、分页过滤，并返回同条件状态统计 | React 报告中心 |
 
-当前已实现的 HTML 页面路由：
+当前已实现的 Vite/React 客户端路由：
 
-| 方法 | 路径 | 用途 | 来源 |
+| 服务 | 路径 | 用途 | 来源 |
 | --- | --- | --- | --- |
-| `GET` | `/` 或 `/prep` | 返回面试准备页，替代旧 `app/static/index.html` 入口 | `app/test4.html` |
-| `GET` | `/interview?session_id=...` | 返回模拟面试页，从查询参数读取会话 ID | `app/test3.html` |
-| `GET` | `/report-processing?session_id=...` | 返回报告生成中页，从查询参数读取会话 ID 并轮询进度 | `app/test2.html` |
-| `GET` | `/report-detail?session_id=...` | 返回结构化报告详情页，从查询参数读取会话 ID 并拉取报告 | `app/test1.html` |
+| Vite | `/` 或 `/prep` | 面试准备页 | `PrepPage.jsx` |
+| Vite | `/interview?session_id=...` | 模拟面试页，从查询参数读取会话 ID | `InterviewPage.jsx` |
+| Vite | `/report-processing?session_id=...` | 报告生成页并轮询进度 | `ReportProcessingPage.jsx` |
+| Vite | `/report-detail?session_id=...` | 结构化报告详情页 | `ReportDetailPage.jsx` |
+| Vite | `/reports` | 报告中心页 | `ReportsPage.jsx` |
+| Vite | `/help` | 帮助与故障恢复页 | `HelpPage.jsx` |
 
-这些是 HTML 页面路由，不是新的 JSON API。登录、用户隔离和跨设备同步不纳入本机部署范围。
+这些是 Vite 客户端路由，不是 FastAPI JSON API。开发时 Vite 将 `/api` 代理到后端；跨域部署时通过 `VITE_API_BASE_URL` 与 `FRONTEND_ORIGINS` 配置。登录、用户隔离和跨设备同步不纳入本机部署范围。
 
 ## 3. 页面流程与接口关系
 
 | 流程步骤 | 页面原型 | 当前可用接口 | 需要展示的数据 |
 | --- | --- | --- | --- |
-| 1. 面试准备 | `app/test4.html` | `POST /api/prep`、`POST /api/interview-drafts`、`GET /api/interview-drafts/{draft_id}`、`POST /api/interviews` | JD、简历、自动标签、计划标题、题目数量、题目列表、考察点 |
-| 2. 模拟面试 | `app/test3.html` | `GET /api/interviews/{session_id}`、`POST /api/interviews/{session_id}/answer`、`POST /api/interviews/{session_id}/answer/stream`、`POST /api/interviews/{session_id}/skip`、`POST /api/interviews/{session_id}/finish` | 当前题目、消息列表、追问、状态、题号进度、题目状态、识别标签 |
-| 3. 报告生成 | `app/test2.html` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report/progress` | processing 状态、阶段、百分比、当前题目、生成提示、任务 ID、事件时间线、RAG 摘要 |
-| 4. 面试复盘 | `app/test1.html` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report.pdf` | 总分、五维能力分、亮点、逐题反馈、RAG 证据、兜底状态、PDF 下载 |
+| 1. 面试准备 | `PrepPage.jsx` | `POST /api/prep`、`POST /api/interview-drafts`、`GET /api/interview-drafts/{draft_id}`、`POST /api/interviews` | JD、简历、自动标签、计划标题、题目数量、题目列表、考察点 |
+| 2. 模拟面试 | `InterviewPage.jsx` | `GET /api/interviews/{session_id}`、`POST /api/interviews/{session_id}/answer/stream`、`POST /api/interviews/{session_id}/skip`、`POST /api/interviews/{session_id}/finish` | 当前题目、消息列表、SSE 追问、命令版本、题号进度、题目状态、识别标签 |
+| 3. 报告生成 | `ReportProcessingPage.jsx` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report/progress` | processing 状态、阶段、百分比、当前题目、生成提示、任务 ID、事件时间线、RAG 摘要 |
+| 4. 面试复盘 | `ReportDetailPage.jsx` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report.pdf` | 总分、五维能力分、亮点、逐题反馈、RAG 证据、兜底状态、PDF 下载 |
+| 5. 报告归档 | `ReportsPage.jsx` | `GET /api/reports`、`POST /api/interviews/{session_id}/report/requeue` | 同条件状态统计、记录列表、搜索、日期筛选、分页、回看或重新排队 |
+| 6. 帮助与恢复 | `HelpPage.jsx` | 客户端导航与现有恢复接口 | 草稿恢复、流式中断恢复、后台报告处理和失败任务恢复说明 |
 
 关键差异：
 
 | HTML 期望 | 当前代码状态 | 建议 |
 | --- | --- | --- |
-| 四个运行页分别作为入口 | FastAPI 已将 `/`、`/prep`、`/interview`、`/report-processing`、`/report-detail` 映射到四个 HTML 页面 | 页面路由是当前运行契约，不再依赖旧单页入口 |
+| 六个运行页分别作为入口 | Vite/React 已将 `/`、`/prep`、`/interview`、`/report-processing`、`/report-detail`、`/reports`、`/help` 映射到六个客户端页面 | FastAPI 保持 API-only，不再承担页面模板 |
 | 准备页显示自动识别岗位标签 | `POST /api/prep` 已在响应 wrapper 顶层返回 `job_tags`；`GET /api/interviews/{session_id}` 也返回 `job_tags` | 前端从响应顶层读取 `job_tags`，不要把它当作 `InterviewPlan` 模型字段 |
 | 面试页显示题号、已完成题数、题目导航 | 已通过 `GET /api/interviews/{session_id}` 返回会话快照 | 前端刷新或答题后调用会话详情接口 |
 | 面试页有“下一题”按钮 | 已通过 `POST /api/interviews/{session_id}/skip` 支持显式跳题 | 已结束会话跳题保持幂等 |
@@ -847,11 +854,11 @@ data: {"session_id":"uuid","current_question":null,"follow_up":"本次模拟面�
 
 当前 `/report` 接口没有返回 `job_id`、`queued_at`、`started_at`、`finished_at`、`attempt_count` 等任务字段。`/report/progress` 已返回响应层 `report_job_id`，该值从报告任务表按 `session_id` 查询；任务表不可用或未找到任务时为 `null`。
 
-## 7. 四页运行时驱动的补充接口需求
+## 7. 六页运行时驱动的补充接口需求
 
 ### 7.1 匿名草稿保存与恢复
 
-来源：`app/test4.html` 中的“保存草稿”按钮。当前已实现匿名草稿保存与恢复，不依赖用户登录。
+来源：React 准备页中的“保存草稿”操作。当前已实现匿名草稿保存与恢复，不依赖用户登录。
 
 已实现接口：
 
@@ -901,7 +908,7 @@ Content-Type: application/json
 
 ### 7.2 Stage 10/11 已落地的运行时接口
 
-以下页面需求已实现并已接入四个运行页，接口详情见第 5 节：
+以下页面需求已实现并已接入六个运行页，接口详情见第 5 节和本节后续报告中心契约：
 
 | 原型需求 | 已实现接口 | 详情 |
 | --- | --- | --- |
@@ -921,7 +928,7 @@ Content-Type: application/json
 
 ### 7.3 下载 PDF 报告
 
-来源：`app/test1.html` 中的“下载报告 / PDF”按钮。
+来源：React 报告详情页中的“下载 PDF”操作。
 
 当前已实现接口：
 
@@ -957,7 +964,7 @@ GET /api/interviews/{session_id}/report.pdf
 已实现接口：
 
 ```http
-GET /api/reports?status=completed&limit=20
+GET /api/reports?status=completed&query=redis&days=30&limit=20&offset=0
 ```
 
 已实现响应：
@@ -978,7 +985,15 @@ GET /api/reports?status=completed&limit=20
       "report_pdf_url": "/api/interviews/uuid/report.pdf"
     }
   ],
-  "total": 1
+  "total": 1,
+  "limit": 20,
+  "offset": 0,
+  "status_totals": {
+    "all": 1,
+    "processing": 0,
+    "completed": 1,
+    "failed": 0
+  }
 }
 ```
 
@@ -988,8 +1003,25 @@ GET /api/reports?status=completed&limit=20
 | --- | --- |
 | 已实现 | 基于本机运行时报告记录返回历史报告列表 |
 | 已实现 | 支持 `status=processing/completed/failed` 过滤 |
-| 已实现 | 支持 `limit` 限制，服务端限制范围为 `1..100` |
+| 已实现 | 支持 `query` 对计划标题、摘要与可检索报告文本进行服务端搜索 |
+| 已实现 | 支持 `days` 日期窗口过滤 |
+| 已实现 | 支持 `limit` 与 `offset` 服务端分页；`limit` 范围为 `1..100` |
+| 已实现 | `status_totals` 在相同 `query` 与 `days` 条件下聚合，但不受当前 `status` 和分页窗口限制 |
 | 已实现 | `report_pdf_url` 仅在 completed 状态返回，否则为 `null` |
+
+状态统计和当前页记录必须在同一次请求中返回。报告中心不得为了四个统计数字额外发送四次列表请求，也不得用当前分页中的 `items` 推算全量统计。
+
+### 7.5 失败报告重新排队
+
+来源：报告中心失败记录的恢复操作。
+
+已实现接口：
+
+```http
+POST /api/interviews/{session_id}/report/requeue
+```
+
+仅失败任务允许重新排队。成功后任务回到 `queued/processing` 路径；已完成报告、活动面试、未知会话或并发状态竞争必须返回稳定错误，不得在前端伪装为成功。
 
 ## 8. 非功能需求
 
@@ -1051,15 +1083,17 @@ GET /api/reports?status=completed&limit=20
 | A15 | `GET /api/interviews/{session_id}/report.pdf` 可下载已完成报告的 PDF 文件；未结束、生成中或失败时返回 `409` |
 | A16 | `GET /api/reports` 可列出本机报告记录，并支持 `status` 和 `limit` 查询参数 |
 
-v1.0 四页前端验收：
+Vite/React 六页前端验收：
 
 | 编号 | 标准 |
 | --- | --- |
-| B1 | `app/test4.html` 可完成 JD/简历输入、草稿保存与恢复、计划生成、岗位标签展示和开始面试 |
-| B2 | `app/test3.html` 可完成会话快照加载、题目导航、流式答题、跳题、主动结束和跳转报告生成页 |
-| B3 | `app/test2.html` 可展示报告阶段、百分比、事件时间线、RAG 摘要，并在报告完成后跳转详情页 |
-| B4 | `app/test1.html` 可展示完整报告、五维能力分、逐题反馈、证据引用和 PDF 下载 |
-| B5 | `app/static/index.html` 不再作为运行入口；页面功能由四个原型页承载 |
+| B1 | `PrepPage.jsx` 可完成 JD/简历输入、草稿保存与恢复、计划生成、岗位标签展示和开始面试 |
+| B2 | `InterviewPage.jsx` 可完成会话快照加载、题目导航、SSE 答题与恢复、跳题、主动结束和跳转报告生成页 |
+| B3 | `ReportProcessingPage.jsx` 可展示报告阶段、百分比、事件时间线、RAG 摘要，并在报告完成后进入详情页 |
+| B4 | `ReportDetailPage.jsx` 可展示完整报告、五维能力分、逐题反馈、证据引用和 PDF 下载 |
+| B5 | `ReportsPage.jsx` 可完成真实统计、搜索、日期筛选、分页、回看、下载和失败任务重新排队 |
+| B6 | `HelpPage.jsx` 可说明草稿、SSE、报告后台处理和失败任务恢复方式 |
+| B7 | `app/static/index.html` 与 `app/test*.html` 不再作为运行入口；六个产品路由由独立 Vite/React 服务承载，FastAPI 仅提供 API |
 
 ## 10. 优先级建议
 
@@ -1067,7 +1101,7 @@ v1.0 四页前端验收：
 | --- | --- | --- |
 | P0 | 统一现有接口契约与前端字段映射 | 当前核心闭环依赖这些字段 |
 | 已实现 | `GET /api/interviews/{session_id}` | 页面刷新、面试进度、题目导航和面试页 `job_tags` 展示已支持 |
-| 已实现 | `POST /api/interviews/{session_id}/skip` | `app/test3.html` 下一题按钮可接入 |
+| 已实现 | `POST /api/interviews/{session_id}/skip` | `InterviewPage.jsx` 的跳过当前题操作已接入 |
 | 已实现 | `GET /api/interviews/{session_id}/report/progress` | 报告生成页进度详情已支持 |
 | 已实现 | `GET /api/interviews/{session_id}/report.pdf` | 复盘页 PDF 下载已支持 |
 | 已实现 | `POST /api/prep` 顶层返回 `job_tags` | 准备页可在创建会话前展示自动识别标签 |

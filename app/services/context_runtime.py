@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from threading import Lock
 
@@ -28,25 +27,20 @@ class ContextRuntimeConfig:
 
     @classmethod
     def from_env(cls) -> "ContextRuntimeConfig":
+        from app.services.memory_config import load_effective_memory_config
+
+        memory = load_effective_memory_config().model
         return cls(
-            provider=os.getenv("LLM_PROVIDER", "openai-compatible"),
-            model=os.getenv("OPENAI_MODEL", "deepseek-v4-pro"),
-            base_url=os.getenv("OPENAI_BASE_URL") or None,
-            context_window_tokens=(
-                int(os.environ["LLM_CONTEXT_WINDOW_TOKENS"])
-                if os.getenv("LLM_CONTEXT_WINDOW_TOKENS")
-                else None
+            provider=memory.provider,
+            model=memory.model,
+            base_url="custom" if memory.custom_base_url else None,
+            context_window_tokens=memory.context_window_tokens,
+            protocol_reserve_tokens=memory.protocol_reserve_tokens,
+            structured_output_reserve_tokens=(
+                memory.structured_output_reserve_tokens
             ),
-            protocol_reserve_tokens=int(
-                os.getenv("LLM_CONTEXT_PROTOCOL_RESERVE_TOKENS", "512")
-            ),
-            structured_output_reserve_tokens=int(
-                os.getenv("LLM_STRUCTURED_OUTPUT_RESERVE_TOKENS", "2048")
-            ),
-            safety_margin_tokens=int(
-                os.getenv("LLM_CONTEXT_SAFETY_MARGIN_TOKENS", "1024")
-            ),
-            tokenizer_family=os.getenv("LLM_TOKENIZER_FAMILY") or None,
+            safety_margin_tokens=memory.safety_margin_tokens,
+            tokenizer_family=memory.tokenizer_family,
         )
 
 
@@ -55,6 +49,42 @@ class ContextRuntime:
     model_profile: ModelRuntimeProfile
     estimator_resolution: TokenEstimatorResolution
     budget_resolver: ContextBudgetResolver
+
+
+@dataclass(frozen=True)
+class BudgetShadowObservation:
+    source_message_count: int
+    hypothetical_selected_count: int
+    hypothetical_dropped_count: int
+    rendered_prompt_estimate: int
+    mandatory_current_preserved: bool
+    provider_input_unchanged: bool = True
+
+
+def build_budget_shadow_observation(
+    *,
+    source_message_count: int,
+    hypothetical_selected_count: int,
+    rendered_prompt_estimate: int,
+    mandatory_current_preserved: bool,
+) -> BudgetShadowObservation:
+    if min(
+        source_message_count,
+        hypothetical_selected_count,
+        rendered_prompt_estimate,
+    ) < 0:
+        raise ValueError("budget shadow counts must be non-negative")
+    if hypothetical_selected_count > source_message_count:
+        raise ValueError("budget shadow selection cannot exceed source count")
+    return BudgetShadowObservation(
+        source_message_count=source_message_count,
+        hypothetical_selected_count=hypothetical_selected_count,
+        hypothetical_dropped_count=(
+            source_message_count - hypothetical_selected_count
+        ),
+        rendered_prompt_estimate=rendered_prompt_estimate,
+        mandatory_current_preserved=mandatory_current_preserved,
+    )
 
 
 def build_context_runtime(

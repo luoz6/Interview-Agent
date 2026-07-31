@@ -41,6 +41,10 @@ _PURPOSE_CONTRACT = {
         "interview_session",
         "question_conversation",
     ),
+    "interview_question_memory": (
+        "interview_session",
+        "question_memory",
+    ),
     "interview_evidence_context": (
         "interview_session",
         "evidence_compression",
@@ -728,6 +732,7 @@ class PostgresContextArtifactStore:
                             artifact_type TEXT NOT NULL CHECK (
                                 artifact_type IN (
                                     'question_conversation',
+                                    'question_memory',
                                     'evidence_compression',
                                     'prep_context'
                                 )
@@ -827,6 +832,7 @@ class PostgresContextArtifactStore:
                                 purpose IN (
                                     'prep_plan_context',
                                     'interview_conversation_context',
+                                    'interview_question_memory',
                                     'interview_evidence_context',
                                     'review_context',
                                     'review_evidence_context'

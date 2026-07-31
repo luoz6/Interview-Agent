@@ -2,7 +2,8 @@ import logging
 import os
 from collections.abc import Iterator
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -17,11 +18,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.agent_runtime import correlation_id_from_plan
-from app.services.prep import prepare_interview, public_interview_plan_payload
+from app.services.prep import (
+    prepare_interview,
+    public_interview_plan_payload,
+    validate_launchable_interview_plan,
+)
 from app.services.config import (
     get_interview_langgraph_rollout_percent,
-    get_interview_langgraph_runtime_enabled,
-    get_interview_langgraph_version,
     get_runtime_event_backend,
     get_runtime_store,
 )
@@ -41,13 +44,68 @@ from app.services.runtime import (
     get_runtime_control_store,
     get_session_store,
     get_interview_workflow_service,
+    get_session_deletion_service,
+    get_session_deletion_worker,
+    get_question_memory_index_store,
+    get_memory_metric_store,
+    get_principal_identity_resolver,
+    get_principal_memory_consent_store,
+    get_principal_memory_fact_store,
 )
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
+from app.graphs.interview_state import is_durable_interview_version
+from app.services.memory_config import (
+    load_effective_memory_config,
+    memory_readiness_payload,
+)
 
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+
+
+def _raise_if_deleting(state: dict) -> None:
+    if state.get("deletion_status") == "deleting":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "session_deleting", "status": "deleting"},
+        )
+
+
+def _require_trusted_local_deletion() -> None:
+    if not load_effective_memory_config().privacy.trusted_local_deletion_enabled:
+        raise HTTPException(status_code=404, detail="not found")
+
+
+def _require_trusted_local_metrics() -> None:
+    if not load_effective_memory_config().privacy.trusted_local_metrics_enabled:
+        raise HTTPException(status_code=404, detail="not found")
+
+
+def _require_trusted_local_principal_memory():
+    config = load_effective_memory_config()
+    if not config.long_term.trusted_local_api_enabled:
+        raise HTTPException(status_code=404, detail="not found")
+    identity = get_principal_identity_resolver().resolve()
+    if identity is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return identity
+
+
+def _deletion_job_payload(job) -> dict:
+    return {
+        "deletion_job_id": job.job_id,
+        "status": job.status,
+        "attempt_count": job.attempt_count,
+        "error_code": job.error_code,
+        "safe_counts": dict(job.safe_counts),
+        "created_at": job.created_at.isoformat(),
+        "updated_at": job.updated_at.isoformat(),
+        "completed_at": (
+            job.completed_at.isoformat() if job.completed_at else None
+        ),
+    }
 
 
 def get_report_job_queue():
@@ -76,6 +134,23 @@ class SessionCommandRequest(BaseModel):
     command_id: str | None = None
 
 
+class PrincipalConsentRequest(BaseModel):
+    allowed_purposes: list[
+        Literal["proposal_write", "fact_storage", "read_shadow"]
+    ] = Field(min_length=1)
+
+
+class PrincipalFactActionRequest(BaseModel):
+    fact_type: Literal[
+        "declared_preference",
+        "confirmed_skill",
+        "learning_goal",
+        "accessibility_preference",
+    ]
+    normalized_value: dict[str, str]
+    expected_version: int = Field(ge=1)
+
+
 class DraftRequest(BaseModel):
     job_description: str = Field(min_length=1)
     resume_text: str = Field(min_length=1)
@@ -100,8 +175,9 @@ def health():
 def runtime_boundary():
     runtime_store = get_runtime_store()
     event_backend = get_runtime_event_backend()
-    runtime_enabled = get_interview_langgraph_runtime_enabled()
-    rollout_percent = get_interview_langgraph_rollout_percent()
+    memory_config = load_effective_memory_config()
+    runtime_enabled = memory_config.interview_graph.runtime_enabled
+    rollout_percent = memory_config.interview_graph.rollout_percent
     session_store = (
         "PostgresInterviewSessionStore"
         if runtime_store == "postgres"
@@ -126,7 +202,7 @@ def runtime_boundary():
         "orchestration": {
             "engine": "versioned",
             "default_engine": "legacy",
-            "langgraph_version": get_interview_langgraph_version(),
+            "langgraph_version": memory_config.interview_graph.version,
             "langgraph_runtime_enabled": runtime_enabled,
             "langgraph_rollout_percent": rollout_percent,
             "checkpoint_backend": (
@@ -144,7 +220,163 @@ def runtime_boundary():
             "outbox_enabled": runtime_store == "postgres",
             "agent_ledger_enabled": runtime_store == "postgres",
         },
+        "memory_runtime": {
+            **memory_readiness_payload(memory_config),
+            "durable_metrics_available": bool(
+                get_memory_metric_store().diagnostics().get("data_complete")
+            ),
+        },
     }
+
+
+@router.get("/runtime/memory-metrics")
+def memory_metrics_boundary(
+    window_minutes: int = Query(default=60),
+):
+    _require_trusted_local_metrics()
+    try:
+        return get_memory_metric_store().aggregate(
+            window_minutes=window_minutes
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/runtime/memory-budget-shadow")
+def memory_budget_shadow_boundary():
+    _require_trusted_local_metrics()
+    config = load_effective_memory_config()
+    return {
+        "schema_version": "memory-budget-shadow-status-v1",
+        "configured": bool(config.budget.shadow_enabled),
+        "active": False,
+        "configuration_changed_by_endpoint": False,
+        "durable_metrics_available": bool(
+            get_memory_metric_store().diagnostics().get("data_complete")
+        ),
+        "question_memory_consumption_enabled": bool(
+            config.compression.mode == "consume"
+            and config.compression.interview_question_memory
+        ),
+        "long_term_consumption_available": False,
+    }
+
+
+def _principal_memory_lifecycle(identity):
+    from app.services.principal_memory_consent import PrincipalMemoryConsentService
+    from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycleService
+
+    config = load_effective_memory_config()
+    resolver = get_principal_identity_resolver()
+    return PrincipalMemoryLifecycleService(
+        identity_resolver=resolver,
+        consent_service=PrincipalMemoryConsentService(
+            identity_resolver=resolver,
+            store=get_principal_memory_consent_store(),
+            policy_version=config.long_term.consent_policy_version,
+        ),
+        fact_store=get_principal_memory_fact_store(),
+        session_store=get_session_store(),
+        config=config,
+        clock=lambda: datetime.now(timezone.utc),
+    )
+
+
+@router.post("/runtime/principal-memory/consent")
+def grant_principal_memory_consent(payload: PrincipalConsentRequest):
+    identity = _require_trusted_local_principal_memory()
+    from app.services.principal_memory_consent import PrincipalMemoryConsent
+
+    config = load_effective_memory_config()
+    consent = get_principal_memory_consent_store().grant(
+        PrincipalMemoryConsent(
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
+            policy_version=config.long_term.consent_policy_version,
+            allowed_purposes=payload.allowed_purposes,
+            granted_at=datetime.now(timezone.utc),
+        )
+    )
+    return {
+        "schema_version": consent.schema_version,
+        "policy_version": consent.policy_version,
+        "allowed_purposes": consent.allowed_purposes,
+        "granted_at": consent.granted_at.isoformat(),
+        "revoked": False,
+        "version": consent.version,
+    }
+
+
+@router.delete("/runtime/principal-memory/consent")
+def revoke_principal_memory_consent():
+    identity = _require_trusted_local_principal_memory()
+    now = datetime.now(timezone.utc)
+    consent = get_principal_memory_consent_store().revoke(
+        deployment_id=identity.deployment_id,
+        principal_id=identity.principal_id,
+        revoked_at=now,
+    )
+    deleted = get_principal_memory_fact_store().purge_by_principal(
+        deployment_id=identity.deployment_id,
+        principal_id=identity.principal_id,
+    )
+    return {
+        "revoked": consent is not None,
+        "facts_deleted": deleted,
+    }
+
+
+@router.get("/runtime/principal-memory/facts")
+def list_principal_memory_facts(limit: int = Query(default=50, ge=1, le=100)):
+    identity = _require_trusted_local_principal_memory()
+    return {
+        "schema_version": "principal-memory-safe-list-v1",
+        "items": _principal_memory_lifecycle(identity).list_safe(limit=limit),
+    }
+
+
+def _principal_fact_action(payload, action):
+    identity = _require_trusted_local_principal_memory()
+    from app.services.principal_memory_contracts import canonical_principal_fact
+
+    service = _principal_memory_lifecycle(identity)
+    try:
+        return getattr(service, action)(
+            fact_type=payload.fact_type,
+            normalized_fact=canonical_principal_fact(payload.normalized_value),
+            expected_version=payload.expected_version,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/runtime/principal-memory/facts/confirm")
+def confirm_principal_memory_fact(payload: PrincipalFactActionRequest):
+    return _principal_fact_action(payload, "confirm")
+
+
+@router.post("/runtime/principal-memory/facts/reject")
+def reject_principal_memory_fact(payload: PrincipalFactActionRequest):
+    return _principal_fact_action(payload, "reject")
+
+
+@router.post("/runtime/principal-memory/facts/revoke")
+def revoke_principal_memory_fact(payload: PrincipalFactActionRequest):
+    return _principal_fact_action(payload, "revoke")
+
+
+@router.delete("/runtime/principal-memory")
+def delete_principal_memory():
+    _require_trusted_local_principal_memory()
+    from app.services.principal_memory_deletion import PrincipalMemoryDeletionService
+
+    return PrincipalMemoryDeletionService(
+        identity_resolver=get_principal_identity_resolver(),
+        consent_store=get_principal_memory_consent_store(),
+        fact_store=get_principal_memory_fact_store(),
+    ).purge_current_principal()
 
 
 @router.post("/prep")
@@ -189,13 +421,31 @@ def get_interview_draft(draft_id: str, draft_store=Depends(get_draft_store)):
 @router.get("/reports")
 def list_reports(
     status: str | None = None,
-    limit: int = 20,
+    query: str | None = Query(default=None, max_length=200),
+    days: int | None = Query(default=None, ge=1, le=3650),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     if status not in (None, "processing", "completed", "failed"):
         raise HTTPException(status_code=422, detail="invalid status")
-    safe_limit = max(1, min(limit, 100))
-    reports = store.list_reports(status=status, limit=safe_limit)
+    normalized_query = query.strip() if query and query.strip() else None
+    reports = store.list_reports(
+        status=status,
+        query=normalized_query,
+        days=days,
+        limit=limit,
+        offset=offset,
+    )
+    total = store.count_reports(
+        status=status,
+        query=normalized_query,
+        days=days,
+    )
+    status_totals = store.report_status_totals(
+        query=normalized_query,
+        days=days,
+    )
     items = [
         _report_summary_to_dict(
             item["session_id"],
@@ -204,7 +454,13 @@ def list_reports(
         )
         for item in reports
     ]
-    return {"items": items, "total": len(items)}
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "status_totals": status_totals,
+    }
 
 
 @router.post("/interviews")
@@ -219,6 +475,7 @@ def start_interview(
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),
         )
+        validate_launchable_interview_plan(plan)
         job_tags = extract_job_tags(payload.job_description)
         if (
             get_runtime_store() == "postgres"
@@ -249,9 +506,10 @@ def get_interview_session(
 ):
     try:
         state = store.get(session_id)
+        _raise_if_deleting(state)
         snapshot = (
             get_interview_workflow_service().snapshot(session_id)
-            if state.get("workflow_engine") == "langgraph-v1"
+            if is_durable_interview_version(state.get("workflow_engine"))
             else store.snapshot(session_id)
         )
         public_plan = public_interview_plan_payload(state["plan"])
@@ -259,6 +517,33 @@ def get_interview_session(
         return snapshot
     except ValueError as exc:
         _raise_value_error(exc)
+
+
+@router.delete("/interviews/{session_id}", status_code=202)
+def delete_interview_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+):
+    _require_trusted_local_deletion()
+    service = get_session_deletion_service()
+    try:
+        job = service.request(session_id)
+    except ValueError as exc:
+        _raise_value_error(exc)
+    response = _deletion_job_payload(job)
+    if job.status in {"queued", "running"}:
+        background_tasks.add_task(get_session_deletion_worker().run_once)
+    return response
+
+
+@router.get("/interviews/{session_id}/deletion")
+def get_interview_session_deletion(session_id: str):
+    _require_trusted_local_deletion()
+    try:
+        job = get_session_deletion_service().get(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _deletion_job_payload(job)
 
 
 @router.get("/interviews/{session_id}/agent-runs")
@@ -272,6 +557,7 @@ def list_agent_runs(
 ):
     try:
         state = store.get(session_id)
+        _raise_if_deleting(state)
     except ValueError as exc:
         _raise_value_error(exc)
     if control is None:
@@ -302,7 +588,8 @@ def list_runtime_events(
     control=Depends(get_runtime_control_store),
 ):
     try:
-        store.get(session_id)
+        state = store.get(session_id)
+        _raise_if_deleting(state)
     except ValueError as exc:
         _raise_value_error(exc)
     if control is None:
@@ -328,7 +615,8 @@ def submit_answer(
 ):
     try:
         state = store.get(session_id)
-        if state.get("workflow_engine") == "langgraph-v1":
+        _raise_if_deleting(state)
+        if is_durable_interview_version(state.get("workflow_engine")):
             accepted = get_interview_workflow_service().submit_command(
                 session_id,
                 command_type="answer",
@@ -378,7 +666,8 @@ def submit_answer_stream(
 ):
     try:
         state = store.get(session_id)
-        if state.get("workflow_engine") == "langgraph-v1":
+        _raise_if_deleting(state)
+        if is_durable_interview_version(state.get("workflow_engine")):
             accepted = get_interview_workflow_service().submit_command(
                 session_id,
                 command_type="answer",
@@ -469,7 +758,8 @@ def finish_interview(
     payload = payload or SessionCommandRequest()
     try:
         state = store.get(session_id)
-        if state.get("workflow_engine") == "langgraph-v1":
+        _raise_if_deleting(state)
+        if is_durable_interview_version(state.get("workflow_engine")):
             accepted = get_interview_workflow_service().submit_command(
                 session_id,
                 command_type="finish",
@@ -518,7 +808,8 @@ def skip_interview_question(
     payload = payload or SessionCommandRequest()
     try:
         state = store.get(session_id)
-        if state.get("workflow_engine") == "langgraph-v1":
+        _raise_if_deleting(state)
+        if is_durable_interview_version(state.get("workflow_engine")):
             accepted = get_interview_workflow_service().submit_command(
                 session_id,
                 command_type="skip",
@@ -563,7 +854,13 @@ def stream_interview_command(
     session_id: str,
     command_id: str,
     request: Request,
+    store: InterviewSessionStore = Depends(get_session_store),
 ):
+    try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
+    except ValueError as exc:
+        _raise_value_error(exc)
     workflow = get_interview_workflow_service()
     return StreamingResponse(
         workflow.event_stream.iter_sse(
@@ -586,6 +883,7 @@ def get_interview_report(
 ):
     try:
         state = store.get(session_id)
+        _raise_if_deleting(state)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -615,6 +913,7 @@ def download_interview_report_pdf(
 ):
     try:
         state = store.get(session_id)
+        _raise_if_deleting(state)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -643,6 +942,7 @@ def get_interview_report_progress(
 ):
     try:
         state = store.get(session_id)
+        _raise_if_deleting(state)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -692,7 +992,8 @@ def requeue_failed_report(
     queue=Depends(get_report_job_queue),
 ):
     try:
-        store.get(session_id)
+        state = store.get(session_id)
+        _raise_if_deleting(state)
     except ValueError as exc:
         raise HTTPException(
             status_code=404,
@@ -738,6 +1039,8 @@ def get_interview_question_evaluations(
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
         records = store.list_question_evaluations(session_id)
     except ValueError as exc:
         _raise_value_error(exc)

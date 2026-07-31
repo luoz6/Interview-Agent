@@ -41,7 +41,8 @@ def build_chunks_v2(
     resolved_manifest = manifest or build_manifest_v2(root)
     entries = _manifest_by_id(resolved_manifest)
     chunks: list[KnowledgeChunk] = []
-    for path in iter_markdown_files(root):
+    include_extensions = resolved_manifest.get("corpus_version") != "stage44b1-zh-v2"
+    for path in iter_markdown_files(root, include_extensions=include_extensions):
         document = load_knowledge_document_v2(path)
         metadata = document.metadata
         entry = entries.get(metadata.id)

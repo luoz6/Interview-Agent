@@ -26,6 +26,22 @@ def test_env_example_documents_local_v1_runtime():
     assert "DEEPSEEK_API_KEY" not in env
 
 
+def test_env_example_keeps_new_memory_foundation_paths_disabled():
+    env = read_text(".env.example")
+
+    for setting in (
+        "# MEMORY_BUDGET_MODE=disabled",
+        "# MEMORY_COMPRESSION_MODE=disabled",
+        "# MEMORY_TRUSTED_LOCAL_DELETION_ENABLED=false",
+        "# MEMORY_TRUSTED_LOCAL_METRICS_ENABLED=false",
+        "# MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED=false",
+        "# MEMORY_LONG_TERM_MODE=disabled",
+        "# MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED=false",
+        "# MEMORY_LONG_TERM_READ_SHADOW_ENABLED=false",
+    ):
+        assert setting in env
+
+
 def test_docs_define_remote_embedding_enablement_without_local_model_or_secret():
     env = read_text(".env.example")
     readme = read_text("README.md")
@@ -102,7 +118,9 @@ def test_readme_documents_local_v1_runtime():
     readme = read_text("README.md")
 
     assert "Local V1" in readme
-    assert "http://127.0.0.1:8000/prep" in readme
+    assert "http://127.0.0.1:5173/prep" in readme
+    assert "FastAPI is API-only" in readme
+    assert "npm run dev:frontend" in readme
     assert "POSTGRES_DSN" in readme
     assert "scripts/load_knowledge.py" in readme
     assert "不包含登录" in readme
@@ -124,17 +142,18 @@ def test_interface_requirements_documents_deepseek_json_fallback():
     assert "DeepSeek" in doc
     assert "raw JSON fallback" in doc
     assert "本机单用户" in doc
-    assert "当前已实现的 HTML 页面路由" in doc
+    assert "当前已实现的 Vite/React 客户端路由" in doc
 
 
-def test_interface_requirements_describes_current_four_page_runtime_without_stale_next_stage_language():
+def test_interface_requirements_describes_independent_vite_react_runtime():
     doc = read_text("docs/interface-requirements.md")
 
-    assert "当前已实现的 HTML 页面路由" in doc
-    assert "`GET` | `/` 或 `/prep`" in doc
-    assert "`GET` | `/interview?session_id=...`" in doc
-    assert "`GET` | `/report-processing?session_id=...`" in doc
-    assert "`GET` | `/report-detail?session_id=...`" in doc
+    assert "当前已实现的 Vite/React 客户端路由" in doc
+    assert "| Vite | `/` 或 `/prep`" in doc
+    assert "| Vite | `/interview?session_id=...`" in doc
+    assert "| Vite | `/report-processing?session_id=...`" in doc
+    assert "| Vite | `/report-detail?session_id=...`" in doc
+    assert "FastAPI 保持 API-only" in doc
     assert "登录、用户隔离和跨设备同步不纳入本机部署范围" in doc
     assert "当前 FastAPI `/` 仍返回旧 `app/static/index.html`" not in doc
     assert "下一阶段用四个页面路由替代旧单页" not in doc
@@ -495,6 +514,42 @@ def test_docs_define_safe_dual_langgraph_canary_and_rollback():
     assert "python -m scripts.langgraph_canary snapshot" in runbook
     assert "python -m scripts.langgraph_canary evaluate" in runbook
     assert "never changes deployment configuration" in runbook
+
+
+def test_memory_optimization_defaults_remain_disabled_in_committed_env():
+    env = read_text(".env.example")
+
+    for expected in (
+        "INTERVIEW_LANGGRAPH_ROLLOUT_PERCENT=0",
+        "CONTEXT_BUDGET_SHADOW_ENABLED=false",
+        "CONTEXT_BUDGET_PREP_ENFORCEMENT=false",
+        "CONTEXT_BUDGET_INTERVIEW_ENFORCEMENT=false",
+        "CONTEXT_BUDGET_REVIEW_ENFORCEMENT=false",
+        "CONTEXT_BUDGET_REPORT_ROUTING=false",
+        "CONTEXT_COMPRESSION_SHADOW_ENABLED=false",
+        "CONTEXT_COMPRESSION_PREP_ENABLED=false",
+        "CONTEXT_COMPRESSION_INTERVIEW_ENABLED=false",
+        "CONTEXT_COMPRESSION_EVIDENCE_ENABLED=false",
+        "CONTEXT_COMPRESSION_REVIEW_ENABLED=false",
+        "# MEMORY_BUDGET_MODE=disabled",
+        "# MEMORY_COMPRESSION_MODE=disabled",
+        "# MEMORY_INTERVIEW_GRAPH_ROLLOUT_PERCENT=0",
+    ):
+        assert expected in env
+
+
+def test_runbook_documents_effective_memory_config_conflict_behavior():
+    runbook = read_text("docs/local-v1-runbook.md")
+
+    for expected in (
+        "memory-runtime-config-v1",
+        "conflicting values fail configuration preflight",
+        "GET /api/runtime",
+        "memory_runtime",
+        "budget mode is `disabled`",
+        "compression mode is `disabled`",
+    ):
+        assert expected in runbook
 
 
 def test_docs_separate_stage47_repository_and_operator_fencing_authority():

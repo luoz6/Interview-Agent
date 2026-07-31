@@ -60,7 +60,19 @@ def make_plan():
                 kind="project",
                 prompt="Describe your backend project.",
                 focus="Project depth",
-            )
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="Explain a cache consistency decision.",
+                focus="Technical depth",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="system-design",
+                prompt="Design the service for ten times the traffic.",
+                focus="System design",
+            ),
         ],
     )
 
@@ -76,7 +88,19 @@ def make_v2_plan():
                 kind="technical",
                 prompt="Explain Redis consistency.",
                 focus="Redis consistency",
-            )
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="Explain database failure handling.",
+                focus="Database resilience",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="system-design",
+                prompt="Design a scalable backend service.",
+                focus="System design",
+            ),
         ],
         prep_context=PrepContext(
             schema_version="v2",
@@ -314,6 +338,12 @@ def test_skip_persists_next_question_snapshot():
                     prompt="Explain Redis consistency.",
                     focus="redis",
                 ),
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design the service for ten times the traffic.",
+                    focus="system design",
+                ),
             ],
         ),
         job_description="Python backend role",
@@ -352,7 +382,9 @@ def test_skip_metadata_survives_store_reinstantiation():
 
     assert state["skipped_question_ids"] == ["q1"]
     assert state["started_at"]
-    assert state["finished_at"] is not None
+    assert state["finished_at"] is None
+    assert state["status"] == "active"
+    assert snapshot["current_question"]["id"] == "q2"
     assert snapshot["questions"][0]["state"] == "skipped"
     assert snapshot["skipped_questions"] == 1
 
@@ -529,8 +561,11 @@ def test_streaming_round_closes_only_during_complete():
         dsn=require_dsn(),
         table_prefix=make_table_prefix(),
     )
+    single_question_plan = make_plan().model_copy(
+        update={"questions": make_plan().questions[:1]}
+    )
     turn = store.start(
-        make_plan(),
+        single_question_plan,
         job_description="Python backend role",
         resume_text="Built FastAPI services",
         job_tags=["python", "fastapi"],
@@ -693,8 +728,11 @@ def test_replace_state_rejects_stale_previous_version():
 
 
 def finish_session(store, session_id):
-    store.submit_answer(session_id, "First answer.")
-    store.submit_answer(session_id, "Second answer.")
+    for index in range(10):
+        if store.get(session_id)["status"] == "finished":
+            return
+        store.submit_answer(session_id, f"Answer {index + 1}.")
+    raise AssertionError("test session did not finish within the bounded loop")
 
 
 def test_report_lifecycle_survives_store_reinstantiation():
@@ -835,6 +873,9 @@ def test_list_reports_survives_store_reinstantiation():
     recovered_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
     reports = recovered_store.list_reports(limit=10)
     completed_reports = recovered_store.list_reports(status="completed", limit=10)
+    second_page = recovered_store.list_reports(limit=1, offset=1)
+    matching_count = recovered_store.count_reports(query="Solid interview")
+    status_totals = recovered_store.report_status_totals()
 
     assert [item["session_id"] for item in reports] == [
         processing.session_id,
@@ -845,6 +886,14 @@ def test_list_reports_survives_store_reinstantiation():
         "completed",
     ]
     assert len(completed_reports) == 1
+    assert [item["session_id"] for item in second_page] == [completed.session_id]
+    assert matching_count == 1
+    assert status_totals == {
+        "all": 2,
+        "processing": 1,
+        "completed": 1,
+        "failed": 0,
+    }
     assert completed_reports[0]["session_id"] == completed.session_id
     assert completed_reports[0]["record"].report.summary == "Solid interview."
     completed_state = recovered_store.get(completed.session_id)

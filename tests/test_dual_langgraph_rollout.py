@@ -6,7 +6,10 @@ from uuid import UUID
 import pytest
 
 from app.graphs.durable_interview_graph import validate_command
-from app.graphs.interview_state import choose_workflow_engine
+from app.graphs.interview_state import (
+    choose_workflow_engine,
+    is_durable_interview_version,
+)
 from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
 from app.services.interview_workflow import InterviewWorkflowService
 from app.services.langgraph_runtime import VersionedGraphRegistry
@@ -152,13 +155,28 @@ def test_new_interview_assignment_uses_configured_v2_without_changing_v1_default
     ) == "langgraph-v2"
 
 
+@pytest.mark.parametrize("version", ["langgraph-v1", "langgraph-v2"])
+def test_durable_interview_version_predicate_accepts_registered_versions(version):
+    assert is_durable_interview_version(version) is True
+
+
+@pytest.mark.parametrize("version", [None, "legacy", "langgraph-review-v1", "langgraph-v3"])
+def test_durable_interview_version_predicate_rejects_other_versions(version):
+    assert is_durable_interview_version(version) is False
+
+
 def test_v2_initial_state_contains_only_bounded_artifact_references():
-    state = make_durable_initial_state_v2("session-1", make_plan())
+    state = make_durable_initial_state_v2(
+        "session-1",
+        make_plan(),
+        memory_policy_version="question-memory-v1",
+    )
 
     assert state["workflow_engine"] == "langgraph-v2"
     assert state["graph_schema_version"] == "langgraph-v2"
     assert state["active_context_artifact_ref"] is None
     assert state["active_context_artifact_sha256"] is None
+    assert state["memory_policy_version"] == "question-memory-v1"
     assert "context_artifact_payload" not in state
 
 

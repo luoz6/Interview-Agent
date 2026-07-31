@@ -82,4 +82,6 @@ def test_stage44b1_distribution_and_pilot_contracts():
 def test_committed_v2_manifest_matches_rebuilt_payload():
     committed = json.loads(V2_MANIFEST_PATH.read_text(encoding="utf-8"))
 
-    assert committed == build_manifest_v2(corpus_version="stage44b1-zh-v2")
+    assert committed == build_manifest_v2(corpus_version="memory-p1-zh-v3")
+    assert committed["chunk_count"] == 31
+    assert "postgresql" in committed["coverage"]["canonical_tags"]

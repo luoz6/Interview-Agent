@@ -10,12 +10,14 @@ from app.services.context_artifacts import (
     EvidenceCompressionArtifact,
     PrepContextArtifact,
     QuestionConversationArtifact,
+    QuestionMemoryArtifact,
 )
 from app.services.context_budget import (
     ContextBudgetResolver,
     OperationContextPolicy,
     RenderedPromptGuard,
 )
+from app.services.context_language import classify_context_language
 from app.services.context_runtime import (
     ContextRuntime,
     ContextRuntimeConfig,
@@ -31,9 +33,23 @@ from app.services.provider_usage import (
 
 _SCHEMAS = {
     "question_conversation": QuestionConversationArtifact,
+    "question_memory": QuestionMemoryArtifact,
     "evidence_compression": EvidenceCompressionArtifact,
     "prep_context": PrepContextArtifact,
 }
+
+
+QUESTION_MEMORY_COMPRESSION_POLICY = ContextCompressionPolicy(
+    artifact_type="question_memory",
+    policy_version="question-memory-v1",
+    prompt_contract_version="question-memory-prompt-v1",
+    output_schema_version="question-memory-v1",
+    compressor_operation="context_compressor.question_memory",
+    compressor_input_cap_tokens=16_000,
+    target_output_tokens=2_000,
+    max_output_units=16,
+    max_supporting_excerpt_tokens=128,
+)
 
 
 def compressor_config_from_llm(config: LLMConfig) -> ContextCompressorConfig:
@@ -97,6 +113,9 @@ class OpenAIContextCompressor:
         source_segments: Sequence[CompressionSourceSegment],
         expected_question_id_sha256: str | None = None,
         expected_evidence_content_sha256: str | None = None,
+        expected_session_scope_sha256: str | None = None,
+        expected_question_focus_sha256: str | None = None,
+        expected_source_manifest_sha256: str | None = None,
     ) -> dict[str, Any]:
         schema = _SCHEMAS[policy.artifact_type]
         prompt = self._build_prompt(
@@ -106,6 +125,9 @@ class OpenAIContextCompressor:
             expected_evidence_content_sha256=(
                 expected_evidence_content_sha256
             ),
+            expected_session_scope_sha256=expected_session_scope_sha256,
+            expected_question_focus_sha256=expected_question_focus_sha256,
+            expected_source_manifest_sha256=expected_source_manifest_sha256,
         )
         operation_policy = OperationContextPolicy(
             operation=policy.compressor_operation,
@@ -122,7 +144,10 @@ class OpenAIContextCompressor:
             budget=budget,
             estimator=self.context_runtime.estimator_resolution,
         )
-        publish_prompt_measurement(measurement)
+        publish_prompt_measurement(
+            measurement,
+            language_bucket=classify_context_language(prompt),
+        )
         structured_model = self.chat_model.with_structured_output(
             schema,
             method="json_schema",
@@ -144,10 +169,16 @@ class OpenAIContextCompressor:
         source_segments: Sequence[CompressionSourceSegment],
         expected_question_id_sha256: str | None,
         expected_evidence_content_sha256: str | None,
+        expected_session_scope_sha256: str | None,
+        expected_question_focus_sha256: str | None,
+        expected_source_manifest_sha256: str | None,
     ) -> str:
         identity_fields = {
             "question_id_sha256": expected_question_id_sha256,
             "evidence_content_sha256": expected_evidence_content_sha256,
+            "session_scope_sha256": expected_session_scope_sha256,
+            "question_focus_sha256": expected_question_focus_sha256,
+            "source_manifest_sha256": expected_source_manifest_sha256,
         }
         source_payload = [
             {
@@ -163,6 +194,7 @@ class OpenAIContextCompressor:
             "Return only the requested JSON schema.\n"
             "Every summary unit must cite source content_sha256 anchors.\n"
             "Supporting excerpts must be exact continuous source substrings.\n"
+            "Question memory authority must be exactly non_authoritative and every claim must include at least one exact supporting excerpt.\n"
             "Do not introduce identifiers, numbers, facts, or conclusions that "
             "are absent from the cited source segments.\n"
             "Keep fixed field names and identity digests exactly unchanged.\n"

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Dict, Iterator, Optional
 from uuid import uuid4
 
 from app.agents.orchestrator import OrchestratorAgent
@@ -10,6 +11,7 @@ from app.graphs.interview_graph import (
 from app.graphs.interview_state import (
     InterviewState,
     get_current_question,
+    MemoryPolicyVersion,
     utc_now_iso,
 )
 from app.graphs.interview_transitions import (
@@ -28,6 +30,10 @@ from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
 from app.services.session_errors import SessionVersionConflict
+from app.services.memory_retention import (
+    InMemorySessionCapacityExceeded,
+    InMemorySessionRetentionPolicy,
+)
 
 
 @dataclass(frozen=True)
@@ -50,12 +56,18 @@ class InterviewSessionStore:
         llm: InterviewLLM | None = None,
         knowledge_repository=None,
         execution_runner: AgentExecutionRunner | None = None,
+        retention_policy: InMemorySessionRetentionPolicy | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.runtime_event_delivery = "direct"
         self._sessions: Dict[str, InterviewState] = {}
         self._reports: Dict[str, ReportRecord] = {}
         self._question_evaluations: Dict[str, list[QuestionEvaluationRecord]] = {}
         self._llm = llm
+        self._retention_policy = (
+            retention_policy or InMemorySessionRetentionPolicy()
+        )
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._runner = InterviewGraphRunner(
             llm=llm,
             knowledge_binding_resolver=KnowledgeBindingResolver(
@@ -81,7 +93,10 @@ class InterviewSessionStore:
         resume_text: str,
         job_tags: list[str],
         session_id: str | None = None,
+        memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
     ) -> InterviewTurn:
+        self.cleanup_retention()
+        self._ensure_capacity_for_new_session()
         session_id = session_id or str(uuid4())
         state = self._runner.start(
             session_id=session_id,
@@ -89,15 +104,79 @@ class InterviewSessionStore:
             job_description=job_description,
             resume_text=resume_text,
             job_tags=job_tags,
+            memory_policy_version=memory_policy_version,
         )
         self._sessions[session_id] = state
         return self._to_turn(state, follow_up=None)
+
+    def cleanup_retention(self) -> int:
+        cutoff = self._clock() - timedelta(
+            seconds=self._retention_policy.finished_ttl_seconds
+        )
+        candidates = sorted(
+            (
+                (self._finished_at(state), session_id)
+                for session_id, state in self._sessions.items()
+                if state.get("status") == "finished"
+                and self._finished_at(state) <= cutoff
+            ),
+            key=lambda item: item[0],
+        )[: self._retention_policy.cleanup_batch_size]
+        for _, session_id in candidates:
+            self._evict_session(session_id)
+        return len(candidates)
+
+    def _ensure_capacity_for_new_session(self) -> None:
+        while len(self._sessions) >= self._retention_policy.max_sessions:
+            finished = sorted(
+                (
+                    (self._finished_at(state), session_id)
+                    for session_id, state in self._sessions.items()
+                    if state.get("status") == "finished"
+                ),
+                key=lambda item: item[0],
+            )
+            if not finished:
+                raise InMemorySessionCapacityExceeded(
+                    "in-memory session capacity is exhausted"
+                )
+            self._evict_session(finished[0][1])
+
+    def _evict_session(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+        self._reports.pop(session_id, None)
+        self._question_evaluations.pop(session_id, None)
+
+    @staticmethod
+    def _finished_at(state: InterviewState) -> datetime:
+        raw = (
+            state.get("finished_at")
+            or state.get("last_checkpoint_at")
+            or state.get("started_at")
+        )
+        if not raw:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        value = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
     def get(self, session_id: str) -> InterviewState:
         try:
             return self._sessions[session_id]
         except KeyError as exc:
             raise ValueError("session not found") from exc
+
+    def mark_deleting(self, session_id: str) -> bool:
+        state = self.get(session_id)
+        if state.get("deletion_status") == "deleting":
+            return False
+        state["deletion_status"] = "deleting"
+        return True
+
+    def delete_session(self, session_id: str) -> int:
+        if session_id not in self._sessions:
+            return 0
+        self._evict_session(session_id)
+        return 1
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
         state = self.get(session_id)
@@ -133,6 +212,9 @@ class InterviewSessionStore:
             "last_command_id": state["last_command_id"],
             "workflow_engine": state.get("workflow_engine", "legacy"),
             "graph_schema_version": state.get("graph_schema_version"),
+            "memory_policy_version": state["memory_policy_version"],
+            "deletion_status": state.get("deletion_status", "active"),
+            **interview_assistance_metadata(state),
             "job_tags": list(state["job_tags"]),
             "current_question": current_question.model_dump() if current_question else None,
             "questions": questions,
@@ -145,7 +227,6 @@ class InterviewSessionStore:
                 for message in state["messages"]
             ],
         }
-
     def submit_answer(
         self,
         session_id: str,
@@ -370,13 +451,71 @@ class InterviewSessionStore:
         self,
         *,
         status: str | None = None,
+        query: str | None = None,
+        days: int | None = None,
         limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        items = self._filtered_reports(status=status, query=query, days=days)
+        return items[offset : offset + limit]
+
+    def count_reports(
+        self,
+        *,
+        status: str | None = None,
+        query: str | None = None,
+        days: int | None = None,
+    ) -> int:
+        return len(self._filtered_reports(status=status, query=query, days=days))
+
+    def report_status_totals(
+        self,
+        *,
+        query: str | None = None,
+        days: int | None = None,
+    ) -> dict[str, int]:
+        totals = {"all": 0, "processing": 0, "completed": 0, "failed": 0}
+        for item in self._filtered_reports(status=None, query=query, days=days):
+            report_status = item["record"].status
+            totals["all"] += 1
+            if report_status in totals:
+                totals[report_status] += 1
+        return totals
+
+    def _filtered_reports(
+        self,
+        *,
+        status: str | None,
+        query: str | None,
+        days: int | None,
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
+        normalized_query = (query or "").strip().casefold()
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=days)
+            if days is not None
+            else None
+        )
         for index, (session_id, record) in enumerate(self._reports.items()):
             if status is not None and record.status != status:
                 continue
             state = self._sessions[session_id]
+            timestamp = record.finished_at or record.created_at
+            if cutoff is not None and _parse_utc_timestamp(timestamp) < cutoff:
+                continue
+            if normalized_query:
+                report_summary = record.report.summary if record.report else ""
+                searchable = " ".join(
+                    [
+                        session_id,
+                        state["plan"].title,
+                        *state["job_tags"],
+                        report_summary,
+                        record.status,
+                    ]
+                ).casefold()
+                if normalized_query not in searchable:
+                    continue
             items.append(
                 {
                     "session_id": session_id,
@@ -392,12 +531,16 @@ class InterviewSessionStore:
                 }
             )
         items.sort(
-            key=lambda item: (item["record"].created_at, item["_index"]),
+            key=lambda item: (
+                item["record"].created_at,
+                item["_index"],
+                item["session_id"],
+            ),
             reverse=True,
         )
         for item in items:
             item.pop("_index", None)
-        return items[:limit]
+        return items
 
     def save_question_evaluations(
         self,
@@ -437,6 +580,52 @@ class InterviewSessionStore:
         )
 
 
+def interview_assistance_metadata(
+    state: dict[str, Any],
+    *,
+    context_route: str | None = None,
+    policy_version: str | None = None,
+) -> dict[str, Any]:
+    route = context_route or state.get("context_route") or "deterministic"
+    resolved_policy = (
+        policy_version
+        or state.get("memory_policy_version")
+        or "deterministic-v1"
+    )
+    assistance_mode = "full"
+    user_notice_required = False
+
+    plan = state.get("plan")
+    prep_context = getattr(plan, "prep_context", None)
+    if getattr(prep_context, "knowledge_status", None) == "degraded":
+        assistance_mode = "reduced"
+
+    messages = list(state.get("messages") or [])
+    last_interviewer = next(
+        (
+            message
+            for message in reversed(messages)
+            if message.get("role") == "interviewer"
+        ),
+        None,
+    )
+    if last_interviewer is not None and plan is not None:
+        template_followups = {
+            fallback_followup(question.focus)
+            for question in plan.questions
+        }
+        if last_interviewer.get("content") in template_followups:
+            assistance_mode = "basic"
+            user_notice_required = True
+
+    return {
+        "context_route": route,
+        "assistance_mode": assistance_mode,
+        "user_notice_required": user_notice_required,
+        "policy_version": resolved_policy,
+    }
+
+
 def _extract_follow_up(state: InterviewState) -> str | None:
     decision = state["decision"]
     if decision and decision["action"] == "follow_up":
@@ -444,6 +633,13 @@ def _extract_follow_up(state: InterviewState) -> str | None:
     if state["status"] == "finished":
         return state["pending_output"]
     return None
+
+
+def _parse_utc_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _ensure_expected_version(

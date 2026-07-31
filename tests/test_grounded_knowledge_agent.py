@@ -61,6 +61,12 @@ class GroundedPlanLLM:
                     prompt="Explain Kafka delivery and retries.",
                     focus="Kafka delivery",
                 ),
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design a Redis-backed service for higher traffic.",
+                    focus="Redis scalability",
+                ),
             ],
         )
         self.knowledge_context = None
@@ -170,7 +176,19 @@ def test_provider_cannot_invent_evidence_or_override_repository_score():
                 kind="technical",
                 prompt="Explain Redis consistency.",
                 focus="Redis",
-            )
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="Explain Kafka delivery.",
+                focus="Kafka",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="system-design",
+                prompt="Design a scalable backend.",
+                focus="Scalability",
+            ),
         ],
         prep_context=PrepContext(
             schema_version="v2",

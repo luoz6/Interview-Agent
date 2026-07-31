@@ -51,6 +51,19 @@ def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
         "outbox_enabled": body["runtime_store"] == "postgres",
         "agent_ledger_enabled": body["runtime_store"] == "postgres",
     }
+    assert body["memory_runtime"] == {
+        "schema_version": "memory-runtime-config-v1",
+        "configuration_valid": True,
+        "budget_mode": "disabled",
+            "compression_mode": "disabled",
+            "long_term_mode": "disabled",
+        "interview_graph_version": "langgraph-v1",
+        "interview_graph_rollout_percent": 0,
+        "legacy_environment_used": False,
+        "consumption_ready": True,
+            "reason": None,
+            "durable_metrics_available": False,
+        }
 
 
 def test_runtime_boundary_endpoint_reports_stage_29_celery_mode(monkeypatch):

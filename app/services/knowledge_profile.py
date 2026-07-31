@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import json
+from pathlib import Path
 
 from app.services.job_tags import extract_job_tags
 from app.services.prep import RoleProfile
@@ -22,7 +24,7 @@ CANONICAL_TAXONOMY: dict[str, dict[str, str]] = {
 
 # These tags are present in the current corpus metadata. Task 2B will derive the
 # same capability from the versioned corpus manifest.
-KNOWLEDGE_COVERED_TAGS = {
+LEGACY_KNOWLEDGE_COVERED_TAGS = {
     "python",
     "fastapi",
     "redis",
@@ -32,6 +34,47 @@ KNOWLEDGE_COVERED_TAGS = {
     "system-design",
     "reliability",
 }
+P1_REQUIRED_COVERED_TAGS = frozenset(LEGACY_KNOWLEDGE_COVERED_TAGS)
+P1_MINIMUM_EVIDENCE_COUNT = 2
+
+
+def derive_covered_tags_from_manifest(manifest: dict) -> set[str]:
+    coverage = manifest.get("coverage")
+    if not isinstance(coverage, dict):
+        return set(LEGACY_KNOWLEDGE_COVERED_TAGS)
+    if coverage.get("schema_version") != "knowledge-coverage-v1":
+        raise ValueError("unsupported knowledge coverage schema")
+    tags = coverage.get("canonical_tags")
+    counts = coverage.get("evidence_class_counts")
+    required = coverage.get("minimum_evidence_classes")
+    if not isinstance(tags, list) or not isinstance(counts, dict):
+        raise ValueError("knowledge coverage metadata is invalid")
+    if required != ["positive", "negative", "boundary"]:
+        raise ValueError("knowledge coverage evidence classes are invalid")
+    result = set()
+    for tag in tags:
+        values = counts.get(tag)
+        if (
+            tag not in CANONICAL_TAXONOMY
+            or not isinstance(values, dict)
+            or any(
+                not isinstance(values.get(name), int)
+                or values[name] < P1_MINIMUM_EVIDENCE_COUNT
+                for name in required
+            )
+        ):
+            raise ValueError("knowledge coverage minimum is unavailable")
+        result.add(tag)
+    if not result:
+        raise ValueError("knowledge coverage contains no approved tags")
+    return result
+
+
+def load_active_knowledge_covered_tags(
+    manifest_path: Path | str = Path("app/data/knowledge_v2/manifest.json"),
+) -> set[str]:
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    return derive_covered_tags_from_manifest(manifest)
 
 _ROLE_PATTERN = re.compile(
     r"\b(?:(senior|sr\.?|junior|jr\.?|staff|principal|lead|mid(?:dle)?)[ -]+)?"
@@ -80,10 +123,11 @@ def build_role_profile(job_description: str, resume_text: str) -> RoleProfile:
         for tag in canonical_tags
         if tag in resume_tags and tag in CANONICAL_TAXONOMY
     ]
+    covered_tags = load_active_knowledge_covered_tags()
     uncovered = [
         CANONICAL_TAXONOMY[tag]["label"]
         for tag in canonical_tags
-        if tag not in KNOWLEDGE_COVERED_TAGS and tag in CANONICAL_TAXONOMY
+        if tag not in covered_tags and tag in CANONICAL_TAXONOMY
     ]
 
     return RoleProfile(

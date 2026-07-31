@@ -10,11 +10,13 @@ from app.services.prep import InterviewPlan, InterviewQuestion
 def test_llm_config_reads_model_from_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_MODEL", "custom-model")
+    monkeypatch.setenv("LLM_CONTEXT_WINDOW_TOKENS", "32768")
 
     config = LLMConfig.from_env()
 
     assert config.api_key == "test-key"
     assert config.model == "custom-model"
+    assert config.context_window_tokens == 32768
 
 
 def test_llm_config_reads_bounded_provider_request_settings(monkeypatch):

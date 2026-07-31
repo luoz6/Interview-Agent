@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-import os
 
 from app.services.model_capabilities import (
     ContextConfigurationError,
@@ -37,6 +36,7 @@ class OperationContextPolicy:
     input_cap_tokens: int
     max_output_tokens: int
     mandatory_content_floor_tokens: int = 1
+    fixed_prompt_reserve_tokens: int = 640
     max_single_message_tokens: int = 5_000
     max_evidence_item_tokens: int = 1_200
     max_total_evidence_tokens: int = 3_500
@@ -50,6 +50,7 @@ class OperationContextPolicy:
             ("input cap", self.input_cap_tokens),
             ("max output", self.max_output_tokens),
             ("mandatory floor", self.mandatory_content_floor_tokens),
+            ("fixed prompt reserve", self.fixed_prompt_reserve_tokens),
         ):
             if value <= 0:
                 raise ContextConfigurationError(f"{name} must be positive")
@@ -107,6 +108,38 @@ class ContextBudget:
     available_input_tokens: int
 
 
+@dataclass(frozen=True)
+class ContextSelectionBudget:
+    available_input_tokens: int
+    fixed_prompt_reserve_tokens: int
+    mandatory_content_floor_tokens: int
+
+    def __post_init__(self) -> None:
+        if self.available_input_tokens <= 0:
+            raise ContextConfigurationError(
+                "available input tokens must be positive"
+            )
+        if self.fixed_prompt_reserve_tokens < 0:
+            raise ContextConfigurationError(
+                "fixed prompt reserve tokens must not be negative"
+            )
+        if self.mandatory_content_floor_tokens <= 0:
+            raise ContextConfigurationError(
+                "mandatory content floor tokens must be positive"
+            )
+        if (
+            self.available_input_tokens - self.fixed_prompt_reserve_tokens
+            < self.mandatory_content_floor_tokens
+        ):
+            raise ContextConfigurationError(
+                "fixed prompt reserve leaves less than the mandatory content floor"
+            )
+
+    @property
+    def selectable_content_tokens(self) -> int:
+        return self.available_input_tokens - self.fixed_prompt_reserve_tokens
+
+
 class ContextBudgetResolver:
     def resolve(
         self,
@@ -136,6 +169,22 @@ class ContextBudgetResolver:
             structured_output_reserve_tokens=profile.structured_output_reserve_tokens,
             safety_margin_tokens=profile.safety_margin_tokens,
             available_input_tokens=available,
+        )
+
+    def resolve_selection_budget(
+        self,
+        *,
+        budget: ContextBudget,
+        policy: OperationContextPolicy,
+    ) -> ContextSelectionBudget:
+        if budget.operation != policy.operation:
+            raise ContextConfigurationError(
+                "context budget and operation policy do not match"
+            )
+        return ContextSelectionBudget(
+            available_input_tokens=budget.available_input_tokens,
+            fixed_prompt_reserve_tokens=policy.fixed_prompt_reserve_tokens,
+            mandatory_content_floor_tokens=policy.mandatory_content_floor_tokens,
         )
 
 
@@ -202,16 +251,13 @@ class RenderedPromptGuard:
             )
 
 
-_ENFORCEMENT_FLAGS = {
-    PLAN_CONTEXT_POLICY.operation: "CONTEXT_BUDGET_PREP_ENFORCEMENT",
-    FOLLOWUP_CONTEXT_POLICY.operation: "CONTEXT_BUDGET_INTERVIEW_ENFORCEMENT",
-    QUESTION_REVIEW_CONTEXT_POLICY.operation: "CONTEXT_BUDGET_REVIEW_ENFORCEMENT",
-    REPORT_CONTEXT_POLICY.operation: "CONTEXT_BUDGET_REPORT_ROUTING",
-}
-
-
 def context_enforcement_enabled(operation: str) -> bool:
-    flag = _ENFORCEMENT_FLAGS.get(operation)
-    if flag is None:
-        return False
-    return os.getenv(flag, "false").strip().lower() in {"1", "true", "yes", "on"}
+    from app.services.memory_config import load_effective_memory_config
+
+    enforcement = load_effective_memory_config().budget.enforcement
+    return {
+        PLAN_CONTEXT_POLICY.operation: enforcement.prep,
+        FOLLOWUP_CONTEXT_POLICY.operation: enforcement.interview,
+        QUESTION_REVIEW_CONTEXT_POLICY.operation: enforcement.review,
+        REPORT_CONTEXT_POLICY.operation: enforcement.report,
+    }.get(operation, False)

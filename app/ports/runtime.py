@@ -149,7 +149,32 @@ class ReportRepository(Protocol):
     def get_report_record(self, session_id: str) -> ReportRecord | None:
         ...
 
-    def list_reports(self, *, status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    def list_reports(
+        self,
+        *,
+        status: str | None = None,
+        query: str | None = None,
+        days: int | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        ...
+
+    def count_reports(
+        self,
+        *,
+        status: str | None = None,
+        query: str | None = None,
+        days: int | None = None,
+    ) -> int:
+        ...
+
+    def report_status_totals(
+        self,
+        *,
+        query: str | None = None,
+        days: int | None = None,
+    ) -> dict[str, int]:
         ...
 
 

@@ -179,3 +179,113 @@ def test_summary_grounding_is_scoped_to_the_units_own_anchors():
             model="test-model",
             expected_question_id_sha256="1" * 64,
         )
+
+
+def test_programmable_validation_does_not_claim_free_language_semantic_authority():
+    segment = make_segment()
+    payload = make_payload(segment)
+    payload["units"][0]["summary"] = (
+        "This guarantees perfect delivery under every failure mode."
+    )
+
+    result = validate(payload, segment)
+
+    assert result.payload.units[0].summary == payload["units"][0]["summary"]
+    assert not hasattr(result, "semantic_authority")
+    assert not hasattr(result.payload.units[0], "semantic_authority")
+
+
+def test_question_memory_validation_preserves_non_authoritative_semantic_boundary():
+    content = "Candidate chose Redis because it reduced latency by 20 percent."
+    segment = make_segment(content)
+    policy = make_policy(
+        artifact_type="question_memory",
+        policy_version="question-memory-v1",
+        prompt_contract_version="question-memory-prompt-v1",
+        output_schema_version="question-memory-v1",
+        target_output_tokens=5_000,
+    )
+    payload = {
+        "schema_version": "question-memory-v1",
+        "authority": "non_authoritative",
+        "session_scope_sha256": "2" * 64,
+        "question_id_sha256": "1" * 64,
+        "question_focus_sha256": "3" * 64,
+        "source_manifest_sha256": "4" * 64,
+        "source_message_count": 1,
+        "claims": [
+            {
+                "claim_type": "result",
+                "summary": (
+                    "This choice guarantees ideal behavior in every failure mode."
+                ),
+                "polarity": "positive",
+                "source_segment_sha256": [segment.content_sha256],
+                "supporting_excerpts": ["chose Redis"],
+                "confidence": "low",
+            }
+        ],
+        "unresolved_topics": [],
+    }
+
+    result = validate_compression_artifact(
+        policy=policy,
+        payload=payload,
+        source_segments=[segment],
+        estimator=CharacterEstimator(),
+        model="test-model",
+        expected_session_scope_sha256="2" * 64,
+        expected_question_id_sha256="1" * 64,
+        expected_question_focus_sha256="3" * 64,
+        expected_source_manifest_sha256="4" * 64,
+    )
+
+    assert result.payload.authority == "non_authoritative"
+    assert not hasattr(result.payload, "scoring_evidence")
+
+
+@pytest.mark.parametrize(
+    ("field", "expected", "message"),
+    [
+        ("session_scope_sha256", "9" * 64, "session scope"),
+        ("question_id_sha256", "9" * 64, "question identity"),
+        ("question_focus_sha256", "9" * 64, "question focus"),
+        ("source_manifest_sha256", "9" * 64, "source manifest"),
+    ],
+)
+def test_question_memory_identity_digests_fail_closed(field, expected, message):
+    content = "Candidate described a cache tradeoff."
+    segment = make_segment(content)
+    policy = make_policy(
+        artifact_type="question_memory",
+        output_schema_version="question-memory-v1",
+        target_output_tokens=5_000,
+    )
+    payload = {
+        "schema_version": "question-memory-v1",
+        "authority": "non_authoritative",
+        "session_scope_sha256": "2" * 64,
+        "question_id_sha256": "1" * 64,
+        "question_focus_sha256": "3" * 64,
+        "source_manifest_sha256": "4" * 64,
+        "source_message_count": 1,
+        "claims": [],
+        "unresolved_topics": [],
+    }
+    kwargs = {
+        "expected_session_scope_sha256": "2" * 64,
+        "expected_question_id_sha256": "1" * 64,
+        "expected_question_focus_sha256": "3" * 64,
+        "expected_source_manifest_sha256": "4" * 64,
+    }
+    kwargs[f"expected_{field}"] = expected
+
+    with pytest.raises(ContextArtifactValidationFailed, match=message):
+        validate_compression_artifact(
+            policy=policy,
+            payload=payload,
+            source_segments=[segment],
+            estimator=CharacterEstimator(),
+            model="test-model",
+            **kwargs,
+        )

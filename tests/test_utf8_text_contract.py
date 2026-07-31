@@ -4,13 +4,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 RUNTIME_TEXT_FILES = (
+    "frontend/src/components/AppShell.jsx",
+    "frontend/src/pages/PrepPage.jsx",
+    "frontend/src/pages/InterviewPage.jsx",
+    "frontend/src/pages/ReportProcessingPage.jsx",
+    "frontend/src/pages/ReportDetailPage.jsx",
+    "frontend/src/pages/ReportsPage.jsx",
+    "frontend/src/pages/HelpPage.jsx",
     "app/static/shared-ui.js",
     "app/static/prep.js",
     "app/static/interview.js",
     "app/static/report-processing.js",
     "app/static/report-detail.js",
-    "app/test1.html",
-    "app/test3.html",
     "README.md",
     "docs/local-v1-runbook.md",
 )
@@ -34,6 +39,46 @@ FORBIDDEN_MOJIBAKE_FRAGMENTS = (
 )
 
 EXPECTED_PHRASES = {
+    "frontend/src/components/AppShell.jsx": (
+        "面试智能体",
+        "主导航",
+        "开始面试",
+        "报告中心",
+        "帮助",
+    ),
+    "frontend/src/pages/PrepPage.jsx": (
+        "开始一次模拟面试",
+        "岗位 JD",
+        "候选人经历",
+        "生成面试计划",
+    ),
+    "frontend/src/pages/InterviewPage.jsx": (
+        "保持专注，把思路讲完整",
+        "你的回答",
+        "结束面试",
+        "专注模式",
+    ),
+    "frontend/src/pages/ReportProcessingPage.jsx": (
+        "把等待变成一条透明流水线",
+        "生成阶段",
+        "运行事件",
+    ),
+    "frontend/src/pages/ReportDetailPage.jsx": (
+        "结构化面评报告",
+        "逐题反馈",
+        "证据引用",
+        "下载 PDF",
+    ),
+    "frontend/src/pages/ReportsPage.jsx": (
+        "报告中心",
+        "搜索岗位、摘要或标签",
+        "重新排队",
+    ),
+    "frontend/src/pages/HelpPage.jsx": (
+        "知道下一步，也知道如何恢复",
+        "恢复手册",
+        "报告任务生成失败",
+    ),
     "app/static/shared-ui.js": (
         "知识广度",
         "技术深度",
@@ -65,17 +110,6 @@ EXPECTED_PHRASES = {
         "逐题评估链路",
         "报告仍在生成中",
         "兜底报告",
-    ),
-    "app/test1.html": (
-        "结构化面评报告",
-        "面试智能体",
-        "逐题评估链路",
-        "下载报告 (PDF)",
-    ),
-    "app/test3.html": (
-        "模拟面试进行中",
-        "面试智能体",
-        "按 Enter 提交，Shift+Enter 换行。",
     ),
     "README.md": (
         "不包含登录",

@@ -32,7 +32,19 @@ class PlanLLM(FollowupLLM):
                     kind="technical",
                     prompt="Explain Redis cache invalidation.",
                     focus="Redis consistency",
-                )
+                ),
+                InterviewQuestion(
+                    id="q2",
+                    kind="project",
+                    prompt="Describe a backend project.",
+                    focus="Project ownership",
+                ),
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design a scalable cache service.",
+                    focus="System design",
+                ),
             ],
         )
 

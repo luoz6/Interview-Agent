@@ -6,53 +6,39 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_root_serves_prep_page():
+def test_backend_root_describes_api_only_boundary():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "开始一次模拟面试" in response.text
+    assert response.json() == {
+        "service": "Interview Agent API",
+        "status": "ok",
+        "frontend": "http://127.0.0.1:5173",
+        "docs": "/docs",
+    }
 
 
-def test_prep_route_serves_prep_page():
-    response = client.get("/prep")
-
-    assert response.status_code == 200
-    assert "开始一次模拟面试" in response.text
-
-
-def test_interview_route_serves_interview_page():
-    response = client.get("/interview?session_id=session-1")
-
-    assert response.status_code == 200
-    assert "模拟面试进行中" in response.text
-
-
-def test_report_processing_route_serves_processing_page():
-    response = client.get("/report-processing?session_id=session-1")
-
-    assert response.status_code == 200
-    assert "面评报告生成中" in response.text
+def test_frontend_routes_are_not_served_by_fastapi():
+    for path in (
+        "/prep",
+        "/interview?session_id=session-1",
+        "/report-processing?session_id=session-1",
+        "/report-detail?session_id=session-1",
+        "/reports",
+        "/help",
+    ):
+        response = client.get(path)
+        assert response.status_code == 404
 
 
-def test_report_detail_route_serves_report_page():
-    response = client.get("/report-detail?session_id=session-1")
-
-    assert response.status_code == 200
-    assert "结构化面评报告" in response.text
-
-
-def test_reports_route_serves_report_center_page():
-    response = client.get("/reports")
+def test_vite_development_origin_is_allowed_by_cors():
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
 
     assert response.status_code == 200
-    assert "报告中心" in response.text
-    assert "/static/report-center.js" in response.text
-
-
-def test_help_route_serves_help_page():
-    response = client.get("/help")
-
-    assert response.status_code == 200
-    assert "帮助" in response.text
-    assert '<header class="app-topbar">' in response.text
-    assert '<a href="/help" aria-current="page">帮助</a>' in response.text
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"

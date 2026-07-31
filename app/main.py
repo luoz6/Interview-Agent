@@ -1,16 +1,11 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
+import os
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.services.runtime import shutdown_runtime, start_runtime
-
-
-BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
 
 
 @asynccontextmanager
@@ -22,42 +17,36 @@ async def lifespan(app: FastAPI):
         shutdown_runtime()
 
 
-app = FastAPI(title="Interview Agent MVP", lifespan=lifespan)
-app.include_router(router)
+app = FastAPI(
+    title="Interview Agent API",
+    description="API-only backend for the independent Vite/React frontend.",
+    lifespan=lifespan,
+)
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+frontend_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "FRONTEND_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173,"
+        "http://127.0.0.1:4173,http://localhost:4173",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=frontend_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(router)
 
 
 @app.get("/")
 def root():
-    return FileResponse(BASE_DIR / "test4.html")
-
-
-@app.get("/prep")
-def prep_page():
-    return FileResponse(BASE_DIR / "test4.html")
-
-
-@app.get("/interview")
-def interview_page():
-    return FileResponse(BASE_DIR / "test3.html")
-
-
-@app.get("/report-processing")
-def report_processing_page():
-    return FileResponse(BASE_DIR / "test2.html")
-
-
-@app.get("/report-detail")
-def report_detail_page():
-    return FileResponse(BASE_DIR / "test1.html")
-
-
-@app.get("/reports")
-def reports_page():
-    return FileResponse(BASE_DIR / "test0.html")
-
-
-@app.get("/help")
-def help_page():
-    return FileResponse(BASE_DIR / "test-help.html")
+    return {
+        "service": "Interview Agent API",
+        "status": "ok",
+        "frontend": os.getenv("FRONTEND_URL", "http://127.0.0.1:5173"),
+        "docs": "/docs",
+    }

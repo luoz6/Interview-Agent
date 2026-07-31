@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 
 const python = process.env.STAGE41_PYTHON || "python";
+const externalWebServer = process.env.PLAYWRIGHT_EXTERNAL_WEB_SERVER === "true";
 if (!process.env.AGENT_TRACE_DIR) {
   process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
     path.join(os.tmpdir(), "stage43-agent-traces-"),
@@ -18,25 +19,36 @@ module.exports = defineConfig({
   retries: 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:8011",
+    baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
-    screenshot: "only-on-failure",
+    screenshot: "off",
     viewport: { width: 1440, height: 900 },
   },
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
   ],
-  webServer: {
-    command: `"${python}" -m uvicorn tests.browser_support_app:app --host 127.0.0.1 --port 8011`,
-    url: "http://127.0.0.1:8011/api/health",
-    timeout: 30_000,
-    reuseExistingServer: process.env.REUSE_EXISTING_SERVER === "true",
-    gracefulShutdown: {
-      signal: "SIGINT",
-      timeout: 1_000,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: externalWebServer || process.platform === "win32"
+    ? undefined
+    : [
+        {
+          command: `"${python}" -m uvicorn tests.browser_support_app:app --host 127.0.0.1 --port 8011`,
+          url: "http://127.0.0.1:8011/api/health",
+          timeout: 30_000,
+          reuseExistingServer: process.env.REUSE_EXISTING_SERVER === "true",
+          gracefulShutdown: { signal: "SIGINT", timeout: 1_000 },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+        {
+          command: "npm --prefix frontend run dev -- --host 127.0.0.1 --port 4173",
+          url: "http://127.0.0.1:4173/prep",
+          timeout: 30_000,
+          reuseExistingServer: process.env.REUSE_EXISTING_SERVER === "true",
+          env: { VITE_API_TARGET: "http://127.0.0.1:8011" },
+          gracefulShutdown: { signal: "SIGINT", timeout: 1_000 },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      ],
 });

@@ -10,17 +10,26 @@ AGENT_TRACE_BLOCKED_KEYS = {
     "authorization",
     "candidate_answer",
     "content",
+    "credential",
     "dsn",
     "embedding",
+    "excerpt",
     "job_description",
     "password",
     "prompt",
     "provider_response",
+    "principal_id",
+    "fact_id",
+    "normalized_fact",
+    "source_manifest_sha256",
+    "source_excerpt_sha256",
+    "consent_record",
     "raw_content",
     "raw_response",
     "resume",
     "resume_text",
     "secret",
+    "summary",
     "token",
     "user_answer",
 }
@@ -69,6 +78,7 @@ AGENT_SAFE_METADATA_STRING_KEYS = frozenset(
         "context_policy_version",
         "artifact_type",
         "estimator_path",
+        "estimator_error_direction",
         "report_path",
     }
 )
@@ -83,6 +93,9 @@ AGENT_CONTEXT_NUMERIC_METADATA_KEYS = frozenset(
         "budget_utilization_basis_points",
         "source_message_count",
         "selected_message_count",
+        "selected_count",
+        "would_select_count",
+        "conflict_count",
         "dropped_message_count",
         "truncated_message_count",
         "source_evidence_count",
@@ -92,6 +105,7 @@ AGENT_CONTEXT_NUMERIC_METADATA_KEYS = frozenset(
         "provider_attempt_count",
         "source_segment_count",
         "target_output_tokens",
+        "estimator_error_basis_points",
     }
 )
 AGENT_CONTEXT_BOOLEAN_METADATA_KEYS = frozenset(

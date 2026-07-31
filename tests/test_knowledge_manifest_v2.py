@@ -62,6 +62,16 @@ def test_v2_manifest_is_stable_and_separate_from_v1(tmp_path: Path):
     assert all("metadata_sha256" in item for item in manifest["chunks"])
     assert all("references" not in item for item in manifest["chunks"])
     assert all("https://" not in str(item) for item in manifest["chunks"])
+    assert manifest["coverage"]["schema_version"] == "knowledge-coverage-v1"
+    assert manifest["coverage"]["minimum_evidence_classes"] == [
+        "positive",
+        "negative",
+        "boundary",
+    ]
+    assert all(
+        all(count > 0 for count in counts.values())
+        for counts in manifest["coverage"]["evidence_class_counts"].values()
+    )
 
 
 def test_v2_content_hash_covers_embedding_title_and_body(tmp_path: Path):
@@ -86,3 +96,27 @@ def test_v2_manifest_rejects_duplicate_ids_and_content(tmp_path: Path):
         assert "duplicate" in str(exc)
     else:
         raise AssertionError("duplicate v2 IDs must be rejected")
+
+
+def test_historical_stage44_manifest_excludes_versioned_extensions(
+    tmp_path: Path,
+):
+    root = tmp_path / "knowledge_v2"
+    _write(root, "base/one.md", _document("one"))
+    _write(
+        root,
+        "extensions/memory_p1/two.md",
+        _document("two", "扩展中文标题", _BODY + "扩展正文"),
+    )
+
+    historical = build_manifest_v2(
+        root,
+        corpus_version="stage44b1-zh-v2",
+    )
+    current = build_manifest_v2(
+        root,
+        corpus_version="memory-p1-zh-v3",
+    )
+
+    assert [item["chunk_id"] for item in historical["chunks"]] == ["one"]
+    assert [item["chunk_id"] for item in current["chunks"]] == ["one", "two"]

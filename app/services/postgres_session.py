@@ -163,6 +163,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         resume_text: str,
         job_tags: list[str],
         session_id: str | None = None,
+        memory_policy_version: str = "deterministic-v1",
     ) -> InterviewTurn:
         session_id = session_id or str(uuid4())
         state = self._runner.start(
@@ -171,6 +172,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             job_description=job_description,
             resume_text=resume_text,
             job_tags=job_tags,
+            memory_policy_version=memory_policy_version,
         )
         self._insert_state(state)
         return self._to_turn(state, follow_up=None)
@@ -184,6 +186,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         resume_text: str,
         job_tags: list[str],
         graph_version: str = "langgraph-v1",
+        memory_policy_version: str = "deterministic-v1",
     ) -> None:
         from app.graphs.interview_state import build_initial_state
 
@@ -193,6 +196,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             job_description=job_description,
             resume_text=resume_text,
             job_tags=job_tags,
+            memory_policy_version=memory_policy_version,
         )
         if graph_version not in {"langgraph-v1", "langgraph-v2"}:
             raise ValueError("unsupported durable interview graph version")
@@ -217,7 +221,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                                decision_json, pending_output, skipped_question_ids,
                                started_at, finished_at, state_version,
                                checkpoint_version, last_checkpoint_at, last_command_id,
-                               workflow_engine, graph_schema_version, projection_sha256
+                               workflow_engine, graph_schema_version,
+                               memory_policy_version, projection_sha256,
+                               deletion_status
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -249,6 +255,47 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     for item in cursor.fetchall()
                 ]
         return state_from_rows(session_row, message_rows)
+
+    def mark_deleting(self, session_id: str) -> bool:
+        _, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {sessions} SET deletion_status='deleting', "
+                        "updated_at=NOW() WHERE session_id=%s "
+                        "AND deletion_status='active'"
+                    ).format(sessions=sql.Identifier(self.sessions_table)),
+                    (session_id,),
+                )
+                changed = cursor.rowcount == 1
+                if not changed:
+                    cursor.execute(
+                        sql.SQL(
+                            "SELECT deletion_status FROM {sessions} "
+                            "WHERE session_id=%s"
+                        ).format(sessions=sql.Identifier(self.sessions_table)),
+                        (session_id,),
+                    )
+                    if cursor.fetchone() is None:
+                        raise ValueError("session not found")
+            connection.commit()
+        return changed
+
+    def delete_session(self, session_id: str) -> int:
+        _, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {sessions} WHERE session_id=%s "
+                        "AND deletion_status='deleting'"
+                    ).format(sessions=sql.Identifier(self.sessions_table)),
+                    (session_id,),
+                )
+                count = cursor.rowcount
+            connection.commit()
+        return count
 
     def submit_answer(
         self,
@@ -556,15 +603,19 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         self,
         *,
         status: str | None = None,
+        query: str | None = None,
+        days: int | None = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> list[dict]:
         psycopg2, sql = self._import_psycopg2()
-        where_clause = sql.SQL("")
-        params: list = []
-        if status is not None:
-            where_clause = sql.SQL("WHERE reports.status = %s")
-            params.append(status)
-        params.append(limit)
+        where_clause, params = self._report_filter_clause(
+            sql,
+            status=status,
+            query=query,
+            days=days,
+        )
+        page_params = [*params, limit, offset]
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -580,15 +631,15 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         LEFT JOIN {sessions} AS sessions
                           ON sessions.session_id = reports.session_id
                         {where_clause}
-                        ORDER BY reports.created_at DESC
-                        LIMIT %s
+                        ORDER BY reports.created_at DESC, reports.session_id DESC
+                        LIMIT %s OFFSET %s
                         """
                     ).format(
                         reports=sql.Identifier(self.reports_table),
                         sessions=sql.Identifier(self.sessions_table),
                         where_clause=where_clause,
                     ),
-                    tuple(params),
+                    tuple(page_params),
                 )
                 rows = cursor.fetchall()
         items = []
@@ -617,6 +668,118 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 }
             )
         return items
+
+    def count_reports(
+        self,
+        *,
+        status: str | None = None,
+        query: str | None = None,
+        days: int | None = None,
+    ) -> int:
+        psycopg2, sql = self._import_psycopg2()
+        where_clause, params = self._report_filter_clause(
+            sql,
+            status=status,
+            query=query,
+            days=days,
+        )
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT COUNT(*)
+                        FROM {reports} AS reports
+                        LEFT JOIN {sessions} AS sessions
+                          ON sessions.session_id = reports.session_id
+                        {where_clause}
+                        """
+                    ).format(
+                        reports=sql.Identifier(self.reports_table),
+                        sessions=sql.Identifier(self.sessions_table),
+                        where_clause=where_clause,
+                    ),
+                    tuple(params),
+                )
+                row = cursor.fetchone()
+        return int(row[0])
+
+    def report_status_totals(
+        self,
+        *,
+        query: str | None = None,
+        days: int | None = None,
+    ) -> dict[str, int]:
+        psycopg2, sql = self._import_psycopg2()
+        where_clause, params = self._report_filter_clause(
+            sql,
+            status=None,
+            query=query,
+            days=days,
+        )
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT reports.status, COUNT(*)
+                        FROM {reports} AS reports
+                        LEFT JOIN {sessions} AS sessions
+                          ON sessions.session_id = reports.session_id
+                        {where_clause}
+                        GROUP BY reports.status
+                        """
+                    ).format(
+                        reports=sql.Identifier(self.reports_table),
+                        sessions=sql.Identifier(self.sessions_table),
+                        where_clause=where_clause,
+                    ),
+                    tuple(params),
+                )
+                rows = cursor.fetchall()
+        totals = {"all": 0, "processing": 0, "completed": 0, "failed": 0}
+        for status, count in rows:
+            safe_count = int(count)
+            totals["all"] += safe_count
+            if status in totals:
+                totals[status] = safe_count
+        return totals
+
+    @staticmethod
+    def _report_filter_clause(sql, *, status, query, days):
+        clauses = []
+        params: list = []
+        if status is not None:
+            clauses.append(sql.SQL("reports.status = %s"))
+            params.append(status)
+        normalized_query = (query or "").strip()
+        if normalized_query:
+            clauses.append(
+                sql.SQL(
+                    """
+                    (
+                        reports.session_id ILIKE %s
+                        OR COALESCE(sessions.plan_json ->> 'title', '') ILIKE %s
+                        OR COALESCE(sessions.job_tags::text, '') ILIKE %s
+                        OR COALESCE(reports.report_json ->> 'summary', '') ILIKE %s
+                        OR reports.status ILIKE %s
+                    )
+                    """
+                )
+            )
+            pattern = f"%{normalized_query}%"
+            params.extend([pattern] * 5)
+        if days is not None:
+            clauses.append(
+                sql.SQL(
+                    "COALESCE(reports.completed_at, reports.failed_at, "
+                    "reports.created_at) >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 day')"
+                )
+            )
+            params.append(days)
+        if not clauses:
+            return sql.SQL(""), params
+        return sql.SQL("WHERE ") + sql.SQL(" AND ").join(clauses), params
 
     def save_question_evaluations(
         self,
@@ -770,7 +933,38 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 )
                 cursor.execute(
                     sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS memory_policy_version TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {sessions} SET memory_policy_version = CASE "
+                        "WHEN workflow_engine = 'langgraph-v2' "
+                        "THEN 'question-conversation-v1' "
+                        "ELSE 'deterministic-v1' END "
+                        "WHERE memory_policy_version IS NULL"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET NOT NULL"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET DEFAULT 'deterministic-v1'"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
                         "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS projection_sha256 TEXT"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS "
+                        "deletion_status TEXT NOT NULL DEFAULT 'active' "
+                        "CHECK (deletion_status IN ('active','deleting'))"
                     ).format(sessions=sql.Identifier(self.sessions_table))
                 )
                 cursor.execute(
@@ -888,7 +1082,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             decision_json, pending_output, skipped_question_ids,
                             started_at, finished_at, state_version,
                             checkpoint_version, last_checkpoint_at, last_command_id,
-                            workflow_engine, graph_schema_version, projection_sha256
+                            workflow_engine, graph_schema_version,
+                            memory_policy_version, projection_sha256,
+                            deletion_status
                         )
                         VALUES (
                             %s, %s::jsonb, %s, %s,
@@ -897,7 +1093,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                             %s::jsonb, %s, %s::jsonb,
                             %s, %s, %s,
                             %s, %s, %s,
-                            %s, %s, %s
+                            %s, %s, %s, %s, %s
                         )
                         """
                     ).format(sessions=sql.Identifier(self.sessions_table)),
@@ -928,7 +1124,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         session_row["last_command_id"],
                         session_row["workflow_engine"],
                         session_row["graph_schema_version"],
+                        session_row["memory_policy_version"],
                         session_row["projection_sha256"],
+                        session_row["deletion_status"],
                     ),
                 )
                 for index, message in enumerate(state["messages"], start=1):
@@ -1283,7 +1481,9 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "last_command_id": row[18],
             "workflow_engine": row[19],
             "graph_schema_version": row[20],
-            "projection_sha256": row[21],
+            "memory_policy_version": row[21],
+            "projection_sha256": row[22],
+            "deletion_status": row[23],
         }
 
     @staticmethod

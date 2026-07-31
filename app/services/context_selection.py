@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from typing import Literal, Mapping, Sequence
 
 from app.services.token_estimation import TokenEstimator
-from app.services.context_budget import OperationContextPolicy
+from app.services.context_budget import (
+    ContextSelectionBudget,
+    OperationContextPolicy,
+)
 
 
 OMISSION_MARKER = "[content omitted due to context budget]"
@@ -40,14 +43,19 @@ def build_interview_context(
     current_question_id: str,
     evidence_messages: Sequence[Mapping[str, str]] = (),
     policy: OperationContextPolicy,
+    selection_budget: ContextSelectionBudget,
     estimator: TokenEstimator,
     model: str,
 ) -> tuple[list[dict[str, str]], ContextSelectionStats]:
+    total_budget = selection_budget.selectable_content_tokens
     evidence_budget = min(
         policy.max_total_evidence_tokens,
-        policy.input_cap_tokens * 35 // 100,
+        total_budget * 35 // 100,
     )
-    conversation_budget = max(1, policy.input_cap_tokens - evidence_budget)
+    conversation_budget = max(
+        selection_budget.mandatory_content_floor_tokens,
+        total_budget - evidence_budget,
+    )
     conversation, conversation_stats = select_interview_messages(
         messages,
         current_question_id=current_question_id,

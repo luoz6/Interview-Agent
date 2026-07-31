@@ -31,7 +31,19 @@ class ReportApiLLM:
                     kind="project",
                     prompt="Introduce a backend project.",
                     focus="project depth",
-                )
+                ),
+                InterviewQuestion(
+                    id="q2",
+                    kind="technical",
+                    prompt="Explain a cache consistency decision.",
+                    focus="technical depth",
+                ),
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design the service for ten times the traffic.",
+                    focus="system design",
+                ),
             ],
         )
 
@@ -233,6 +245,24 @@ def finish_session(store: InterviewSessionStore, session_id: str) -> None:
     state["current_index"] = len(state["plan"].questions)
 
 
+def answer_all_questions(client: TestClient, session_id: str):
+    responses = []
+    for index in range(3):
+        responses.append(
+            client.post(
+                f"/api/interviews/{session_id}/answer",
+                json={"answer": f"Initial answer {index + 1}."},
+            )
+        )
+        responses.append(
+            client.post(
+                f"/api/interviews/{session_id}/answer",
+                json={"answer": f"Detailed follow-up answer {index + 1}."},
+            )
+        )
+    return responses
+
+
 def test_report_endpoint_returns_404_for_unknown_session():
     client, _, _, _ = make_client()
 
@@ -381,7 +411,7 @@ def test_reports_endpoint_exposes_only_safe_joined_metadata(
     item = response.json()["items"][0]
     assert item["job_title"] == "Backend mock interview"
     assert item["job_tags"] == ["python", "redis"]
-    assert item["question_count"] == 1
+    assert item["question_count"] == 3
     assert item["started_at"] == state["started_at"]
     assert item["duration_seconds"] == 65
     assert item["report_path"] == public_path
@@ -416,9 +446,71 @@ def test_reports_endpoint_filters_status_and_limit():
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
+    assert body["status_totals"] == {
+        "all": 2,
+        "processing": 1,
+        "completed": 1,
+        "failed": 0,
+    }
     assert body["items"][0]["session_id"] == first
     assert body["items"][0]["status"] == "completed"
     assert body["items"][0]["summary"] == "First completed."
+
+
+def test_reports_endpoint_returns_real_offset_page_and_total():
+    client, store, _, _ = make_client()
+    session_ids = [start_interview(client) for _ in range(3)]
+    for index, session_id in enumerate(session_ids, start=1):
+        finish_session(store, session_id)
+        store.save_report(
+            session_id,
+            make_report_model(session_id, summary=f"Summary {index}"),
+        )
+
+    response = client.get("/api/reports?limit=1&offset=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert body["limit"] == 1
+    assert body["offset"] == 1
+    assert len(body["items"]) == 1
+    assert body["status_totals"] == {
+        "all": 3,
+        "processing": 0,
+        "completed": 3,
+        "failed": 0,
+    }
+
+
+def test_reports_endpoint_filters_query_and_days_before_pagination():
+    client, store, _, _ = make_client()
+    old_session = start_interview(client)
+    recent_session = start_interview(client)
+    for session_id in (old_session, recent_session):
+        finish_session(store, session_id)
+    store.save_report(
+        old_session,
+        make_report_model(old_session, summary="Legacy database interview."),
+    )
+    store.save_report(
+        recent_session,
+        make_report_model(recent_session, summary="Modern Redis interview."),
+    )
+    store._reports[old_session].created_at = "2020-01-01T00:00:00Z"
+    store._reports[old_session].finished_at = "2020-01-01T00:00:00Z"
+
+    query_response = client.get("/api/reports?query=modern%20redis")
+    days_response = client.get("/api/reports?days=30")
+
+    assert query_response.status_code == 200
+    assert query_response.json()["total"] == 1
+    assert query_response.json()["status_totals"]["all"] == 1
+    assert query_response.json()["status_totals"]["completed"] == 1
+    assert query_response.json()["items"][0]["session_id"] == recent_session
+    assert days_response.status_code == 200
+    assert days_response.json()["total"] == 1
+    assert days_response.json()["items"][0]["session_id"] == recent_session
 
 
 def test_reports_endpoint_rejects_invalid_status():
@@ -769,14 +861,9 @@ def test_finished_answer_enqueues_report_generation_once_and_leaves_processing()
     client, store, llm, job_store = make_client()
     session_id = start_interview(client)
 
-    first_response = client.post(
-        f"/api/interviews/{session_id}/answer",
-        json={"answer": "I built a Redis-backed service."},
-    )
-    second_response = client.post(
-        f"/api/interviews/{session_id}/answer",
-        json={"answer": "I used cache-aside and database fallback."},
-    )
+    responses = answer_all_questions(client, session_id)
+    first_response = responses[0]
+    second_response = responses[-1]
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
@@ -827,14 +914,9 @@ def test_finished_answer_falls_back_to_in_memory_report_generation_when_job_stor
     )
     session_id = start_interview(client)
 
-    first_response = client.post(
-        f"/api/interviews/{session_id}/answer",
-        json={"answer": "I built a Redis-backed service."},
-    )
-    second_response = client.post(
-        f"/api/interviews/{session_id}/answer",
-        json={"answer": "I used cache-aside and database fallback."},
-    )
+    responses = answer_all_questions(client, session_id)
+    first_response = responses[0]
+    second_response = responses[-1]
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200

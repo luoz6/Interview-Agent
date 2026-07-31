@@ -15,6 +15,7 @@ from app.services.context_artifacts import (
     EvidenceCompressionArtifact,
     PrepContextArtifact,
     QuestionConversationArtifact,
+    QuestionMemoryArtifact,
     canonical_json,
     parse_artifact_payload,
 )
@@ -51,6 +52,9 @@ def validate_compression_artifact(
     model: str,
     expected_question_id_sha256: str | None = None,
     expected_evidence_content_sha256: str | None = None,
+    expected_session_scope_sha256: str | None = None,
+    expected_question_focus_sha256: str | None = None,
+    expected_source_manifest_sha256: str | None = None,
 ) -> ValidatedCompressionArtifact:
     """Validate one provider payload against authoritative in-memory sources."""
 
@@ -72,6 +76,34 @@ def validate_compression_artifact(
             raise ContextArtifactValidationFailed(
                 "context artifact question identity is invalid"
             )
+    if isinstance(validated, QuestionMemoryArtifact):
+        expected_digests = (
+            (
+                validated.session_scope_sha256,
+                expected_session_scope_sha256,
+                "session scope",
+            ),
+            (
+                validated.question_id_sha256,
+                expected_question_id_sha256,
+                "question identity",
+            ),
+            (
+                validated.question_focus_sha256,
+                expected_question_focus_sha256,
+                "question focus",
+            ),
+            (
+                validated.source_manifest_sha256,
+                expected_source_manifest_sha256,
+                "source manifest",
+            ),
+        )
+        for actual, expected, label in expected_digests:
+            if expected is None or actual != expected:
+                raise ContextArtifactValidationFailed(
+                    f"context artifact {label} is invalid"
+                )
     if isinstance(validated, EvidenceCompressionArtifact):
         if (
             expected_evidence_content_sha256 is None
@@ -97,7 +129,10 @@ def validate_compression_artifact(
         raise ContextArtifactValidationFailed(
             "context artifact output exceeds the unit limit"
         )
-    if isinstance(validated, QuestionConversationArtifact):
+    if isinstance(
+        validated,
+        (QuestionConversationArtifact, QuestionMemoryArtifact),
+    ):
         source_message_count = sum(
             source.segment_type == "conversation_message"
             for source in source_segments
@@ -185,6 +220,10 @@ def validate_compression_artifact(
 def _iter_units(payload: ArtifactPayload) -> Iterable[AnchoredCompressedUnit]:
     if isinstance(payload, QuestionConversationArtifact):
         yield from payload.units
+        yield from payload.unresolved_topics
+        return
+    if isinstance(payload, QuestionMemoryArtifact):
+        yield from payload.claims
         yield from payload.unresolved_topics
         return
     if isinstance(payload, EvidenceCompressionArtifact):

@@ -87,7 +87,153 @@ _postgres_connection_domains = None
 _context_artifact_store = None
 _context_compression_runner = None
 _context_compressor_agent = None
+_question_memory_index_store = None
+_session_deletion_job_store = None
+_session_deletion_tombstone_store = None
+_session_deletion_service = None
+_session_deletion_worker = None
+_memory_metric_store = None
+_principal_identity_resolver = None
+_principal_memory_consent_store = None
+_principal_memory_fact_store = None
+_principal_memory_proposal_processor = None
+_principal_memory_shadow_service = None
 _context_compression_lock = RLock()
+
+
+def get_principal_identity_resolver():
+    global _principal_identity_resolver
+    if _principal_identity_resolver is None:
+        from app.services.principal_identity import NullPrincipalIdentityResolver
+
+        _principal_identity_resolver = NullPrincipalIdentityResolver()
+    return _principal_identity_resolver
+
+
+def get_principal_memory_consent_store():
+    global _principal_memory_consent_store
+    if _principal_memory_consent_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_consent import (
+                PostgresPrincipalMemoryConsentStore,
+            )
+            _principal_memory_consent_store = PostgresPrincipalMemoryConsentStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.in_memory_principal_memory_consent import (
+                InMemoryPrincipalMemoryConsentStore,
+            )
+            _principal_memory_consent_store = InMemoryPrincipalMemoryConsentStore()
+    return _principal_memory_consent_store
+
+
+def get_principal_memory_fact_store():
+    global _principal_memory_fact_store
+    if _principal_memory_fact_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory import (
+                PostgresPrincipalMemoryFactStore,
+            )
+            _principal_memory_fact_store = PostgresPrincipalMemoryFactStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.in_memory_principal_memory import (
+                InMemoryPrincipalMemoryFactStore,
+            )
+            _principal_memory_fact_store = InMemoryPrincipalMemoryFactStore()
+    return _principal_memory_fact_store
+
+
+def get_principal_memory_proposal_processor():
+    global _principal_memory_proposal_processor
+    if _principal_memory_proposal_processor is None:
+        from app.services.memory_config import load_effective_memory_config
+        from app.services.principal_memory_consent import PrincipalMemoryConsentService
+        from app.services.principal_memory_extractor import NullPrincipalMemoryExtractor
+        from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
+
+        config = load_effective_memory_config()
+        _principal_memory_proposal_processor = PrincipalMemoryProposalProcessor(
+            session_store=get_session_store(),
+            identity_resolver=get_principal_identity_resolver(),
+            consent_service=PrincipalMemoryConsentService(
+                identity_resolver=get_principal_identity_resolver(),
+                store=get_principal_memory_consent_store(),
+                policy_version=config.long_term.consent_policy_version,
+            ),
+            fact_store=get_principal_memory_fact_store(),
+            extractor=NullPrincipalMemoryExtractor(),
+            config=config,
+        )
+    return _principal_memory_proposal_processor
+
+
+def get_principal_memory_shadow_service():
+    global _principal_memory_shadow_service
+    if _principal_memory_shadow_service is None:
+        from app.services.memory_config import load_effective_memory_config
+        from app.services.principal_memory_consent import PrincipalMemoryConsentService
+        from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
+        from app.services.principal_memory_shadow import PrincipalMemoryShadowService
+
+        config = load_effective_memory_config()
+        resolver = get_principal_identity_resolver()
+        _principal_memory_shadow_service = PrincipalMemoryShadowService(
+            retriever=PrincipalMemoryRetriever(
+                fact_store=get_principal_memory_fact_store(),
+                consent_service=PrincipalMemoryConsentService(
+                    identity_resolver=resolver,
+                    store=get_principal_memory_consent_store(),
+                    policy_version=config.long_term.consent_policy_version,
+                ),
+                identity_resolver=resolver,
+                session_store=get_session_store(),
+                config=config,
+            )
+        )
+    return _principal_memory_shadow_service
+
+
+def get_memory_metric_store():
+    global _memory_metric_store
+    if _memory_metric_store is not None:
+        return _memory_metric_store
+    from app.services.memory_metrics import (
+        InMemoryMemoryMetricStore,
+        ResilientMemoryMetricStore,
+        UnavailableMemoryMetricStore,
+        configure_memory_metric_store,
+        get_memory_metric_store as get_process_metric_store,
+    )
+
+    if get_runtime_store() != "postgres":
+        _memory_metric_store = get_process_metric_store()
+    else:
+        from app.services.postgres_memory_metrics import PostgresMemoryMetricStore
+
+        try:
+            primary = PostgresMemoryMetricStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().telemetry,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        except Exception:
+            primary = UnavailableMemoryMetricStore()
+        _memory_metric_store = ResilientMemoryMetricStore(
+            primary=primary,
+            fallback=InMemoryMemoryMetricStore(),
+        )
+        configure_memory_metric_store(_memory_metric_store)
+    return _memory_metric_store
 
 
 def get_postgres_connection_domains():
@@ -107,6 +253,111 @@ def get_postgres_connection_domains():
             domains.open()
             _postgres_connection_domains = domains
     return _postgres_connection_domains
+
+
+def get_question_memory_index_store():
+    global _question_memory_index_store
+    if _question_memory_index_store is not None:
+        return _question_memory_index_store
+    if get_runtime_store() != "postgres":
+        from app.services.in_memory_question_memory_index import (
+            InMemoryQuestionMemoryIndexStore,
+        )
+
+        _question_memory_index_store = InMemoryQuestionMemoryIndexStore()
+    else:
+        from app.services.postgres_question_memory_index import (
+            PostgresQuestionMemoryIndexStore,
+        )
+
+        _question_memory_index_store = PostgresQuestionMemoryIndexStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=get_postgres_connection_domains().business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    return _question_memory_index_store
+
+
+def get_session_deletion_service():
+    global _session_deletion_job_store, _session_deletion_tombstone_store
+    global _session_deletion_service
+    if _session_deletion_service is None:
+        from app.services.session_deletion import SessionDeletionService
+
+        if _session_deletion_job_store is None:
+            if get_runtime_store() == "postgres":
+                from app.services.postgres_session_deletion import (
+                    PostgresSessionDeletionJobStore,
+                )
+
+                _session_deletion_job_store = PostgresSessionDeletionJobStore(
+                    dsn=get_postgres_dsn(),
+                    connection_provider=(
+                        get_postgres_connection_domains().business
+                    ),
+                    table_prefix=get_runtime_table_prefix(),
+                    schema_mode="validate",
+                )
+                from app.services.postgres_session_deletion_tombstones import (
+                    PostgresSessionDeletionTombstoneStore,
+                )
+
+                _session_deletion_tombstone_store = (
+                    PostgresSessionDeletionTombstoneStore(
+                        dsn=get_postgres_dsn(),
+                        connection_provider=(
+                            get_postgres_connection_domains().business
+                        ),
+                        table_prefix=get_runtime_table_prefix(),
+                        schema_mode="validate",
+                    )
+                )
+            else:
+                from app.services.session_deletion import (
+                    InMemorySessionDeletionJobStore,
+                )
+                from app.services.session_deletion_tombstones import (
+                    InMemorySessionDeletionTombstoneStore,
+                )
+
+                _session_deletion_job_store = InMemorySessionDeletionJobStore()
+                _session_deletion_tombstone_store = (
+                    InMemorySessionDeletionTombstoneStore()
+                )
+        _session_deletion_service = SessionDeletionService(
+            session_store=get_session_store(),
+            job_store=_session_deletion_job_store,
+            tombstone_store=_session_deletion_tombstone_store,
+        )
+    return _session_deletion_service
+
+
+def get_session_deletion_worker():
+    global _session_deletion_worker
+    if _session_deletion_worker is None:
+        from app.services.session_deletion_worker import SessionDeletionWorker
+
+        service = get_session_deletion_service()
+        _session_deletion_worker = SessionDeletionWorker(
+            job_store=service.job_store,
+            session_store=get_session_store(),
+            workflow_service=(
+                get_interview_workflow_service()
+                if get_runtime_store() == "postgres"
+                else None
+            ),
+            question_memory_index=get_question_memory_index_store(),
+            context_artifact_store=get_context_artifact_store(),
+            report_job_store=(
+                get_report_job_store()
+                if get_runtime_store() == "postgres"
+                else None
+            ),
+            tombstone_store=service.tombstone_store,
+            principal_memory_store=get_principal_memory_fact_store(),
+        )
+    return _session_deletion_worker
 
 
 def build_session_store(llm=None):
@@ -465,6 +716,7 @@ def build_interview_workflow_service():
         ),
         report_job_queue=get_report_job_store(),
         worker_id=_runtime_worker_id("interview-graph"),
+        principal_memory_shadow=get_principal_memory_shadow_service(),
     )
     from app.services.context_compression_gating import ContextCompressionGates
 
@@ -484,6 +736,16 @@ def build_interview_workflow_service():
             compressor_config=compressor_agent.provider.config,
             context_runtime=get_context_runtime(),
             gates=compression_gates,
+            deployment_scope=get_context_artifact_deployment_scope(),
+        )
+        from app.services.question_memory import QuestionMemoryCoordinator
+
+        deps.question_memory_coordinator = QuestionMemoryCoordinator(
+            runner=get_context_compression_runner(),
+            compressor_agent=compressor_agent,
+            compressor_config=compressor_agent.provider.config,
+            context_runtime=get_context_runtime(),
+            index_store=get_question_memory_index_store(),
             deployment_scope=get_context_artifact_deployment_scope(),
         )
         if compression_gates.shadow_enabled or (
@@ -514,6 +776,24 @@ def build_interview_workflow_service():
             checkpointer=saver,
         ),
     )
+    from app.services.memory_config import load_effective_memory_config
+    from app.services.memory_config import memory_readiness_payload
+
+    effective_memory = load_effective_memory_config()
+    memory_readiness = memory_readiness_payload(effective_memory)
+
+    def memory_policy_for_engine(engine):
+        if engine != "langgraph-v2":
+            return "deterministic-v1"
+        if not memory_readiness["consumption_ready"]:
+            return "deterministic-v1"
+        if (
+            effective_memory.compression.mode == "consume"
+            and effective_memory.compression.interview_question_memory
+        ):
+            return "question-memory-v1"
+        return "question-conversation-v1"
+
     return InterviewWorkflowService(
         legacy_store=store,
         workflow_store=workflow_store,
@@ -524,6 +804,7 @@ def build_interview_workflow_service():
         rollout_percent=get_interview_langgraph_rollout_percent(),
         default_graph_version=version,
         thread_lock=get_workflow_thread_lock(),
+        memory_policy_resolver=memory_policy_for_engine,
     )
 
 
@@ -875,6 +1156,7 @@ def build_runtime_outbox_service() -> RuntimeOutboxService:
         store=get_session_store(),
         interview_consumer=get_interview_workflow_consumer(),
         review_consumer=get_review_workflow_consumer(),
+        principal_memory_consumer=get_principal_memory_proposal_processor(),
     )
     return RuntimeOutboxService(
         RuntimeOutboxDispatcher(
@@ -924,6 +1206,7 @@ def _start_runtime_unlocked() -> None:
     global _durable_workflow_maintenance_started
     if get_runtime_store() != "postgres":
         return
+    get_memory_metric_store()
     if _langgraph_checkpointer_runtime is None:
         _langgraph_checkpointer_runtime = get_langgraph_checkpointer_runtime()
     checkpointer_runtime = _langgraph_checkpointer_runtime
@@ -973,6 +1256,13 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _postgres_connection_domains
     global _context_artifact_store, _context_compression_runner
     global _context_compressor_agent
+    global _question_memory_index_store
+    global _session_deletion_job_store, _session_deletion_tombstone_store
+    global _session_deletion_service, _session_deletion_worker
+    global _memory_metric_store
+    global _principal_identity_resolver, _principal_memory_consent_store
+    global _principal_memory_fact_store, _principal_memory_proposal_processor
+    global _principal_memory_shadow_service
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
     if _durable_workflow_maintenance_service is not None:
@@ -1005,6 +1295,20 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _context_artifact_store = None
     _context_compression_runner = None
     _context_compressor_agent = None
+    _question_memory_index_store = None
+    _session_deletion_job_store = None
+    _session_deletion_tombstone_store = None
+    _session_deletion_service = None
+    _session_deletion_worker = None
+    _memory_metric_store = None
+    _principal_identity_resolver = None
+    _principal_memory_consent_store = None
+    _principal_memory_fact_store = None
+    _principal_memory_proposal_processor = None
+    _principal_memory_shadow_service = None
+    from app.services.memory_metrics import reset_memory_metric_store
+
+    reset_memory_metric_store()
     with _agent_runtime_lock:
         _agent_execution_runner = None
         _agent_composite_recorder = None

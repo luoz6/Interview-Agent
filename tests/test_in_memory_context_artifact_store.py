@@ -68,6 +68,20 @@ def make_prep_payload():
     }
 
 
+def make_question_memory_payload():
+    return {
+        "schema_version": "question-memory-v1",
+        "authority": "non_authoritative",
+        "session_scope_sha256": "1" * 64,
+        "question_id_sha256": "5" * 64,
+        "question_focus_sha256": "3" * 64,
+        "source_manifest_sha256": "6" * 64,
+        "source_message_count": 1,
+        "claims": [],
+        "unresolved_topics": [],
+    }
+
+
 @pytest.fixture
 def clock():
     return FakeClock()
@@ -107,6 +121,35 @@ def test_claim_busy_expired_reclaim_and_fencing(store, clock):
     assert store.heartbeat(first, lease_seconds=30) is False
     with pytest.raises(ContextArtifactLeaseLost):
         store.complete(first, make_payload())
+
+
+def test_question_memory_owner_purpose_is_supported_without_mutation(store):
+    identity = make_identity(
+        artifact_type="question_memory",
+        source_manifest_sha256="6" * 64,
+        compression_policy_version="question-memory-v1",
+        prompt_contract_version="question-memory-prompt-v1",
+        output_schema_version="question-memory-v1",
+    )
+    claim = store.claim(identity, worker_id="worker-1", lease_seconds=30)
+    record = store.complete(claim, make_question_memory_payload())
+
+    ref = store.create_owner_ref(
+        record,
+        owner_type="interview_session",
+        owner_key="session-1",
+        purpose="interview_question_memory",
+    )
+    loaded = store.load_ref(
+        ref,
+        owner_type="interview_session",
+        owner_key="session-1",
+        purpose="interview_question_memory",
+        expected_identity=identity,
+    )
+
+    assert loaded.payload["authority"] == "non_authoritative"
+    assert loaded.identity.material.artifact_type == "question_memory"
 
 
 def test_failed_claim_is_immediately_reclaimed_as_running(store):

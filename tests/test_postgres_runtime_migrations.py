@@ -84,6 +84,9 @@ def _patch_schema_owners(monkeypatch, seen):
         "PostgresReportJobStore",
         "PostgresReviewWorkflowStore",
         "PostgresRuntimeSignalStore",
+        "PostgresMemoryMetricStore",
+        "PostgresPrincipalMemoryConsentStore",
+        "PostgresPrincipalMemoryFactStore",
     ):
         monkeypatch.setattr(migrations, name, owner)
 
@@ -113,7 +116,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     )
 
     assert result.applied is True
-    assert len([item for item in seen if item[0] == "migrate"]) == 7
+    assert len([item for item in seen if item[0] == "migrate"]) == 10
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
     assert setup == ["private-dsn"]
     assert connection.commits >= 2

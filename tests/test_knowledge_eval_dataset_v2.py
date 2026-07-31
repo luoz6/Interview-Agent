@@ -15,6 +15,8 @@ from app.services.knowledge_eval_dataset_v2 import (
 
 MANIFEST_PATH = Path("app/data/knowledge/manifest.json")
 PILOT_PATH = Path("tests/golden/knowledge_retrieval_v2_pilot.json")
+MEMORY_P1_PATH = Path("tests/golden/knowledge_retrieval_memory_p1.json")
+MEMORY_P1_MANIFEST_PATH = Path("app/data/knowledge_v2/manifest.json")
 
 
 def _case(**overrides):
@@ -99,8 +101,24 @@ def test_evaluation_group_domain_mapping_is_explicit():
         "relational-database": {"mysql", "postgresql"},
         "kafka": {"kafka"},
         "system-design": {"system-design"},
-        "reliability": {"reliability", "system-design"},
+        "reliability": {"reliability", "system-design", "postgresql"},
     }
+
+
+def test_memory_p1_dataset_has_18_balanced_cases_with_current_manifest_ids():
+    manifest = json.loads(MEMORY_P1_MANIFEST_PATH.read_text(encoding="utf-8"))
+    dataset = load_knowledge_retrieval_dataset_v2(
+        MEMORY_P1_PATH,
+        expected_case_count=18,
+        manifest=manifest,
+    )
+
+    assert dataset.version == "memory-p1-knowledge-retrieval-v3"
+    assert len(dataset.cases) == 18
+    counts = {group: 0 for group in EVALUATION_GROUP_DOMAIN_MAP}
+    for case in dataset.cases:
+        counts[case.evaluation_group] += 1
+    assert counts == {group: 3 for group in EVALUATION_GROUP_DOMAIN_MAP}
 
 
 def test_pilot_has_12_cases_and_two_cases_per_group_with_manifest_ids():

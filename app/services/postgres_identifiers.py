@@ -49,6 +49,10 @@ _RUNTIME_TABLE_SUFFIXES = (
     "context_artifacts",
     "context_artifact_refs",
     "runtime_signal_buckets",
+    "memory_metric_buckets",
+    "principal_memory_consents",
+    "principal_memory_facts",
+    "principal_memory_effects",
     "schema_migrations",
 )
 
@@ -83,6 +87,8 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "context_artifact_refs_owner_purpose_idx",
     "context_artifact_refs_retention_idx",
     "sessions_workflow_engine_check",
+    "principal_memory_facts_principal_idx",
+    "principal_memory_facts_session_idx",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (

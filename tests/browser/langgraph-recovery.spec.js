@@ -10,15 +10,28 @@ test("refresh replays an active durable generation", async ({ page, request }) =
   const { session_id: sessionId } = await seed(request, "refresh");
 
   await page.goto(`/interview?session_id=${sessionId}`);
-  await expect(page.locator("#conversation")).toContainText("Recovered");
-  await expect(page.locator("#conversation")).not.toContainText(
-    "Recovered after refresh.",
-  );
+  await expect(page.locator(".agent-console")).toContainText("Recovered after refresh.");
 
   await page.reload();
   await expect(
-    page.locator(".message-bubble", { hasText: "Recovered after refresh." }),
+    page.locator(".message", { hasText: "Recovered after refresh." }),
   ).toHaveCount(1);
+});
+
+test("langgraph-v2 durable dispatch resumes an active generation", async ({ page, request }) => {
+  const { session_id: sessionId } = await seed(request, "v2-refresh");
+
+  const snapshot = await request.get(`/api/interviews/${sessionId}`);
+  expect(snapshot.status()).toBe(200);
+  const body = await snapshot.json();
+  expect(body.workflow_engine).toBe("langgraph-v2");
+  expect(body.active_stream_url).toContain("/commands/");
+
+  await page.goto(`/interview?session_id=${sessionId}`);
+  await expect(page.locator(".agent-console")).toContainText(
+    "Recovered after refresh.",
+  );
+  await request.delete(`/test-support/langgraph/${sessionId}`);
 });
 
 test("reconnect honors Last-Event-ID", async ({ request }) => {
@@ -43,10 +56,10 @@ test("replacement attempt resets abandoned partial text", async ({ page, request
 
   await page.goto(`/interview?session_id=${sessionId}`);
 
-  await expect(page.locator("#conversation")).toContainText(
+  await expect(page.locator(".agent-console")).toContainText(
     "replacement complete",
   );
-  await expect(page.locator("#conversation")).not.toContainText(
+  await expect(page.locator(".agent-console")).not.toContainText(
     "abandoned old partial",
   );
 });
@@ -173,4 +186,28 @@ test("legacy session refresh remains on the legacy contract", async ({ page, req
   expect(body.workflow_engine).toBe("legacy");
   expect(body.active_stream_url).toBeUndefined();
   await request.delete(`/test-support/langgraph/${sessionId}`);
+});
+
+test("memory assistance degradation is accessible and refresh does not reannounce", async ({ page, request }) => {
+  const transparent = await seed(request, "memory-transparent");
+  await page.goto(`/interview?session_id=${transparent.session_id}`);
+  await expect(page.locator('[data-assistance-notice="basic"]')).toHaveCount(0);
+  const transparentSnapshot = await (await request.get(`/api/interviews/${transparent.session_id}`)).json();
+  expect(transparentSnapshot.context_route).toBe("artifact_fallback");
+  expect(transparentSnapshot.assistance_mode).toBe("full");
+  expect(transparentSnapshot.user_notice_required).toBe(false);
+  await request.delete(`/test-support/langgraph/${transparent.session_id}`);
+
+  const basic = await seed(request, "memory-basic");
+  await page.goto(`/interview?session_id=${basic.session_id}`);
+  const notice = page.locator('[data-assistance-notice="basic"]');
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toContainText("你已提交的回答仍已保存，可以继续完成面试");
+  await expect(notice).toHaveAttribute("aria-live", "polite");
+  await expect(notice).not.toContainText(/provider|artifact|checkpoint|error/i);
+
+  await page.reload();
+  await expect(page.locator('[data-assistance-notice="basic"]')).toHaveCount(1);
+  await expect(page.locator('[data-assistance-notice="basic"]')).toHaveAttribute("aria-live", "off");
+  await request.delete(`/test-support/langgraph/${basic.session_id}`);
 });

@@ -6,6 +6,18 @@ from app.services.prep import InterviewPlan, InterviewQuestion
 
 
 WorkflowEngine = Literal["legacy", "langgraph-v1", "langgraph-v2"]
+MemoryPolicyVersion = Literal[
+    "deterministic-v1",
+    "question-conversation-v1",
+    "question-memory-v1",
+]
+SUPPORTED_MEMORY_POLICY_VERSIONS = frozenset(
+    {
+        "deterministic-v1",
+        "question-conversation-v1",
+        "question-memory-v1",
+    }
+)
 SUPPORTED_INTERVIEW_GRAPH_VERSIONS = frozenset(
     {"langgraph-v1", "langgraph-v2"}
 )
@@ -51,6 +63,8 @@ class InterviewState(TypedDict):
     workflow_engine: WorkflowEngine
     graph_schema_version: str | None
     projection_sha256: str | None
+    memory_policy_version: MemoryPolicyVersion
+    deletion_status: Literal["active", "deleting"]
 
 
 def choose_workflow_engine(
@@ -82,7 +96,10 @@ def build_initial_state(
     job_description: str,
     resume_text: str,
     job_tags: list[str],
+    memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
 ) -> InterviewState:
+    if memory_policy_version not in SUPPORTED_MEMORY_POLICY_VERSIONS:
+        raise ValueError("unsupported interview memory policy version")
     first_question = plan.questions[0] if plan.questions else None
     first_output = (
         first_question.prompt
@@ -120,7 +137,19 @@ def build_initial_state(
         "workflow_engine": "legacy",
         "graph_schema_version": None,
         "projection_sha256": None,
+        "memory_policy_version": memory_policy_version,
+        "deletion_status": "active",
     }
+
+
+def default_memory_policy_for_engine(
+    engine: WorkflowEngine,
+) -> MemoryPolicyVersion:
+    return (
+        "question-conversation-v1"
+        if engine == "langgraph-v2"
+        else "deterministic-v1"
+    )
 
 
 def get_current_question(state: InterviewState) -> InterviewQuestion | None:

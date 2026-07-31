@@ -20,6 +20,7 @@ from pydantic import (
 
 ArtifactType = Literal[
     "question_conversation",
+    "question_memory",
     "evidence_compression",
     "prep_context",
 ]
@@ -27,6 +28,7 @@ OwnerType = Literal["prep_run", "interview_session", "review_job"]
 ArtifactPurpose = Literal[
     "prep_plan_context",
     "interview_conversation_context",
+    "interview_question_memory",
     "interview_evidence_context",
     "review_context",
     "review_evidence_context",
@@ -34,7 +36,12 @@ ArtifactPurpose = Literal[
 ArtifactStatus = Literal["running", "completed", "failed"]
 
 _ARTIFACT_TYPES = frozenset(
-    {"question_conversation", "evidence_compression", "prep_context"}
+    {
+        "question_conversation",
+        "question_memory",
+        "evidence_compression",
+        "prep_context",
+    }
 )
 _CLAIM_STATUSES = frozenset({"running", "completed"})
 _RECORD_STATUSES = frozenset({"completed", "failed"})
@@ -94,6 +101,64 @@ def canonical_json(value: Any) -> str:
         sort_keys=True,
         separators=(",", ":"),
         allow_nan=False,
+    )
+
+
+@dataclass(frozen=True)
+class QuestionMemorySourceManifest:
+    items: tuple[dict[str, Any], ...]
+    sha256: str
+
+
+def build_question_memory_source_manifest(
+    messages: list[Mapping[str, Any]],
+) -> QuestionMemorySourceManifest:
+    """Hash an ordered authoritative message manifest without retaining content."""
+
+    items = []
+    seen_sequences: set[int] = set()
+    for message in messages:
+        sequence_no = message.get("sequence_no")
+        if (
+            not isinstance(sequence_no, int)
+            or isinstance(sequence_no, bool)
+            or sequence_no <= 0
+            or sequence_no in seen_sequences
+        ):
+            raise ValueError(
+                "question memory source sequence numbers must be unique and positive"
+            )
+        seen_sequences.add(sequence_no)
+        role = message.get("role")
+        if role not in {"interviewer", "candidate"}:
+            raise ValueError("question memory source role is unsupported")
+        question_id = message.get("question_id")
+        content = message.get("content")
+        _require_nonempty(question_id, field_name="question_id")
+        _require_nonempty(content, field_name="content")
+        if "\x00" in content:
+            raise ValueError("question memory source content must not contain NUL")
+        try:
+            encoded_content = content.encode("utf-8")
+        except UnicodeError as exc:
+            raise ValueError(
+                "question memory source content must be valid UTF-8"
+            ) from exc
+        items.append(
+            {
+                "sequence_no": sequence_no,
+                "role": role,
+                "question_id_sha256": sha256(
+                    question_id.encode("utf-8")
+                ).hexdigest(),
+                "content_sha256": sha256(encoded_content).hexdigest(),
+            }
+        )
+    items.sort(key=lambda item: item["sequence_no"])
+    payload = canonical_json(items)
+    return QuestionMemorySourceManifest(
+        items=tuple(items),
+        sha256=sha256(payload.encode("utf-8")).hexdigest(),
     )
 
 
@@ -356,12 +421,38 @@ class AnchoredCompressedUnit(_ArtifactModel):
         return value
 
 
+class QuestionMemoryClaim(AnchoredCompressedUnit):
+    claim_type: Literal[
+        "decision",
+        "tradeoff",
+        "result",
+        "skill",
+        "constraint",
+        "unresolved",
+    ]
+    polarity: Literal["positive", "negative", "uncertain", "mixed"]
+    supporting_excerpts: list[str] = Field(min_length=1)
+    confidence: Literal["low", "medium", "high"]
+
+
 class QuestionConversationArtifact(_ArtifactModel):
     schema_version: Literal["question-conversation-v1"]
     question_id_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     units: list[AnchoredCompressedUnit]
     unresolved_topics: list[AnchoredCompressedUnit] = Field(default_factory=list)
     source_message_count: int = Field(ge=0)
+
+
+class QuestionMemoryArtifact(_ArtifactModel):
+    schema_version: Literal["question-memory-v1"]
+    authority: Literal["non_authoritative"]
+    session_scope_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    question_id_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    question_focus_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_message_count: int = Field(ge=1)
+    claims: list[QuestionMemoryClaim]
+    unresolved_topics: list[QuestionMemoryClaim]
 
 
 class EvidenceCompressionArtifact(_ArtifactModel):
@@ -391,17 +482,20 @@ class PrepContextArtifact(_ArtifactModel):
 
 ArtifactPayload: TypeAlias = (
     QuestionConversationArtifact
+    | QuestionMemoryArtifact
     | EvidenceCompressionArtifact
     | PrepContextArtifact
 )
 
 _PAYLOAD_MODELS: dict[ArtifactType, type[ArtifactPayload]] = {
     "question_conversation": QuestionConversationArtifact,
+    "question_memory": QuestionMemoryArtifact,
     "evidence_compression": EvidenceCompressionArtifact,
     "prep_context": PrepContextArtifact,
 }
 _SCHEMA_ARTIFACT_TYPES = {
     "question-conversation-v1": "question_conversation",
+    "question-memory-v1": "question_memory",
     "evidence-compression-v1": "evidence_compression",
     "prep-context-v1": "prep_context",
 }
@@ -420,6 +514,8 @@ def parse_artifact_payload(
 def _infer_artifact_type(payload: Mapping[str, Any] | ArtifactPayload) -> ArtifactType:
     if isinstance(payload, QuestionConversationArtifact):
         return "question_conversation"
+    if isinstance(payload, QuestionMemoryArtifact):
+        return "question_memory"
     if isinstance(payload, EvidenceCompressionArtifact):
         return "evidence_compression"
     if isinstance(payload, PrepContextArtifact):

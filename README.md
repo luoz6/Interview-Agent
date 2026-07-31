@@ -4,13 +4,30 @@ Local V1 is a single-machine interview assistant for generating technical interv
 
 This project is designed for local single-user deployment. It does not include login, account isolation, or cross-device synchronization.
 
+Memory, context-budget, compression, artifact, retention, and Interview graph
+runtime settings are resolved through the immutable
+`memory-runtime-config-v1` model. Prefer the structured `MEMORY_*` names shown
+in `.env.example`. Legacy `INTERVIEW_LANGGRAPH_*`, `LLM_CONTEXT_*`,
+`CONTEXT_BUDGET_*`, `CONTEXT_COMPRESSION_*`, and `CONTEXT_ARTIFACT_*` names are
+accepted only by the compatibility adapter. Equal old/new values are allowed;
+conflicting normalized values fail preflight. Rollout, budget enforcement, and
+compression consumption remain disabled by default.
+
+Repository-only memory acceptance is documented in
+`docs/memory-system-optimization-acceptance.md` and can be run with
+`python -m scripts.memory_system_optimization_acceptance`. Its successful
+status is shadow readiness only; production observation remains `NOT_RUN`.
+
 ## What Works
 
-- Four runtime pages:
-  - `http://127.0.0.1:8000/prep`
-  - `http://127.0.0.1:8000/interview?session_id=...`
-  - `http://127.0.0.1:8000/report-processing?session_id=...`
-  - `http://127.0.0.1:8000/report-detail?session_id=...`
+- Independent Vite/React frontend at `http://127.0.0.1:5173` with six routes:
+  - `/prep`
+  - `/interview?session_id=...`
+  - `/report-processing?session_id=...`
+  - `/report-detail?session_id=...`
+  - `/reports`
+  - `/help`
+- FastAPI is API-only at `http://127.0.0.1:8000`; Vite proxies `/api` during development.
 - DeepSeek/OpenAI-compatible plan generation, follow-up generation, and report generation.
 - Structured-output first, raw JSON fallback for DeepSeek-compatible providers that reject `response_format`.
 - PostgreSQL runtime persistence for sessions, report jobs, and reports.
@@ -108,6 +125,7 @@ $env:INTERVIEW_RUNTIME_TABLE_PREFIX="interview"
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
+$env:LLM_CONTEXT_WINDOW_TOKENS="128000"
 ```
 
 The code reads `OPENAI_API_KEY` even when the provider is DeepSeek-compatible. For DeepSeek, get the key from `platform.deepseek.com` and put that value in `OPENAI_API_KEY`. Do not store real keys in git.
@@ -168,41 +186,54 @@ approval after the acceptance record is complete.
 
 ## Start
 
-Start the FastAPI web process:
+Start the FastAPI API process:
 
 ```powershell
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
+$env:LLM_CONTEXT_WINDOW_TOKENS="128000"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Start the report worker in a second PowerShell window. PostgreSQL mode queues report jobs, so `/report-processing` will stay in progress until this worker is running:
+Start the independent Vite/React frontend in a second PowerShell window:
+
+```powershell
+npm run dev:frontend
+```
+
+Start the report worker in a third PowerShell window. PostgreSQL mode queues report jobs, so `/report-processing` will stay in progress until this worker is running:
 
 ```powershell
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.deepseek.com"
 $env:OPENAI_MODEL="deepseek-chat"
+$env:LLM_CONTEXT_WINDOW_TOKENS="128000"
 python -m app.services.report_worker
 ```
 
 Open:
 
 ```text
-http://127.0.0.1:8000/prep
+http://127.0.0.1:5173/prep
 ```
 
 ## Verify
 
+On Windows, set `STAGE41_PYTHON` to the Python 3.11+ executable that has the
+locked project dependencies installed before running Playwright. Keep the value
+machine-local; do not hard-code a developer-specific path in the repository.
+`npm run test:browser` uses the repository runner to own the Uvicorn child
+process directly, so the server is also terminated reliably after the suite.
+
+```powershell
+$env:STAGE41_PYTHON="C:\path\to\python.exe"
+```
+
 ```powershell
 python -m pytest -q
-node --check app/static/api.js
-node --check app/static/shared-ui.js
-node --check app/static/prep.js
-node --check app/static/interview.js
-node --check app/static/report-processing.js
-node --check app/static/report-detail.js
-npm run build:prototype-css
+npm run build:frontend
+npm run test:browser
 ```
 
 ## Stage 41 Reproducible Release Checks
@@ -215,6 +246,7 @@ environment-independent `python`, `npm`, or `npx` executable name.
 python -m pip install --require-hashes -r requirements.lock.txt
 python -m pip check
 npm ci
+npm --prefix frontend ci
 npx playwright install chromium
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime --check
@@ -276,3 +308,4 @@ The runtime control APIs are read-only. Recovery remains CLI-only.
 - 不包含公网部署安全设计。
 - 不包含 Docker Compose。
 - 不包含知识库管理 UI。
+Memory validation and Principal Memory foundation are implemented behind safe defaults. Long-term modes default to `disabled`; write/read shadow require explicit gates and consent; `consume` is rejected. This is repository shadow readiness only, not production rollout authorization.

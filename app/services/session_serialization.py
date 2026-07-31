@@ -1,6 +1,11 @@
 from typing import Any
 
-from app.graphs.interview_state import InterviewMessage, InterviewState
+from app.graphs.interview_state import (
+    InterviewMessage,
+    InterviewState,
+    SUPPORTED_MEMORY_POLICY_VERSIONS,
+    default_memory_policy_for_engine,
+)
 from app.services.prep import InterviewPlan
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import (
@@ -35,6 +40,8 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "workflow_engine": state.get("workflow_engine", "legacy"),
         "graph_schema_version": state.get("graph_schema_version"),
         "projection_sha256": state.get("projection_sha256"),
+        "memory_policy_version": state["memory_policy_version"],
+        "deletion_status": state.get("deletion_status", "active"),
     }
 
 
@@ -56,6 +63,14 @@ def state_from_rows(
     session_row: dict[str, Any],
     message_rows: list[dict[str, Any]],
 ) -> InterviewState:
+    workflow_engine = session_row.get("workflow_engine", "legacy")
+    memory_policy_version = session_row.get("memory_policy_version")
+    if memory_policy_version is None:
+        memory_policy_version = default_memory_policy_for_engine(
+            workflow_engine
+        )
+    if memory_policy_version not in SUPPORTED_MEMORY_POLICY_VERSIONS:
+        raise ValueError("unsupported stored interview memory policy version")
     return {
         "session_id": session_row["session_id"],
         "plan": InterviewPlan.model_validate(session_row["plan_json"]),
@@ -84,9 +99,11 @@ def state_from_rows(
         "checkpoint_version": int(session_row.get("checkpoint_version", 1)),
         "last_checkpoint_at": session_row.get("last_checkpoint_at"),
         "last_command_id": session_row.get("last_command_id"),
-        "workflow_engine": session_row.get("workflow_engine", "legacy"),
+        "workflow_engine": workflow_engine,
         "graph_schema_version": session_row.get("graph_schema_version"),
         "projection_sha256": session_row.get("projection_sha256"),
+        "memory_policy_version": memory_policy_version,
+        "deletion_status": session_row.get("deletion_status", "active"),
     }
 
 

@@ -33,6 +33,10 @@ _PURPOSE_CONTRACT = {
         "interview_session",
         "question_conversation",
     ),
+    "interview_question_memory": (
+        "interview_session",
+        "question_memory",
+    ),
     "interview_evidence_context": (
         "interview_session",
         "evidence_compression",

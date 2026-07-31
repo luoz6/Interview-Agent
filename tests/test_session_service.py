@@ -304,6 +304,40 @@ def test_complete_streaming_answer_is_structurally_idempotent_after_finalization
     ) == 1
 
 
+def test_streaming_answer_retry_with_same_command_does_not_duplicate_candidate_message():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+
+    first = store.prepare_streaming_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-stream-retry",
+    )
+    duplicate = store.prepare_streaming_answer(
+        session.session_id,
+        "I used Redis.",
+        expected_version=1,
+        command_id="cmd-stream-retry",
+    )
+    finalized = store.complete_streaming_answer(
+        session.session_id,
+        follow_up_text="Please explain cache invalidation.",
+        expected_version=2,
+        command_id="cmd-stream-retry",
+    )
+
+    candidate_messages = [
+        message
+        for message in finalized["messages"]
+        if message["role"] == "candidate"
+    ]
+    assert duplicate.state == first.state
+    assert len(candidate_messages) == 1
+    assert candidate_messages[0]["content"] == "I used Redis."
+    assert finalized["state_version"] == 3
+
+
 def test_submit_answer_advances_after_followup():
     store = InterviewSessionStore(llm=FakeInterviewLLM())
     session = start_session(store)

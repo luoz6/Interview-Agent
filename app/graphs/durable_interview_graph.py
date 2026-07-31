@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import partial
 from threading import Event, Lock, Thread
 from typing import Any, Callable
@@ -24,7 +25,10 @@ from app.services.context_budget import (
     FOLLOWUP_CONTEXT_POLICY,
     context_enforcement_enabled,
 )
-from app.services.context_selection import build_interview_context
+from app.services.context_selection import (
+    ContextSelectionStats,
+    build_interview_context,
+)
 from app.services.context_runtime import ContextRuntime, get_context_runtime
 
 
@@ -109,6 +113,8 @@ class DurableInterviewGraphDependencies:
     context_runtime: ContextRuntime | None = None
     context_artifact_coordinator: Any | None = None
     evidence_artifact_coordinator: Any | None = None
+    question_memory_coordinator: Any | None = None
+    principal_memory_shadow: Any | None = None
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
     worker_id: str = "durable-interview-worker"
     generation_lease_seconds: int = 60
@@ -312,22 +318,41 @@ def generate_followup(state, deps) -> dict:
                     attempt,
                     worker_id=deps.worker_id,
                 )
-                deterministic_context = (
-                    deps.context_builder(state)
-                    if deps.context_builder is not None
-                    else _build_examiner_context(
+                if deps.context_builder is not None:
+                    deterministic_context = deps.context_builder(state)
+                    selection_stats = None
+                else:
+                    (
+                        deterministic_context,
+                        selection_stats,
+                    ) = _build_examiner_context_selection(
                         state,
                         deps.knowledge_repository,
                         deps.context_runtime,
                     )
+                question_memory_enabled = (
+                    state.get("memory_policy_version") == "question-memory-v1"
+                    and deps.question_memory_coordinator is not None
+                )
+                conversation_artifact_enabled = (
+                    state.get("memory_policy_version")
+                    == "question-conversation-v1"
+                    and deps.context_artifact_coordinator is not None
                 )
                 artifact_context = (
-                    deps.context_artifact_coordinator.build_context(
+                    deps.question_memory_coordinator.build_context(
                         state=state,
                         deterministic_context=deterministic_context,
                         parent_ownership=parent_ownership,
                     )
-                    if deps.context_artifact_coordinator is not None
+                    if question_memory_enabled
+                    else deps.context_artifact_coordinator.build_context(
+                        state=state,
+                        deterministic_context=deterministic_context,
+                        parent_ownership=parent_ownership,
+                        selection_stats=selection_stats,
+                    )
+                    if conversation_artifact_enabled
                     else None
                 )
                 context = (
@@ -342,12 +367,29 @@ def generate_followup(state, deps) -> dict:
                             context_messages=context,
                             parent_ownership=parent_ownership,
                             worker_id=deps.worker_id,
+                            selection_stats=selection_stats,
                         )
                     )
                     context = evidence_context.context_messages
-                    if evidence_context.artifact_ref is not None:
+                    if (
+                        evidence_context.artifact_ref is not None
+                        or evidence_context.route == "artifact_fallback"
+                    ):
                         artifact_context = evidence_context
                 parent_ownership.ensure_owned()
+            if deps.principal_memory_shadow is not None:
+                question = _current_question(state)
+                focus_tokens = {
+                    token.strip().casefold()
+                    for token in str(question.get("focus", "")).replace(",", " ").split()
+                    if token.strip()
+                }
+                deps.principal_memory_shadow.observe(
+                    provider_context=context or [],
+                    current_tags=focus_tokens,
+                    role_tags=set(state.get("job_tags", [])),
+                    now=datetime.now(timezone.utc),
+                )
             for chunk in deps.examiner.stream_followup_attempt(
                 context=context or [],
                 execution_context=AgentExecutionContext(
@@ -597,23 +639,44 @@ def _recent_conversation_messages(
     state,
     context_runtime: ContextRuntime | None = None,
 ) -> list[dict[str, str]]:
+    return _recent_conversation_selection(state, context_runtime)[0]
+
+
+def _recent_conversation_selection(
+    state,
+    context_runtime: ContextRuntime | None = None,
+) -> tuple[list[dict[str, str]], ContextSelectionStats]:
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
-        return [
+        selected = [
             {"role": message["role"], "content": message["content"]}
             for message in state["messages"][-4:]
         ]
+        return selected, ContextSelectionStats(
+            source_message_count=len(state["messages"]),
+            selected_message_count=len(selected),
+            dropped_message_count=max(0, len(state["messages"]) - len(selected)),
+        )
     question_id = _current_question(state)["id"]
     runtime = context_runtime or get_context_runtime()
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
-    selected, _ = build_interview_context(
+    budget = runtime.budget_resolver.resolve(
+        profile=runtime.model_profile,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
+    selection_budget = runtime.budget_resolver.resolve_selection_budget(
+        budget=budget,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
+    selected, stats = build_interview_context(
         state["messages"],
         current_question_id=question_id,
         policy=FOLLOWUP_CONTEXT_POLICY,
+        selection_budget=selection_budget,
         estimator=estimator,
         model=model,
     )
-    return selected
+    return selected, stats
 
 
 def _build_examiner_context(
@@ -621,10 +684,22 @@ def _build_examiner_context(
     repository,
     context_runtime: ContextRuntime | None = None,
 ) -> list[dict[str, str]]:
+    return _build_examiner_context_selection(
+        state,
+        repository,
+        context_runtime,
+    )[0]
+
+
+def _build_examiner_context_selection(
+    state,
+    repository,
+    context_runtime: ContextRuntime | None = None,
+) -> tuple[list[dict[str, str]], ContextSelectionStats]:
     question = _current_question(state)
     evidence_messages = []
     if repository is None:
-        return _recent_conversation_messages(state, context_runtime)
+        return _recent_conversation_selection(state, context_runtime)
     resolution = resolve_evidence_by_ids(
         repository,
         evidence_ids=question.get("evidence_ids", []),
@@ -636,22 +711,36 @@ def _build_examiner_context(
     if resolution.retrieval_path == "bound_evidence_ids":
         evidence_messages = resolution.messages
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
-        return [
-            *_recent_conversation_messages(state, context_runtime),
-            *evidence_messages,
-        ]
+        recent, stats = _recent_conversation_selection(state, context_runtime)
+        return [*recent, *evidence_messages], ContextSelectionStats(
+            source_message_count=stats.source_message_count,
+            selected_message_count=stats.selected_message_count,
+            dropped_message_count=stats.dropped_message_count,
+            truncated_message_count=stats.truncated_message_count,
+            source_evidence_count=len(evidence_messages),
+            selected_evidence_count=len(evidence_messages),
+        )
     runtime = context_runtime or get_context_runtime()
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
-    context, _ = build_interview_context(
+    budget = runtime.budget_resolver.resolve(
+        profile=runtime.model_profile,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
+    selection_budget = runtime.budget_resolver.resolve_selection_budget(
+        budget=budget,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
+    context, stats = build_interview_context(
         state["messages"],
         current_question_id=question["id"],
         evidence_messages=evidence_messages,
         policy=FOLLOWUP_CONTEXT_POLICY,
+        selection_budget=selection_budget,
         estimator=estimator,
         model=model,
     )
-    return context
+    return context, stats
 
 
 def build_durable_interview_graph(

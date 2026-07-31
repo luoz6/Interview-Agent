@@ -1,205 +1,219 @@
-# 前端修改文档：以四个 HTML 原型页替换旧单页入口
+# 前端实现指南：独立 Vite/React 服务
 
-## 1. 目标
+## 1. 当前架构
 
-下一阶段前端不再保留 `app/static/index.html` 作为运行入口，而是按 `app` 目录下四个原型页拆成四个真实页面：
-
-| 页面 | 原型文件 | 建议路由 | 职责 |
-| --- | --- | --- | --- |
-| 面试准备页 | `app/test4.html` | `/` 或 `/prep` | 输入 JD/简历、保存草稿、生成计划、开始面试 |
-| 模拟面试页 | `app/test3.html` | `/interview?session_id=...` | 展示当前题、对话流、题目导航、答题、跳题、结束 |
-| 报告生成页 | `app/test2.html` | `/report-processing?session_id=...` | 展示报告生成阶段、事件时间线、RAG 摘要、轮询完成状态 |
-| 报告详情页 | `app/test1.html` | `/report-detail?session_id=...` | 展示总分、五维能力分、逐题反馈、证据引用、PDF 下载 |
-
-`app/static/index.html` 应从运行路径中移除。`app/static` 可以继续存放共享 CSS、JS 和本地资源，但不再提供旧单页 HTML。
-
-## 2. 当前不足
-
-| 问题 | 影响 | 修改方向 |
-| --- | --- | --- |
-| 四个原型页目前是静态 HTML | 无法调用真实接口，展示数据会失真 | 为每页接入对应 API 和页面状态 |
-| FastAPI `/` 当前仍服务旧单页 | 与“四页流程”目标冲突 | 改为返回 `app/test4.html` 或准备页模板 |
-| 原型页包含后端没有的字段 | 容易生成假数据，如百分位、Worker 名称、站内通知 | 后端没有字段时隐藏，不在前端伪造 |
-| 原型页使用 CDN 依赖 | 本机离线部署不稳定 | Tailwind、FontAwesome、Chart.js 需要本地化或改成本地 CSS 实现 |
-| 报告原型是四维雷达，后端是五维评分 | 维度不一致 | 前端统一使用五维：知识广度、技术深度、系统设计、工程实践、表达沟通 |
-
-## 3. 页面路由改造
-
-在 FastAPI 静态页面层增加四个页面路由：
+项目的产品前端是 `frontend/` 下的独立 Vite/React 应用。FastAPI 不再返回产品 HTML，也不再挂载 `app/static`；后端只提供 API、SSE 与报告文件下载。
 
 ```text
-GET /                           -> app/test4.html
-GET /prep                       -> app/test4.html
-GET /interview                  -> app/test3.html
-GET /report-processing          -> app/test2.html
-GET /report-detail              -> app/test1.html
+浏览器
+  -> Vite/React frontend     http://127.0.0.1:5173
+       -> /api/*             FastAPI http://127.0.0.1:8000
+       -> /test-support/*    仅浏览器测试环境
+
+报告 worker                 独立后台进程
 ```
 
-页面之间通过 `session_id` 查询参数衔接：
+开发环境由 Vite 代理 `/api` 到 FastAPI，因此浏览器保持同源请求体验。跨域部署时可通过 `VITE_API_BASE_URL` 指定 API 地址，并通过后端 `FRONTEND_ORIGINS` 设置允许的前端来源。
+
+`app/test0.html` 至 `app/test4.html`、`app/test-help.html` 已经删除并退休，不能恢复为第二套产品前端。`app/static/*.js` 仅作为仍受测试约束的兼容性源码，不是当前页面设计、运行入口或部署契约。新增和修改产品功能应落在 `frontend/src/`。
+
+## 2. 启动与构建
+
+安装依赖：
+
+```powershell
+npm.cmd install
+npm.cmd --prefix frontend install
+```
+
+启动 FastAPI：
+
+```powershell
+& 'F:\python3.11\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+启动独立前端：
+
+```powershell
+npm.cmd run dev:frontend
+```
+
+前端访问地址：`http://127.0.0.1:5173/prep`。后端健康检查：`http://127.0.0.1:8000/api/health`。
+
+需要处理异步报告任务时，另开终端启动 worker：
+
+```powershell
+& 'F:\python3.11\python.exe' -m app.services.report_worker
+```
+
+生产构建：
+
+```powershell
+npm.cmd run build:frontend
+```
+
+构建产物位于 `frontend/dist/`。`build:prototype-css` 仅作为兼容命令别名保留，当前同样执行 Vite 构建，不再编译旧 HTML 的 Tailwind 样式。
+
+## 3. 路由与页面组件
+
+`frontend/src/App.jsx` 根据 `window.location.pathname` 选择页面组件。当前不引入 React Router，避免为固定的六页本地工作流增加额外依赖。
+
+| 路由 | React 页面 | 主要职责 |
+| --- | --- | --- |
+| `/`、`/prep` | `PrepPage.jsx` | JD/简历输入、文本导入、草稿恢复、生成计划、启动面试 |
+| `/interview` | `InterviewPage.jsx` | 会话快照、题目导航、SSE 答题、跳题、结束、断线恢复 |
+| `/report-processing` | `ReportProcessingPage.jsx` | 报告进度轮询、阶段、事件、RAG 摘要、完成跳转 |
+| `/report-detail` | `ReportDetailPage.jsx` | 总分、五维评分、逐题反馈、证据、评估链路、PDF |
+| `/reports` | `ReportsPage.jsx` | 服务端搜索、筛选、分页、状态统计、重试与下载 |
+| `/help` | `HelpPage.jsx` | 工作流说明、草稿/SSE/报告失败恢复指南 |
+
+除准备页外，工作流页面通过 `session_id` 查询参数关联会话：
 
 ```text
-test4 开始面试成功
--> /interview?session_id={session_id}
-
-test3 主动结束或答完所有题
--> /report-processing?session_id={session_id}
-
-test2 检测报告完成
--> /report-detail?session_id={session_id}
+/prep
+  -> /interview?session_id={session_id}
+  -> /report-processing?session_id={session_id}
+  -> /report-detail?session_id={session_id}
 ```
 
-## 4. JS 文件拆分建议
+未知路由由 `NotFoundPage.jsx` 显示明确的返回入口。
 
-不要继续把所有逻辑塞回一个 `app/static/app.js`。建议拆分为：
+## 4. DESIGN.md 视觉契约
 
-| 文件 | 职责 |
-| --- | --- |
-| `app/static/api.js` | 统一封装 `getJson`、`postJson`、SSE 解析、PDF blob 下载 |
-| `app/static/prep.js` | `test4.html` 页面逻辑 |
-| `app/static/interview.js` | `test3.html` 页面逻辑 |
-| `app/static/report-processing.js` | `test2.html` 页面逻辑 |
-| `app/static/report-detail.js` | `test1.html` 页面逻辑 |
-| `app/static/shared-ui.js` | 标签、状态徽标、错误提示、五维标签映射等共享渲染 |
+所有视觉和交互实现以仓库根目录的 `DESIGN.md` 为准。当前 CSS 位于 `frontend/src/styles/index.css`，使用统一变量、组件状态和响应式规则实现三种环境。
 
-共享维度映射必须固定为：
+### 4.1 Research Canvas
 
-```js
-const dimensionLabels = {
-  breadth: "知识广度",
-  depth: "技术深度",
-  architecture: "系统设计",
-  engineering: "工程实践",
-  communication: "表达沟通",
-};
+适用于准备页、报告中心、报告详情和帮助页：
+
+- 暖石色背景、深墨色正文和克制的边框；
+- 编辑式信息层级与大面积留白；
+- 黑色主 CTA，蓝色只表达链接、焦点或交互状态；
+- 珊瑚色只用于需要强调的少量状态；
+- 长中文内容保持舒适行高、合理行宽和清晰分段。
+
+### 4.2 Agent Workspace
+
+适用于实时面试页：
+
+- 浅色应用外壳包围深海军蓝工作台；
+- 当前题、对话流、题目导航和操作区形成明确的实时工作层级；
+- 流式生成、恢复、冲突和审核状态必须真实反映服务端状态；
+- 专注模式可通过 Escape 退出，不能破坏键盘操作和草稿恢复。
+
+### 4.3 Pipeline Field
+
+适用于报告生成页：
+
+- 深企业绿背景构成独立的流水线场域；
+- 当前阶段使用珊瑚色标记，完成与待处理阶段保持清楚区分；
+- 百分比、阶段、事件、RAG 与运行元数据均来自真实接口；
+- 完成、失败、空数据与暂不可用状态必须具有不同反馈。
+
+## 5. 设计变量与组件约束
+
+- 颜色、间距、圆角、边框、阴影和动效统一使用 CSS 变量。
+- 卡片不应无差别堆叠；先用版式、留白和分隔线建立信息结构。
+- 主操作使用黑色实心按钮；蓝色用于交互状态；危险操作使用清晰但克制的危险色。
+- 控件必须提供 hover、focus-visible、disabled、busy 和 error 状态。
+- 移动端关键控件触达尺寸不小于 44px。
+- 页面必须支持 `prefers-reduced-motion`，禁用非必要动画和位移。
+- 不使用 CDN 字体、图标或图表依赖；保持本地/系统字体栈与可离线运行。
+- 不使用 `dangerouslySetInnerHTML` 渲染后端内容。
+
+## 6. API 与状态实现
+
+共享请求逻辑位于 `frontend/src/api/client.js`。页面不得内置伪造业务结果；所有计划、会话、报告、证据和统计必须来自真实 API。
+
+### 6.1 准备页
+
+- `POST /api/prep` 生成题目计划、岗位标签、知识主题和证据。
+- `POST /api/interview-drafts` 保存匿名草稿；对应 GET 接口恢复草稿。
+- `POST /api/interviews` 创建会话并进入面试页。
+- 文件导入仅支持 `.txt` 与 `.md`，单文件不超过 1 MiB。
+- 证据标识以 `data-evidence-id` 保留，便于后续验证连续性。
+
+### 6.2 面试页与 SSE
+
+- `GET /api/interviews/{session_id}` 是刷新和恢复时的权威快照。
+- `POST /api/interviews/{session_id}/answer/stream` 返回 SSE。
+- 客户端携带命令 ID 与期望版本，处理重复提交和版本冲突。
+- SSE 必须以终止事件结束；提前 EOF 时保留最后事件 ID 并从该游标恢复。
+- 重连发送 `Last-Event-ID`，处理 generation reset、reconnect、done、error 与 conflict。
+- 页面刷新时读取服务端 `active_stream_url` 恢复仍在运行的生成任务。
+- 跳题和结束面试均调用真实写接口，不在前端自行推进权威状态。
+
+### 6.3 报告生成与详情
+
+- 生成页每 3 秒轮询 `/report/progress`，展示服务端阶段、百分比、事件和元数据。
+- 报告完成后进入详情页；失败时保留错误与历史阶段，不清空上下文。
+- 详情页只展示稳定、允许公开的 Agent/运行字段，不直接输出内部任意元数据。
+- 五维评分固定为知识广度、技术深度、系统设计、工程实践、表达沟通。
+- 不生成后端没有提供的百分位、排名、Worker 名称或演示统计。
+- PDF 通过 blob 下载；下载失败只显示局部错误，不移除已渲染报告。
+
+### 6.4 报告中心
+
+- 查询、状态、日期、偏移量和页大小由 `/api/reports` 服务端处理。
+- 状态统计读取 `status_totals`，不通过拉取全部记录在浏览器中推算。
+- 失败任务调用真实 requeue 接口；处理中和完成记录分别进入进度页和详情页。
+
+## 7. 可访问性与响应式
+
+- 每页必须有唯一标题、meta description、主内容 landmark 和跳过导航链接。
+- 导航使用 `aria-current`，流程步骤使用当前/完成/待处理的语义状态。
+- 输入框有可访问名称；通知、加载和错误状态可被辅助技术识别。
+- 所有核心流程可使用键盘完成，焦点样式不可被移除。
+- 桌面、平板和手机宽度均不得产生页面级横向溢出。
+- 表格和高密度详情在窄屏中使用可读的重排或受控滚动。
+
+## 8. 测试契约
+
+执行顺序：
+
+```powershell
+npm.cmd run build:frontend
+& 'F:\python3.11\python.exe' -m pytest -q
+$env:STAGE41_PYTHON='F:\python3.11\python.exe'
+npm.cmd run test:browser
 ```
 
-## 5. 各页面接口接入
+测试必须覆盖：
 
-### 5.1 `app/test4.html` 面试准备页
+- FastAPI 保持 API-only，产品路由不由后端返回 HTML；
+- 六个 React 路由存在并能渲染非空内容；
+- 准备、SSE 面试、报告轮询、报告详情、PDF 和失败重试走真实接口契约；
+- `Last-Event-ID`、刷新恢复、generation reset、幂等命令与版本冲突；
+- 桌面和移动端边界、键盘可用性、减少动态效果；
+- UTF-8 中文文案不出现乱码；
+- 构建产物不依赖六个旧 HTML 文件。
 
-接入接口：
-
-| 操作 | 接口 | 行为 |
-| --- | --- | --- |
-| 页面加载恢复草稿 | `GET /api/interview-drafts/{draft_id}` | 从 `localStorage.interviewDraftId` 读取草稿 ID，成功后填回 JD/简历 |
-| 保存草稿 | `POST /api/interview-drafts` | 保存 JD/简历和当前标签，成功后覆盖本地 `draft_id` |
-| 生成题目计划 | `POST /api/prep` | 渲染 `title`、`questions`、`job_tags`，不创建会话 |
-| 开始面试 | `POST /api/interviews` | 创建会话，成功后跳转 `/interview?session_id=...` |
-
-实现要求：
-
-| 要求 | 说明 |
-| --- | --- |
-| 不读取硬编码 demo 标签作为真实标签 | 页面加载时标签状态应为空，只有 `/api/prep` 或会话快照返回后才写入 |
-| `job_tags` 是响应顶层字段 | 不要把它当成 `InterviewPlan` 模型字段 |
-| 保存草稿使用 JS 状态 | 使用 `currentTags` 变量保存标签，不从 DOM 反向读取 |
-
-### 5.2 `app/test3.html` 模拟面试页
-
-接入接口：
-
-| 操作 | 接口 | 行为 |
-| --- | --- | --- |
-| 页面加载 | `GET /api/interviews/{session_id}` | 渲染当前题、消息、题目状态、进度、标签 |
-| 提交回答 | `POST /api/interviews/{session_id}/answer/stream` | 解析 SSE，实时渲染追问片段和最终状态 |
-| 兼容非流式 | `POST /api/interviews/{session_id}/answer` | 可作为降级路径 |
-| 下一题 / 跳过 | `POST /api/interviews/{session_id}/skip` | 成功后重新加载 session snapshot |
-| 结束面试 | `POST /api/interviews/{session_id}/finish` | 成功后跳转报告生成页 |
-
-实现要求：
-
-| 要求 | 说明 |
-| --- | --- |
-| session snapshot 是状态源 | 答题、跳题、结束后都重新调用 `GET /api/interviews/{session_id}` |
-| 题目状态使用后端枚举 | 支持 `current`、`answered`、`skipped`、`unanswered`、`pending` |
-| 结束状态跳转 | `status=finished` 时进入 `/report-processing?session_id=...` |
-
-### 5.3 `app/test2.html` 报告生成页
-
-接入接口：
-
-| 操作 | 接口 | 行为 |
-| --- | --- | --- |
-| 页面加载 | `GET /api/interviews/{session_id}` | 展示会话标题、题目数量、标签 |
-| 进度轮询 | `GET /api/interviews/{session_id}/report/progress` | 渲染阶段、百分比、事件、RAG 摘要、`report_job_id` |
-| 完成检测 | `GET /api/interviews/{session_id}/report` | 返回 `200` 时跳转报告详情页，返回 `202` 时继续轮询 |
-
-轮询策略：
-
-```text
-每 3 秒调用 /report/progress 更新 UI
-随后调用 /report 判断是否完成
-完成 -> /report-detail?session_id=...
-失败 -> 展示失败状态，不清空页面历史进度
-```
-
-不要在同一轮轮询里用 `/report/progress` 和 `/report` 的不同 payload 重复渲染同一个进度组件。`/report/progress` 负责 UI，`/report` 只负责完成判断。
-
-### 5.4 `app/test1.html` 报告详情页
-
-接入接口：
-
-| 操作 | 接口 | 行为 |
-| --- | --- | --- |
-| 页面加载报告 | `GET /api/interviews/{session_id}/report` | 渲染完整 `InterviewReport` |
-| 下载 PDF | `GET /api/interviews/{session_id}/report.pdf` | 使用 blob 下载，不直接 `window.location.href` 跳转 |
-| 返回报告中心 | `GET /api/reports` | 当前可先做入口按钮，报告中心页面可后续单独设计 |
-
-实现要求：
-
-| 要求 | 说明 |
-| --- | --- |
-| 使用后端五维评分 | 不使用原型里的四维雷达字段 |
-| 不展示虚构百分位 | 后端没有百分位、候选人排名、分享链接时隐藏对应区域 |
-| PDF 下载错误不破坏报告视图 | 失败时只显示局部提示，不清空已渲染报告 |
-
-## 6. 样式与资源策略
-
-四个原型页使用浅色卡片风格，当前旧运行页是暗色工作台。下一阶段建议统一采用四个原型页的浅色方向，因为报告阅读和长时间面试更适合高可读性背景。
-
-| 资源 | 处理建议 |
-| --- | --- |
-| Tailwind CDN | 不作为本机部署依赖；将需要的样式沉淀到本地 CSS |
-| FontAwesome CDN | 替换为文本图标、本地 SVG 或纯 CSS 图形 |
-| Chart.js CDN | 初期用五维条形图替代；如要雷达图，后续本地化依赖 |
-| 共享 CSS | 可以新增 `app/static/prototype.css`，四页共用 |
-
-## 7. 测试计划
-
-| 测试 | 目标 |
-| --- | --- |
-| 页面路由测试 | `/`、`/prep`、`/interview`、`/report-processing`、`/report-detail` 返回对应 HTML |
-| 静态引用测试 | 页面不再引用 `app/static/index.html`，也不出现旧 GPT-4o 硬编码文案 |
-| JS 语法测试 | `node --check app/static/*.js` 通过 |
-| 准备页集成测试 | mock `/api/prep` 后能渲染 `job_tags` 和题目计划 |
-| 面试页集成测试 | mock session snapshot 后能渲染题目状态和消息 |
-| 报告生成页集成测试 | mock `/report/progress` 后能渲染阶段、事件和 RAG 摘要 |
-| 报告详情页集成测试 | mock `/report` 后能渲染总分、五维分、反馈和引用 |
-
-## 8. 实施顺序
-
-1. 新增四个页面路由，让 `/` 指向 `app/test4.html`，停止服务旧 `app/static/index.html`。
-2. 为四个 HTML 添加稳定 DOM id 和本地 JS/CSS 引用。
-3. 抽出 `api.js`、`shared-ui.js`，统一错误处理、下载、维度映射和状态标签。
-4. 接入 `test4.html` 的草稿、计划生成和开始面试。
-5. 接入 `test3.html` 的 session snapshot、流式回答、跳题和结束。
-6. 接入 `test2.html` 的报告进度轮询和完成跳转。
-7. 接入 `test1.html` 的报告详情和 PDF 下载。
-8. 删除或停用 `app/static/index.html` 相关测试和路由断言。
+浏览器测试禁止以截图作为常规产物。Playwright 仅在失败时保留 trace，用于诊断而不是作为设计依据。
 
 ## 9. 验收标准
 
 | 编号 | 标准 |
 | --- | --- |
-| F1 | `app/static/index.html` 不再是任何运行路由的返回页面 |
-| F2 | 四个原型页都能通过后端路由直接访问 |
-| F3 | 从准备页开始能完整走通：生成计划 -> 开始面试 -> 答题/跳题/结束 -> 报告生成 -> 报告详情 -> PDF 下载 |
-| F4 | 页面不显示后端没有返回的百分位、Worker 名称、站内通知、分享链接 |
-| F5 | 报告详情页展示五维中文标签，而不是英文字段名或四维原型字段 |
-| F6 | 全量后端测试通过，新增页面路由和静态检查测试通过 |
+| F1 | `frontend/` 可独立安装、开发运行和生产构建 |
+| F2 | FastAPI 根路径返回 API 边界信息，不服务产品 HTML 或静态资源 |
+| F3 | 六个产品路由全部由 React 页面承载并符合 `DESIGN.md` 的对应环境 |
+| F4 | 准备、面试、报告生成、详情、报告中心形成真实 API 闭环 |
+| F5 | SSE 支持持久游标、断线恢复、刷新恢复、版本冲突和 generation reset |
+| F6 | 页面包含加载、空、错误、失败、完成和降级状态，不用演示数据替代 |
+| F7 | 桌面/移动端布局、键盘、ARIA、焦点和 reduced-motion 验收通过 |
+| F8 | 前端构建、全量 Python 测试和浏览器测试全部通过 |
+| F9 | README、运行手册、接口文档和本指南均指向 Vite/React 架构 |
 
-## 10. 补充建议
+## 10. 修改边界
 
-报告中心可以后置。当前四个原型页已经覆盖一次面试闭环，先不要把报告中心、知识库管理、登录体系混入这一阶段。
+后续前端开发应优先修改：
 
-知识库管理 UI 应作为下一阶段单独做，因为它需要上传、切分、embedding、索引、删除、检索预览等后端能力，不只是前端页面问题。
+```text
+frontend/src/pages/
+frontend/src/components/
+frontend/src/api/
+frontend/src/hooks/
+frontend/src/styles/index.css
+```
+
+除非任务明确要求清理历史兼容资产，否则不要把 `app/test*.html` 或 `app/static/*.js` 重新接回运行路径，也不要据此还原页面设计。

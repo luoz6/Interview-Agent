@@ -33,6 +33,7 @@ def test_legacy_session_defaults_are_explicit():
     assert state["workflow_engine"] == "legacy"
     assert state["graph_schema_version"] is None
     assert state["projection_sha256"] is None
+    assert state["memory_policy_version"] == "deterministic-v1"
 
 
 def test_engine_assignment_is_stable_for_one_session():

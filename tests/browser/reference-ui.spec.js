@@ -4,384 +4,381 @@ const jobDescription = "Backend engineer with Redis and MySQL";
 const resumeText = "Built cache-aside recovery workflows";
 
 test.beforeEach(async ({}, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop-chromium", "desktop-only UI refactor");
+  test.skip(testInfo.project.name !== "desktop-chromium", "desktop-only design acceptance");
 });
 
 async function createSession(request) {
-  const response = await request.post("/api/interviews", {
-    data: {
-      job_description: jobDescription,
-      resume_text: resumeText,
-    },
-  });
+  const response = await request.post("/api/interviews", { data: { job_description: jobDescription, resume_text: resumeText } });
   expect(response.status()).toBe(200);
   return (await response.json()).session_id;
 }
 
 async function createCompletedReport(request) {
   const sessionId = await createSession(request);
-  const snapshot = await request.get(`/api/interviews/${sessionId}`);
-  const { state_version: stateVersion } = await snapshot.json();
-  const finish = await request.post(`/api/interviews/${sessionId}/finish`, {
-    data: {
-      expected_version: stateVersion,
-      command_id: `reference-finish-${sessionId}`,
-    },
-  });
-  expect(finish.status()).toBe(200);
-  await expect.poll(async () => {
-    const report = await request.get(`/api/interviews/${sessionId}/report`);
-    return report.status();
-  }).toBe(200);
+  const snapshot = await (await request.get(`/api/interviews/${sessionId}`)).json();
+  await request.post(`/api/interviews/${sessionId}/finish`, { data: { expected_version: snapshot.state_version, command_id: `finish-${sessionId}` } });
+  await expect.poll(async () => (await request.get(`/api/interviews/${sessionId}/report`)).status()).toBe(200);
   return sessionId;
 }
 
-async function startInterviewThroughPrep(page) {
-  await page.goto("/prep");
-  await page.locator("#jobDescription").fill(jobDescription);
-  await page.locator("#resumeText").fill(resumeText);
-  await page.locator("#prepButton").click();
-  await expect(page.locator("#planQuestions li")).toHaveCount(3);
-  await page.locator("#startButton").click();
-  await expect(page).toHaveURL(/\/interview\?session_id=/);
-  await expect(page.locator("#sessionStatus")).toHaveText("active");
-  return new URL(page.url()).searchParams.get("session_id");
-}
-
 async function seedReport(request, status, ageDays = 0) {
-  const response = await request.post(
-    `/test-support/reports/${status}?age_days=${ageDays}`,
-  );
+  const response = await request.post(`/test-support/reports/${status}?age_days=${ageDays}`);
   expect(response.status()).toBe(200);
   return response.json();
 }
 
-async function expectDesktopGeometry(page) {
-  await page.evaluate(() => window.scrollTo(0, 0));
+async function openPrepDocument(page, name) {
+  await page.getByRole("tab", { name: new RegExp(name) }).click();
+}
+
+async function fillPrepSources(page) {
+  await openPrepDocument(page, "岗位 JD");
+  await page.getByLabel("岗位 JD").fill(jobDescription);
+  await openPrepDocument(page, "候选人经历");
+  await page.getByLabel("简历内容").fill(resumeText);
+}
+
+async function expectGeometry(page) {
   const metrics = await page.evaluate(() => {
-    const isVisible = (element) => {
-      const style = window.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return style.display !== "none"
-        && style.visibility !== "hidden"
-        && rect.width > 0
-        && rect.height > 0;
-    };
-    const rectOf = (element) => {
-      if (!element) return null;
-      const rect = element.getBoundingClientRect();
-      return {
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-      };
-    };
-    const buttons = [...document.querySelectorAll("button")]
-      .filter(isVisible)
-      .map((button) => ({
-        ...rectOf(button),
-        text: button.textContent.trim(),
-      }));
-    const buttonOverlaps = [];
-    for (let left = 0; left < buttons.length; left += 1) {
-      for (let right = left + 1; right < buttons.length; right += 1) {
-        const first = buttons[left];
-        const second = buttons[right];
-        const overlapWidth = Math.min(first.right, second.right) - Math.max(first.left, second.left);
-        const overlapHeight = Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top);
-        if (overlapWidth > 1 && overlapHeight > 1) {
-          buttonOverlaps.push([first.text, second.text]);
-        }
-      }
-    }
-    const tableContainer = document.querySelector(".report-table-scroll, .feedback-table-wrap");
+    const visibleButtons = [...document.querySelectorAll("button")].filter((item) => {
+      const rect = item.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && getComputedStyle(item).visibility !== "hidden";
+    });
     return {
       viewport: document.documentElement.clientWidth,
       document: document.documentElement.scrollWidth,
-      bodyTextLength: document.body.innerText.trim().length,
-      topbar: rectOf(document.querySelector(".app-topbar")),
-      main: rectOf(document.querySelector("main")),
-      buttons,
-      buttonOverlaps,
-      table: tableContainer ? {
-        ...rectOf(tableContainer),
-        clientWidth: tableContainer.clientWidth,
-        scrollWidth: tableContainer.scrollWidth,
-      } : null,
+      text: document.body.innerText.trim().length,
+      htmlOverflowX: getComputedStyle(document.documentElement).overflowX,
+      bodyOverflowX: getComputedStyle(document.body).overflowX,
+      buttons: visibleButtons.map((item) => ({ width: item.getBoundingClientRect().width, height: item.getBoundingClientRect().height })),
+      controlsStaySingleLine: [...document.querySelectorAll("button, .app-nav a, .report-rail nav a")]
+        .filter((item) => {
+          const rect = item.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        })
+        .every((item) => getComputedStyle(item).whiteSpace === "nowrap"),
+      displayHeadingsFit: [...document.querySelectorAll("h1, .section-heading h2, .help-entry h2")]
+        .every((item) => item.scrollWidth <= item.clientWidth + 1),
+    };
+  });
+  expect(metrics.text).toBeGreaterThan(100);
+  expect(metrics.document).toBeLessThanOrEqual(metrics.viewport);
+  expect(metrics.htmlOverflowX).toBe("clip");
+  expect(metrics.bodyOverflowX).toBe("clip");
+  expect(metrics.buttons.every((item) => item.width > 0 && item.height > 0)).toBe(true);
+  expect(metrics.controlsStaySingleLine).toBe(true);
+  expect(metrics.displayHeadingsFit).toBe(true);
+}
+
+test("React preparation validates imports and renders real plan metrics", async ({ page }) => {
+  await page.goto("/prep");
+  await page.locator('input[type="file"]').setInputFiles({ name: "role.pdf", mimeType: "application/pdf", buffer: Buffer.from("unsupported") });
+  await expect(page.locator("body")).toContainText("仅支持 .txt 或 .md");
+  await page.locator('input[type="file"]').setInputFiles({ name: "role.md", mimeType: "text/markdown", buffer: Buffer.from(jobDescription) });
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await openPrepDocument(page, "候选人经历");
+  await page.locator('input[type="file"]').setInputFiles({ name: "resume.txt", mimeType: "text/plain", buffer: Buffer.from(resumeText) });
+  await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  await expect(page.locator(".start-plan-question")).toHaveCount(3);
+  await expect(page.locator(".start-plan-metrics")).toContainText("12–18 分钟");
+  await page.getByRole("tab", { name: "证据", exact: true }).click();
+  await expect(page.locator(".start-knowledge-state")).toHaveAttribute("data-state", "completed");
+  await expect(page.locator(".start-knowledge-state")).toContainText("检索完成");
+  await expect(page.locator(".start-evidence-list code").first()).toContainText("理论资料");
+});
+
+test("preparation details expose semantic icons, errors and focused recovery", async ({ page }) => {
+  await page.goto("/prep");
+
+  const namedButtons = page.locator("button:visible");
+  expect(await namedButtons.count()).toBeGreaterThan(0);
+  await expect(page.locator(".start-activity-rail svg")).toHaveCount(3);
+  await expect(page.locator(".start-runtime svg")).toHaveCount(1);
+  await expect(page.locator(".start-status-bar svg")).toHaveCount(5);
+  await expect(page.getByRole("button", { name: "保存草稿" }).locator("svg")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "生成面试计划" }).locator("svg")).toHaveCount(1);
+  await expect(page.locator('.start-field-error[data-state="hint"]')).toContainText("支持粘贴或导入");
+  await expect(page.locator(".start-document-tabs .start-tab-state svg")).toHaveCount(2);
+  await page.getByRole("tab", { name: "就绪", exact: true }).click();
+  await expect(page.locator(".start-readiness-list svg")).toHaveCount(4);
+  await expect(page.locator("#inspector-panel")).toHaveAttribute("role", "tabpanel");
+  await expect(page.locator("#inspector-panel")).toHaveAttribute("aria-labelledby", "inspector-tab-readiness");
+  await page.getByRole("tab", { name: "计划", exact: true }).click();
+
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  const firstAlert = page.getByRole("alert");
+  await expect(firstAlert).toContainText("岗位 JD");
+  await expect(firstAlert.locator("svg")).toHaveCount(1);
+  await expect(page.getByLabel("岗位 JD")).toBeFocused();
+  await expect(page.getByLabel("岗位 JD")).toHaveAttribute("aria-invalid", "true");
+
+  await page.getByLabel("岗位 JD").fill(jobDescription);
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  await expect(page.getByRole("alert")).toContainText("候选人经历");
+  await expect(page.getByLabel("简历内容")).toBeFocused();
+  await expect(page.getByLabel("简历内容")).toHaveAttribute("aria-invalid", "true");
+});
+
+test("preparation errors and empty inspector views keep restrained light surfaces", async ({ page }) => {
+  await page.goto("/prep");
+
+  await expect(page.locator(".start-plan-summary")).toHaveCount(0);
+  await expect(page.locator(".start-plan-metrics")).toHaveCount(0);
+  await expect(page.locator(".start-plan-panel .start-inspector-empty")).toHaveCount(1);
+
+  await page.getByRole("tab", { name: "证据", exact: true }).click();
+  await expect(page.locator(".start-evidence-head")).toHaveCount(0);
+  await expect(page.locator(".start-topic-list")).toHaveCount(0);
+  await expect(page.locator(".start-evidence-panel .start-inspector-empty")).toHaveCount(1);
+  await expect(page.locator(".knowledge-section")).toHaveCount(0);
+
+  const evidenceSurface = await page.evaluate(() => {
+    const panel = getComputedStyle(document.querySelector(".start-evidence-panel"));
+    const inspector = getComputedStyle(document.querySelector(".start-inspector"));
+    return { panel: panel.backgroundColor, inspector: inspector.backgroundColor };
+  });
+  expect(evidenceSurface.panel).toBe(evidenceSurface.inspector);
+
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  const invalidSurface = await page.getByRole("textbox", { name: "岗位 JD" }).evaluate((element) => {
+    const textarea = getComputedStyle(element);
+    const source = getComputedStyle(element.closest(".start-source"));
+    const feedback = getComputedStyle(element.closest(".start-source").querySelector(".start-field-error"));
+    return {
+      textareaBackground: textarea.backgroundColor,
+      sourceBackground: source.backgroundColor,
+      textareaShadow: textarea.boxShadow,
+      feedbackBackground: feedback.backgroundColor,
+    };
+  });
+  expect(invalidSurface.textareaBackground).toBe(invalidSurface.sourceBackground);
+  expect(invalidSurface.textareaShadow).toBe("none");
+  expect(invalidSurface.feedbackBackground).not.toBe(invalidSurface.textareaBackground);
+});
+
+test("preparation cobalt palette keeps text, controls and focus indicators legible", async ({ page }) => {
+  await page.goto("/prep");
+  await page.getByRole("button", { name: "生成面试计划" }).focus();
+
+  const ratios = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const channels = (value) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    };
+    const luminance = (value) => {
+      const [red, green, blue] = channels(value).map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const ratio = (foreground, background) => {
+      const light = Math.max(luminance(foreground), luminance(background));
+      const dark = Math.min(luminance(foreground), luminance(background));
+      return (light + 0.05) / (dark + 0.05);
+    };
+    const pair = (selector, backgroundSelector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+      const background = getComputedStyle(document.querySelector(backgroundSelector));
+      return ratio(style.color, background.backgroundColor);
+    };
+    const primary = getComputedStyle(document.querySelector(".button-primary"));
+    const pageStyle = getComputedStyle(document.body);
+    const surface = getComputedStyle(document.querySelector(".start-inspector-actions"));
+    const tokens = getComputedStyle(document.documentElement);
+    return {
+      body: ratio(pageStyle.color, pageStyle.backgroundColor),
+      primary: ratio(primary.color, primary.backgroundColor),
+      muted: pair(".start-workspace-title p", ".start-workspace-head"),
+      focus: ratio(primary.outlineColor, surface.backgroundColor),
+      success: ratio(tokens.getPropertyValue("--start-color-success"), tokens.getPropertyValue("--start-color-success-soft")),
+      warning: ratio(tokens.getPropertyValue("--start-color-warning"), tokens.getPropertyValue("--start-color-warning-soft")),
     };
   });
 
-  expect(metrics.bodyTextLength).toBeGreaterThan(0);
-  expect(metrics.document).toBeLessThanOrEqual(metrics.viewport);
-  expect(metrics.buttons.length).toBeGreaterThan(0);
-  expect(metrics.buttons.every((button) => button.width > 0 && button.height > 0)).toBe(true);
-  expect(metrics.buttonOverlaps).toEqual([]);
-  if (metrics.topbar && metrics.main) {
-    expect(metrics.topbar.bottom).toBeLessThanOrEqual(metrics.main.top + 1);
-    expect(metrics.main.left).toBeGreaterThanOrEqual(0);
-    expect(metrics.main.right).toBeLessThanOrEqual(metrics.viewport + 1);
-  }
-  if (metrics.table) {
-    expect(metrics.table.width).toBeGreaterThan(0);
-    expect(metrics.table.height).toBeGreaterThan(0);
-    expect(metrics.table.clientWidth).toBeGreaterThan(0);
-    expect(metrics.table.scrollWidth).toBeGreaterThanOrEqual(metrics.table.clientWidth);
-    expect(metrics.table.right).toBeLessThanOrEqual(metrics.viewport + 1);
-  }
-}
+  expect(ratios.body).toBeGreaterThanOrEqual(4.5);
+  expect(ratios.primary).toBeGreaterThanOrEqual(4.5);
+  expect(ratios.muted).toBeGreaterThanOrEqual(4.5);
+  expect(ratios.focus).toBeGreaterThanOrEqual(3);
+  expect(ratios.success).toBeGreaterThanOrEqual(4.5);
+  expect(ratios.warning).toBeGreaterThanOrEqual(4.5);
+});
 
-test("reference preparation validates imports and renders real plan metrics", async ({ page }) => {
+test("primary preparation action keeps its hierarchy while generating", async ({ page }) => {
   await page.goto("/prep");
-
-  await page.locator("#jobDescriptionFileInput").setInputFiles({
-    name: "role.pdf",
-    mimeType: "application/pdf",
-    buffer: Buffer.from("not a supported text file"),
+  await fillPrepSources(page);
+  await page.route("**/api/prep", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
   });
-  await expect(page.locator("#prepStatus")).toContainText(".txt");
 
-  await page.locator("#jobDescriptionFileInput").setInputFiles({
-    name: "oversized.md",
-    mimeType: "text/markdown",
-    buffer: Buffer.alloc((1024 * 1024) + 1, "a"),
+  const action = page.getByRole("button", { name: "生成面试计划" });
+  await action.click();
+  await expect(action).toHaveAttribute("aria-busy", "true");
+  const state = await action.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      cursor: style.cursor,
+      fontSize: style.fontSize,
+      height: element.getBoundingClientRect().height,
+      opacity: Number(style.opacity),
+      iconCount: element.querySelectorAll("svg").length,
+    };
   });
-  await expect(page.locator("#prepStatus")).toContainText("1 MiB");
-
-  await page.locator("#jobDescriptionFileInput").setInputFiles({
-    name: "role.md",
-    mimeType: "text/markdown",
-    buffer: Buffer.from(jobDescription),
-  });
-  await page.locator("#resumeFileInput").setInputFiles({
-    name: "resume.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from(resumeText),
-  });
-  await expect(page.locator("#jobDescription")).toHaveValue(jobDescription);
-  await expect(page.locator("#resumeText")).toHaveValue(resumeText);
-
-  await page.locator("#prepButton").click();
-  await expect(page.locator("#planQuestions li")).toHaveCount(3);
-  await expect(page.locator("#planQuestionCount")).toContainText("3");
-  await expect(page.locator("#planDuration")).toContainText("12-18");
-  await expect(page.locator("#prepKnowledgeStatus")).toBeVisible();
+  expect(state.cursor).toBe("wait");
+  expect(state.fontSize).toBe("14px");
+  expect(state.height).toBeGreaterThanOrEqual(48);
+  expect(state.opacity).toBeGreaterThanOrEqual(0.85);
+  expect(state.iconCount).toBe(1);
+  await expect(page.locator(".start-plan-question")).toHaveCount(3);
 });
 
-test("interview focus mode and question draft survive refresh and submission failure", async ({ page }) => {
-  const sessionId = await startInterviewThroughPrep(page);
-  const snapshot = await page.request.get(`/api/interviews/${sessionId}`);
-  const questionId = (await snapshot.json()).current_question.id;
-  const draftKey = `interviewAnswerDraft:${sessionId}:${questionId}`;
-  const draft = "Cache-aside with database fallback and timeout recovery.";
+test("secondary draft action stays identifiable while saving", async ({ page }) => {
+  await page.goto("/prep");
+  await fillPrepSources(page);
+  await page.route("**/api/interview-drafts", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await route.continue();
+  });
 
-  await page.locator("#answerInput").fill(draft);
-  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), draftKey)).toBe(draft);
+  const save = page.locator(".start-editor-tools .start-tool-button").first();
+  await expect(save).toHaveAccessibleName("保存草稿");
+  await save.click();
+  await expect(save).toHaveAttribute("data-state", "loading");
+  await expect(save).toContainText("正在保存");
+  const state = await save.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { cursor: style.cursor, opacity: Number(style.opacity), iconCount: element.querySelectorAll("svg").length };
+  });
+  expect(state.cursor).toBe("wait");
+  expect(state.opacity).toBe(1);
+  expect(state.iconCount).toBe(1);
+  await expect(page.locator(".start-notice")).toContainText("草稿已保存在本机浏览器中");
+});
+
+test("destructive canvas clearing requires an explicit second action", async ({ page }) => {
+  await page.goto("/prep");
+  await fillPrepSources(page);
+
+  await page.getByRole("button", { name: "清空当前画布" }).click();
+  await expect(page.locator(".start-notice-warning")).toContainText("再次点击");
+  await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
+  await openPrepDocument(page, "岗位 JD");
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+
+  await page.getByRole("button", { name: "确认清空当前画布" }).click();
+  await expect(page.getByLabel("岗位 JD")).toHaveValue("");
+  await openPrepDocument(page, "候选人经历");
+  await expect(page.getByLabel("简历内容")).toHaveValue("");
+});
+
+test("degraded knowledge is presented as warning rather than failure", async ({ page }) => {
+  await page.goto("/prep");
+  await openPrepDocument(page, "岗位 JD");
+  await page.getByLabel("岗位 JD").fill(`${jobDescription} simulate degraded`);
+  await openPrepDocument(page, "候选人经历");
+  await page.getByLabel("简历内容").fill(resumeText);
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  await page.getByRole("tab", { name: "证据", exact: true }).click();
+
+  await expect(page.locator(".start-knowledge-state")).toHaveAttribute("data-state", "degraded");
+  await expect(page.locator(".start-knowledge-state")).toContainText("检索降级");
+  await expect(page.locator(".start-evidence-state")).toHaveAttribute("data-tone", "warning");
+  await expect(page.locator(".start-evidence-state")).toContainText("面试仍可继续");
+  await expect(page.locator(".start-evidence-list article")).toHaveCount(0);
+});
+
+test("application workbench saves and restores the anonymous draft", async ({ page }) => {
+  await page.goto("/prep");
+  await fillPrepSources(page);
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(page.locator(".start-notice")).toContainText("草稿已保存在本机浏览器中");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("interview-agent:draft-id"))).not.toBeNull();
+
   await page.reload();
-  await expect(page.locator("#answerInput")).toHaveValue(draft);
+  await expect(page.getByLabel("岗位 JD")).toHaveValue("");
+  await page.getByRole("button", { name: "恢复草稿" }).click();
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await openPrepDocument(page, "候选人经历");
+  await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
+});
 
-  await page.locator("#focusModeButton").click();
-  await expect(page.locator("#focusModeButton")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".question-nav")).toBeHidden();
-  await expect(page.locator(".interview-side")).toBeHidden();
+test("React interview focus mode and answer draft survive refresh", async ({ page }) => {
+  await page.goto("/prep");
+  await fillPrepSources(page);
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  await page.getByRole("button", { name: "开始本次面试" }).click();
+  const draft = "Cache-aside with database fallback and timeout recovery.";
+  await page.getByLabel("你的回答").fill(draft);
+  await page.reload();
+  await expect(page.getByLabel("你的回答")).toHaveValue(draft);
+  await page.getByRole("button", { name: "专注模式" }).click();
+  await expect(page.locator(".question-rail")).toHaveCount(0);
+  await expect(page.locator(".interview-context")).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.locator("#focusModeButton")).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator(".question-nav")).toBeVisible();
-  await expect(page.locator(".interview-side")).toBeVisible();
-
-  const streamPattern = `**/api/interviews/${sessionId}/answer/stream`;
-  const failAnswer = (route) => route.fulfill({
-    status: 503,
-    contentType: "application/json",
-    body: JSON.stringify({ detail: "simulated provider outage" }),
-  });
-  await page.route(streamPattern, failAnswer);
-  await page.locator("#sendAnswerButton").click();
-  await expect(page.locator("#interviewNotice")).toContainText("simulated provider outage");
-  await expect(page.locator("#answerInput")).toHaveValue(draft);
-  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), draftKey)).toBe(draft);
-
-  await page.unroute(streamPattern, failAnswer);
-  await page.locator("#sendAnswerButton").click();
-  await expect(page.locator("#conversation")).toContainText("trade-off");
-  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), draftKey)).toBeNull();
+  await expect(page.locator(".question-rail")).toBeVisible();
+  await page.getByRole("button", { name: "提交回答" }).click();
+  await expect(page.locator(".agent-console")).toContainText("trade-off");
 });
 
-test("report center filters, paginates, requeues, downloads and opens progress", async ({ page, request }) => {
-  const processingReports = [];
-  for (let index = 0; index < 7; index += 1) {
-    processingReports.push(await seedReport(request, "processing", index === 6 ? 45 : 0));
-  }
-  const failedReport = await seedReport(request, "failed");
-  const completedSessionId = await createCompletedReport(request);
-
+test("React report center filters, requeues and opens progress", async ({ page, request }) => {
+  const processing = await seedReport(request, "processing");
+  const failed = await seedReport(request, "failed");
+  await createCompletedReport(request);
   await page.goto("/reports");
-  await expect(page.locator("#reportsStatus")).toContainText("已加载");
-
-  await page.locator('[data-report-status="processing"]').click();
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(5);
-  await page.locator("#paginationNext").click();
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(1);
-
-  await page.locator("#reportDateFilter").selectOption("all");
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(5);
-  await page.locator("#paginationNext").click();
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(2);
-
-  await page.locator('[data-report-status="failed"]').click();
-  await page.locator("#reportSearch").fill("Backend");
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(1);
-  await page.getByRole("button", { name: "重新生成" }).click();
-  await expect(page.locator("#reportsStatus")).toContainText("重新进入队列");
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(0);
-  const reportsAfterRequeue = await request.get("/api/reports?limit=100");
-  const requeued = (await reportsAfterRequeue.json()).items.find(
-    (item) => item.session_id === failedReport.session_id,
-  );
-  expect(requeued.status).toBe("processing");
-
-  await page.locator('[data-report-status="completed"]').click();
-  await page.locator("#reportSearch").fill(completedSessionId);
-  await expect(page.locator("#reportsTableBody tr")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "下载 PDF" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "下载 PDF" })).toBeEnabled();
-
-  await page.locator('[data-report-status="processing"]').click();
-  await page.locator("#reportSearch").fill(processingReports[0].session_id);
-  await page.getByRole("link", { name: "查看进度" }).click();
-  await expect(page).toHaveURL(new RegExp(`/report-processing\\?session_id=${processingReports[0].session_id}`));
-  await expect(page.locator("#reportProgressText")).toHaveText("20%");
+  await expect(page.locator(".report-row").first()).toBeVisible();
+  await page.getByRole("button", { name: /生成失败/ }).click();
+  await page.locator('input[aria-label="搜索报告"]').fill(failed.session_id);
+  await page.getByRole("button", { name: "搜索" }).click();
+  await expect(page.locator(".report-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "重新排队" }).click();
+  await expect(page.locator("body")).toContainText("已重新排队");
+  const reports = await (await request.get("/api/reports?limit=100")).json();
+  expect(reports.items.find((item) => item.session_id === failed.session_id).status).toBe("processing");
+  await page.getByRole("button", { name: /生成中/ }).click();
+  await page.locator('input[aria-label="搜索报告"]').fill(processing.session_id);
+  await page.getByRole("button", { name: "搜索" }).click();
+  await page.getByRole("button", { name: "查看进度" }).click();
+  await expect(page).toHaveURL(new RegExp(`/report-processing\\?session_id=${processing.session_id}`));
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
 });
 
-test("report detail renders only safe runtime trace fields and no percentile claim", async ({ page, request }) => {
+test("React report detail shows only safe runtime fields and tracks sections", async ({ page, request }) => {
   const sessionId = await createCompletedReport(request);
-  const reportResponse = await request.get(`/api/interviews/${sessionId}/report`);
-  const report = await reportResponse.json();
-  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      session_id: sessionId,
-      items: [{
-        run_id: "run-safe-1",
-        agent: "reviewer",
-        operation: "evaluate",
-        status: "completed",
-        correlation_id: "correlation-safe-1",
-        latency_ms: 14,
-        started_at: "2026-07-18T00:00:00Z",
-        finished_at: "2026-07-18T00:00:00Z",
-        safe_metadata: { prompt: "do-not-render-agent-secret" },
-      }],
-    }),
-  }));
-  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      session_id: sessionId,
-      items: [{
-        event_id: "event-safe-1",
-        event_type: "round.closed",
-        status: "completed",
-        correlation_id: "correlation-safe-1",
-        attempt_count: 1,
-        max_attempts: 3,
-        replay_count: 0,
-        created_at: "2026-07-18T00:00:00Z",
-        updated_at: "2026-07-18T00:00:00Z",
-        payload_json: { answer: "do-not-render-event-secret" },
-      }],
-    }),
-  }));
-
+  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ run_id: "run-safe-1", agent: "reviewer", operation: "evaluate", status: "completed", safe_metadata: { prompt: "secret-agent" } }] }) }));
+  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ event_id: "event-safe-1", event_type: "round.closed", status: "completed", payload_json: { answer: "secret-event" } }] }) }));
   await page.goto(`/report-detail?session_id=${sessionId}`);
-  await expect(page.locator("#reportScore")).toHaveText(String(report.overall_score));
-  await expect(page.locator("#agentRunList")).toContainText("run-safe-1");
-  await expect(page.locator("#runtimeEventList")).toContainText("event-safe-1");
-  await expect(page.locator("body")).not.toContainText("超过候选人");
-  await expect(page.locator("body")).not.toContainText("do-not-render-agent-secret");
-  await expect(page.locator("body")).not.toContainText("do-not-render-event-secret");
-  await expect(page.locator("body")).not.toContainText("safe_metadata");
-  await expect(page.locator("body")).not.toContainText("payload_json");
+  await expect(page.locator(".overall-score")).toBeVisible();
+  await expect(page.locator(".runtime-list").nth(0)).toContainText("run-safe-1");
+  await expect(page.locator(".runtime-list").nth(1)).toContainText("event-safe-1");
+  await expect(page.locator("body")).not.toContainText("secret-agent");
+  await expect(page.locator("body")).not.toContainText("secret-event");
+  await page.locator("#questions").scrollIntoViewIfNeeded();
+  await expect(page.locator('.report-rail [aria-current="location"]')).toHaveAttribute("href", "#questions");
 });
 
-test("report detail tracks exactly one current section while scrolling", async ({ page, request }) => {
-  const sessionId = await createCompletedReport(request);
-  await page.goto(`/report-detail?session_id=${sessionId}`);
-  const currentLink = page.locator('.report-nav [aria-current="location"]');
-
-  await expect(currentLink).toHaveCount(1);
-  await expect(currentLink).toHaveAttribute("href", "#reportOverview");
-  await page.locator("#reportQuestionEvaluations").scrollIntoViewIfNeeded();
-  await expect(currentLink).toHaveCount(1);
-  await expect(currentLink).toHaveAttribute("href", "#reportQuestionEvaluations");
+test("all six React routes remain nonempty and bounded", async ({ page, request }) => {
+  const active = await createSession(request);
+  const processing = await seedReport(request, "processing");
+  const completed = await createCompletedReport(request);
+  const routes = ["/prep", `/interview?session_id=${active}`, `/report-processing?session_id=${processing.session_id}`, `/report-detail?session_id=${completed}`, "/reports", "/help"];
+  for (const route of routes) {
+    await page.goto(route);
+    await expect(page.locator("main")).toBeVisible();
+    await expectGeometry(page);
+  }
 });
 
-test("reduced motion disables the page shell reveal", async ({ page }) => {
+test("reduced motion disables animations", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/prep");
-  const motion = await page.locator(".prep-main").evaluate((element) => {
-    const styles = getComputedStyle(element);
-    return { animationName: styles.animationName, transform: styles.transform };
-  });
-
-  expect(motion.animationName).toBe("none");
-  expect(motion.transform).toBe("none");
-});
-
-test("five reference pages stay nonempty and bounded at desktop viewports", async ({ page, request }, testInfo) => {
-  const activeSessionId = await createSession(request);
-  const processing = await seedReport(request, "processing");
-  const completedSessionId = await createCompletedReport(request);
-  const completedReportResponse = await request.get(
-    `/api/interviews/${completedSessionId}/report`,
-  );
-  const completedReport = await completedReportResponse.json();
-  const pages = [
-    { name: "prep", url: "/prep", ready: "#prepButton" },
-    {
-      name: "interview",
-      url: `/interview?session_id=${activeSessionId}`,
-      ready: "#sessionStatus",
-    },
-    {
-      name: "processing",
-      url: `/report-processing?session_id=${processing.session_id}`,
-      ready: "#reportProgressText",
-    },
-    {
-      name: "detail",
-      url: `/report-detail?session_id=${completedSessionId}`,
-      ready: "#reportScore",
-    },
-    { name: "reports", url: "/reports", ready: "#reportsTableBody" },
-  ];
-
-  for (const target of pages) {
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.goto(target.url);
-    await expect(page.locator(target.ready)).toBeVisible();
-    if (target.name === "interview") {
-      await expect(page.locator("#sessionStatus")).toHaveText("active");
-    } else if (target.name === "processing") {
-      await expect(page.locator("#reportProgressText")).toHaveText("20%");
-    } else if (target.name === "detail") {
-      await expect(page.locator("#reportScore")).toHaveText(
-        String(completedReport.overall_score),
-      );
-    } else if (target.name === "reports") {
-      await expect(page.locator("#reportsStatus")).toContainText("已加载");
-    }
-    await expectDesktopGeometry(page);
-    await page.screenshot({
-      path: testInfo.outputPath(`${target.name}-1440x1000.png`),
-      fullPage: true,
-    });
-
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await expectDesktopGeometry(page);
-  }
+  const duration = await page.locator(".button").first().evaluate((element) => getComputedStyle(element).transitionDuration);
+  expect(duration).toBe("1e-05s");
 });

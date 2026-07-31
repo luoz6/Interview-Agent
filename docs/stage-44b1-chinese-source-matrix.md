@@ -183,4 +183,23 @@ Status: APPROVED
 
 ### 审批结论
 
-本文件已由操作方明确批准。Task 7-11 只能使用本矩阵列出的 references 编写 `app/data/knowledge_v2/` 的 25 个单元；任何来源变更都必须重新审查。
+Stage 44B1 的原始 25 个单元及其来源保持历史批准状态。2026-07-30
+Memory P1 扩展在用户授权执行计划后完成技术来源复核：以下五个 Microsoft Learn
+官方中文页面均经直接 HTTP 请求确认返回 200，路径和主题与新增单元一致。
+生产加载与对外合规声明仍需要独立操作审批。
+
+## Memory P1 PostgreSQL 扩展
+
+| 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面可用性检查 | 论断一致性检查 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 高可用与故障切换 | Azure Database for PostgreSQL 灵活服务器中的高可用性 | https://learn.microsoft.com/zh-cn/azure/postgresql/high-availability/concepts-high-availability | official_cn | Microsoft Learn | PASS：2026-07-30 直接请求返回 200 | PASS：覆盖冗余、故障转移和恢复边界 |
+| 自动备份与时间点恢复 | Azure Database for PostgreSQL 灵活服务器中的备份和还原 | https://learn.microsoft.com/zh-cn/azure/postgresql/backup-restore/concepts-backup-restore | official_cn | Microsoft Learn | PASS：2026-07-30 直接请求返回 200 | PASS：覆盖备份、保留窗口、时间点恢复和恢复边界 |
+| 只读副本与复制延迟 | Azure Database for PostgreSQL 灵活服务器中的只读副本 | https://learn.microsoft.com/zh-cn/azure/postgresql/read-replica/concepts-read-replicas | official_cn | Microsoft Learn | PASS：2026-07-30 直接请求返回 200 | PASS：覆盖副本、异步复制和读扩展边界 |
+| 服务限制与连接预算 | Azure Database for PostgreSQL 灵活服务器中的限制 | https://learn.microsoft.com/zh-cn/azure/postgresql/configure-maintain/concepts-limits | official_cn | Microsoft Learn | PASS：2026-07-30 直接请求返回 200 | PASS：覆盖实例限制、连接与容量边界 |
+| 指标、日志和告警 | 监视 Azure Database for PostgreSQL | https://learn.microsoft.com/zh-cn/azure/postgresql/monitor/concepts-monitoring | official_cn | Microsoft Learn | PASS：2026-07-30 直接请求返回 200 | PASS：覆盖监控指标、日志和诊断边界 |
+
+新增六个版本化扩展单元位于
+`app/data/knowledge_v2/extensions/memory_p1/`。历史
+`stage44b1-zh-v2` 构建显式排除 extensions，继续保持 25 个单元；
+当前 `memory-p1-zh-v3` 构建包含 31 个单元。任何后续来源变化都必须
+重新执行 schema、manifest、retrieval 和来源矩阵审查。

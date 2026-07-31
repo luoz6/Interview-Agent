@@ -10,6 +10,7 @@ from app.graphs.interview_state import (
     build_initial_state,
     count_candidate_answers_for_question,
     get_current_question,
+    MemoryPolicyVersion,
 )
 from app.services.llm import InterviewLLM
 from app.services.agent_runtime import (
@@ -63,6 +64,7 @@ class InterviewGraphRunner:
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
     ) -> InterviewState:
         return build_initial_state(
             session_id=session_id,
@@ -70,6 +72,7 @@ class InterviewGraphRunner:
             job_description=job_description,
             resume_text=resume_text,
             job_tags=job_tags,
+            memory_policy_version=memory_policy_version,
         )
 
     def submit_answer(
@@ -289,11 +292,20 @@ def _build_followup_context(
     runtime = context_runtime or get_context_runtime()
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
+    budget = runtime.budget_resolver.resolve(
+        profile=runtime.model_profile,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
+    selection_budget = runtime.budget_resolver.resolve_selection_budget(
+        budget=budget,
+        policy=FOLLOWUP_CONTEXT_POLICY,
+    )
     context, _ = build_interview_context(
         state["messages"],
         current_question_id=question_id,
         evidence_messages=resolution.messages,
         policy=FOLLOWUP_CONTEXT_POLICY,
+        selection_budget=selection_budget,
         estimator=estimator,
         model=model,
     )

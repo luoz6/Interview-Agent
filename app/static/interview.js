@@ -1,4 +1,4 @@
-import { getJson, getQuestionEvaluations, getSessionId, postJson, readSse } from "./api.js";
+import { HttpError, getJson, getQuestionEvaluations, getSessionId, postJson, readSse } from "./api.js";
 import {
   byId,
   clear,
@@ -26,6 +26,37 @@ const questionPlan = byId("questionPlan");
 const toggleQuestionPlanButton = byId("toggleQuestionPlanButton");
 const topicTags = byId("topicTags");
 const interviewNotice = byId("interviewNotice");
+
+function assistanceNoticeKey(snapshot) {
+  return `interviewAssistanceNotice:${sessionId}:${snapshot.policy_version || "unknown"}:basic`;
+}
+
+function renderAssistanceMode(snapshot) {
+  document.body.dataset.assistanceMode = snapshot.assistance_mode || "full";
+  let notice = byId("memoryAssistanceNotice");
+  const required = snapshot.user_notice_required === true && snapshot.assistance_mode === "basic";
+  if (!required) {
+    if (notice) notice.hidden = true;
+    return;
+  }
+  if (!notice) {
+    notice = createEl("div", "ui-notice memory-assistance-notice");
+    notice.id = "memoryAssistanceNotice";
+    notice.setAttribute("role", "status");
+    answerForm.parentNode.insertBefore(notice, answerForm);
+  }
+  const key = assistanceNoticeKey(snapshot);
+  let acknowledged = false;
+  try {
+    acknowledged = localStorage.getItem(key) === "1";
+    if (!acknowledged) localStorage.setItem(key, "1");
+  } catch {
+    acknowledged = false;
+  }
+  notice.hidden = false;
+  notice.setAttribute("aria-live", acknowledged ? "off" : "polite");
+  notice.textContent = "智能追问暂时使用基础模式。你已提交的回答仍已保存，可以继续完成面试。";
+}
 
 let latestStateVersion = null;
 let commandSequence = 0;
@@ -72,6 +103,78 @@ function createCommandId() {
   }
   commandSequence += 1;
   return `browser-command-${Date.now()}-${commandSequence}`;
+}
+
+function pendingAnswerCommandKey() {
+  return `interviewPendingAnswer:${sessionId}`;
+}
+
+function readPendingAnswerCommand() {
+  try {
+    const value = sessionStorage.getItem(pendingAnswerCommandKey());
+    if (!value) return null;
+    const pending = JSON.parse(value);
+    if (!pending.command_id || !pending.answer || !pending.question_id) return null;
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+function persistPendingAnswerCommand(pending) {
+  sessionStorage.setItem(pendingAnswerCommandKey(), JSON.stringify(pending));
+}
+
+function clearPendingAnswerCommand() {
+  sessionStorage.removeItem(pendingAnswerCommandKey());
+}
+
+function getOrCreatePendingAnswerCommand(answer, questionId) {
+  const existing = readPendingAnswerCommand();
+  if (existing && existing.question_id === questionId) return existing;
+  const pending = {
+    command_id: createCommandId(),
+    answer,
+    question_id: questionId,
+    expected_version: Number.isInteger(latestStateVersion) ? latestStateVersion : null,
+  };
+  persistPendingAnswerCommand(pending);
+  return pending;
+}
+
+function restorePendingAnswerCommand(questionId) {
+  const pending = readPendingAnswerCommand();
+  if (!pending || pending.question_id !== questionId) return;
+  answerInput.value = pending.answer;
+  setText("answerCount", String(answerInput.value.length));
+  setText("answerDraftStatus", "待重试回答已恢复");
+}
+
+function waitForReconnect(delayMs) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+async function readInterviewSse(response, handlers, streamUrl = null) {
+  let currentResponse = response;
+  let reconnectUrl = streamUrl;
+  while (true) {
+    const result = await readSse(currentResponse, handlers);
+    if (result.terminalEvent !== "reconnect") return result;
+    const reconnect = result.data || {};
+    const commandId = reconnect.command_id || activeCommandId;
+    reconnectUrl = reconnectUrl || (
+      commandId
+        ? `/api/interviews/${sessionId}/commands/${encodeURIComponent(commandId)}/stream`
+        : null
+    );
+    if (!reconnectUrl) throw new Error("SSE reconnect event did not include a command");
+    lastGenerationEventId = reconnect.last_event_id || result.lastEventId || lastGenerationEventId;
+    await waitForReconnect(Math.max(0, Number(reconnect.retry_after_ms) || 0));
+    const headers = lastGenerationEventId
+      ? { "Last-Event-ID": lastGenerationEventId }
+      : {};
+    currentResponse = await fetch(reconnectUrl, { headers });
+  }
 }
 
 function isVersionConflict(error) {
@@ -173,7 +276,7 @@ async function resumeCommandStream(streamUrl) {
     ? { "Last-Event-ID": lastGenerationEventId }
     : {};
   const response = await fetch(streamUrl, { headers });
-  await readSse(response, {
+  await readInterviewSse(response, {
     generation_reset(data, id) {
       applyGenerationReset(Object.assign({}, data, { event_id: id }));
     },
@@ -186,19 +289,28 @@ async function resumeCommandStream(streamUrl) {
       conversation.scrollTop = conversation.scrollHeight;
     },
     conflict() {
-      throw new Error("Interview state changed");
+      clearPendingAnswerCommand();
+      throw new HttpError("Interview state changed", { status: 409 });
+    },
+    error(data) {
+      throw new Error(data.detail || data.code || "Interview generation failed");
     },
     done() {
+      clearPendingAnswerCommand();
       activeCommandId = null;
       activeGenerationId = null;
       activeStreamingBubble = null;
     },
-  });
+  }, streamUrl);
+}
+
+function isDurableWorkflowEngine(value) {
+  return value === "langgraph-v1" || value === "langgraph-v2";
 }
 
 function resumePendingGeneration(snapshot) {
   if (
-    snapshot.workflow_engine !== "langgraph-v1"
+    !isDurableWorkflowEngine(snapshot.workflow_engine)
     || !snapshot.active_stream_url
   ) {
     return;
@@ -272,6 +384,10 @@ async function refreshRoundReviewStatus(snapshot) {
 
 function renderSnapshot(snapshot) {
   rememberResumeMetadata(snapshot);
+  document.body.dataset.interviewState = snapshot.status || "unknown";
+  document.body.dataset.interviewPhase = snapshot.phase || "interview";
+  document.body.dataset.reviewState = snapshot.review_status || "idle";
+  renderAssistanceMode(snapshot);
   latestCompletedQuestions = Math.max(0, Number(snapshot.completed_questions) || 0);
   setText("sessionStatus", snapshot.status || "unknown");
   setText("elapsedTime", formatDuration(snapshot.elapsed_seconds));
@@ -282,6 +398,7 @@ function renderSnapshot(snapshot) {
   currentQuestionId = snapshot.current_question?.id || null;
   renderQuestions(snapshot.questions || []);
   restoreAnswerDraft(currentQuestionId);
+  restorePendingAnswerCommand(currentQuestionId);
   resumePendingGeneration(snapshot);
   if (snapshot.status === "finished") {
     window.location.href = `/report-processing?session_id=${encodeURIComponent(sessionId)}`;
@@ -299,15 +416,25 @@ async function submitAnswer(event) {
   event.preventDefault();
   if (!hasSession()) return;
 
-  const answer = answerInput.value.trim();
-  if (!answer) {
+  const requestedAnswer = answerInput.value.trim();
+  if (!requestedAnswer) {
     showNotice(interviewNotice, "回答不能为空", "warning");
     return;
   }
 
   const submittedQuestionId = currentQuestionId;
+  document.body.dataset.interviewState = "submitting";
+  const existingPending = readPendingAnswerCommand();
+  const isRetry = Boolean(
+    existingPending && existingPending.question_id === submittedQuestionId
+  );
+  const pending = getOrCreatePendingAnswerCommand(
+    requestedAnswer,
+    submittedQuestionId,
+  );
+  const answer = pending.answer;
   flushAnswerDraft(submittedQuestionId);
-  appendMessage("candidate", answer);
+  if (!isRetry) appendMessage("candidate", answer);
   const streamingBubble = createStreamingAssistantMessage();
   activeStreamingBubble = streamingBubble;
   resetAnswerEditor("提交中");
@@ -317,11 +444,18 @@ async function submitAnswer(event) {
     const response = await fetch(`/api/interviews/${sessionId}/answer/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(createCommandPayload({ answer })),
+      body: JSON.stringify({
+        answer: pending.answer,
+        command_id: pending.command_id,
+        ...(Number.isInteger(pending.expected_version)
+          ? { expected_version: pending.expected_version }
+          : {}),
+      }),
     });
     let streamedText = "";
     let streamError = null;
-    await readSse(response, {
+    activeCommandId = pending.command_id;
+    await readInterviewSse(response, {
       generation_reset(data, id) {
         applyGenerationReset(Object.assign({}, data, { event_id: id }));
         streamedText = "";
@@ -338,25 +472,37 @@ async function submitAnswer(event) {
       done() {
         // The SSE done payload is an InterviewTurn, not a full session snapshot.
       },
+      conflict(data) {
+        streamError = new HttpError(
+          data.detail || "Interview state changed",
+          { status: 409, body: data },
+        );
+      },
       error(data) {
         streamError = new Error(data.detail || "提交失败");
       },
-    });
+    }, `/api/interviews/${sessionId}/commands/${encodeURIComponent(pending.command_id)}/stream`);
     if (streamError) throw streamError;
+    clearPendingAnswerCommand();
     clearAnswerDraft(submittedQuestionId);
     setText("answerDraftStatus", "已提交");
     await loadSnapshot();
   } catch (error) {
+    document.body.dataset.interviewState = "error";
     answerInput.value = answer;
     setText("answerCount", String(answerInput.value.length));
     setText("answerDraftStatus", "草稿已保存");
     if (isVersionConflict(error)) {
+      clearPendingAnswerCommand();
       await recoverFromVersionConflict();
       return;
     }
     throw error;
   } finally {
     setBusy([answerInput, sendAnswerButton, skipQuestionButton, finishInterviewButton], false);
+    if (document.body.dataset.interviewState === "submitting") {
+      document.body.dataset.interviewState = "active";
+    }
   }
 }
 

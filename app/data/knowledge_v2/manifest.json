@@ -1,5 +1,5 @@
 {
-  "chunk_count": 25,
+  "chunk_count": 31,
   "chunks": [
     {
       "aliases": [
@@ -471,6 +471,162 @@
     },
     {
       "aliases": [
+        "时间点恢复",
+        "恢复演练"
+      ],
+      "chunk_id": "postgresql_backup_restore_boundary",
+      "content_kind": "engineering_practice",
+      "content_sha256": "9f754dd61d6f8effbe8fe5eb71e36c90ba62d3baf85e16566377c62f0fd41189",
+      "difficulty": "intermediate",
+      "domain": "postgresql",
+      "metadata_sha256": "8598f14c2e328cffaee0424bee10d899d3084faf239b2589c109df8ef445b91b",
+      "question_patterns": [
+        "PostgreSQL 有自动备份后为什么仍必须做恢复演练？",
+        "如何用 RPO 和 RTO 设计时间点恢复与业务校验？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "38753d75cabeb2d8dc4c8faf509bfbc6f398421f1d04f331d6b843f3dfacc4a4",
+      "source_path": "extensions/memory_p1/practices/postgresql_backup_restore_boundary.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "备份恢复"
+      ],
+      "title": "PostgreSQL 备份恢复与时间点恢复边界"
+    },
+    {
+      "aliases": [
+        "连接预算",
+        "连接池容量"
+      ],
+      "chunk_id": "postgresql_connection_capacity",
+      "content_kind": "engineering_practice",
+      "content_sha256": "859de59f0216ecea4d47e85cb40c805d62dc66f048cf75a666a74080f2b50dea",
+      "difficulty": "intermediate",
+      "domain": "postgresql",
+      "metadata_sha256": "3ecaa93ca27d9ab86d558c1bed305459a988a91bf76b1568e9676bcd8a5f11ad",
+      "question_patterns": [
+        "PostgreSQL 连接池大小应该如何根据实例限制和并发计算？",
+        "为什么增加应用实例可能让数据库连接先耗尽？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "9ae9f6d582c0681df1fde8f11483e9781ed25b511306cf0d591418f452557619",
+      "source_path": "extensions/memory_p1/practices/postgresql_connection_capacity.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "连接池"
+      ],
+      "title": "PostgreSQL 连接容量与池化预算"
+    },
+    {
+      "aliases": [
+        "连接风暴",
+        "连接池饱和"
+      ],
+      "chunk_id": "postgresql_connection_saturation",
+      "content_kind": "failure_mode",
+      "content_sha256": "290543e0c275241de4c20e5594cd3952e326cc2a10458c46209722e8369daf27",
+      "difficulty": "intermediate",
+      "domain": "postgresql",
+      "metadata_sha256": "b4bbe14d3743b45220da1f3200080f4b0645bfb046d26b4e9ec533b6aaba99c1",
+      "question_patterns": [
+        "PostgreSQL 连接耗尽时为什么应用扩容可能让故障更严重？",
+        "如何区分数据库连接上限和应用连接池排队？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "9ae9f6d582c0681df1fde8f11483e9781ed25b511306cf0d591418f452557619",
+      "source_path": "extensions/memory_p1/theory/postgresql_connection_saturation.md",
+      "source_type": "theory",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "连接耗尽"
+      ],
+      "title": "PostgreSQL 连接耗尽与排队放大"
+    },
+    {
+      "aliases": [
+        "主备切换",
+        "故障转移"
+      ],
+      "chunk_id": "postgresql_ha_failover_boundary",
+      "content_kind": "hard_negative",
+      "content_sha256": "07bf7bbb62bc3ffaf1e3f760b70b9fbaee8561bbf84220cc3e8b7e42e60712d8",
+      "difficulty": "advanced",
+      "domain": "postgresql",
+      "metadata_sha256": "1ee2a7364818078a56464760e9d77cd0658605ca4509cd2544f127fe9eae0355",
+      "question_patterns": [
+        "PostgreSQL 开启高可用后为什么仍需要应用重连和幂等设计？",
+        "主备切换期间怎样处理在途事务和连接风暴？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "30828298793237b5b1e47f475919440c52fccd31e1976f5fe47cfb82a594ea85",
+      "source_path": "extensions/memory_p1/theory/postgresql_ha_failover_boundary.md",
+      "source_type": "theory",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "高可用"
+      ],
+      "title": "PostgreSQL 高可用切换的恢复边界"
+    },
+    {
+      "aliases": [
+        "数据库监控",
+        "PostgreSQL 指标"
+      ],
+      "chunk_id": "postgresql_monitoring_baseline",
+      "content_kind": "mechanism",
+      "content_sha256": "3ac5fdaa9f0b3449fb10ee8b869b8ba0bb0d75ff3793f47ec937570accea78d4",
+      "difficulty": "beginner",
+      "domain": "postgresql",
+      "metadata_sha256": "be26501c15b35f455569e3cd447ff62238432ec6c955b6da5996ae6d4e32fff1",
+      "question_patterns": [
+        "PostgreSQL 生产监控应该同时观察哪些负载和等待指标？",
+        "如何用数据库指标区分慢查询、连接饱和和存储瓶颈？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "fd069afb54a56a87b5d16c7a1491be82673285dacc8a45ca4b79b4b929820c5c",
+      "source_path": "extensions/memory_p1/practices/postgresql_monitoring_baseline.md",
+      "source_type": "engineering_guide",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "可观测性"
+      ],
+      "title": "PostgreSQL 运行监控与证据基线"
+    },
+    {
+      "aliases": [
+        "副本延迟",
+        "陈旧读"
+      ],
+      "chunk_id": "postgresql_replica_lag",
+      "content_kind": "failure_mode",
+      "content_sha256": "4df2cead9998bcd921e2120949e220c7afc4752b93d30e192259ab06d8fd75fe",
+      "difficulty": "intermediate",
+      "domain": "postgresql",
+      "metadata_sha256": "a421351797c6284bbe9906cb5268c7ffc33ee7ea88d8c15d3baebf3a53e6bdb9",
+      "question_patterns": [
+        "PostgreSQL 只读副本延迟会怎样破坏读后写一致性？",
+        "如何在副本积压时选择降级、回主库或拒绝读取？"
+      ],
+      "reference_count": 2,
+      "references_sha256": "c14c768e35ad0f4c6756bf105c83aca67f1ab068f21e7c42631f10266c38ef0c",
+      "source_path": "extensions/memory_p1/theory/postgresql_replica_lag.md",
+      "source_type": "theory",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "复制延迟"
+      ],
+      "title": "PostgreSQL 只读副本延迟与陈旧读取"
+    },
+    {
+      "aliases": [
         "队列调平",
         "流量准入"
       ],
@@ -652,7 +808,70 @@
       "title": "后端系统设计评价基准"
     }
   ],
-  "corpus_manifest_sha256": "68a410d4cf24c283c9a17d766e4036ce8cf4f5fd4b91546bba304744b204033f",
-  "corpus_version": "stage44b1-zh-v2",
+  "corpus_manifest_sha256": "d68eaa532f58d711686b5dc94d606faf7b5bd4ff6a03e264f67be4c78707c1d3",
+  "corpus_version": "memory-p1-zh-v3",
+  "coverage": {
+    "canonical_tags": [
+      "fastapi",
+      "kafka",
+      "mysql",
+      "postgresql",
+      "python",
+      "redis",
+      "reliability",
+      "system-design"
+    ],
+    "evidence_class_counts": {
+      "fastapi": {
+        "boundary": 2,
+        "negative": 2,
+        "positive": 3
+      },
+      "kafka": {
+        "boundary": 2,
+        "negative": 2,
+        "positive": 3
+      },
+      "mysql": {
+        "boundary": 2,
+        "negative": 2,
+        "positive": 3
+      },
+      "postgresql": {
+        "boundary": 3,
+        "negative": 3,
+        "positive": 3
+      },
+      "python": {
+        "boundary": 2,
+        "negative": 2,
+        "positive": 3
+      },
+      "redis": {
+        "boundary": 2,
+        "negative": 2,
+        "positive": 3
+      },
+      "reliability": {
+        "boundary": 4,
+        "negative": 4,
+        "positive": 5
+      },
+      "system-design": {
+        "boundary": 2,
+        "negative": 2,
+        "positive": 3
+      }
+    },
+    "minimum_evidence_classes": [
+      "positive",
+      "negative",
+      "boundary"
+    ],
+    "schema_version": "knowledge-coverage-v1",
+    "supported_role_groups": [
+      "backend"
+    ]
+  },
   "manifest_schema_version": 2
 }

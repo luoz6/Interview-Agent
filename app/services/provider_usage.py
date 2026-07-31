@@ -4,6 +4,8 @@ from contextvars import ContextVar
 from typing import Any, Mapping
 
 from app.services.context_budget import RenderedPromptMeasurement
+from app.services.context_language import ContextLanguageBucket
+from app.services.memory_metrics import publish_provider_usage_metric
 
 
 _provider_context_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
@@ -16,7 +18,11 @@ def reset_provider_context_metadata() -> None:
     _provider_context_metadata.set({})
 
 
-def publish_prompt_measurement(measurement: RenderedPromptMeasurement) -> None:
+def publish_prompt_measurement(
+    measurement: RenderedPromptMeasurement,
+    *,
+    language_bucket: ContextLanguageBucket | None = None,
+) -> None:
     metadata = dict(_provider_context_metadata.get() or {})
     metadata.update(
         {
@@ -29,6 +35,8 @@ def publish_prompt_measurement(measurement: RenderedPromptMeasurement) -> None:
             "estimator_fallback_used": measurement.estimator_fallback_used,
         }
     )
+    if language_bucket is not None:
+        metadata["language_bucket"] = language_bucket
     _provider_context_metadata.set(metadata)
 
 
@@ -50,6 +58,24 @@ def publish_provider_response(response: Any) -> None:
     metadata["provider_usage_available"] = True
     for key, value in usage.items():
         metadata[key] = int(metadata.get(key, 0)) + value
+    estimated = metadata.get("estimated_input_tokens")
+    actual = metadata.get("provider_input_tokens")
+    if isinstance(estimated, int) and isinstance(actual, int):
+        metadata.update(
+            normalize_estimator_error(
+                estimated_input_tokens=estimated,
+                provider_input_tokens=actual,
+            )
+        )
+    language_bucket = metadata.get("language_bucket", "unknown")
+    if language_bucket not in {"zh_hans", "en", "mixed", "other", "unknown"}:
+        language_bucket = "unknown"
+    publish_provider_usage_metric(
+        language_bucket=language_bucket,
+        estimated_input_tokens=(estimated if isinstance(estimated, int) else 0),
+        provider_input_tokens=int(metadata.get("provider_input_tokens", 0)),
+        provider_output_tokens=int(metadata.get("provider_output_tokens", 0)),
+    )
     _provider_context_metadata.set(metadata)
 
 
@@ -98,3 +124,24 @@ def _normalize_usage(usage: Mapping[str, Any]) -> dict[str, int]:
             result["provider_input_tokens"] + result["provider_output_tokens"]
         )
     return result
+
+
+def normalize_estimator_error(
+    *,
+    estimated_input_tokens: int,
+    provider_input_tokens: int,
+) -> dict[str, int | str]:
+    if estimated_input_tokens < 0 or provider_input_tokens < 0:
+        raise ValueError("token measurements must not be negative")
+    delta = estimated_input_tokens - provider_input_tokens
+    direction = "exact"
+    if delta < 0:
+        direction = "under"
+    elif delta > 0:
+        direction = "over"
+    return {
+        "estimator_error_direction": direction,
+        "estimator_error_basis_points": round(
+            abs(delta) * 10_000 / max(1, provider_input_tokens)
+        ),
+    }

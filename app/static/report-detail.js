@@ -272,6 +272,7 @@ function toRetrievalStatusLabel(record) {
 
 function renderReport(report) {
   const feedbacks = Array.isArray(report.feedbacks) ? report.feedbacks : [];
+  document.body.dataset.reportState = report.is_fallback ? "fallback" : "completed";
   setText("reportStatus", report.is_fallback ? "兜底报告" : "报告已完成");
   setText("reportScore", String(report.overall_score ?? "--"));
   renderScoreSummary(report.overall_score);

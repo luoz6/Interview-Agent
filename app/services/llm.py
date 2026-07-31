@@ -14,7 +14,10 @@ from app.services.context_budget import (
     REPORT_CONTEXT_POLICY,
     RenderedPromptGuard,
 )
-from app.services.context_selection import truncate_text_to_tokens
+from app.services.context_selection import (
+    build_interview_context,
+    truncate_text_to_tokens,
+)
 from app.services.provider_usage import (
     begin_provider_attempt,
     publish_prompt_measurement,
@@ -25,6 +28,8 @@ from app.services.context_runtime import (
     ContextRuntimeConfig,
     build_context_runtime,
 )
+from app.services.context_language import classify_context_language
+from app.services.model_capabilities import ContextConfigurationError
 
 if TYPE_CHECKING:
     from app.services.report import InterviewReport
@@ -54,34 +59,29 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
+        from app.services.memory_config import load_effective_memory_config
+
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise MissingLLMConfigError("OPENAI_API_KEY is required")
 
+        memory = load_effective_memory_config().model
         return cls(
             api_key=api_key,
-            model=os.getenv("OPENAI_MODEL", "deepseek-v4-pro"),
+            model=memory.model,
             base_url=os.getenv("OPENAI_BASE_URL") or None,
             temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.2")),
             request_timeout_seconds=float(
                 os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "120")
             ),
             max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "1")),
-            context_window_tokens=(
-                int(os.environ["LLM_CONTEXT_WINDOW_TOKENS"])
-                if os.getenv("LLM_CONTEXT_WINDOW_TOKENS")
-                else None
+            context_window_tokens=memory.context_window_tokens,
+            protocol_reserve_tokens=memory.protocol_reserve_tokens,
+            structured_output_reserve_tokens=(
+                memory.structured_output_reserve_tokens
             ),
-            protocol_reserve_tokens=int(
-                os.getenv("LLM_CONTEXT_PROTOCOL_RESERVE_TOKENS", "512")
-            ),
-            structured_output_reserve_tokens=int(
-                os.getenv("LLM_STRUCTURED_OUTPUT_RESERVE_TOKENS", "2048")
-            ),
-            context_safety_margin_tokens=int(
-                os.getenv("LLM_CONTEXT_SAFETY_MARGIN_TOKENS", "1024")
-            ),
-            tokenizer_family=os.getenv("LLM_TOKENIZER_FAMILY") or None,
+            context_safety_margin_tokens=memory.safety_margin_tokens,
+            tokenizer_family=memory.tokenizer_family,
         )
 
 
@@ -276,12 +276,16 @@ class OpenAIInterviewLLM:
         return self._parse_raw_json_payload(content)
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
+        if context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
+            context = self._fit_followup_context(context)
         prompt = _build_followup_prompt(context)
         self._guard_prompt(prompt, FOLLOWUP_CONTEXT_POLICY)
         message = self._invoke_chat(prompt, FOLLOWUP_CONTEXT_POLICY)
         return str(getattr(message, "content", message)).strip()
 
     def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
+        if context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
+            context = self._fit_followup_context(context)
         prompt = _build_followup_prompt(context)
         self._guard_prompt(prompt, FOLLOWUP_CONTEXT_POLICY)
         for chunk in self._stream_chat(prompt, FOLLOWUP_CONTEXT_POLICY):
@@ -571,13 +575,83 @@ class OpenAIInterviewLLM:
             budget=budget,
             estimator=self.token_estimator,
         )
-        publish_prompt_measurement(measurement)
+        publish_prompt_measurement(
+            measurement,
+            language_bucket=classify_context_language(prompt),
+        )
         # Publish the privacy-safe measurement before enforcement. Calling
         # validate() directly would raise before rejected requests can be
         # observed by Agent telemetry and Context Canary.
         if context_enforcement_enabled(policy.operation):
             self._prompt_guard.enforce(measurement, budget=budget)
         return measurement
+
+    def _fit_followup_context(
+        self,
+        context: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        budget = self._budget_resolver.resolve(
+            profile=self.model_profile,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        try:
+            selection_budget = self._budget_resolver.resolve_selection_budget(
+                budget=budget,
+                policy=FOLLOWUP_CONTEXT_POLICY,
+            )
+        except ContextConfigurationError:
+            # The rendered prompt guard below remains authoritative and emits
+            # ContextBudgetExceeded when even the fixed prompt cannot fit.
+            return [dict(item) for item in context]
+
+        conversation = [
+            dict(item)
+            for item in context
+            if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
+        ]
+        evidence = [
+            dict(item)
+            for item in context
+            if item.get("role") in {"knowledge_agent", "knowledge_evidence"}
+        ]
+        latest_candidate = next(
+            (
+                index
+                for index in range(len(conversation) - 1, -1, -1)
+                if conversation[index].get("role") == "candidate"
+            ),
+            None,
+        )
+        current_interviewer = (
+            next(
+                (
+                    index
+                    for index in range(latest_candidate - 1, -1, -1)
+                    if conversation[index].get("role") == "interviewer"
+                ),
+                None,
+            )
+            if latest_candidate is not None
+            else None
+        )
+        normalized = []
+        for index, item in enumerate(conversation):
+            question_id = (
+                "current"
+                if index in {latest_candidate, current_interviewer}
+                else f"history-{index}"
+            )
+            normalized.append({**item, "question_id": question_id})
+        selected, _ = build_interview_context(
+            normalized,
+            current_question_id="current",
+            evidence_messages=evidence,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+            selection_budget=selection_budget,
+            estimator=self.token_estimator.estimator,
+            model=self.model_profile.model,
+        )
+        return selected
 
     def _fit_plan_inputs(
         self,

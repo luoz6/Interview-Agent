@@ -17,12 +17,37 @@ from app.services.knowledge_corpus_schema import KnowledgeDocumentV2, load_knowl
 
 KNOWLEDGE_V2_ROOT = Path("app/data/knowledge_v2")
 DEFAULT_OUTPUT_PATH = KNOWLEDGE_V2_ROOT / "manifest.json"
-DEFAULT_CORPUS_VERSION = "stage44b1-zh-v2"
+DEFAULT_CORPUS_VERSION = "memory-p1-zh-v3"
+_COVERAGE_TAGS = {
+    "python",
+    "fastapi",
+    "redis",
+    "mysql",
+    "postgresql",
+    "kafka",
+    "system-design",
+    "reliability",
+}
+_POSITIVE_KINDS = {"mechanism", "engineering_practice", "benchmark"}
+_NEGATIVE_KINDS = {"failure_mode", "hard_negative"}
+_BOUNDARY_KINDS = {"hard_negative", "engineering_practice"}
 
 
-def iter_markdown_files(knowledge_root: Path | str = KNOWLEDGE_V2_ROOT) -> list[Path]:
+def iter_markdown_files(
+    knowledge_root: Path | str = KNOWLEDGE_V2_ROOT,
+    *,
+    include_extensions: bool = True,
+) -> list[Path]:
     """Return only documents below the explicitly selected v2 root."""
-    return sorted(Path(knowledge_root).rglob("*.md"))
+    root = Path(knowledge_root)
+    paths = sorted(root.rglob("*.md"))
+    if include_extensions:
+        return paths
+    return [
+        path
+        for path in paths
+        if "extensions" not in path.relative_to(root).parts
+    ]
 
 
 def _normalized_text(value: str) -> str:
@@ -66,7 +91,11 @@ def build_manifest_v2(
     entries: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_body_hashes: dict[str, str] = {}
-    for path in iter_markdown_files(root):
+    include_extensions = corpus_version != "stage44b1-zh-v2"
+    for path in iter_markdown_files(
+        root,
+        include_extensions=include_extensions,
+    ):
         document = load_knowledge_document_v2(path)
         metadata = document.metadata
         chunk_id = metadata.id
@@ -104,10 +133,37 @@ def build_manifest_v2(
         )
 
     entries.sort(key=lambda item: item["chunk_id"])
+    coverage_counts: dict[str, dict[str, int]] = {}
+    for entry in entries:
+        tags = set(entry["tags"]) | {entry["domain"]}
+        for tag in sorted(tags.intersection(_COVERAGE_TAGS)):
+            counts = coverage_counts.setdefault(
+                tag,
+                {"positive": 0, "negative": 0, "boundary": 0},
+            )
+            kind = entry["content_kind"]
+            counts["positive"] += int(kind in _POSITIVE_KINDS)
+            counts["negative"] += int(kind in _NEGATIVE_KINDS)
+            counts["boundary"] += int(kind in _BOUNDARY_KINDS)
+    covered_tags = sorted(
+        tag
+        for tag, counts in coverage_counts.items()
+        if all(counts[evidence_class] > 0 for evidence_class in counts)
+    )
+    coverage = {
+        "schema_version": "knowledge-coverage-v1",
+        "canonical_tags": covered_tags,
+        "supported_role_groups": ["backend"],
+        "minimum_evidence_classes": ["positive", "negative", "boundary"],
+        "evidence_class_counts": {
+            tag: coverage_counts[tag] for tag in covered_tags
+        },
+    }
     payload = {
         "corpus_version": corpus_version,
         "chunk_count": len(entries),
         "chunks": entries,
+        "coverage": coverage,
     }
     corpus_hash = _sha256_payload(payload)
     return {

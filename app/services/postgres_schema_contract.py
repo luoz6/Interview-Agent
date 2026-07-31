@@ -220,6 +220,236 @@ RUNTIME_SCHEMA_V3_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V3_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"]
+    | frozenset({"memory_policy_version"})
+)
+
+RUNTIME_SCHEMA_V4_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V3_CHECKSUM,
+        "session_memory_policy": {
+            "column": "memory_policy_version",
+            "allowed": [
+                "deterministic-v1",
+                "question-conversation-v1",
+                "question-memory-v1",
+            ],
+            "legacy_backfill": "deterministic-v1",
+            "langgraph_v2_backfill": "question-conversation-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V4_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V4_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_question_memory_refs"] = frozenset(
+    {
+        "session_id",
+        "question_id",
+        "artifact_ref",
+        "artifact_sha256",
+        "policy_version",
+        "source_manifest_sha256",
+        "source_max_sequence_no",
+        "status",
+        "supersedes_artifact_ref",
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_question_memory_refs"] = (
+    frozenset(
+        {"unique", "session_id", "question_id", "policy_version", "where", "active"}
+    ),
+    frozenset({"session_id", "policy_version", "source_max_sequence_no"}),
+)
+RUNTIME_SCHEMA_V5_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V4_CHECKSUM,
+        "question_memory_index": {
+            "relation_suffix": "_question_memory_refs",
+            "active_uniqueness": "session-question-policy-partial-v1",
+            "supersede_semantics": "direct-predecessor-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V5_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V5_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"]
+    | frozenset({"deletion_status"})
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_session_deletion_jobs"] = frozenset(
+    {
+        "deletion_job_id",
+        "session_id",
+        "status",
+        "attempt_count",
+        "lease_owner",
+        "lease_token",
+        "lease_expires_at",
+        "fencing_version",
+        "error_code",
+        "safe_counts",
+        "created_at",
+        "updated_at",
+        "completed_at",
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_session_deletion_jobs"] = (
+    frozenset({"status", "created_at", "where", "queued", "failed"}),
+    frozenset({"lease_expires_at", "where", "running"}),
+)
+RUNTIME_SCHEMA_V6_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V5_CHECKSUM,
+        "session_deletion": {
+            "session_status_column": "deletion_status",
+            "relation_suffix": "_session_deletion_jobs",
+            "lease_contract": "skip-locked-fencing-v1",
+            "logical_job_uniqueness": "one-per-session-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V6_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V6_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_session_deletion_tombstones"] = frozenset(
+    {
+        "session_id",
+        "deletion_job_id",
+        "requested_at",
+        "completed_at",
+        "policy_version",
+        "replay_status",
+        "integrity_sha256",
+        "replayed_at",
+        "updated_at",
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX[
+    "_session_deletion_tombstones"
+] = (
+    frozenset({"replay_status", "requested_at"}),
+)
+RUNTIME_SCHEMA_V7_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V6_CHECKSUM,
+        "session_deletion_tombstones": {
+            "relation_suffix": "_session_deletion_tombstones",
+            "integrity": "canonical-sha256-v1",
+            "backup_replay": "operator-ledger-v1",
+            "failed_job_reclaim": True,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V7_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V7_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_memory_metric_buckets"] = frozenset(
+    {
+        "bucket_start",
+        "bucket_width",
+        "metric_code",
+        "dimensions_sha256",
+        "dimensions",
+        "event_count",
+        "source_count",
+        "selected_count",
+        "dropped_count",
+        "truncated_count",
+        "estimated_input_tokens",
+        "provider_input_tokens",
+        "provider_output_tokens",
+        "latency_ms",
+        "attempts",
+        "size_bytes",
+        "queue_age_ms",
+        "active_count",
+        "superseded_count",
+        "referenced_count",
+        "orphan_count",
+        "updated_at",
+    }
+)
+RUNTIME_SCHEMA_V8_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V7_CHECKSUM,
+        "memory_metric_buckets": {
+            "relation_suffix": "_memory_metric_buckets",
+            "bucket_widths": ["minute", "hour"],
+            "privacy_contract": "aggregate-only-no-subject-identifiers-v1",
+            "write_contract": "atomic-direct-upsert-v1",
+            "retention_policy": "minute-30d-hour-180d-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V8_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V8_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_consents"] = frozenset(
+    {
+        "schema_version", "deployment_id", "principal_id", "policy_version",
+        "allowed_purposes", "granted_at", "revoked_at", "version",
+    }
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_facts"] = frozenset(
+    {
+        "schema_version", "fact_id", "deployment_id", "principal_id",
+        "fact_type", "normalized_fact", "confidence", "authority",
+        "canonicalization_version", "status", "source_session_id",
+        "source_question_id", "source_manifest_sha256", "source_excerpt_sha256",
+        "consent_policy_version", "taxonomy_version", "user_confirmed", "version",
+        "created_at", "confirmed_at", "expires_at", "supersedes_fact_id",
+        "revoked_at", "deleted_at",
+    }
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_effects"] = frozenset(
+    {
+        "effect_id", "deployment_id", "principal_id", "source_session_id",
+        "status", "created_at", "updated_at",
+    }
+)
+RUNTIME_SCHEMA_V9_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V8_CHECKSUM,
+        "principal_memory": {
+            "consent_suffix": "_principal_memory_consents",
+            "fact_suffix": "_principal_memory_facts",
+            "effect_suffix": "_principal_memory_effects",
+            "identity": "canonical-taxonomy-source-bound-sha256-v1",
+            "vector_columns": False,
+            "public_knowledge_foreign_key": False,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V9_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V9_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -234,6 +464,36 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage50_context_artifacts_and_interview_v2",
         checksum=RUNTIME_SCHEMA_V3_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="memory_session_policy_v1",
+        checksum=RUNTIME_SCHEMA_V4_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="question_memory_index_v1",
+        checksum=RUNTIME_SCHEMA_V5_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="session_deletion_v1",
+        checksum=RUNTIME_SCHEMA_V6_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="session_deletion_tombstone_v1",
+        checksum=RUNTIME_SCHEMA_V7_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="memory_metric_bucket_v1",
+        checksum=RUNTIME_SCHEMA_V8_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="principal_memory_v1",
+        checksum=RUNTIME_SCHEMA_V9_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

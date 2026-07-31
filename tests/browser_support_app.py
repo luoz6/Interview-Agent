@@ -34,6 +34,7 @@ from app.services.report import (
 )
 from app.services.report_microbatch import generate_microbatch_report
 from app.services.session import InterviewSessionStore
+from app.agents.examiner import fallback_followup
 from app.services.session_errors import SessionVersionConflict
 
 
@@ -338,14 +339,22 @@ class FakeDurableWorkflow:
         self.command_status: dict[str, str] = {}
         self.state_versions: dict[str, int] = {}
         self.command_sessions: dict[str, str] = {}
+        self.workflow_engines: dict[str, str] = {}
         self.disconnect_once_commands: set[str] = set()
         self.report_job_store = None
 
-    def seed(self, session_id: str, *, mode: str) -> None:
+    def seed(
+        self,
+        session_id: str,
+        *,
+        mode: str,
+        workflow_engine: str = "langgraph-v1",
+    ) -> None:
         state = self.session_store.get(session_id)
-        state["workflow_engine"] = "langgraph-v1"
-        state["graph_schema_version"] = "langgraph-v1"
+        state["workflow_engine"] = workflow_engine
+        state["graph_schema_version"] = workflow_engine
         state["state_version"] = 1
+        self.workflow_engines[session_id] = workflow_engine
         self.state_versions[session_id] = 1
         if mode in {"duplicate", "version-conflict", "duplicate-finish"}:
             return
@@ -398,7 +407,7 @@ class FakeDurableWorkflow:
         if command_id and self.command_status.get(command_id) != "applied":
             snapshot.update(
                 {
-                    "workflow_engine": "langgraph-v1",
+                    "workflow_engine": self.workflow_engines[session_id],
                     "active_command_id": command_id,
                     "active_generation_id": generation_id,
                     "active_attempt_number": 1,
@@ -410,7 +419,7 @@ class FakeDurableWorkflow:
                 }
             )
         else:
-            snapshot["workflow_engine"] = "langgraph-v1"
+            snapshot["workflow_engine"] = self.workflow_engines[session_id]
         return snapshot
 
     def submit_command(
@@ -427,6 +436,7 @@ class FakeDurableWorkflow:
             return AcceptedInterviewCommand(
                 session_id=session_id,
                 command_id=command_id,
+                workflow_engine=self.workflow_engines[session_id],
                 stream_url=(
                     f"/api/interviews/{session_id}/commands/"
                     f"{command_id}/stream"
@@ -459,6 +469,7 @@ class FakeDurableWorkflow:
             return AcceptedInterviewCommand(
                 session_id=session_id,
                 command_id=command_id,
+                workflow_engine=self.workflow_engines[session_id],
                 stream_url=(
                     f"/api/interviews/{session_id}/commands/"
                     f"{command_id}/stream"
@@ -492,6 +503,7 @@ class FakeDurableWorkflow:
         return AcceptedInterviewCommand(
             session_id=session_id,
             command_id=command_id,
+            workflow_engine=self.workflow_engines[session_id],
             stream_url=(
                 f"/api/interviews/{session_id}/commands/"
                 f"{command_id}/stream"
@@ -750,7 +762,10 @@ def seed_langgraph_interview(mode: str):
         "duplicate",
         "version-conflict",
         "duplicate-finish",
+        "v2-refresh",
         "legacy",
+        "memory-basic",
+        "memory-transparent",
     }:
         raise HTTPException(status_code=422, detail="unsupported recovery mode")
     plan = browser_llm.generate_plan("Backend engineer", "Redis project")
@@ -760,8 +775,34 @@ def seed_langgraph_interview(mode: str):
         resume_text="Redis project",
         job_tags=["Redis", "Backend"],
     )
-    if mode != "legacy":
-        durable_workflow.seed(turn.session_id, mode=mode)
+    if mode not in {"legacy", "memory-basic", "memory-transparent"}:
+        workflow_engine = (
+            "langgraph-v2" if mode == "v2-refresh" else "langgraph-v1"
+        )
+        durable_workflow.seed(
+            turn.session_id,
+            mode="refresh" if mode == "v2-refresh" else mode,
+            workflow_engine=workflow_engine,
+        )
+    if mode == "memory-basic":
+        state = store.get(turn.session_id)
+        question = state["plan"].questions[0]
+        state["messages"].extend(
+            [
+                {
+                    "role": "candidate",
+                    "content": "I used bounded retries.",
+                    "question_id": question.id,
+                },
+                {
+                    "role": "interviewer",
+                    "content": fallback_followup(question.focus),
+                    "question_id": question.id,
+                },
+            ]
+        )
+    if mode == "memory-transparent":
+        store.get(turn.session_id)["context_route"] = "artifact_fallback"
     command_id = next(
         (
             command
@@ -777,7 +818,7 @@ def seed_langgraph_interview(mode: str):
         "generation_id": durable_workflow.command_generations.get(command_id),
         "state_version": (
             durable_workflow.state_versions.get(turn.session_id)
-            if mode != "legacy"
+            if mode not in {"legacy", "memory-basic", "memory-transparent"}
             else store.get(turn.session_id)["state_version"]
         ),
     }

@@ -235,14 +235,21 @@ class LocalRuntimeEventSink:
         store=None,
         interview_consumer=None,
         review_consumer=None,
+        principal_memory_consumer=None,
     ) -> None:
         self.control_store = control_store
         self.worker_id = worker_id
         self.store = store
         self.interview_consumer = interview_consumer
         self.review_consumer = review_consumer
+        self.principal_memory_consumer = principal_memory_consumer
 
     def publish(self, payload: dict[str, Any]) -> None:
+        if payload["event_type"] == "principal_memory_proposal_requested_v1":
+            if self.principal_memory_consumer is None:
+                raise RuntimeError("principal memory proposal consumer is unavailable")
+            self.principal_memory_consumer.consume(payload)
+            return
         if payload["event_type"] in {
             "interview_command_ready",
             "interview_retry_due",
@@ -294,5 +301,10 @@ class CeleryRuntimeEventSink:
             task_name = (
                 "app.services.review_workflow_tasks."
                 "run_review_workflow_event"
+            )
+        elif payload["event_type"] == "principal_memory_proposal_requested_v1":
+            task_name = (
+                "app.services.principal_memory_tasks."
+                "run_principal_memory_proposal_event"
             )
         self.celery_app.send_task(task_name, args=[payload])

@@ -114,6 +114,8 @@ def validate_relations(
                         token
                         for token in normalized.replace("(", " ")
                         .replace(")", " ")
+                        .replace("[", " ")
+                        .replace("]", " ")
                         .replace(",", " ")
                         .replace("=", " ")
                         .split()

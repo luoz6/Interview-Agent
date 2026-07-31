@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.api.routes as route_module
@@ -19,6 +20,7 @@ from app.services.prep import (
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import DimensionScores, InterviewFeedback, InterviewReport
 from app.services.runtime import get_draft_store
+from app.services.runtime_events import AcceptedInterviewCommand
 from app.services.session import InterviewSessionStore
 
 
@@ -155,6 +157,158 @@ def start_runtime_api_session(client):
     return response.json()["session_id"]
 
 
+class DurableV2WorkflowSpy:
+    def __init__(self):
+        self.calls = []
+        self.event_stream = self
+
+    def snapshot(self, session_id):
+        self.calls.append(("snapshot", session_id))
+        return {
+            "session_id": session_id,
+            "workflow_engine": "langgraph-v2",
+            "pending_action": "generate_followup",
+            "active_command_id": "active-command",
+            "active_generation_id": "active-generation",
+            "active_stream_url": (
+                f"/api/interviews/{session_id}/commands/active-command/stream"
+            ),
+        }
+
+    def submit_command(
+        self,
+        session_id,
+        *,
+        command_type,
+        expected_version,
+        command_id,
+        answer_text=None,
+    ):
+        self.calls.append(
+            (
+                "submit_command",
+                session_id,
+                command_type,
+                expected_version,
+                command_id,
+                answer_text,
+            )
+        )
+        return AcceptedInterviewCommand(
+            session_id=session_id,
+            command_id=command_id or f"{command_type}-command",
+            workflow_engine="langgraph-v2",
+            stream_url=(
+                f"/api/interviews/{session_id}/commands/"
+                f"{command_id or f'{command_type}-command'}/stream"
+            ),
+        )
+
+    def iter_sse(self, session_id, command_id, after_event_id=None):
+        self.calls.append(
+            ("iter_sse", session_id, command_id, after_event_id)
+        )
+        yield 'event: done\ndata: {"status":"accepted"}\n\n'
+
+
+def make_durable_v2_api_session(monkeypatch):
+    client = make_client()
+    session_id = start_runtime_api_session(client)
+    store = app.dependency_overrides[get_session_store]()
+    state = store.get(session_id)
+    state["workflow_engine"] = "langgraph-v2"
+    state["graph_schema_version"] = "langgraph-v2"
+    workflow = DurableV2WorkflowSpy()
+    monkeypatch.setattr(
+        route_module,
+        "get_interview_workflow_service",
+        lambda: workflow,
+    )
+    return client, store, session_id, workflow
+
+
+def reject_legacy_store_method(store, monkeypatch, method_name):
+    def reject(*_args, **_kwargs):
+        raise AssertionError(
+            f"durable v2 request reached legacy store method {method_name}"
+        )
+
+    monkeypatch.setattr(store, method_name, reject)
+
+
+def test_langgraph_v2_snapshot_uses_durable_workflow(monkeypatch):
+    client, store, session_id, workflow = make_durable_v2_api_session(monkeypatch)
+    reject_legacy_store_method(store, monkeypatch, "snapshot")
+
+    response = client.get(f"/api/interviews/{session_id}")
+
+    assert response.status_code == 200
+    assert response.json()["workflow_engine"] == "langgraph-v2"
+    assert response.json()["active_command_id"] == "active-command"
+    assert workflow.calls == [("snapshot", session_id)]
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "legacy_method", "command_type"),
+    [
+        (
+            "answer",
+            {
+                "answer": "I used Redis.",
+                "expected_version": 1,
+                "command_id": "answer-v2",
+            },
+            "submit_answer",
+            "answer",
+        ),
+        (
+            "answer/stream",
+            {
+                "answer": "I used Redis.",
+                "expected_version": 1,
+                "command_id": "answer-stream-v2",
+            },
+            "prepare_streaming_answer",
+            "answer",
+        ),
+        (
+            "finish",
+            {"expected_version": 1, "command_id": "finish-v2"},
+            "finish",
+            "finish",
+        ),
+        (
+            "skip",
+            {"expected_version": 1, "command_id": "skip-v2"},
+            "skip",
+            "skip",
+        ),
+    ],
+)
+def test_langgraph_v2_mutations_use_durable_workflow(
+    monkeypatch,
+    path,
+    payload,
+    legacy_method,
+    command_type,
+):
+    client, store, session_id, workflow = make_durable_v2_api_session(monkeypatch)
+    reject_legacy_store_method(store, monkeypatch, legacy_method)
+
+    response = client.post(f"/api/interviews/{session_id}/{path}", json=payload)
+
+    assert response.status_code in {200, 202}
+    submit_call = next(call for call in workflow.calls if call[0] == "submit_command")
+    assert submit_call[1:4] == (session_id, command_type, 1)
+    assert submit_call[4] == payload["command_id"]
+    if path == "answer/stream":
+        assert "event: done" in response.text
+        assert any(call[0] == "iter_sse" for call in workflow.calls)
+    else:
+        assert response.status_code == 202
+        assert response.json()["workflow_engine"] == "langgraph-v2"
+
+
 def test_agent_runs_returns_only_safe_fields():
     control = FakeRuntimeControl()
     client = make_client(control)
@@ -244,12 +398,24 @@ def test_prepare_endpoint_hides_internal_knowledge_hashes_and_binding_snapshot(m
     plan = InterviewPlan(
         title="Grounded plan",
         questions=[
-            InterviewQuestion(
-                id="q1",
-                kind="technical",
-                prompt="Explain Redis consistency.",
-                focus="Redis",
-            )
+                InterviewQuestion(
+                    id="q1",
+                    kind="technical",
+                    prompt="Explain Redis consistency.",
+                    focus="Redis",
+                ),
+                InterviewQuestion(
+                    id="q2",
+                    kind="technical",
+                    prompt="Explain database resilience.",
+                    focus="Database",
+                ),
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design a scalable service.",
+                    focus="Scalability",
+                ),
         ],
         prep_context=PrepContext(
             schema_version="v2",
@@ -358,7 +524,19 @@ def test_session_snapshot_restores_safe_public_evidence_binding(monkeypatch):
                 kind="technical",
                 prompt="Explain Redis consistency.",
                 focus="Redis",
-            )
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="Explain database resilience.",
+                focus="Database",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="system-design",
+                prompt="Design a scalable service.",
+                focus="Scalability",
+            ),
         ],
         prep_context=PrepContext(
             schema_version="v2",
@@ -811,6 +989,52 @@ def test_interview_answer_stream_flow():
     assert snapshot["last_command_id"] == "cmd-stream"
     assert "请继续说明" in body
     assert "缓存失效时" in body
+
+
+def test_interview_answer_stream_retry_reuses_command_without_duplicate_answer():
+    client = make_client()
+    store = app.dependency_overrides[get_session_store]()
+    attempts = 0
+
+    def flaky_stream(_state):
+        nonlocal attempts
+        attempts += 1
+        yield "partial "
+        if attempts == 1:
+            raise RuntimeError("stream interrupted")
+        yield "follow-up"
+
+    store._runner.stream_followup = flaky_stream
+    started = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    ).json()
+    payload = {
+        "answer": "I used Redis to cache frequently requested records.",
+        "expected_version": 1,
+        "command_id": "cmd-stream-retry",
+    }
+
+    first = client.post(
+        f"/api/interviews/{started['session_id']}/answer/stream",
+        json=payload,
+    )
+    second = client.post(
+        f"/api/interviews/{started['session_id']}/answer/stream",
+        json=payload,
+    )
+    snapshot = client.get(f"/api/interviews/{started['session_id']}").json()
+
+    assert "event: error" in first.text
+    assert "event: done" in second.text
+    assert attempts == 2
+    assert snapshot["state_version"] == 3
+    assert len(
+        [message for message in snapshot["messages"] if message["role"] == "candidate"]
+    ) == 1
 
 
 def test_interview_moves_to_next_question_after_followup_answer():

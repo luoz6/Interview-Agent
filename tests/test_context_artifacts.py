@@ -9,6 +9,8 @@ from app.services.context_artifacts import (
     EvidenceCompressionArtifact,
     ContextArtifactRef,
     QuestionConversationArtifact,
+    QuestionMemoryArtifact,
+    build_question_memory_source_manifest,
     artifact_payload_sha256,
     parse_artifact_payload,
 )
@@ -92,6 +94,93 @@ def test_artifact_text_models_reject_nul_content():
         AnchoredCompressedUnit(
             summary="unsafe\x00summary",
             source_segment_sha256=["2" * 64],
+        )
+
+
+def test_question_memory_payload_is_explicitly_non_authoritative_and_grounded():
+    payload = QuestionMemoryArtifact.model_validate(
+        {
+            "schema_version": "question-memory-v1",
+            "authority": "non_authoritative",
+            "session_scope_sha256": "1" * 64,
+            "question_id_sha256": "2" * 64,
+            "question_focus_sha256": "3" * 64,
+            "source_manifest_sha256": "4" * 64,
+            "source_message_count": 2,
+            "claims": [
+                {
+                    "claim_type": "tradeoff",
+                    "summary": "Candidate discussed a cache tradeoff.",
+                    "polarity": "positive",
+                    "source_segment_sha256": ["5" * 64],
+                    "supporting_excerpts": ["cache tradeoff"],
+                    "confidence": "medium",
+                }
+            ],
+            "unresolved_topics": [],
+        }
+    )
+
+    assert payload.authority == "non_authoritative"
+    assert parse_artifact_payload("question_memory", payload) == payload
+    with pytest.raises(ValidationError):
+        parse_artifact_payload("evidence_compression", payload)
+
+
+def test_question_memory_claim_requires_exact_excerpt_and_closed_enums():
+    base = {
+        "schema_version": "question-memory-v1",
+        "authority": "non_authoritative",
+        "session_scope_sha256": "1" * 64,
+        "question_id_sha256": "2" * 64,
+        "question_focus_sha256": "3" * 64,
+        "source_manifest_sha256": "4" * 64,
+        "source_message_count": 1,
+        "claims": [
+            {
+                "claim_type": "skill",
+                "summary": "Candidate described a skill.",
+                "polarity": "positive",
+                "source_segment_sha256": ["5" * 64],
+                "supporting_excerpts": [],
+                "confidence": "high",
+            }
+        ],
+        "unresolved_topics": [],
+    }
+
+    with pytest.raises(ValidationError, match="too_short"):
+        QuestionMemoryArtifact.model_validate(base)
+    base["claims"][0]["supporting_excerpts"] = ["skill"]
+    base["claims"][0]["polarity"] = "invented"
+    with pytest.raises(ValidationError):
+        QuestionMemoryArtifact.model_validate(base)
+
+
+def test_ordered_question_memory_source_manifest_hashes_no_content():
+    messages = [
+        {
+            "sequence_no": 2,
+            "role": "candidate",
+            "question_id": "q1",
+            "content": "secret candidate answer",
+        },
+        {
+            "sequence_no": 1,
+            "role": "interviewer",
+            "question_id": "q1",
+            "content": "secret interview question",
+        },
+    ]
+
+    manifest = build_question_memory_source_manifest(messages)
+
+    assert [item["sequence_no"] for item in manifest.items] == [1, 2]
+    assert len(manifest.sha256) == 64
+    assert "secret" not in repr(manifest)
+    with pytest.raises(ValueError, match="unique and positive"):
+        build_question_memory_source_manifest(
+            [messages[0], {**messages[1], "sequence_no": 2}]
         )
 
 

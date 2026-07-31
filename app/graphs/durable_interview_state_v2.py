@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 from app.graphs.durable_interview_state import DurablePlanSnapshot
-from app.graphs.interview_state import InterviewMessage
+from app.graphs.interview_state import InterviewMessage, MemoryPolicyVersion
 from app.services.prep import InterviewPlan
 
 
@@ -43,12 +43,16 @@ class DurableInterviewStateV2(TypedDict):
         "artifact_reused",
         "artifact_created",
         "artifact_fallback",
+        "memory_index_retrieved",
+        "memory_index_empty",
     ] | None
+    memory_policy_version: MemoryPolicyVersion
 
 
 def make_durable_initial_state_v2(
     session_id: str,
     plan: InterviewPlan,
+    memory_policy_version: MemoryPolicyVersion = "question-conversation-v1",
 ) -> DurableInterviewStateV2:
     snapshot = DurablePlanSnapshot.from_plan(plan)
     first = snapshot.questions[0] if snapshot.questions else None
@@ -90,4 +94,5 @@ def make_durable_initial_state_v2(
         "active_context_artifact_type": None,
         "active_context_policy_version": None,
         "context_route": None,
+        "memory_policy_version": memory_policy_version,
     }

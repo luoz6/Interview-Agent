@@ -13,6 +13,10 @@ from app.services.context_artifacts import (
     EvidenceCompressionArtifact,
 )
 from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_eligibility import (
+    ContextCompressionEligibilityPolicy,
+)
+from app.services.context_selection import ContextSelectionStats
 from app.services.context_compression_runner import ContextCompressionRunner
 from app.services.evidence_context_artifacts import (
     EvidenceContextArtifactCoordinator,
@@ -103,6 +107,11 @@ class CapturingRunner:
         )
 
 
+class AlwaysEligiblePolicy:
+    def evaluate(self, **_kwargs):
+        return SimpleNamespace(eligible=True)
+
+
 def make_context_runtime():
     return SimpleNamespace(
         estimator_resolution=SimpleNamespace(
@@ -158,7 +167,13 @@ def make_context_messages(content="cache invalidation protects consistency"):
     ]
 
 
-def make_coordinator(*, gates, runner=None, agent=None):
+def make_coordinator(
+    *,
+    gates,
+    runner=None,
+    agent=None,
+    eligibility_policy=None,
+):
     return EvidenceContextArtifactCoordinator(
         runner=runner or CapturingRunner(),
         compressor_agent=agent or FakeCompressorAgent(),
@@ -166,7 +181,39 @@ def make_coordinator(*, gates, runner=None, agent=None):
         context_runtime=make_context_runtime(),
         gates=gates,
         deployment_scope="single-tenant-test",
+        eligibility_policy=eligibility_policy or AlwaysEligiblePolicy(),
     )
+
+
+def test_short_selected_evidence_does_not_call_compressor():
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    messages = make_context_messages()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(
+            interview_enabled=True,
+            evidence_enabled=True,
+        ),
+        runner=runner,
+        agent=agent,
+        eligibility_policy=ContextCompressionEligibilityPolicy(),
+    )
+
+    result = coordinator.build_interview_context(
+        state=make_state(),
+        context_messages=messages,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+        selection_stats=ContextSelectionStats(
+            source_evidence_count=1,
+            selected_evidence_count=1,
+        ),
+    )
+
+    assert runner.calls == []
+    assert agent.calls == []
+    assert result.context_messages is messages
+    assert result.route == "deterministic"
 
 
 @pytest.mark.parametrize(
@@ -352,7 +399,7 @@ def test_grounding_failure_from_real_runner_falls_back_to_raw_evidence():
         worker_id="worker-1",
     )
     assert result.context_messages is messages
-    assert result.route == "deterministic"
+    assert result.route == "artifact_fallback"
     assert result.artifact_ref is None
     assert parent.ensure_calls >= 1
 
@@ -576,7 +623,7 @@ def test_recoverable_artifact_errors_use_deterministic_fallback(error):
     )
 
     assert result.context_messages is messages
-    assert result.route == "deterministic"
+    assert result.route == "artifact_fallback"
 
 
 @pytest.mark.parametrize(

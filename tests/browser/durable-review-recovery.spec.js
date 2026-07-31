@@ -15,9 +15,9 @@ test("durable review progress survives browser refresh", async ({ page, request 
   expect(progress.total_question_count).toBe(3);
 
   await page.goto(`/report-processing?session_id=${sessionId}`);
-  await expect(page.locator("#reportProgressText")).toHaveText("20%");
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
   await page.reload();
-  await expect(page.locator("#reportProgressText")).toHaveText("20%");
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
   await request.delete(`/test-support/reports/${sessionId}`);
 });
 
@@ -62,7 +62,7 @@ test("joint durable handoff stays private across refresh", async ({ page, reques
   const { session_id: sessionId } = await seed(request, "durable-processing");
 
   await page.goto(`/report-processing?session_id=${sessionId}`);
-  await expect(page.locator("#reportProgressText")).toHaveText("20%");
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
   await page.reload();
   const pageText = await page.locator("body").innerText();
   const progress = await (

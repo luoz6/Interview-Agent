@@ -27,6 +27,9 @@ class ContextCompressorAgent:
         execution_context: AgentExecutionContext,
         expected_question_id_sha256: str | None = None,
         expected_evidence_content_sha256: str | None = None,
+        expected_session_scope_sha256: str | None = None,
+        expected_question_focus_sha256: str | None = None,
+        expected_source_manifest_sha256: str | None = None,
     ) -> dict:
         provider = self.provider or OpenAIContextCompressor()
         return self._execution_runner.run(
@@ -38,6 +41,9 @@ class ContextCompressorAgent:
                 expected_evidence_content_sha256=(
                     expected_evidence_content_sha256
                 ),
+                expected_session_scope_sha256=expected_session_scope_sha256,
+                expected_question_focus_sha256=expected_question_focus_sha256,
+                expected_source_manifest_sha256=expected_source_manifest_sha256,
             ),
             fallback=None,
             metadata=lambda _output: {
