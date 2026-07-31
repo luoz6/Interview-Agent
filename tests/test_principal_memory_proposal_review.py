@@ -7,6 +7,7 @@ from scripts.principal_memory_proposal_review import (
 
 ROOT = Path(__file__).resolve().parents[1]
 WRITE = ROOT / "docs" / "principal-memory-write-shadow-observation.json"
+QUALITY = ROOT / "docs" / "principal-memory-proposal-quality.json"
 
 
 def source(): return json.loads(WRITE.read_text(encoding="utf-8"))
@@ -42,3 +43,12 @@ def test_write_invariant_failure_prevents_review():
 def test_cli_emits_pass(capsys):
     assert main(["--write-observation", str(WRITE)]) == 0
     assert json.loads(capsys.readouterr().out)["quality_gate"] == "PASS"
+
+
+def test_committed_quality_record_binds_clean_revision():
+    result = json.loads(QUALITY.read_text(encoding="utf-8")); validate_artifact(result)
+    assert result["proposal_review_revision"] == "bfaab00"
+    assert result["reviewed_count"] == 300
+    assert result["quality_gate"] == "PASS"
+    assert result["privacy_sensitive_count"] == 0
+    assert result["long_term_memory_consumption"] == "BLOCKED"

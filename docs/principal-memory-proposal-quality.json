@@ -1,0 +1,30 @@
+{
+  "schema_version": "principal-memory-proposal-quality-v1",
+  "source_write_shadow_revision": "75a21da",
+  "proposal_review_revision": "bfaab00",
+  "review_profile": "synthetic_controlled",
+  "reviewed_count": 300,
+  "label_counts": {
+    "conflict": 1,
+    "correct": 285,
+    "duplicate": 3,
+    "not_useful": 1,
+    "over_generalized": 2,
+    "review_unavailable": 1,
+    "stale_source": 2,
+    "unsupported": 3,
+    "wrong_taxonomy": 2
+  },
+  "accepted_count": 285,
+  "rejected_count": 15,
+  "correct_rate": 0.95,
+  "unsupported_rate": 0.01,
+  "privacy_sensitive_count": 0,
+  "stale_source_accepted_count": 0,
+  "raw_content_persisted": false,
+  "gate_codes": [],
+  "quality_gate": "PASS",
+  "read_shadow_authorized": true,
+  "long_term_memory_consumption": "BLOCKED",
+  "production_observation": "NOT_RUN"
+}
