@@ -16,6 +16,7 @@ from scripts.memory_budget_shadow_observe import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "docs" / "memory-budget-shadow-runbook.md"
+OBSERVATION = ROOT / "docs" / "memory-budget-shadow-observation.json"
 
 
 class CompleteMetricStore:
@@ -145,3 +146,23 @@ def test_runbook_keeps_budget_shadow_hypothetical_and_single_axis():
         assert required in text
     assert "PASS_FOR_PRODUCTION" not in text
     assert "postgresql://" not in text
+
+
+def test_committed_observation_is_aggregate_only_and_bound_to_clean_revision():
+    record = json.loads(OBSERVATION.read_text(encoding="utf-8"))
+
+    validate_observation_artifact(record)
+    assert record["budget_shadow_observer_revision"] == "adcbe68"
+    assert record["validate_only_preflight_ready"] is True
+    assert record["session_count"] == 300
+    assert record["language_sample_counts"] == {
+        "en": 100,
+        "mixed": 100,
+        "zh_hans": 100,
+    }
+    assert record["mandatory_current_content_losses"] == 0
+    assert record["known_over_budget_provider_calls"] == 0
+    assert record["provider_input_change_count"] == 0
+    assert record["cleanup_residue"] == 0
+    assert record["data_complete"] is True
+    assert record["production_observation"] == "NOT_RUN"
