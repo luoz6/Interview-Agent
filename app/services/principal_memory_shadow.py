@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
+from hashlib import sha256
+import json
 from time import monotonic
+import unicodedata
 
 from app.services.memory_metrics import publish_principal_read_shadow_metric
 
@@ -25,7 +27,8 @@ class PrincipalMemoryShadowService:
         role_tags: set[str], now,
     ) -> PrincipalMemoryShadowResult:
         started = monotonic()
-        original = deepcopy(provider_context)
+        original = canonical_provider_context(provider_context)
+        original_digest = sha256(original.encode("utf-8")).hexdigest()
         try:
             selection = self.retriever.select(
                 current_tags=current_tags,
@@ -37,8 +40,9 @@ class PrincipalMemoryShadowService:
             selection = None
             outcome = "failed"
         latency = max(0, round((monotonic() - started) * 1000))
-        if provider_context != original:
-            provider_context[:] = original
+        current_digest = canonical_provider_context_digest(provider_context)
+        if current_digest != original_digest:
+            provider_context[:] = json.loads(original)
             outcome = "failed"
         source_count = selection.source_count if selection else 0
         selected_count = len(selection.selected) if selection else 0
@@ -58,3 +62,21 @@ class PrincipalMemoryShadowService:
             estimated_tokens=estimated,
             outcome=outcome,
         )
+
+
+def canonical_provider_context(value: list[dict[str, str]]) -> str:
+    normalized = [
+        {
+            str(key): unicodedata.normalize("NFC", str(item))
+            for key, item in sorted(message.items())
+        }
+        for message in value
+    ]
+    return json.dumps(
+        normalized, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
+    )
+
+
+def canonical_provider_context_digest(value: list[dict[str, str]]) -> str:
+    return sha256(canonical_provider_context(value).encode("utf-8")).hexdigest()
