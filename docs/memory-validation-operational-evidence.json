@@ -1,7 +1,9 @@
 {
   "schema_version": "memory-validation-operational-evidence-v1",
-  "revision": "9132cf3",
-  "executed_at": "2026-07-31T08:49:32+08:00",
+  "revision": "a982b1f",
+  "validated_rc_revision": "a982b1f",
+  "evidence_binding": "validated-committed-rc",
+  "executed_at": "2026-07-31T14:21:05+08:00",
   "environment": {
     "python": "3.11.3",
     "node": "22.21.0",
@@ -10,14 +12,14 @@
   },
   "focused_tests": {
     "passed": true,
-    "passed_count": 339,
+    "passed_count": 359,
     "skipped": 12,
     "failed": 0
   },
   "pg_runtime": {
     "passed": true,
-    "executed": 37,
-    "deselected": 24,
+    "executed": 43,
+    "deselected": 1569,
     "latest_migration": "principal_memory_v1",
     "migration_scope": "isolated-prefix-validated",
     "relation_count": 28,
@@ -25,7 +27,7 @@
   },
   "full_python": {
     "passed": true,
-    "passed_count": 1441,
+    "passed_count": 1450,
     "skipped": 162,
     "failed": 0
   },
@@ -36,8 +38,8 @@
   "full_browser": {
     "passed": true,
     "scope": "full",
-    "passed_count": 53,
-    "skipped": 21,
+    "passed_count": 54,
+    "skipped": 22,
     "failed": 0
   },
   "deletion_replay": {
@@ -92,6 +94,15 @@
   },
   "diff_check": {
     "passed": true
+  },
+  "release_candidate": {
+    "passed": true,
+    "clean_detached_worktree": true,
+    "root_dependency_install": "passed",
+    "frontend_dependency_install": "passed",
+    "focused_acceptance_contracts_passed": 62,
+    "user_owned_paths_preserved": true,
+    "shadow_modes_changed": false
   },
   "cleanup": {
     "passed": true,

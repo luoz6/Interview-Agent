@@ -1,6 +1,6 @@
 # Memory Shadow Release Candidate Record
 
-Status: `TASK_0_READY_FOR_SCOPED_COMMIT`.
+Status: `MEMORY_SHADOW_RC=REPRODUCIBLE`.
 
 This record is a Release Candidate preparation artifact. It is not a production
 release, a Staging deployment authorization, a Shadow activation record, or a
@@ -9,7 +9,9 @@ long-term-memory consumption approval.
 ## Current identity
 
 - Base revision: `9132cf3`.
-- Candidate revision: `TBD_AFTER_SCOPED_COMMITS`.
+- Validated RC revision: `a982b1f`.
+- RC construction commits:
+  `57ef9a0`, `d80150b`, and `a982b1f`.
 - Candidate label: `memory-shadow-rc1` (reserved, not created).
 - Latest runtime migration: `principal_memory_v1`.
 - Knowledge corpus: `memory-p1-zh-v3`, 31 chunks.
@@ -54,7 +56,7 @@ long-term-memory consumption approval.
   corresponding newer worktree-only `ReportsPage.jsx` and Reports browser-spec
   revisions.
 
-## Required verification after candidate construction
+## Verification completed from the committed RC
 
 ~~~powershell
 & 'F:\python3.11\python.exe' -m compileall -q app scripts tests
@@ -67,29 +69,43 @@ git diff --check
 & 'F:\python3.11\python.exe' -m scripts.memory_validation_foundation_acceptance
 ~~~
 
-The RC revision and exact aggregate counts must then replace the current TBD
-fields. No evidence artifact may contain a DSN, database fingerprint, test
-prefix, Session/Principal/Fact identifier, Prompt, Answer, Excerpt or Provider
-payload.
+The validation ran in a clean detached worktree created from `a982b1f`, with
+fresh root and frontend dependency installation completed before the final
+regression. Aggregate results were:
 
-## Current blockers
+- full Python: 1450 passed, 162 skipped, 0 failed;
+- live PostgreSQL `pg_runtime`: 43 passed, 1569 deselected, 0 failed;
+- frontend production build: passed, 4587 modules transformed;
+- complete browser project: 54 passed, 22 configured skips, 0 failed;
+- focused release/acceptance/document contracts: 62 passed, 0 failed;
+- compile-all, whitespace/diff check and foundation acceptance: passed;
+- remaining test listeners: 0;
+- strictly validated isolated PostgreSQL relation residue: 0.
 
-- No scoped RC commit has been created yet.
+The evidence intentionally uses `validated_rc_revision=a982b1f`. The later
+documentation-only evidence commit cannot be its own validation target and
+must not replace this field with a self-referential hash. No evidence artifact
+contains a DSN, database fingerprint, test prefix, Session/Principal/Fact
+identifier, Prompt, Answer, Excerpt or Provider payload.
 
-The ownership and dependency review itself is complete:
+## Ownership result
+
+The ownership and dependency review is complete:
 
 - release preflight: passed with 264 classified paths and no blockers;
 - isolated candidate compile: passed;
 - isolated candidate focused suite: 359 passed, 12 skipped;
 - isolated candidate frontend build: passed, 4587 modules;
 - isolated candidate browser suite: 54 passed, 22 configured skips;
-- seven user-owned design/repository-hygiene paths remain excluded.
+- nine user-owned design, Reports UI, and repository-hygiene paths remain
+  excluded from the validated RC and were not staged by the evidence commit.
 
-Until these blockers are removed, the correct state is:
+The correct Task 1 exit state is:
 
 ~~~text
-MEMORY_SHADOW_RC=NOT_CREATED
-STAGING_DEPLOYMENT=NOT_AUTHORIZED
+MEMORY_SHADOW_RC=REPRODUCIBLE
+FOUNDATION_ACCEPTANCE=PASS
+STAGING_PREFLIGHT=NOT_RUN
 ALL_MEMORY_SHADOWS=DISABLED
 LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
 PRODUCTION_OBSERVATION=NOT_RUN

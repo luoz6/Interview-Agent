@@ -64,21 +64,25 @@ MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED=false
 
 ## Final isolated validation evidence
 
-- Revision: `9132cf3`.
-- Executed at: `2026-07-31T08:49:32+08:00` (Asia/Hong_Kong).
+- Validated RC revision: `a982b1f`.
+- Evidence binding: committed RC in a clean detached worktree. A later
+  documentation-only evidence commit is not a replacement validation target.
+- Executed at: `2026-07-31T14:21:05+08:00` (Asia/Hong_Kong).
 - Toolchain: Python 3.11.3, Node 22.21.0, PostgreSQL 16.13, Playwright Chromium.
 - Focused memory, context, deletion, knowledge, and trace suite:
-  339 passed, 12 skipped, 0 failed.
-- Live PostgreSQL `pg_runtime` suite: 37 passed, 24 deselected, with the
+  359 passed, 12 skipped, 0 failed during RC construction; the final focused
+  release/acceptance/document contract suite added 62 passed, 0 failed.
+- Live PostgreSQL `pg_runtime` suite: 43 passed, 1569 deselected, with the
   selected runtime tests genuinely executed rather than skipped.
 - Latest isolated migration: `principal_memory_v1`; 28 relations validated in
   an isolated prefix and cleanup verified.
-- Full Python regression: 1441 passed, 162 skipped, 0 failed, with one existing
+- Full Python regression: 1450 passed, 162 skipped, 0 failed, with one existing
   Starlette/httpx deprecation warning.
 - Frontend production build: passed; Vite transformed 4587 modules.
-- Full browser regression: 53 passed, 21 project-configured mobile skips,
+- Full browser regression: 54 passed, 22 project-configured skips,
   0 failed; scope was the complete desktop/mobile project suite.
 - Compile-all and whitespace/diff checks: passed.
+- Root and frontend clean dependency installation: passed.
 
 ## Memory-system acceptance evidence
 
@@ -116,6 +120,8 @@ MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED=false
   configuration.
 - No real provider call, real candidate-data exercise, production migration,
   production rollout, or production observation was performed.
+- No Budget, compression, Question Memory, Write Shadow or Read Shadow mode was
+  enabled while producing this evidence.
 
 The machine-readable aggregate evidence is stored in
 `docs/memory-validation-operational-evidence.json`.
@@ -123,6 +129,8 @@ The machine-readable aggregate evidence is stored in
 ## Acceptance result
 
 ~~~text
+MEMORY_SHADOW_RC=REPRODUCIBLE
+FOUNDATION_ACCEPTANCE=PASS
 READY_FOR_MEMORY_VALIDATION_SHADOW
 LONG_TERM_MEMORY_WRITE_SHADOW_READY
 LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
