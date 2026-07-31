@@ -37,7 +37,7 @@ class PrincipalMemoryRetriever:
         if self.config.long_term.mode != "read_shadow":
             return PrincipalMemorySelection((), 0, 0, 0, 0)
         identity = self.identity_resolver.resolve()
-        if identity is None or not self.consent_service.authorize("read_shadow"):
+        if identity is None or not self.is_currently_authorized():
             return PrincipalMemorySelection((), 0, 0, 0, 0)
         candidates = self.fact_store.list_shadow_eligible(
             deployment_id=identity.deployment_id,
@@ -113,4 +113,10 @@ class PrincipalMemoryRetriever:
             conflict_count=len(conflicts),
             estimated_tokens=tokens,
             would_confirm_count=would_confirm,
+        )
+
+    def is_currently_authorized(self) -> bool:
+        return bool(
+            self.identity_resolver.resolve() is not None
+            and self.consent_service.authorize("read_shadow")
         )

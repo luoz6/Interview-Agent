@@ -46,6 +46,18 @@ class PrincipalMemoryProposalProcessor:
         )
         created = 0
         for candidate in candidates[: self.config.long_term.max_proposals_per_session]:
+            current_identity = self.identity_resolver.resolve()
+            if current_identity is None:
+                return {"status": "cancelled", "reason": "identity_unavailable", "count": created}
+            if current_identity.deployment_id != event.deployment_locator or current_identity.principal_id != event.principal_locator:
+                return {"status": "cancelled", "reason": "identity_changed", "count": created}
+            if not self.consent_service.authorize("proposal_write"):
+                return {"status": "cancelled", "reason": "consent_unavailable", "count": created}
+            current_state = self.session_store.get(event.session_id)
+            if current_state.get("deletion_status") in {"deleting", "deleted"}:
+                return {"status": "cancelled", "reason": "source_unavailable", "count": created}
+            if int(current_state.get("state_version", 0)) != event.source_state_version:
+                return {"status": "cancelled", "reason": "source_version_changed", "count": created}
             source = by_id.get(candidate.source_message_id)
             if source is None or candidate.exact_excerpt not in source["content"]:
                 continue

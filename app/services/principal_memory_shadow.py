@@ -35,7 +35,12 @@ class PrincipalMemoryShadowService:
                 role_tags=role_tags,
                 now=now,
             )
-            outcome = "completed"
+            authority_check = getattr(self.retriever, "is_currently_authorized", None)
+            if authority_check is not None and not authority_check():
+                selection = None
+                outcome = "failed"
+            else:
+                outcome = "completed"
         except Exception:
             selection = None
             outcome = "failed"

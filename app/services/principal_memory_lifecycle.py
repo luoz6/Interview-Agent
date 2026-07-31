@@ -43,6 +43,8 @@ class PrincipalMemoryLifecycleService:
             status="proposed",
         )
         self._require_source(proposal)
+        if not self.consent_service.authorize("fact_storage"):
+            raise PermissionError("principal memory consent is unavailable")
         now = self.clock()
         predecessor = self._find(
             identity=identity,
