@@ -1,5 +1,10 @@
 from pathlib import Path
 
+from datetime import datetime, timezone
+
+from app.services.principal_memory_shadow import PrincipalMemoryShadowService
+from tests.test_principal_memory_retrieval import build_retriever, make_active_fact
+
 
 def test_examiner_scoring_report_and_knowledge_paths_do_not_read_fact_store():
     paths = [
@@ -27,3 +32,29 @@ def test_shadow_source_contains_no_prompt_or_scoring_mutation_api():
     assert "provider_context.append" not in source
     assert "scoring" not in source.casefold()
     assert "knowledge" not in source.casefold()
+
+
+def test_read_shadow_observation_never_mutates_provider_context():
+    retriever, facts, _ = build_retriever()
+    make_active_fact(
+        facts,
+        fact_type="accessibility_preference",
+        value={"accessibility_preference": "extra_time"},
+    )
+    context = [
+        {"role": "system", "content": "Stable synthetic instruction"},
+        {"role": "candidate", "content": "Stable synthetic response"},
+    ]
+    before = [dict(item) for item in context]
+
+    result = PrincipalMemoryShadowService(retriever=retriever).observe(
+        provider_context=context,
+        current_tags={"python"},
+        role_tags={"backend"},
+        now=datetime(2026, 7, 31, tzinfo=timezone.utc),
+    )
+
+    assert result.would_select_count == 1
+    assert context == before
+    assert result.provider_context == before
+    assert result.outcome == "completed"

@@ -34,3 +34,26 @@ def test_knowledge_loader_rejects_principal_memory_schema(tmp_path):
     )
     with pytest.raises(Exception):
         load_knowledge_document_v2(path)
+
+
+def test_public_retrieval_and_observation_paths_do_not_accept_principal_scope():
+    paths = [
+        Path("app/services/knowledge_query.py"),
+        Path("app/services/knowledge_grounding.py"),
+        Path("app/services/vector_store.py"),
+        Path("app/services/report.py"),
+        Path("app/services/knowledge_trace.py"),
+    ]
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        assert "principal_memory" not in source.casefold()
+        assert "normalized_fact" not in source.casefold()
+
+
+def test_principal_deletion_has_no_public_knowledge_dependency():
+    source = Path("app/services/principal_memory_deletion.py").read_text(
+        encoding="utf-8"
+    )
+    assert "vector" not in source.casefold()
+    assert "knowledge" not in source.casefold()
+    assert "embedding" not in source.casefold()
