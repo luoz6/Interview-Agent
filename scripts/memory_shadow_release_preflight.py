@@ -253,7 +253,7 @@ def classify_path(path: str) -> Ownership:
             "Memory validation, quality, PostgreSQL, replay, and acceptance tooling.",
         )
 
-    if normalized.startswith("app/ports/principal_") or normalized.startswith(
+    if normalized.startswith("scripts/principal_memory_") or normalized.startswith("app/ports/principal_") or normalized.startswith(
         "app/services/principal_"
     ) or normalized.startswith("app/services/postgres_principal_") or normalized.startswith(
         "app/services/in_memory_principal_"

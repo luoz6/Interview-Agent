@@ -10,6 +10,7 @@ from scripts.memory_shadow_release_preflight import (
 
 def test_classifies_memory_frontend_design_and_unknown_boundaries():
     assert classify_path("app/services/principal_memory_shadow.py").policy == "include"
+    assert classify_path("scripts/principal_memory_write_shadow.py").policy == "include"
     assert classify_path("docs/memory-budget-shadow-runbook.md").policy == "include"
     assert classify_path("frontend/src/App.jsx").policy == "shared_review"
     assert classify_path("app/api/routes.py").policy == "shared_review"
