@@ -92,4 +92,3 @@ def test_schemas_are_closed_against_candidate_and_runtime_data() -> None:
         assert "fact_value" not in schema["properties"]
         assert "provider_payload" not in schema["properties"]
         assert "approval_status" not in schema["properties"]
-
