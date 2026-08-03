@@ -40,6 +40,8 @@ DEFAULT_CONTRACTS: dict[str, str] = {
         "review_reference"
     ),
     "docs/memory-production-shadow-change-preflight.md": "review_reference",
+    "docs/memory-production-shadow-evidence-manifest.md": "review_reference",
+    "docs/memory-production-shadow-evidence-verification.md": "review_reference",
     "docs/principal-memory-consumption-spec.md": "review_reference",
     "docs/principal-memory-consumption-risk-review.md": "review_reference",
 }

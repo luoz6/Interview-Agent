@@ -239,6 +239,8 @@ def test_default_handoff_contract_contains_required_gate_and_approval_material()
         "docs/memory-production-shadow-approval-request.md",
         "docs/memory-production-shadow-approval-record-contract.md",
         "docs/memory-production-shadow-change-preflight.md",
+        "docs/memory-production-shadow-evidence-manifest.md",
+        "docs/memory-production-shadow-evidence-verification.md",
         "docs/principal-memory-consumption-spec.md",
     }
     assert required <= set(DEFAULT_CONTRACTS)

@@ -72,6 +72,7 @@ The allowlist also covers the operator/reviewer documents for:
 - Operational Shadow acceptance;
 - production Budget Shadow approval and rollback;
 - external approval-record contract and change preflight;
+- this manifest reference and its verification how-to;
 - Principal Memory consumption draft and risk review.
 
 ## Content normalization and hash contracts
