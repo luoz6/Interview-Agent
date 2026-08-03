@@ -2,7 +2,7 @@
 
 > **Document type:** How-to implementation plan  
 > **Audience:** Interview-Agent backend, frontend, data, and operations maintainers  
-> **Status:** Implemented and verified in source/isolated runtimes; controlled rollout remains pending  
+> **Status:** Implemented, committed, and running in preview; durable rollout remains pending  
 > **Last updated:** 2026-08-03
 
 **Goal:** Eliminate report jobs that remain indefinitely at knowledge retrieval, make report execution recoverable across API/worker failures, fail fast when embedding or pgvector is unavailable, and give the React UI truthful progress, failure, stall, and retry states.
@@ -23,9 +23,9 @@ independent heartbeat metadata, continuous Worker heartbeat, lease-token-fenced
 terminal transitions, orphan detection/requeue, truthful progress fields, and
 the React stalled/orphaned/retry experience are implemented.
 
-Verification completed without restarting the incident backend:
+Verification completed across isolated and restarted preview runtimes:
 
-- Full Python suite: `1706 passed, 166 skipped`.
+- Full Python suite: `1713 passed, 166 skipped`.
 - Full Playwright browser matrix: `65 passed, 33 intentionally skipped`.
 - Frontend production build: passed (`4590` modules transformed).
 - Actual PostgreSQL report-job/Worker suite: `18 passed` using random test
@@ -39,14 +39,21 @@ Verification completed without restarting the incident backend:
   active corpus is available; PostgreSQL, report-job schema, and pgvector are
   reachable.
 - `compileall` and `git diff --check`: passed.
+- Live preview HTTP flow: a finished interview created a non-null
+  `report_job_id`, published `heartbeat_at`, reached `completed / 100%` on its
+  first attempt, and returned a readable report.
 
-The old process on port `8000` remains untouched and still exposes the incident
-session as `processing / retrieving / 20% / report_job_id=null`. It cannot use
-the new orphan-recovery endpoint until code is reloaded, and reloading an
-in-memory runtime will discard that session. No production migration, credential
-change, corpus activation, Worker rollout, or port-8000 restart has been
-performed. Those actions remain the controlled rollout boundary and require an
-explicit session-loss decision plus a passing durable preflight.
+After explicit approval to restart, the old PID `348` was stopped and its
+in-memory incident session was discarded as expected. Port `8000` now runs the
+new code as a coherent preview profile using `InMemoryReportJobStore`, an
+in-process Worker, and `StaticKnowledgeStore`; runtime configuration and report
+runtime readiness both report `true`. The live validation report used session
+`b95097bb-9301-404f-96e3-4b47d9487524` and job
+`d5836e24-9895-44f8-88e0-55911ec5eb08`.
+
+No production migration, credential change, active-corpus mutation, or durable
+Worker rollout has been performed. Those actions remain the durable rollout
+boundary and require a passing durable preflight.
 
 ---
 
