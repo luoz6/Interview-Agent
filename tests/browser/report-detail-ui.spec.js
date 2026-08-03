@@ -65,6 +65,12 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           getComputedStyle(trace).marginRight,
         ],
         legacyTraceIdCount: document.querySelectorAll("#trace").length,
+        traceEmptyCount: document.querySelectorAll(
+          '.report-detail-trace-empty[data-state="empty"]',
+        ).length,
+        traceGridCount: document.querySelectorAll(
+          ".report-detail-trace-grid",
+        ).length,
         primaryCount: document.querySelectorAll(
           ".button-primary:not(:disabled)",
         ).length,
@@ -93,6 +99,8 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.traceColor).toBe(detail.workspaceColor);
     expect(detail.traceMarginInline).toEqual(["0px", "0px"]);
     expect(detail.legacyTraceIdCount).toBe(0);
+    expect(detail.traceEmptyCount).toBe(1);
+    expect(detail.traceGridCount).toBe(0);
     expect(detail.primaryCount).toBe(1);
     expect(detail.actionHeights.every((height) => height >= 44)).toBe(true);
     expect(detail.oldPosterScoreCount).toBe(0);
@@ -161,6 +169,31 @@ test("report detail error state explains the failure and reloads in place", asyn
   expect(reportRequests).toBeGreaterThanOrEqual(3);
 });
 
+test("optional runtime diagnostics distinguish unavailable from genuinely empty", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createCompletedReport(request);
+  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Agent 诊断暂时不可用" }),
+  }));
+  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "事件诊断暂时不可用" }),
+  }));
+
+  await page.goto("/report-detail?session_id=" + sessionId);
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  const unavailable = page.locator('.report-detail-trace-empty[data-state="unavailable"]');
+  await expect(unavailable).toContainText("公开运行轨迹暂时不可用");
+  await expect(unavailable).toContainText("报告评分和反馈仍然有效");
+  await expect(page.getByRole("button", { name: "重新同步诊断" })).toBeEnabled();
+  await expect(page.locator(".report-detail-trace-grid")).toHaveCount(0);
+});
+
 test("report detail motion and focus states remain accessible", async ({
   page,
   request,
@@ -190,6 +223,7 @@ test("report detail motion and focus states remain accessible", async ({
       root.querySelector(".report-detail-score-mark"),
       root.querySelector(".report-detail-dimension"),
       root.querySelector(".report-detail-feedback-caret"),
+      root.querySelector(".report-detail-trace-empty-icon"),
     ].filter(Boolean);
     return samples.flatMap((element) => {
       const style = getComputedStyle(element);

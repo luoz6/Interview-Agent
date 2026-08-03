@@ -257,15 +257,18 @@ def test_design_document_state_evidence_and_single_action_contracts_are_implemen
 
     for stage in ("queued", "retrieving", "analyzing", "evaluating", "aggregating", "coaching", "completed"):
         assert f'name: "{stage}"' in processing
-    assert "同步暂时失败，3 秒后自动重试" in processing
+    assert "同步暂时失败，稍后会自动重试" in processing
+    assert 'label="同步" value={polling ? "自适应" : "已停止"}' in processing
     assert "metadata.full_session_fallback" in processing
     assert 'aria-label="报告生成进度"' in processing
 
     assert "dimension_evidence" in detail
-    assert "命中证据" in detail
-    assert "缺失项" in detail
+    assert "证据引用" in detail
+    assert "维度证据" in detail
+    assert "暂无明确命中项" in detail
+    assert "未记录缺失项" in detail
     assert "quality_signals" in detail
-    assert "最强能力" in detail
+    assert "相对优势" in detail
     assert "优先补强" in detail
     assert "degraded_reason" in detail
     assert "retrieval_path" in detail
