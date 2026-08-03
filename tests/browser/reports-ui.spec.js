@@ -93,14 +93,23 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
   await expect(page.locator(".reports-report-row-processing").first().getByRole("button", { name: "查看进度" })).toBeVisible();
   const refinement = await page.locator(".reports-report-row-processing").first().evaluate((row) => ({
     titleSize: Number.parseFloat(getComputedStyle(row.querySelector(".reports-row-title h3")).fontSize),
+    rowHeight: row.getBoundingClientRect().height,
     actionHeight: row.querySelector(".reports-row-action").getBoundingClientRect().height,
-    statusAnimation: getComputedStyle(row.querySelector(".reports-row-status > span")).animationName,
+    actionsWidth: row.querySelector(".reports-row-actions").getBoundingClientRect().width,
+    rowWidth: row.getBoundingClientRect().width,
+    rowSurface: getComputedStyle(row).backgroundColor,
+    ledgerSurface: getComputedStyle(row.closest(".reports-ledger")).backgroundColor,
+    statusAnimation: getComputedStyle(row.querySelector(".reports-row-status svg")).animationName,
   }));
   expect(refinement.titleSize).toBeGreaterThanOrEqual(15);
+  expect(refinement.rowHeight).toBeLessThanOrEqual(98);
   expect(refinement.actionHeight).toBeGreaterThanOrEqual(32);
-  expect(refinement.statusAnimation).toContain("reports-status-breathe");
-  const selectedMotion = await processingFilter.locator("span").first().evaluate((element) => getComputedStyle(element).animationName);
-  expect(selectedMotion).toContain("reports-icon-settle");
+  expect(refinement.actionsWidth).toBeLessThan(refinement.rowWidth * 0.4);
+  expect(refinement.rowSurface).toBe(refinement.ledgerSurface);
+  expect(refinement.statusAnimation).toContain("reports-processing-spin");
+  await expect(page.locator(".reports-report-row-processing").first().locator(".reports-row-status svg")).toBeVisible();
+  const selectedMotion = await processingFilter.evaluate((element) => getComputedStyle(element, "::after").transform);
+  expect(selectedMotion).not.toBe("none");
 
   const failedFilter = page.getByRole("button", { name: /生成失败/ }).last();
   await failedFilter.click();

@@ -48,6 +48,11 @@ function rowStatusHint(item) {
   return "状态未知";
 }
 
+function reportErrorMessage(error, action) {
+  const reason = error?.message || "服务没有返回可用响应";
+  return `${action}失败：${reason}。报告记录仍会保留，你可以稍后重试。`;
+}
+
 function ReportRuntime({ state, total }) {
   const loading = state === "loading";
   const RuntimeIcon = state === "error" ? WarningCircle : state === "ready" ? CheckCircle : state === "empty" ? Info : Circle;
@@ -167,9 +172,9 @@ export function ReportsPage() {
     try {
       await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/report/requeue`);
       await loadReports();
-      setNotice({ tone: "success", text: "失败任务已重新排队。" });
+      setNotice({ tone: "success", text: "任务已重新排队，可在“生成中”查看进度。" });
     } catch (error) {
-      setNotice({ tone: "danger", text: error.message });
+      setNotice({ tone: "danger", text: reportErrorMessage(error, "重新排队") });
     } finally {
       setBusyAction("");
     }
@@ -183,7 +188,7 @@ export function ReportsPage() {
     try {
       await downloadFile(item.report_pdf_url, `interview-report-${item.session_id}.pdf`);
     } catch (error) {
-      setNotice({ tone: "danger", text: error.message });
+      setNotice({ tone: "danger", text: reportErrorMessage(error, "下载 PDF") });
     } finally {
       setBusyAction("");
     }
@@ -296,7 +301,7 @@ export function ReportsPage() {
 
             <div className="reports-active-filter" key={`${status}-${days}-${query}`} aria-live="polite">
               <div className="reports-filter-context">
-                <span className="reports-filter-label"><FileText size={14} weight="bold" aria-hidden="true" />筛选范围</span>
+                <span className="reports-filter-label"><FileText size={14} weight="bold" aria-hidden="true" />当前范围</span>
                 <dl className="reports-filter-details">
                   <div className="reports-filter-detail"><dt>状态</dt><dd>{activeStatusLabel}</dd></div>
                   <div className="reports-filter-detail"><dt>日期</dt><dd>{activeRangeLabel}</dd></div>
@@ -313,7 +318,7 @@ export function ReportsPage() {
           <div className="reports-canvas">
             <section className="reports-ledger" aria-labelledby="ledger-title">
               <header className="reports-ledger-head">
-                <div><span>报告记录</span><h2 id="ledger-title">{activeStatusLabel}</h2></div>
+                <div><h2 id="ledger-title">{activeStatusLabel}报告</h2><span>按最近更新时间排列</span></div>
                 <p>{state === "ready" ? `第 ${page} / ${totalPages} 页，共 ${payload.total} 条` : "状态和生成结果会自动同步"}</p>
               </header>
 
@@ -327,7 +332,7 @@ export function ReportsPage() {
                   <div className="reports-empty" data-tone="error" role="alert" aria-live="assertive" aria-atomic="true">
                     <WarningCircle className="reports-state-illustration" size={24} weight="fill" aria-hidden="true" />
                     <h3>报告列表加载失败</h3>
-                    <p>检查后端服务后重试。当前筛选条件不会丢失。</p>
+                    <p>报告服务没有返回列表{notice?.text ? `：${notice.text}` : ""}。确认后端服务已启动后重新加载；当前筛选条件会保留。</p>
                     <button className="button start-tool-button reports-empty-action" type="button" onClick={loadReports}><ArrowClockwise size={16} weight="bold" aria-hidden="true" /><span>重新加载</span></button>
                   </div>
                 )}
@@ -341,15 +346,20 @@ export function ReportsPage() {
                     </button>
                   </div>
                 )}
-                {state === "ready" && payload.items.map((item, index) => (
-                  <article key={item.session_id} className={`report-row reports-report-row reports-report-row-${item.status}`} style={{ "--report-row-index": index }}>
+                {state === "ready" && payload.items.map((item, index) => {
+                  const RowStatusIcon = statusIcons[item.status] || Info;
+                  return (
+                  <article key={item.session_id} className={`reports-report-row reports-report-row-${item.status}`} style={{ "--report-row-index": index }}>
                     <div className="reports-row-main">
                       <div className="reports-row-title"><h3>{item.job_title || "未提供岗位标题"}</h3><span>#{item.session_id.slice(0, 8)}</span></div>
                       <p>{item.summary || item.error || "报告任务正在处理，完成后显示结构化摘要。"}</p>
                       <div className="reports-row-context"><span>{pathLabels[item.report_path] || "生成路径未提供"}</span>{(item.job_tags || []).slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div>
                     </div>
 
-                    <div className="reports-row-status" data-status={item.status}><span aria-hidden="true" /><strong>{statusLabels[item.status] || item.status}</strong></div>
+                    <div className="reports-row-status" data-status={item.status}>
+                      <span aria-hidden="true"><RowStatusIcon className={item.status === "processing" ? "reports-processing-icon" : undefined} size={16} weight={item.status === "processing" ? "bold" : "fill"} focusable="false" /></span>
+                      <strong>{statusLabels[item.status] || item.status}</strong>
+                    </div>
 
                     <div className="reports-row-score">
                       {item.status === "completed"
@@ -365,10 +375,11 @@ export function ReportsPage() {
                     <div className="reports-row-actions">
                       {item.status === "failed" && <button className="button start-tool-button reports-row-action reports-row-recovery" type="button" onClick={() => requeue(item.session_id)} disabled={Boolean(busyAction)} aria-busy={busyAction === `requeue:${item.session_id}` || undefined} data-state={busyAction === `requeue:${item.session_id}` ? "loading" : undefined}>{busyAction === `requeue:${item.session_id}` ? <SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" /> : <ArrowClockwise size={15} weight="bold" aria-hidden="true" />}<span>{busyAction === `requeue:${item.session_id}` ? "排队中" : "重新排队"}</span></button>}
                       <button className="button start-tool-button reports-row-action reports-row-open" type="button" onClick={() => openItem(item)}><span>{item.status === "completed" ? "查看报告" : "查看进度"}</span><ArrowRight size={15} weight="bold" aria-hidden="true" /></button>
-                      {item.report_pdf_url && <button className="button start-tool-button reports-row-action reports-row-download" type="button" onClick={() => download(item)} disabled={Boolean(busyAction)} aria-busy={busyAction === `download:${item.session_id}` || undefined} data-state={busyAction === `download:${item.session_id}` ? "loading" : undefined} aria-label={`下载 ${item.job_title || "面试"} PDF`}>{busyAction === `download:${item.session_id}` ? <SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" /> : <DownloadSimple size={15} weight="bold" aria-hidden="true" />}<span>{busyAction === `download:${item.session_id}` ? "下载中" : "下载 PDF"}</span></button>}
+                      {item.report_pdf_url && <button className="button start-tool-button reports-row-action reports-row-download" type="button" onClick={() => download(item)} disabled={Boolean(busyAction)} aria-busy={busyAction === `download:${item.session_id}` || undefined} data-state={busyAction === `download:${item.session_id}` ? "loading" : undefined} aria-label={`下载 ${item.job_title || "面试"} PDF`} title="下载 PDF">{busyAction === `download:${item.session_id}` ? <SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" /> : <DownloadSimple size={15} weight="bold" aria-hidden="true" />}<span>{busyAction === `download:${item.session_id}` ? "下载中" : "PDF"}</span></button>}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
 
               <nav className="reports-pagination" aria-label="报告分页">
@@ -391,7 +402,7 @@ export function ReportsPage() {
 
           <div className="start-inspector-content reports-inspector-content">
             <section className="reports-inspector-section" aria-labelledby="status-summary-title">
-              <header><span>状态统计</span><h3 id="status-summary-title">当前数据集</h3></header>
+              <header><h3 id="status-summary-title">当前数据集</h3><span>与搜索和日期范围同步</span></header>
               <dl className="reports-status-strip">
                 {Object.entries(statusLabels).map(([value, label]) => {
                   const StatusIcon = statusIcons[value];
@@ -401,7 +412,7 @@ export function ReportsPage() {
             </section>
 
             <section className="reports-inspector-section reports-current-view" aria-labelledby="current-view-title">
-              <header><span>当前视图</span><h3 id="current-view-title">筛选条件</h3></header>
+              <header><h3 id="current-view-title">筛选条件</h3><span>决定中央台账内容</span></header>
               <dl>
                 <div><dt>状态</dt><dd>{activeStatusLabel}</dd></div>
                 <div><dt>日期</dt><dd>{activeRangeLabel}</dd></div>
@@ -412,7 +423,7 @@ export function ReportsPage() {
             </section>
 
             <section className="reports-inspector-section reports-status-guide" aria-labelledby="status-guide-title">
-              <header><span>继续处理</span><h3 id="status-guide-title">操作规则</h3></header>
+              <header><h3 id="status-guide-title">操作规则</h3><span>按报告状态继续</span></header>
               <ul>
                 <li><CheckCircle size={15} weight="fill" aria-hidden="true" /><span><strong>已完成</strong>查看报告或下载 PDF</span></li>
                 <li><SpinnerGap size={15} weight="bold" aria-hidden="true" /><span><strong>生成中</strong>进入进度页跟踪任务</span></li>

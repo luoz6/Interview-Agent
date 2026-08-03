@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-08-03",
+    "scope": "whole-page archive refinement",
+    "route": "/reports",
+    "macrostructure": "Search-first Report Archive Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / continuous white ledger / cobalt actions with localized semantic states",
+    "variation_knobs": "continuous query header / 88px scoped ledger rows / semantic Phosphor status glyphs / one primary row action / open factual inspector / three functional motion primitives / bounded recovery copy",
+    "enrichment": "none",
+    "brief": "Refine the complete reports archive module by module, with stronger hierarchy, icons, typography, buttons, honest errors, responsive density and restrained motion"
+  },
+  {
+    "date": "2026-08-03",
     "scope": "whole-page detail refinement",
     "route": "/report-detail",
     "macrostructure": "Conclusion-first Report Reading Workbench",

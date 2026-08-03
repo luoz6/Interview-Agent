@@ -333,11 +333,11 @@ test("React report center filters, requeues and opens progress", async ({ page, 
   const failed = await seedReport(request, "failed");
   await createCompletedReport(request);
   await page.goto("/reports");
-  await expect(page.locator(".report-row").first()).toBeVisible();
+  await expect(page.locator(".reports-report-row").first()).toBeVisible();
   await page.getByRole("button", { name: /生成失败/ }).click();
   await page.locator('input[aria-label="搜索报告"]').fill(failed.session_id);
   await page.getByRole("button", { name: "搜索" }).click();
-  await expect(page.locator(".report-row")).toHaveCount(1);
+  await expect(page.locator(".reports-report-row")).toHaveCount(1);
   await page.getByRole("button", { name: "重新排队" }).click();
   await expect(page.locator("body")).toContainText("已重新排队");
   const reports = await (await request.get("/api/reports?limit=100")).json();
