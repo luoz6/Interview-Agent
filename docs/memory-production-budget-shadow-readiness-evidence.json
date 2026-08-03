@@ -1,0 +1,24 @@
+{
+  "approval_packet_ready": true,
+  "approval_status": "PENDING",
+  "change_preflight": "BLOCKED",
+  "configuration_changed": false,
+  "consume_rejected": true,
+  "contracts_present": true,
+  "hard_stop_clear": true,
+  "long_term_memory_consumption": "BLOCKED",
+  "observation_probe_status": "PASS",
+  "offline_source_audit": true,
+  "pending_example_gate_codes": [
+    "APPROVAL_RECORD_NOT_EXTERNAL",
+    "APPROVAL_STATUS_NOT_APPROVED"
+  ],
+  "principal_read_shadow_production": "NOT_AUTHORIZED",
+  "principal_write_shadow_production": "NOT_AUTHORIZED",
+  "production_observation": "NOT_RUN",
+  "safe_defaults": true,
+  "schema_version": "memory-production-budget-shadow-readiness-v1",
+  "tooling_readiness": "READY_FOR_REVIEW",
+  "validated_revision": "c56fd7cd19336730f47be0173a6824cda1ca4c42",
+  "window_probe_action": "START_WARM_UP"
+}
