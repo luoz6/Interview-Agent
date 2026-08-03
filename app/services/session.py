@@ -426,6 +426,8 @@ class InterviewSessionStore:
     def fail_report(self, session_id: str, error: str) -> None:
         state = self.get(session_id)
         existing = self._reports.get(session_id)
+        if existing is not None and existing.status in {"completed", "failed"}:
+            return
         created_at = existing.created_at if existing is not None else report_utc_now_iso()
         state["phase"] = "review"
         state["phase_status"] = "failed"
@@ -442,6 +444,36 @@ class InterviewSessionStore:
             created_at=created_at,
             finished_at=report_utc_now_iso(),
         )
+
+    def requeue_report(self, session_id: str) -> None:
+        state = self.get(session_id)
+        if state["status"] != "finished":
+            raise ValueError("interview is not finished")
+        existing = self._reports.get(session_id)
+        if existing is not None and existing.status == "completed":
+            raise ValueError("completed report cannot be requeued")
+        state["phase"] = "review"
+        state["phase_status"] = "active"
+        state["review_status"] = "processing"
+        self._sessions[session_id] = _advance_state_metadata(
+            state,
+            command_id=None,
+            record_command_id=False,
+        )
+        if existing is None or existing.status != "processing":
+            self._reports[session_id] = ReportRecord(
+                status="processing",
+                progress=ReportProgress(
+                    stage="retrieving",
+                    percent=0,
+                    message="Waiting for report worker to start.",
+                ),
+                created_at=(
+                    existing.created_at
+                    if existing is not None
+                    else report_utc_now_iso()
+                ),
+            )
 
     def get_report_record(self, session_id: str) -> ReportRecord | None:
         self.get(session_id)

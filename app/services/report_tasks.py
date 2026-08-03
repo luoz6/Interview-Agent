@@ -170,8 +170,10 @@ def run_report_generation(
             execution_runner=execution_runner,
             attempt_number=attempt_number,
         )
-    except ValueError:
-        return None
+    except ValueError as exc:
+        if str(exc) == "session not found":
+            return None
+        store.fail_report(session_id, str(exc))
     except (ReportGenerationTimeout, ReportGenerationFailed) as exc:
         store.fail_report(session_id, str(exc))
     except Exception as exc:
@@ -185,16 +187,22 @@ def generate_report_for_session(
 ) -> None:
     try:
         vector_store = get_knowledge_store()
+        llm = resolve_runtime_llm(store)
+        execution_runner = get_agent_execution_runner()
     except Exception as exc:
-        store.fail_report(session_id, str(exc))
+        try:
+            store.fail_report(session_id, str(exc))
+        except ValueError as store_exc:
+            if str(store_exc) != "session not found":
+                raise
         return
 
     run_report_generation(
         session_id=session_id,
         store=store,
-        llm=resolve_runtime_llm(store),
+        llm=llm,
         vector_store=vector_store,
-        execution_runner=get_agent_execution_runner(),
+        execution_runner=execution_runner,
     )
 
 

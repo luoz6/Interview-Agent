@@ -146,6 +146,9 @@ class ReportRepository(Protocol):
     def fail_report(self, session_id: str, error: str) -> None:
         ...
 
+    def requeue_report(self, session_id: str) -> None:
+        ...
+
     def get_report_record(self, session_id: str) -> ReportRecord | None:
         ...
 

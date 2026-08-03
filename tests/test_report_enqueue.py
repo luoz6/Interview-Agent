@@ -9,6 +9,7 @@ class FakeStore:
         self.existing_record = existing_record
         self.mark_result = mark_result
         self.marked = []
+        self.failed = []
 
     def get_report_record(self, session_id):
         return self.existing_record
@@ -16,6 +17,9 @@ class FakeStore:
     def mark_report_processing(self, session_id):
         self.marked.append(session_id)
         return self.mark_result
+
+    def fail_report(self, session_id, error):
+        self.failed.append((session_id, error))
 
 
 class FakeJobStore:
@@ -27,7 +31,11 @@ class FakeJobStore:
         if self.error is not None:
             raise self.error
         self.enqueued.append(session_id)
-        return {"session_id": session_id, "status": "queued"}
+        return {
+            "job_id": "job-1",
+            "session_id": session_id,
+            "status": "queued",
+        }
 
 
 class FakeBackgroundTasks:
@@ -90,12 +98,12 @@ def test_enqueue_report_uses_job_store_for_finished_sessions():
     assert job_store.enqueued == ["s1"]
 
 
-def test_enqueue_report_falls_back_to_background_task_when_queue_unavailable():
+def test_enqueue_report_marks_failed_without_background_fallback_when_queue_unavailable():
     store = FakeStore()
     job_store = FakeJobStore(error=RuntimeError("postgres queue unavailable"))
     background_tasks = FakeBackgroundTasks()
 
-    enqueue_report_if_needed(
+    result = enqueue_report_if_needed(
         turn_status="finished",
         session_id="s1",
         store=store,
@@ -103,19 +111,20 @@ def test_enqueue_report_falls_back_to_background_task_when_queue_unavailable():
         background_tasks=background_tasks,
     )
 
-    assert store.marked == ["s1"]
-    assert len(background_tasks.tasks) == 1
-    task_func, task_args = background_tasks.tasks[0]
-    assert task_func.__name__ == "generate_report_for_session"
-    assert task_args == ("s1", store)
+    assert result.status == "failed"
+    assert result.error_code == "report_enqueue_unavailable"
+    assert result.retryable is True
+    assert store.marked == []
+    assert store.failed == [("s1", "report queue unavailable")]
+    assert background_tasks.tasks == []
 
 
-def test_enqueue_report_falls_back_for_database_style_exceptions():
+def test_enqueue_report_marks_failed_for_database_style_exceptions():
     store = FakeStore()
     job_store = FakeJobStore(error=ConnectionError("database unavailable"))
     background_tasks = FakeBackgroundTasks()
 
-    enqueue_report_if_needed(
+    result = enqueue_report_if_needed(
         turn_status="finished",
         session_id="s1",
         store=store,
@@ -123,15 +132,17 @@ def test_enqueue_report_falls_back_for_database_style_exceptions():
         background_tasks=background_tasks,
     )
 
-    assert store.marked == ["s1"]
-    assert len(background_tasks.tasks) == 1
+    assert result.status == "failed"
+    assert store.marked == []
+    assert store.failed == [("s1", "report queue unavailable")]
+    assert background_tasks.tasks == []
 
 
-def test_enqueue_report_falls_back_when_job_store_factory_fails():
+def test_enqueue_report_marks_failed_when_job_store_factory_fails():
     store = FakeStore()
     background_tasks = FakeBackgroundTasks()
 
-    enqueue_report_if_needed(
+    result = enqueue_report_if_needed(
         turn_status="finished",
         session_id="s1",
         store=store,
@@ -139,8 +150,28 @@ def test_enqueue_report_falls_back_when_job_store_factory_fails():
         background_tasks=background_tasks,
     )
 
-    assert store.marked == ["s1"]
-    assert len(background_tasks.tasks) == 1
+    assert result.status == "failed"
+    assert store.marked == []
+    assert store.failed == [("s1", "report queue unavailable")]
+    assert background_tasks.tasks == []
+
+
+def test_enqueue_report_returns_durable_job_identity():
+    store = FakeStore()
+    job_store = FakeJobStore()
+
+    result = enqueue_report_if_needed(
+        turn_status="finished",
+        session_id="s1",
+        store=store,
+        job_store=job_store,
+        background_tasks=FakeBackgroundTasks(),
+    )
+
+    assert result.status == "queued"
+    assert result.job_id == "job-1"
+    assert result.error_code is None
+    assert result.retryable is False
 
 
 def test_api_routes_do_not_import_report_task_executor_directly():

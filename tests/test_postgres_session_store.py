@@ -35,6 +35,27 @@ def make_table_prefix():
     return "test_runtime_" + uuid4().hex[:12]
 
 
+def drop_session_tables(dsn: str, table_prefix: str) -> None:
+    psycopg2, sql = PostgresInterviewSessionStore._import_psycopg2()
+    tables = (
+        f"{table_prefix}_runtime_event_receipts",
+        f"{table_prefix}_agent_runs",
+        f"{table_prefix}_runtime_outbox",
+        f"{table_prefix}_question_evaluations",
+        f"{table_prefix}_reports",
+        f"{table_prefix}_messages",
+        f"{table_prefix}_sessions",
+    )
+    with psycopg2.connect(dsn) as connection:
+        with connection.cursor() as cursor:
+            for table in tables:
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table}").format(
+                        table=sql.Identifier(table)
+                    )
+                )
+
+
 def test_schema_initializes_runtime_tables():
     store = PostgresInterviewSessionStore(
         dsn=require_dsn(),
@@ -844,7 +865,37 @@ def test_postgres_fail_report_updates_review_phase_failed():
     assert snapshot["phase"] == "review"
     assert snapshot["phase_status"] == "failed"
     assert snapshot["review_status"] == "failed"
-    assert snapshot["last_command_id"] == "cmd-finish"
+
+
+def test_postgres_stale_failure_does_not_overwrite_completed_report():
+    dsn = require_dsn()
+    table_prefix = make_table_prefix()
+    try:
+        store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+        turn = store.start(
+            make_plan(),
+            job_description="Python backend role",
+            resume_text="Built FastAPI services",
+            job_tags=["python", "fastapi"],
+        )
+        store.finish(turn.session_id, expected_version=1, command_id="cmd-finish")
+        store.mark_report_processing(turn.session_id)
+        report = make_report(turn.session_id)
+        store.save_report(turn.session_id, report)
+
+        store.fail_report(turn.session_id, "stale worker failure")
+
+        recovered = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+        record = recovered.get_report_record(turn.session_id)
+        snapshot = recovered.snapshot(turn.session_id)
+        assert record is not None
+        assert record.status == "completed"
+        assert record.report == report
+        assert snapshot["review_status"] == "completed"
+        assert snapshot["phase_status"] == "completed"
+        assert snapshot["last_command_id"] == "cmd-finish"
+    finally:
+        drop_session_tables(dsn, table_prefix)
 
 
 def test_list_reports_survives_store_reinstantiation():

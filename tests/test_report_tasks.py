@@ -783,6 +783,55 @@ def test_run_report_generation_marks_failed_status_when_execution_raises():
     assert store.failed_error == "llm exploded"
 
 
+def test_run_report_generation_marks_failed_for_unexpected_value_error(monkeypatch):
+    import app.services.report_tasks as report_tasks
+
+    store = FakeStore(make_finished_state())
+    monkeypatch.setattr(
+        report_tasks,
+        "execute_report_generation",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("invalid report input")),
+    )
+
+    report = run_report_generation(
+        session_id="s1",
+        store=store,
+        llm=ReportLLM(),
+        vector_store=object(),
+    )
+
+    assert report is None
+    assert store.failed_error == "invalid report input"
+
+
+def test_generate_report_for_session_marks_failed_when_runtime_llm_init_fails(
+    monkeypatch,
+):
+    import app.services.report_tasks as report_tasks
+
+    class FakeVectorStore:
+        pass
+
+    store = InterviewSessionStore(llm=ReportLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+    monkeypatch.setattr(report_tasks, "get_knowledge_store", lambda: FakeVectorStore())
+    monkeypatch.setattr(
+        report_tasks,
+        "resolve_runtime_llm",
+        lambda resolved_store: (_ for _ in ()).throw(
+            RuntimeError("report llm is unavailable")
+        ),
+    )
+
+    generate_report_for_session(session.session_id, store)
+
+    record = store.get_report_record(session.session_id)
+    assert record.status == "failed"
+    assert record.error == "report llm is unavailable"
+
+
 def test_generate_report_for_session_saves_failed_record_on_timeout():
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):

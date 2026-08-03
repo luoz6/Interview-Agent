@@ -1,9 +1,22 @@
 from collections.abc import Callable
+from dataclasses import dataclass
+import logging
+from typing import Literal
 
 from fastapi import BackgroundTasks
 
 from app.ports.runtime import ReportJobQueue, ReportRepository
-from app.services.report_tasks import generate_report_for_session
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ReportEnqueueResult:
+    status: Literal["not_applicable", "already_exists", "queued", "failed"]
+    job_id: str | None = None
+    error_code: str | None = None
+    retryable: bool = False
 
 
 def enqueue_report_if_needed(
@@ -14,18 +27,45 @@ def enqueue_report_if_needed(
     job_store: ReportJobQueue | None = None,
     job_store_factory: Callable[[], ReportJobQueue] | None = None,
     background_tasks: BackgroundTasks | None,
-) -> None:
+) -> ReportEnqueueResult:
+    # Kept in the boundary signature for route compatibility while durable
+    # enqueue callers migrate away from response-coupled execution.
+    del background_tasks
     if turn_status != "finished":
-        return
+        return ReportEnqueueResult(status="not_applicable")
     if store.get_report_record(session_id) is not None:
-        return
+        return ReportEnqueueResult(status="already_exists")
     try:
         resolved_job_store = job_store
         if resolved_job_store is None:
             if job_store_factory is None:
                 raise RuntimeError("report job store is not configured")
             resolved_job_store = job_store_factory()
-        resolved_job_store.enqueue_report_request(session_id)
+        job = resolved_job_store.enqueue_report_request(session_id)
+        return ReportEnqueueResult(
+            status="queued",
+            job_id=str(job["job_id"]) if job.get("job_id") is not None else None,
+        )
     except Exception:
-        if background_tasks is not None and store.mark_report_processing(session_id):
-            background_tasks.add_task(generate_report_for_session, session_id, store)
+        logger.warning(
+            "report enqueue failed",
+            extra={
+                "session_id": session_id,
+                "error_code": "report_enqueue_unavailable",
+            },
+        )
+        try:
+            store.fail_report(session_id, "report queue unavailable")
+        except Exception:
+            logger.warning(
+                "report enqueue failure projection failed",
+                extra={
+                    "session_id": session_id,
+                    "error_code": "report_enqueue_projection_failed",
+                },
+            )
+        return ReportEnqueueResult(
+            status="failed",
+            error_code="report_enqueue_unavailable",
+            retryable=True,
+        )

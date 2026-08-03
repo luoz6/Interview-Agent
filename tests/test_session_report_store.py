@@ -143,6 +143,39 @@ def test_store_saves_failed_report_record():
     assert record.finished_at
 
 
+def test_stale_failure_does_not_overwrite_completed_report():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+    report = make_report(session.session_id)
+    store.save_report(session.session_id, report)
+
+    store.fail_report(session.session_id, "stale worker failure")
+
+    record = store.get_report_record(session.session_id)
+    state = store.get(session.session_id)
+    assert record.status == "completed"
+    assert record.report == report
+    assert state["review_status"] == "completed"
+    assert state["phase_status"] == "completed"
+
+
+def test_duplicate_failure_retains_original_terminal_record():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+    finish_session(store, session.session_id)
+    store.mark_report_processing(session.session_id)
+    store.fail_report(session.session_id, "first failure")
+    first = store.get_report_record(session.session_id)
+
+    store.fail_report(session.session_id, "late duplicate failure")
+
+    record = store.get_report_record(session.session_id)
+    assert record == first
+    assert record.error == "first failure"
+
+
 def test_list_reports_returns_completed_failed_and_processing_records():
     store = InterviewSessionStore(llm=FakeInterviewLLM())
     first = start_session(store)
