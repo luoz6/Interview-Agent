@@ -128,4 +128,3 @@ def test_packet_how_to_keeps_all_private_decisions_external() -> None:
     assert "refuses to write the packet anywhere inside the repository" in text
     assert "Keep records, digests, approver references" in text
     assert "Never edit the packet manifest to say `APPROVED`" in text
-
