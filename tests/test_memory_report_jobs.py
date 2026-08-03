@@ -31,6 +31,22 @@ def test_memory_report_enqueue_is_idempotent_per_session():
     assert first["job_id"] == second["job_id"]
 
 
+def test_memory_report_enqueue_rolls_back_identity_when_projection_fails():
+    def fail_projection(session_id: str) -> None:
+        raise RuntimeError("projection unavailable")
+
+    store = InMemoryReportJobStore(on_enqueue=fail_projection)
+
+    try:
+        store.enqueue_report_request("s1")
+    except RuntimeError as exc:
+        assert str(exc) == "projection unavailable"
+    else:
+        raise AssertionError("enqueue must fail when its report projection fails")
+
+    assert store.get_job_by_session("s1") is None
+
+
 def test_memory_report_job_requeue_reuses_identity_and_increments_replay():
     store = InMemoryReportJobStore()
     created = store.enqueue_report_request("s1")
@@ -101,7 +117,6 @@ def test_preview_runtime_factory_completes_report_and_job(monkeypatch):
     session_store = InterviewSessionStore(llm=ReportLLM(report_score=83))
     session = start_session(session_store)
     finish_session(session_store, session.session_id)
-    session_store.mark_report_processing(session.session_id)
     runtime._session_store = session_store
 
     queue = runtime.get_report_job_store()

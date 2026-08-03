@@ -392,7 +392,10 @@ def build_report_job_store():
 
     profile = get_report_runtime_profile()
     if profile.report_job_store == "memory":
-        return InMemoryReportJobStore(runner=_run_preview_report_job)
+        return InMemoryReportJobStore(
+            runner=_run_preview_report_job,
+            on_enqueue=_prepare_preview_report_job,
+        )
     domains = get_postgres_connection_domains()
     return PostgresReportJobStore(
         dsn=get_postgres_dsn(),
@@ -826,6 +829,12 @@ def _run_preview_report_job(job: dict) -> None:
             if record is not None and record.error
             else "report did not complete"
         )
+
+
+def _prepare_preview_report_job(session_id: str) -> None:
+    store = get_session_store()
+    if store.get_report_record(session_id) is None:
+        store.mark_report_processing(session_id)
 
 
 def get_interview_workflow_service():

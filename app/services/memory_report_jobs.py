@@ -18,10 +18,12 @@ class InMemoryReportJobStore:
         self,
         *,
         runner: Callable[[dict], None] | None = None,
+        on_enqueue: Callable[[str], None] | None = None,
         lease_seconds: int = 300,
     ) -> None:
         self.lease_seconds = lease_seconds
         self._runner = runner
+        self._on_enqueue = on_enqueue
         self._jobs: dict[str, dict] = {}
         self._session_jobs: dict[str, str] = {}
         self._threads: set[Thread] = set()
@@ -60,6 +62,15 @@ class InMemoryReportJobStore:
             self._jobs[job_id] = job
             self._session_jobs[session_id] = job_id
             result = deepcopy(job)
+        try:
+            if self._on_enqueue is not None:
+                self._on_enqueue(session_id)
+        except Exception:
+            with self._lock:
+                if self._session_jobs.get(session_id) == job_id:
+                    self._session_jobs.pop(session_id, None)
+                    self._jobs.pop(job_id, None)
+            raise
         self._start_runner(job_id)
         return result
 
