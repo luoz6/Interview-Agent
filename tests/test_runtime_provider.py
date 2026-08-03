@@ -176,7 +176,19 @@ def test_build_report_job_store_uses_postgres_dsn_and_runtime_prefix(monkeypatch
     assert isinstance(store, FakeReportJobStore)
     assert created["dsn"] == "postgresql://user:pass@localhost/interview"
     assert created["table_prefix"] == "runtime_test"
-    assert created["lease_seconds"] == 300
+    assert created["lease_seconds"] == 45
+
+
+def test_build_report_job_store_uses_memory_queue_for_preview(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "memory")
+    monkeypatch.delenv("REPORT_RUNTIME_PROFILE", raising=False)
+    monkeypatch.delenv("REPORT_JOB_STORE", raising=False)
+
+    store = build_report_job_store()
+
+    from app.services.memory_report_jobs import InMemoryReportJobStore
+
+    assert isinstance(store, InMemoryReportJobStore)
 
 
 def test_config_exposes_event_backend_and_redis_defaults(monkeypatch):

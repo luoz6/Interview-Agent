@@ -17,8 +17,22 @@ def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
         "InterviewSessionStore",
         "PostgresInterviewSessionStore",
     }
-    assert body["report_job_store"] == "PostgresReportJobStore"
-    assert body["report_worker"] == "external_process"
+    assert body["report_runtime_profile"] in {"preview", "durable"}
+    assert isinstance(body["configuration_valid"], bool)
+    assert isinstance(body["report_runtime_ready"], bool)
+    assert isinstance(body["knowledge_runtime_ready"], bool)
+    assert body["report_job_store"] in {
+        "InMemoryReportJobStore",
+        "PostgresReportJobStore",
+    }
+    assert body["report_worker"] in {"in_process", "external_process"}
+    assert body["knowledge_store"] in {
+        "StaticKnowledgeStore",
+        "PgVectorKnowledgeStore",
+    }
+    assert body["embedding_provider"] in {"disabled", "siliconflow"}
+    assert isinstance(body["preview"], bool)
+    assert isinstance(body["configuration_warnings"], list)
     assert body["event_transport"] == {
         "interview": "sse",
         "report_progress": "polling",

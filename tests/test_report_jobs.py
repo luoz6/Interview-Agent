@@ -266,6 +266,43 @@ def test_report_lease_token_fences_stale_worker(stores):
         worker_id="worker-2",
         lease_token=second["lease_token"],
     )
+    refreshed = stores["job_store"].get_job(second["job_id"])
+    assert refreshed["heartbeat_at"] is not None
+
+
+def test_terminal_transitions_are_fenced_against_reclaimed_worker(stores):
+    session_id = create_session(stores["session_store"])
+    stores["job_store"].enqueue_report_request(session_id=session_id)
+    first = stores["job_store"].claim_next(
+        worker_id="worker-1",
+        lease_seconds=-1,
+    )
+    second = stores["job_store"].claim_next(worker_id="worker-2")
+
+    assert stores["job_store"].mark_completed(
+        first["job_id"],
+        worker_id="worker-1",
+        lease_token=first["lease_token"],
+    ) is None
+    assert stores["job_store"].mark_failed(
+        first["job_id"],
+        "stale failure",
+        worker_id="worker-1",
+        lease_token=first["lease_token"],
+    ) is None
+
+    current = stores["job_store"].get_job(second["job_id"])
+    assert current["status"] == "running"
+    assert current["lease_owner"] == "worker-2"
+    assert current["lease_token"] == second["lease_token"]
+
+    completed = stores["job_store"].mark_completed(
+        second["job_id"],
+        worker_id="worker-2",
+        lease_token=second["lease_token"],
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
 
 
 def test_expired_running_job_can_be_reclaimed(stores):

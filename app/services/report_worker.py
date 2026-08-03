@@ -2,6 +2,7 @@ import logging
 import os
 import socket
 import time
+from contextlib import nullcontext
 
 from app.services.report import ReportGenerationFailed, ReportGenerationTimeout
 from app.services.report_tasks import execute_report_generation
@@ -13,6 +14,7 @@ from app.services.runtime import (
 )
 from app.services.runtime_signal_metrics import CANARY_SIGNAL_CODES
 from app.services.runtime_work import classify_runtime_failure
+from app.services.review_workflow import ReportLeaseHeartbeat
 from app.services.workflow_thread_lock import (
     FencedWriteRejected,
     ReportLeaseLost,
@@ -77,21 +79,33 @@ def run_one_job(
             _record_durable_outcome(signal_store, outcome)
             return job_store.get_job(job["job_id"])
 
-        report = execute_report_generation(
-            session_id=job["session_id"],
-            store=executor.store,
-            llm=executor.llm,
-            vector_store=executor.vector_store,
-            execution_runner=getattr(
-                executor,
-                "execution_runner",
-                None,
-            ),
-            attempt_number=max(
-                1,
-                int(job.get("attempt_count", 0)) + 1,
-            ),
-        )
+        with _legacy_lease_context(
+            job_store=job_store,
+            job=job,
+            worker_id=worker_id,
+        ) as heartbeat:
+            try:
+                report = execute_report_generation(
+                    session_id=job["session_id"],
+                    store=executor.store,
+                    llm=executor.llm,
+                    vector_store=executor.vector_store,
+                    execution_runner=getattr(
+                        executor,
+                        "execution_runner",
+                        None,
+                    ),
+                    attempt_number=max(
+                        1,
+                        int(job.get("attempt_count", 0)) + 1,
+                    ),
+                )
+            except Exception:
+                if heartbeat is not None:
+                    heartbeat.ensure_owned()
+                raise
+            if heartbeat is not None:
+                heartbeat.ensure_owned()
         assert report is not None
         if report.is_fallback:
             logger.warning(
@@ -103,7 +117,12 @@ def run_one_job(
                 "Report job completed with grounded report",
                 extra={"job_id": job["job_id"], "session_id": job["session_id"]},
             )
-        return job_store.mark_completed(job["job_id"])
+        return _transition_claim(
+            job_store,
+            "mark_completed",
+            job,
+            worker_id=worker_id,
+        )
     except (ReportLeaseLost, FencedWriteRejected, WorkflowThreadLockLost) as exc:
         # Ownership failures belong to the replacement owner. The stale worker
         # must not fail the public report or reschedule the newly claimed job.
@@ -116,9 +135,12 @@ def run_one_job(
                 job_store, job, worker_id=worker_id
             )
         executor.store.fail_report(job["session_id"], str(exc))
-        return job_store.mark_retryable_failure(
-            job["job_id"],
+        return _transition_claim(
+            job_store,
+            "mark_retryable_failure",
+            job,
             str(exc),
+            worker_id=worker_id,
             error_code="provider_timeout",
         )
     except ReportGenerationFailed as exc:
@@ -129,14 +151,20 @@ def run_one_job(
             )
         executor.store.fail_report(job["session_id"], str(exc))
         if _is_retryable_failure(exc):
-            return job_store.mark_retryable_failure(
-                job["job_id"],
+            return _transition_claim(
+                job_store,
+                "mark_retryable_failure",
+                job,
                 str(exc),
+                worker_id=worker_id,
                 error_code="provider_unavailable",
             )
-        return job_store.mark_failed(
-            job["job_id"],
+        return _transition_claim(
+            job_store,
+            "mark_failed",
+            job,
             str(exc),
+            worker_id=worker_id,
             error_code="domain_validation_failed",
         )
     except ValueError as exc:
@@ -146,9 +174,12 @@ def run_one_job(
                 job_store, job, worker_id=worker_id
             )
         executor.store.fail_report(job["session_id"], str(exc))
-        return job_store.mark_failed(
-            job["job_id"],
+        return _transition_claim(
+            job_store,
+            "mark_failed",
+            job,
             str(exc),
+            worker_id=worker_id,
             error_code="domain_validation_failed",
         )
     except Exception as exc:
@@ -158,9 +189,12 @@ def run_one_job(
                 job_store, job, worker_id=worker_id
             )
         executor.store.fail_report(job["session_id"], str(exc))
-        return job_store.mark_retryable_failure(
-            job["job_id"],
+        return _transition_claim(
+            job_store,
+            "mark_retryable_failure",
+            job,
             str(exc),
+            worker_id=worker_id,
             error_code="unexpected_error",
         )
 
@@ -189,6 +223,38 @@ def run_forever(
 
 def _is_retryable_failure(exc: ReportGenerationFailed) -> bool:
     return str(exc) in RETRYABLE_FAILURE_MESSAGES
+
+
+def _legacy_lease_context(*, job_store, job: dict, worker_id: str):
+    lease_token = job.get("lease_token")
+    if not lease_token:
+        return nullcontext(None)
+    if not all(hasattr(job_store, name) for name in ("assert_lease", "heartbeat")):
+        raise ReportLeaseLost("claimed report job cannot publish lease heartbeat")
+    return ReportLeaseHeartbeat(
+        job_store=job_store,
+        job_id=job["job_id"],
+        worker_id=worker_id,
+        lease_token=lease_token,
+        lease_seconds=getattr(job_store, "lease_seconds", 300),
+    )
+
+
+def _transition_claim(
+    job_store,
+    method_name: str,
+    job: dict,
+    *args,
+    worker_id: str,
+    **kwargs,
+):
+    lease_token = job.get("lease_token")
+    if lease_token:
+        kwargs.update(worker_id=worker_id, lease_token=lease_token)
+    result = getattr(job_store, method_name)(job["job_id"], *args, **kwargs)
+    if result is not None:
+        return result
+    return job_store.get_job(job["job_id"])
 
 
 def _release_durable_failure(job_store, job: dict, *, worker_id: str):

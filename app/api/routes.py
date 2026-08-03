@@ -24,6 +24,7 @@ from app.services.prep import (
     validate_launchable_interview_plan,
 )
 from app.services.config import (
+    get_report_runtime_profile,
     get_interview_langgraph_rollout_percent,
     get_runtime_event_backend,
     get_runtime_store,
@@ -174,6 +175,7 @@ def health():
 @router.get("/runtime")
 def runtime_boundary():
     runtime_store = get_runtime_store()
+    report_profile = get_report_runtime_profile()
     event_backend = get_runtime_event_backend()
     memory_config = load_effective_memory_config()
     runtime_enabled = memory_config.interview_graph.runtime_enabled
@@ -186,8 +188,24 @@ def runtime_boundary():
     return {
         "runtime_store": runtime_store,
         "session_store": session_store,
-        "report_job_store": "PostgresReportJobStore",
-        "report_worker": "external_process",
+        "report_runtime_profile": report_profile.name,
+        "configuration_valid": report_profile.configuration_valid,
+        "report_runtime_ready": report_profile.configuration_valid,
+        "knowledge_runtime_ready": report_profile.configuration_valid,
+        "report_job_store": (
+            "InMemoryReportJobStore"
+            if report_profile.report_job_store == "memory"
+            else "PostgresReportJobStore"
+        ),
+        "report_worker": report_profile.report_worker,
+        "knowledge_store": (
+            "StaticKnowledgeStore"
+            if report_profile.knowledge_store == "static"
+            else "PgVectorKnowledgeStore"
+        ),
+        "embedding_provider": report_profile.embedding_provider,
+        "preview": report_profile.preview,
+        "configuration_warnings": list(report_profile.errors),
         "event_transport": {
             "interview": "sse",
             "report_progress": "polling",
@@ -954,7 +972,7 @@ def get_interview_report_progress(
     detail = _report_progress_detail(
         session_id,
         record,
-        report_job_id=job.get("job_id") if job else None,
+        job=job,
     )
     if job and job.get("review_engine") == "langgraph-review-v1":
         completed = len(
@@ -1002,7 +1020,25 @@ def requeue_failed_report(
 
     job = queue.get_job_by_session(session_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="report job not found")
+        record = store.get_report_record(session_id)
+        detail = _report_progress_detail(session_id, record, job=None)
+        if detail["status"] != "orphaned":
+            raise HTTPException(status_code=404, detail="report job not found")
+        try:
+            created = queue.enqueue_report_request(session_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="report queue is unavailable",
+            ) from exc
+        return {
+            "session_id": session_id,
+            "report_job_id": str(created["job_id"]),
+            "status": "queued",
+            "attempt": int(created.get("attempt_count") or 0),
+            "recovered_from": "orphaned",
+            "report_progress_url": f"/api/interviews/{session_id}/report/progress",
+        }
 
     status = job.get("status")
     if status in {"queued", "retrying", "running"}:
@@ -1019,8 +1055,10 @@ def requeue_failed_report(
         raise HTTPException(status_code=409, detail="report job is not failed")
 
     try:
-        queue.requeue_failed(session_id)
+        store.requeue_report(session_id)
+        requeued = queue.requeue_failed(session_id)
     except ValueError as exc:
+        store.fail_report(session_id, "report requeue failed")
         raise HTTPException(
             status_code=409,
             detail="report job is not failed",
@@ -1028,7 +1066,10 @@ def requeue_failed_report(
 
     return {
         "session_id": session_id,
+        "report_job_id": str(requeued["job_id"]),
         "status": "queued",
+        "attempt": int(requeued.get("attempt_count") or 0),
+        "recovered_from": "failed",
         "report_progress_url": f"/api/interviews/{session_id}/report/progress",
     }
 
@@ -1141,7 +1182,9 @@ def _report_summary_to_dict(
     }
 
 
-def _report_progress_detail(session_id: str, record, *, report_job_id: str | None):
+def _report_progress_detail(session_id: str, record, *, job: dict | None):
+    report_job_id = job.get("job_id") if job else None
+    job_health = _report_job_health(job, record)
     if record is None:
         return {
             "session_id": session_id,
@@ -1153,6 +1196,7 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "events": [],
             "rag": _rag_progress_defaults(),
             "metadata": {},
+            **job_health,
         }
 
     if record.status == "completed":
@@ -1164,14 +1208,19 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "stage": "completed",
             "percent": 100,
             "message": "Report completed.",
-            "events": [{"stage": "completed", "message": "Report completed."}],
+            "events": [],
             "rag": _rag_progress_defaults(),
             "metadata": metadata,
+            **job_health,
         }
 
     if record.status == "failed":
         message = record.error or "Report generation failed."
         metadata = record.progress.metadata if record.progress is not None else {}
+        error_code = (
+            job.get("last_error_code") if job else None
+        ) or _public_report_error_code(message)
+        retryable = _report_error_retryable(error_code)
         return {
             "session_id": session_id,
             "report_job_id": report_job_id,
@@ -1179,9 +1228,16 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
             "stage": "failed",
             "percent": 100,
             "message": message,
-            "events": [{"stage": "failed", "message": message}],
+            "events": [],
             "rag": _rag_progress_defaults(),
             "metadata": metadata,
+            **job_health,
+            "retryable": retryable,
+            "error": {
+                "code": error_code,
+                "message": message,
+                "retryable": retryable,
+            },
         }
 
     progress = record.progress
@@ -1197,6 +1253,27 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
         current_question_id = progress.current_question_id
     metadata = progress.metadata if progress is not None else {}
 
+    if job_health["orphaned"]:
+        return {
+            "session_id": session_id,
+            "report_job_id": None,
+            "status": "orphaned",
+            "stage": "orphaned",
+            "percent": percent,
+            "message": "Report task lost its execution owner.",
+            "current_question_id": current_question_id,
+            "events": [],
+            "rag": _rag_progress_defaults(),
+            "metadata": metadata,
+            **job_health,
+            "retryable": True,
+            "error": {
+                "code": "report_job_missing",
+                "message": "Report task lost its execution owner.",
+                "retryable": True,
+            },
+        }
+
     return {
         "session_id": session_id,
         "report_job_id": report_job_id,
@@ -1205,9 +1282,94 @@ def _report_progress_detail(session_id: str, record, *, report_job_id: str | Non
         "percent": percent,
         "message": message,
         "current_question_id": current_question_id,
-        "events": [{"stage": stage, "message": message}],
+        "events": [],
         "rag": _rag_progress_defaults(),
         "metadata": metadata,
+        "error": None,
+        **job_health,
+    }
+
+
+def _report_job_health(job: dict | None, record) -> dict:
+    threshold = max(1, int(os.getenv("REPORT_JOB_STALL_SECONDS", "90")))
+    now = datetime.now(timezone.utc)
+    heartbeat = job.get("heartbeat_at") if job else None
+    updated = job.get("updated_at") if job else getattr(record, "created_at", None)
+    started = job.get("started_at") if job else None
+    lease_expires = job.get("lease_expires_at") if job else None
+    activity = heartbeat or updated
+    activity_at = _coerce_datetime(activity)
+    lease_expires_at = _coerce_datetime(lease_expires)
+    age_stalled = bool(
+        activity_at is not None and (now - activity_at).total_seconds() > threshold
+    )
+    lease_stalled = bool(
+        job
+        and job.get("status") == "running"
+        and lease_expires_at is not None
+        and lease_expires_at <= now
+    )
+    orphaned = bool(
+        job is None
+        and record is not None
+        and record.status == "processing"
+        and age_stalled
+    )
+    stalled = orphaned or lease_stalled or bool(
+        job and job.get("status") in {"queued", "running", "retrying"} and age_stalled
+    )
+    return {
+        "attempt": int(job.get("attempt_count") or 0) if job else 0,
+        "max_attempts": int(job.get("max_attempts") or 0) if job else 0,
+        "started_at": _public_datetime(started),
+        "last_updated_at": _public_datetime(updated),
+        "heartbeat_at": _public_datetime(heartbeat),
+        "stalled": stalled,
+        "orphaned": orphaned,
+        "retryable": bool(job and job.get("status") == "failed"),
+    }
+
+
+def _coerce_datetime(value):
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def _public_datetime(value) -> str | None:
+    parsed = _coerce_datetime(value)
+    return parsed.isoformat().replace("+00:00", "Z") if parsed is not None else None
+
+
+def _public_report_error_code(message: str) -> str:
+    normalized = " ".join(message.casefold().split())
+    if normalized in {
+        "report queue unavailable",
+        "report enqueue unavailable",
+    }:
+        return "report_enqueue_unavailable"
+    if "embedding provider is disabled" in normalized:
+        return "embedding_provider_disabled"
+    if "pgvector" in normalized or "knowledge store" in normalized:
+        return "knowledge_store_unavailable"
+    if "timeout" in normalized or "timed out" in normalized:
+        return "report_provider_timeout"
+    return "report_generation_failed"
+
+
+def _report_error_retryable(error_code: str) -> bool:
+    return error_code in {
+        "report_enqueue_unavailable",
+        "embedding_provider_timeout",
+        "knowledge_store_unavailable",
+        "report_provider_timeout",
+        "provider_unavailable",
+        "report_job_missing",
     }
 
 

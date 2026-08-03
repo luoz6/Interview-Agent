@@ -12,7 +12,7 @@ from app.services.knowledge_profile import (
 from app.services.memory_config import load_effective_memory_config
 from app.services.memory_quality_dataset import load_memory_quality_dataset
 from app.services.memory_quality_eval import evaluate_memory_quality
-from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
+from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,8 +59,11 @@ def repository_gate_codes() -> list[str]:
         pass
     else:
         codes.append("long_term_consume_not_rejected")
-    if LATEST_RUNTIME_MIGRATION.migration_id != "principal_memory_v1":
-        codes.append("principal_memory_migration_not_latest")
+    if not any(
+        migration.migration_id == "principal_memory_v1"
+        for migration in RUNTIME_MIGRATIONS
+    ):
+        codes.append("principal_memory_migration_missing")
     coverage = load_active_knowledge_covered_tags()
     if not P1_REQUIRED_COVERED_TAGS <= set(coverage):
         codes.append("knowledge_p1_not_ready")

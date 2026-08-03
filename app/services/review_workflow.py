@@ -28,7 +28,7 @@ class ReportLeaseHeartbeat:
         self.worker_id = worker_id
         self.lease_token = lease_token
         self.lease_seconds = lease_seconds
-        self.interval_seconds = max(0.1, lease_seconds / 3)
+        self.interval_seconds = max(0.1, min(10.0, lease_seconds / 3))
         self._stop = Event()
         self._lost = Event()
         self._failure_lock = Lock()

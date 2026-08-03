@@ -1056,6 +1056,17 @@ def get_knowledge_store(
     schema_mode: str = "migrate",
 ) -> PgVectorKnowledgeStore:
     global _knowledge_store
+    from app.services.config import get_report_runtime_profile
+
+    profile = get_report_runtime_profile()
+    if profile.knowledge_store == "static":
+        from app.services.static_knowledge_store import StaticKnowledgeStore
+
+        if _knowledge_store is None or not isinstance(
+            _knowledge_store, StaticKnowledgeStore
+        ):
+            _knowledge_store = StaticKnowledgeStore()
+        return _knowledge_store
     if _knowledge_store is None:
         _knowledge_store = PgVectorKnowledgeStore.from_env(
             connection_provider=connection_provider,

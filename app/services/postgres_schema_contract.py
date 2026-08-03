@@ -48,6 +48,7 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX: dict[str, frozenset[str]] = {
             "status",
             "lease_token",
             "lease_expires_at",
+            "heartbeat_at",
             "available_at",
             "scheduled_attempt",
         }
@@ -450,6 +451,25 @@ RUNTIME_SCHEMA_V9_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V9_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_SCHEMA_V10_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V9_CHECKSUM,
+        "report_job_liveness": {
+            "relation_suffix": "_report_jobs",
+            "heartbeat_column": "heartbeat_at",
+            "lease_column": "lease_expires_at",
+            "updated_column": "updated_at",
+            "semantics": "independent-heartbeat-and-reclaim-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V10_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V10_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -494,6 +514,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="principal_memory_v1",
         checksum=RUNTIME_SCHEMA_V9_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="report_job_heartbeat_v1",
+        checksum=RUNTIME_SCHEMA_V10_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

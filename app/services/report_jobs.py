@@ -108,7 +108,7 @@ class PostgresReportJobStore:
                        last_error_code, replay_count, review_engine,
                        review_graph_schema_version, queued_at,
                        started_at, finished_at, updated_at, lease_token,
-                       available_at, scheduled_attempt
+                       available_at, scheduled_attempt, heartbeat_at
                 FROM {jobs}
                 WHERE session_id = %s
                 """
@@ -127,7 +127,7 @@ class PostgresReportJobStore:
                        last_error_code, replay_count, review_engine,
                        review_graph_schema_version, queued_at,
                        started_at, finished_at, updated_at, lease_token,
-                       available_at, scheduled_attempt
+                       available_at, scheduled_attempt, heartbeat_at
                 FROM {jobs}
                 WHERE job_id = %s::uuid
                 """
@@ -229,7 +229,7 @@ class PostgresReportJobStore:
                                   last_error_code, replay_count, review_engine,
                                   review_graph_schema_version, queued_at,
                                   started_at, finished_at, updated_at, lease_token,
-                                  available_at, scheduled_attempt
+                                  available_at, scheduled_attempt, heartbeat_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
                     (
@@ -266,6 +266,7 @@ class PostgresReportJobStore:
                             lease_owner = %s,
                             lease_token = %s::uuid,
                             lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
+                            heartbeat_at = NOW(),
                             started_at = COALESCE(jobs.started_at, NOW()),
                             updated_at = NOW()
                         FROM next_job
@@ -278,7 +279,7 @@ class PostgresReportJobStore:
                                   jobs.started_at,
                                   jobs.finished_at, jobs.updated_at,
                                   jobs.lease_token, jobs.available_at,
-                                  jobs.scheduled_attempt
+                                  jobs.scheduled_attempt, jobs.heartbeat_at
                         """
                     ).format(jobs=sql.Identifier(self.jobs_table)),
                     (worker_id, lease_token, lease_duration),
@@ -412,6 +413,7 @@ class PostgresReportJobStore:
                         UPDATE {jobs}
                         SET lease_expires_at =
                                 NOW() + (%s * INTERVAL '1 second'),
+                            heartbeat_at = NOW(),
                             updated_at = NOW()
                         WHERE job_id = %s::uuid
                           AND status = 'running'
@@ -424,8 +426,19 @@ class PostgresReportJobStore:
                 )
                 return cursor.rowcount == 1
 
-    def mark_completed(self, job_id: str) -> dict | None:
+    def mark_completed(
+        self,
+        job_id: str,
+        *,
+        worker_id: str | None = None,
+        lease_token: str | None = None,
+    ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
+        lease_guard, lease_params = self._terminal_lease_guard(
+            sql,
+            worker_id=worker_id,
+            lease_token=lease_token,
+        )
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -439,14 +452,18 @@ class PostgresReportJobStore:
                             finished_at = NOW(),
                             updated_at = NOW()
                         WHERE job_id = %s::uuid
+                        {lease_guard}
                         RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                   attempt_count, max_attempts, last_error,
                                   last_error_code, replay_count, review_engine,
                                   review_graph_schema_version, queued_at,
                                   started_at, finished_at, updated_at
                         """
-                    ).format(jobs=sql.Identifier(self.jobs_table)),
-                    (job_id,),
+                    ).format(
+                        jobs=sql.Identifier(self.jobs_table),
+                        lease_guard=lease_guard,
+                    ),
+                    (job_id, *lease_params),
                 )
                 row = cursor.fetchone()
         return self._job_row_to_dict(row)
@@ -457,8 +474,15 @@ class PostgresReportJobStore:
         error: str,
         *,
         error_code: str = "unexpected_error",
+        worker_id: str | None = None,
+        lease_token: str | None = None,
     ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
+        lease_guard, lease_params = self._terminal_lease_guard(
+            sql,
+            worker_id=worker_id,
+            lease_token=lease_token,
+        )
         progress_json = json.dumps(self._processing_progress_payload(), ensure_ascii=False)
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -483,6 +507,7 @@ class PostgresReportJobStore:
                                 END,
                                 updated_at = NOW()
                             WHERE job_id = %s::uuid
+                            {lease_guard}
                             RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                       attempt_count, max_attempts, last_error,
                                       last_error_code, replay_count, review_engine,
@@ -521,11 +546,13 @@ class PostgresReportJobStore:
                     ).format(
                         jobs=sql.Identifier(self.jobs_table),
                         reports=sql.Identifier(self.reports_table),
+                        lease_guard=lease_guard,
                     ),
                     (
                         error,
                         error_code,
                         job_id,
+                        *lease_params,
                         progress_json,
                         error,
                     ),
@@ -539,8 +566,15 @@ class PostgresReportJobStore:
         error: str,
         *,
         error_code: str = "unexpected_error",
+        worker_id: str | None = None,
+        lease_token: str | None = None,
     ) -> dict | None:
         psycopg2, sql = self._import_psycopg2()
+        lease_guard, lease_params = self._terminal_lease_guard(
+            sql,
+            worker_id=worker_id,
+            lease_token=lease_token,
+        )
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -557,6 +591,7 @@ class PostgresReportJobStore:
                                 finished_at = NOW(),
                                 updated_at = NOW()
                             WHERE job_id = %s::uuid
+                            {lease_guard}
                             RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                       attempt_count, max_attempts, last_error,
                                       last_error_code, replay_count, review_engine,
@@ -587,11 +622,28 @@ class PostgresReportJobStore:
                     ).format(
                         jobs=sql.Identifier(self.jobs_table),
                         reports=sql.Identifier(self.reports_table),
+                        lease_guard=lease_guard,
                     ),
-                    (error, error_code, job_id, error),
+                    (error, error_code, job_id, *lease_params, error),
                 )
                 row = cursor.fetchone()
         return self._job_row_to_dict(row)
+
+    @staticmethod
+    def _terminal_lease_guard(sql, *, worker_id, lease_token):
+        if (worker_id is None) != (lease_token is None):
+            raise ValueError("worker_id and lease_token must be provided together")
+        if worker_id is None:
+            return sql.SQL(""), ()
+        return (
+            sql.SQL(
+                "AND status = 'running' "
+                "AND lease_owner = %s "
+                "AND lease_token = %s::uuid "
+                "AND lease_expires_at > NOW()"
+            ),
+            (worker_id, lease_token),
+        )
 
     def requeue_failed(self, session_id: str) -> dict:
         psycopg2, sql = self._import_psycopg2()
@@ -610,6 +662,7 @@ class PostgresReportJobStore:
                                 lease_owner = NULL,
                                 lease_token = NULL,
                                 lease_expires_at = NULL,
+                                heartbeat_at = NULL,
                                 attempt_count = 0,
                                 last_error = NULL,
                                 last_error_code = NULL,
@@ -756,6 +809,7 @@ class PostgresReportJobStore:
                             lease_owner TEXT,
                             lease_token UUID,
                             lease_expires_at TIMESTAMPTZ,
+                            heartbeat_at TIMESTAMPTZ,
                             available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             scheduled_attempt INTEGER,
                             attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -776,6 +830,14 @@ class PostgresReportJobStore:
                         jobs=sql.Identifier(self.jobs_table),
                         sessions=sql.Identifier(self.sessions_table),
                     )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        ALTER TABLE {jobs}
+                        ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ
+                        """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
                 )
                 cursor.execute(
                     sql.SQL(
@@ -982,6 +1044,7 @@ class PostgresReportJobStore:
             ),
             "available_at": row[17] if len(row) > 17 else None,
             "scheduled_attempt": row[18] if len(row) > 18 else None,
+            "heartbeat_at": row[19] if len(row) > 19 else None,
         }
 
     @staticmethod

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
+    RUNTIME_MIGRATIONS,
     required_columns_for_relation,
     required_index_tokens_for_relation,
 )
@@ -54,10 +55,11 @@ def test_deletion_row_mapping_exposes_prefixed_safe_job_identifier():
 
 
 def test_latest_migration_contract_requires_deletion_lease_and_indexes():
-    assert (
-        LATEST_RUNTIME_MIGRATION.migration_id
-        == "principal_memory_v1"
+    assert any(
+        migration.migration_id == "principal_memory_v1"
+        for migration in RUNTIME_MIGRATIONS
     )
+    assert LATEST_RUNTIME_MIGRATION.migration_id == "report_job_heartbeat_v1"
     columns = required_columns_for_relation(
         "memory_test_session_deletion_jobs"
     )

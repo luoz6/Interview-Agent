@@ -1,5 +1,6 @@
 import logging
 import os
+from threading import Event
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -40,7 +41,13 @@ class FakeJobStore:
         self.claim_calls.append(worker_id)
         return self.claimed_job
 
-    def mark_completed(self, job_id: str) -> dict:
+    def mark_completed(
+        self,
+        job_id: str,
+        *,
+        worker_id: str | None = None,
+        lease_token: str | None = None,
+    ) -> dict:
         self.completed_calls.append(job_id)
         return {
             "job_id": job_id,
@@ -63,6 +70,8 @@ class FakeJobStore:
         error: str,
         *,
         error_code: str,
+        worker_id: str | None = None,
+        lease_token: str | None = None,
     ) -> dict:
         self.retry_calls.append((job_id, error))
         self.retry_error_codes.append(error_code)
@@ -79,6 +88,8 @@ class FakeJobStore:
         error: str,
         *,
         error_code: str,
+        worker_id: str | None = None,
+        lease_token: str | None = None,
     ) -> dict:
         self.failed_calls.append((job_id, error))
         self.failed_error_codes.append(error_code)
@@ -378,6 +389,114 @@ def test_run_one_job_marks_completed_when_execution_succeeds(monkeypatch):
 
     assert result["status"] == "completed"
     assert job_store.completed_calls == ["job-1"]
+    assert store.failed_reports == []
+
+
+def test_legacy_report_job_publishes_heartbeat_while_execution_is_active(
+    monkeypatch,
+):
+    class HeartbeatJobStore(FakeJobStore):
+        lease_seconds = 0.3
+
+        def __init__(self, claimed_job):
+            super().__init__(claimed_job)
+            self.heartbeat_seen = Event()
+            self.heartbeat_calls = 0
+
+        def assert_lease(self, job_id, *, worker_id, lease_token):
+            return True
+
+        def heartbeat(
+            self,
+            job_id,
+            *,
+            worker_id,
+            lease_token,
+            lease_seconds,
+        ):
+            self.heartbeat_calls += 1
+            self.heartbeat_seen.set()
+            return True
+
+    job_store = HeartbeatJobStore(
+        claimed_job={
+            "job_id": "job-1",
+            "session_id": "s1",
+            "lease_token": "token-1",
+        }
+    )
+
+    def complete_after_heartbeat(**kwargs):
+        assert job_store.heartbeat_seen.wait(timeout=1)
+        return make_report(kwargs["session_id"])
+
+    monkeypatch.setattr(
+        "app.services.report_worker.execute_report_generation",
+        complete_after_heartbeat,
+    )
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(),
+        worker_id="worker-1",
+    )
+
+    assert result["status"] == "completed"
+    assert job_store.heartbeat_calls >= 1
+    assert job_store.completed_calls == ["job-1"]
+
+
+def test_legacy_report_job_does_not_commit_terminal_state_after_lease_loss(
+    monkeypatch,
+):
+    class LostHeartbeatJobStore(FakeJobStore):
+        lease_seconds = 0.3
+
+        def __init__(self, claimed_job):
+            super().__init__(claimed_job)
+            self.heartbeat_seen = Event()
+
+        def assert_lease(self, job_id, *, worker_id, lease_token):
+            return True
+
+        def heartbeat(
+            self,
+            job_id,
+            *,
+            worker_id,
+            lease_token,
+            lease_seconds,
+        ):
+            self.heartbeat_seen.set()
+            return False
+
+    job = {
+        "job_id": "job-1",
+        "session_id": "s1",
+        "lease_token": "token-1",
+    }
+    job_store = LostHeartbeatJobStore(claimed_job=job)
+    store = FakeStore()
+
+    def finish_after_lease_loss(**kwargs):
+        assert job_store.heartbeat_seen.wait(timeout=1)
+        return make_report(kwargs["session_id"])
+
+    monkeypatch.setattr(
+        "app.services.report_worker.execute_report_generation",
+        finish_after_lease_loss,
+    )
+
+    result = run_one_job(
+        job_store=job_store,
+        executor=make_executor(store),
+        worker_id="worker-1",
+    )
+
+    assert result == job
+    assert job_store.completed_calls == []
+    assert job_store.retry_calls == []
+    assert job_store.failed_calls == []
     assert store.failed_reports == []
 
 

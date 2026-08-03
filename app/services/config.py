@@ -31,6 +31,19 @@ class EmbeddingSettings:
 
 
 @dataclass(frozen=True)
+class ReportRuntimeProfile:
+    name: str
+    runtime_store: str
+    report_job_store: str
+    report_worker: str
+    knowledge_store: str
+    embedding_provider: str
+    preview: bool
+    configuration_valid: bool
+    errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class PostgresPoolSettings:
     business_min_size: int
     business_max_size: int
@@ -66,6 +79,75 @@ def get_postgres_dsn() -> str:
 
 def get_runtime_store() -> str:
     return os.getenv("INTERVIEW_RUNTIME_STORE", DEFAULT_RUNTIME_STORE).strip().lower() or DEFAULT_RUNTIME_STORE
+
+
+def get_report_runtime_profile() -> ReportRuntimeProfile:
+    runtime_store = get_runtime_store()
+    explicit_name = os.getenv("REPORT_RUNTIME_PROFILE", "").strip().lower()
+    name = explicit_name or ("preview" if runtime_store == "memory" else "durable")
+    if name not in {"preview", "durable"}:
+        raise ValueError("REPORT_RUNTIME_PROFILE must be preview or durable")
+
+    preview = name == "preview"
+    report_job_store = (
+        os.getenv("REPORT_JOB_STORE", "memory" if preview else "postgres")
+        .strip()
+        .lower()
+    )
+    report_worker = (
+        os.getenv("REPORT_WORKER", "in_process" if preview else "external_process")
+        .strip()
+        .lower()
+    )
+    knowledge_store = (
+        os.getenv("KNOWLEDGE_STORE", "static" if preview else "pgvector")
+        .strip()
+        .lower()
+    )
+    embedding_provider = get_embedding_settings().provider_name
+
+    errors: list[str] = []
+    if runtime_store not in {"memory", "postgres"}:
+        errors.append("unsupported_runtime_store")
+    if report_job_store not in {"memory", "postgres"}:
+        errors.append("unsupported_report_job_store")
+    if report_worker not in {"in_process", "external_process"}:
+        errors.append("unsupported_report_worker")
+    if knowledge_store not in {"static", "pgvector"}:
+        errors.append("unsupported_knowledge_store")
+
+    if preview:
+        if runtime_store != "memory":
+            errors.append("preview_requires_memory_session_store")
+        if report_job_store != "memory":
+            errors.append("preview_requires_memory_report_jobs")
+        if report_worker != "in_process":
+            errors.append("preview_requires_in_process_worker")
+        if knowledge_store != "static":
+            errors.append("preview_requires_static_knowledge")
+    else:
+        if runtime_store != "postgres":
+            errors.append("durable_requires_postgres_session_store")
+        if report_job_store != "postgres":
+            errors.append("durable_requires_postgres_report_jobs")
+        if report_worker != "external_process":
+            errors.append("durable_requires_external_worker")
+        if knowledge_store != "pgvector":
+            errors.append("durable_requires_pgvector")
+        if embedding_provider == "disabled":
+            errors.append("pgvector_requires_embedding_provider")
+
+    return ReportRuntimeProfile(
+        name=name,
+        runtime_store=runtime_store,
+        report_job_store=report_job_store,
+        report_worker=report_worker,
+        knowledge_store=knowledge_store,
+        embedding_provider=embedding_provider,
+        preview=preview,
+        configuration_valid=not errors,
+        errors=tuple(dict.fromkeys(errors)),
+    )
 
 
 def get_runtime_table_prefix() -> str:

@@ -227,6 +227,23 @@ def teardown_function():
     route_module.get_report_job_store = _ORIGINAL_GET_REPORT_JOB_STORE
 
 
+def test_public_report_error_fallback_only_classifies_explicit_queue_failure():
+    assert (
+        route_module._public_report_error_code("report queue unavailable")
+        == "report_enqueue_unavailable"
+    )
+    assert (
+        route_module._public_report_error_code(
+            "provider returned an unexpected queue-shaped payload"
+        )
+        == "report_generation_failed"
+    )
+
+
+def test_retry_exhaustion_is_explicitly_terminal_even_with_frontend_guidance():
+    assert route_module._report_error_retryable("report_retry_exhausted") is False
+
+
 def start_interview(client: TestClient) -> str:
     response = client.post(
         "/api/interviews",
@@ -587,11 +604,10 @@ def test_report_progress_endpoint_returns_processing_detail():
     assert body["percent"] == 20
     assert body["message"] == "Retrieving role-specific knowledge references."
     assert body["events"] == [
-        {
-            "stage": "retrieving",
-            "message": "Retrieving role-specific knowledge references.",
-        }
     ]
+    assert body["attempt"] == 0
+    assert body["heartbeat_at"] is None
+    assert body["stalled"] is False
     assert body["rag"]["top_k"] == 5
     assert body["rag"]["source_types"] == ["theory", "expert_benchmark"]
 
@@ -686,7 +702,7 @@ def test_report_progress_endpoint_returns_completed_detail():
     assert body["status"] == "completed"
     assert body["stage"] == "completed"
     assert body["percent"] == 100
-    assert body["events"] == [{"stage": "completed", "message": "Report completed."}]
+    assert body["events"] == []
     assert body["metadata"] == {
         "report_path": "microbatch",
         "knowledge_path": "bound_evidence_reuse",
@@ -750,7 +766,10 @@ def test_failed_report_can_be_requeued():
     assert response.status_code == 202
     assert response.json() == {
         "session_id": session_id,
+        "report_job_id": f"job-{session_id}",
         "status": "queued",
+        "attempt": 0,
+        "recovered_from": "failed",
         "report_progress_url": f"/api/interviews/{session_id}/report/progress",
     }
     assert job_store.requeue_calls == [session_id]
@@ -774,6 +793,30 @@ def test_report_requeue_returns_404_when_job_is_missing():
 
     assert response.status_code == 404
     assert response.json() == {"detail": "report job not found"}
+
+
+def test_stale_processing_report_without_job_can_be_recovered_by_requeue():
+    from datetime import datetime, timedelta, timezone
+
+    client, store, _, job_store = make_client()
+    session_id = start_interview(client)
+    finish_session(store, session_id)
+    store.mark_report_processing(session_id)
+    store._reports[session_id] = store._reports[session_id].model_copy(
+        update={
+            "created_at": (
+                datetime.now(timezone.utc) - timedelta(minutes=5)
+            ).isoformat().replace("+00:00", "Z")
+        }
+    )
+
+    response = client.post(f"/api/interviews/{session_id}/report/requeue")
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+    assert response.json()["recovered_from"] == "orphaned"
+    assert response.json()["report_job_id"] == "job-1"
+    assert job_store.get_job_by_session(session_id)["status"] == "queued"
 
 
 @pytest.mark.parametrize("status", ["queued", "retrying", "running"])
@@ -907,7 +950,7 @@ def test_finish_endpoint_enqueues_report_generation_once_and_is_idempotent():
     assert report_response.json()["status"] == "processing"
 
 
-def test_finished_answer_falls_back_to_in_memory_report_generation_when_job_store_is_unavailable():
+def test_finished_answer_fails_report_without_process_coupled_fallback_when_job_store_is_unavailable():
     client, store, llm, _ = make_client()
     route_module.get_report_job_store = lambda: (_ for _ in ()).throw(
         RuntimeError("POSTGRES_DSN is required to build report job store")
@@ -921,14 +964,15 @@ def test_finished_answer_falls_back_to_in_memory_report_generation_when_job_stor
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert second_response.json()["status"] == "finished"
-    assert llm.report_calls >= 1
+    assert llm.report_calls == 0
     record = store.get_report_record(session_id)
     assert record is not None
-    assert record.status == "completed"
+    assert record.status == "failed"
+    assert record.error == "report queue unavailable"
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
-    assert report_response.status_code == 200
-    assert report_response.json()["overall_score"] == 81
+    assert report_response.status_code == 500
+    assert report_response.json()["detail"] == "report queue unavailable"
 
 
 def test_report_endpoint_returns_500_for_failed_report():

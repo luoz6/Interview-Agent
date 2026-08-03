@@ -12,6 +12,8 @@ from app.services.postgres_runtime_migrations import (
 )
 from app.services.postgres_schema import validate_relations
 from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
+from app.services.embedding_providers import DisabledEmbeddingProvider
+from tests.postgres_support import make_runtime_table_prefix
 from scripts.postgres_runtime_migrate import main
 
 
@@ -272,6 +274,16 @@ def test_schema_validation_rejects_existing_table_with_missing_fencing_column():
         )
 
 
+def test_report_job_contract_requires_independent_heartbeat_column():
+    from app.services.postgres_schema_contract import required_columns_for_relation
+
+    required = required_columns_for_relation("interview_report_jobs")
+
+    assert "heartbeat_at" in required
+    assert "lease_expires_at" in required
+    assert "updated_at" not in required or "heartbeat_at" != "updated_at"
+
+
 def test_schema_validation_rejects_missing_latest_migration_row():
     table = "test_schema_migrations"
     columns = [
@@ -301,3 +313,70 @@ def test_schema_validation_accepts_latest_migration_contract():
         ContractProvider(ContractCursor(columns=columns, migration=migration)),
         (table,),
     )
+
+
+@pytest.mark.pg_runtime
+def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = make_runtime_table_prefix("report_heartbeat")
+    vector = make_runtime_table_prefix("report_vector")
+    try:
+        first = migrate_postgres_runtime(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled",
+                dimension=3,
+            ),
+            run_checkpointer_setup=False,
+        )
+        second = migrate_postgres_runtime(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled",
+                dimension=3,
+            ),
+            run_checkpointer_setup=False,
+        )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_report_jobs",),
+                )
+                columns = {row[0] for row in cursor.fetchall()}
+
+        assert first.applied is True
+        assert second.applied is False
+        assert first.migration_id == "report_job_heartbeat_v1"
+        assert "heartbeat_at" in columns
+        assert "lease_expires_at" in columns
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND (table_name LIKE %s OR table_name LIKE %s)
+                    """,
+                    (prefix + "_%", vector + "_%"),
+                )
+                names = [row[0] for row in cursor.fetchall()]
+                for name in names:
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(name)
+                        )
+                    )

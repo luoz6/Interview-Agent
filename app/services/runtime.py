@@ -42,6 +42,7 @@ from app.services.drafts import AnonymousDraftStore
 from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
+from app.services.memory_report_jobs import InMemoryReportJobStore
 from app.services.runtime_outbox_dispatcher import (
     CeleryRuntimeEventSink,
     LocalRuntimeEventSink,
@@ -387,12 +388,17 @@ def build_session_store(llm=None):
 
 
 def build_report_job_store():
+    from app.services.config import get_report_runtime_profile
+
+    profile = get_report_runtime_profile()
+    if profile.report_job_store == "memory":
+        return InMemoryReportJobStore(runner=_run_preview_report_job)
     domains = get_postgres_connection_domains()
     return PostgresReportJobStore(
         dsn=get_postgres_dsn(),
         connection_provider=domains.business,
         table_prefix=get_runtime_table_prefix(),
-        lease_seconds=int(os.getenv("REPORT_JOB_LEASE_SECONDS", "300")),
+        lease_seconds=int(os.getenv("REPORT_JOB_LEASE_SECONDS", "45")),
         schema_mode="validate",
     )
 
@@ -806,6 +812,20 @@ def build_interview_workflow_service():
         thread_lock=get_workflow_thread_lock(),
         memory_policy_resolver=memory_policy_for_engine,
     )
+
+
+def _run_preview_report_job(job: dict) -> None:
+    from app.services.report_tasks import generate_report_for_session
+
+    store = get_session_store()
+    generate_report_for_session(job["session_id"], store)
+    record = store.get_report_record(job["session_id"])
+    if record is None or record.status != "completed":
+        raise RuntimeError(
+            record.error
+            if record is not None and record.error
+            else "report did not complete"
+        )
 
 
 def get_interview_workflow_service():
@@ -1267,6 +1287,10 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
         _runtime_outbox_service.shutdown(wait=wait)
     if _durable_workflow_maintenance_service is not None:
         _durable_workflow_maintenance_service.shutdown(wait=wait)
+    if _report_job_store is not None:
+        shutdown = getattr(_report_job_store, "shutdown", None)
+        if shutdown is not None:
+            shutdown(wait=wait)
     if _langgraph_checkpointer_runtime is not None:
         _langgraph_checkpointer_runtime.shutdown()
     if _workflow_thread_lock is not None:
