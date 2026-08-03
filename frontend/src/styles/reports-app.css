@@ -416,7 +416,10 @@
 }
 
 .reports-ledger {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 100%;
   border: 0;
   border-radius: 0;
   background: var(--start-color-surface);
@@ -488,6 +491,7 @@
 }
 
 .reports-report-ledger {
+  flex: 1 1 auto;
   border: 0;
 }
 
@@ -771,8 +775,9 @@
 .reports-pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--start-space-xs);
+  margin-top: auto;
   min-height: 3.5rem;
   padding: var(--start-space-2xs) var(--start-space-sm);
   border-top: var(--start-rule-thin) solid var(--start-color-rule);

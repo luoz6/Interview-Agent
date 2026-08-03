@@ -45,6 +45,8 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
     const dateControl = document.querySelector(".reports-date-control");
     const activeFilter = document.querySelector(".reports-active-filter");
     const syncProgress = document.querySelector(".reports-sync-progress");
+    const pagination = document.querySelector(".reports-pagination");
+    const ledger = document.querySelector(".reports-ledger");
     const description = document.querySelector(".reports-workspace-head .start-workspace-title p");
     const descriptionRange = document.createRange();
     descriptionRange.selectNodeContents(description);
@@ -65,6 +67,8 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
       commandBorderBottom: getComputedStyle(commandbar).borderBottomWidth,
       filterBorderTop: getComputedStyle(activeFilter).borderTopWidth,
       syncPosition: getComputedStyle(syncProgress).position,
+      paginationJustify: getComputedStyle(pagination).justifyContent,
+      paginationBottomDelta: Math.abs(pagination.getBoundingClientRect().bottom - ledger.getBoundingClientRect().bottom),
       descriptionLines: descriptionRange.getClientRects().length,
     };
   });
@@ -82,6 +86,8 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
   expect(hierarchy.commandBorderBottom).toBe("0px");
   expect(hierarchy.filterBorderTop).toBe("1px");
   expect(hierarchy.syncPosition).toBe("absolute");
+  expect(hierarchy.paginationJustify).toBe("flex-end");
+  expect(hierarchy.paginationBottomDelta).toBeLessThan(1);
   expect(hierarchy.descriptionLines).toBe(1);
   await expect(page.locator(".button-primary:not(:disabled)")).toHaveCount(1);
 
