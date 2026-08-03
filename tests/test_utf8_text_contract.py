@@ -53,7 +53,7 @@ EXPECTED_PHRASES = {
         "生成面试计划",
     ),
     "frontend/src/pages/InterviewPage.jsx": (
-        "保持专注，把思路讲完整",
+        "围绕当前问题完整说明判断、方案、取舍与验证",
         "你的回答",
         "结束面试",
         "专注模式",
@@ -75,7 +75,7 @@ EXPECTED_PHRASES = {
         "重新排队",
     ),
     "frontend/src/pages/HelpPage.jsx": (
-        "知道下一步，也知道如何恢复",
+        "理解真实流程、数据边界，以及任务中断后可以采取的动作",
         "恢复手册",
         "报告任务生成失败",
     ),

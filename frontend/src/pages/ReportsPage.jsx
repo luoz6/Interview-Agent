@@ -1,16 +1,39 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowClockwise,
+  ArrowRight,
+  CalendarBlank,
+  CheckCircle,
+  Circle,
+  Clock,
+  DownloadSimple,
+  FileText,
+  Files,
+  Info,
+  MagnifyingGlass,
+  Plus,
+  SpinnerGap,
+  WarningCircle,
+  X,
+} from "@phosphor-icons/react";
 import { downloadFile, getJson, postJson } from "../api/client";
-import { AppShell, PageHeading } from "../components/AppShell";
-import { Badge, Button, EmptyState, Metric, Notice, Skeleton } from "../components/UI";
 import { usePageMeta } from "../hooks/usePageMeta";
+import "../styles/reports-app.css";
 
 const PAGE_SIZE = 10;
 const statusLabels = { all: "全部", completed: "已完成", processing: "生成中", failed: "生成失败" };
+const statusRailLabels = { all: "全部", completed: "完成", processing: "生成中", failed: "失败" };
+const statusIcons = { all: Files, completed: CheckCircle, processing: SpinnerGap, failed: WarningCircle };
 const pathLabels = { microbatch: "逐题评审复用", full_session: "全会话评审", full_session_fallback: "全会话降级" };
 
 function formatDate(value) {
   if (!value) return "--";
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatDuration(seconds) {
@@ -19,8 +42,73 @@ function formatDuration(seconds) {
   return `${minutes} 分钟`;
 }
 
+function rowStatusHint(item) {
+  if (item.status === "processing") return "等待生成";
+  if (item.status === "failed") return "需要恢复";
+  return "状态未知";
+}
+
+function ReportRuntime({ state, total }) {
+  const loading = state === "loading";
+  const RuntimeIcon = state === "error" ? WarningCircle : state === "ready" ? CheckCircle : state === "empty" ? Info : Circle;
+  const label = loading ? "正在同步报告" : state === "error" ? "报告服务异常" : state === "ready" ? `已载入 ${total} 条` : "暂无报告";
+  return (
+    <div className="start-runtime" data-state={loading ? "generating" : state} role="status" aria-live="polite">
+      <span className="start-runtime-icon" aria-hidden="true">
+        {loading
+          ? <SpinnerGap className="start-spinner" size={15} weight="bold" focusable="false" />
+          : <RuntimeIcon size={15} weight={state === "ready" || state === "error" ? "fill" : "bold"} focusable="false" />}
+      </span>
+      <span>当前任务</span><strong className="reports-runtime-value" key={label}>{label}</strong>
+    </div>
+  );
+}
+
+function ReportNotice({ notice, onDismiss }) {
+  if (!notice) return null;
+  const tone = notice.tone === "danger" ? "error" : notice.tone || "info";
+  const NoticeIcon = tone === "error" || tone === "warning" ? WarningCircle : tone === "success" ? CheckCircle : Info;
+  return (
+    <div className={`start-notice start-notice-${tone} reports-notice`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
+      <span className="start-notice-icon" aria-hidden="true"><NoticeIcon size={18} weight={tone === "info" ? "bold" : "fill"} focusable="false" /></span>
+      <p>{notice.text}</p>
+      <button className="reports-notice-close" type="button" onClick={onDismiss} aria-label="关闭提示"><X size={15} weight="bold" aria-hidden="true" /></button>
+    </div>
+  );
+}
+
+function ReportSkeleton() {
+  return (
+    <div className="reports-skeleton" role="status" aria-live="polite" aria-label="正在加载报告">
+      {Array.from({ length: 5 }, (_, index) => (
+        <div className="reports-skeleton-row" key={index} style={{ "--skeleton-index": index }} aria-hidden="true">
+          <span className="reports-skeleton-copy" />
+          <span className="reports-skeleton-state" />
+          <span className="reports-skeleton-score" />
+          <span className="reports-skeleton-time" />
+          <span className="reports-skeleton-action" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusBarItem({ icon: ItemIcon, label, value, state = "idle", current = false }) {
+  return (
+    <span className={current ? "start-status-current" : undefined} data-state={state}>
+      <ItemIcon className={state === "generating" ? "start-spinner" : undefined} size={12} weight={state === "ready" || state === "error" ? "fill" : "regular"} aria-hidden="true" focusable="false" />
+      <strong>{label}</strong><span className="reports-status-value" key={`${label}-${value}`}>{value}</span>
+    </span>
+  );
+}
+
 export function ReportsPage() {
-  usePageMeta({ title: "报告中心", description: "搜索、筛选和管理本地技术模拟面试报告。", theme: "research" });
+  usePageMeta({
+    title: "报告中心",
+    description: "搜索、筛选和管理本地技术模拟面试报告。",
+    theme: "research",
+    bodyClass: "start-page-body",
+  });
   const [payload, setPayload] = useState({ items: [], total: 0, status_totals: {} });
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
@@ -29,8 +117,11 @@ export function ReportsPage() {
   const [page, setPage] = useState(1);
   const [state, setState] = useState("loading");
   const [notice, setNotice] = useState(null);
+  const [busyAction, setBusyAction] = useState("");
+  const requestSequence = useRef(0);
 
   async function loadReports() {
+    const requestId = ++requestSequence.current;
     setState("loading");
     setNotice(null);
     const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
@@ -39,9 +130,11 @@ export function ReportsPage() {
     if (days !== "all") params.set("days", days);
     try {
       const data = await getJson(`/api/reports?${params}`);
+      if (requestId !== requestSequence.current) return;
       setPayload(data);
       setState(data.items?.length ? "ready" : "empty");
     } catch (error) {
+      if (requestId !== requestSequence.current) return;
       setState("error");
       setNotice({ tone: "danger", text: error.message });
     }
@@ -49,13 +142,27 @@ export function ReportsPage() {
 
   useEffect(() => { loadReports(); }, [status, query, days, page]);
   useEffect(() => { document.body.dataset.reportsState = state; }, [state]);
+  useEffect(() => {
+    if (notice?.tone !== "success") return undefined;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   const totals = { all: 0, completed: 0, processing: 0, failed: 0, ...(payload.status_totals || {}) };
   const totalPages = Math.max(1, Math.ceil((payload.total || 0) / PAGE_SIZE));
-  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, index) => index + 1).filter((value) => value === 1 || value === totalPages || Math.abs(value - page) <= 1), [totalPages, page]);
+  const pageNumbers = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1)
+      .filter((value) => value === 1 || value === totalPages || Math.abs(value - page) <= 1),
+    [totalPages, page],
+  );
   const hasActiveFilters = Boolean(query || status !== "all" || days !== "30");
+  const activeStatusLabel = statusLabels[status] || status;
+  const activeRangeLabel = days === "all" ? "全部日期" : `最近 ${days} 天`;
 
   async function requeue(sessionId) {
+    const actionKey = `requeue:${sessionId}`;
+    if (busyAction) return;
+    setBusyAction(actionKey);
     setNotice(null);
     try {
       await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/report/requeue`);
@@ -63,14 +170,22 @@ export function ReportsPage() {
       setNotice({ tone: "success", text: "失败任务已重新排队。" });
     } catch (error) {
       setNotice({ tone: "danger", text: error.message });
+    } finally {
+      setBusyAction("");
     }
   }
 
   async function download(item) {
+    const actionKey = `download:${item.session_id}`;
+    if (busyAction) return;
+    setBusyAction(actionKey);
+    setNotice(null);
     try {
       await downloadFile(item.report_pdf_url, `interview-report-${item.session_id}.pdf`);
     } catch (error) {
       setNotice({ tone: "danger", text: error.message });
+    } finally {
+      setBusyAction("");
     }
   }
 
@@ -87,54 +202,239 @@ export function ReportsPage() {
     setPage(1);
   }
 
+  function applyStatus(value) {
+    setStatus(value);
+    setPage(1);
+  }
+
   return (
-    <AppShell statusLabel="Research Canvas · Archive" skipLabel="跳到报告列表">
-      <main id="main-content" className="page-main reports-main" tabIndex="-1">
-        <PageHeading title="把每一次练习变成可检索的证据" description="搜索报告、继续跟进后台任务，并从具体问题和证据中决定下一轮练习重点。" aside={<div className="action-row compact"><Button onClick={loadReports}>刷新</Button><Button onClick={() => window.location.assign("/prep")}>开始新面试</Button></div>} />
-        <Notice tone={notice?.tone}>{notice?.text}</Notice>
+    <div className="start-app-root reports-app">
+      <a className="start-skip-link" href="#main-content">跳到报告列表</a>
+      <header className="app-topbar start-app-topbar reports-app-topbar">
+        <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
+          <span className="start-brand-mark" aria-hidden="true">IA</span>
+          <span className="start-brand-copy"><strong>面试智能体</strong><small>面试配置工作台</small></span>
+        </a>
+        <nav className="app-nav start-nav" aria-label="主导航">
+          <a href="/prep">准备</a>
+          <a href="/reports" aria-current="page">报告</a>
+          <a href="/help">帮助</a>
+        </nav>
+        <ReportRuntime state={state} total={payload.total || 0} />
+      </header>
 
-        <div className="archive-layout">
-          <aside className="filter-rail" aria-label="报告筛选">
-            <h2>报告状态</h2>
-            <div className="filter-stack">{Object.entries(statusLabels).map(([value, label]) => <button key={value} type="button" aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }}><span>{label}</span><strong>{totals[value]}</strong></button>)}</div>
-            <p>状态统计来自当前搜索与日期条件下的完整数据集合。</p>
-          </aside>
+      <main id="main-content" className="start-app-shell reports-app-shell" tabIndex="-1">
+        <nav className="start-activity-rail reports-activity-rail" aria-label="报告状态">
+          {Object.entries(statusLabels).map(([value, label]) => {
+            const StatusIcon = statusIcons[value];
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-label={`${label} ${totals[value]} 条`}
+                aria-pressed={status === value}
+                onClick={() => applyStatus(value)}
+              >
+                <span aria-hidden="true"><StatusIcon className={value === "processing" && status === "processing" && totals.processing > 0 ? "reports-processing-icon" : undefined} size={20} weight={status === value && value !== "processing" ? "fill" : "bold"} focusable="false" /></span>
+                <strong>{statusRailLabels[value]}</strong>
+              </button>
+            );
+          })}
+        </nav>
 
-          <section className="archive-ledger" aria-labelledby="archiveTitle">
-            <div className="ledger-tools">
-              <div><h2 id="archiveTitle">面试记录</h2></div>
-              <form onSubmit={(event) => { event.preventDefault(); setPage(1); setQuery(queryInput.trim()); }}>
-                <input type="search" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索岗位、摘要或标签" aria-label="搜索报告" />
-                <select value={days} onChange={(event) => { setDays(event.target.value); setPage(1); }} aria-label="日期范围"><option value="30">最近 30 天</option><option value="90">最近 90 天</option><option value="all">全部日期</option></select>
-                <Button type="submit" variant={state === "empty" && !hasActiveFilters ? "secondary" : "primary"}>搜索</Button>
+        <section className="start-editor-workspace reports-workspace" aria-labelledby="workspace-title">
+          <div className="reports-workspace-chrome">
+            <header className="start-workspace-head reports-workspace-head">
+              <div className="start-workspace-title">
+                <span className="start-workspace-mark" aria-hidden="true"><Files size={18} weight="bold" focusable="false" /></span>
+                <div><h1 id="workspace-title">面试报告</h1><p>查找历史练习，跟进生成任务，并从已完成的评估中确定下一轮重点。</p></div>
+              </div>
+              <div className="start-readiness" data-ready={state === "ready"} aria-label={`当前结果 ${payload.total || 0} 条`}>
+                <span className="reports-count-update" key={payload.total || 0}>{payload.total || 0}</span><strong>条报告</strong>
+              </div>
+            </header>
+
+            <section className="reports-query-panel" aria-label="报告查询工具">
+            <div className="start-editor-commandbar reports-commandbar">
+              <form className="reports-command-form" onSubmit={(event) => { event.preventDefault(); setPage(1); setQuery(queryInput.trim()); }}>
+                <label className="reports-search-control">
+                  <span className="reports-control-icon" aria-hidden="true"><MagnifyingGlass size={17} weight="bold" focusable="false" /></span>
+                  <input
+                    type="search"
+                    value={queryInput}
+                    onChange={(event) => setQueryInput(event.target.value)}
+                    placeholder="搜索岗位、摘要或标签"
+                    aria-label="搜索报告"
+                  />
+                  {queryInput && <button className="reports-clear-query" type="button" onClick={() => setQueryInput("")} aria-label="清空输入"><X size={15} weight="bold" aria-hidden="true" /></button>}
+                </label>
+                <label className="reports-date-control">
+                  <CalendarBlank size={17} weight="bold" aria-hidden="true" focusable="false" />
+                  <select value={days} onChange={(event) => { setDays(event.target.value); setPage(1); }} aria-label="日期范围">
+                    <option value="30">最近 30 天</option>
+                    <option value="90">最近 90 天</option>
+                    <option value="all">全部日期</option>
+                  </select>
+                </label>
+                <button className="button start-tool-button reports-search-button" type="submit" disabled={state === "loading"}><MagnifyingGlass size={16} weight="bold" aria-hidden="true" /><span>{state === "loading" ? "同步中" : "搜索"}</span></button>
               </form>
+              <div className="start-editor-tools reports-editor-tools" aria-label="报告工具">
+                <button className="button start-tool-button reports-refresh-button" type="button" onClick={loadReports} disabled={state === "loading"} aria-busy={state === "loading" || undefined} data-state={state === "loading" ? "loading" : undefined} aria-label={state === "loading" ? "正在同步报告" : "刷新报告"} title={state === "loading" ? "正在同步报告" : "刷新报告"}>
+                  <ArrowClockwise className={state === "loading" ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{state === "loading" ? "同步中" : "刷新"}</span>
+                </button>
+              </div>
+
+              <div
+                className="reports-sync-progress"
+                data-active={state === "loading"}
+                role={state === "loading" ? "progressbar" : undefined}
+                aria-label={state === "loading" ? "正在同步报告" : undefined}
+                aria-valuetext={state === "loading" ? "正在加载最新报告" : undefined}
+                aria-hidden={state === "loading" ? undefined : "true"}
+              ><span /></div>
             </div>
 
-            <section className="overview-strip" aria-label="当前筛选条件下的报告状态概览">
-              <Metric label="全部报告" value={totals.all} />
-              <Metric label="已完成" value={totals.completed} tone="success" />
-              <Metric label="生成中" value={totals.processing} tone="blue" />
-              <Metric label="生成失败" value={totals.failed} tone="danger" />
+            <div className="reports-active-filter" key={`${status}-${days}-${query}`} aria-live="polite">
+              <div className="reports-filter-context">
+                <span className="reports-filter-label"><FileText size={14} weight="bold" aria-hidden="true" />筛选范围</span>
+                <dl className="reports-filter-details">
+                  <div className="reports-filter-detail"><dt>状态</dt><dd>{activeStatusLabel}</dd></div>
+                  <div className="reports-filter-detail"><dt>日期</dt><dd>{activeRangeLabel}</dd></div>
+                  {query && <div className="reports-filter-detail"><dt>关键词</dt><dd>“{query}”</dd></div>}
+                </dl>
+              </div>
+              {hasActiveFilters && <button type="button" onClick={clearFilters}><X size={13} weight="bold" aria-hidden="true" />清除筛选</button>}
+            </div>
+            </section>
+          </div>
+
+          <ReportNotice notice={state === "error" ? null : notice} onDismiss={() => setNotice(null)} />
+
+          <div className="reports-canvas">
+            <section className="reports-ledger" aria-labelledby="ledger-title">
+              <header className="reports-ledger-head">
+                <div><span>报告记录</span><h2 id="ledger-title">{activeStatusLabel}</h2></div>
+                <p>{state === "ready" ? `第 ${page} / ${totalPages} 页，共 ${payload.total} 条` : "状态和生成结果会自动同步"}</p>
+              </header>
+
+              <div className="reports-table-head" aria-hidden="true">
+                <span>岗位与摘要</span><span>状态</span><span>评分</span><span>时间</span><span>操作</span>
+              </div>
+
+              <div className="reports-report-ledger" aria-busy={state === "loading"}>
+                {state === "loading" && <ReportSkeleton />}
+                {state === "error" && (
+                  <div className="reports-empty" data-tone="error" role="alert" aria-live="assertive" aria-atomic="true">
+                    <WarningCircle className="reports-state-illustration" size={24} weight="fill" aria-hidden="true" />
+                    <h3>报告列表加载失败</h3>
+                    <p>检查后端服务后重试。当前筛选条件不会丢失。</p>
+                    <button className="button start-tool-button reports-empty-action" type="button" onClick={loadReports}><ArrowClockwise size={16} weight="bold" aria-hidden="true" /><span>重新加载</span></button>
+                  </div>
+                )}
+                {state === "empty" && (
+                  <div className="reports-empty">
+                    <FileText className="reports-state-illustration" size={24} weight="bold" aria-hidden="true" />
+                    <h3>{hasActiveFilters ? "当前条件下没有报告" : "完成第一场面试后，从这里查看报告"}</h3>
+                    <p>{hasActiveFilters ? "调整搜索、日期或状态筛选后再试。" : "报告生成后会自动进入列表，并显示评分、下载和处理状态。"}</p>
+                    <button className="button start-tool-button reports-empty-action" type="button" onClick={hasActiveFilters ? clearFilters : () => window.location.assign("/prep")}>
+                      {hasActiveFilters ? <X size={16} weight="bold" aria-hidden="true" /> : <Plus size={16} weight="bold" aria-hidden="true" />}<span>{hasActiveFilters ? "清除筛选" : "开始面试"}</span>
+                    </button>
+                  </div>
+                )}
+                {state === "ready" && payload.items.map((item, index) => (
+                  <article key={item.session_id} className={`report-row reports-report-row reports-report-row-${item.status}`} style={{ "--report-row-index": index }}>
+                    <div className="reports-row-main">
+                      <div className="reports-row-title"><h3>{item.job_title || "未提供岗位标题"}</h3><span>#{item.session_id.slice(0, 8)}</span></div>
+                      <p>{item.summary || item.error || "报告任务正在处理，完成后显示结构化摘要。"}</p>
+                      <div className="reports-row-context"><span>{pathLabels[item.report_path] || "生成路径未提供"}</span>{(item.job_tags || []).slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div>
+                    </div>
+
+                    <div className="reports-row-status" data-status={item.status}><span aria-hidden="true" /><strong>{statusLabels[item.status] || item.status}</strong></div>
+
+                    <div className="reports-row-score">
+                      {item.status === "completed"
+                        ? <><strong>{item.overall_score ?? "--"}</strong><span>综合评分</span></>
+                        : <><strong>—</strong><span>{rowStatusHint(item)}</span></>}
+                    </div>
+
+                    <dl className="reports-row-time">
+                      <div><dt><Clock size={13} weight="bold" aria-hidden="true" />开始</dt><dd>{formatDate(item.started_at || item.created_at)}</dd></div>
+                      <div><dt>用时</dt><dd>{formatDuration(item.duration_seconds)}</dd></div>
+                    </dl>
+
+                    <div className="reports-row-actions">
+                      {item.status === "failed" && <button className="button start-tool-button reports-row-action reports-row-recovery" type="button" onClick={() => requeue(item.session_id)} disabled={Boolean(busyAction)} aria-busy={busyAction === `requeue:${item.session_id}` || undefined} data-state={busyAction === `requeue:${item.session_id}` ? "loading" : undefined}>{busyAction === `requeue:${item.session_id}` ? <SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" /> : <ArrowClockwise size={15} weight="bold" aria-hidden="true" />}<span>{busyAction === `requeue:${item.session_id}` ? "排队中" : "重新排队"}</span></button>}
+                      <button className="button start-tool-button reports-row-action reports-row-open" type="button" onClick={() => openItem(item)}><span>{item.status === "completed" ? "查看报告" : "查看进度"}</span><ArrowRight size={15} weight="bold" aria-hidden="true" /></button>
+                      {item.report_pdf_url && <button className="button start-tool-button reports-row-action reports-row-download" type="button" onClick={() => download(item)} disabled={Boolean(busyAction)} aria-busy={busyAction === `download:${item.session_id}` || undefined} data-state={busyAction === `download:${item.session_id}` ? "loading" : undefined} aria-label={`下载 ${item.job_title || "面试"} PDF`}>{busyAction === `download:${item.session_id}` ? <SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" /> : <DownloadSimple size={15} weight="bold" aria-hidden="true" />}<span>{busyAction === `download:${item.session_id}` ? "下载中" : "下载 PDF"}</span></button>}
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <nav className="reports-pagination" aria-label="报告分页">
+                <button className="button start-tool-button" type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
+                <div>{pageNumbers.map((number, index) => <span key={number}>{index > 0 && number - pageNumbers[index - 1] > 1 ? <i>…</i> : null}<button type="button" aria-current={number === page ? "page" : undefined} onClick={() => setPage(number)}>{number}</button></span>)}</div>
+                <button className="button start-tool-button" type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</button>
+              </nav>
+            </section>
+          </div>
+        </section>
+
+        <aside className="start-inspector reports-inspector" aria-labelledby="inspector-title">
+          <header className="start-inspector-head">
+            <div><span>工作面板</span><h2 id="inspector-title">报告概览</h2></div>
+            <span className="start-inspector-state" data-state={state === "loading" ? "generating" : state}>
+              {state === "loading" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : state === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}
+              <span>{state === "loading" ? "同步中" : state === "error" ? "连接异常" : "已同步"}</span>
+            </span>
+          </header>
+
+          <div className="start-inspector-content reports-inspector-content">
+            <section className="reports-inspector-section" aria-labelledby="status-summary-title">
+              <header><span>状态统计</span><h3 id="status-summary-title">当前数据集</h3></header>
+              <dl className="reports-status-strip">
+                {Object.entries(statusLabels).map(([value, label]) => {
+                  const StatusIcon = statusIcons[value];
+                  return <div key={value} data-status={value}><dt><StatusIcon className={value === "processing" && totals.processing > 0 ? "reports-processing-icon" : undefined} size={15} weight={value === "completed" || value === "failed" ? "fill" : "bold"} aria-hidden="true" />{label}</dt><dd className="reports-count-update" key={`${value}-${totals[value]}`}>{totals[value]}</dd></div>;
+                })}
+              </dl>
             </section>
 
-            <div className="report-ledger" aria-busy={state === "loading"}>
-              {state === "loading" && <Skeleton lines={6} />}
-              {state === "error" && <EmptyState title="报告列表加载失败" description="检查后端服务后重试。当前筛选条件不会丢失。" action={<Button onClick={loadReports}>重新加载</Button>} />}
-              {state === "empty" && <EmptyState title="当前条件下没有报告" description={hasActiveFilters ? "调整搜索、日期或状态筛选后再试。" : "完成第一场模拟面试后，报告会出现在这里。"} action={hasActiveFilters ? <Button onClick={clearFilters}>清除筛选</Button> : <Button variant="primary" onClick={() => window.location.assign("/prep")}>开始面试</Button>} />}
-              {state === "ready" && payload.items.map((item) => (
-                <article key={item.session_id} className="report-row">
-                  <div className="report-row-main"><div className="report-row-title"><span className="mono-label">{item.session_id.slice(0, 8)}</span><h3>{item.job_title || "未提供岗位标题"}</h3></div><p>{item.summary || item.error || "报告任务正在处理，完成后显示结构化摘要。"}</p><div className="tag-row">{(item.job_tags || []).slice(0, 4).map((tag) => <Badge key={tag} tone="blue">{tag}</Badge>)}</div></div>
-                  <div className="report-row-state"><Badge tone={item.status === "completed" ? "success" : item.status === "failed" ? "danger" : "coral"}>{statusLabels[item.status] || item.status}</Badge><strong>{item.overall_score ?? "--"}</strong><small>综合评分</small></div>
-                  <dl className="report-row-meta"><div><dt>开始时间</dt><dd>{formatDate(item.started_at || item.created_at)}</dd></div><div><dt>持续时间</dt><dd>{formatDuration(item.duration_seconds)}</dd></div><div><dt>生成路径</dt><dd>{pathLabels[item.report_path] || "未提供"}</dd></div></dl>
-                  <div className="report-row-actions"><Button onClick={() => openItem(item)}>{item.status === "completed" ? "查看报告" : "查看进度"}</Button>{item.report_pdf_url && <Button onClick={() => download(item)}>PDF</Button>}{item.status === "failed" && <Button variant="danger" onClick={() => requeue(item.session_id)}>重新排队</Button>}</div>
-                </article>
-              ))}
-            </div>
+            <section className="reports-inspector-section reports-current-view" aria-labelledby="current-view-title">
+              <header><span>当前视图</span><h3 id="current-view-title">筛选条件</h3></header>
+              <dl>
+                <div><dt>状态</dt><dd>{activeStatusLabel}</dd></div>
+                <div><dt>日期</dt><dd>{activeRangeLabel}</dd></div>
+                <div><dt>关键词</dt><dd>{query || "未设置"}</dd></div>
+                <div><dt>页码</dt><dd>{page} / {totalPages}</dd></div>
+              </dl>
+              {hasActiveFilters && <button className="reports-inspector-clear" type="button" onClick={clearFilters}><X size={14} weight="bold" aria-hidden="true" />清除全部筛选</button>}
+            </section>
 
-            <nav className="pagination" aria-label="报告分页"><Button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</Button><div>{pageNumbers.map((number, index) => <span key={number}>{index > 0 && number - pageNumbers[index - 1] > 1 ? <i>…</i> : null}<button type="button" aria-current={number === page ? "page" : undefined} onClick={() => setPage(number)}>{number}</button></span>)}</div><Button disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</Button></nav>
-          </section>
-        </div>
+            <section className="reports-inspector-section reports-status-guide" aria-labelledby="status-guide-title">
+              <header><span>继续处理</span><h3 id="status-guide-title">操作规则</h3></header>
+              <ul>
+                <li><CheckCircle size={15} weight="fill" aria-hidden="true" /><span><strong>已完成</strong>查看报告或下载 PDF</span></li>
+                <li><SpinnerGap size={15} weight="bold" aria-hidden="true" /><span><strong>生成中</strong>进入进度页跟踪任务</span></li>
+                <li><WarningCircle size={15} weight="fill" aria-hidden="true" /><span><strong>生成失败</strong>重新排队后继续跟进</span></li>
+              </ul>
+            </section>
+          </div>
+
+          <footer className="start-inspector-actions reports-inspector-actions">
+            <button className="button start-button start-inspector-secondary reports-refresh-button" type="button" onClick={loadReports} disabled={state === "loading"} data-state={state === "loading" ? "loading" : undefined}><ArrowClockwise className={state === "loading" ? "start-spinner" : undefined} size={17} weight="bold" aria-hidden="true" /><span>{state === "loading" ? "正在刷新" : "刷新报告"}</span></button>
+            <button className="button start-button button-primary reports-new-interview-button" type="button" onClick={() => window.location.assign("/prep")}><Plus size={17} weight="bold" aria-hidden="true" /><span>开始新面试</span></button>
+          </footer>
+        </aside>
       </main>
-    </AppShell>
+
+      <footer className="start-status-bar reports-status-bar" aria-label="报告工作区状态">
+        <StatusBarItem icon={Files} label="全部" value={totals.all} />
+        <StatusBarItem icon={CheckCircle} label="完成" value={totals.completed} state={totals.completed ? "ready" : "idle"} />
+        <StatusBarItem icon={SpinnerGap} label="生成中" value={totals.processing} state={totals.processing ? "info" : "idle"} />
+        <StatusBarItem icon={WarningCircle} label="失败" value={totals.failed} state={totals.failed ? "error" : "idle"} />
+        <StatusBarItem icon={state === "loading" ? SpinnerGap : state === "error" ? WarningCircle : CheckCircle} label="请求" value={state === "loading" ? "同步中" : state === "error" ? "异常" : "已同步"} state={state === "loading" ? "generating" : state === "error" ? "error" : "ready"} current />
+      </footer>
+    </div>
   );
 }

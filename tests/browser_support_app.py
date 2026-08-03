@@ -875,7 +875,13 @@ def delete_seeded_langgraph_interview(session_id: str):
 
 @app.post("/test-support/reports/{status}")
 def seed_report_state(status: str, age_days: int = 0):
-    if status not in {"processing", "failed", "durable-processing", "durable-failed"}:
+    if status not in {
+        "processing",
+        "failed",
+        "orphaned",
+        "durable-processing",
+        "durable-failed",
+    }:
         raise HTTPException(status_code=422, detail="unsupported report seed status")
     if age_days < 0:
         raise HTTPException(status_code=422, detail="age_days must be non-negative")
@@ -891,14 +897,24 @@ def seed_report_state(status: str, age_days: int = 0):
     store.mark_report_processing(turn.session_id)
     durable = status.startswith("durable-")
     persisted_status = status.removeprefix("durable-") if durable else status
-    job_store.jobs[turn.session_id] = {
-        "job_id": f"browser-job-{turn.session_id}",
-        "session_id": turn.session_id,
-        "status": persisted_status,
-        "replay_count": 0,
-        "review_engine": "langgraph-review-v1" if durable else "legacy",
-        "review_graph_schema_version": "langgraph-review-v1" if durable else None,
-    }
+    if status == "orphaned":
+        persisted_status = "processing"
+        seeded_at = (
+            datetime.now(timezone.utc) - timedelta(minutes=5)
+        ).isoformat().replace("+00:00", "Z")
+        record = store.get_report_record(turn.session_id)
+        store._reports[turn.session_id] = record.model_copy(
+            update={"created_at": seeded_at}
+        )
+    else:
+        job_store.jobs[turn.session_id] = {
+            "job_id": f"browser-job-{turn.session_id}",
+            "session_id": turn.session_id,
+            "status": persisted_status,
+            "replay_count": 0,
+            "review_engine": "langgraph-review-v1" if durable else "legacy",
+            "review_graph_schema_version": "langgraph-review-v1" if durable else None,
+        }
     if durable:
         report = make_report(turn.session_id, plan.questions[0])
         store.upsert_question_evaluation(

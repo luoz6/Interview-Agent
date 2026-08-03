@@ -1,0 +1,142 @@
+[
+  {
+    "date": "2026-08-03",
+    "scope": "detail refinement",
+    "route": "/report-processing",
+    "macrostructure": "Observable Execution Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white execution surfaces / cobalt progress with localized semantic states",
+    "variation_knobs": "stage-specific duotone icons / separate state glyphs / 15px titles and 14px execution copy / explicit disabled-action guidance / retry-preserves-progress language / one visible loop",
+    "enrichment": "none",
+    "brief": "Refine report processing icons, typography, actions, errors, retry language and functional motion without changing polling or report behavior"
+  },
+  {
+    "date": "2026-08-03",
+    "scope": "page",
+    "route": "/report-processing",
+    "macrostructure": "Observable Execution Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white execution surfaces / cobalt progress with localized semantic states",
+    "variation_knobs": "four-phase lifecycle rail / compact real progress module / seven-row stage ledger / public event register / factual recovery inspector / single functional spinner",
+    "enrichment": "none",
+    "brief": "Rebuild report processing as an app-native observable pipeline consistent with prep, interview, reports and help while preserving polling, retries, events and redirect behavior"
+  },
+  {
+    "date": "2026-08-03",
+    "scope": "detail refinement",
+    "route": "/interview",
+    "macrostructure": "Focused Interview Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white conversation surfaces / cobalt blue with localized semantic states",
+    "variation_knobs": "18px current question / 15px message copy / single-icon actions / structured inline errors / 160-280ms state motion / internal icon direction feedback",
+    "enrichment": "none",
+    "brief": "Refine interview icons, typography, buttons, semantic feedback and motion without changing session or SSE behavior"
+  },
+  {
+    "date": "2026-07-31",
+    "scope": "page",
+    "route": "/interview",
+    "macrostructure": "Focused Interview Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white conversation surfaces / cobalt blue action hierarchy",
+    "variation_knobs": "continuous question navigator / single question banner / light conversation ledger / factual session inspector / persistent status bar",
+    "enrichment": "none",
+    "brief": "Completely rebuild the live interview route to match the prep application system while preserving session, SSE, draft and command behavior"
+  },
+  {
+    "date": "2026-07-31",
+    "scope": "detail refinement",
+    "route": "/help",
+    "macrostructure": "Recovery Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white work surfaces / cobalt blue with localized semantic states",
+    "variation_knobs": "duotone active icons / 15px row titles / 14px support copy / 180ms context shift / 220ms 28ms-stagger rows / icon-only button motion",
+    "enrichment": "none",
+    "brief": "Refine help icons, typography, semantic colors, buttons and motion without changing the recovery workbench structure"
+  },
+  {
+    "date": "2026-07-31",
+    "scope": "page",
+    "route": "/help",
+    "macrostructure": "Recovery Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white work surfaces / cobalt blue",
+    "variation_knobs": "three-topic activity rail / in-place manual panes / persistent recovery inspector / factual status bar",
+    "enrichment": "none",
+    "brief": "Rebuild the help route as an in-app recovery manual consistent with prep and reports"
+  },
+  {
+    "date": "2026-07-31",
+    "scope": "visual correction pass 4",
+    "route": "/prep",
+    "macrostructure": "Calm Cobalt Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white work surfaces / localized semantic feedback",
+    "variation_knobs": "white invalid editor surface / start-prefixed style isolation / progressive plan and evidence disclosure",
+    "enrichment": "none",
+    "brief": "Correct screenshot-identified red error flooding, inherited dark knowledge styling and inherited beige empty metrics"
+  },
+  {
+    "date": "2026-07-30",
+    "scope": "component refinement pass 3",
+    "route": "/prep",
+    "macrostructure": "Calm Cobalt Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / soft white panels / cobalt blue with semantic green and amber",
+    "variation_knobs": "runtime glyphs / persistent editor feedback / warning-not-danger degradation / guarded clear action / sticky mobile request status",
+    "enrichment": "none",
+    "brief": "Module-by-module refinement of topbar, editor, Inspector, async controls, errors, evidence states and mobile status visibility"
+  },
+  {
+    "date": "2026-07-30",
+    "scope": "component refinement pass 2",
+    "route": "/prep",
+    "macrostructure": "Calm Cobalt Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / soft white panels / cobalt blue",
+    "variation_knobs": "48px 14px primary actions / mono limited to brand and evidence IDs / three motion primitives / icon-and-text readiness states",
+    "enrichment": "none",
+    "brief": "Second detail pass focused on typographic calm, loading hierarchy, focus visibility, empty states and motion reduction"
+  },
+  {
+    "date": "2026-07-30",
+    "scope": "component refinement",
+    "route": "/prep",
+    "macrostructure": "Calm Cobalt Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / soft white panels / cobalt blue",
+    "variation_knobs": "single Phosphor icon family / explicit six-state controls / semantic inline notices / restrained pane motion",
+    "enrichment": "none",
+    "brief": "Polish icons, typography, buttons, colors, errors, loading feedback and motion without changing the application workbench structure"
+  },
+  {
+    "date": "2026-07-30",
+    "scope": "page",
+    "route": "/prep",
+    "macrostructure": "Calm Cobalt Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / soft white panels / cobalt blue",
+    "enrichment": "none",
+    "brief": "Restyle the interview setup app from industrial terminal aesthetics to a calm modern productivity workspace"
+  },
+  {
+    "date": "2026-07-30",
+    "scope": "page",
+    "route": "/prep",
+    "macrostructure": "App Workbench",
+    "theme": "custom Signal Paper Application",
+    "theme_axes": "neutral work surfaces / industrial sans / acid signal green",
+    "enrichment": "none",
+    "brief": "Refactor the preparation route from a long-form webpage into a viewport-filling interview setup application"
+  },
+  {
+    "date": "2026-07-30",
+    "scope": "page",
+    "route": "/prep",
+    "macrostructure": "Briefing Canvas",
+    "theme": "custom Signal Paper",
+    "theme_axes": "warm paper / industrial display / acid signal green",
+    "enrichment": "CSS evidence index track",
+    "brief": "Greenfield rebuild of the technical interview start page without reusing the previous prep implementation"
+  }
+]

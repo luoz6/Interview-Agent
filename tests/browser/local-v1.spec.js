@@ -22,7 +22,9 @@ async function startInterview(page) {
   ));
   await page.getByRole("button", { name: "开始本次面试" }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
-  await expect(page.locator(".context-progress .badge")).toContainText("active");
+  await expect(
+    page.getByRole("status").filter({ hasText: "当前会话" }),
+  ).toContainText("面试进行中");
   return { sessionId: new URL(page.url()).searchParams.get("session_id"), prepEvidenceIds };
 }
 

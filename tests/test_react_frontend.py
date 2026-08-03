@@ -256,7 +256,7 @@ def test_design_document_state_evidence_and_single_action_contracts_are_implemen
     assert 'className="start-hero"' not in prep
 
     for stage in ("queued", "retrieving", "analyzing", "evaluating", "aggregating", "coaching", "completed"):
-        assert f'["{stage}"' in processing
+        assert f'name: "{stage}"' in processing
     assert "同步暂时失败，3 秒后自动重试" in processing
     assert "metadata.full_session_fallback" in processing
     assert 'aria-label="报告生成进度"' in processing
