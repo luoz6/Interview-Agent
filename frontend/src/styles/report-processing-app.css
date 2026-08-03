@@ -241,11 +241,39 @@
 }
 
 .processing-app .pipeline-hero .processing-sync-line p {
+  flex: 1 1 auto;
   margin: 0;
   color: var(--start-color-text-muted);
   font-size: var(--start-text-ui-sm);
   line-height: 1.5;
   animation: processing-state-update var(--start-duration-fast) var(--start-ease-out) both;
+}
+
+.processing-sync-line > button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--start-space-3xs);
+  min-height: 2rem;
+  padding: var(--start-space-3xs) var(--start-space-2xs);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-surface);
+  color: var(--start-color-action);
+  font: inherit;
+  font-size: var(--start-text-xs);
+  font-weight: var(--start-font-weight-semibold);
+  cursor: pointer;
+  transition: border-color var(--start-duration-fast) var(--start-ease-out), background-color var(--start-duration-fast) var(--start-ease-out), transform var(--start-duration-fast) var(--start-ease-out);
+}
+
+.processing-sync-line > button:focus-visible {
+  outline: 2px solid var(--start-color-focus);
+  outline-offset: 3px;
+}
+
+.processing-sync-line > button:active {
+  transform: translateY(1px);
 }
 
 .processing-sync-line[data-state="completed"] {

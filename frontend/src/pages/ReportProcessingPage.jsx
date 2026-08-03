@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise,
   ArrowLeft,
@@ -170,20 +170,22 @@ export function ReportProcessingPage() {
   const [notice, setNotice] = useState(null);
   const [polling, setPolling] = useState(true);
   const [requeueing, setRequeueing] = useState(false);
+  const [pollGeneration, setPollGeneration] = useState(0);
   const pollStartedAt = useRef(Date.now());
 
-  async function loadProgress() {
+  const loadProgress = useCallback(async ({ signal } = {}) => {
     if (!sessionId) {
       setNotice({ tone: "danger", title: "缺少任务标识", text: "缺少 session_id，无法读取报告任务。请返回报告中心重新选择任务。" });
-      setPolling(false);
       document.body.dataset.reportState = "error";
-      return;
+      return false;
     }
     try {
-      const payload = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}/report/progress`);
+      const payload = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}/report/progress`, {
+        cache: "no-store",
+        signal,
+      });
       setProgress(payload);
       document.body.dataset.reportState = payload.status;
-      if (["completed", "failed", "orphaned"].includes(payload.status)) setPolling(false);
       if (payload.status === "orphaned") {
         setNotice({ tone: "warning", title: "报告任务已中断", text: errorGuidance.report_job_missing });
       } else if (payload.status === "failed") {
@@ -198,36 +200,79 @@ export function ReportProcessingPage() {
       } else {
         setNotice(null);
       }
+      return !["completed", "failed", "orphaned"].includes(payload.status);
     } catch (error) {
-      const retryable = !error.status || error.status === 429 || error.status >= 500;
-      if (retryable && polling) {
-        setNotice({ tone: "warning", title: "同步暂时中断", text: `同步暂时失败，3 秒后自动重试：${error.message}；当前仍显示上一次成功同步的进度。` });
+      if (error.name === "AbortError") return false;
+      const startupProjectionPending = error.status === 404 && Date.now() - pollStartedAt.current < 30_000;
+      const retryable = startupProjectionPending || !error.status || error.status === 429 || error.status >= 500;
+      if (retryable) {
+        setNotice({
+          tone: "warning",
+          title: startupProjectionPending ? "正在建立报告任务" : "同步暂时中断",
+          text: startupProjectionPending
+            ? "面试已经结束，报告任务状态仍在建立中；页面会继续自动同步。"
+            : `同步暂时失败，稍后会自动重试：${error.message}；当前仍显示上一次成功同步的进度。`,
+        });
         document.body.dataset.reportState = "retrying";
+        return true;
       } else {
         setNotice({ tone: "danger", title: "无法同步任务", text: `${error.message} 请检查服务状态后返回报告中心重试。` });
-        setPolling(false);
         document.body.dataset.reportState = "error";
+        return false;
       }
     }
-  }
-
-  useEffect(() => {
-    loadProgress();
   }, [sessionId]);
 
   useEffect(() => {
-    if (!polling) return undefined;
-    const timer = window.setTimeout(loadProgress, nextPollDelay(pollStartedAt.current));
-    return () => window.clearTimeout(timer);
-  }, [polling, sessionId, progress?.last_updated_at, progress?.status, notice?.tone]);
+    const controller = new AbortController();
+    let cancelled = false;
+    let timer;
+    let inFlight = false;
+    let refreshQueued = false;
 
-  useEffect(() => {
+    pollStartedAt.current = Date.now();
+    setPolling(true);
+
+    const scheduleNext = (immediate = false) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(runPoll, immediate ? 0 : nextPollDelay(pollStartedAt.current));
+    };
+
+    const runPoll = async () => {
+      if (cancelled) return;
+      if (inFlight) {
+        refreshQueued = true;
+        return;
+      }
+      inFlight = true;
+      const shouldContinue = await loadProgress({ signal: controller.signal });
+      inFlight = false;
+      if (cancelled) return;
+      if (!shouldContinue) {
+        setPolling(false);
+        return;
+      }
+      setPolling(true);
+      if (refreshQueued) {
+        refreshQueued = false;
+        scheduleNext(true);
+      } else {
+        scheduleNext(false);
+      }
+    };
+
     const syncWhenVisible = () => {
-      if (document.visibilityState === "visible" && polling) loadProgress();
+      if (document.visibilityState === "visible") scheduleNext(true);
     };
     document.addEventListener("visibilitychange", syncWhenVisible);
-    return () => document.removeEventListener("visibilitychange", syncWhenVisible);
-  }, [polling, sessionId]);
+    runPoll();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+    };
+  }, [loadProgress, pollGeneration]);
 
   useEffect(() => {
     if (progress?.status !== "completed" || !sessionId) return undefined;
@@ -246,13 +291,17 @@ export function ReportProcessingPage() {
     try {
       await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/report/requeue`, {});
       pollStartedAt.current = Date.now();
-      setPolling(true);
-      await loadProgress();
+      setPollGeneration((generation) => generation + 1);
     } catch (error) {
       setNotice({ tone: "danger", title: "无法重新创建任务", text: error.message });
     } finally {
       setRequeueing(false);
     }
+  }
+
+  function refreshProgress() {
+    pollStartedAt.current = Date.now();
+    setPollGeneration((generation) => generation + 1);
   }
 
   const currentIndex = stageIndex[progress?.stage] ?? 0;
@@ -373,6 +422,7 @@ export function ReportProcessingPage() {
               <div className="processing-sync-line" data-state={viewState}>
                 <span aria-hidden="true"><SyncStateIcon size={14} weight={retrying || failed || completed ? "fill" : "bold"} /></span>
                 <p key={syncMessage}>{syncMessage}</p>
+                {!completed && <button type="button" onClick={refreshProgress} aria-label="立即刷新报告进度"><ArrowClockwise size={14} weight="bold" aria-hidden="true" /><span>立即刷新</span></button>}
               </div>
             </section>
 

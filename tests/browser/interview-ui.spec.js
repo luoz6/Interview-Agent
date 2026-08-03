@@ -111,6 +111,33 @@ test("interview focus mode keeps the answer draft and restores both side panes",
   await expect(page.getByLabel("你的回答")).toHaveValue(draft);
 });
 
+test("submitting an answer follows the newest conversation inside the message list", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const sessionId = await createSession(request);
+  await page.goto("/interview?session_id=" + sessionId);
+  await expect(page.locator(".message-list")).toBeVisible();
+
+  await page.locator(".message-list").evaluate((element) => {
+    element.style.flex = "0 0 7rem";
+    element.style.height = "7rem";
+    element.style.maxHeight = "7rem";
+    element.scrollTop = 0;
+  });
+  const pageScrollBefore = await page.evaluate(() => window.scrollY);
+  const answer = "我会先建立可观测指标，再用小流量验证缓存恢复策略。";
+  await page.getByLabel("你的回答").fill(answer);
+  await page.getByRole("button", { name: "提交回答" }).click();
+
+  await expect(page.locator(".message-candidate").filter({ hasText: answer })).toBeVisible();
+  await expect.poll(async () => page.locator(".message-list").evaluate((element) => (
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  ))).toBeLessThanOrEqual(4);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore);
+});
+
 test("empty answer feedback explains the problem and returns focus to the editor", async ({
   page,
   request,

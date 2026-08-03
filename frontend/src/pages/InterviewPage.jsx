@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ChatCircleDots,
   CheckCircle,
@@ -160,7 +160,9 @@ export function InterviewPage() {
   const [focusMode, setFocusMode] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const [announceAssistanceNotice, setAnnounceAssistanceNotice] = useState(false);
-  const conversationRef = useRef(null);
+  const messageListRef = useRef(null);
+  const followConversationRef = useRef(true);
+  const programmaticScrollUntilRef = useRef(0);
   const answerRef = useRef(null);
   const resumedCommandRef = useRef(null);
   const assistanceNoticeAnnouncedRef = useRef(null);
@@ -265,13 +267,29 @@ export function InterviewPage() {
     setAnswer(localStorage.getItem(draftKey(sessionId, questionId)) || "");
   }, [sessionId, snapshot?.current_question?.id]);
 
-  useEffect(() => {
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    conversationRef.current?.scrollTo({
-      top: conversationRef.current.scrollHeight,
-      behavior: reducedMotion ? "auto" : "smooth",
+  useLayoutEffect(() => {
+    if (!followConversationRef.current) return undefined;
+    const messageList = messageListRef.current;
+    if (!messageList) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      programmaticScrollUntilRef.current = Date.now() + (reducedMotion ? 0 : 700);
+      messageList.scrollTo({
+        top: messageList.scrollHeight,
+        behavior: reducedMotion || streamingText ? "auto" : "smooth",
+      });
     });
-  }, [snapshot?.messages?.length, streamingText]);
+    return () => window.cancelAnimationFrame(frame);
+  }, [snapshot?.messages?.length, status, streamingText]);
+
+  function handleMessageListScroll() {
+    if (Date.now() < programmaticScrollUntilRef.current) return;
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+    const distanceFromBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
+    followConversationRef.current = distanceFromBottom <= 72;
+  }
 
   const commandPayload = (extra = {}) => ({
     command_id: newCommandId(),
@@ -301,6 +319,7 @@ export function InterviewPage() {
     }
     const questionId = snapshot?.current_question?.id;
     const payload = commandPayload({ answer: trimmed });
+    followConversationRef.current = true;
     setStatus("submitting");
     setNotice(null);
     setStreamingText("");
@@ -430,12 +449,12 @@ export function InterviewPage() {
 
             <InterviewNotice key={notice ? `${notice.tone}-${notice.text}` : "no-notice"} notice={notice} onDismiss={() => setNotice(null)} />
 
-            <section ref={conversationRef} className="agent-console" aria-label="面试对话" aria-live="polite">
+            <section className="agent-console" aria-label="面试对话" aria-live="polite">
               <header className="console-head">
                 <div><span className="console-live"><ChatCircleDots size={16} weight="duotone" aria-hidden="true" />对话记录</span><small>已确认的回答与追问</small></div>
                 <span className="interview-live-state" data-state={statusState}>{status === "submitting" || status === "loading" || status === "finishing" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : status === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}<span key={`conversation-state-${status}`}>{runtimeLabels[status] || "等待状态"}</span></span>
               </header>
-              <div className="message-list">
+              <div ref={messageListRef} className="message-list" onScroll={handleMessageListScroll}>
                 {!messages.length && status === "loading" ? (
                   <div className="console-loading" role="status"><SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" /><span>正在恢复会话快照…</span></div>
                 ) : null}

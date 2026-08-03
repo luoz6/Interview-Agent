@@ -130,6 +130,49 @@ test("orphaned report exposes one controlled requeue action", async ({ page, req
   await request.delete("/test-support/reports/" + report.session_id);
 });
 
+test("unchanged retrieval snapshots keep polling until the completed report opens", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(20_000);
+  const report = await seedReport(request, "processing");
+  const progressResponse = await request.get(
+    `/api/interviews/${report.session_id}/report/progress`,
+  );
+  expect(progressResponse.ok()).toBe(true);
+  const baseline = await progressResponse.json();
+  let progressRequests = 0;
+
+  await page.route(
+    `**/api/interviews/${report.session_id}/report/progress`,
+    async (route) => {
+      progressRequests += 1;
+      const completed = progressRequests >= 4;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...baseline,
+          status: completed ? "completed" : "processing",
+          stage: completed ? "completed" : "retrieving",
+          percent: completed ? 100 : 20,
+          message: completed ? "报告已生成" : "正在检索相关知识",
+          last_updated_at: completed ? "2026-08-03T08:52:41Z" : "2026-08-03T08:52:02Z",
+        }),
+      });
+    },
+  );
+
+  await page.goto(`/report-processing?session_id=${report.session_id}`);
+  await expect(page.locator(".processing-progress-panel").getByRole("heading", { name: "知识检索" })).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/report-detail\\?session_id=${report.session_id}`),
+    { timeout: 10_000 },
+  );
+  expect(progressRequests).toBeGreaterThanOrEqual(4);
+  await request.delete("/test-support/reports/" + report.session_id);
+});
+
 test("report processing motion respects reduced-motion preferences", async ({
   page,
   request,
