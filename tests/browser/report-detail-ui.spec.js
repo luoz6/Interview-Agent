@@ -32,6 +32,8 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
       const overview = document.querySelector(".report-detail-overview");
       const score = document.querySelector(".report-detail-score-mark");
       const title = document.querySelector("#report-detail-title");
+      const trace = document.querySelector("#runtime-trace");
+      const referencePanel = document.querySelector(".report-detail-dimension-panel");
       const workspaceRect = workspace.getBoundingClientRect();
       const inspectorRect = inspector.getBoundingClientRect();
       return {
@@ -54,6 +56,15 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         dimensionAnimation: getComputedStyle(
           document.querySelector(".report-detail-dimension-track > span"),
         ).animationName,
+        traceBackground: getComputedStyle(trace).backgroundColor,
+        referencePanelBackground: getComputedStyle(referencePanel).backgroundColor,
+        traceColor: getComputedStyle(trace).color,
+        workspaceColor: getComputedStyle(workspace).color,
+        traceMarginInline: [
+          getComputedStyle(trace).marginLeft,
+          getComputedStyle(trace).marginRight,
+        ],
+        legacyTraceIdCount: document.querySelectorAll("#trace").length,
         primaryCount: document.querySelectorAll(
           ".button-primary:not(:disabled)",
         ).length,
@@ -78,6 +89,10 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.sectionIconCount).toBe(6);
     expect(detail.scoreAnimations).toContain("report-detail-score-progress");
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
+    expect(detail.traceBackground).toBe(detail.referencePanelBackground);
+    expect(detail.traceColor).toBe(detail.workspaceColor);
+    expect(detail.traceMarginInline).toEqual(["0px", "0px"]);
+    expect(detail.legacyTraceIdCount).toBe(0);
     expect(detail.primaryCount).toBe(1);
     expect(detail.actionHeights.every((height) => height >= 44)).toBe(true);
     expect(detail.oldPosterScoreCount).toBe(0);

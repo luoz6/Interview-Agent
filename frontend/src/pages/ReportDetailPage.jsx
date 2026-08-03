@@ -40,7 +40,7 @@ const reportSections = [
   { id: "questions", label: "逐题", icon: ChatCircleDots },
   { id: "actions", label: "改进", icon: Target },
   { id: "evidence", label: "证据", icon: Database },
-  { id: "trace", label: "轨迹", icon: Pulse },
+  { id: "runtime-trace", label: "轨迹", icon: Pulse },
 ];
 
 const stateLabels = {
@@ -470,7 +470,7 @@ export function ReportDetailPage() {
                 {evidence.length ? <div className="report-detail-evidence-grid">{evidence.map((item, index) => <article key={item.chunk_id || index} data-evidence-id={item.chunk_id}><header><span>{item.source_type || "知识片段"}</span><code>{item.chunk_id || "未提供 ID"}</code></header><h3>{item.title || "未命名知识来源"}</h3><p>{item.excerpt || "未提供公开摘要。"}</p></article>)}</div> : <div className="report-detail-empty-inline"><Database size={18} weight="duotone" aria-hidden="true" /><p><strong>没有可公开的知识引用</strong><span>这不等于报告失败；部分回答可以只根据候选人原始内容完成评审。</span></p></div>}
               </section>
 
-              <section id="trace" className="report-detail-section report-detail-panel" aria-labelledby="report-trace-title" data-report-reveal style={{ "--reveal-order": 6 }}>
+              <section id="runtime-trace" className="report-detail-section report-detail-panel report-detail-trace-section" aria-labelledby="report-trace-title" data-report-reveal style={{ "--reveal-order": 6 }}>
                 <ReportSectionHeading icon={Pulse} eyebrow="公开诊断" title="运行轨迹" titleId="report-trace-title" meta="仅展示稳定字段" />
                 <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
                 <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" /></article></div>
