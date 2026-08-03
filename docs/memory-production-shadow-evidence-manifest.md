@@ -2,8 +2,9 @@
 
 The production Shadow evidence manifest is a tamper-evident inventory of the
 repository materials submitted for external review. It binds an explicit
-allowlist of machine evidence and review references to file SHA-256 values,
-byte sizes, JSON schema versions, and a source Git revision.
+allowlist of machine evidence and review references to canonical-content
+SHA-256 values, canonical byte sizes, JSON schema versions, and a source Git
+revision.
 
 It is not a digital signature. It does not prove human approval, deployment
 identity, legal authority, authorship, or that a production change occurred.
@@ -19,8 +20,8 @@ The manifest contains no evidence file content. It stores only:
 
 - a repository-relative allowlisted path;
 - a category (`machine_evidence` or `review_reference`);
-- raw-file SHA-256;
-- raw byte size;
+- canonical-content SHA-256;
+- canonical UTF-8/LF byte size;
 - JSON `schema_version`, when present;
 - source Git revision;
 - an overall canonical bundle SHA-256;
@@ -73,16 +74,25 @@ The allowlist also covers the operator/reviewer documents for:
 - external approval-record contract and change preflight;
 - Principal Memory consumption draft and risk review.
 
-## Hash contracts
+## Content normalization and hash contracts
 
-Each file SHA-256 is calculated over its raw checked-out bytes. Byte size is the
-exact raw length. JSON schema is read from the top-level `schema_version` when
-present.
+Every allowlisted file is required to be valid UTF-8 text. Before calculating
+its SHA-256 and byte size, the builder and verifier normalize CRLF and lone CR
+line endings to LF, then encode the result as UTF-8. The manifest records this
+contract as `content_normalization=utf8-lf-v1`.
+
+This makes the evidence identity independent of Git `core.autocrlf`, operating
+system checkout conventions, and an approver's LF/CRLF configuration. A change
+to any non-line-ending content still changes the canonical SHA-256 and is
+blocked. Invalid UTF-8 is also blocked; the allowlist intentionally contains no
+binary artifacts.
+
+JSON schema is read from the top-level `schema_version` when present.
 
 The bundle SHA-256 is calculated over compact, sorted-key canonical JSON that
 contains:
 
-- manifest schema;
+- manifest schema and content-normalization contract;
 - source revision;
 - approval/production boundary fields;
 - file count;
@@ -97,9 +107,9 @@ including subject/object locators, source data, Prompt/answer/resume/report,
 approval-record bindings, deployment digests, DSNs, database fingerprints,
 table prefixes, and Provider payload.
 
-The manifest proves only that the allowlisted repository files match the
-recorded bytes. Reviewers must still evaluate their meaning and independently
-verify the external approval record.
+The manifest proves only that the normalized content of the allowlisted
+repository files matches the recorded canonical bytes. Reviewers must still
+evaluate their meaning and independently verify the external approval record.
 
 ## Stable state
 

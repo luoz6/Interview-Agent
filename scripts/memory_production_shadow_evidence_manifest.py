@@ -11,6 +11,8 @@ from typing import Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "docs/memory-production-shadow-evidence-manifest.json"
+MANIFEST_SCHEMA_VERSION = "memory-production-shadow-evidence-manifest-v2"
+CONTENT_NORMALIZATION = "utf8-lf-v1"
 DEFAULT_CONTRACTS: dict[str, str] = {
     "docs/memory-validation-operational-evidence.json": "machine_evidence",
     "docs/memory-budget-shadow-observation.json": "machine_evidence",
@@ -104,13 +106,23 @@ def _schema_version(path: Path) -> str | None:
     return str(schema) if isinstance(schema, str) and schema else None
 
 
+def _canonical_file_content(path: Path) -> bytes:
+    """Return checkout-independent bytes for an allowlisted text artifact."""
+    text_content = path.read_bytes().decode("utf-8")
+    normalized = text_content.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized.encode("utf-8")
+
+
 def _file_entry(root: Path, relative: str, category: str) -> dict[str, object]:
     if not _path_is_safe(root, relative):
         raise ManifestBlocked(["MANIFEST_PATH_UNSAFE"])
     path = root / Path(*PurePosixPath(relative).parts)
     if not path.is_file():
         raise ManifestBlocked(["MANIFEST_FILE_MISSING"])
-    content = path.read_bytes()
+    try:
+        content = _canonical_file_content(path)
+    except UnicodeDecodeError as exc:
+        raise ManifestBlocked(["FILE_ENCODING_INVALID"]) from exc
     entry: dict[str, object] = {
         "path": relative,
         "category": category,
@@ -126,6 +138,7 @@ def _file_entry(root: Path, relative: str, category: str) -> dict[str, object]:
 def _bundle_payload(manifest: Mapping[str, object]) -> dict[str, object]:
     return {
         "schema_version": manifest.get("schema_version"),
+        "content_normalization": manifest.get("content_normalization"),
         "source_revision": manifest.get("source_revision"),
         "approval_status": manifest.get("approval_status"),
         "change_preflight": manifest.get("change_preflight"),
@@ -158,7 +171,8 @@ def build_manifest(
         for relative, category in sorted(contracts.items())
     ]
     manifest: dict[str, object] = {
-        "schema_version": "memory-production-shadow-evidence-manifest-v1",
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "content_normalization": CONTENT_NORMALIZATION,
         "source_revision": source_revision,
         "approval_status": "PENDING",
         "change_preflight": "BLOCKED",
@@ -184,10 +198,10 @@ def verify_manifest(
         validate_manifest_artifact(manifest)
     except RuntimeError:
         codes.append("MANIFEST_ARTIFACT_INVALID")
-    if manifest.get("schema_version") != (
-        "memory-production-shadow-evidence-manifest-v1"
-    ):
+    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         codes.append("MANIFEST_SCHEMA_INVALID")
+    if manifest.get("content_normalization") != CONTENT_NORMALIZATION:
+        codes.append("CONTENT_NORMALIZATION_INVALID")
     if not revision_is_ancestor:
         codes.append("SOURCE_REVISION_NOT_ANCESTOR")
     files = manifest.get("files")
@@ -221,7 +235,11 @@ def verify_manifest(
         if not path.is_file():
             codes.append("MANIFEST_FILE_MISSING")
             continue
-        content = path.read_bytes()
+        try:
+            content = _canonical_file_content(path)
+        except UnicodeDecodeError:
+            codes.append("FILE_ENCODING_INVALID")
+            continue
         if item.get("sha256") != sha256(content).hexdigest():
             codes.append("FILE_HASH_MISMATCH")
         if int(item.get("size_bytes", -1)) != len(content):

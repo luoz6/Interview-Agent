@@ -2,7 +2,8 @@
 
 This how-to is for the evidence maintainer and external approver. It builds or
 verifies the repository handoff manifest without changing configuration or
-production state.
+production state. Verification is independent of LF versus CRLF checkout
+conventions.
 
 ## Build from the source revision
 
@@ -55,9 +56,16 @@ Verification checks:
 2. source revision is an ancestor of the current checkout;
 3. manifest paths exactly equal the code allowlist;
 4. every path is safe and resolves under `docs/`;
-5. category, raw SHA-256, raw byte size, and JSON schema match;
-6. canonical bundle SHA-256 matches;
-7. the manifest contains no private or connection data.
+5. every allowlisted artifact is valid UTF-8 text;
+6. category, UTF-8/LF canonical SHA-256, canonical byte size, and JSON schema
+   match;
+7. canonical bundle SHA-256 matches;
+8. the manifest contains no private or connection data.
+
+The recorded `content_normalization` must be `utf8-lf-v1`. CRLF and LF
+checkouts of the same Git content therefore verify identically. A non-line-
+ending edit, invalid UTF-8, unexpected file, or stale bundle hash remains a
+blocking failure.
 
 ## Handle a failure
 
