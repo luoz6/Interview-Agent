@@ -83,6 +83,14 @@ def accepted_inputs():
             "production_observation": "NOT_RUN",
         },
         "repository": {"safe_defaults": True, "consume_rejected": True},
+        "production_budget_tooling": {
+            "tooling_readiness": "READY_FOR_REVIEW",
+            "approval_status": "PENDING",
+            "change_preflight": "BLOCKED",
+            "configuration_changed": False,
+            "production_observation": "NOT_RUN",
+            "long_term_memory_consumption": "BLOCKED",
+        },
     }
 
 
@@ -120,6 +128,7 @@ def test_ready_packet_is_pending_and_requests_budget_shadow_only():
         (lambda value: value["repository"].update({"safe_defaults": False}), "SAFE_DEFAULTS_CHANGED"),
         (lambda value: value["operational"].update({"production_observation": "PASS"}), "PRODUCTION_OBSERVATION_ALREADY_STARTED"),
         (lambda value: value["operational"].update({"long_term_memory_consumption": "READY"}), "CONSUMPTION_BOUNDARY_INVALID"),
+        (lambda value: value["production_budget_tooling"].update({"tooling_readiness": "BLOCKED"}), "PRODUCTION_BUDGET_TOOLING_NOT_READY"),
     ],
 )
 def test_any_failed_input_blocks_packet_without_pending_ready_lines(mutator, code):
@@ -167,6 +176,23 @@ def test_repository_consume_remains_rejected_and_all_modes_default_disabled():
     assert config.long_term.read_shadow_enabled is False
     with pytest.raises(ValueError, match="consume is not supported"):
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})
+
+
+def test_packet_pins_production_budget_warmup_and_three_state_tooling():
+    packet = build_approval_packet(accepted_inputs())
+
+    assert packet["proposed_guardrails"] | {
+        "initial_warmup_traffic_percent": 0.1,
+        "minimum_warmup_minutes": 30,
+        "minimum_warmup_followup_samples": 20,
+        "continue_observation_requires_new_approval": True,
+    } == packet["proposed_guardrails"]
+    assert packet["production_budget_tooling"] == {
+        "readiness": "READY_FOR_REVIEW",
+        "observation_schema": "memory-production-budget-shadow-observation-v1",
+        "acceptance_states": ["PASS", "BLOCKED", "CONTINUE_OBSERVATION"],
+        "offline_aggregate_input_only": True,
+    }
 
 
 def test_approval_request_is_pending_and_requires_all_named_owners():

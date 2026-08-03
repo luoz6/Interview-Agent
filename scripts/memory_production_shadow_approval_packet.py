@@ -153,6 +153,20 @@ def evaluate_approval_readiness(
     if repository.get("consume_rejected") is not True:
         codes.append("CONSUME_NOT_REJECTED")
 
+    tooling = _mapping(inputs.get("production_budget_tooling"))
+    if tooling.get("tooling_readiness") != "READY_FOR_REVIEW":
+        codes.append("PRODUCTION_BUDGET_TOOLING_NOT_READY")
+    if tooling.get("approval_status") != "PENDING":
+        codes.append("PRODUCTION_BUDGET_TOOLING_APPROVAL_STATE_INVALID")
+    if tooling.get("change_preflight") != "BLOCKED":
+        codes.append("PRODUCTION_BUDGET_TOOLING_PREFLIGHT_STATE_INVALID")
+    if tooling.get("configuration_changed") is not False:
+        codes.append("PRODUCTION_BUDGET_TOOLING_CONFIGURATION_CHANGED")
+    if tooling.get("production_observation") != "NOT_RUN":
+        codes.append("PRODUCTION_BUDGET_TOOLING_OBSERVATION_STARTED")
+    if tooling.get("long_term_memory_consumption") != "BLOCKED":
+        codes.append("PRODUCTION_BUDGET_TOOLING_CONSUMPTION_INVALID")
+
     for value in (operational, status, security, regression):
         if value.get("production_observation") != "NOT_RUN":
             codes.append("PRODUCTION_OBSERVATION_ALREADY_STARTED")
@@ -205,8 +219,12 @@ def build_approval_packet(
         },
         "proposed_guardrails": {
             "maximum_traffic_percent": 1,
+            "initial_warmup_traffic_percent": 0.1,
+            "minimum_warmup_minutes": 30,
+            "minimum_warmup_followup_samples": 20,
             "minimum_observation_hours": 24,
             "minimum_followup_samples": 200,
+            "continue_observation_requires_new_approval": True,
             "one_axis_at_a_time": True,
             "synthetic_replay_matrix_required": True,
             "durable_aggregate_metrics_required": True,
@@ -227,6 +245,22 @@ def build_approval_packet(
             "principal_memory_mode": "disabled",
             "new_shadow_worker_leasing": "stopped",
             "deterministic_interview": "available",
+        },
+        "production_budget_tooling": {
+            "readiness": str(
+                _mapping(inputs.get("production_budget_tooling")).get(
+                    "tooling_readiness", ""
+                )
+            ),
+            "observation_schema": (
+                "memory-production-budget-shadow-observation-v1"
+            ),
+            "acceptance_states": [
+                "PASS",
+                "BLOCKED",
+                "CONTINUE_OBSERVATION",
+            ],
+            "offline_aggregate_input_only": True,
         },
         "validation_counts": {
             "full_python_passed": _integer(
@@ -302,6 +336,9 @@ def load_default_inputs() -> dict[str, object]:
         ),
         "regression": _load_json(
             ROOT / "docs/memory-operational-regression-evidence.json"
+        ),
+        "production_budget_tooling": _load_json(
+            ROOT / "docs/memory-production-budget-shadow-readiness-evidence.json"
         ),
         "repository": repository_snapshot(),
     }
