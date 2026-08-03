@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interview-agent:principal-memory-production-data-use-decision-v1",
+  "title": "Principal Memory Production Data-use Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision",
+    "spec_sha256",
+    "repository_revision",
+    "deployment_scope_sha256",
+    "approved_regions",
+    "purposes",
+    "taxonomy_version",
+    "candidate_notice_version",
+    "retention_schedule_version",
+    "controller_and_processor_roles",
+    "lawful_basis_and_consent_requirements",
+    "provider_and_subprocessors",
+    "provider_retention_and_training_setting",
+    "cross_border_transfer_mechanism",
+    "human_review_protocol_version",
+    "deletion_export_slo",
+    "disable_slo",
+    "decision_time",
+    "expires_at",
+    "revalidation_trigger",
+    "approvals",
+    "reviews"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "principal-memory-production-data-use-decision-v1"
+    },
+    "decision": {
+      "const": "APPROVED"
+    },
+    "spec_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "repository_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "deployment_scope_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approved_regions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/concrete_string" }
+    },
+    "purposes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "proposal_write",
+          "fact_storage",
+          "read_shadow",
+          "assist_c1a"
+        ]
+      }
+    },
+    "taxonomy_version": { "$ref": "#/$defs/concrete_string" },
+    "candidate_notice_version": { "$ref": "#/$defs/concrete_string" },
+    "retention_schedule_version": { "$ref": "#/$defs/concrete_string" },
+    "controller_and_processor_roles": { "$ref": "#/$defs/concrete_string" },
+    "lawful_basis_and_consent_requirements": { "$ref": "#/$defs/concrete_string" },
+    "provider_and_subprocessors": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/concrete_string" }
+    },
+    "provider_retention_and_training_setting": { "$ref": "#/$defs/concrete_string" },
+    "cross_border_transfer_mechanism": { "$ref": "#/$defs/concrete_string" },
+    "human_review_protocol_version": { "$ref": "#/$defs/concrete_string" },
+    "deletion_export_slo": { "const": "24_HOURS" },
+    "disable_slo": { "const": "NEXT_ASSEMBLY_MAX_60_SECONDS" },
+    "decision_time": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "revalidation_trigger": { "$ref": "#/$defs/concrete_string" },
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product",
+        "privacy",
+        "security",
+        "legal",
+        "fairness",
+        "operations"
+      ],
+      "properties": {
+        "product": { "$ref": "#/$defs/approval" },
+        "privacy": { "$ref": "#/$defs/approval" },
+        "security": { "$ref": "#/$defs/approval" },
+        "legal": { "$ref": "#/$defs/approval" },
+        "fairness": { "$ref": "#/$defs/approval" },
+        "operations": { "$ref": "#/$defs/approval" }
+      }
+    },
+    "reviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessibility", "interview_quality"],
+      "properties": {
+        "accessibility": { "$ref": "#/$defs/review" },
+        "interview_quality": { "$ref": "#/$defs/review" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "concrete_string": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!(?:TBD|TODO|UNKNOWN|UNSET|NONE|N/A|PLACEHOLDER|\\*)$).+"
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "external_ref", "decided_at"],
+      "properties": {
+        "decision": { "const": "APPROVED" },
+        "external_ref": { "$ref": "#/$defs/concrete_string" },
+        "decided_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "external_ref", "decided_at"],
+      "properties": {
+        "decision": { "const": "REVIEWED" },
+        "external_ref": { "$ref": "#/$defs/concrete_string" },
+        "decided_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
