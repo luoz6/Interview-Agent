@@ -9,12 +9,12 @@ import {
   Circle,
   ClipboardText,
   Database,
-  DownloadSimple,
+  FilePdf,
   FileText,
+  Gauge,
   Info,
   Lightbulb,
   ListChecks,
-  Plus,
   Pulse,
   ShieldCheck,
   SpinnerGap,
@@ -128,14 +128,13 @@ function ReportNotice({ notice, onDismiss }) {
   );
 }
 
-function ReportSectionHeading({ icon: HeadingIcon, eyebrow, title, titleId, meta }) {
+function ReportSectionHeading({ icon: HeadingIcon, title, titleId, meta }) {
   return (
     <header className="report-detail-section-head">
       <div className="report-detail-section-heading-copy">
         <span className="report-detail-section-icon" aria-hidden="true"><HeadingIcon size={18} weight="duotone" /></span>
-        <div><span className="report-detail-section-eyebrow">{eyebrow}</span><h2 id={titleId}>{title}</h2></div>
+        <div><h2 id={titleId}>{title}</h2><p>{meta}</p></div>
       </div>
-      <p>{meta}</p>
     </header>
   );
 }
@@ -150,19 +149,21 @@ function ReportSkeleton() {
 
 function DimensionBars({ values = {} }) {
   return (
-    <div className="report-detail-dimensions">
+    <ol className="report-detail-dimensions">
       {Object.entries(dimensionLabels).map(([key, label], index) => {
         const value = Math.max(0, Math.min(100, Number(values[key]) || 0));
         return (
-          <div className="report-detail-dimension" key={key} style={{ "--dimension-index": index }}>
-            <div><span>{label}</span><strong>{value}</strong></div>
+          <li className="report-detail-dimension" key={key} style={{ "--dimension-index": index }}>
+            <span className="report-detail-dimension-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+            <span className="report-detail-dimension-label">{label}</span>
             <div className="report-detail-dimension-track" role="progressbar" aria-label={`${label} ${value} 分`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={value}>
               <span style={{ "--dimension-scale": value / 100 }} />
             </div>
-          </div>
+            <strong>{value}<small>/100</small></strong>
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }
 
@@ -389,7 +390,7 @@ export function ReportDetailPage() {
   const allTraceEmpty = !agentRunsUnavailable && !runtimeEventsUnavailable && !agentRuns.length && !runtimeEvents.length;
   const tracePartiallyUnavailable = agentRunsUnavailable || runtimeEventsUnavailable;
   const downloading = downloadState === "loading";
-  const DownloadStateIcon = downloading ? SpinnerGap : downloadState === "success" ? CheckCircle : downloadState === "error" ? WarningCircle : DownloadSimple;
+  const DownloadStateIcon = downloading ? SpinnerGap : downloadState === "success" ? CheckCircle : downloadState === "error" ? WarningCircle : FilePdf;
   const downloadLabel = downloading ? "正在准备 PDF" : downloadState === "success" ? "下载已开始" : downloadState === "error" ? "重试下载" : "下载 PDF";
 
   return (
@@ -421,14 +422,10 @@ export function ReportDetailPage() {
               <span className="start-workspace-mark" aria-hidden="true"><FileText size={18} weight="bold" /></span>
               <div><h1 id="report-detail-title">结构化面评报告</h1><p>从评分依据、逐题证据和改进动作中确定下一轮练习重点。</p></div>
             </div>
-            <div className="start-readiness report-detail-head-score" data-ready={reportReady} aria-label={reportReady ? `综合评分 ${score} 分` : "正在读取综合评分"}>
-              <span>{reportReady ? score : "--"}</span><strong>/ 100</strong>
-            </div>
           </header>
 
           <div className="start-editor-commandbar report-detail-commandbar">
             <div className="report-detail-command-context"><FileText size={16} weight="duotone" aria-hidden="true" /><span>报告编号</span><code>{sessionId ? sessionId.slice(0, 8) : "未提供"}</code></div>
-            <div className="report-detail-command-state" data-state={state}><span aria-hidden="true">{state === "loading" ? <SpinnerGap className="start-spinner" size={15} weight="bold" /> : state === "error" ? <WarningCircle size={15} weight="fill" /> : <CheckCircle size={15} weight="fill" />}</span><strong>{stateLabels[state] || state}</strong></div>
             <button className="button start-tool-button report-detail-download-tool" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} data-state={downloadState} onClick={download}>
               <DownloadStateIcon className={downloading ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{downloadLabel}</span>
             </button>
@@ -439,8 +436,9 @@ export function ReportDetailPage() {
             {state === "loading" && <ReportSkeleton />}
             {state === "error" && (
               <section className="report-detail-error" role="alert">
-                <WarningCircle size={26} weight="fill" aria-hidden="true" />
+                <span className="report-detail-error-icon" aria-hidden="true"><WarningCircle size={22} weight="fill" /></span>
                 <h2>报告暂时无法读取</h2><p>{notice?.text || "确认报告任务已经完成，或返回报告中心查看任务状态。"}</p>
+                <small>请先重新加载；如果问题持续存在，返回报告中心确认任务是否仍在生成或已经失败。</small>
                 <div className="report-detail-error-actions">
                   {sessionId && <button className="button start-button button-primary" type="button" onClick={retryReport}><ArrowClockwise size={17} weight="bold" aria-hidden="true" /><span>重新加载</span></button>}
                   <button className="button start-button start-inspector-secondary" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>返回报告中心</span></button>
@@ -456,28 +454,35 @@ export function ReportDetailPage() {
                   <span className="report-detail-eyebrow">本轮结论</span>
                   <h2 id="report-overview-title">{band.label}</h2>
                   <p>{report.summary || "当前报告没有返回总结，请继续查看逐题评分依据。"}</p>
+                  <dl className="report-detail-overview-facts">
+                    <div><dt>有效回答</dt><dd>{answeredCount} / {feedbacks.length || "—"}</dd></div>
+                    <div><dt>生成路径</dt><dd>{state === "fallback" ? "全会话降级" : "结构化评审"}</dd></div>
+                  </dl>
                 </div>
-                <div className="report-detail-score-mark" data-tone={band.tone} style={{ "--report-score": score }} aria-label={`综合评分 ${score} 分，${band.label}`}>
-                  <span><AnimatedScore score={score} reducedMotion={reducedMotion} /><small>/100</small></span>
+                <div className="report-detail-score-mark" data-tone={band.tone} aria-label={`综合评分 ${score} 分，${band.label}`}>
+                  <header><Gauge size={18} weight="duotone" aria-hidden="true" /><span>综合评分</span></header>
+                  <span className="report-detail-score-value"><AnimatedScore score={score} reducedMotion={reducedMotion} /><small>/100</small></span>
+                  <div className="report-detail-score-track" aria-hidden="true"><span style={{ "--score-scale": score / 100 }} /></div>
+                  <p>数值由后端规则确认</p>
                 </div>
               </section>
 
               <section className="report-detail-panel report-detail-dimension-panel" aria-labelledby="report-dimensions-title" data-report-reveal style={{ "--reveal-order": 1 }}>
-                <ReportSectionHeading icon={ChartBar} eyebrow="能力画像" title="五维评分" titleId="report-dimensions-title" meta="数值由后端规则确认" />
+                <ReportSectionHeading icon={ChartBar} title="五维评分" titleId="report-dimensions-title" meta="对照五个能力维度，定位最需要补强的部分。" />
                 <DimensionBars values={dimensions} />
               </section>
 
               <section className="report-detail-panel report-detail-insight-panel" aria-labelledby="report-insights-title" data-report-reveal style={{ "--reveal-order": 2 }}>
-                <ReportSectionHeading icon={Target} eyebrow="决策摘要" title="下一轮应该关注什么" titleId="report-insights-title" meta="基于真实评分" />
+                <ReportSectionHeading icon={Target} title="下一轮应该关注什么" titleId="report-insights-title" meta="把评分转成一个明确动作和两个辅助判断。" />
                 <dl className="report-detail-insights">
+                  <div data-priority="primary"><dt><Lightbulb size={17} weight="duotone" aria-hidden="true" />首要动作</dt><dd>{improvements[0] || "当前报告未返回明确改进项。"}</dd></div>
                   <div><dt><ChartBar size={16} weight="duotone" aria-hidden="true" />相对优势</dt><dd>{strongestDimension ? `${strongestDimension.label} · ${strongestDimension.value}` : "暂无有效评分信号"}</dd></div>
                   <div><dt><Target size={16} weight="duotone" aria-hidden="true" />优先补强</dt><dd>{weakestDimension ? `${weakestDimension.label} · ${weakestDimension.value}` : "先完成可评估回答"}</dd></div>
-                  <div><dt><Lightbulb size={16} weight="duotone" aria-hidden="true" />首要动作</dt><dd>{improvements[0] || "当前报告未返回明确改进项。"}</dd></div>
                 </dl>
               </section>
 
-              <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title" data-report-reveal style={{ "--reveal-order": 3 }}>
-                <ReportSectionHeading icon={ChatCircleDots} eyebrow="逐题账本" title="逐题反馈" titleId="report-questions-title" meta={`${feedbacks.length} 道题`} />
+              <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title">
+                <ReportSectionHeading icon={ChatCircleDots} title="逐题反馈" titleId="report-questions-title" meta={`${feedbacks.length} 道题；展开后查看依据、缺口和改进答案。`} />
                 <p className="report-detail-section-intro">展开每道题，依次查看评分依据、主要不足、改进答案和证据绑定。</p>
                 {feedbacks.length ? <div className="report-detail-feedback-list">{feedbacks.map((feedback, index) => <FeedbackItem key={feedback.question_id || index} feedback={feedback} index={index} />)}</div> : <div className="report-detail-empty-inline"><ChatCircleDots size={18} weight="duotone" aria-hidden="true" /><p><strong>暂无逐题反馈</strong><span>当前报告没有返回可展示的题目记录。</span></p></div>}
 
@@ -487,21 +492,21 @@ export function ReportDetailPage() {
                 </section>
               </section>
 
-              <section id="actions" className="report-detail-section report-detail-panel" aria-labelledby="report-actions-title" data-report-reveal style={{ "--reveal-order": 4 }}>
-                <ReportSectionHeading icon={Lightbulb} eyebrow="练习输入" title="观察与改进" titleId="report-actions-title" meta="用于下一轮模拟" />
+              <section id="actions" className="report-detail-section report-detail-panel" aria-labelledby="report-actions-title">
+                <ReportSectionHeading icon={Lightbulb} title="观察与改进" titleId="report-actions-title" meta="将本轮观察整理成下一轮模拟的练习输入。" />
                 <div className="report-detail-action-grid">
                   <article><header><span><Info size={17} weight="duotone" aria-hidden="true" /></span><div><strong>{observations.length}</strong><h3>关键观察</h3></div></header>{observations.length ? <ul>{observations.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="report-detail-muted">当前没有可展示的关键观察。</p>}</article>
                   <article data-tone="focus"><header><span><Target size={17} weight="duotone" aria-hidden="true" /></span><div><strong>{improvements.length}</strong><h3>优先改进项</h3></div></header>{improvements.length ? <ol>{improvements.slice(0, 6).map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol> : <p className="report-detail-muted">当前报告未返回明确改进项。</p>}</article>
                 </div>
               </section>
 
-              <section id="evidence" className="report-detail-section report-detail-panel" aria-labelledby="report-evidence-title" data-report-reveal style={{ "--reveal-order": 5 }}>
-                <ReportSectionHeading icon={Database} eyebrow="可追溯输入" title="知识证据" titleId="report-evidence-title" meta={`${evidence.length} 个来源`} />
+              <section id="evidence" className="report-detail-section report-detail-panel" aria-labelledby="report-evidence-title">
+                <ReportSectionHeading icon={Database} title="知识证据" titleId="report-evidence-title" meta={`${evidence.length} 个可公开来源；只展示稳定引用字段。`} />
                 {evidence.length ? <div className="report-detail-evidence-grid">{evidence.map((item, index) => <article key={item.chunk_id || index} data-evidence-id={item.chunk_id}><header><span>{item.source_type || "知识片段"}</span><code>{item.chunk_id || "未提供 ID"}</code></header><h3>{item.title || "未命名知识来源"}</h3><p>{item.excerpt || "未提供公开摘要。"}</p></article>)}</div> : <div className="report-detail-empty-inline"><Database size={18} weight="duotone" aria-hidden="true" /><p><strong>没有可公开的知识引用</strong><span>这不等于报告失败；部分回答可以只根据候选人原始内容完成评审。</span></p></div>}
               </section>
 
-              <section id="runtime-trace" className="report-detail-section report-detail-panel report-detail-trace-section" aria-labelledby="report-trace-title" data-report-reveal style={{ "--reveal-order": 6 }}>
-                <ReportSectionHeading icon={Pulse} eyebrow="公开诊断" title="运行轨迹" titleId="report-trace-title" meta={tracePartiallyUnavailable ? "部分诊断不可用" : "仅展示稳定字段"} />
+              <section id="runtime-trace" className="report-detail-section report-detail-panel report-detail-trace-section" aria-labelledby="report-trace-title">
+                <ReportSectionHeading icon={Pulse} title="运行轨迹" titleId="report-trace-title" meta={tracePartiallyUnavailable ? "部分公开诊断暂时不可用。" : "仅展示稳定、可公开的运行字段。"} />
                 <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
                 {allTraceUnavailable || allTraceEmpty ? <TraceEmptyState unavailable={allTraceUnavailable} onRetry={retryReport} /> : <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRunsUnavailable ? "—" : agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" unavailable={agentRunsUnavailable} /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEventsUnavailable ? "—" : runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" unavailable={runtimeEventsUnavailable} /></article></div>}
               </section>
@@ -517,9 +522,10 @@ export function ReportDetailPage() {
 
           <div className="start-inspector-content report-detail-inspector-content">
             {!reportReady ? <ReportSkeleton /> : <>
-              <section className="report-detail-inspector-score" aria-label={`综合评分 ${score} 分`}>
-                <div className="report-detail-score-orbit" data-tone={band.tone} style={{ "--report-score": score }}><span><AnimatedScore score={score} reducedMotion={reducedMotion} /><small>/100</small></span></div>
-                <div><span>综合评分</span><h3>{band.label}</h3><p>{answeredCount} / {feedbacks.length} 道题形成有效回答</p></div>
+              <section className="report-detail-inspector-score" aria-label={`综合评分 ${score} 分，${band.label}`}>
+                <span className="report-detail-inspector-score-icon" aria-hidden="true"><Gauge size={19} weight="duotone" /></span>
+                <div><span>本轮结论</span><h3>{band.label}</h3><p>{answeredCount} / {feedbacks.length} 道题形成有效回答</p></div>
+                <strong>{score}<small>/100</small></strong>
               </section>
 
               <section className="report-detail-inspector-section" aria-labelledby="report-detail-facts-title">
@@ -537,10 +543,10 @@ export function ReportDetailPage() {
           </div>
 
           <footer className="start-inspector-actions report-detail-inspector-actions">
-            <p className="report-detail-action-guidance"><Info size={15} weight="bold" aria-hidden="true" /><span>{reportReady ? "下载 PDF 或以本次改进项开始下一轮练习。" : "报告读取完成后提供下载和再练习操作。"}</span></p>
-            <button className="button start-button start-inspector-secondary report-detail-back-action" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>报告中心</span></button>
-            <button className="button start-button start-inspector-secondary report-detail-repeat-action" type="button" onClick={() => window.location.assign("/prep")}><Plus size={17} weight="bold" aria-hidden="true" /><span>再次模拟</span></button>
             <button className="button start-button button-primary report-detail-primary-action" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} data-state={downloadState} onClick={download}><DownloadStateIcon className={downloading ? "start-spinner" : undefined} size={17} weight="bold" aria-hidden="true" /><span>{downloadLabel === "下载 PDF" ? "下载完整报告" : downloadLabel}</span></button>
+            <button className="button start-button start-inspector-secondary report-detail-back-action" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>报告中心</span></button>
+            <button className="button start-button start-inspector-secondary report-detail-repeat-action" type="button" onClick={() => window.location.assign("/prep")}><ArrowClockwise size={17} weight="bold" aria-hidden="true" /><span>再次模拟</span></button>
+            <p className="report-detail-action-guidance"><Info size={15} weight="bold" aria-hidden="true" /><span>{reportReady ? "PDF 会保留本次评分、逐题反馈和公开证据。" : "报告读取完成后提供下载和再练习操作。"}</span></p>
           </footer>
         </aside>
       </main>

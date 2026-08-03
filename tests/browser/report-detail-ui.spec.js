@@ -46,6 +46,26 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         overviewBackground: getComputedStyle(overview).backgroundColor,
         scoreBackground: getComputedStyle(score).backgroundImage,
         scoreWidth: score.getBoundingClientRect().width,
+        scoreTrackAnimation: getComputedStyle(
+          document.querySelector(".report-detail-score-track > span"),
+        ).animationName,
+        scoreOrbitCount: document.querySelectorAll(
+          ".report-detail-score-orbit, .report-detail-head-score",
+        ).length,
+        dimensionRows: document.querySelectorAll(
+          ".report-detail-dimensions > li",
+        ).length,
+        introRevealCount: document.querySelectorAll(
+          "[data-report-reveal]",
+        ).length,
+        horizontalOverflow:
+          document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+        wrappedActionLabels: [...document.querySelectorAll(
+          ".report-detail-inspector-actions button span, .report-detail-download-tool span",
+        )].filter((label) => {
+          const style = getComputedStyle(label);
+          return label.getBoundingClientRect().height > Number.parseFloat(style.lineHeight) * 1.2;
+        }).length,
         railIconCount: document.querySelectorAll(
           ".report-detail-activity-rail svg",
         ).length,
@@ -89,11 +109,18 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.titleSize).toBeGreaterThanOrEqual(16);
     expect(detail.titleSize).toBeLessThan(32);
     expect(detail.overviewBackground).not.toBe("rgb(255, 113, 89)");
-    expect(detail.scoreBackground).toContain("conic-gradient");
-    expect(detail.scoreWidth).toBeLessThanOrEqual(150);
+    expect(detail.scoreBackground).toBe("none");
+    expect(detail.scoreWidth).toBeGreaterThanOrEqual(180);
+    expect(detail.scoreWidth).toBeLessThanOrEqual(320);
+    expect(detail.scoreTrackAnimation).toBe("report-detail-score-fill");
+    expect(detail.scoreOrbitCount).toBe(0);
+    expect(detail.dimensionRows).toBe(5);
+    expect(detail.introRevealCount).toBe(3);
+    expect(detail.horizontalOverflow).toBe(false);
+    expect(detail.wrappedActionLabels).toBe(0);
     expect(detail.railIconCount).toBe(5);
     expect(detail.sectionIconCount).toBe(6);
-    expect(detail.scoreAnimations).toContain("report-detail-score-progress");
+    expect(detail.scoreAnimations).toContain("report-detail-score-enter");
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
     expect(detail.traceBackground).toBe(detail.referencePanelBackground);
     expect(detail.traceColor).toBe(detail.workspaceColor);
@@ -126,7 +153,6 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
   const questionsLink = page.locator('.report-detail-activity-rail a[href="#questions"]');
   await questionsLink.click();
   await expect(page.locator("#questions")).toBeInViewport();
-  await expect(page.locator("#questions")).toHaveAttribute("data-revealed", "true");
   await expect(questionsLink).toHaveAttribute("aria-current", "location");
 
   const firstFeedback = page.locator(".report-detail-feedback").first();

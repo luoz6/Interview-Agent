@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-08-03",
+    "scope": "whole-page detail refinement",
+    "route": "/report-detail",
+    "macrostructure": "Conclusion-first Report Reading Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white reading surfaces / cobalt actions with localized semantic states",
+    "variation_knobs": "typographic score scale / five-row dimension ledger / dominant next action / compact persistent inspector / three purposeful motion primitives / bounded recovery errors",
+    "enrichment": "none",
+    "brief": "Refine the complete report detail interface module by module, with stronger hierarchy, icon semantics, button quality, honest errors and restrained motion"
+  },
+  {
+    "date": "2026-08-03",
     "scope": "detail refinement",
     "route": "/report-processing",
     "macrostructure": "Observable Execution Workbench",
