@@ -1,6 +1,6 @@
 {
   "approval_status": "PENDING",
-  "bundle_sha256": "b564b0c72a59dd99224c1c5162b4889bdb947e0305b6f51736ff70cbaaf7e1fc",
+  "bundle_sha256": "dc29fc052fc536aedafd8f02694f53d1d4dd7e00bcd0efdf49b4d7b627cf31d8",
   "change_preflight": "BLOCKED",
   "content_normalization": "utf8-lf-v1",
   "file_count": 26,
@@ -79,8 +79,8 @@
     {
       "category": "review_reference",
       "path": "docs/memory-production-shadow-evidence-verification.md",
-      "sha256": "1db6dca1ff5228b1ab218622078c03c278dd54752b1c72ff290fc9c87f1b0de4",
-      "size_bytes": 3110
+      "sha256": "74b5849614ff600e6dfdd7188638a1cf65949b2f6896c38257c2f9f0b86ff5ca",
+      "size_bytes": 3759
     },
     {
       "category": "review_reference",
@@ -178,5 +178,5 @@
   "long_term_memory_consumption": "BLOCKED",
   "production_observation": "NOT_RUN",
   "schema_version": "memory-production-shadow-evidence-manifest-v2",
-  "source_revision": "34992894f154ff26d6daa61958ac4520d26edc9e"
+  "source_revision": "d4f9810229105ce630f0a9ad4d88bb3bba2bc686"
 }
