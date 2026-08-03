@@ -31,6 +31,21 @@ as if a human decision had occurred.
 
 ## 2. Preflight after explicit approval
 
+Run the machine preflight before changing configuration:
+
+```powershell
+& 'F:\python3.11\python.exe' `
+  -m scripts.memory_production_shadow_change_preflight `
+  --approval-record '<outside-repository-record>' `
+  --expected-record-sha256 '<trusted-change-system-value>' `
+  --expected-deployment-scope-sha256 '<trusted-inventory-value>' `
+  --current-revision '<exact-deployed-revision>'
+```
+
+Continue only when it prints
+`PRODUCTION_BUDGET_SHADOW_CHANGE_PREFLIGHT=PASS`. The preflight itself must
+still report `CONFIGURATION_CHANGED=false`.
+
 The operator must verify all of the following in the deployment system and
 change record:
 
@@ -95,10 +110,21 @@ Budget Shadow may compute and persist aggregate hypothetical outcomes only:
 It must not crop, truncate, compress, replace, or reorder the Provider request.
 The deterministic Interview path remains authoritative.
 
-Review the first samples immediately, then at the approved cadence. A minimum
-24-hour window is required, but time alone is insufficient. Error/latency
-promotion decisions require at least 200 follow-up samples. Low-volume paths
-remain `CONTINUE_OBSERVATION` until their sample requirement is met.
+Start with effective traffic `min(0.1%, approved cap)`. Keep this warm-up for at
+least 30 minutes and 20 follow-up samples. Review the first, fifth, and
+twentieth samples, and every 15 minutes during warm-up. Ramp only when all
+immediate hard stops are zero, durable metrics are complete, and deterministic
+Interview health remains green.
+
+After warm-up, traffic may rise to the approved cap but never above 1%. Review
+every 15 minutes during the first hour, hourly through hour six, and every four
+hours afterward. Also review 30 minutes before scheduled close and immediately
+after any stop or rollback.
+
+A minimum 24-hour window is required, but time alone is insufficient.
+Error/latency promotion decisions require at least 200 follow-up samples.
+Language or path buckets below 30 samples are `INSUFFICIENT` and cannot support
+bucket-specific production claims.
 
 ## 5. Automatic stop
 
@@ -109,9 +135,15 @@ Stop immediately, without waiting for statistical significance, on:
 - known over-limit Provider call greater than 0;
 - privacy artifact hit greater than 0;
 - another memory axis or enforcement gate enabled;
-- missing/incomplete durable metrics beyond the approved tolerance;
+- two consecutive expected minute buckets missing, or `data_complete=false`
+  at the five-minute check;
 - private data or high-cardinality locator in evidence;
 - deterministic Interview regression attributable to Shadow.
+
+Also stop on approval expiry/revocation, revision or deployment-scope mismatch,
+traffic above the approved cap, or configuration drift. Re-read approval,
+window, revision, scope, traffic, and configuration at every decision point;
+do not rely only on the initial preflight snapshot.
 
 At 200 or more samples, also stop when error-rate delta exceeds 0.5 percentage
 points or P95 latency delta exceeds 20%.
@@ -150,6 +182,33 @@ Produce an aggregate production observation record bound to the approved
 revision and window. It must distinguish PASS, BLOCKED, and
 `CONTINUE_OBSERVATION`; it must not claim Write Shadow or Read Shadow approval.
 
+The close decision happens only after configuration is restored and new Shadow
+events stop. If restoration cannot be verified, report
+`CONFIGURATION_RESTORED=NOT_VERIFIED`; never print `disabled` merely to match a
+success template. A `CONTINUE_OBSERVATION` result closes the current window and
+requires a new external approval record and must print:
+
+```text
+NEW_APPROVAL_WINDOW_REQUIRED=true
+```
+
+Export only the allowlisted aggregate input to a temporary path outside the
+repository, then run the offline tools:
+
+```powershell
+& 'F:\python3.11\python.exe' `
+  -m scripts.memory_production_budget_shadow_observation `
+  --aggregate-input '<outside-repository-aggregate-input>' `
+  --output '<outside-repository-sanitized-observation>'
+
+& 'F:\python3.11\python.exe' `
+  -m scripts.memory_production_budget_shadow_acceptance `
+  --observation '<outside-repository-sanitized-observation>'
+```
+
+These tools are offline validators. They do not connect to production metrics,
+databases, deployment systems, providers, or change-management systems.
+
 Any next phase requires a new approval packet. In particular:
 
 ```text
@@ -157,3 +216,19 @@ PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED
 PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED
 LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
 ```
+
+## 8. Code freeze
+
+Do not patch production code inside an approved window. On any code, dependency,
+migration, runbook, schema, or configuration-contract defect:
+
+```text
+STOP_NOW
+→ restore disabled
+→ focused tests
+→ full regression
+→ new release candidate
+→ new five-role approval
+```
+
+The old approval record cannot authorize the changed revision.

@@ -70,6 +70,14 @@ Canonical evidence:
 
 ## Requested production guardrails
 
+The operator must begin with effective traffic `min(0.1%, approved cap)`. The
+warm-up lasts at least 30 minutes and 20 follow-up samples. Only a zero-hard-stop
+warm-up may ramp to the approved cap, which must not exceed 1%. The final
+production conclusion requires at least 24 hours and 200 follow-up samples.
+
+Insufficient samples produce `CONTINUE_OBSERVATION`, close the current window,
+and require a new approval record. They never extend this approval implicitly.
+
 | Guardrail | Requested limit |
 |---|---:|
 | Traffic | maximum 1% of eligible interview follow-up operations |

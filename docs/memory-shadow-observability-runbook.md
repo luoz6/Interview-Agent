@@ -51,3 +51,22 @@ and proposal privacy/stale-source failures.
 The status runner exits non-zero when a hard stop is active. A status endpoint,
 if added later, must remain GET/status-only and must never accept a request that
 enables Shadow.
+
+## Production Budget Shadow aggregate export
+
+An approved Production Budget Shadow window uses a separate offline export
+contract. The trusted metrics system may export only booleans, non-negative
+counts/rates, the public approved Git revision, approved/observed traffic,
+window duration, and fixed low-cardinality language/path buckets. The export
+must remain outside the repository until it is sanitized.
+
+The export must not contain the external approval record or its path, approval,
+deployment, ticket, or approver digests, production locators, DSNs, credentials,
+session/principal/fact/question/message/artifact IDs, Prompt, answer, resume,
+report, source excerpt, Provider payload, or free-text metric labels.
+
+Use `scripts.memory_production_budget_shadow_observation` to create the
+sanitized artifact and
+`scripts.memory_production_budget_shadow_acceptance` to make the three-state
+decision. These scripts do not query the metrics backend. Buckets below 30
+production observations are marked insufficient for bucket-specific claims.
