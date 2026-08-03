@@ -1,9 +1,9 @@
 {
   "approval_status": "PENDING",
-  "bundle_sha256": "7283328dbb2ac3060bb86ccb27a38058cf9a7d17ad850a4de7e7f01bc8a1c1ff",
+  "bundle_sha256": "b564b0c72a59dd99224c1c5162b4889bdb947e0305b6f51736ff70cbaaf7e1fc",
   "change_preflight": "BLOCKED",
   "content_normalization": "utf8-lf-v1",
-  "file_count": 24,
+  "file_count": 26,
   "files": [
     {
       "category": "machine_evidence",
@@ -69,6 +69,18 @@
       "path": "docs/memory-production-shadow-change-preflight.md",
       "sha256": "c33bf354482a553462c05f23aeda7dc45f08dbf5c62b90096d0381700f9aacff",
       "size_bytes": 3787
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-shadow-evidence-manifest.md",
+      "sha256": "99620f34563330b5c4397350ec4312f03c05d32f0d4e16fccf32e60accad3a3c",
+      "size_bytes": 4611
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-shadow-evidence-verification.md",
+      "sha256": "1db6dca1ff5228b1ab218622078c03c278dd54752b1c72ff290fc9c87f1b0de4",
+      "size_bytes": 3110
     },
     {
       "category": "review_reference",
@@ -166,5 +178,5 @@
   "long_term_memory_consumption": "BLOCKED",
   "production_observation": "NOT_RUN",
   "schema_version": "memory-production-shadow-evidence-manifest-v2",
-  "source_revision": "9337456c195580af676363c4704531245c880217"
+  "source_revision": "34992894f154ff26d6daa61958ac4520d26edc9e"
 }
