@@ -1,9 +1,9 @@
 {
   "approval_status": "PENDING",
-  "bundle_sha256": "dc29fc052fc536aedafd8f02694f53d1d4dd7e00bcd0efdf49b4d7b627cf31d8",
+  "bundle_sha256": "b60382064513dbcdf830140bec8b0854ef59bafeb38bef4df6be279d77d96599",
   "change_preflight": "BLOCKED",
   "content_normalization": "utf8-lf-v1",
-  "file_count": 26,
+  "file_count": 30,
   "files": [
     {
       "category": "machine_evidence",
@@ -34,16 +34,35 @@
     },
     {
       "category": "review_reference",
+      "path": "docs/memory-production-budget-shadow-acceptance-contract.md",
+      "sha256": "c95d31b27a8a12c792118f35e5d142c0edb01127a7459995f757fbd96ffbde2e",
+      "size_bytes": 2364
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/memory-production-budget-shadow-observation-contract.md",
+      "sha256": "aa2b7a1f718bed126c997b6ad954bd5c0ac335548093839f989c278906d034d5",
+      "size_bytes": 2675
+    },
+    {
+      "category": "machine_evidence",
+      "path": "docs/memory-production-budget-shadow-readiness-evidence.json",
+      "schema_version": "memory-production-budget-shadow-readiness-v1",
+      "sha256": "5458ee6d67f9448b972bc15915c49138aefa272e7f1f49bb60f5316bb0b40251",
+      "size_bytes": 842
+    },
+    {
+      "category": "review_reference",
       "path": "docs/memory-production-budget-shadow-runbook.md",
-      "sha256": "8b2b121fd308af551028442e6a680f389d42dfa8218d5858d2761e657eb465ac",
-      "size_bytes": 5958
+      "sha256": "f4a12f09b8e8f5ff8b02d401eff59c923af0809b1c56e589bd64bd440544053e",
+      "size_bytes": 8795
     },
     {
       "category": "machine_evidence",
       "path": "docs/memory-production-shadow-approval-evidence.json",
       "schema_version": "memory-production-shadow-approval-packet-v1",
-      "sha256": "f2ba799067dd8e06dd54e6bdac388eb22a988ab44c441a598d7b3e92c5319c36",
-      "size_bytes": 2069
+      "sha256": "2fbe58637cb290c63cb18bb8727469cb0d843b067f99ac765d5ae3595aee8bec",
+      "size_bytes": 2531
     },
     {
       "category": "review_reference",
@@ -54,8 +73,8 @@
     {
       "category": "review_reference",
       "path": "docs/memory-production-shadow-approval-request.md",
-      "sha256": "148db56db85766ebcf80b66dcedaac5623301f25c7188a45daa1f1a99b1cc46e",
-      "size_bytes": 6179
+      "sha256": "c85caf436cbdb9dc508fbbd7dfc374ce16a601657ad2ffcf9b76f37a37e6309f",
+      "size_bytes": 6649
     },
     {
       "category": "machine_evidence",
@@ -73,8 +92,8 @@
     {
       "category": "review_reference",
       "path": "docs/memory-production-shadow-evidence-manifest.md",
-      "sha256": "99620f34563330b5c4397350ec4312f03c05d32f0d4e16fccf32e60accad3a3c",
-      "size_bytes": 4611
+      "sha256": "53ba7fd4b839ec4869d5ca43c8eb51c4a9d5451bfbe801dc7408a048fcaf1573",
+      "size_bytes": 4782
     },
     {
       "category": "review_reference",
@@ -85,8 +104,8 @@
     {
       "category": "review_reference",
       "path": "docs/memory-shadow-observability-runbook.md",
-      "sha256": "4c21cd619ded0a97228501cc77ba642a57bcabd105fe81b7ba5fea56180053f5",
-      "size_bytes": 2539
+      "sha256": "9f6df2ea3d04d8c1f0f4c6191c4877e437c94e432bdf7f31a0db2b125404b05a",
+      "size_bytes": 3581
     },
     {
       "category": "machine_evidence",
@@ -173,10 +192,16 @@
       "schema_version": "principal-memory-write-shadow-observation-v1",
       "sha256": "4e992e1924b25164abcbb200338081ae903ecbe0db1743877a94d62ca771a68a",
       "size_bytes": 1444
+    },
+    {
+      "category": "review_reference",
+      "path": "docs/superpowers/plans/2026-08-03-memory-production-budget-shadow-execution-and-evidence.md",
+      "sha256": "eef236507003f3a882b1489e2622642a65340ba0b9a19dcea750a1b3c4e5c19d",
+      "size_bytes": 44974
     }
   ],
   "long_term_memory_consumption": "BLOCKED",
   "production_observation": "NOT_RUN",
   "schema_version": "memory-production-shadow-evidence-manifest-v2",
-  "source_revision": "d4f9810229105ce630f0a9ad4d88bb3bba2bc686"
+  "source_revision": "d857e0a091d55db76f4405669a9e699e3e3f44b6"
 }
