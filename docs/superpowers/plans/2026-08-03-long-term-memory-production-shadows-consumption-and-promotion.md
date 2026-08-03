@@ -1,140 +1,136 @@
-# Interview Agent 长期记忆生产 Shadow、用户控制、Consumption 与渐进晋级实施计划
+# Interview Agent 长期记忆 Hosted 产品化、Production Shadow 与有界晋级主计划
 
-**Plan revision:** v0.1-draft
-
-**Document type:** Master Implementation Plan / How-to + Reference
-
-**Target audience:** Product、Change Owner、Operations、Privacy、Security、Fairness、Legal、Interview Quality、后端工程师、Agent 工程师、前端工程师、SRE、QA 与验收负责人
-
-**Primary goal:** 在不把历史事实用于评分、报告或招聘判断的前提下，把已经完成的 Principal Memory 基础设施依次推进到 Production Write Shadow、Production Read Shadow 零注入、候选人自主管理、C1 Consumption 实现、Staging 验证和最高 1% 的生产 Canary，并为每个阶段建立独立审批、证据、停止和回滚闭环。
-
+**Plan revision:** v0.2-revised
+**Document type:** Master Roadmap + Phase Execution Contract
+**Target audience:** Product、Change Owner、Operations、Privacy、Security、Fairness、Legal、Interview Quality、后端、Agent、前端、SRE、QA 与验收负责人
 **Historical Memory RC:** `f5dce4206751775c1650a4fccbd5060625af523a`
+**Repository baseline reviewed:** `6969efa119de0da33698f0de74f4fdeee502b375`
 
-**Historical remote verification:** `REMOTE_MANIFEST=VERIFIED`、`FILES=30`、`1682 passed`、`163 skipped`、`1 warning`
+**Primary goal:** 先决定项目是否从“本地单机、单用户、无登录”升级为 Hosted Multi-user V2；只有该产品化决策通过后，才依次建立真实认证、稳定 Principal、独立 Consent、候选人控制面、Production Write Shadow、Production Read Shadow 单轴零注入，以及不把历史事实直接注入 Provider Prompt 的 C1-A 有界辅助能力。
 
-**Status at authoring:** `PRODUCTION_BUDGET_SHADOW=NOT_RUN`、`PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED`、`PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED`、`PRINCIPAL_MEMORY_CONSUMPTION_SPEC=DRAFT`、`IMPLEMENTATION=NOT_AUTHORIZED`、`PRODUCTION_CANARY=NOT_AUTHORIZED`
+**Status at revision:**
 
-> **授权边界：** 本计划是完整路线和执行契约，不是生产授权。仓库权限、计划批准、Staging PASS、Shadow PASS 或用户对主 agent 的通用授权，都不能代替 Product、Change Owner、Operations、Privacy、Security、Fairness 与必要时 Legal 的独立批准。任何 production task 只有在精确 revision、精确 deployment scope、精确窗口、精确流量和精确配置都被外部记录批准，且 change preflight 返回 `PASS` 后才能执行。
+```text
+HOSTED_PRODUCTIZATION_DECISION=NOT_APPROVED
+PRODUCTION_DATA_USE_SPEC=NOT_APPROVED
+PRODUCTION_BUDGET_SHADOW=NOT_RUN
+PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED
+PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED
+PRINCIPAL_MEMORY_C1A_SPEC=DRAFT
+IMPLEMENTATION=NOT_AUTHORIZED
+PRODUCTION_CANARY=NOT_AUTHORIZED
+```
+
+> **授权边界：** 本文件规定路线、依赖、技术不变量和晋级门禁，不构成任何生产授权。生产任务必须绑定精确 revision、deployment scope、数据目的、窗口、绝对暴露上限、配置和外部批准记录；change preflight 未返回 `PASS` 时不得改变生产配置。
 
 ---
 
-## 1. 阶段结论
+## 1. 修订结论与执行方式
 
-长期记忆并不是从零开始。仓库已经具有：
+### 1.1 本次修订解决的问题
 
-- Principal identity、deployment isolation 和显式 Consent 基础；
-- canonical JSON taxonomy；
-- proposed-only extraction；
-- Principal Fact PostgreSQL store；
-- confirm、reject、supersede、expire、revoke、delete 生命周期；
-- source binding、session purge、principal purge 和 tombstone replay；
-- Write Shadow、Proposal Review 和 Read Shadow 零注入 Staging runner；
-- 公共 Knowledge Firewall、Prompt isolation 和聚合指标；
-- `consume` 配置 fail-closed；
-- Consumption Draft 和风险评审。
+本版本对 v0.1 做出以下实质修正：
 
-当前缺口不是“再做一个 memory 表”，而是把长期记忆变成候选人可理解、可控制、可纠正、可关闭、可删除，并且在生产分布中可证明安全的产品能力。
+1. 在 OIDC、Memory Center 和生产候选人数据处理前新增 Hosted Multi-user V2 Productization ADR；
+2. 把 Consent 文案、jurisdiction、retention、人工复核、Provider logging/training/DPA 等决策前置到首次 Write Shadow 之前；
+3. Principal ID 改为稳定随机内部 ID，versioned HMAC 只用于 subject alias 映射，密钥轮换不改变 Principal ID；
+4. 补齐 OIDC callback、JWKS、Session、Cookie/Token、CSRF、logout、re-auth、request-scoped Principal 和异步 owner binding；
+5. 补齐真实 Production extractor/provider adapter 与 runtime wiring，禁止生产 Shadow 使用 Null identity/extractor；
+6. 修正 Read Shadow：Write gate 必须为 `false`，不得创建 proposal/outbox event；
+7. 生产窗口不再以 `0.1% + 固定样本` 作为唯一可执行口径，改为绝对 Principal/Session 暴露上限，并由预注册 observation protocol 固定最小证据量；
+8. C1 收缩为 C1-A：语言只做候选人确认前的预填；无障碍偏好只作用于 UI/交互；历史事实不直接进入 Provider Prompt；
+9. `learning_goal`、`target_role_family` 移出本计划的生产范围，仅允许未来 C1-B 在非评分练习模式单独立项；
+10. 评分/报告验收改为“相同当前会话设置与 transcript 的路径等价”，不再声称改变追问后仍能保持最终输出完全相等；
+11. Plan 测试只锁定结构化不变量、DAG 和禁止状态，不再用大量字符串断言代替运行时契约测试；
+12. 将 35 个任务分为五个独立阶段包，每个生产阶段使用独立 RC、审批和关闭证据。
 
-固定晋级顺序为：
+### 1.2 本文件如何执行
 
-```text
-Production Budget Shadow PASS
-  → Authenticated Principal + Candidate Control Foundation
-  → Principal Memory Write Production Shadow
-  → Proposal Quality + Consent/Delete/Restore Production Gates
-  → Principal Memory Read Production Shadow（零注入）
-  → Prompt/Score/Report/Knowledge Isolation PASS
-  → Consumption Spec v1 正式批准
-  → C1 Consumption Repository Implementation
-  → Isolated Staging Consumption PASS
-  → 独立 C1 Production Approval
-  → 0.1% C1 Warm-up
-  → 最大 1% C1 Canary
-  → Scheduled Close
-  → PASS / BLOCKED / CONTINUE_OBSERVATION
+本文件是 Master Roadmap，不授权一次性实施 Tasks 0-34。
+
+- 每次只启动一个已满足入口门禁的阶段包；
+- repository-only 的 Budget 与 Control Foundation 分支可在明确条件下并行；
+- Write、Read、C1-A Production 严格串行；
+- 每个生产窗口都要生成独立 phase runbook、RC、PENDING bundle、批准与 post-observation evidence；
+- 任一阶段输出 `BLOCKED` 或 `CONTINUE_OBSERVATION` 时，不得进入下一阶段；
+- 子阶段的实现细节可以在独立 phase plan 中细化，但不得修改本文件的安全不变量。
+
+### 1.3 固定晋级路线
+
+```mermaid
+flowchart TD
+    A["Productization ADR"] --> B["Data-use Spec v1"]
+    B --> C["Budget Shadow PASS"]
+    B --> D["Control Foundation PASS"]
+    C --> E["Write Shadow PASS"]
+    D --> E
+    E --> F["Read Shadow PASS"]
+    F --> G["C1-A Staging PASS"]
+    G --> H["C1-A Bounded Canary"]
 ```
 
-本计划不允许跳过任何箭头。特别是：
+以下结论彼此不等价：
 
 ```text
-Write Shadow PASS ≠ Read Shadow 自动授权
-Read Shadow PASS ≠ Consumption 实现授权
-Consumption Staging PASS ≠ Production Canary 授权
-C1 1% PASS ≠ 5% 或 General Availability 自动授权
+Productization ADR APPROVED ≠ 数据使用已批准
+Budget PASS ≠ Write Shadow 已授权
+Write PASS ≠ Read Shadow 已授权
+Read PASS ≠ C1-A 实现已授权
+C1-A Staging PASS ≠ Production Canary 已授权
+C1-A Canary PASS ≠ 扩容或 General Availability 已授权
 ```
 
 ---
 
-## 2. 当前基线与执行时重新冻结
+## 2. 当前工程基线与已确认冲突
 
-### 2.1 可审计历史基线
+### 2.1 产品基线
 
-长期记忆审批材料绑定的 frozen RC 为：
+当前 README 将项目定位为本地单机、单用户、不包含登录和账户隔离。OIDC、多用户 Principal、账户恢复、候选人 Memory Center 和真实生产 Consent 均属于 Hosted Multi-user V2 产品化升级，而不是 Local V1 的普通功能增量。
+
+因此：
+
+```text
+HOSTED_PRODUCTIZATION_DECISION != APPROVED
+  → Tasks 4-34 不得实施
+  → Local V1 行为必须保持不变
+```
+
+### 2.2 已确认的运行时冲突
+
+执行时必须再次以实际 HEAD 核验，当前已知冲突包括：
+
+- `app/services/memory_config.py` 的 `read_shadow` 同时要求 Write gate；
+- `app/services/principal_memory_proposals.py` 在 `write_shadow` 和 `read_shadow` 都可能构造 proposal event；
+- `app/services/runtime.py` 使用 `NullPrincipalIdentityResolver`；
+- `app/services/runtime.py` 使用 `NullPrincipalMemoryExtractor`；
+- 当前 Consent 是 Principal 级聚合记录，不能完整表达各 purpose 独立版本和撤回；
+- 当前 runtime dependency graph 不具备多用户 request scope 与异步 owner re-binding。
+
+这些冲突不是 observation tooling 可以弥补的，必须在对应 runtime 任务中修复并由代码测试锁定。
+
+### 2.3 历史证据边界
+
+历史 frozen RC：
 
 ```text
 f5dce4206751775c1650a4fccbd5060625af523a
 ```
 
-该 revision 的远端复现已经证明：
+历史证据可作为 Staging 和工具链参考，但不能自动授权新的 Hosted 产品、真实候选人数据处理、Write、Read 或 C1-A Production。
+
+Task 0 必须重新记录：
 
 ```text
-depth 1 → GATE=SOURCE_REVISION_NOT_ANCESTOR
-exact handoff fetch --depth 2 → manifest VERIFIED
-manifest source=d857e0a091d55db76f4405669a9e699e3e3f44b6
-manifest bundle SHA=b60382064513dbcdf830140bec8b0854ef59bafeb38bef4df6be279d77d96599
-archive SHA=0a429559ba12f96d222abb28fb0760f175835752d7b5a032c81e6389bc8bada4
-metadata SHA=de0c265a48afa9802560e2a7a86d9e759796c8a388a2ad02138241e14d162c0e
+EXECUTION_START_HEAD
+EXECUTION_REMOTE_HEAD
+ahead/behind
+dirty paths and ownership
+deployed revision
+test baseline
 ```
 
-计划开始编写时的 Git 快照是：
-
-```text
-AUTHORING_START_HEAD=962eab5990e21d6a34821c400483be798ec5a1ab
-AUTHORING_REMOTE_MASTER=6969efa119de0da33698f0de74f4fdeee502b375
-ahead=1
-behind=0
-```
-
-当时存在用户所有的未提交前端修改：
-
-```text
-frontend/src/pages/ReportDetailPage.jsx
-frontend/src/styles/report-detail-app.css
-tests/browser/report-detail-ui.spec.js
-tests/test_react_frontend.py
-```
-
-这些是作者时快照，不是未来执行时必须成立的断言。Task 0 必须重新读取实际 `HEAD`、`origin/master`、ahead/behind、worktree ownership、部署 revision 和测试基线，记录为 `EXECUTION_START_HEAD`。不得 reset、restore、clean、覆盖或错误提交用户变化。
-
-### 2.2 已完成的 Staging 证据
-
-现有仓库证据包括：
-
-```text
-BUDGET_SHADOW_STAGING=PASS
-PRINCIPAL_WRITE_SHADOW_STAGING=PASS
-PRINCIPAL_PROPOSAL_QUALITY=PASS
-PRINCIPAL_READ_SHADOW_ZERO_INJECTION_STAGING=PASS
-PROMPT_ISOLATION=PASS
-CONSENT_DELETION_RESTORE_DRILL=PASS
-LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
-PRODUCTION_OBSERVATION=NOT_RUN
-```
-
-Staging 证据只证明 runner、契约、故障矩阵和隔离设计在受控数据中成立。它不能替代生产分布证据、候选人 UX 验证或外部审批。
-
-### 2.3 当前阻塞项
-
-1. Production Budget Shadow 尚未产生 `PASS` 结果；
-2. 正式 authenticated Principal 产品身份尚未落地；
-3. 候选人自助查看、确认、纠正、撤回、删除、导出尚未成为正式产品入口；
-4. `Ignore memory for this interview` 和 `Disable memory now` 尚未成为生产 UX；
-5. Write/Read Production Shadow 缺少独立 production schema、window controller、acceptance 和审批包；
-6. Consumption Spec 仍是 Draft；
-7. `MEMORY_LONG_TERM_MODE=consume` 仍被配置加载器硬拒绝；
-8. C1 selector、renderer、visible marker、Prompt placement 和 runtime barrier 尚未实现；
-9. Consumption 生产隐私、安全、公平性、Provider 与 Legal 审批尚不存在；
-10. C1 生产 Canary 没有独立批准窗口。
+不得 reset、restore、clean、覆盖或错误提交用户已有修改。
 
 ---
 
@@ -142,355 +138,373 @@ Staging 证据只证明 runner、契约、故障矩阵和隔离设计在受控�
 
 ### 3.1 本计划包含
 
-- 收口现有 Production Budget Shadow 计划并保留不可变证据；
-- 建立正式 authenticated Principal identity；
-- 建立候选人可见、purpose-specific、default-off Consent；
-- 建立候选人 Memory Center；
-- 建立查看、确认、纠正、撤回、删除和导出；
-- 建立 session sticky ignore 和 real-time disable barrier；
-- 建立 Production Write Shadow schema、sanitizer、window、acceptance 和 runbook；
-- 建立 Production Write Shadow 独立 RC、审批包、五角色审批和 change preflight；
-- 在最大 1% 的明确 opt-in cohort 上运行 Write Shadow；
-- 对生产 proposal 做受控人工复核和聚合质量判断；
-- 执行 Consent、删除、并发、进程丢失、旧备份恢复和 tombstone replay 演练；
-- 建立 Production Read Shadow 零注入 schema、window、acceptance 和 runbook；
-- 在最大 1% cohort 上运行 bounded would-select，保持 Prompt 和业务输出完全不变；
-- 完成 conflict、freshness、fairness、score/report/Knowledge isolation 复审；
-- 把 Consumption Draft 晋升为经批准的 v1 Spec；
-- 实现 C1 consumption 配置、contracts、selector、renderer、Prompt placement 和 runtime barrier；
-- 实现候选人 visible indicator、explanation 和实时关闭；
-- 实现低基数聚合指标、自动停止和 rollback；
-- 执行 unit、integration、live PostgreSQL、browser、accessibility、security、privacy 和 fairness 测试；
-- 运行 Isolated Staging Consumption；
-- 为 C1 创建独立 RC、审批包、外部批准、preflight、0.1% warm-up 和最大 1% canary；
-- 生成 pre-approval 与 post-observation 两条不可混淆的证据链；
-- 在 C1 结束时形成 PASS、BLOCKED 或 CONTINUE_OBSERVATION；
-- 为 5% 以上扩容起草下一计划的输入，但不自动授权扩容。
+- Hosted Multi-user V2 go/no-go ADR；
+- Production Principal Memory Data-use Spec v1；
+- OIDC authentication、secure session、CSRF、logout、re-auth；
+- 稳定随机内部 Principal ID 与 versioned subject alias；
+- request-scoped Principal、immutable session owner 和 async worker binding；
+- purpose-specific、versioned、default-off Consent ledger；
+- Candidate Memory Center、自助 API 和用户权利生命周期；
+- session ignore、disable-now、delete/export 与 tombstone replay；
+- Production extractor/provider adapter、结构化输出、容错、成本和 retention 边界；
+- Production Write Shadow 单轴运行与 proposal 质量评审；
+- Production Read Shadow 单轴整改、would-select 和零注入审计；
+- C1-A：语言预填后由候选人确认；无障碍偏好只进入 UI/交互；
+- 独立 Staging、bounded production canary、hard stop、关闭和证据闭环。
 
 ### 3.2 本计划明确排除
 
-- 在 Production Budget Shadow PASS 前启动任何 Principal production Shadow；
-- 使用 trusted-local identity 作为 production consumption identity；
-- 通过 email、姓名、电话、IP、User-Agent、设备指纹、简历、embedding 相似度或模型输出合并 Principal；
-- 默认开启 Consent；
-- 把 memory Consent 与参加面试、获得报告或获得完整功能捆绑；
-- 自动确认或自动激活模型 proposal；
-- 把 unconfirmed、revoked、expired、deleted、conflicting 或 stale fact 注入 Prompt；
-- 把候选人回答、简历、报告、项目名、公司名或自由文本保存为 Principal fact；
-- 在 C1 使用 `confirmed_skill`；
-- 使用历史事实计算或改变 score、difficulty、evidence、report、rank、recommendation 或 hiring decision；
-- 将 Principal facts 写入公共 Knowledge、corpus、embedding 或共享向量检索；
-- cross-Principal similarity、nearest-neighbor、collaborative filtering 或自动 identity merge；
-- 在 candidate 不可见的情况下进行隐式 personalization；
-- 在用户 decline、ignore、disable、correct、revoke、delete 或 export 后惩罚用户；
-- 在 `Disable memory now` 后继续新的 proposal、selection 或 injection；
-- 在 production window 内热修代码、切换 revision、改变 schema 或复用旧批准；
-- 把 external approval record、approver reference、ticket digest、deployment digest、DSN、secret 或 candidate locator 提交进 Git；
-- 把 PENDING evidence 改写为 production PASS；
-- 从 C1 1% 自动扩到 5%、25%、50% 或 100%；
-- 把本计划视为 Production Budget Shadow、Write Shadow、Read Shadow 或 Consumption Canary 的外部批准。
+- 在 Hosted Productization ADR 通过前实现生产 OIDC、Memory Center 或 Principal Memory；
+- 在 Data-use Spec v1 通过前处理真实候选人 proposal、调用提取 Provider 或进行人工源内容复核；
+- trusted-local、email、姓名、电话、IP、设备指纹、简历或模型推断作为 production identity；
+- 把 HMAC 输出直接作为稳定内部 Principal ID；
+- global mutable current-user singleton；
+- 后台 worker 依赖当前 HTTP 用户或 raw OIDC subject；
+- production Write 使用 Null identity resolver 或 Null extractor；
+- Read Shadow 开启 Write gate、调用 extractor、创建 proposal 或 proposal outbox event；
+- 模型自动确认、激活、纠正或合并 fact；
+- unconfirmed、revoked、expired、deleted、conflicting 或 stale fact 被读取或应用；
+- C1-A 将任何 Principal fact block、source excerpt 或历史自由文本发送给 Provider；
+- C1-A 用 `learning_goal`、`target_role_family` 或 `confirmed_skill` 改变正式评分面试；
+- 长期记忆直接或间接成为 score、evidence、report、rank、recommendation 或 hiring decision 输入；
+- Principal data 进入公共 Knowledge、corpus、embedding 或共享向量检索；
+- cross-Principal retrieval、similarity、collaborative filtering 或自动 identity merge；
+- 用百分比流量替代绝对暴露上限和预注册证据门槛；
+- 把不足样本、审批缺失或指标不完整解释为 PASS；
+- 在生产窗口内热修代码、切换 revision、改变 schema 或复用其他阶段批准；
+- 把外部批准记录、ticket、approver、deployment digest、secret 或 candidate locator 写入 Git；
+- 本计划自动授权超过 C1-A 有界 Canary、5% 扩容或 General Availability。
 
 ---
 
 ## 4. 固定决策
 
-### Decision 1：原始 Session 数据始终是权威来源
+### Decision 1：Hosted Productization ADR 是首个产品门禁
 
-Principal Memory 是派生、可撤回、非权威的历史偏好。当前 session 的明确声明、当前 interview plan 和当前 evidence 永远优先。历史事实冲突时排除历史事实，不猜测赢家。
+ADR 必须明确目标用户、部署模型、账户边界、运营责任、合规区域、支持与退出策略。若结果为 `NO_GO`，本计划停止，Local V1 保持原样。
 
-### Decision 2：Production Shadow 严格串行
+### Decision 2：原始 Session 和当前会话输入始终权威
 
-Budget → Write → Read。每个阶段必须关闭配置、完成 acceptance、发布 post-observation evidence，并取得下一阶段的新批准。不得共用批准窗口。
+Principal Memory 是派生、可撤回、非权威数据。当前 session 的明确选择、当前 interview plan、当前 evidence 和 transcript 永远优先。
 
-### Decision 3：正式身份采用 OIDC issuer/subject 绑定
+### Decision 3：Data-use Spec 必须早于首次真实 Write
 
-Production Principal 使用经过批准的 OIDC `issuer + subject`。Memory store 不保存 email、姓名或 raw subject；使用 deployment-scoped、versioned HMAC 映射为 opaque Principal ID。账户恢复、subject 迁移和 issuer 变更必须经过显式绑定流程，禁止自动猜测。
+Consent 文案、目的、retention、删除、导出、人工复核、Provider policy、jurisdiction、Legal/Privacy/Security approval 必须在 Production extractor 和 Write Shadow 使用真实数据前完成。
 
-### Decision 4：Consent purpose 分离且 default off
+### Decision 4：内部 Principal ID 稳定且不由 HMAC 直接充当
 
-`proposal_write`、`fact_storage`、`read_shadow` 和 `consumption_c1` 是不同 purpose。前一 purpose 的同意不隐含后一 purpose。每次操作重新读取当前 Consent、policy version、identity、session ignore、disable state、fact/source status 和 deletion state。
-
-### Decision 5：模型只能创建 proposed facts
-
-模型、worker、重放任务和管理员批处理都不能把 proposal 变为 active。只有 authenticated candidate 的显式 confirm/correct 行为可以创建 user-confirmed active fact。
-
-### Decision 6：候选人拥有完整控制面
-
-正式 consumption 前必须具备 view、confirm、correct、revoke、delete、export、ignore-for-session 和 disable-now。拒绝或关闭 memory 不得减少功能、缩短面试、影响评分或产生负面标签。
-
-### Decision 7：Write Shadow 不读取，Read Shadow 不注入
-
-Write Shadow 只生成 proposed facts；Read Shadow 只计算 would-select。Read Shadow 的 Provider Context、Prompt、messages、question、score、report、evidence 和 API output 必须与 control 完全相等。
-
-### Decision 8：C1 allowlist 是封闭集合
-
-C1 只允许：
+结构固定为：
 
 ```text
-interview_language
-accessibility_preference
-learning_goal
-target_role_family
+verified issuer/subject
+  → versioned subject HMAC alias
+  → stable random internal principal_id
 ```
 
-`confirmed_skill` 明确排除。任何新增 fact type 都需要新的 fairness analysis、Spec 版本和批准。
+HMAC key rotation 只更新或新增 alias，不改变内部 Principal ID。
 
-### Decision 9：C1 只允许 follow-up context assembly
+### Decision 5：Principal 必须 request-scoped，异步任务使用不可变 owner binding
 
-唯一允许 operation 是 `interview.followup.context_assembly`。Prep、answer evaluation、scoring、report、PDF、evidence selection、Knowledge retrieval 和 agent control 永远不消费 Principal Memory。
+HTTP request 解析 authenticated Principal；Session 创建时冻结 owner；Outbox/worker 只携带 opaque owner binding，并在 operation time 重新读取 Consent、disable、deletion 和 source state。禁止 global mutable current user。
 
-### Decision 10：C1 bounds 固定且 fail-closed
+### Decision 6：Consent 按 purpose 独立、版本化、default off
 
-最多 3 个 facts、最多 120 tokens。先 deterministic select，再完整 render；禁止截断结构化 fact。身份、Consent、taxonomy、conflict、freshness 或 deletion 不确定时，对 memory fail-closed，对 deterministic interview fail-open。
+固定 purposes：
 
-### Decision 11：Prompt block 必须可见且有固定 marker
+```text
+proposal_write
+fact_storage
+read_shadow
+assist_c1a
+```
 
-Block 标题精确为 `Non-authoritative historical preference`，位于 system policy 和当前 plan/evidence 之后、current candidate message 之前。Block 必须声明当前 session 优先，并禁止评分、报告、招聘判断和能力断言。
+任何 purpose 的 grant/revoke 不隐含其他 purpose。
 
-### Decision 12：实时 disable 使用 context-assembly barrier
+### Decision 7：模型和 Provider 只能产生 proposed fact
 
-`Disable memory now` 在下一次 context assembly 前且最长 60 秒内生效。已经发送给 Provider 的 in-flight request 不能保证撤回，UI 必须说明该边界；完成中的请求不得调度新的 memory operation。
+只有 authenticated candidate 的显式 confirm/correct 可以创建 active user-confirmed fact。Correct 的“supersede predecessor + activate replacement”必须在一个数据库事务中完成。
 
-### Decision 13：评分、报告和公共知识使用结构隔离加相等性测试
+### Decision 8：候选人控制面先于生产 Shadow
 
-不依赖 Prompt 文案自律。Scoring、report 和 Knowledge 路径不注入 Principal Memory dependency，并用 deterministic equality、source audit 和 adversarial test 证明。
+正式 Write 前必须具备 view、confirm、correct、revoke、delete、export、ignore-for-session 和 disable-now。拒绝或关闭不得降低功能或影响评分。
 
-### Decision 14：常规观察只保存低基数聚合
+### Decision 9：Write 与 Read 是严格单轴模式
 
-生产 observation 不保存 Principal、Session、Fact、Question、Message、Artifact locator，不保存 fact value、Prompt、answer、resume、report、source excerpt、digest 或 external approval binding。低于隐私阈值的 bucket 合并、延迟或抑制。
+```text
+Write Shadow: write=true, read=false, assist=false
+Read Shadow:  write=false, read=true, assist=false
+C1-A:         write=false, read=false, assist=true
+```
 
-### Decision 15：删除真相由 online state 与 operator tombstone 共同维持
+Read Shadow 内 `new proposal operations=0` 是硬不变量。
 
-Online delete 删除 facts、proposals、effects、bindings 和 derived refs；operator tombstone 保证旧备份恢复后再次删除。任何恢复副本在 tombstone replay 完成前不得接收流量。
+### Decision 10：Production runtime 禁止 Null 组件
 
-### Decision 16：每个生产阶段一次只改变一个 memory axis
+当 Write 或 Read production gate 打开时，Null identity/extractor、trusted-local identity、缺失 owner binding 或测试 Provider 必须导致 startup/preflight fail-closed。
 
-Write window 只打开 Write Shadow；Read window 只打开 Read Shadow；C1 只打开 consumption C1。Budget enforcement、compression consumption、Question Memory consumption 和其他 Principal modes 保持 disabled。
+### Decision 11：生产暴露由绝对上限控制
 
-### Decision 17：Hard stop 不等待统计显著性
+每个窗口必须批准 `max_principals`、`max_sessions`、`minimum_duration`、`maximum_duration` 和预注册的 `minimum_evidence_n`。百分比或 basis points 只可作为附加收缩条件，不能替代绝对上限。
 
-Cross-Principal、no-Consent、revoked/deleted fact、Prompt mutation、score/report difference、Knowledge mutation、hidden personalization、disable SLA breach 或 private artifact hit 都立即停止。Error/latency 统计阈值只适用于样本充分后的性能判断。
+### Decision 12：Assignment 必须稳定、版本化、可复现
 
-### Decision 18：窗口结束先关闭再判定
+如使用流量分配，必须固定 hash input、salt/version、basis points、eligible denominator 和 sticky scope。改变算法或 version 需要新批准。
 
-Scheduled end、manual stop 或 hard stop 都先恢复 disabled，验证新 operation 为 0，再生成结果。证据不足输出 CONTINUE_OBSERVATION，并需要新批准窗口。
+### Decision 13：C1-A 不把历史事实直接发送给 Provider
 
-### Decision 19：Consumption 实现批准与生产 Canary 批准分离
+- `interview_language`：只作为面试前建议值；候选人确认后转为当前 session setting；
+- `accessibility_preference`：只进入 UI、键盘、字幕、节奏或交互控制；永不发送给 LLM；
+- `learning_goal`、`target_role_family`：只允许未来 C1-B 非评分练习模式单独立项；
+- `confirmed_skill`：继续禁止消费。
 
-Spec v1 批准只允许实现。Staging PASS 后还需要新的 exact-revision C1 production approval。任何 Shadow approval 都不能复用。
+### Decision 14：C1-A 使用同输入路径等价性验收
 
-### Decision 20：C1 1% 是本计划生产上限
+对相同 candidate-confirmed session settings 和相同 transcript，memory-assisted 与 manual-setting 路径的 evaluator input、score、evidence 和 report 必须完全相等。不得用不同问题路径之间的“on/off 全相等”作为伪验收。
 
-即使 C1 PASS，本计划也不授权 5% 以上流量。扩容需要新的长期观察、candidate research、fairness review、RC、审批包和独立计划。
+### Decision 15：无候选人确认不得应用语言预填
+
+预填必须可见、可拒绝、可修改；候选人不操作时使用产品默认值。Memory fact 本身不能成为 current session setting。
+
+### Decision 16：常规观察只保存低基数聚合
+
+Observation 不保存 Principal、Session、Fact、Question、Message、Prompt、source、answer、resume、report 或 approval locator；低样本 bucket 合并、延迟或抑制。
+
+### Decision 17：删除由 online state 与 operator tombstone 共同维持
+
+Online delete 清理 facts、proposals、effects、bindings、cache 和 derived refs；旧备份恢复后必须先 replay operator tombstone，residue=0 后才可接流量。
+
+### Decision 18：Hard stop 不等待统计显著性
+
+Cross-Principal、no-Consent、Read proposal creation、private artifact、历史 fact 进入 Provider、score/report direct dependency、disable/delete SLA breach 等问题立即关闭。
+
+### Decision 19：窗口结束先关闭再判定
+
+Scheduled end、manual stop 或 hard stop 都先恢复 disabled，验证 zero new operation，再输出 `PASS`、`BLOCKED` 或 `CONTINUE_OBSERVATION`。
+
+### Decision 20：实现批准、生产批准和扩容批准相互独立
+
+Spec approval 只允许实现；Staging PASS 只允许申请 Production；Canary PASS 只证明批准上限内的行为，不授权扩容或 GA。
 
 ---
 
 ## 5. 目标架构
 
-### 5.1 身份与授权链
+### 5.1 Authentication 与 Principal Mapping
 
-```text
-OIDC Provider
-  → verified issuer/subject
-  → deployment-scoped HMAC Principal ID
-  → current account/session binding
-  → purpose/version Consent lookup
-  → ignore/disable barrier
-  → fact/source/deletion eligibility
-  → bounded selection
-  → visible C1 rendering
-  → follow-up context assembly only
+```mermaid
+flowchart TD
+    A["OIDC callback"] --> B["JWKS / issuer / audience / nonce 验证"]
+    B --> C["Secure application session"]
+    C --> D["Request-scoped principal"]
+    D --> E["Versioned subject alias"]
+    E --> F["Stable internal principal_id"]
 ```
 
-### 5.2 写入链
+认证边界必须覆盖：callback、JWKS rotation、issuer/audience、state/nonce、Session fixation、Cookie/Token 生命周期、CSRF、logout、re-auth、account recovery 和 incident revoke。
+
+### 5.2 Session Owner 与 Async Binding
 
 ```text
-authoritative completed session source
-  → opaque proposal event
-  → operation-time identity + proposal_write Consent
-  → version/source/taxonomy verification
-  → proposed fact
+authenticated request
+  → create session with immutable owner_principal_id
+  → create outbox event with opaque owner binding
+  → worker loads session owner
+  → worker rechecks consent/control/deletion/source
+  → eligible operation or no-op
+```
+
+Outbox 不保存 raw issuer/subject、email 或姓名。
+
+### 5.3 Write Shadow
+
+```text
+authoritative completed session
+  → production extractor adapter
+  → strict structured output validation
+  → operation-time identity/consent/source checks
+  → proposed fact only
   → candidate-visible review
-  → explicit confirm/correct
+  → explicit confirm/correct transaction
   → active user-confirmed fact
 ```
 
-模型输出永远停在 `proposed`。
+Provider failure、timeout、rate limit、circuit open 或 schema mismatch 均返回 no proposal，面试主流程继续。
 
-### 5.3 读取与消费链
-
-```text
-current follow-up request
-  → authenticated Principal
-  → current consumption Consent
-  → sticky session ignore / real-time disable
-  → bounded active fact query
-  → conflict/freshness/source checks
-  → operation allowlist
-  → deterministic max-3 / max-120-token selection
-  → visible non-authoritative block
-  → follow-up context assembly
-```
-
-### 5.4 权威顺序
+### 5.4 Read Shadow
 
 ```text
-system policy
-  > current interview plan
-  > current-session explicit candidate statement
-  > current-session evidence
-  > user-confirmed Principal preference
-  > model-proposed Principal fact
+authenticated session owner
+  → current read_shadow consent/control
+  → eligible active facts
+  → deterministic would-select
+  → aggregate outcome only
+  → no prompt/provider/question/output mutation
 ```
 
-`model-proposed` 永远不能进入 consumption。
+Read Shadow 不初始化 extractor，不创建 proposal，不写 proposal outbox。
 
-### 5.5 失败路径
+### 5.5 C1-A Assist
 
 ```text
-memory identity/Consent/store/selector/renderer/metrics failure
-  → no memory block
-  → deterministic interview continues
-  → stable aggregate gate/count
+confirmed eligible preference
+  → visible pre-interview suggestion
+  → candidate accepts/edits/rejects
+  → current session setting
+  → normal deterministic interview path
 ```
+
+Accessibility 只作用于 UI/interaction；Principal fact 不进入 Provider payload。
 
 ---
 
-## 6. 安全配置矩阵
+## 6. Consent Ledger v2 与撤回语义
 
-| 配置 | Disabled | Write Production Shadow | Read Production Shadow | C1 Staging | C1 Production Canary |
-|---|---|---|---|---|---|
-| `MEMORY_BUDGET_MODE` | `disabled` | `disabled` | `disabled` | `disabled` | `disabled` |
-| `MEMORY_COMPRESSION_MODE` | `disabled` | `disabled` | `disabled` | `disabled` | `disabled` |
-| `MEMORY_LONG_TERM_MODE` | `disabled` | `write_shadow` | `read_shadow` | `consume_c1` | `consume_c1` |
-| `MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED` | `false` | `true` | `true` | `false` | `false` |
+Ledger 使用 append-only versioned records，业务键至少包含：
+
+```text
+(deployment_id, principal_id, purpose, policy_version, consent_version)
+```
+
+每条记录包含 decision、effective_at、revoked_at、authority、policy copy reference 和 immutable audit metadata。当前有效授权由确定性规则解析，不使用 session-start 缓存。
+
+| Purpose | Grant | Revoke effect |
+|---|---|---|
+| `proposal_write` | 允许提取并按批准的短期 TTL 保存 proposed record | 立即停止新 proposal；既有未确认 proposal 终止并在 proposal retention SLO 内清除 |
+| `fact_storage` | 允许保存 candidate-confirmed active fact | 立即使 active facts 不可选，并在 SLO 内 purge facts/derived refs 与写入 tombstone；proposal 仍由 `proposal_write` 管理 |
+| `read_shadow` | 允许 would-select | 立即停止 selection；不改变其他 purpose |
+| `assist_c1a` | 允许显示预填建议 | 立即停止新 suggestion；不删除事实，不改变其他 purpose |
+
+规则：
+
+- policy version 变化需要重新同意；
+- revoke 在下一 operation 前生效；
+- confirm/correct 必须同时具备有效 `fact_storage`；
+- Correct 在单事务中 supersede predecessor 并激活 replacement；
+- exclusive key 必须由数据库约束保证同一时刻最多一个 active fact；
+- delete 与 Consent revoke 是不同用户动作，但 `fact_storage` revoke 必须触发 purge。
+
+---
+
+## 7. 安全配置矩阵
+
+| 配置 | Disabled | Write Shadow | Read Shadow | C1-A Staging | C1-A Canary |
+|---|---:|---:|---:|---:|---:|
+| `MEMORY_LONG_TERM_MODE` | `disabled` | `write_shadow` | `read_shadow` | `assist_c1a` | `assist_c1a` |
+| `MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED` | `false` | `true` | `false` | `false` | `false` |
 | `MEMORY_LONG_TERM_READ_SHADOW_ENABLED` | `false` | `false` | `true` | `false` | `false` |
-| `MEMORY_LONG_TERM_CONSUMPTION_C1_ENABLED` | `false` | `false` | `false` | `true` | `true` |
-| `MEMORY_LONG_TERM_CONSUMPTION_TRAFFIC_PERCENT` | `0` | `0` | `0` | `100` synthetic | `0.1` 至 `1.0` |
-| `MEMORY_LONG_TERM_MAX_CONSUMED_FACTS` | `3` | `3` | `3` | `3` | `3` |
-| `MEMORY_LONG_TERM_MAX_CONSUMED_TOKENS` | `120` | `120` | `120` | `120` | `120` |
+| `MEMORY_LONG_TERM_ASSIST_C1A_ENABLED` | `false` | `false` | `false` | `true` | `true` |
+| `MEMORY_LONG_TERM_ASSIGNMENT_BPS` | `0` | approval-defined or `0` | approval-defined or `0` | synthetic-only | approval-defined or `0` |
+| `MEMORY_LONG_TERM_MAX_PRINCIPALS` | `0` | approved absolute cap | approved absolute cap | fixture cap | approved absolute cap |
+| `MEMORY_LONG_TERM_MAX_SESSIONS` | `0` | approved absolute cap | approved absolute cap | fixture cap | approved absolute cap |
 | `MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED` | `false` | `false` | `false` | `false` | `false` |
 | `MEMORY_AUTHENTICATED_SELF_SERVICE_ENABLED` | `false` | cohort-only | cohort-only | `true` | `true` |
-| `MEMORY_CONSUMPTION_KILL_SWITCH` | `true` | `true` | `true` | `false` during test | `false` only inside approved window |
+| `MEMORY_CONSUMPTION_KILL_SWITCH` | `true` | `true` | `true` | test-controlled | window-controlled |
 
-`consume_c1` 在 Task 27 前仍是非法值，配置加载器必须继续拒绝 `consume` 和 `consume_c1`。Task 27 只能在 Consumption Spec v1 和 implementation authorization 都存在后添加该值，并保持默认 disabled。
+共同约束：
 
-禁止同时配置 canonical `MEMORY_*` 和 legacy `CONTEXT_*` 冲突值。任何冲突都是 hard stop。
+- `read_shadow` 时 Write gate 必须为 `false`；
+- `assist_c1a` 不允许 Provider Prompt memory block；
+- `consume`、`consume_c1` 在本计划中继续为非法值；
+- canonical/legacy 配置冲突 fail-closed；
+- 绝对 cap 必须在 assignment 前和 operation 前各校验一次；
+- production mode + Null/test component 组合必须 startup/preflight fail-closed。
 
 ---
 
-## 7. 任务依赖图
+## 8. 任务依赖与阶段包
 
-```text
-Task 0  基线、所有权和生产边界
-  └── Task 1  Production Budget Shadow 外部执行
-        └── Task 2  Budget post-observation evidence
+### 8.1 依赖图
 
-Task 0
-  └── Task 3  Authenticated Principal contract
-        └── Task 4  Principal mapping/recovery
-              ├── Task 5  Consent ledger v2
-              │     ├── Task 6  Authenticated self-service API
-              │     │     ├── Task 7  Candidate Memory Center
-              │     │     ├── Task 8  Ignore/Disable barrier
-              │     │     └── Task 9  Correct/Revoke/Delete/Export
-              │     └── Task 10 Identity/Consent/UX acceptance
-              └──────────────────────────────────────────────┐
-                                                             │
-Task 2 + Task 5 + Task 10                                    │
-  └── Task 11 Write production contracts/tooling             │
-        └── Task 12 Write RC/evidence bundle                  │
-              └── Task 13 Write external approval/preflight   │
-                    └── Task 14 Write 0.1% warm-up            │
-                          └── Task 15 Write observation       │
-                                ├── Task 16 Proposal review   │
-                                └── Task 17 Lifecycle drills  │
-                                      └── Task 18 Write close │
-                                                             │
-Task 18 + Task 10                                             │
-  └── Task 19 Read production contracts/tooling               │
-        └── Task 20 Read RC/approval                           │
-              └── Task 21 Read 0.1% warm-up                   │
-                    └── Task 22 Read observation              │
-                          ├── Task 23 Zero-injection audit     │
-                          └── Task 24 Conflict/fairness review │
-                                └── Task 25 Read close         │
-                                                             │
-Task 7 + Task 8 + Task 9 + Task 10 + Task 25                  │
-  └── Task 26 Consumption Spec v1                             │
-        └── Task 27 Config/contracts/migration                │
-              └── Task 28 C1 selector                         │
-                    └── Task 29 Renderer/marker               │
-                          └── Task 30 Follow-up integration    │
-                                ├── Task 31 UX integration    │
-                                ├── Task 32 Isolation         │
-                                └── Task 33 Metrics/kill switch
-                                      └── Task 34 Full matrix
-                                            └── Task 35 Staging
-                                                  └── Task 36 C1 RC/approval
-                                                        └── Task 37 0.1% warm-up
-                                                              └── Task 38 1% canary
-                                                                    └── Task 39 closure
+```mermaid
+flowchart TD
+    T0["T0 Baseline"] --> T1["T1 Productization ADR"]
+    T1 --> T2["T2 Data-use Spec"]
+    T2 --> T3["T3 Budget PASS"]
+    T2 --> T4["T4-T10 Control Foundation"]
+    T3 --> T11["T11-T17 Write"]
+    T4 --> T11
+    T11 --> T18["T18-T23 Read"]
+    T18 --> T24["T24-T30 C1-A Staging"]
+    T24 --> T31["T31-T34 C1-A Canary"]
 ```
 
-允许并行的只有：
+### 8.2 允许的并行
 
-- Tasks 3-10 的 product identity/control track 可以在等待 Task 1 外部窗口时进行；
-- Task 16 的 reviewer training 和 synthetic calibration 可以在 Task 15 前准备，但不能查看 production proposal；
-- Task 17 的合成故障 fixture 可以提前准备，真实 production drill 必须等待 Task 15；
-- Tasks 23-24 的 test fixture 可以并行准备，生产结论必须等待 Task 22；
-- Tasks 31-33 可以在 Task 30 contract 固定后并行编辑不重叠文件。
+Task 2 PASS 后：
 
-禁止并行编辑：
+- Task 3 Budget observation；
+- Tasks 4-10 repository-only Control Foundation。
 
-- Principal migration registry；
-- `memory_config.py` 的 mode validation；
-- `runtime.py` 的 singleton/dependency graph；
-- `routes.py` 的 authenticated/trusted-local boundary；
-- follow-up context assembly 的 Prompt order。
+这两个分支可并行，但不得处理 Principal Write/Read/Assist 生产数据。Task 11 必须同时等待 Task 3 和 Task 10 PASS。
+
+Write、Read 和 C1-A Production 不允许并行。Reviewer training、synthetic fixtures、offline tooling 可以提前准备，但不得形成生产结论。
+
+### 8.3 Plan 测试策略
+
+`tests/test_long_term_memory_production_plan.py` 只应锁定：
+
+- Task 0-34 连续且 DAG 无环；
+- Decisions 1-20 存在；
+- Productization ADR 与 Data-use Spec 是生产前置；
+- stable internal Principal ID，不允许 HMAC rotation 改变 ID；
+- Read mode 的 Write gate 为 false；
+- C1-A 不把历史 fact 发送给 Provider；
+- absolute exposure caps 和三态关闭；
+- phase approval 不可复用。
+
+以下必须由真实代码测试锁定，不能只做 Markdown 字符串断言：
+
+- Read 不创建 proposal/outbox；
+- production mode 禁止 Null identity/extractor；
+- Consent 各 purpose 独立 grant/revoke；
+- request-scoped Principal 与 async owner isolation；
+- disable/delete 后 zero new operation；
+- Correct 原子事务和 exclusive active unique constraint；
+- same-session-input score/report parity；
+- C1-A Provider payload 不含 Principal fact。
 
 ---
 
-## 8. 统一证据与验证约定
+## 9. 统一生产窗口与证据协议
 
-### 8.1 证据分层
+### 9.1 暴露协议
 
-1. **Repository evidence：** public revision、schema version、stable gates、aggregate counts；
-2. **External approval evidence：** approver、ticket、record SHA、scope SHA、window、traffic；
-3. **Operational raw evidence：** 受信 metrics backend 中的短期聚合源；
-4. **Candidate data：** 业务存储中的受控数据，永不复制进计划、Git 或审批 ZIP；
-5. **Operator tombstone：** 独立控制面中的删除真相，不与应用备份一起回滚。
+每个生产窗口在外部批准系统预注册：
 
-### 8.2 生产 observation 共同字段
+```text
+phase
+exact_revision
+deployment_scope
+eligible_population
+assignment_version
+assignment_bps (optional narrowing only)
+max_principals
+max_sessions
+minimum_evidence_n
+minimum_duration
+maximum_duration
+hard_stops
+performance_thresholds
+rollback_owner
+incident_channel
+```
 
-允许：
+默认安全上限建议仅作为审批输入，不是自动批准：
 
-- public Git revision；
-- phase；
-- duration、traffic、sample count；
-- low-cardinality taxonomy category counts；
-- proposal/selection/outcome counts；
-- stable hard-stop count；
-- error/latency aggregate；
-- boolean revision/scope/config/approval/current-window/rollback results；
-- coarse language/path buckets；
-- configuration restored boolean。
+| Window | max_principals | max_sessions | minimum_duration | maximum_duration |
+|---|---:|---:|---:|---:|
+| Warm-up | 20 | 50 | 30 分钟 | 4 小时 |
+| Observation/Canary | 200 | 500 | 24 小时 | 7 天 |
 
-禁止：
+`minimum_evidence_n` 必须依据真实 eligible traffic、事件发生率和风险容忍度预注册。达不到时输出 `CONTINUE_OBSERVATION`，不得为达到样本而突破绝对 cap。
 
-- Principal、Session、Fact、Question、Message、Artifact ID；
-- normalized fact value；
-- source digest/excerpt；
-- Prompt、answer、resume、report、provider payload；
-- OIDC issuer/subject、email、name；
-- DSN、host、schema、prefix、secret；
-- record、ticket、approver 或 deployment digest；
-- exact low-volume timestamp sequence；
-- free-text reviewer note。
+### 9.2 共同证据字段
 
-### 8.3 三态结果
+允许保存：public revision、phase、duration、approved caps、aggregate exposure count、low-cardinality category/outcome counts、hard-stop count、error/latency aggregate、config restored boolean。
 
-所有 production window 只能输出：
+禁止保存：Principal/Session/Fact/Question/Message/Artifact locator、fact value、Prompt、answer、resume、report、source excerpt/digest、OIDC issuer/subject、email/name、DSN/secret、approval/ticket/approver digest、低样本时间序列和自由文本 reviewer note。
+
+### 9.3 三态关闭
 
 ```text
 PASS
@@ -498,1380 +512,688 @@ BLOCKED
 CONTINUE_OBSERVATION
 ```
 
-任何失败不得同时输出 READY 或 PASS。CONTINUE 必须先关闭配置，并要求新批准窗口。
+共同顺序：
 
-### 8.4 测试层次
-
-- pure unit；
-- contract/source audit；
-- in-memory concurrency；
-- isolated live PostgreSQL；
-- API/auth/CSRF；
-- React/browser/accessibility；
-- adversarial Prompt/privacy/security；
-- deterministic score/report equality；
-- Staging synthetic matrix；
-- production aggregate acceptance；
-- backup restore/tombstone replay；
-- full Python/browser regression；
-- remote clone/evidence bundle reproduction。
+```text
+stop assignment
+  → disable phase gate
+  → stop new leasing
+  → verify zero new operations
+  → sanitize aggregate evidence
+  → decide PASS/BLOCKED/CONTINUE
+```
 
 ---
 
-## 9. Hard Stop Gates
+## 10. Hard Stop Gates
 
-### 9.1 Write Production Shadow
+### 10.1 Write Shadow
 
 ```text
 WRITE_CROSS_PRINCIPAL
-WRITE_WITHOUT_CONSENT
-WRITE_AFTER_DISABLE
-WRITE_DURING_DELETE
+WRITE_WITHOUT_CURRENT_CONSENT
+WRITE_AFTER_DISABLE_OR_DELETE
+WRITE_ASYNC_OWNER_MISMATCH
+WRITE_NULL_OR_TEST_IDENTITY
+WRITE_NULL_OR_TEST_EXTRACTOR
 WRITE_SOURCE_MISMATCH
-WRITE_FREE_TEXT_FACT
-WRITE_INVALID_TAXONOMY
+WRITE_FREE_TEXT_OR_INVALID_TAXONOMY
 WRITE_INFERRED_ACCESSIBILITY
 WRITE_AUTOMATIC_ACTIVE
+WRITE_PROVIDER_POLICY_NOT_APPROVED
 WRITE_PUBLIC_KNOWLEDGE_MUTATION
 WRITE_INTERVIEW_BEHAVIOR_CHANGED
 WRITE_PRIVATE_ARTIFACT_HIT
-WRITE_TRAFFIC_CAP_EXCEEDED
-WRITE_APPROVAL_NOT_CURRENT
-WRITE_REVISION_SCOPE_CONFIG_MISMATCH
+WRITE_ABSOLUTE_CAP_EXCEEDED
+WRITE_APPROVAL_REVISION_SCOPE_MISMATCH
 WRITE_METRICS_INCOMPLETE
 ```
 
-### 9.2 Read Production Shadow
+### 10.2 Read Shadow
 
 ```text
 READ_CROSS_PRINCIPAL
-READ_WITHOUT_CONSENT
-READ_REVOKED_EXPIRED_DELETED
-READ_UNCONFIRMED_FACT
-READ_CONFLICT_SELECTED
-READ_STALE_SOURCE
-READ_FACT_OR_TOKEN_CAP_EXCEEDED
-READ_PROMPT_CHANGED
-READ_PROVIDER_CONTEXT_CHANGED
-READ_QUESTION_SCORE_REPORT_CHANGED
+READ_WITHOUT_CURRENT_CONSENT
+READ_WRITE_GATE_ENABLED
+READ_PROPOSAL_OR_OUTBOX_CREATED
+READ_EXTRACTOR_INVOKED
+READ_UNCONFIRMED_REVOKED_EXPIRED_DELETED
+READ_CONFLICT_OR_STALE_SOURCE_SELECTED
+READ_PROMPT_OR_PROVIDER_CONTEXT_CHANGED
+READ_QUESTION_SCORE_REPORT_API_CHANGED
 READ_PRIVATE_ARTIFACT_HIT
-READ_TRAFFIC_CAP_EXCEEDED
-READ_APPROVAL_NOT_CURRENT
-READ_REVISION_SCOPE_CONFIG_MISMATCH
+READ_ABSOLUTE_CAP_EXCEEDED
+READ_APPROVAL_REVISION_SCOPE_MISMATCH
 READ_METRICS_INCOMPLETE
 ```
 
-### 9.3 C1 Consumption
+### 10.3 C1-A Assist
 
 ```text
-CONSUME_CROSS_PRINCIPAL
-CONSUME_WITHOUT_CONSENT
-CONSUME_AFTER_IGNORE_OR_DISABLE
-CONSUME_REVOKED_EXPIRED_DELETED
-CONSUME_UNCONFIRMED_OR_CONFLICTING
-CONSUME_NON_C1_FACT
-CONSUME_OUTSIDE_FOLLOWUP_CONTEXT
-CONSUME_FACT_OR_TOKEN_CAP_EXCEEDED
-CONSUME_MARKER_MISSING
-CONSUME_HIDDEN_PERSONALIZATION
-CONSUME_CURRENT_EVIDENCE_OVERRIDDEN
-CONSUME_SCORE_OR_REPORT_DIFFERENCE
-CONSUME_PUBLIC_KNOWLEDGE_MUTATION
-CONSUME_DISABLE_DELETE_SLA_BREACH
-CONSUME_BACKUP_REPLAY_RESIDUE
-CONSUME_PRIVATE_ARTIFACT_HIT
-CONSUME_TRAFFIC_CAP_EXCEEDED
-CONSUME_APPROVAL_NOT_CURRENT
-CONSUME_REVISION_SCOPE_CONFIG_MISMATCH
-CONSUME_METRICS_INCOMPLETE
+C1A_CROSS_PRINCIPAL
+C1A_WITHOUT_CURRENT_CONSENT
+C1A_AFTER_IGNORE_DISABLE_OR_DELETE
+C1A_UNCONFIRMED_PREFILL_APPLIED
+C1A_HIDDEN_OR_UNDISMISSABLE_SUGGESTION
+C1A_MEMORY_FACT_IN_PROVIDER_PAYLOAD
+C1A_ACCESSIBILITY_SENT_TO_PROVIDER
+C1A_LEARNING_GOAL_ROLE_OR_SKILL_USED
+C1A_SCORE_REPORT_DIRECT_DEPENDENCY
+C1A_SAME_INPUT_PARITY_MISMATCH
+C1A_PUBLIC_KNOWLEDGE_MUTATION
+C1A_DISABLE_DELETE_SLA_BREACH
+C1A_PRIVATE_ARTIFACT_HIT
+C1A_ABSOLUTE_CAP_EXCEEDED
+C1A_APPROVAL_REVISION_SCOPE_MISMATCH
+C1A_METRICS_INCOMPLETE
 ```
 
-样本达到 200 后，以下也是统计 hard stop：
+样本充分后才应用预注册的 error/latency threshold；所有安全 hard stop 不等待统计显著性。
+
+---
+
+## Task 0：冻结执行基线与测试策略
+
+**Goal:** 建立可复现、不会覆盖用户工作的起点。
+
+**Steps:**
+
+1. 记录实际 HEAD、remote、ahead/behind、dirty paths、ownership、deployment revision 和 test baseline；
+2. 验证所有 production memory modes 默认 disabled；
+3. 把历史 RC 标为 evidence-only；
+4. 新建或修订 plan test，只锁定 §8.3 的结构化不变量；
+5. 不 stage、reset、restore 或 clean 用户路径；
+6. 运行 plan test 与 `git diff --check`。
+
+**Exit gate:** `EXECUTION_BASELINE=FROZEN`；生产状态未改变。
+
+---
+
+## Task 1：批准 Hosted Multi-user V2 Productization ADR
+
+**Dependencies:** Task 0。
+
+**Goal:** 决定是否从 Local V1 升级为托管多用户产品。
+
+**ADR 必须固定:** 用户与租户模型、部署和数据区域、认证 Provider、账户恢复、支持/on-call、隐私和安全 owner、删除与退出策略、SLO、运营成本、Local V1 兼容边界。
+
+**Exit gate:**
 
 ```text
-observed_error_rate - baseline_error_rate > 0.005
-observed_p95_latency_ms > baseline_p95_latency_ms * 1.20
+GO     → HOSTED_PRODUCTIZATION_DECISION=APPROVED
+NO_GO  → PLAN=STOPPED; LOCAL_V1=UNCHANGED
 ```
 
 ---
 
-## Task 0：冻结执行基线、所有权和安全边界
+## Task 2：批准 Principal Memory Production Data-use Spec v1
 
-**Goal:** 形成不覆盖用户工作、可复现且不会误用历史批准的执行起点。
+**Dependencies:** Task 1 GO。
 
-**Files:**
+**Goal:** 在任何真实 Principal Write 前批准数据使用边界。
 
-- Create: `tests/test_long_term_memory_production_plan.py`
-- Review: 本计划、Memory Spec、四份前序计划、Consumption Draft/Risk Review
-- No production writes
+**必须决策:** 四 purpose Consent 文案、proposal/fact/source retention、fact_storage revoke purge、delete/export SLO、人工 reviewer 授权与最小源访问、Provider logging/training/retention/DPA、jurisdiction、subprocessor、incident、candidate notice、protected-class/accessibility 边界。
 
-**Steps:**
+**Approvals:** Product、Privacy、Security、Legal、Fairness、Operations。
 
-1. 记录 `EXECUTION_START_HEAD`、`origin/master`、ahead/behind、worktree status；
-2. 为每个 dirty path 标记 user-owned、plan-owned 或 shared；
-3. 验证 `f5dce42` 只作为历史 evidence，不作为未来 Write/Read/C1 自动批准；
-4. 验证所有 memory production modes 默认 disabled；
-5. 添加本计划契约测试，固定任务 0-39、Decision 1-20、Hard Stops、C1 allowlist、DoD 和排除项；
-6. 运行 plan test 和 `git diff --check`；
-7. 只 stage 精确 plan/test 路径。
-
-**Exit gate:** baseline inventory 完整；用户文件未被修改或暂存；production 状态仍全部未授权。
-
-**Suggested commit:** `docs(memory): plan long-term memory production evolution`
+**Exit gate:** `PRODUCTION_DATA_USE_SPEC=APPROVED`；仍不授权生产 Write。
 
 ---
 
-## Task 1：完成 Production Budget Shadow 外部窗口
+## Task 3：完成 Production Budget Shadow 并发布关闭证据
 
-**Goal:** 取得长期记忆 production Shadow 的唯一前置运行证据。
+**Dependencies:** Task 2。
 
-**Dependencies:** Task 0；现有 Production Budget Shadow Plan Tasks 7-13。
+**Goal:** 完成既有 Budget Shadow 外部窗口，不把其批准复用于 Principal Memory。
 
-**Repository writes:** 仅经过 Privacy/Security 审核的 post-observation aggregate evidence。
+**Steps:** 绑定 exact revision/scope；使用独立批准；按既有 plan 运行；关闭配置；sanitize aggregate；输出三态；生成独立 post-observation evidence。
 
-**Steps:**
-
-1. 上传 `f5dce42` PENDING bundle 到独立 change system，并把 phase 固定为 `BUDGET_SHADOW_ONLY`；
-2. 取得 change_owner、operations、privacy、security、fairness 独立批准；
-3. 运行 revision/scope/window-bound change preflight；
-4. 执行 0.1% warm-up：至少 30 分钟和 20 follow-ups；
-5. 提升到批准上限但不超过 1%；
-6. 总窗口至少 24 小时和 200 follow-ups；
-7. scheduled end 前恢复 Budget Shadow disabled；
-8. 运行 production acceptance；
-9. 输出 PASS、BLOCKED 或 CONTINUE。
-
-**Exit gate:** 只有 `PRODUCTION_BUDGET_SHADOW=PASS` 才允许 Task 2 形成晋级输入。BLOCKED 或 CONTINUE 停止本计划的 production branches。
+**Exit gate:** 仅 `PRODUCTION_BUDGET_SHADOW=PASS` 可进入 Write 依赖；继续输出 `PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED`。
 
 ---
 
-## Task 2：发布 Budget post-observation evidence 并冻结下一审批输入
+## Task 4：实现完整 OIDC Authentication Runtime
 
-**Goal:** 保留 pre-approval 与 post-observation 两条不可混淆的证据链。
+**Dependencies:** Task 2。
 
-**Files:**
+**Goal:** 建立 production authentication boundary，而不只是接收“已验证 subject”参数。
 
-- Create only after audit: `docs/memory-production-budget-shadow-observation.json`
-- Create only after audit: `docs/memory-production-budget-shadow-acceptance.md`
-- Modify: production evidence manifest tooling/tests as required
+**Steps:** 实现 callback、authorization code flow、JWKS/issuer/audience/exp/nonce/state 验证、安全 Session、Cookie/Token rotation、CSRF、logout、re-auth、session fixation 防护、revocation；trusted-local route 只保留测试 gate。
 
-**Steps:**
+**Tests:** forged token、JWKS rotation、issuer/audience confusion、nonce replay、CSRF、logout/re-auth、session fixation、expired/revoked session。
 
-1. 从受信指标系统导出 allowlisted aggregate；
-2. 运行 sanitizer 和 privacy sentinel scan；
-3. 验证不包含 external digest、locator 或 candidate content；
-4. 记录 window closed、configuration restored 和 hard-stop count；
-5. 从新 evidence commit 创建干净 RC 并做 remote reproduction；
-6. 明确继续输出 `PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED`；
-7. 仅把 Budget PASS 作为 Write plan 的申请输入。
-
-**Tests:** production Budget observation/acceptance/evidence manifest suites + full regression。
-
-**Exit gate:** `BUDGET_POST_OBSERVATION_EVIDENCE=VERIFIED`，但 Write 仍未授权。
+**Exit gate:** `AUTHENTICATION_RUNTIME=PASS`。
 
 ---
 
-## Task 3：定义 Authenticated Principal OIDC Contract
-
-**Goal:** 替换 trusted-local/inferred identity，建立 production-safe Principal 根身份。
-
-**Files:**
-
-- Modify: `app/ports/principal_identity.py`
-- Create: `app/services/authenticated_principal.py`
-- Create: `docs/principal-memory-authenticated-identity-contract.md`
-- Create: `tests/test_authenticated_principal.py`
-
-**Steps:**
-
-1. 定义 verified OIDC issuer/subject input；
-2. 使用 deployment-scoped、key-versioned HMAC 派生 opaque Principal ID；
-3. 禁止 raw subject、email、name 落入 memory store、metrics 或 logs；
-4. 定义 issuer migration、subject migration、account recovery 和 key rotation；
-5. 对 ambiguous/missing/unverified identity fail-closed；
-6. 添加 cross-deployment、cross-issuer、case/Unicode、collision 和 recovery tests；
-7. 保留 trusted-local route 仅用于测试，production app 不挂载。
-
-**Tests:** `tests/test_authenticated_principal.py tests/test_principal_identity.py tests/test_principal_memory_isolation.py`
-
-**Exit gate:** production Principal 只能来自 approved authenticated boundary。
-
-**Suggested commit:** `feat(memory): define authenticated principal identity`
-
----
-
-## Task 4：实现 Principal Mapping、Key Rotation 与 Account Recovery 防护
-
-**Goal:** 持久化 opaque mapping，并阻止账户恢复导致 memory 错绑。
-
-**Dependencies:** Task 3。
-
-**Files:**
-
-- Modify: PostgreSQL migration registry
-- Create: `app/services/postgres_principal_identity.py`
-- Create: `tests/test_postgres_principal_identity.py`
-- Create: `docs/principal-memory-account-recovery-runbook.md`
-
-**Steps:**
-
-1. 新 migration 使用 deployment、issuer hash、subject HMAC、key version 和 status；
-2. unique constraint 防止同一 identity 重复映射；
-3. recovery 不自动继承旧 memory；
-4. 显式 rebind 需要 authenticated old/new proof 和审计批准；
-5. key rotation 使用双读、单写、可回滚窗口；
-6. 删除 principal 时删除 mapping 或不可逆 tombstone；
-7. live PostgreSQL 测试并发创建、rotation、recovery、delete 和 rollback。
-
-**Exit gate:** identity collision/recovery threat tests 全绿，无 PII 字段。
-
-**Suggested commit:** `feat(memory): persist opaque principal mappings`
-
----
-
-## Task 5：升级 Purpose-specific Consent Ledger v2
-
-**Goal:** 支持 production Write、Read Shadow 和 C1 的独立、版本化、实时 Consent。
+## Task 5：实现 Stable Principal Mapping、Rotation 与 Recovery
 
 **Dependencies:** Task 4。
 
-**Files:**
+**Goal:** 让 key rotation 和账户恢复不改变或错绑内部 Principal。
 
-- Modify: `app/ports/principal_memory_consent.py`
-- Modify: `app/services/principal_memory_consent.py`
-- Modify: `app/services/postgres_principal_memory_consent.py`
-- Create: `tests/test_principal_memory_consent_v2.py`
+**Steps:** 创建 stable random `principal_id`；versioned subject HMAC alias；deployment/issuer isolation；双读单写 rotation；显式 old/new proof rebind；禁止自动继承；delete/tombstone；并发 unique constraints。
 
-**Steps:**
-
-1. purposes 固定为 proposal_write、fact_storage、read_shadow、consumption_c1；
-2. record 包含 policy version、decision、effective/revoked time 和 authority；
-3. default off；
-4. purpose 不相互继承；
-5. 操作时读取，不使用 session-start 缓存；
-6. revoke 立即阻止新 operation 并调度 purge/eligibility update；
-7. policy version 变更需要重新同意；
-8. 添加 concurrent revoke/select/enqueue tests。
-
-**Exit gate:** Consent TOCTOU、purpose confusion 和 version downgrade tests 全绿。
-
-**Suggested commit:** `feat(memory): version principal consent purposes`
+**Exit gate:** rotation 前后内部 Principal ID 不变；collision/recovery/cross-issuer tests PASS；无 PII 字段。
 
 ---
 
-## Task 6：建立 Authenticated Self-service Memory API
+## Task 6：实现 Request-scoped Principal 与 Async Owner Binding
 
-**Goal:** 提供候选人本人可用、无内部 locator 泄漏的正式 API。
+**Dependencies:** Task 5。
 
-**Dependencies:** Tasks 4-5。
+**Goal:** 防止多用户 singleton 和后台任务身份漂移。
 
-**Files:**
+**Steps:** request dependency 解析 Principal；Session 创建时冻结 owner；owner 不允许普通 update；outbox 只保存 opaque owner binding；worker 从 session owner 重新绑定并重读 Consent/control/deletion；owner mismatch no-op + hard stop；禁止 global mutable current user。
 
-- Modify: `app/api/routes.py`
-- Create: `app/api/principal_memory_routes.py`
-- Create: `app/services/principal_memory_self_service.py`
-- Create: `tests/test_principal_memory_self_service_api.py`
+**Tests:** 多 Principal 并发、request reuse、worker retry、outbox delay、owner mismatch、session transfer attempt、delete/revoke race。
 
-**Steps:**
-
-1. 所有 route 依赖 authenticated Principal 和 CSRF/re-auth policy；
-2. list 只返回 canonical category/value、status、authority、coarse source status、confirmed/expiry time；
-3. confirm/correct/revoke/delete/export 使用 idempotency key；
-4. fact handle 是 Principal-scoped opaque handle，不暴露内部 fact_id；
-5. cross-Principal handle 返回统一 not-found；
-6. rate limit、audit event 和 safe error body；
-7. trusted-local API 保持单独 disabled gate；
-8. 添加 authorization、CSRF、enumeration 和 replay tests。
-
-**Exit gate:** authenticated candidate 只能访问自己的 records；拒绝响应无存在性 side channel。
-
-**Suggested commit:** `feat(memory): add authenticated memory self service`
+**Exit gate:** `PRINCIPAL_ASYNC_BINDING=PASS`。
 
 ---
 
-## Task 7：实现 Candidate Memory Center
-
-**Goal:** 让候选人理解系统记住了什么、为什么、如何控制。
+## Task 7：升级 Purpose-specific Consent Ledger v2
 
 **Dependencies:** Task 6。
 
-**Files:**
+**Goal:** 实现 §6 的独立、版本化、实时 Consent。
 
-- Create: `frontend/src/pages/MemoryCenterPage.jsx`
-- Create: `frontend/src/styles/memory-center-app.css`
-- Modify: frontend router/navigation
-- Create: `tests/browser/memory-center-ui.spec.js`
-- Modify: `tests/test_react_frontend.py`
+**Steps:** append-only schema/migration；default off；每 operation 读取；四 purpose 独立 grant/revoke；policy upgrade re-consent；fact_storage revoke purge；TOCTOU 和并发 tests；metrics 仅低基数计数。
 
-**Steps:**
-
-1. default-off Consent 分 purpose 展示；
-2. 展示 proposed、active、revoked、expired 状态；
-3. 提供 confirm、correct、revoke、delete、export；
-4. 显示“不用于评分、报告或招聘判断”；
-5. decline 与 delete 不使用羞辱、阻碍或降级文案；
-6. keyboard、screen reader、focus、contrast 和 mobile tests；
-7. 不展示隐藏模型 reasoning、内部 digest 或 source excerpt；
-8. destructive action 使用清楚确认和可验证 completion state。
-
-**Exit gate:** accessibility audit、plain-language review 和 no-dark-pattern review PASS。
-
-**Suggested commit:** `feat(frontend): add candidate memory center`
+**Exit gate:** purpose confusion、version downgrade、concurrent revoke/enqueue/select tests PASS。
 
 ---
 
-## Task 8：实现 Ignore-for-session 与 Disable-now Barrier
+## Task 8：建立 Authenticated Self-service API 与 Candidate Memory Center
 
-**Goal:** 在面试开始前和进行中提供可预测的实时关闭。
+**Dependencies:** Task 7。
 
-**Dependencies:** Tasks 5-7。
+**Goal:** 让候选人查看和管理自己的长期记忆。
 
-**Files:**
+**Steps:** authenticated + CSRF/re-auth routes；Principal-scoped opaque handles；view/confirm/correct/revoke/delete/export；分 purpose Consent；状态和 coarse source status；统一 not-found 防枚举；rate limit；accessible UI；no-dark-pattern/no-penalty 文案。
 
-- Create: `app/services/principal_memory_runtime_control.py`
-- Modify: interview session state contract/migration
-- Modify: `frontend/src/pages/InterviewPage.jsx`
-- Create: `tests/test_principal_memory_runtime_control.py`
-- Create: `tests/browser/principal-memory-disable-ui.spec.js`
-
-**Steps:**
-
-1. ignore 在首个 context assembly 前记录并对 session sticky；
-2. disable 写入 account control state，阻止新 proposal/read/consume；
-3. context assembly 每次重新读取 barrier；
-4. 最长 60 秒和 next-assembly 双重 SLO；
-5. in-flight Provider request 显式不可撤回边界；
-6. completion 不得调度下一个 memory effect；
-7. 并发 disable/select、disable/enqueue、disable/retry tests；
-8. no-penalty score/report equality tests。
-
-**Exit gate:** disable 后 zero new memory operation，SLO 和 UI disclosure PASS。
-
-**Suggested commit:** `feat(memory): enforce real-time memory disable barrier`
+**Exit gate:** authorization、CSRF、enumeration、idempotency、browser、mobile、keyboard、screen-reader tests PASS。
 
 ---
 
-## Task 9：完善 Correct、Revoke、Delete 与 Export 生命周期
+## Task 9：实现 Runtime Controls、原子纠正与完整生命周期
 
-**Goal:** 让用户权利覆盖在线数据、派生引用和恢复副本。
+**Dependencies:** Task 8。
 
-**Dependencies:** Tasks 6-8。
+**Goal:** 提供 ignore、disable、correct、delete、export 和恢复副本控制。
 
-**Files:**
+**Steps:** session-sticky ignore；disable 在 next assembly 且最长 60 秒生效；Correct 单事务；exclusive active unique constraint；online purge；export；tombstone replay；in-flight disclosure；zero post-disable operation；24h delete/export SLO。
 
-- Modify: `app/services/principal_memory_lifecycle.py`
-- Modify: `app/services/principal_memory_deletion.py`
-- Create: `app/services/principal_memory_export.py`
-- Create: `tests/test_principal_memory_export.py`
-- Extend: lifecycle/deletion/restore tests
-
-**Steps:**
-
-1. correct 创建新 confirmed fact 并立即 supersede predecessor；
-2. revoke 下一 assembly 起不可选；
-3. delete 覆盖 fact、proposal、effect、binding、owner ref、cache 和 derived ref；
-4. online delete SLO 24 小时；
-5. export SLO 24 小时，machine-readable 且仅含本 Principal；
-6. tombstone replay 阻止 backup resurrection；
-7. export 与 delete 并发、重复请求、进程丢失和恢复 tests；
-8. metrics 只记录低基数完成/失败计数。
-
-**Exit gate:** zero cross-Principal export、zero deletion residue、restore replay PASS。
-
-**Suggested commit:** `feat(memory): complete principal memory rights lifecycle`
+**Exit gate:** concurrency、process loss、duplicate、delete/export race、backup restore residue=0。
 
 ---
 
-## Task 10：Identity、Consent、UX、Privacy、Security 与 Fairness Acceptance
+## Task 10：Control Foundation Acceptance
 
-**Goal:** 在任何 production Principal Shadow 前验收产品控制面。
+**Dependencies:** Tasks 4-9。
 
-**Dependencies:** Tasks 3-9。
+**Goal:** 在任何 Principal production Shadow 前验收身份、Consent 和用户权利。
 
-**Files:**
-
-- Create: `scripts/principal_memory_control_plane_acceptance.py`
-- Create: `docs/principal-memory-control-plane-acceptance.md`
-- Create: `tests/test_principal_memory_control_plane_acceptance.py`
-
-**Steps:**
-
-1. 组合 auth、Consent、self-service、disable、delete、export gates；
-2. 执行 account takeover/recovery threat review；
-3. 执行 Consent comprehension/accessibility review；
-4. 执行 no-penalty equality；
-5. 检查 protected-class proxy 和 accessibility direct-declaration；
-6. artifact scan 拒绝 PII、locator、digest 和 candidate content；
-7. 失败输出稳定 gate，禁止 READY；
-8. 成功只授权申请 Write Shadow，不授权实际窗口。
-
-**Success output:**
-
-```text
-PRINCIPAL_MEMORY_CONTROL_PLANE=PASS
-AUTHENTICATED_PRINCIPAL=PASS
-CONSENT_USER_RIGHTS=PASS
-WRITE_PRODUCTION_APPROVAL_REQUIRED
-READ_PRODUCTION=NOT_AUTHORIZED
-LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
-```
-
-**Suggested commit:** `test(memory): accept principal control plane`
-
----
-
-## Task 11：实现 Production Write Shadow Contracts、Sanitizer、Window 与 Acceptance
-
-**Goal:** 为真实生产聚合结果建立离线、可审计、三态工具。
-
-**Dependencies:** Tasks 2、5、10。
-
-**Files:**
-
-- Create: `scripts/principal_memory_production_write_observation.py`
-- Create: `scripts/principal_memory_production_write_window.py`
-- Create: `scripts/principal_memory_production_write_acceptance.py`
-- Create: corresponding tests/fixtures/contracts/runbook
-
-**Steps:**
-
-1. 定义 aggregate input 和 sanitized output schema；
-2. exact allowlist，unknown field fail-closed；
-3. 状态机包含 PENDING_APPROVAL、PREFLIGHT_VERIFIED、WARM_UP、OBSERVING、STOPPING、CLOSED；
-4. hard stop 优先于 CONTINUE/PASS；
-5. 输入输出路径必须在仓库外；
-6. 工具不连接生产 DB、HTTP、Provider、deployment 或 approval system；
-7. rollback/config restored 未证明时输出 NOT_VERIFIED；
-8. fixtures 覆盖 pass、hard stop、insufficient evidence 和 privacy rejection。
-
-**Exit gate:** offline tooling focused suite PASS；production 仍未运行。
-
-**Suggested commit:** `feat(memory): add production write shadow evidence gates`
-
----
-
-## Task 12：生成 Write Shadow RC、Manifest 与 PENDING Bundle
-
-**Goal:** 把 Write tooling、control plane、migration、tests 和 runbook 绑定到不可变 revision。
-
-**Dependencies:** Task 11。
-
-**Steps:**
-
-1. 从 clean detached worktree 跑 focused、live PG、browser 和 full regression；
-2. 生成 readiness evidence；
-3. 扩展固定 evidence allowlist；
-4. 生成 canonical manifest；
-5. remote depth-1 fail-closed、exact-revision depth-2 verify；
-6. 生成 PENDING ZIP、metadata、sidecar；
-7. 解压验证精确文件集合和敏感模式；
-8. metadata 固定 phase `PRINCIPAL_WRITE_SHADOW_ONLY`；
-9. 明确 Read/Consumption 仍未授权。
-
-**Exit gate:** `PRINCIPAL_WRITE_SHADOW_TOOLING=READY_FOR_REVIEW`。
-
----
-
-## Task 13：取得 Write Shadow 五角色批准并运行 Change Preflight
-
-**Goal:** 获得 exact revision/scope/window/traffic 的独立 production Write 授权。
-
-**Dependencies:** Task 12。
-
-**Repository writes:** None。
-
-**Steps:**
-
-1. 上传 PENDING bundle；
-2. 五角色独立批准；
-3. 记录 opt-in cohort、max 1%、metrics、rollback owner 和 incident channel；
-4. expected record SHA 与 scope SHA 来自独立系统；
-5. 运行 Write-specific preflight；
-6. 验证只允许 Write axis；
-7. 配置仍未改变。
+**Required evidence:** auth threat model；account recovery；request/worker isolation；Consent comprehension；accessibility；no-penalty parity；delete/export/restore；artifact privacy scan；full regression。
 
 **Pass output:**
 
 ```text
-PRINCIPAL_WRITE_SHADOW_CHANGE_PREFLIGHT=PASS
-EXTERNAL_APPROVAL_RECORD=VERIFIED
-REQUESTED_PHASE=PRINCIPAL_WRITE_SHADOW_ONLY
-CONFIGURATION_CHANGED=false
-PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED
-LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
+PRINCIPAL_MEMORY_CONTROL_FOUNDATION=PASS
+AUTHENTICATED_PRINCIPAL=PASS
+CONSENT_USER_RIGHTS=PASS
+WRITE_PRODUCTION_APPROVAL_REQUIRED
 ```
 
 ---
 
-## Task 14：运行 Write Shadow 0.1% Warm-up
+## Task 11：实现 Production Extractor Provider Adapter
 
-**Goal:** 最小流量验证 identity、Consent、proposal 和 stop path。
+**Dependencies:** Tasks 3、10。
+
+**Goal:** 让 Write Shadow 具有真实、受控、可失败回退的提取器。
+
+**Steps:** strict structured output；canonical taxonomy；direct-declaration rule；accessibility 禁止推断；timeout/retry/rate limit/circuit breaker；provider retention/logging/training config；cost cap；prompt injection defense；failure=no proposal；provider adapter 与 contract tests。
+
+**Exit gate:** approved provider policy 生效；production preflight 可证明 extractor 非 Null/test；Provider 故障不改变主面试。
+
+---
+
+## Task 12：实现 Write Runtime Wiring 与单轴不变量
+
+**Dependencies:** Task 11。
+
+**Goal:** 只在 Write Shadow 生成 proposed facts。
+
+**Steps:** production identity/extractor 接入 request/worker scope；proposal event 仅允许 `write_shadow`；operation-time identity/Consent/source/deletion checks；all outputs proposed；duplicate idempotency；read/assist gates false；startup/preflight Null component rejection。
+
+**Exit gate:** Write enabled 时 proposal 可产生；Read/Disabled/Assist 时 proposal/outbox operation 恒为 0。
+
+---
+
+## Task 13：建立 Write Observation Tooling、RC 与批准包
+
+**Dependencies:** Task 12。
+
+**Goal:** 生成离线 allowlisted sanitizer、window controller、three-state acceptance、runbook、manifest 和 PENDING bundle。
+
+**Steps:** 固定 absolute caps；离线工具不连 production DB/HTTP/Provider；unknown field fail-closed；remote exact-revision reproduction；Product/Change Owner/Operations/Privacy/Security/Fairness/Legal-as-required 独立批准；preflight 证明单轴和配置未改变。
+
+**Exit gate:** `WRITE_CHANGE_PREFLIGHT=PASS`；配置仍 disabled。
+
+---
+
+## Task 14：运行 Write Bounded Warm-up
 
 **Dependencies:** Task 13。
 
-**Steps:**
+**Goal:** 在最小绝对暴露内验证真实 identity、Consent、extractor、proposal 和 stop path。
 
-1. 部署精确 approved revision；
-2. 只设置 mode=write_shadow 和 explicit write gate；
-3. sticky assignment `min(0.1%, approved cap)`；
-4. 只包含明确 opt-in、authenticated cohort；
-5. 至少 30 分钟和 20 eligible sessions；
-6. 在第 1、5、20 个 proposal 和每 15 分钟检查；
-7. hard invariants、metrics completeness、deterministic interview health 全绿才 ramp；
-8. 不足则保持 warm-up 或关闭为 CONTINUE。
+**Bounds:** 不超过 20 Principals、50 Sessions、4 小时；至少 30 分钟；还必须达到预注册 `minimum_evidence_n`。
 
-**Exit gate:** `WRITE_WARM_UP=PASS`，不等于总 Write PASS。
+**Exit gate:** hard stop=0、metrics complete、主面试 health PASS；不足则关闭并输出 CONTINUE。
 
 ---
 
-## Task 15：运行 Write Shadow Approved-cap Observation
+## Task 15：运行 Write Bounded Observation
 
-**Goal:** 在最大 1% cohort 上取得生产 proposal 分布证据。
+**Dependencies:** Task 14 PASS。
 
-**Dependencies:** Task 14。
+**Goal:** 获取 production proposal 分布证据。
 
-**Steps:**
+**Bounds:** 不超过 200 Principals、500 Sessions、7 天；至少 24 小时；达到预注册 `minimum_evidence_n`；不得为补样本突破 cap。
 
-1. 提升到 approved cap 且不超过 1%；
-2. 至少 24 小时和 200 eligible sessions；
-3. 所有 facts 保持 proposed；
-4. operation-time recheck identity/Consent/source/deletion/taxonomy；
-5. 检查 replay、concurrency、worker loss 和 duplicate；
-6. 监控 hard stops、P95 latency、error delta 和 data completeness；
-7. scheduled end 前恢复 disabled；
-8. 导出 sanitized aggregate。
+**Steps:** operation-time recheck；provider health/cost；duplicate/retry/worker loss；scheduled close；sanitized aggregate。
 
-**Exit gate:** window CLOSED；配置恢复；等待 Tasks 16-17 复核。
+**Exit gate:** window CLOSED；等待 Task 16。
 
 ---
 
-## Task 16：执行 Production Proposal 人工复核和质量门禁
-
-**Goal:** 证明 proposed facts 的语义质量、直接声明边界和 taxonomy 正确性。
+## Task 16：执行 Proposal Quality 与 Lifecycle/Restore Gates
 
 **Dependencies:** Task 15。
 
-**Steps:**
+**Goal:** 验证 proposed facts 质量、人工复核授权、撤回、删除和恢复传播。
 
-1. reviewer 在受控环境访问最小必要 source；
-2. review sample 至少 300 或全部样本（取较小的完整集合规则由审批固定）；
-3. 标签固定为 correct、unsupported、over_generalized、wrong_taxonomy、stale_source、conflict、privacy_sensitive、not_useful、duplicate、review_unavailable；
-4. 只有 correct 可以成为未来候选人 review 输入；
-5. privacy_sensitive=0；unsupported<2%；stale_source_accepted=0；
-6. reviewer unavailable 不计为 correct；
-7. Git artifact 只保存 label counts/rates；
-8. 任何 raw candidate text 留在受控系统并按 retention 删除。
+**Steps:** 按 Data-use Spec 的最小必要源访问和抽样协议复核；固定标签；raw text 只留受控系统；privacy_sensitive=0；unsupported threshold 预注册；执行 revoke-before-worker、delete-before-replay、principal purge、old-backup restore、tombstone replay；residue=0。
 
-**Exit gate:** `PRODUCTION_PROPOSAL_QUALITY=PASS` 或 BLOCKED/CONTINUE。
+**Exit gate:** quality、Consent、delete、restore 全 PASS，否则 BLOCKED/CONTINUE。
 
 ---
 
-## Task 17：执行 Write Consent、Delete、Restore 与故障演练
+## Task 17：关闭 Write 并发布 Post-observation Evidence
 
-**Goal:** 在 production-like 边界证明撤回和删除传播。
+**Dependencies:** Tasks 15-16。
 
-**Dependencies:** Task 15。
-
-**Steps:**
-
-1. opt-in → proposal → revoke before worker；
-2. enqueue → delete session → worker replay；
-3. proposal complete → owner binding 前进程丢失；
-4. concurrent workers；
-5. principal purge；
-6. restore approved old backup；
-7. replay operator tombstones before traffic；
-8. residue query 必须为 0；
-9. drill 只使用批准的 internal/synthetic identities，不故意破坏真实候选人数据；
-10. 记录聚合 gates。
-
-**Exit gate:** Consent、session purge、principal purge、backup replay 全部 PASS。
-
----
-
-## Task 18：关闭 Write Shadow 并发布 Acceptance Evidence
-
-**Goal:** 对 Write 阶段形成不可变三态结论。
-
-**Dependencies:** Tasks 15-17。
-
-**Steps:**
-
-1. 确认 mode disabled、新 proposal operation=0；
-2. 运行 production Write sanitizer/acceptance；
-3. Privacy/Security artifact review；
-4. 合并 quality 和 deletion gates；
-5. PASS 仍不授权 Read；
-6. 生成独立 post-observation manifest；
-7. clean RC full regression 和 remote reproduction；
-8. CONTINUE 需要新窗口，BLOCKED 需要新 RC/批准。
+**Steps:** disable Write；stop leasing；验证 new proposal=0；sanitizer/acceptance；Privacy/Security review；clean RC regression；remote reproduction；发布独立 evidence。
 
 **Pass output:**
 
 ```text
 PRINCIPAL_WRITE_SHADOW_PRODUCTION=PASS
-PROPOSAL_QUALITY_GATE=PASS
-CONSENT_DELETION_RESTORE_DRILL=PASS
-OBSERVATION_WINDOW=CLOSED
 CONFIGURATION_RESTORED=disabled
 PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED
-LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
 ```
 
 ---
 
-## Task 19：实现 Production Read Shadow Contracts、Window 与 Acceptance
+## Task 18：修正 Read Shadow 单轴 Runtime
 
-**Goal:** 为 bounded would-select 和零注入生产证据建立独立工具。
+**Dependencies:** Task 17 PASS。
 
-**Dependencies:** Tasks 10、18。
+**Goal:** 在任何 Read production approval 前消除现有 Write/Read 耦合。
 
-**Files:** production read observation/window/acceptance scripts、tests、fixtures、contracts、runbook。
+**Required changes:** `read_shadow` 不要求 Write gate；Write gate 必须 false；proposal event builder 只允许 `write_shadow`；Read 不初始化/调用 extractor；Read 无 proposal/outbox write；安全配置矩阵和 Staging runner 同步更新。
 
-**Steps:**
+**Required runtime tests:** Read gate + Write gate 为 false 可以启动；Read gate + Write gate 为 true fail-closed；Read 完成 session 后 proposal/outbox=0；concurrent/retry/replay 仍为 0。
 
-1. schema 只接受 aggregate selection/outcome/invariant counts；
-2. 记录 relevant、conflict、stale、revoked、deleted、cap exclusion counts；
-3. Prompt/Provider digest 只在内存比较，不持久化 digest；
-4. zero-injection mismatch 为 immediate hard stop；
-5. state machine 和三态 acceptance；
-6. unknown/private field fail-closed；
-7. offline only；
-8. success 仍输出 Consumption BLOCKED。
-
-**Exit gate:** `PRINCIPAL_READ_SHADOW_TOOLING=READY_FOR_REVIEW`。
+**Exit gate:** `READ_SINGLE_AXIS_RUNTIME=PASS`。
 
 ---
 
-## Task 20：生成 Read RC、审批包并取得外部批准
+## Task 19：建立 Read Tooling、RC 与独立批准
 
-**Goal:** 把 Read tooling 与 Write PASS/control plane 精确绑定。
+**Dependencies:** Task 18。
+
+**Goal:** 绑定 would-select、zero-injection、absolute caps 和独立审批。
+
+**Steps:** aggregate schema；zero-injection hard stops；offline sanitizer/acceptance；clean RC/manifest/remote drill；phase=`READ_SHADOW_ZERO_INJECTION_ONLY`；新批准不可复用 Write；preflight 证明 Write=false、extractor disabled、proposal operation=0。
+
+**Exit gate:** `READ_CHANGE_PREFLIGHT=PASS`；配置仍 disabled。
+
+---
+
+## Task 20：运行 Read Bounded Warm-up
 
 **Dependencies:** Task 19。
 
-**Steps:**
+**Bounds:** 不超过 20 Principals、50 Sessions、4 小时；至少 30 分钟；达到预注册最小证据量。
 
-1. clean RC full validation；
-2. manifest/bundle/remote drill；
-3. phase 固定 `PRINCIPAL_READ_SHADOW_ZERO_INJECTION_ONLY`；
-4. 五角色重新批准；
-5. preflight 验证 exact revision/scope/window/traffic；
-6. 只允许 Read Shadow axis；
-7. active facts 只能来自明确 candidate/internal fixture confirmation；
-8. Consumption 继续硬拒绝。
+**Checks:** operation-time identity/Consent/control；eligible active facts；conflict/freshness；Prompt/Provider/question/API equality；proposal/outbox=0；absolute caps。
 
-**Exit gate:** `PRINCIPAL_READ_SHADOW_CHANGE_PREFLIGHT=PASS`，配置仍未变化。
+**Exit gate:** hard stop=0，否则立即关闭。
 
 ---
 
-## Task 21：运行 Read Shadow 0.1% Warm-up
+## Task 21：运行 Read Bounded Observation
 
-**Goal:** 最小流量证明 selection 和 zero-injection barrier。
+**Dependencies:** Task 20 PASS。
 
-**Dependencies:** Task 20。
+**Bounds:** 不超过 200 Principals、500 Sessions、7 天；至少 24 小时；达到预注册最小证据量。
 
-**Steps:**
+**Steps:** would-select/exclusion aggregate；store/cache fallback；Consent revoke、disable、delete；zero prompt/provider mutation；scheduled close；sanitized export。
 
-1. sticky 0.1% eligible cohort；
-2. 至少 30 分钟和 20 follow-ups；
-3. 每次 operation 重读 identity、Consent、ignore/disable、fact/source status；
-4. in-memory canonical Prompt/Provider Context before/after equality；
-5. conflict 全排除；
-6. max facts/tokens 不超限；
-7. question/score/report/API equality；
-8. mismatch 立即 disabled。
-
-**Exit gate:** `READ_WARM_UP=PASS`。
+**Exit gate:** window CLOSED；等待 Task 22。
 
 ---
 
-## Task 22：运行 Read Shadow Approved-cap Observation
-
-**Goal:** 在最大 1% cohort 上取得 would-select 分布和零注入证据。
+## Task 22：执行 Zero-injection、Conflict 与 Fairness Audit
 
 **Dependencies:** Task 21。
 
-**Steps:**
+**Checks:** proposal/outbox/extractor=0；Prompt/Provider/question/evaluator/score/evidence/report/PDF/API equality；score/report/Knowledge dependency source audit；exclusive conflicts；current-session contradiction；stale/deleted source；accessibility direct declaration；language/role/goal proxy review；仅保存 aggregate。
 
-1. 至少 24 小时和 200 follow-ups；
-2. 记录 coarse fact category 和 exclusion reason counts；
-3. 记录 relevant-but-not-authorized；
-4. 监控 cache/store failure 的 deterministic fallback；
-5. 监控 latency/error 和 metrics completeness；
-6. 监控 Consent revoke、disable、delete 和 source tombstone；
-7. scheduled end 恢复 disabled；
-8. 导出 sanitized aggregate。
-
-**Exit gate:** window CLOSED；等待 Tasks 23-24。
+**Exit gate:** `READ_ZERO_INJECTION=PASS` 且无 Critical fairness/privacy finding。
 
 ---
 
-## Task 23：执行 Prompt、Provider、Question、Score、Report 零注入审计
+## Task 23：关闭 Read 并发布 Post-observation Evidence
 
-**Goal:** 证明 Read Shadow 没有任何候选人可见或招聘语义变化。
+**Dependencies:** Tasks 21-22。
 
-**Dependencies:** Task 22。
-
-**Steps:**
-
-1. canonical Unicode NFC、sorted key、compact JSON、stable message order；
-2. 比较 Provider Context 和 Prompt SHA-256，仅保存 equality count；
-3. question text/order equality；
-4. evaluator input/output equality；
-5. score/evidence/report/PDF equality；
-6. API response equality；
-7. source audit 禁止 Read Shadow dependency 进入 score/report/Knowledge；
-8. adversarial fact 尝试改变评分、泄露、激活或 Knowledge write；
-9. 任一差异 hard stop。
-
-**Exit gate:** `PROMPT_BUSINESS_ZERO_INJECTION=PASS`。
-
----
-
-## Task 24：执行 Conflict、Freshness、Fairness 与 Relevance 复审
-
-**Goal:** 判断 would-select 是否在未来有资格进入 C1 设计。
-
-**Dependencies:** Task 22。
-
-**Steps:**
-
-1. exclusive conflicts 全部排除；
-2. current session contradiction 排除历史 fact；
-3. source deleted/unavailable/expired 排除；
-4. taxonomy version mismatch 排除；
-5. accessibility 只接受 direct declaration；
-6. language、role、goal 做 protected proxy review；
-7. confirmed_skill 在 C1 继续排除；
-8. reviewer 标签 useful_but_not_authorized、irrelevant、stale、conflict、unsafe_proxy；
-9. 只提交聚合 counts/rates。
-
-**Exit gate:** conflict/freshness invariants=0，fairness review 无 Critical open finding。
-
----
-
-## Task 25：关闭 Read Shadow 并发布 Acceptance Evidence
-
-**Goal:** 对零注入 Read 阶段形成正式结论。
-
-**Dependencies:** Tasks 22-24。
-
-**Steps:**
-
-1. 确认 Read disabled、新 selection=0；
-2. sanitizer/acceptance；
-3. artifact privacy review；
-4. 合并 zero-injection、conflict/fairness 和 lifecycle gates；
-5. 生成独立 post-observation manifest；
-6. clean RC regression/remote drill；
-7. PASS 只允许 Task 26 完成 Spec；
-8. 不输出 implementation 或 canary authorized。
+**Steps:** disable Read；验证 selection=0、proposal=0；acceptance/privacy review；clean RC regression；独立 evidence；不得输出 C1-A implementation/canary authorized。
 
 **Pass output:**
 
 ```text
 PRINCIPAL_READ_SHADOW_PRODUCTION=PASS
-PROMPT_BUSINESS_ZERO_INJECTION=PASS
-OBSERVATION_WINDOW=CLOSED
+READ_ZERO_INJECTION=PASS
 CONFIGURATION_RESTORED=disabled
-PRINCIPAL_MEMORY_CONSUMPTION_SPEC=READY_FOR_FINAL_REVIEW
-IMPLEMENTATION=NOT_AUTHORIZED
-PRODUCTION_CANARY=NOT_AUTHORIZED
+PRINCIPAL_MEMORY_C1A_SPEC=READY_FOR_FINAL_REVIEW
 ```
 
 ---
 
-## Task 26：把 Consumption Draft 晋升为经批准的 Spec v1
+## Task 24：批准 C1-A Product Spec v1
 
-**Goal:** 解决 Draft open decisions，并取得 implementation authorization。
+**Dependencies:** Task 23 PASS。
 
-**Dependencies:** Tasks 7-10、25。
+**Goal:** 固定语言预填、候选人确认、accessibility UI-only 和 no-penalty 语义。
 
-**Files:**
+**Must resolve:** exact taxonomy；freshness；suggestion copy；default behavior；accept/edit/reject；session setting ownership；visibility；assist Consent；disable owner；fairness measures；candidate research；manual-setting parity；C1-B 明确排除。
 
-- Modify: `docs/principal-memory-consumption-spec.md`
-- Modify: `docs/principal-memory-consumption-risk-review.md`
-- Create: decision records for auth、Consent copy、jurisdiction、freshness、export、provider、canary population
+**Approvals:** Product、Privacy、Security、Fairness、Interview Quality、Accessibility、Operations、Legal-as-required。
 
-**Steps:**
-
-1. 固定 authenticated account model；
-2. 批准 Consent 文案和 jurisdiction 行为；
-3. 固定 correction history visibility 和 export format；
-4. 固定每类 freshness window；
-5. 固定 Provider retention/cancellation policy；
-6. 固定 fairness metrics 和 canary population；
-7. 固定 emergency disable owner；
-8. 将 PMC-001 至 PMC-010 映射到 acceptance tests；
-9. Product、Privacy、Security、Fairness、Operations、Legal 评审；
-10. 只有正式 decision record 才把 `IMPLEMENTATION=AUTHORIZED` 写入外部系统，不把批准记录写进 Git。
-
-**Exit gate:** Spec v1 approved for implementation；production canary 仍未授权。
+**Exit gate:** `C1A_IMPLEMENTATION=AUTHORIZED`；Production Canary 仍未授权。
 
 ---
 
-## Task 27：实现 Consumption Config、Contracts 与 Migration Foundation
+## Task 25：实现 C1-A Config、Contracts 与 Migration
 
-**Goal:** 添加默认关闭的 C1 模式和必要持久状态。
+**Dependencies:** Task 24。
+
+**Steps:** 添加 `assist_c1a` 和 explicit gate；继续拒绝 `consume`/`consume_c1`；assignment version；absolute cap state；session suggestion/confirmation state；old sessions no-assist；config conflict fail-closed；rollback 只 disable，不删除 migration/tombstone。
+
+**Exit gate:** 默认仍 disabled；无授权配置无法启用。
+
+---
+
+## Task 26：实现 Deterministic Suggestion Selector 与 Session Confirmation
+
+**Dependencies:** Task 25。
+
+**Goal:** 只产生候选人可见的预面试 suggestion，不产生 Provider context。
+
+**Steps:** exact Principal/Consent/source/status checks；只选 active user-confirmed language/accessibility facts；current explicit choice wins；deterministic dedupe；输出无 raw source；候选人 accept/edit 后创建 current session setting；reject/no-action 使用默认；Principal fact 对 Provider serializer 不可见。
+
+**Exit gate:** selector/property/conflict tests；unconfirmed suggestion 永不影响 interview。
+
+---
+
+## Task 27：实现 Candidate-visible C1-A UI 与 Accessibility Controls
+
+**Dependencies:** Tasks 9、26。
+
+**Steps:** visible suggestion indicator；accept/edit/reject；Ignore；Disable now；no-penalty copy；accessibility 只改变 UI/interaction；slow network、mobile、keyboard、screen reader；当前请求 in-flight 边界；无 hidden personalization。
+
+**Exit gate:** comprehension、accessibility、no-dark-pattern 和 browser tests PASS。
+
+---
+
+## Task 28：强化 Provider、Score、Report 与 Knowledge Firewalls
 
 **Dependencies:** Task 26。
 
-**Files:**
+**Goal:** 保证历史 fact 不进入 Provider 或招聘语义路径。
 
-- Modify: `app/services/memory_config.py`
-- Create: `app/ports/principal_memory_consumption.py`
-- Create: `app/services/principal_memory_consumption_contracts.py`
-- Modify: migration registry/session state
-- Create: contract/config/migration tests
+**Tests:** Provider payload/source audit 不含 Principal fact；accessibility 不发送给 Provider；evaluator/report/Knowledge/embedding 无 Principal dependency；相同 confirmed session settings + 相同 transcript 的 manual/assisted paths exact parity；adversarial fact 请求打分、泄露或 Knowledge write 均无效。
 
-**Steps:**
-
-1. 添加 `consume_c1`，继续拒绝泛化 `consume`；
-2. explicit C1 gate、traffic、max facts=3、max tokens=120；
-3. session ignore、visible disclosure 和 assignment version 持久化；
-4. config conflict fail-closed；
-5. legacy env 不得暗中启用 C1；
-6. migration nullable/backfill/constraint 顺序；
-7. old sessions 保持 deterministic/no-memory；
-8. rollback 不删除 migration/data/tombstone。
-
-**Exit gate:** 默认配置仍 disabled；无授权环境无法加载 C1 enabled config。
-
-**Suggested commit:** `feat(memory): define bounded c1 consumption contracts`
+**Exit gate:** `C1A_PROVIDER_AND_DECISION_ISOLATION=PASS`。
 
 ---
 
-## Task 28：实现 C1 Deterministic Selector
+## Task 29：实现 C1-A Metrics、Kill Switch 与 Window Tooling
 
-**Goal:** 在 operation time 选择最多 3 个、最多 120 tokens 的安全 facts。
+**Dependencies:** Tasks 27-28。
 
-**Dependencies:** Task 27。
+**Steps:** aggregate eligible/suggested/accepted/edited/rejected/disabled/fallback counts；low-volume suppression；absolute cap controller；assignment version；central kill switch；stop leasing；zero post-stop assist；offline sanitizer/three-state acceptance；无 raw/digest/locator。
 
-**Files:**
-
-- Create: `app/services/principal_memory_consumption.py`
-- Extend: retrieval/eligibility modules
-- Create: selector tests
-
-**Steps:**
-
-1. exact deployment/principal/Consent/policy/session checks；
-2. only active user-confirmed facts；
-3. C1 allowlist 和 follow-up operation；
-4. current session contradiction 优先；
-5. exclusive conflict 全排除；
-6. deterministic dedupe/order；
-7. provider tokenizer + conservative fallback；
-8. 超预算按完整 fact 排除，不截断；
-9. store failure 返回 empty selection；
-10. 输出不含 raw source。
-
-**Exit gate:** selector property/fuzz/conflict/token tests PASS。
-
-**Suggested commit:** `feat(memory): select bounded c1 principal facts`
+**Exit gate:** timed rollback、privacy artifact 和 cap concurrency tests PASS。
 
 ---
 
-## Task 29：实现 Visible Renderer 与固定 Prompt Marker
+## Task 30：执行完整测试矩阵与 Isolated Staging
 
-**Goal:** 把 selected facts 渲染为候选人可见、非权威、不可用于评分的结构块。
+**Dependencies:** Tasks 25-29。
 
-**Dependencies:** Task 28。
+**Required suites:** auth/recovery；Consent TOCTOU；cross-Principal；controls/lifecycle；C1-A allowlist；unconfirmed no-effect；Provider zero-memory；same-input parity；Knowledge firewall；live PostgreSQL；restore/tombstone；browser/accessibility；adversarial privacy/fairness；metrics/caps/kill switch；full regression/remote reproduction。
 
-**Files:**
-
-- Create: `app/services/principal_memory_context_renderer.py`
-- Create: renderer/snapshot/adversarial tests
-
-**Steps:**
-
-1. 标题精确为 `Non-authoritative historical preference`；
-2. 固定 disclaimer；
-3. 只渲染 canonical category/value、authority、confirmation、coarse source status；
-4. 不渲染 source excerpt、prior answer、score、report、locator、digest；
-5. Unicode/escaping 防 Prompt injection；
-6. current session priority 文案不可被 fact 覆盖；
-7. max facts/tokens 再验证；
-8. exact snapshots 覆盖四类 facts 和多语言。
-
-**Exit gate:** marker/placement/content privacy contract PASS。
-
-**Suggested commit:** `feat(memory): render visible non-authoritative context`
-
----
-
-## Task 30：仅在 Follow-up Context Assembly 集成 C1
-
-**Goal:** 将 C1 限制在唯一允许的 runtime operation。
-
-**Dependencies:** Task 29。
-
-**Files:**
-
-- Modify: interview v2 follow-up context assembly
-- Modify: runtime dependency provider
-- Create: integration/source isolation tests
-
-**Steps:**
-
-1. 在 system policy 和 current plan/evidence 后、current candidate message 前插入；
-2. operation-time barrier 在 selector 前和 Provider call 前各检查一次；
-3. current request 明确选择覆盖 memory；
-4. selector/renderer failure 返回 deterministic context；
-5. Prep/evaluation/report/review routes 无 dependency；
-6. legacy/v1 sessions 不消费；
-7. sticky assignment 保持 session 一致；
-8. duplicate/retry 不改变 fact order。
-
-**Exit gate:** follow-up integration PASS；所有非允许路径 source audit PASS。
-
-**Suggested commit:** `feat(memory): integrate c1 follow-up context only`
-
----
-
-## Task 31：集成 Candidate Indicator、Explanation 与实时控制
-
-**Goal:** 每次消费对用户可见并可立即停止。
-
-**Dependencies:** Tasks 8、30。
-
-**Files:** Interview UI、Memory Center、API、browser/accessibility tests。
-
-**Steps:**
-
-1. 面试开始提供 Ignore；
-2. 每次使用显示 visible indicator；
-3. explanation 说明使用 category 和 bounded effect，不显示内部 reasoning；
-4. Disable now 始终可达；
-5. current request 已发出的边界清楚说明；
-6. no-penalty 文案和行为；
-7. screen reader live region 不泄漏隐藏内容；
-8. desktop/mobile/keyboard/slow-network tests。
-
-**Exit gate:** candidate comprehension、accessibility 和 disable UX PASS。
-
-**Suggested commit:** `feat(frontend): expose principal memory controls`
-
----
-
-## Task 32：强化 Score、Report 与 Knowledge Firewall
-
-**Goal:** 用结构隔离阻止长期记忆进入招聘语义路径。
-
-**Dependencies:** Task 30。
-
-**Files:** source audits、dependency tests、score/report equality tests、Knowledge firewall tests。
-
-**Steps:**
-
-1. scoring/evaluator constructor 无 Principal consumption dependency；
-2. report generator/repair 无 dependency；
-3. evidence selection/PDF 无 dependency；
-4. Knowledge ingestion/query 拒绝 Principal types；
-5. embeddings 不接受 Principal data；
-6. C1 on/off exact score/report/evidence equality；
-7. adversarial block 请求打分、激活、泄露、Knowledge write；
-8. static/source tests 防未来回归。
-
-**Exit gate:** `SCORING_REPORT_KNOWLEDGE_ISOLATION=PASS`。
-
-**Suggested commit:** `test(memory): enforce consumption isolation firewalls`
-
----
-
-## Task 33：实现 Consumption Metrics、Kill Switch 与 Window Tooling
-
-**Goal:** 建立低基数观察、自动停止和可验证关闭。
-
-**Dependencies:** Tasks 30-32。
-
-**Files:** metrics port/store、production C1 observation/window/acceptance scripts、runbook/tests。
-
-**Steps:**
-
-1. 聚合 assignment、eligible、selected、excluded、fallback、disable counts；
-2. coarse fact/language/path buckets；
-3. low-volume suppress/merge；
-4. durable minute/hour rollup；
-5. central kill switch 在下一 assembly 前阻止 injection；
-6. stop new leasing；
-7. verify zero post-stop injection；
-8. offline sanitizer/three-state acceptance；
-9. hard stops 和 error/latency thresholds；
-10. no raw/digest/locator fields。
-
-**Exit gate:** timed rollback drill 和 privacy artifact tests PASS。
-
-**Suggested commit:** `feat(memory): observe and stop c1 consumption`
-
----
-
-## Task 34：执行完整 Consumption 测试矩阵
-
-**Goal:** 在进入 Staging 前证明功能、安全、隐私、公平性和恢复边界。
-
-**Dependencies:** Tasks 27-33。
-
-**Required suites:**
-
-1. authenticated identity/account recovery；
-2. Consent purpose/version/TOCTOU；
-3. view/confirm/correct/revoke/delete/export；
-4. ignore/disable/in-flight race；
-5. cross-Principal/cache collision；
-6. C1 allowlist/confirmed_skill exclusion；
-7. conflict/stale/source delete；
-8. max 3/max 120 tokenizer fallback；
-9. exact Prompt placement/marker；
-10. current-session override；
-11. score/report/evidence/PDF equality；
-12. Knowledge/embedding firewall；
-13. live PostgreSQL migration/concurrency/cleanup；
-14. backup restore/tombstone replay；
-15. React/browser/accessibility；
-16. seven-intent adversarial Prompt suite；
-17. protected proxy/disparate impact fixtures；
-18. metrics privacy/low-cardinality；
-19. kill-switch timed rollback；
-20. full regression and remote reproduction。
-
-**Exit gate:** 所有 hard invariants=0；无跳过的 mandatory suite。
-
-**Suggested commit:** `test(memory): cover c1 consumption safety matrix`
-
----
-
-## Task 35：运行 Isolated Staging Consumption
-
-**Goal:** 在 synthetic/internal explicitly authorized cohort 上验证真实 context injection。
-
-**Dependencies:** Task 34。
-
-**Steps:**
-
-1. isolated PostgreSQL/deployment scope；
-2. explicit authenticated test principals；
-3. 300 sessions，中文/英文/mixed 各至少 100；
-4. 四类 C1 facts；
-5. ignore/disable/correct/delete/conflict/restore matrix；
-6. Provider 可使用 approved non-production account；
-7. 验证 visible indicator 和 Prompt block；
-8. scoring/report equality；
-9. latency/error/quality review；
-10. cleanup residue=0，config restored disabled。
+**Staging:** isolated deployment；synthetic/internal authorized principals；中文/英文/mixed；accept/edit/reject/ignore/disable/delete/conflict/restore；Provider payload scan；cleanup residue=0；config restored disabled。
 
 **Exit gate:**
 
 ```text
-PRINCIPAL_MEMORY_C1_STAGING=PASS
-SCORING_REPORT_KNOWLEDGE_ISOLATION=PASS
-DISABLE_DELETE_RESTORE=PASS
+PRINCIPAL_MEMORY_C1A_STAGING=PASS
+C1A_PROVIDER_AND_DECISION_ISOLATION=PASS
 PRODUCTION_CANARY=NOT_AUTHORIZED
 ```
 
 ---
 
-## Task 36：生成 C1 RC、Evidence Bundle 并取得独立批准
+## Task 31：生成 C1-A RC 并取得独立 Production Approval
 
-**Goal:** 为最高 1% production C1 创建全新 exact-revision 授权。
+**Dependencies:** Task 30 PASS。
 
-**Dependencies:** Task 35。
+**Steps:** clean RC/full regression；manifest/bundle/sidecar/remote drill；phase=`PRINCIPAL_MEMORY_ASSIST_C1A_ONLY`；exact population/caps/duration/evidence threshold；Product、Change Owner、Operations、Privacy、Security、Fairness、Accessibility、Legal-as-required 独立批准；preflight 前配置不变。
 
-**Steps:**
-
-1. clean RC full regression/live PG/browser；
-2. C1 readiness evidence；
-3. manifest/bundle/sidecar/remote drill；
-4. Privacy、Security、Fairness、Operations、Product、Change Owner、必要时 Legal 批准；
-5. phase 固定 `PRINCIPAL_MEMORY_CONSUMPTION_C1_ONLY`；
-6. cohort 仅 explicitly opted-in eligible sessions；
-7. max traffic=1%；
-8. independent rollback owner/incident channel；
-9. external record 不进 Git；
-10. C1 preflight PASS 前配置不变。
-
-**Exit gate:** `PRINCIPAL_MEMORY_C1_CHANGE_PREFLIGHT=PASS`。
+**Exit gate:** `C1A_CHANGE_PREFLIGHT=PASS`。
 
 ---
 
-## Task 37：运行 C1 0.1% Warm-up
+## Task 32：运行 C1-A Bounded Warm-up
 
-**Goal:** 在最小真实流量上验证 disclosure、control、injection 和 rollback。
+**Dependencies:** Task 31。
 
-**Dependencies:** Task 36。
+**Bounds:** 不超过 20 Principals、50 Sessions、4 小时；至少 30 分钟；达到预注册最小证据量。
 
-**Steps:**
+**Checks:** visible suggestion；confirm-before-effect；Provider zero-memory；accessibility UI-only；same-input parity；disable/kill switch；caps；hard stop=0。
 
-1. sticky 0.1% opted-in eligible sessions；
-2. 至少 30 分钟和 20 consumption calls；
-3. 每次调用检查 identity/Consent/ignore/disable/fact/source；
-4. marker、placement、max facts/tokens；
-5. current session priority；
-6. score/report/Knowledge isolation；
-7. disable SLO 和 kill switch；
-8. candidate-visible indicator；
-9. hard stop=0 才 ramp；
-10. 不足输出 CONTINUE 并关闭。
-
-**Exit gate:** `C1_WARM_UP=PASS`，不是 C1 最终 PASS。
+**Exit gate:** PASS 才能进入 Canary；不足则关闭并输出 CONTINUE。
 
 ---
 
-## Task 38：运行最大 1% C1 Canary 与 Acceptance
+## Task 33：运行 C1-A Bounded Canary 与 Acceptance
 
-**Goal:** 取得第一版用户可用长期记忆的生产安全与质量证据。
+**Dependencies:** Task 32 PASS。
 
-**Dependencies:** Task 37。
+**Bounds:** 不超过 200 Principals、500 Sessions、7 天；至少 24 小时；达到预注册最小证据量。任何 BPS 只可进一步缩小暴露。
 
-**Steps:**
-
-1. traffic 不超过 approved cap 和 1%；
-2. 至少 24 小时和 200 consumption calls；
-3. 监控所有 C1 hard stops；
-4. error delta≤0.5 percentage points；
-5. P95 latency≤baseline×1.20；
-6. candidate disable/correct/delete outcomes；
-7. coarse relevance/usefulness 和 no-penalty metrics；
-8. fairness bucket insufficient 时禁止外推；
-9. scheduled end 恢复 disabled；
-10. sanitizer/Privacy/Security/Fairness review；
-11. 运行 three-state acceptance；
-12. 不因 PASS 自动扩容。
+**Checks:** 所有 C1-A hard stops；error/latency threshold；accept/edit/reject/disable outcomes；no-penalty；fairness bucket 不足时禁止外推；scheduled close；sanitizer；Privacy/Security/Fairness/Accessibility review。
 
 **Pass output:**
 
 ```text
-PRINCIPAL_MEMORY_CONSUMPTION_C1=PASS
+PRINCIPAL_MEMORY_ASSIST_C1A=PASS
 OBSERVATION_WINDOW=CLOSED
 CONFIGURATION_RESTORED=disabled
-MAX_VERIFIED_TRAFFIC_PERCENT=1
-SCORING_REPORT_KNOWLEDGE_ISOLATION=PASS
-EXPANSION_ABOVE_1_PERCENT=NOT_AUTHORIZED
+MAX_VERIFIED_PRINCIPALS=approved_observed_value
+MAX_VERIFIED_SESSIONS=approved_observed_value
+EXPANSION=NOT_AUTHORIZED
 ```
 
 ---
 
-## Task 39：关闭 C1、发布 Post-observation Evidence 并定义后续扩容边界
+## Task 34：发布 C1-A Post-observation Evidence 并关闭路线
 
-**Goal:** 形成完整证据闭环并停止在 1% 上限。
+**Dependencies:** Task 33。
 
-**Dependencies:** Task 38。
-
-**Steps:**
-
-1. 确认 C1 disabled、new injection=0、worker leasing stopped；
-2. 保留 facts/lifecycle/tombstones，不通过删除 migration 回滚；
-3. 发布 sanitized C1 observation 和 acceptance；
-4. pre-approval evidence 保持 immutable；
-5. clean RC full regression/remote reproduction；
-6. 汇总 candidate research、privacy、fairness 和 operational residual risks；
-7. 若 PASS，起草独立 5% plan；
-8. 若 CONTINUE，申请新 1% 窗口；
-9. 若 BLOCKED，修复后新 RC/新审批；
-10. 明确本计划不授权 5%、25%、50% 或 100%。
+**Steps:** 确认 assist disabled、new suggestion=0、leasing stopped；发布 sanitized observation/acceptance；保持 pre-approval immutable；clean RC/remote reproduction；记录 candidate research、privacy/fairness/operational residual risks；PASS/CONTINUE/BLOCKED 分流；不自动创建扩容授权。
 
 **Terminal output:**
 
 ```text
-LONG_TERM_MEMORY_C1_EVIDENCE=CLOSED
-EXPANSION_ABOVE_1_PERCENT=NOT_AUTHORIZED
+LONG_TERM_MEMORY_C1A_EVIDENCE=CLOSED
+C1B_NON_SCORED_PRACTICE=NOT_AUTHORIZED
+EXPANSION=NOT_AUTHORIZED
 GENERAL_AVAILABILITY=NOT_AUTHORIZED
 ```
 
 ---
 
-## 10. 晋级门禁总表
+## 11. 晋级门禁总表
 
 | From | To | Required gate |
 |---|---|---|
-| Budget tooling ready | Budget production window | 五角色批准、exact preflight PASS |
-| Budget window | Budget PASS | closed、restored、≥24h、≥200、hard stop=0 |
-| Budget PASS | Product control plane | authenticated identity、Consent、user rights |
-| Control plane | Write approval | Task 10 PASS、new RC/bundle |
-| Write warm-up | Write observation | ≥30m、≥20、hard stop=0 |
-| Write observation | Write PASS | ≥24h、≥200、quality/delete/restore PASS |
-| Write PASS | Read approval | new RC/bundle/five-role approval |
-| Read warm-up | Read observation | zero injection、≥30m、≥20 |
-| Read observation | Read PASS | ≥24h、≥200、Prompt/business equality、fairness review |
-| Read PASS | Spec v1 | PMC-001 至 PMC-010 全部映射、open decisions closed |
-| Spec v1 | Implementation | external implementation authorization |
-| Implementation | C1 Staging | complete test matrix |
-| C1 Staging | C1 production approval | Staging PASS、new RC/bundle、independent approvals |
-| C1 0.1% | C1 1% | warm-up PASS、hard stop=0 |
-| C1 closed | C1 PASS | ≥24h、≥200、restored、privacy/security/fairness PASS |
-| C1 PASS | 5% planning | new plan only；no automatic authorization |
+| Local V1 | Hosted work | Productization ADR GO |
+| ADR | Principal implementation | Data-use Spec v1 approved |
+| Budget/Control branches | Write approval | Budget PASS + Control Foundation PASS |
+| Write tooling | Write window | exact RC + independent approval + preflight PASS |
+| Write observation | Write PASS | closed + quality + Consent/delete/restore PASS |
+| Write PASS | Read approval | runtime single-axis PASS + new RC/approval |
+| Read observation | Read PASS | proposal=0 + Prompt/business zero-injection + fairness review |
+| Read PASS | C1-A implementation | C1-A Spec v1 approved |
+| C1-A implementation | Staging PASS | full runtime/browser/PG/privacy/fairness matrix |
+| Staging PASS | C1-A production | new RC + independent approval + absolute caps |
+| Warm-up | Canary | warm-up PASS; no automatic ramp on insufficient evidence |
+| Canary | Closed PASS | disabled first + evidence verified |
+| Closed PASS | Any expansion/C1-B | new plan and new authorization only |
 
 ---
 
-## 11. 回滚矩阵
+## 12. 回滚矩阵
 
 | Failure | Immediate action | Data/lifecycle action | Next authorization |
 |---|---|---|---|
-| Approval absent/pending | HOLD | no data change | obtain valid record |
-| Approval expired/revoked | STOP_NOW | preserve aggregate evidence | new window |
-| Revision/scope mismatch | STOP_NOW | no migration rollback | new RC/approval |
-| Identity ambiguous | memory fail-closed | no read/write | fix identity contract |
-| Account takeover/recovery risk | disable all Principal Memory | freeze affected mappings | security incident + reapproval |
-| Cross-Principal access | disable all Principal Memory | preserve minimal incident/tombstone evidence | privacy/security incident |
-| Consent missing/revoked | stop operation | queue required purge | new explicit Consent only |
-| Disable SLA breach | kill switch | stop leasing, verify zero new operations | fix + new RC |
-| Automatic active fact | stop Write | revoke/terminalize unsafe fact | privacy/security review |
-| Free-text/private fact | stop Write | reject/purge proposal | taxonomy/extractor fix |
-| Proposal quality below gate | close Write | proposals remain unconfirmed | new observation |
-| Delete residue | disable Write/Read/C1 | continue purge/tombstone | no advancement |
-| Backup resurrection | restored copy gets no traffic | replay tombstones and re-query | operations/privacy approval |
-| Read Prompt mutation | stop Read | deterministic context restored | new RC |
-| Read score/report difference | stop Read | preserve equality evidence | fairness/security review |
-| Conflict selected | stop Read/C1 | exclude all conflict values | selector fix |
-| Stale/deleted source selected | stop Read/C1 | mark ineligible | lifecycle fix |
-| Non-C1 fact consumed | kill C1 | revoke assignment, audit facts | new Spec/RC |
-| Marker/disclosure missing | kill C1 | deterministic fallback | UX/privacy fix |
-| Current evidence overridden | kill C1 | deterministic fallback | interview quality/fairness review |
-| Knowledge/embedding mutation | disable all Principal Memory | purge contamination and verify corpus | security incident |
-| Private metrics artifact | stop window | quarantine/delete artifact | privacy review |
-| Metrics incomplete | STOP or CONTINUE | keep deterministic path | new window if needed |
-| Traffic cap exceeded | STOP_NOW | no new assignment | incident + new approval |
-| Error/latency regression | STOP_NOW | deterministic fallback | performance fix/new RC |
-| Production code defect | STOP_NOW | do not hotfix in window | new RC/full regression |
+| ADR NO_GO | stop plan | keep Local V1 | new product decision |
+| Data-use/Provider policy absent | hold | no real Principal processing | complete approvals |
+| Auth/recovery ambiguity | disable Principal Memory | freeze affected bindings | security review |
+| Cross-Principal access | disable all Principal Memory | preserve minimal incident evidence | privacy/security incident + new RC |
+| Async owner mismatch | stop phase | no operation; inspect affected events | fix + reapproval |
+| Consent missing/revoked | stop operation | apply purpose-specific effect | new explicit Consent only |
+| fact_storage revoke/delete residue | disable all phases | purge + tombstone replay | no advancement |
+| Null/test production component | startup/preflight fail | no data operation | correct RC |
+| Provider policy/config mismatch | stop Write | no new proposal | Legal/Security approval |
+| Automatic active/free-text fact | stop Write | reject/purge unsafe proposal | extractor fix + new RC |
+| Read Write gate enabled | startup/preflight fail | no read | runtime/config fix |
+| Read proposal/outbox/extractor event | stop Read | quarantine event; verify no active fact | incident + new RC |
+| Read Prompt/business mutation | stop Read | deterministic path restored | isolation fix + new RC |
+| C1-A memory fact in Provider | kill C1-A | deterministic default/manual path | privacy/security fix |
+| Unconfirmed suggestion applied | kill C1-A | revert session to explicit/default setting | product/privacy review |
+| Accessibility sent to Provider | kill C1-A | purge artifact if any | privacy/accessibility review |
+| Same-input parity mismatch | kill C1-A | preserve aggregate evidence | interview quality/fairness review |
+| Knowledge contamination | disable all phases | purge and verify corpus/index | security incident |
+| Disable/delete SLA breach | kill switch | stop leasing; continue purge | new RC |
+| Absolute cap exceeded | STOP_NOW | no new assignment | incident + new approval |
+| Metrics incomplete/private | stop window | quarantine/delete artifact | privacy review |
+| Sample insufficient | close as CONTINUE | preserve safe aggregate | new approved window |
+| Production code defect | STOP_NOW | no hotfix in window | new RC/full regression |
 | Scheduled end | disable first | retain legitimate facts/tombstones | acceptance only |
-| Sample insufficient | close as CONTINUE | preserve aggregates | new approved window |
-| Rollback not verified | incident remains open | no next phase | operations/security clearance |
 
 ---
 
-## 12. 风险登记
+## 13. 风险登记
 
-| Risk | Severity | Mitigation | Required evidence |
+| Risk | Severity | Primary mitigation | Required evidence |
 |---|---|---|---|
-| Identity collision | Critical | issuer/subject HMAC + exact deployment keys | collision/cross-issuer tests |
-| Account takeover | Critical | approved auth/recovery + no auto inherit | threat model/penetration tests |
-| Consent dark pattern | Critical | default off、purpose split、no penalty | UX/comprehension audit |
-| Consent TOCTOU | Critical | operation-time re-read + barrier | concurrent revoke tests |
-| Disable race | Critical | next-assembly + 60s SLO | timed race tests |
-| Cross-Principal cache leakage | Critical | full cache identity key | concurrency/collision tests |
-| Historical anchoring | Critical | current session wins、C1 allowlist | conflict/equality review |
-| Protected-class proxy | Critical | direct declaration、fairness review | proxy/disparate-impact fixtures |
-| Prompt injection | High | canonical renderer + fixed marker | adversarial suite |
-| Hidden personalization | High | visible indicator/explanation | browser/accessibility tests |
-| Stale/conflicting fact | High | freshness/source/conflict exclusion | lifecycle fixtures |
-| Automatic confirmation | Critical | proposed-only model authority | state transition tests |
-| Public Knowledge contamination | Critical | separate dependencies/store | source/firewall audit |
-| Scoring/report influence | Critical | structural isolation | exact equality tests |
-| Incomplete deletion | Critical | purge + tombstone replay | residue/restore drills |
-| Backup resurrection | Critical | replay before traffic | repeated restore tests |
-| Observation re-identification | High | low-cardinality suppression | artifact privacy audit |
-| Provider retention | Critical | approved provider policy + minimal block | Legal/Security review |
-| Canary drift | High | sticky assignment/version | deterministic assignment tests |
-| Rollback failure | Critical | central kill switch + zero post-stop | timed rollback drill |
-| Config conflict | High | canonical-only fail-closed | config tests/preflight |
-| Moving master vs approved revision | High | deploy exact immutable SHA | remote reproduction |
-| External approval leakage | High | record remains outside Git | source/artifact scans |
-| Low sample false PASS | High | CONTINUE state | sample gate tests |
-| Fairness underpowered | High | mark insufficient, no extrapolation | bucket counts/review |
-| User correction misuse | High | terminal predecessor exclusion | correction/export tests |
-| Excessive retention | High | approved retention and delete SLO | lifecycle metrics |
-| UX accessibility failure | High | WCAG/browser review | accessibility suite |
-| Migration rollback misuse | High | forward-compatible disable | migration/restore tests |
-| Scope expansion by configuration | Critical | phase-specific mode/gate | preflight/config matrix |
-
----
-
-## 13. Traceability
-
-本计划不创建新的 `MEM-*` requirement ID。它引用：
-
-- Memory Optimization Spec §15、§16、§17、§18、§19、§21、§22；
-- 既有 Principal Memory foundation contracts；
-- `principal-memory-consumption-spec.md` 的 PMC-001 至 PMC-010；
-- `principal-memory-consumption-risk-review.md`；
-- production approval/change-preflight/evidence manifest contracts；
-- Write/Read Shadow Staging runbooks 和 proposal review protocol。
-
-PMC requirements 映射：
-
-| Requirement | Tasks |
-|---|---|
-| PMC-001 Authenticated Principal | 3、4、10、34 |
-| PMC-002 Default-off purpose Consent | 5、7、10、31、34 |
-| PMC-003 View/correct/revoke/delete/export | 6、7、9、34 |
-| PMC-004 Ignore/Disable | 8、31、34、37 |
-| PMC-005 Visible indicator/explanation | 29、31、35、37 |
-| PMC-006 Rights/restore SLO | 8、9、17、33、34 |
-| PMC-007 Production approvals | 13、20、26、36 |
-| PMC-008 Independent canary/rollback | 33、36、37、38 |
-| PMC-009 Score/report isolation | 23、32、34、38 |
-| PMC-010 Knowledge/deletion/metrics/isolation | 17、23、32、33、34 |
-
-Production-specific schema names和 gate codes 是实现契约，不是新产品 requirement ID。
+| Hosted scope not approved | Critical | Productization ADR | signed GO/NO_GO record |
+| Identity collision/rotation orphan | Critical | stable random ID + alias mapping | rotation/collision tests |
+| Account takeover/recovery misbind | Critical | explicit proof + no auto inherit | threat/penetration tests |
+| Global user singleton leakage | Critical | request scope + immutable owner | concurrency/source audit |
+| Async worker identity drift | Critical | owner binding + operation recheck | retry/delay/race tests |
+| Consent dark pattern/confusion | Critical | purpose split + plain language | comprehension audit |
+| Consent TOCTOU | Critical | operation-time read | concurrent revoke tests |
+| Provider retention/training | Critical | Data-use Spec + DPA/config | Legal/Security evidence |
+| Null extractor false success | Critical | startup/preflight prohibition | runtime wiring tests |
+| Read secretly writes | Critical | single-axis runtime invariant | proposal/outbox zero tests |
+| Automatic confirmation | Critical | proposed-only transitions | DB/state tests |
+| Cross-Principal cache | Critical | full owner key | concurrency tests |
+| Historical anchoring | Critical | C1-A no prompt injection | provider payload audit |
+| Accessibility misuse | Critical | direct declaration + UI-only | source/browser audit |
+| Scoring/report influence | Critical | same-input structural parity | exact parity tests |
+| Knowledge contamination | Critical | dependency/store firewall | source/index audit |
+| Incomplete deletion/restore | Critical | purge + tombstone replay | residue drills |
+| Observation re-identification | High | low-cardinality suppression | artifact audit |
+| Percentage/sample mismatch | High | absolute caps + preregistration | window protocol |
+| Canary drift | High | versioned sticky assignment | deterministic tests |
+| Underpowered fairness | High | no extrapolation | bucket sufficiency review |
+| Config axis conflict | Critical | matrix + preflight fail-closed | config tests |
+| Approval leakage/reuse | High | external records + phase binding | artifact/source scan |
 
 ---
 
 ## 14. Definition of Done
 
-本计划只有在以下 50 项全部满足后，才能称为完成：
+本计划只有在以下条件全部满足后才完成：
 
-1. Task 0 执行时基线和 worktree ownership 已记录；
-2. 用户已有修改未被覆盖、清理或错误提交；
-3. Production Budget Shadow 已关闭并输出 PASS；
-4. Budget post-observation evidence 通过 Privacy/Security audit；
-5. authenticated Principal 不使用 PII 或 inferred identity；
-6. account recovery 不自动继承 memory；
-7. Consent 四个 purpose 独立、versioned、default off；
-8. Consent 在每次 operation 时重新读取；
-9. authenticated self-service API 通过 authorization/CSRF/enumeration tests；
-10. Candidate Memory Center 通过 accessibility/no-dark-pattern review；
+1. 执行基线和用户文件 ownership 已冻结；
+2. Hosted Productization ADR 为 GO；
+3. Production Data-use Spec v1 已获所需批准；
+4. Budget Shadow 已关闭并 PASS；
+5. 完整 OIDC auth/session/CSRF/logout/re-auth 已验收；
+6. stable random Principal ID 在 HMAC rotation 前后不变；
+7. request-scoped Principal 与 async owner binding 通过并发测试；
+8. 四 purpose Consent 独立、versioned、default off；
+9. fact_storage revoke 的 purge/tombstone 语义已实现；
+10. self-service、Memory Center 和 no-dark-pattern review PASS；
 11. view/confirm/correct/revoke/delete/export 全部可用；
-12. ignore-for-session 是 sticky；
-13. disable-now 在下一 assembly 且 60 秒内生效；
-14. decline/ignore/disable/correct/delete/export 均无评分或功能惩罚；
-15. online delete 在批准 SLO 内完成；
-16. backup restore tombstone replay residue=0；
-17. Write production tooling 是 offline allowlisted sanitizer/evaluator；
-18. Write RC、manifest、bundle 和 remote reproduction 通过；
-19. Write external approval/preflight 绑定 exact revision/scope/window/traffic；
-20. Write warm-up 达到 30 分钟和 20 样本；
-21. Write observation 达到 24 小时和 200 样本；
-22. Write hard invariants 全为 0；
-23. 所有 model outputs 保持 proposed；
-24. Production proposal quality gate PASS；
-25. Write Consent/delete/restore drills PASS；
-26. Write window 已关闭且配置恢复 disabled；
-27. Read production tooling/RC/approval 独立于 Write；
-28. Read warm-up 达到 30 分钟和 20 样本；
-29. Read observation 达到 24 小时和 200 样本；
-30. Read Prompt/Provider Context mutation=0；
-31. Read question/score/report/evidence/API difference=0；
-32. conflict/stale/revoked/deleted/unconfirmed selection=0；
-33. Read window 已关闭且配置恢复 disabled；
-34. Consumption Spec v1 已解决全部 open decisions；
-35. PMC-001 至 PMC-010 均有命名测试和批准 owner；
-36. C1 allowlist 仅包含四个批准 categories；
-37. confirmed_skill 在 C1 被拒绝；
-38. C1 selector 固定 max 3 facts/max 120 tokens；
-39. Prompt marker 和 placement 精确；
-40. C1 只集成 follow-up context assembly；
-41. Scoring、report、Knowledge 和 embeddings 结构隔离；
-42. Consumption metrics 低基数且无 private fields；
-43. kill switch timed rollback 和 zero post-stop injection PASS；
-44. 完整 unit/PG/browser/security/privacy/fairness matrix PASS；
-45. Isolated Staging Consumption PASS；
-46. C1 使用独立 RC、bundle 和外部批准；
-47. C1 0.1% warm-up PASS；
-48. C1 1% window 达到 24 小时和 200 calls，hard stop=0；
-49. C1 scheduled close 后配置恢复 disabled，post-observation evidence verified；
-50. 最终仍明确 `EXPANSION_ABOVE_1_PERCENT=NOT_AUTHORIZED` 和 `GENERAL_AVAILABILITY=NOT_AUTHORIZED`。
+12. Correct 原子事务和 exclusive active unique constraint PASS；
+13. ignore sticky，disable/delete SLO 和 zero new operation PASS；
+14. backup restore tombstone replay residue=0；
+15. Production extractor/provider adapter 非 Null/test 且 fail-safe；
+16. Write 只生成 proposed facts；
+17. Write bounded window、quality 和 lifecycle gates PASS；
+18. Write 已关闭且配置 restored disabled；
+19. Read mode 的 Write gate=false；
+20. Read extractor/proposal/outbox operation=0；
+21. Read Prompt/Provider/question/score/report/API mutation=0；
+22. Read bounded window 和 fairness/privacy audit PASS；
+23. Read 已关闭且配置 restored disabled；
+24. C1-A Spec 明确 language prefill + confirmation 与 accessibility UI-only；
+25. C1-A 不消费 learning_goal、target_role_family、confirmed_skill；
+26. C1-A 历史 fact 不进入 Provider payload；
+27. 未确认 suggestion 对面试无影响；
+28. same-session-input score/evidence/report parity PASS；
+29. C1-A UI、accessibility、no-penalty 和 disable tests PASS；
+30. absolute caps、kill switch 和 zero post-stop assist PASS；
+31. Isolated Staging PASS；
+32. C1-A 使用独立 RC、批准和 preflight；
+33. Bounded Warm-up 与 Canary 均未突破 absolute caps；
+34. Production window 先关闭再形成三态结论；
+35. 最终仍明确 C1-B、扩容和 GA 未授权。
 
 ---
 
 ## 15. 稳定状态输出
 
-### 15.1 当前计划阶段
+### 15.1 当前
 
 ```text
+HOSTED_PRODUCTIZATION_DECISION=NOT_APPROVED
+PRODUCTION_DATA_USE_SPEC=NOT_APPROVED
 PRODUCTION_BUDGET_SHADOW=NOT_RUN
 PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED
 PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED
-PRINCIPAL_MEMORY_CONSUMPTION_SPEC=DRAFT
+PRINCIPAL_MEMORY_C1A_SPEC=DRAFT
 IMPLEMENTATION=NOT_AUTHORIZED
 PRODUCTION_CANARY=NOT_AUTHORIZED
 ```
@@ -1881,85 +1203,76 @@ PRODUCTION_CANARY=NOT_AUTHORIZED
 ```text
 PRINCIPAL_WRITE_SHADOW_PRODUCTION=PASS
 PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED
-LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
+PRINCIPAL_MEMORY_ASSIST_C1A=BLOCKED
 ```
 
 ### 15.3 Read PASS 后
 
 ```text
 PRINCIPAL_READ_SHADOW_PRODUCTION=PASS
-PROMPT_BUSINESS_ZERO_INJECTION=PASS
-PRINCIPAL_MEMORY_CONSUMPTION_SPEC=READY_FOR_FINAL_REVIEW
-IMPLEMENTATION=NOT_AUTHORIZED
+READ_ZERO_INJECTION=PASS
+PRINCIPAL_MEMORY_C1A_SPEC=READY_FOR_FINAL_REVIEW
 PRODUCTION_CANARY=NOT_AUTHORIZED
 ```
 
-### 15.4 C1 Staging PASS 后
+### 15.4 C1-A Staging PASS 后
 
 ```text
-PRINCIPAL_MEMORY_C1_STAGING=PASS
+PRINCIPAL_MEMORY_C1A_STAGING=PASS
+C1A_PROVIDER_AND_DECISION_ISOLATION=PASS
 PRODUCTION_CANARY=NOT_AUTHORIZED
-EXTERNAL_C1_APPROVAL_REQUIRED
+EXTERNAL_C1A_APPROVAL_REQUIRED
 ```
 
-### 15.5 C1 Production PASS 后
+### 15.5 C1-A Production PASS 后
 
 ```text
-PRINCIPAL_MEMORY_CONSUMPTION_C1=PASS
-MAX_VERIFIED_TRAFFIC_PERCENT=1
+PRINCIPAL_MEMORY_ASSIST_C1A=PASS
 OBSERVATION_WINDOW=CLOSED
 CONFIGURATION_RESTORED=disabled
-EXPANSION_ABOVE_1_PERCENT=NOT_AUTHORIZED
+EXPANSION=NOT_AUTHORIZED
+C1B_NON_SCORED_PRACTICE=NOT_AUTHORIZED
 GENERAL_AVAILABILITY=NOT_AUTHORIZED
 ```
 
 ---
 
-## 16. 5% 以上后续路线（不属于本计划授权）
+## 16. 后续路线（不属于本计划授权）
 
-只有 Task 39 完成且 C1 PASS 后，下一计划才可以评估：
+### C1-B：非评分练习模式
 
-```text
-1% → 5% → 25% → 50% → 100%
-```
+未来若要使用 `learning_goal` 或 `target_role_family` 改变追问，只能在明确的 non-scored practice mode 单独立项。新计划必须承认面试路径会改变，并重新定义质量、公平性、报告语义和 candidate research；不得复用 C1-A 的 same-input parity 作为充分证据。
 
-每一级都需要：
+### 扩容与 GA
 
-- 新 candidate research；
-- 新 fairness distribution review；
-- 新 privacy/security/operations approval；
-- 新 exact revision；
-- 新 traffic/window record；
-- 新 warm-up 和 rollback drill；
-- 新 post-observation acceptance；
-- 前一级配置先关闭并形成 evidence。
-
-任何一级出现 Critical/High safety issue 都回到 disabled，不降级为“继续带风险扩容”。General Availability 还需要长期 SLO、on-call、季度删除恢复演练、年度 Consent/公平性复审和 deprecation/exit plan。
+任何更大暴露需要新的真实流量分析、power analysis、absolute caps、候选人研究、fairness review、privacy/security/operations approval、exact RC、rollback drill 和 post-observation evidence。C1-A PASS 不自动授权 5%、25%、50%、100% 或 GA。
 
 ---
 
 ## 17. 最终边界
 
-本计划完整执行后最多可以证明：
+本计划最多可以证明：
 
 ```text
-经过 authenticated identity、candidate control、Write/Read production Shadow、
-Consumption Spec v1、完整实现与 Staging、独立生产批准和最大 1% C1 Canary，
-四类 user-confirmed、bounded、visible、non-authoritative preference
-可以仅在 follow-up context assembly 中安全使用，
-同时不改变 scoring、report、Knowledge 或招聘判断，
+在 Hosted Multi-user V2、真实认证、稳定 Principal、独立 Consent、候选人控制、
+Write/Read production Shadow 和独立有界 Canary 的前提下，
+user-confirmed interview language 可以作为可拒绝的预面试建议，
+user-confirmed accessibility preference 可以只作用于 UI/交互，
+历史 Principal fact 不直接进入 Provider、评分、报告、Knowledge 或招聘判断，
 并且 ignore、disable、correct、delete、restore 和 rollback 可执行。
 ```
 
-它仍然不能证明或授权：
+它不能证明或授权：
 
 ```text
+改变正式评分面试追问的长期记忆消费
+learning_goal / target_role_family production consumption
 confirmed_skill consumption
 自由文本长期记忆
-历史评分或回答复用
+历史评分、回答或报告复用
 隐式 personalization
 cross-Principal retrieval
-5% 以上流量
+任何未批准扩容
 General Availability
-长期记忆参与评分、报告或招聘判断
+长期记忆参与招聘判断
 ```
