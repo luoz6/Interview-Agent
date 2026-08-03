@@ -1,8 +1,10 @@
 # Interview Agent 生产 Budget Shadow 执行、观察与证据闭环计划
 
-**Plan revision:** v1.0-draft
+**Plan revision:** v1.1-draft
 
-**Baseline revision:** `b1559dadde4195449d1841322c4fe931984197dc`
+**Published baseline at plan authoring:** `b1559dadde4195449d1841322c4fe931984197dc`
+
+**Initial plan commit:** `87f25689d798c6e531dbdc5eea5bcc86ad7c049a`
 
 **Document type:** Implementation Plan / How-to + Reference
 
@@ -11,6 +13,8 @@
 **Primary goal:** 在不启用 Budget enforcement、Compression consumption、Question Memory consumption 或 Principal Memory 的前提下，把 Production Budget Shadow 从外部审批推进到受控观察、强制关闭和可审计结论。
 
 **Status at authoring:** `APPROVAL_STATUS=PENDING`、`EXTERNAL_APPROVAL_RECORD=ABSENT`、`PRODUCTION_OBSERVATION=NOT_RUN`。
+
+**v1.1 review amendments:** 把发布基线、初始 plan commit 和 Task 0 动态执行基线分开；为 17 项明确排除、14 个立即 hard stop、12 个安全配置键、12 项固定决策、回滚矩阵和 25 项 Definition of Done 增加完整契约测试；Task 标题同时接受全角/半角冒号；requirement ID 审计覆盖连字符、下划线和大小写变体；并把 `EXTERNAL_APPROVAL_RECORD=ABSENT` 约束在作者时状态上下文，而不是把它误写为所有未来阶段的永久状态。
 
 > **授权边界：** 本计划本身不授权生产变更。Task 0～Task 6 是审批前仓库工作；Task 7 以后只有在仓库外正式审批记录存在、精确 revision-bound change preflight 返回 `PASS`、目标环境和窗口均匹配时才能执行。通用仓库操作权限不能替代 Change Owner、Operations、Privacy、Security 和 Fairness 的独立批准。
 
@@ -41,15 +45,15 @@ Production 结果契约与离线验收器
 
 ## 2. 当前基线
 
-### 2.1 已完成状态
+### 2.1 作者时发布基线与计划提交状态
 
-当前发布 revision：
+本计划开始编写时，已经发布并完成远端复现的产品基线为：
 
 ```text
 b1559dadde4195449d1841322c4fe931984197dc
 ```
 
-当前远端状态：
+在初始 plan commit 创建之前，该发布基线满足：
 
 ```text
 origin/master == HEAD
@@ -57,7 +61,18 @@ ahead=0
 behind=0
 ```
 
-当前机器验收：
+初始计划文档提交后，状态变为：
+
+```text
+HEAD=87f25689d798c6e531dbdc5eea5bcc86ad7c049a
+origin/master=b1559dadde4195449d1841322c4fe931984197dc
+ahead=1
+behind=0
+```
+
+以上是可审计的历史快照，不是 Task 0 执行时必须继续成立的动态断言。本计划的 review amendment、后续 tooling commit 和 evidence commit 都会继续推进 `HEAD`。Task 0 必须读取执行当时的实际 `HEAD`、`origin/master` 和 ahead/behind，记录为 `EXECUTION_START_HEAD`；不得硬编码或期待 `HEAD=b1559da`。
+
+该作者时发布基线的机器验收：
 
 ```text
 1590 passed
@@ -72,7 +87,7 @@ LONG_TERM_MEMORY_CONSUMPTION=BLOCKED
 PRODUCTION_OBSERVATION=NOT_RUN
 ```
 
-当前 evidence manifest：
+该作者时发布基线的 evidence manifest：
 
 ```text
 schema_version=memory-production-shadow-evidence-manifest-v2
@@ -83,7 +98,7 @@ handoff_revision=b1559dadde4195449d1841322c4fe931984197dc
 bundle_sha256=dc29fc052fc536aedafd8f02694f53d1d4dd7e00bcd0efdf49b4d7b627cf31d8
 ```
 
-当前 PENDING 审查包：
+该作者时发布基线的 PENDING 审查包：
 
 ```text
 archive=interview-agent-memory-budget-shadow-review-PENDING-b1559da.zip
@@ -165,6 +180,7 @@ depth 2 → MEMORY_PRODUCTION_SHADOW_EVIDENCE_MANIFEST=VERIFIED
 - 在聚合 evidence 中保存 session/principal/fact/question/message/artifact locator；
 - 把 `b1559da` 的 PENDING metadata 当作审批记录；
 - Production Budget Shadow PASS 后自动进入 Write Shadow；
+- 在已批准窗口内热修 production code、切换 revision 或复用旧审批；
 - 本计划内实现 Consumption Spec。
 
 ---
@@ -472,7 +488,7 @@ git status --short
 git rev-list --left-right --count origin/master...HEAD
 ```
 
-预期基线为 `b1559da`，但 Task 1～Task 5 会产生新的审批 revision。
+`PUBLISHED_BASELINE_AT_PLAN_AUTHORING` 固定为 `b1559da`，`INITIAL_PLAN_COMMIT` 固定为 `87f2568`；`EXECUTION_START_HEAD` 必须取本步骤的实际输出。Task 1～Task 5 还会产生新的审批 revision，因此 Task 0 不得断言当前 `HEAD` 仍等于任一历史基线。
 
 **Step 2：文件所有权**
 
