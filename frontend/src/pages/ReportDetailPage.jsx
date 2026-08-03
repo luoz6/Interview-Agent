@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
+  ArrowClockwise,
   CaretDown,
   ChartBar,
   ChatCircleDots,
@@ -11,7 +11,6 @@ import {
   Database,
   DownloadSimple,
   FileText,
-  Files,
   Info,
   Lightbulb,
   ListChecks,
@@ -21,6 +20,7 @@ import {
   SpinnerGap,
   Target,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import { downloadFile, getJson } from "../api/client";
 import { usePageMeta } from "../hooks/usePageMeta";
@@ -57,6 +57,42 @@ function scoreBand(score) {
   return { label: "建议重点练习", tone: "attention" };
 }
 
+function usePrefersReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = (event) => setReducedMotion(event.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return reducedMotion;
+}
+
+function AnimatedScore({ score, reducedMotion }) {
+  const scoreRef = useRef(null);
+  useEffect(() => {
+    const node = scoreRef.current;
+    if (!node) return undefined;
+    if (reducedMotion) {
+      node.textContent = String(score);
+      return undefined;
+    }
+    node.textContent = "0";
+    const startedAt = performance.now();
+    const duration = 680;
+    let frame;
+    const tick = (now) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - ((1 - progress) ** 3);
+      node.textContent = String(Math.round(score * eased));
+      if (progress < 1) frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [reducedMotion, score]);
+  return <strong ref={scoreRef}>{reducedMotion ? score : 0}</strong>;
+}
+
 function StatusBarItem({ icon: ItemIcon, label, value, state = "idle", current = false }) {
   return (
     <span className={current ? "start-status-current" : undefined} data-state={state}>
@@ -87,8 +123,20 @@ function ReportNotice({ notice, onDismiss }) {
     <div className={`start-notice start-notice-${tone} report-detail-notice`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
       <span className="start-notice-icon" aria-hidden="true"><NoticeIcon size={18} weight={tone === "info" ? "bold" : "fill"} /></span>
       <div><strong>{notice.title}</strong><p>{notice.text}</p></div>
-      {onDismiss && <button type="button" onClick={onDismiss} aria-label="关闭提示">×</button>}
+      {onDismiss && <button type="button" onClick={onDismiss} aria-label="关闭提示"><X size={15} weight="bold" aria-hidden="true" /></button>}
     </div>
+  );
+}
+
+function ReportSectionHeading({ icon: HeadingIcon, eyebrow, title, titleId, meta }) {
+  return (
+    <header className="report-detail-section-head">
+      <div className="report-detail-section-heading-copy">
+        <span className="report-detail-section-icon" aria-hidden="true"><HeadingIcon size={18} weight="duotone" /></span>
+        <div><span className="report-detail-section-eyebrow">{eyebrow}</span><h2 id={titleId}>{title}</h2></div>
+      </div>
+      <p>{meta}</p>
+    </header>
   );
 }
 
@@ -124,8 +172,9 @@ function FeedbackItem({ feedback, index }) {
   const score = Number(feedback.score) || 0;
   const band = scoreBand(score);
   const skipped = ["skipped", "unanswered"].includes(feedback.answer_state);
+  const [open, setOpen] = useState(index === 0);
   return (
-    <details className="report-detail-feedback" open={index === 0} style={{ "--feedback-index": index }}>
+    <details className="report-detail-feedback" open={open} onToggle={(event) => setOpen(event.currentTarget.open)} style={{ "--feedback-index": index }}>
       <summary>
         <span className="report-detail-feedback-index">{String(index + 1).padStart(2, "0")}</span>
         <div className="report-detail-feedback-title">
@@ -181,6 +230,7 @@ export function ReportDetailPage() {
   });
   const sessionId = useSessionId();
   const workspaceScrollRef = useRef(null);
+  const reducedMotion = usePrefersReducedMotion();
   const [report, setReport] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
   const [agentRuns, setAgentRuns] = useState([]);
@@ -188,19 +238,24 @@ export function ReportDetailPage() {
   const [state, setState] = useState("loading");
   const [notice, setNotice] = useState(null);
   const [currentSection, setCurrentSection] = useState("overview");
-  const [downloading, setDownloading] = useState(false);
+  const [downloadState, setDownloadState] = useState("idle");
+  const [reloadGeneration, setReloadGeneration] = useState(0);
 
   useEffect(() => {
     if (!sessionId) {
       setState("error");
       setNotice({ tone: "danger", title: "缺少报告标识", text: "缺少 session_id，无法加载报告。请返回报告中心重新选择。" });
-      return;
+      return undefined;
     }
+    const controller = new AbortController();
+    setState("loading");
+    setNotice(null);
+    setReport(null);
     Promise.all([
-      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/report`, { cache: "no-store" }),
-      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/question-evaluations`, { cache: "no-store" }).catch(() => ({ items: [] })),
-      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/agent-runs?limit=100`, { cache: "no-store" }).catch(() => ({ items: [] })),
-      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/runtime-events?limit=100`, { cache: "no-store" }).catch(() => ({ items: [] })),
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/report`, { cache: "no-store", signal: controller.signal }),
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/question-evaluations`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [] }; }),
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/agent-runs?limit=100`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [] }; }),
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/runtime-events?limit=100`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [] }; }),
     ]).then(([reportPayload, evaluationPayload, runPayload, eventPayload]) => {
       if (reportPayload.status === "processing") {
         window.location.replace(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
@@ -212,10 +267,12 @@ export function ReportDetailPage() {
       setRuntimeEvents(eventPayload.items || []);
       setState(reportPayload.is_fallback ? "fallback" : "completed");
     }).catch((error) => {
+      if (error.name === "AbortError") return;
       setState("error");
       setNotice({ tone: "danger", title: "报告读取失败", text: error.message });
     });
-  }, [sessionId]);
+    return () => controller.abort();
+  }, [reloadGeneration, sessionId]);
 
   useEffect(() => {
     document.body.dataset.reportState = state;
@@ -232,6 +289,34 @@ export function ReportDetailPage() {
     sections.forEach((section) => observer.observe(section));
     return () => observer.disconnect();
   }, [report]);
+
+  useEffect(() => {
+    if (!report || !workspaceScrollRef.current) return undefined;
+    const elements = [...workspaceScrollRef.current.querySelectorAll("[data-report-reveal]")];
+    if (reducedMotion || typeof IntersectionObserver === "undefined") {
+      elements.forEach((element) => { element.dataset.revealed = "true"; });
+      return undefined;
+    }
+    const mobile = window.matchMedia("(max-width: 767px)").matches;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.dataset.revealed = "true";
+        observer.unobserve(entry.target);
+      });
+    }, { root: mobile ? null : workspaceScrollRef.current, rootMargin: "0px 0px -10% 0px", threshold: 0.08 });
+    elements.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [report, reducedMotion]);
+
+  useEffect(() => {
+    if (downloadState !== "success") return undefined;
+    const timer = window.setTimeout(() => {
+      setDownloadState("idle");
+      setNotice((current) => current?.tone === "success" ? null : current);
+    }, 2600);
+    return () => window.clearTimeout(timer);
+  }, [downloadState]);
 
   const feedbacks = report?.feedbacks || [];
   const dimensions = report?.overall_dimension_scores || {};
@@ -253,21 +338,29 @@ export function ReportDetailPage() {
   }, [feedbacks]);
 
   async function download() {
-    if (!sessionId || downloading) return;
-    setDownloading(true);
+    if (!sessionId || downloadState === "loading") return;
+    setDownloadState("loading");
     setNotice(null);
     try {
       await downloadFile(`/api/interviews/${encodeURIComponent(sessionId)}/report.pdf`, `interview-report-${sessionId}.pdf`);
+      setDownloadState("success");
       setNotice({ tone: "success", title: "下载已开始", text: "PDF 正在保存到浏览器的默认下载位置。" });
     } catch (error) {
+      setDownloadState("error");
       setNotice({ tone: "danger", title: "PDF 下载失败", text: error.message });
-    } finally {
-      setDownloading(false);
     }
+  }
+
+  function retryReport() {
+    if (!sessionId) return;
+    setReloadGeneration((generation) => generation + 1);
   }
 
   const reportReady = Boolean(report);
   const activeSectionLabel = reportSections.find(({ id }) => id === currentSection)?.label || "总览";
+  const downloading = downloadState === "loading";
+  const DownloadStateIcon = downloading ? SpinnerGap : downloadState === "success" ? CheckCircle : downloadState === "error" ? WarningCircle : DownloadSimple;
+  const downloadLabel = downloading ? "正在准备 PDF" : downloadState === "success" ? "下载已开始" : downloadState === "error" ? "重试下载" : "下载 PDF";
 
   return (
     <div className="start-app-root report-detail-app" data-report-state={state} data-score-tone={band.tone}>
@@ -306,43 +399,46 @@ export function ReportDetailPage() {
           <div className="start-editor-commandbar report-detail-commandbar">
             <div className="report-detail-command-context"><FileText size={16} weight="duotone" aria-hidden="true" /><span>报告编号</span><code>{sessionId ? sessionId.slice(0, 8) : "未提供"}</code></div>
             <div className="report-detail-command-state" data-state={state}><span aria-hidden="true">{state === "loading" ? <SpinnerGap className="start-spinner" size={15} weight="bold" /> : state === "error" ? <WarningCircle size={15} weight="fill" /> : <CheckCircle size={15} weight="fill" />}</span><strong>{stateLabels[state] || state}</strong></div>
-            <button className="button start-tool-button report-detail-download-tool" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} onClick={download}>
-              {downloading ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" /> : <DownloadSimple size={16} weight="bold" aria-hidden="true" />}<span>{downloading ? "正在准备 PDF" : "下载 PDF"}</span>
+            <button className="button start-tool-button report-detail-download-tool" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} data-state={downloadState} onClick={download}>
+              <DownloadStateIcon className={downloading ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{downloadLabel}</span>
             </button>
           </div>
 
           <div ref={workspaceScrollRef} className="report-detail-workspace-scroll">
-            <ReportNotice notice={notice} onDismiss={notice?.tone === "success" ? () => setNotice(null) : undefined} />
+            {state !== "error" && <ReportNotice notice={notice} onDismiss={reportReady && notice ? () => { setNotice(null); if (!downloading) setDownloadState("idle"); } : undefined} />}
             {state === "loading" && <ReportSkeleton />}
             {state === "error" && (
               <section className="report-detail-error" role="alert">
                 <WarningCircle size={26} weight="fill" aria-hidden="true" />
-                <h2>报告暂时无法读取</h2><p>确认报告任务已经完成，或返回报告中心查看任务状态。</p>
-                <button className="button start-button button-primary" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>返回报告中心</span></button>
+                <h2>报告暂时无法读取</h2><p>{notice?.text || "确认报告任务已经完成，或返回报告中心查看任务状态。"}</p>
+                <div className="report-detail-error-actions">
+                  {sessionId && <button className="button start-button button-primary" type="button" onClick={retryReport}><ArrowClockwise size={17} weight="bold" aria-hidden="true" /><span>重新加载</span></button>}
+                  <button className="button start-button start-inspector-secondary" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>返回报告中心</span></button>
+                </div>
               </section>
             )}
 
             {reportReady && <>
               {state === "fallback" && <ReportNotice notice={{ tone: "warning", title: "使用降级生成路径", text: "这份报告使用全会话降级路径完成。分数和反馈仍来自真实会话，但逐题证据复用链路未完全可用。" }} />}
 
-              <section id="overview" className="report-detail-section report-detail-overview" aria-labelledby="report-overview-title">
+              <section id="overview" className="report-detail-section report-detail-overview" aria-labelledby="report-overview-title" data-report-reveal style={{ "--reveal-order": 0 }}>
                 <div className="report-detail-overview-copy">
                   <span className="report-detail-eyebrow">本轮结论</span>
                   <h2 id="report-overview-title">{band.label}</h2>
                   <p>{report.summary || "当前报告没有返回总结，请继续查看逐题评分依据。"}</p>
                 </div>
                 <div className="report-detail-score-mark" data-tone={band.tone} style={{ "--report-score": score }} aria-label={`综合评分 ${score} 分，${band.label}`}>
-                  <span><strong>{score}</strong><small>/100</small></span>
+                  <span><AnimatedScore score={score} reducedMotion={reducedMotion} /><small>/100</small></span>
                 </div>
               </section>
 
-              <section className="report-detail-panel report-detail-dimension-panel" aria-labelledby="report-dimensions-title">
-                <header className="report-detail-section-head"><div><span>能力画像</span><h2 id="report-dimensions-title">五维评分</h2></div><p>数值由后端规则确认</p></header>
+              <section className="report-detail-panel report-detail-dimension-panel" aria-labelledby="report-dimensions-title" data-report-reveal style={{ "--reveal-order": 1 }}>
+                <ReportSectionHeading icon={ChartBar} eyebrow="能力画像" title="五维评分" titleId="report-dimensions-title" meta="数值由后端规则确认" />
                 <DimensionBars values={dimensions} />
               </section>
 
-              <section className="report-detail-panel report-detail-insight-panel" aria-labelledby="report-insights-title">
-                <header className="report-detail-section-head"><div><span>决策摘要</span><h2 id="report-insights-title">下一轮应该关注什么</h2></div><p>基于真实评分</p></header>
+              <section className="report-detail-panel report-detail-insight-panel" aria-labelledby="report-insights-title" data-report-reveal style={{ "--reveal-order": 2 }}>
+                <ReportSectionHeading icon={Target} eyebrow="决策摘要" title="下一轮应该关注什么" titleId="report-insights-title" meta="基于真实评分" />
                 <dl className="report-detail-insights">
                   <div><dt><ChartBar size={16} weight="duotone" aria-hidden="true" />相对优势</dt><dd>{strongestDimension ? `${strongestDimension.label} · ${strongestDimension.value}` : "暂无有效评分信号"}</dd></div>
                   <div><dt><Target size={16} weight="duotone" aria-hidden="true" />优先补强</dt><dd>{weakestDimension ? `${weakestDimension.label} · ${weakestDimension.value}` : "先完成可评估回答"}</dd></div>
@@ -350,8 +446,8 @@ export function ReportDetailPage() {
                 </dl>
               </section>
 
-              <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title">
-                <header className="report-detail-section-head"><div><span>逐题账本</span><h2 id="report-questions-title">逐题反馈</h2></div><p>{feedbacks.length} 道题</p></header>
+              <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title" data-report-reveal style={{ "--reveal-order": 3 }}>
+                <ReportSectionHeading icon={ChatCircleDots} eyebrow="逐题账本" title="逐题反馈" titleId="report-questions-title" meta={`${feedbacks.length} 道题`} />
                 <p className="report-detail-section-intro">展开每道题，依次查看评分依据、主要不足、改进答案和证据绑定。</p>
                 {feedbacks.length ? <div className="report-detail-feedback-list">{feedbacks.map((feedback, index) => <FeedbackItem key={feedback.question_id || index} feedback={feedback} index={index} />)}</div> : <div className="report-detail-empty-inline"><ChatCircleDots size={18} weight="duotone" aria-hidden="true" /><p><strong>暂无逐题反馈</strong><span>当前报告没有返回可展示的题目记录。</span></p></div>}
 
@@ -361,21 +457,21 @@ export function ReportDetailPage() {
                 </section>
               </section>
 
-              <section id="actions" className="report-detail-section report-detail-panel" aria-labelledby="report-actions-title">
-                <header className="report-detail-section-head"><div><span>练习输入</span><h2 id="report-actions-title">观察与改进</h2></div><p>用于下一轮模拟</p></header>
+              <section id="actions" className="report-detail-section report-detail-panel" aria-labelledby="report-actions-title" data-report-reveal style={{ "--reveal-order": 4 }}>
+                <ReportSectionHeading icon={Lightbulb} eyebrow="练习输入" title="观察与改进" titleId="report-actions-title" meta="用于下一轮模拟" />
                 <div className="report-detail-action-grid">
                   <article><header><span><Info size={17} weight="duotone" aria-hidden="true" /></span><div><strong>{observations.length}</strong><h3>关键观察</h3></div></header>{observations.length ? <ul>{observations.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="report-detail-muted">当前没有可展示的关键观察。</p>}</article>
                   <article data-tone="focus"><header><span><Target size={17} weight="duotone" aria-hidden="true" /></span><div><strong>{improvements.length}</strong><h3>优先改进项</h3></div></header>{improvements.length ? <ol>{improvements.slice(0, 6).map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol> : <p className="report-detail-muted">当前报告未返回明确改进项。</p>}</article>
                 </div>
               </section>
 
-              <section id="evidence" className="report-detail-section report-detail-panel" aria-labelledby="report-evidence-title">
-                <header className="report-detail-section-head"><div><span>可追溯输入</span><h2 id="report-evidence-title">知识证据</h2></div><p>{evidence.length} 个来源</p></header>
+              <section id="evidence" className="report-detail-section report-detail-panel" aria-labelledby="report-evidence-title" data-report-reveal style={{ "--reveal-order": 5 }}>
+                <ReportSectionHeading icon={Database} eyebrow="可追溯输入" title="知识证据" titleId="report-evidence-title" meta={`${evidence.length} 个来源`} />
                 {evidence.length ? <div className="report-detail-evidence-grid">{evidence.map((item, index) => <article key={item.chunk_id || index} data-evidence-id={item.chunk_id}><header><span>{item.source_type || "知识片段"}</span><code>{item.chunk_id || "未提供 ID"}</code></header><h3>{item.title || "未命名知识来源"}</h3><p>{item.excerpt || "未提供公开摘要。"}</p></article>)}</div> : <div className="report-detail-empty-inline"><Database size={18} weight="duotone" aria-hidden="true" /><p><strong>没有可公开的知识引用</strong><span>这不等于报告失败；部分回答可以只根据候选人原始内容完成评审。</span></p></div>}
               </section>
 
-              <section id="trace" className="report-detail-section report-detail-panel" aria-labelledby="report-trace-title">
-                <header className="report-detail-section-head"><div><span>公开诊断</span><h2 id="report-trace-title">运行轨迹</h2></div><p>仅展示稳定字段</p></header>
+              <section id="trace" className="report-detail-section report-detail-panel" aria-labelledby="report-trace-title" data-report-reveal style={{ "--reveal-order": 6 }}>
+                <ReportSectionHeading icon={Pulse} eyebrow="公开诊断" title="运行轨迹" titleId="report-trace-title" meta="仅展示稳定字段" />
                 <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
                 <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" /></article></div>
               </section>
@@ -392,7 +488,7 @@ export function ReportDetailPage() {
           <div className="start-inspector-content report-detail-inspector-content">
             {!reportReady ? <ReportSkeleton /> : <>
               <section className="report-detail-inspector-score" aria-label={`综合评分 ${score} 分`}>
-                <div className="report-detail-score-orbit" data-tone={band.tone} style={{ "--report-score": score }}><span><strong>{score}</strong><small>/100</small></span></div>
+                <div className="report-detail-score-orbit" data-tone={band.tone} style={{ "--report-score": score }}><span><AnimatedScore score={score} reducedMotion={reducedMotion} /><small>/100</small></span></div>
                 <div><span>综合评分</span><h3>{band.label}</h3><p>{answeredCount} / {feedbacks.length} 道题形成有效回答</p></div>
               </section>
 
@@ -412,9 +508,9 @@ export function ReportDetailPage() {
 
           <footer className="start-inspector-actions report-detail-inspector-actions">
             <p className="report-detail-action-guidance"><Info size={15} weight="bold" aria-hidden="true" /><span>{reportReady ? "下载 PDF 或以本次改进项开始下一轮练习。" : "报告读取完成后提供下载和再练习操作。"}</span></p>
-            <button className="button start-button start-inspector-secondary" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>报告中心</span></button>
-            <button className="button start-button start-inspector-secondary" type="button" onClick={() => window.location.assign("/prep")}><Plus size={17} weight="bold" aria-hidden="true" /><span>再次模拟</span></button>
-            <button className="button start-button button-primary report-detail-primary-action" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} onClick={download}>{downloading ? <SpinnerGap className="start-spinner" size={17} weight="bold" aria-hidden="true" /> : <DownloadSimple size={17} weight="bold" aria-hidden="true" />}<span>{downloading ? "准备 PDF" : "下载完整报告"}</span></button>
+            <button className="button start-button start-inspector-secondary report-detail-back-action" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft size={17} weight="bold" aria-hidden="true" /><span>报告中心</span></button>
+            <button className="button start-button start-inspector-secondary report-detail-repeat-action" type="button" onClick={() => window.location.assign("/prep")}><Plus size={17} weight="bold" aria-hidden="true" /><span>再次模拟</span></button>
+            <button className="button start-button button-primary report-detail-primary-action" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} data-state={downloadState} onClick={download}><DownloadStateIcon className={downloading ? "start-spinner" : undefined} size={17} weight="bold" aria-hidden="true" /><span>{downloadLabel === "下载 PDF" ? "下载完整报告" : downloadLabel}</span></button>
           </footer>
         </aside>
       </main>

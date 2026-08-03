@@ -33,6 +33,7 @@
 }
 
 .report-detail-activity-rail a {
+  position: relative;
   display: grid;
   place-items: center;
   gap: var(--start-space-3xs);
@@ -61,6 +62,22 @@
   border-color: var(--start-color-rule);
   background: var(--start-color-surface-secondary);
   color: var(--start-color-action-hover);
+}
+
+.report-detail-activity-rail a[aria-current="location"]::before {
+  content: "";
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: calc(var(--start-space-2xs) * -1);
+  width: 2px;
+  border-radius: var(--start-radius-round);
+  background: var(--start-color-action);
+  animation: report-detail-rail-anchor var(--start-duration-state) var(--start-ease-out) both;
+}
+
+.report-detail-activity-rail a[aria-current="location"] svg {
+  animation: report-detail-icon-settle 280ms var(--start-ease-out) both;
 }
 
 .report-detail-activity-rail a:active {
@@ -170,6 +187,18 @@
   scrollbar-color: var(--start-color-rule) var(--start-color-surface);
 }
 
+.report-detail-workspace-scroll [data-report-reveal] {
+  opacity: 0;
+  transform: translateY(.75rem);
+  transition: opacity 380ms var(--start-ease-out), transform 420ms var(--start-ease-out);
+  transition-delay: min(calc(var(--reveal-order, 0) * 22ms), 120ms);
+}
+
+.report-detail-workspace-scroll [data-report-reveal][data-revealed="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .report-detail-section {
   scroll-margin-top: var(--start-space-sm);
 }
@@ -267,13 +296,36 @@
 }
 
 .report-detail-eyebrow,
-.report-detail-section-head > div > span {
+.report-detail-section-eyebrow {
   display: block;
   margin-bottom: var(--start-space-3xs);
   color: var(--start-color-text-muted);
   font-size: var(--start-text-micro);
   font-weight: var(--start-font-weight-semibold);
   letter-spacing: .04em;
+}
+
+.report-detail-section-heading-copy {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--start-space-xs);
+  min-width: 0;
+}
+
+.report-detail-section-icon {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-small);
+  background: var(--start-color-canvas);
+  color: var(--start-color-action);
+}
+
+.report-detail-section-heading-copy > div {
+  min-width: 0;
 }
 
 .report-detail-overview h2,
@@ -303,15 +355,22 @@
   overflow-wrap: anywhere;
 }
 
+@property --report-score-progress {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
 .report-detail-score-mark,
 .report-detail-score-orbit {
   --score-color: var(--start-color-action);
+  --report-score-progress: 0;
   position: relative;
   display: grid;
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: conic-gradient(var(--score-color) calc(var(--report-score) * 1%), var(--start-color-rule) 0);
+  background: conic-gradient(var(--score-color) calc(var(--report-score-progress) * 1%), var(--start-color-rule) 0);
 }
 
 .report-detail-score-mark[data-tone="success"],
@@ -335,7 +394,7 @@
   height: 8.75rem;
   padding: .375rem;
   box-shadow: 0 0 0 .75rem color-mix(in oklch, var(--score-color) 7%, transparent);
-  animation: report-detail-score-enter 560ms var(--start-ease-out) both;
+  animation: report-detail-score-enter 560ms var(--start-ease-out) both, report-detail-score-progress 760ms 90ms var(--start-ease-out) both;
 }
 
 .report-detail-score-mark::before,
@@ -455,9 +514,9 @@
   height: 100%;
   border-radius: inherit;
   background: var(--start-color-action);
-  transform: scaleX(var(--dimension-scale));
+  transform: scaleX(0);
   transform-origin: left center;
-  transition: transform 520ms var(--start-ease-out);
+  animation: report-detail-dimension-fill 620ms calc(120ms + var(--dimension-index) * 45ms) var(--start-ease-out) both;
 }
 
 .report-detail-insights {
@@ -515,6 +574,10 @@
 
 .report-detail-feedback + .report-detail-feedback {
   border-top: var(--start-rule-thin) solid var(--start-color-rule);
+}
+
+.report-detail-feedback {
+  interpolate-size: allow-keywords;
 }
 
 .report-detail-feedback summary {
@@ -620,7 +683,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: var(--start-rule-thin) solid var(--start-color-rule);
   background: var(--start-color-surface);
-  animation: report-detail-disclosure-enter var(--start-duration-enter) var(--start-ease-out) both;
+  animation: report-detail-disclosure-enter 260ms var(--start-ease-out) both;
 }
 
 .report-detail-feedback-body > section {
@@ -1089,7 +1152,7 @@
   width: 5.25rem;
   height: 5.25rem;
   padding: .25rem;
-  animation: report-detail-score-enter 520ms var(--start-ease-out) both;
+  animation: report-detail-score-enter 520ms var(--start-ease-out) both, report-detail-score-progress 760ms 90ms var(--start-ease-out) both;
 }
 
 .report-detail-score-orbit::before {
@@ -1221,6 +1284,23 @@
   transition: transform var(--start-duration-fast) var(--start-ease-out);
 }
 
+.report-detail-download-tool[data-state="success"],
+.report-detail-primary-action[data-state="success"] {
+  border-color: var(--start-color-success);
+  background: var(--start-color-success-soft);
+  color: var(--start-color-success);
+}
+
+.report-detail-download-tool[data-state="error"],
+.report-detail-primary-action[data-state="error"] {
+  border-color: var(--start-color-danger);
+}
+
+.report-detail-download-tool[data-state="success"] svg,
+.report-detail-primary-action[data-state="success"] svg {
+  animation: report-detail-download-confirm 360ms var(--start-ease-out) both;
+}
+
 .report-detail-error {
   display: grid;
   justify-items: start;
@@ -1250,6 +1330,12 @@
   width: auto;
 }
 
+.report-detail-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--start-space-2xs);
+}
+
 .report-detail-skeleton {
   display: grid;
   gap: var(--start-space-xs);
@@ -1258,11 +1344,20 @@
 }
 
 .report-detail-skeleton > span {
+  position: relative;
   display: block;
   height: 1rem;
+  overflow: hidden;
   border-radius: var(--start-radius-small);
-  background: linear-gradient(90deg, var(--start-color-canvas) 25%, var(--start-color-rule) 50%, var(--start-color-canvas) 75%);
-  background-size: 200% 100%;
+  background: var(--start-color-canvas);
+}
+
+.report-detail-skeleton > span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--start-color-surface) 82%, transparent), transparent);
+  transform: translateX(-100%);
   animation: report-detail-skeleton 1.35s linear infinite;
 }
 
@@ -1282,6 +1377,33 @@
   to { opacity: 1; transform: scale(1) rotate(0); }
 }
 
+@keyframes report-detail-score-progress {
+  from { --report-score-progress: 0; }
+  to { --report-score-progress: var(--report-score); }
+}
+
+@keyframes report-detail-dimension-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(var(--dimension-scale)); }
+}
+
+@keyframes report-detail-rail-anchor {
+  from { opacity: 0; transform: scaleY(.35); }
+  to { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes report-detail-icon-settle {
+  0% { opacity: .55; transform: scale(.88); }
+  70% { opacity: 1; transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes report-detail-download-confirm {
+  0% { opacity: .45; transform: scale(.72); }
+  70% { opacity: 1; transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
 @keyframes report-detail-row-enter {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1298,8 +1420,8 @@
 }
 
 @keyframes report-detail-skeleton {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1318,8 +1440,12 @@
     transform: translateY(-2px);
   }
 
-  .report-detail-inspector-actions .start-inspector-secondary:hover:not(:disabled) svg {
+  .report-detail-inspector-actions .report-detail-back-action:hover:not(:disabled) svg {
     transform: translateX(-.125rem);
+  }
+
+  .report-detail-inspector-actions .report-detail-repeat-action:hover:not(:disabled) svg {
+    transform: scale(1.08) rotate(90deg);
   }
 
   .report-detail-inspector-actions .button-primary:hover:not(:disabled) svg,
@@ -1399,6 +1525,16 @@
 
   .report-detail-activity-rail a + a {
     border-left: var(--start-rule-thin) solid var(--start-color-rule);
+  }
+
+  .report-detail-activity-rail a[aria-current="location"]::before {
+    top: auto;
+    right: 25%;
+    bottom: 0;
+    left: 25%;
+    width: auto;
+    height: 2px;
+    transform-origin: center;
   }
 
   .report-detail-activity-rail a > span {
