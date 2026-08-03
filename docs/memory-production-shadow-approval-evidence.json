@@ -15,12 +15,26 @@
   "packet_readiness": "READY_FOR_REVIEW",
   "principal_read_shadow_production": "NOT_AUTHORIZED",
   "principal_write_shadow_production": "NOT_AUTHORIZED",
+  "production_budget_tooling": {
+    "acceptance_states": [
+      "PASS",
+      "BLOCKED",
+      "CONTINUE_OBSERVATION"
+    ],
+    "observation_schema": "memory-production-budget-shadow-observation-v1",
+    "offline_aggregate_input_only": true,
+    "readiness": "READY_FOR_REVIEW"
+  },
   "production_observation": "NOT_RUN",
   "proposed_guardrails": {
+    "continue_observation_requires_new_approval": true,
     "durable_aggregate_metrics_required": true,
+    "initial_warmup_traffic_percent": 0.1,
     "maximum_traffic_percent": 1,
     "minimum_followup_samples": 200,
     "minimum_observation_hours": 24,
+    "minimum_warmup_followup_samples": 20,
+    "minimum_warmup_minutes": 30,
     "one_axis_at_a_time": true,
     "per_entity_drilldown": false,
     "real_provider_payload_persistence": false,
