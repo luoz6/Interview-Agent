@@ -51,7 +51,7 @@ async function expectGeometry(page) {
       htmlOverflowX: getComputedStyle(document.documentElement).overflowX,
       bodyOverflowX: getComputedStyle(document.body).overflowX,
       buttons: visibleButtons.map((item) => ({ width: item.getBoundingClientRect().width, height: item.getBoundingClientRect().height })),
-      controlsStaySingleLine: [...document.querySelectorAll("button, .app-nav a, .report-rail nav a")]
+      controlsStaySingleLine: [...document.querySelectorAll("button, .app-nav a, .report-rail nav a, .report-detail-activity-rail a")]
         .filter((item) => {
           const rect = item.getBoundingClientRect();
           return rect.width > 0 && rect.height > 0;
@@ -355,13 +355,13 @@ test("React report detail shows only safe runtime fields and tracks sections", a
   await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ run_id: "run-safe-1", agent: "reviewer", operation: "evaluate", status: "completed", safe_metadata: { prompt: "secret-agent" } }] }) }));
   await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [{ event_id: "event-safe-1", event_type: "round.closed", status: "completed", payload_json: { answer: "secret-event" } }] }) }));
   await page.goto(`/report-detail?session_id=${sessionId}`);
-  await expect(page.locator(".overall-score")).toBeVisible();
-  await expect(page.locator(".runtime-list").nth(0)).toContainText("run-safe-1");
-  await expect(page.locator(".runtime-list").nth(1)).toContainText("event-safe-1");
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  await expect(page.locator(".report-detail-runtime-list").nth(0)).toContainText("run-safe-1");
+  await expect(page.locator(".report-detail-runtime-list").nth(1)).toContainText("event-safe-1");
   await expect(page.locator("body")).not.toContainText("secret-agent");
   await expect(page.locator("body")).not.toContainText("secret-event");
   await page.locator("#questions").scrollIntoViewIfNeeded();
-  await expect(page.locator('.report-rail [aria-current="location"]')).toHaveAttribute("href", "#questions");
+  await expect(page.locator('.report-detail-activity-rail [aria-current="location"]')).toHaveAttribute("href", "#questions");
 });
 
 test("all six React routes remain nonempty and bounded", async ({ page, request }) => {
