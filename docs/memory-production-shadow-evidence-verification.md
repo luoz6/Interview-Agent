@@ -29,6 +29,27 @@ PRODUCTION_OBSERVATION=NOT_RUN
 Commit only the generated manifest. Do not add an external approval record,
 approver binding, deployment binding, or production secret to the bundle.
 
+## Clone depth requirement
+
+Do not verify from a depth-one clone. The committed manifest is generated from
+its direct parent revision, so a `--depth 1` checkout intentionally lacks the
+recorded `source_revision` and must fail closed with:
+
+```text
+GATE=SOURCE_REVISION_NOT_ANCESTOR
+```
+
+Use a full clone or at least depth two. For an existing depth-one clone, fetch
+one additional history level before verification:
+
+```powershell
+git fetch --deepen=1 origin master
+```
+
+After the fetch, confirm that `git cat-file -e <source_revision>^{commit}`
+succeeds. Do not bypass the ancestry check or manually treat a shallow-history
+failure as `VERIFIED`.
+
 ## Verify the handoff
 
 From the repository revision containing the manifest:

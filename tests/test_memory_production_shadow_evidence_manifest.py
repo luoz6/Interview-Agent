@@ -268,5 +268,7 @@ def test_manifest_docs_distinguish_integrity_from_approval():
         "APPROVAL_STATUS=PENDING",
         "CHANGE_PREFLIGHT=BLOCKED",
         "PRODUCTION_OBSERVATION=NOT_RUN",
+        "--depth 1",
+        "SOURCE_REVISION_NOT_ANCESTOR",
     ):
         assert phrase in howto
