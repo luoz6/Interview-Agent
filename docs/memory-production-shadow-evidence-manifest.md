@@ -60,6 +60,7 @@ The allowlist covers the machine records for:
 - security/privacy/fairness/Knowledge Firewall review;
 - final regression and Operational Shadow acceptance;
 - production approval packet readiness;
+- Production Budget Shadow tooling readiness;
 - current production change preflight BLOCKED state.
 
 ## Included review references
@@ -71,6 +72,8 @@ The allowlist also covers the operator/reviewer documents for:
 - threat model and security review;
 - Operational Shadow acceptance;
 - production Budget Shadow approval and rollback;
+- Production Budget Shadow observation and acceptance contracts;
+- the Production Budget Shadow execution and evidence plan;
 - external approval-record contract and change preflight;
 - this manifest reference and its verification how-to;
 - Principal Memory consumption draft and risk review.

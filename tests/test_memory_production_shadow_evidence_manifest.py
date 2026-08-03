@@ -232,6 +232,9 @@ def test_manifest_artifact_rejects_private_keys_or_approval_claim():
 
 def test_default_handoff_contract_contains_required_gate_and_approval_material():
     required = {
+        "docs/memory-production-budget-shadow-readiness-evidence.json",
+        "docs/memory-production-budget-shadow-observation-contract.md",
+        "docs/memory-production-budget-shadow-acceptance-contract.md",
         "docs/memory-operational-shadow-evidence.json",
         "docs/memory-shadow-security-review-evidence.json",
         "docs/memory-production-shadow-approval-evidence.json",
@@ -242,6 +245,7 @@ def test_default_handoff_contract_contains_required_gate_and_approval_material()
         "docs/memory-production-shadow-evidence-manifest.md",
         "docs/memory-production-shadow-evidence-verification.md",
         "docs/principal-memory-consumption-spec.md",
+        "docs/superpowers/plans/2026-08-03-memory-production-budget-shadow-execution-and-evidence.md",
     }
     assert required <= set(DEFAULT_CONTRACTS)
     assert "docs/memory-production-shadow-approval-record.example.json" not in DEFAULT_CONTRACTS

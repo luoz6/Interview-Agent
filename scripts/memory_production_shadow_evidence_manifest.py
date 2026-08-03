@@ -14,6 +14,9 @@ DEFAULT_OUTPUT = ROOT / "docs/memory-production-shadow-evidence-manifest.json"
 MANIFEST_SCHEMA_VERSION = "memory-production-shadow-evidence-manifest-v2"
 CONTENT_NORMALIZATION = "utf8-lf-v1"
 DEFAULT_CONTRACTS: dict[str, str] = {
+    "docs/memory-production-budget-shadow-readiness-evidence.json": (
+        "machine_evidence"
+    ),
     "docs/memory-validation-operational-evidence.json": "machine_evidence",
     "docs/memory-budget-shadow-observation.json": "machine_evidence",
     "docs/principal-memory-write-shadow-observation.json": "machine_evidence",
@@ -36,6 +39,12 @@ DEFAULT_CONTRACTS: dict[str, str] = {
     "docs/memory-operational-shadow-acceptance.md": "review_reference",
     "docs/memory-production-shadow-approval-request.md": "review_reference",
     "docs/memory-production-budget-shadow-runbook.md": "review_reference",
+    "docs/memory-production-budget-shadow-observation-contract.md": (
+        "review_reference"
+    ),
+    "docs/memory-production-budget-shadow-acceptance-contract.md": (
+        "review_reference"
+    ),
     "docs/memory-production-shadow-approval-record-contract.md": (
         "review_reference"
     ),
@@ -44,6 +53,9 @@ DEFAULT_CONTRACTS: dict[str, str] = {
     "docs/memory-production-shadow-evidence-verification.md": "review_reference",
     "docs/principal-memory-consumption-spec.md": "review_reference",
     "docs/principal-memory-consumption-risk-review.md": "review_reference",
+    "docs/superpowers/plans/2026-08-03-memory-production-budget-shadow-execution-and-evidence.md": (
+        "review_reference"
+    ),
 }
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _REVISION = re.compile(r"^[0-9a-f]{7,40}$")
