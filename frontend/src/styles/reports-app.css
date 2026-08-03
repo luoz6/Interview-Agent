@@ -156,19 +156,18 @@
   border: var(--start-rule-thin) solid var(--start-color-rule-strong);
   border-radius: var(--start-radius-control);
   background: var(--start-color-canvas);
-  outline: var(--start-rule-thin) solid transparent;
-  outline-offset: var(--start-space-3xs);
   transition: border-color var(--start-duration-fast) var(--start-ease-out);
 }
 
 .reports-command-form:focus-within {
   border-color: var(--start-color-rule-strong);
-  outline-color: var(--start-color-ink-soft);
-  box-shadow: 0 0 0 var(--start-space-3xs) var(--start-color-surface-secondary);
+  outline: 0;
+  box-shadow: none;
 }
 
 .reports-search-control,
 .reports-date-control {
+  position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -180,6 +179,23 @@
   outline: 0 solid transparent;
   outline-offset: -2px;
   transition: background-color var(--start-duration-fast) var(--start-ease-out);
+}
+
+.reports-search-control::after,
+.reports-date-control::after {
+  content: "";
+  position: absolute;
+  right: var(--start-space-xs);
+  bottom: 0;
+  left: var(--start-space-xs);
+  height: var(--start-rule-focus);
+  border-radius: var(--start-radius-round) var(--start-radius-round) 0 0;
+  background: var(--start-color-action-hover);
+  opacity: 0;
+  pointer-events: none;
+  transform: scaleX(.35);
+  transform-origin: left center;
+  transition: opacity var(--start-duration-fast) var(--start-ease-out), transform var(--start-duration-fast) var(--start-ease-out);
 }
 
 .reports-search-control {
@@ -194,8 +210,14 @@
 
 .reports-search-control:focus-within,
 .reports-date-control:focus-within {
-  background: var(--start-color-surface-secondary);
+  background: transparent;
   outline-color: transparent;
+}
+
+.reports-search-control:focus-within::after,
+.reports-date-control:focus-within::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .reports-search-control > .reports-control-icon,
@@ -214,6 +236,11 @@
   flex: 0 0 auto;
   place-items: center;
   margin-left: var(--start-space-xs);
+}
+
+.reports-app .reports-search-button:focus-visible {
+  outline: var(--start-rule-thin) solid var(--start-color-ink-soft);
+  outline-offset: calc(0px - var(--start-space-3xs));
 }
 
 .reports-search-control input,
@@ -973,7 +1000,8 @@
 @media (hover: hover) and (pointer: fine) {
   .reports-search-control:hover,
   .reports-date-control:hover {
-    background: var(--start-color-surface-secondary);
+    background: var(--start-color-canvas);
+    color: var(--start-color-ink-soft);
   }
 
   .reports-clear-query:hover {

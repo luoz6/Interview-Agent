@@ -92,25 +92,30 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
   await expect(page.locator(".button-primary:not(:disabled)")).toHaveCount(1);
 
   await page.locator('input[aria-label="搜索报告"]').focus();
+  await expect.poll(() => page.locator(".reports-search-control").evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("1");
   const searchFocus = await page.evaluate(() => {
     const commandForm = document.querySelector(".reports-command-form");
     const searchControl = document.querySelector(".reports-search-control");
     const formStyle = getComputedStyle(commandForm);
     const controlStyle = getComputedStyle(searchControl);
+    const indicatorStyle = getComputedStyle(searchControl, "::after");
     return {
       formOutlineWidth: formStyle.outlineWidth,
-      formOutlineColor: formStyle.outlineColor,
       formBoxShadow: formStyle.boxShadow,
       controlOutlineWidth: controlStyle.outlineWidth,
-      controlOutlineColor: controlStyle.outlineColor,
       controlBackground: controlStyle.backgroundColor,
-      formBackground: formStyle.backgroundColor,
+      indicatorHeight: indicatorStyle.height,
+      indicatorOpacity: indicatorStyle.opacity,
+      indicatorTransform: indicatorStyle.transform,
     };
   });
-  expect(searchFocus.formOutlineWidth).toBe("1px");
-  expect(searchFocus.formBoxShadow).not.toBe("none");
+  expect(searchFocus.formOutlineWidth).toBe("0px");
+  expect(searchFocus.formBoxShadow).toBe("none");
   expect(searchFocus.controlOutlineWidth).toBe("0px");
-  expect(searchFocus.controlBackground).not.toBe(searchFocus.formBackground);
+  expect(searchFocus.controlBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(searchFocus.indicatorHeight).toBe("2px");
+  expect(searchFocus.indicatorOpacity).toBe("1");
+  expect(searchFocus.indicatorTransform).not.toBe("none");
 
   const processingFilter = page.getByRole("button", { name: /生成中/ }).last();
   await processingFilter.click();
