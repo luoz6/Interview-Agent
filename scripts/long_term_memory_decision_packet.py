@@ -15,6 +15,7 @@ MANIFEST_NAME = "decision-packet-manifest.json"
 PUBLIC_FILES = (
     "docs/superpowers/plans/2026-08-03-long-term-memory-production-shadows-consumption-and-promotion.md",
     "docs/long-term-memory-production-execution-baseline.md",
+    "docs/hosted-v2-control-foundation-readiness-audit.md",
     "docs/hosted-v2-productization-adr.md",
     "docs/principal-memory-production-data-use-spec-v1.md",
     "docs/hosted-v2-productization-decision-preflight.md",

@@ -1,6 +1,6 @@
 # Build the public long-term-memory decision packet
 
-This offline tool packages the public v0.2 roadmap, Task 0 baseline, Hosted V2 ADR, Production Data-use draft, preflight instructions, external-record schemas, and verifier source for external review.
+This offline tool packages the public v0.2 roadmap, Task 0 baseline, Tasks 4–10 readiness audit, Hosted V2 ADR, Production Data-use draft, preflight instructions, external-record schemas, and verifier source for external review.
 
 The packet is deliberately `PENDING`. It is not an approval record and cannot be used as Productization `GO`, Data-use `APPROVED`, production authorization, or evidence that real candidate processing occurred.
 

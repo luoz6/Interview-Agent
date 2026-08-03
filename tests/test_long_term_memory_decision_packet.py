@@ -35,6 +35,7 @@ def test_manifest_is_pending_public_and_content_minimized() -> None:
     assert manifest["hosted_productization_decision"] == "NOT_APPROVED"
     assert manifest["production_data_use_spec"] == "NOT_APPROVED"
     assert manifest["real_candidate_processing"] == "PROHIBITED"
+    assert "docs/hosted-v2-control-foundation-readiness-audit.md" in PUBLIC_FILES
     validate_manifest(manifest)
 
 
