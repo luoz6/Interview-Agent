@@ -87,4 +87,3 @@ def test_adr_blocks_implementation_until_both_decision_gates_pass() -> None:
     assert "Tasks 4–34 remain blocked until Task 2 is approved" in text
     assert "TASKS_4_TO_34=BLOCKED_BY_PRODUCTIZATION_AND_DATA_USE_GATES" in text
     assert "separate Data-use Spec remains a mandatory gate" in text
-
