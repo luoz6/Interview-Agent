@@ -156,11 +156,15 @@
   border: var(--start-rule-thin) solid var(--start-color-rule-strong);
   border-radius: var(--start-radius-control);
   background: var(--start-color-canvas);
+  outline: var(--start-rule-thin) solid transparent;
+  outline-offset: var(--start-space-3xs);
   transition: border-color var(--start-duration-fast) var(--start-ease-out);
 }
 
 .reports-command-form:focus-within {
-  border-color: var(--start-color-action);
+  border-color: var(--start-color-rule-strong);
+  outline-color: var(--start-color-ink-soft);
+  box-shadow: 0 0 0 var(--start-space-3xs) var(--start-color-surface-secondary);
 }
 
 .reports-search-control,
@@ -191,7 +195,7 @@
 .reports-search-control:focus-within,
 .reports-date-control:focus-within {
   background: var(--start-color-surface-secondary);
-  outline: var(--start-rule-focus) solid var(--start-color-action);
+  outline-color: transparent;
 }
 
 .reports-search-control > .reports-control-icon,
