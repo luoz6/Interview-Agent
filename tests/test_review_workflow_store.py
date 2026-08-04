@@ -18,7 +18,10 @@ from app.services.workflow_thread_lock import (
     ReviewEffectConflict,
     ReviewEffectLeaseLost,
 )
-from tests.postgres_support import require_postgres_dsn as require_dsn
+from tests.postgres_support import (
+    make_runtime_table_prefix,
+    require_postgres_dsn as require_dsn,
+)
 
 
 pytestmark = pytest.mark.pg_jobs
@@ -27,7 +30,7 @@ pytestmark = pytest.mark.pg_jobs
 @pytest.fixture
 def stores():
     dsn = require_dsn()
-    prefix = "test_review_store_" + uuid4().hex[:12]
+    prefix = make_runtime_table_prefix("review_store")
     session_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=prefix)
     jobs = PostgresReportJobStore(dsn=dsn, table_prefix=prefix)
     workflow = PostgresReviewWorkflowStore(dsn=dsn, table_prefix=prefix)

@@ -20,6 +20,8 @@ def test_runtime_uses_null_identity_by_default(monkeypatch):
 
 
 def test_runtime_builds_only_explicit_trusted_local_identity(monkeypatch):
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "read_shadow")
+    monkeypatch.setenv("MEMORY_LONG_TERM_READ_SHADOW_ENABLED", "true")
     monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
     monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ID", "local-owner")
     monkeypatch.setenv("MEMORY_PRIVACY_DEPLOYMENT_ID", "single-tenant-local")

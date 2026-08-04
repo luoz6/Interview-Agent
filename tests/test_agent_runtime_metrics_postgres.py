@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 import json
 import os
-from uuid import uuid4
 
 import pytest
 
@@ -17,6 +16,7 @@ from app.services.agent_runtime import (
 from app.services.agent_trace import AgentTraceRecorder
 from app.services.postgres_runtime_control import PostgresRuntimeControlStore
 from app.services.postgres_session import PostgresInterviewSessionStore
+from tests.postgres_support import make_runtime_table_prefix
 from tests.test_runtime_signal_metrics_postgres import _drop_prefix
 
 
@@ -33,7 +33,7 @@ def require_dsn() -> str:
 @pytest.fixture
 def control():
     dsn = require_dsn()
-    prefix = "test_agent_metrics_" + uuid4().hex[:12]
+    prefix = make_runtime_table_prefix("agent_metrics")
     PostgresInterviewSessionStore(dsn=dsn, table_prefix=prefix)
     store = PostgresRuntimeControlStore(dsn=dsn, table_prefix=prefix)
     try:
