@@ -11,6 +11,9 @@ from app.services.in_memory_context_artifact_store import (
 from app.services.in_memory_question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
+from app.services.in_memory_principal_memory_control import (
+    InMemoryPrincipalMemoryControlStore,
+)
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.session import InterviewSessionStore
 from app.services.session_deletion import (
@@ -108,11 +111,40 @@ def test_worker_purge_is_replay_safe_and_returns_only_safe_counts():
         "question_memory_rows": 0,
         "artifact_owner_refs": 0,
         "principal_memory_rows": 0,
+        "principal_memory_control_rows": 0,
         "business_sessions": 1,
     }
     assert worker.run_once() is None
     with pytest.raises(ValueError, match="session not found"):
         store.get(session_id)
+
+
+def test_worker_purges_durable_principal_memory_session_control():
+    store, session_id = make_session_store()
+    jobs = InMemorySessionDeletionJobStore(job_id_factory=lambda: "delete-job-control")
+    SessionDeletionService(session_store=store, job_store=jobs).request(session_id)
+    controls = InMemoryPrincipalMemoryControlStore()
+    controls.set_session(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        session_id=session_id,
+        enabled=False,
+        updated_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+    )
+    worker = SessionDeletionWorker(
+        job_store=jobs,
+        session_store=store,
+        principal_memory_control_store=controls,
+    )
+
+    completed = worker.run_once()
+
+    assert completed.safe_counts["principal_memory_control_rows"] == 1
+    assert controls.get_session(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        session_id=session_id,
+    ) is None
 
 
 def test_deletion_api_is_disabled_by_default(monkeypatch):

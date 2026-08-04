@@ -395,7 +395,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "principal_memory_local_rights_v1"
+        assert first.migration_id == "principal_memory_integrity_v2"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert local_rights_tables == {
@@ -465,7 +465,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "principal_memory_local_rights_v1"
+        assert result.migration_id == "principal_memory_integrity_v2"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -488,7 +488,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
         from fastapi.testclient import TestClient
         from app.main import app
 
-        client = TestClient(app)
+        client = TestClient(app, client=("127.0.0.1", 50000))
         exported = client.post(
             "/api/runtime/principal-memory/export",
             headers={"x-local-memory-action": "1"},

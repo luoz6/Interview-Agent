@@ -65,7 +65,15 @@ class InMemoryPrincipalMemoryFactStore:
             self._facts[key] = fact
             return fact
 
-    def declare_active(self, fact, *, exclusive_key: str | None, now):
+    def declare_active(
+        self,
+        fact,
+        *,
+        exclusive_key: str | None,
+        now,
+        expected_predecessor_fact_id=None,
+        expected_predecessor_version=None,
+    ):
         if (
             fact.status != "active"
             or not fact.user_confirmed
@@ -77,6 +85,22 @@ class InMemoryPrincipalMemoryFactStore:
             current = self._facts.get(key)
             if current is not None:
                 return current
+            if expected_predecessor_fact_id is not None:
+                predecessor = self._facts.get(
+                    (
+                        fact.deployment_id,
+                        fact.principal_id,
+                        expected_predecessor_fact_id,
+                    )
+                )
+                if (
+                    predecessor is None
+                    or predecessor.status != "active"
+                    or predecessor.version != expected_predecessor_version
+                ):
+                    raise PrincipalMemoryConflict(
+                        "principal memory fact version conflict"
+                    )
             predecessors = [
                 (item_key, item)
                 for item_key, item in self._facts.items()
@@ -244,6 +268,27 @@ class InMemoryPrincipalMemoryFactStore:
             and fact.user_confirmed
             and (fact.expires_at is None or fact.expires_at > now)
         ][:limit]
+
+    def list_all_by_principal(
+        self,
+        *,
+        deployment_id: str,
+        principal_id: str,
+        include_terminal: bool = False,
+    ):
+        with self._lock:
+            items = [
+                fact
+                for (deployment, principal, _), fact in self._facts.items()
+                if deployment == deployment_id
+                and principal == principal_id
+                and (include_terminal or fact.status not in TERMINAL_STATUSES)
+            ]
+        return sorted(
+            items,
+            key=lambda fact: (fact.created_at, fact.fact_id),
+            reverse=True,
+        )
 
     def expire_batch(
         self,

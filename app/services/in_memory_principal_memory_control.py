@@ -82,6 +82,13 @@ class InMemoryPrincipalMemoryControlStore:
                 for key in self._items
             )
 
+    def purge_session(self, session_id: str) -> int:
+        with self._lock:
+            keys = [key for key in self._items if key[2] == session_id]
+            for key in keys:
+                del self._items[key]
+            return len(keys)
+
     def _set(
         self,
         *,

@@ -516,6 +516,44 @@ RUNTIME_SCHEMA_V11_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V11_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_facts"] = (
+    frozenset(
+        {
+            "unique",
+            "deployment_id",
+            "principal_id",
+            "fact_type",
+            "normalized_fact",
+            "where",
+            "status",
+            "active",
+        }
+    ),
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_tombs"] = (
+    frozenset({"deployment_id", "principal_id", "requested_at"}),
+)
+RUNTIME_SCHEMA_V12_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V11_CHECKSUM,
+        "principal_memory_integrity": {
+            "active_fact_identity": (
+                "unique(deployment_id,principal_id,fact_type,normalized_fact)"
+            ),
+            "tombstones": "append-only-events-by-tombstone-ref",
+            "deletion_fence": "principal-advisory-lock-and-event-version-v1",
+            "session_controls": "purged-with-session-v1",
+            "rights_export": "complete-fact-snapshot-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V12_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V12_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -570,6 +608,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="principal_memory_local_rights_v1",
         checksum=RUNTIME_SCHEMA_V11_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="principal_memory_integrity_v2",
+        checksum=RUNTIME_SCHEMA_V12_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

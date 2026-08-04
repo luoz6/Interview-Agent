@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager
 from hashlib import sha256
 import json
 from threading import RLock
@@ -103,10 +104,22 @@ class PrincipalMemoryExportService:
             deployment_id=identity.deployment_id,
             principal_id=identity.principal_id,
         )
+        list_all = getattr(self.lifecycle_service, "list_all_safe", None)
+        facts = (
+            list_all()
+            if list_all is not None
+            else self.lifecycle_service.list_safe(limit=100)
+        )
         payload = {
             "schema_version": "principal-memory-safe-export-v1",
             "generated_at": now.isoformat(),
-            "facts": self.lifecycle_service.list_safe(limit=100),
+            "facts": facts,
+            "fact_export": {
+                "total": len(facts),
+                "exported": len(facts),
+                "truncated": False,
+                "complete": True,
+            },
             "consent": (
                 {
                     "policy_version": consent.policy_version,
@@ -173,12 +186,14 @@ class InMemoryPrincipalMemoryDeletionTombstoneStore:
     def __init__(self, *, clock=None):
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._items = {}
+        self._latest = {}
         self._lock = RLock()
 
     def record_requested(self, *, deployment_id, principal_id):
         with self._lock:
             key = (deployment_id, principal_id)
-            existing = self._items.get(key)
+            existing_ref = self._latest.get(key)
+            existing = self._items.get(existing_ref) if existing_ref else None
             if existing is not None and existing.status in {"requested", "failed"}:
                 return existing
             now = self.clock()
@@ -195,7 +210,8 @@ class InMemoryPrincipalMemoryDeletionTombstoneStore:
                 status="requested",
                 integrity_sha256=digest,
             )
-            self._items[key] = item
+            self._items[item.tombstone_ref] = item
+            self._latest[key] = item.tombstone_ref
             return item
 
     def mark(self, tombstone, *, status, failed_stage=None):
@@ -210,21 +226,37 @@ class InMemoryPrincipalMemoryDeletionTombstoneStore:
             }
         )
         with self._lock:
-            self._items[(item.deployment_id, item.principal_id)] = item
+            if tombstone.tombstone_ref not in self._items:
+                raise RuntimeError("principal deletion tombstone changed")
+            self._items[item.tombstone_ref] = item
+            key = (item.deployment_id, item.principal_id)
+            latest_ref = self._latest.get(key)
+            latest = self._items.get(latest_ref) if latest_ref else None
+            if latest is None or (item.requested_at, item.tombstone_ref) >= (
+                latest.requested_at,
+                latest.tombstone_ref,
+            ):
+                self._latest[key] = item.tombstone_ref
         return item
 
     def import_tombstone(self, tombstone):
         self.validate(tombstone)
-        key = (tombstone.deployment_id, tombstone.principal_id)
         with self._lock:
-            existing = self._items.get(key)
+            existing = self._items.get(tombstone.tombstone_ref)
             if existing is not None and (
-                existing.tombstone_ref != tombstone.tombstone_ref
-                or existing.integrity_sha256 != tombstone.integrity_sha256
+                existing.integrity_sha256 != tombstone.integrity_sha256
             ):
                 raise RuntimeError("principal deletion tombstone conflict")
             if existing is None:
-                self._items[key] = tombstone
+                self._items[tombstone.tombstone_ref] = tombstone
+            key = (tombstone.deployment_id, tombstone.principal_id)
+            latest_ref = self._latest.get(key)
+            latest = self._items.get(latest_ref) if latest_ref else None
+            if latest is None or (
+                tombstone.requested_at, tombstone.tombstone_ref
+            ) >= (latest.requested_at, latest.tombstone_ref):
+                self._latest[key] = tombstone.tombstone_ref
+            if existing is None:
                 return tombstone
             return existing
 
@@ -240,4 +272,38 @@ class InMemoryPrincipalMemoryDeletionTombstoneStore:
 
     def get(self, *, deployment_id, principal_id):
         with self._lock:
-            return self._items.get((deployment_id, principal_id))
+            ref = self._latest.get((deployment_id, principal_id))
+            return self._items.get(ref) if ref else None
+
+    def is_write_blocked(self, *, deployment_id, principal_id) -> bool:
+        current = self.get(
+            deployment_id=deployment_id, principal_id=principal_id
+        )
+        return bool(current and current.status in {"requested", "failed"})
+
+    @contextmanager
+    def writer_guard(self, *, deployment_id, principal_id):
+        key = (deployment_id, principal_id)
+        observed_ref = self._latest.get(key)
+        observed = self._items.get(observed_ref) if observed_ref else None
+        observed_state = (
+            (observed.tombstone_ref, observed.status) if observed else None
+        )
+        with self._lock:
+            current = self.get(
+                deployment_id=deployment_id, principal_id=principal_id
+            )
+            current_state = (
+                (current.tombstone_ref, current.status) if current else None
+            )
+            if current_state != observed_state or (
+                current and current.status in {"requested", "failed"}
+            ):
+                raise PermissionError("principal memory deletion fence is active")
+            yield
+
+    @contextmanager
+    def deletion_guard(self, *, deployment_id, principal_id):
+        del deployment_id, principal_id
+        with self._lock:
+            yield

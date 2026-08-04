@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from app.main import app
 from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactStore
@@ -14,6 +15,7 @@ from app.services.principal_memory_rights import (
 )
 from app.services.principal_memory_safe_refs import InMemoryPrincipalMemorySafeRefStore
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
+from app.services.principal_memory_contracts import derive_principal_fact_id
 from tests.test_in_memory_principal_memory import make_fact
 
 
@@ -22,12 +24,25 @@ class Sessions:
         return {"session_id": session_id, "deletion_status": "active"}
 
 
+def local_client():
+    return TestClient(app, client=("127.0.0.1", 50000))
+
+
+@pytest.fixture(autouse=True)
+def isolated_deletion_fence(monkeypatch):
+    fence = InMemoryPrincipalMemoryDeletionTombstoneStore()
+    monkeypatch.setattr(
+        "app.api.routes.get_principal_memory_deletion_tombstone_store",
+        lambda: fence,
+    )
+
+
 def test_principal_memory_api_is_hidden_by_default(monkeypatch):
     monkeypatch.delenv(
         "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", raising=False
     )
-    assert TestClient(app).get("/api/runtime/principal-memory/facts").status_code == 404
-    client = TestClient(app)
+    assert local_client().get("/api/runtime/principal-memory/facts").status_code == 404
+    client = local_client()
     for method, path, payload in (
         ("get", "/api/runtime/principal-memory/status", None),
         (
@@ -85,7 +100,7 @@ def test_trusted_local_fact_list_returns_no_internal_locators(monkeypatch):
     )
     monkeypatch.setattr("app.api.routes.get_session_store", lambda: Sessions())
 
-    response = TestClient(app).get("/api/runtime/principal-memory/facts")
+    response = local_client().get("/api/runtime/principal-memory/facts")
 
     assert response.status_code == 200
     rendered = response.text
@@ -118,7 +133,7 @@ def test_revoking_consent_does_not_delete_principal_facts(monkeypatch):
         "app.api.routes.get_principal_memory_consent_store",
         lambda: consents,
     )
-    client = TestClient(app)
+    client = local_client()
     granted = client.put(
         "/api/runtime/principal-memory/consent",
         json={"allowed_purposes": ["fact_storage", "local_consume"]},
@@ -151,9 +166,42 @@ def test_principal_memory_api_rejects_non_local_identity_assurance(monkeypatch):
         lambda: resolver,
     )
 
-    response = TestClient(app).get("/api/runtime/principal-memory/facts")
+    response = local_client().get("/api/runtime/principal-memory/facts")
 
     assert response.status_code == 404
+
+
+def test_principal_memory_api_rejects_non_loopback_peer_and_spoofed_headers(
+    monkeypatch,
+):
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        assurance="trusted_local",
+    )
+    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
+    monkeypatch.setenv(
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
+    )
+    monkeypatch.setattr(
+        "app.api.routes.get_principal_identity_resolver", lambda: resolver
+    )
+    remote = TestClient(app, client=("192.0.2.44", 51000))
+    spoofed = {
+        "x-local-memory-action": "1",
+        "origin": "http://localhost:8000",
+        "x-forwarded-for": "127.0.0.1",
+    }
+
+    assert remote.get(
+        "/api/runtime/principal-memory/status", headers=spoofed
+    ).status_code == 404
+    assert remote.get(
+        "/api/runtime/principal-memory/facts", headers=spoofed
+    ).status_code == 404
+    assert remote.post(
+        "/api/runtime/principal-memory/disable", headers=spoofed
+    ).status_code == 404
 
 
 def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch):
@@ -202,7 +250,7 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
         lambda: tombstones,
     )
     monkeypatch.setattr("app.api.routes.get_session_store", lambda: Sessions())
-    client = TestClient(app)
+    client = local_client()
     mutation = {"x-local-memory-action": "1", "origin": "http://localhost:8000"}
 
     assert client.put(
@@ -282,6 +330,82 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
     ) == 0
 
 
+def test_safe_ref_confirmation_changes_only_the_exact_same_value_proposal(
+    monkeypatch,
+):
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        assurance="trusted_local",
+    )
+    facts = InMemoryPrincipalMemoryFactStore()
+    consents = InMemoryPrincipalMemoryConsentStore()
+    controls = InMemoryPrincipalMemoryControlStore()
+    refs = InMemoryPrincipalMemorySafeRefStore()
+    first = make_fact(principal_id="local-owner", session_id="session-a")
+    second_values = {
+        "deployment_id": first.deployment_id,
+        "principal_id": first.principal_id,
+        "fact_type": first.fact_type,
+        "normalized_fact": first.normalized_fact,
+        "source_manifest_sha256": first.source_manifest_sha256,
+        "source_excerpt_sha256": "c" * 64,
+        "consent_policy_version": first.consent_policy_version,
+        "taxonomy_version": first.taxonomy_version,
+    }
+    second = first.model_copy(
+        update={
+            "fact_id": derive_principal_fact_id(**second_values),
+            "source_session_id": "session-b",
+            "source_excerpt_sha256": second_values["source_excerpt_sha256"],
+        }
+    )
+    facts.create_proposal(first)
+    facts.create_proposal(second)
+    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
+    monkeypatch.setenv(
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
+    )
+    monkeypatch.setattr(
+        "app.api.routes.get_principal_identity_resolver", lambda: resolver
+    )
+    monkeypatch.setattr("app.api.routes.get_principal_memory_fact_store", lambda: facts)
+    monkeypatch.setattr(
+        "app.api.routes.get_principal_memory_consent_store", lambda: consents
+    )
+    monkeypatch.setattr(
+        "app.api.routes.get_principal_memory_control_store", lambda: controls
+    )
+    monkeypatch.setattr("app.api.routes.get_principal_memory_safe_ref_store", lambda: refs)
+    monkeypatch.setattr("app.api.routes.get_session_store", lambda: Sessions())
+    client = local_client()
+    mutation = {"x-local-memory-action": "1", "origin": "http://localhost:8000"}
+    assert client.put(
+        "/api/runtime/principal-memory/consent",
+        json={"allowed_purposes": ["fact_storage"]},
+        headers=mutation,
+    ).status_code == 200
+    safe_ref = refs.issue(second)
+
+    response = client.post(
+        f"/api/runtime/principal-memory/facts/{safe_ref}/confirm",
+        json={"expected_version": 1},
+        headers=mutation,
+    )
+
+    assert response.status_code == 200
+    assert facts.get(
+        deployment_id=first.deployment_id,
+        principal_id=first.principal_id,
+        fact_id=first.fact_id,
+    ).status == "proposed"
+    assert facts.get(
+        deployment_id=second.deployment_id,
+        principal_id=second.principal_id,
+        fact_id=second.fact_id,
+    ).status == "active"
+
+
 def test_memory_center_mutations_require_local_header_and_origin(monkeypatch):
     resolver = ExplicitPrincipalIdentityResolver(
         deployment_id="single-tenant-local",
@@ -297,7 +421,7 @@ def test_memory_center_mutations_require_local_header_and_origin(monkeypatch):
         "app.api.routes.get_principal_identity_resolver",
         lambda: resolver,
     )
-    client = TestClient(app)
+    client = local_client()
 
     assert client.post("/api/runtime/principal-memory/disable").status_code == 403
     assert client.post(

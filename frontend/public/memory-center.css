@@ -19,7 +19,7 @@ body {
   line-height: 1.55;
 }
 button, select, input { font: inherit; }
-button, select { min-height: 44px; }
+button, select, input { min-height: 44px; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 20; background: var(--ink); color: white; padding: .7rem 1rem; }
 .skip-link:focus { top: 1rem; }
@@ -55,7 +55,7 @@ legend { padding: 0 .4rem; font-family: "Courier New", monospace; font-size: .76
 input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--vermilion); vertical-align: -.2rem; }
 form { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem 1rem; }
 form label { font-family: "Courier New", monospace; font-size: .76rem; font-weight: 700; text-transform: uppercase; }
-select { width: 100%; padding: .65rem .75rem; border: 1px solid var(--ink); border-radius: 0; background: rgba(255,255,255,.35); color: var(--ink); }
+select, input[type="search"] { width: 100%; padding: .65rem .75rem; border: 1px solid var(--ink); border-radius: 0; background: rgba(255,255,255,.35); color: var(--ink); }
 form .button { grid-column: 1 / -1; margin-top: .6rem; }
 .button-row { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.25rem; }
 .button { border: 1px solid var(--ink); border-radius: 0; padding: .65rem 1rem; cursor: pointer; transition: transform .16s ease, background-color .16s ease; }
@@ -71,6 +71,11 @@ form .button { grid-column: 1 / -1; margin-top: .6rem; }
 .fact { display: grid; grid-template-columns: minmax(10rem, .8fr) minmax(12rem, 1.4fr) auto; gap: 1rem; align-items: center; padding: 1.1rem 0; border-bottom: 1px solid var(--rule); }
 .fact code { font-family: "Courier New", monospace; font-size: .82rem; }
 .fact-actions { display: flex; gap: .5rem; }
+.fact-editor { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(10rem, 1fr) auto auto; gap: .65rem; align-items: end; padding: 1rem; border: 1px solid var(--ink); background: rgba(255,255,255,.22); }
+.fact-editor label, .session-control-form label { font-family: "Courier New", monospace; font-size: .76rem; font-weight: 700; text-transform: uppercase; }
+.session-section { display: grid; grid-template-columns: 1fr minmax(20rem, .8fr); gap: var(--space); align-items: start; padding: 3rem 0; border-bottom: 1px solid var(--rule); }
+.session-control-form { display: grid; grid-template-columns: 1fr; gap: .65rem; }
+.session-control-form .button-row { margin-top: 0; }
 .empty-state { padding: 2rem; border: 1px dashed var(--rule); color: var(--muted); text-align: center; }
 .rights-section { align-items: start; grid-template-columns: .8fr 1.2fr auto; }
 .notice { position: fixed; right: 1rem; bottom: 1rem; max-width: 28rem; padding: 1rem 1.2rem; background: var(--ink); color: white; box-shadow: 8px 8px 0 rgba(200,59,34,.35); }
@@ -80,10 +85,11 @@ dialog::backdrop { background: rgba(23,24,21,.62); }
 @media (max-width: 760px) {
   .masthead { grid-template-columns: 1fr; }
   .status-stamp { justify-self: start; }
-  .columns, .control-strip, .rights-section { grid-template-columns: 1fr; }
+  .columns, .control-strip, .rights-section, .session-section { grid-template-columns: 1fr; }
   .consent-sheet { padding-right: 0; border-right: 0; border-bottom: 1px solid var(--rule); }
   .declare-sheet { padding-left: 0; }
   .fact { grid-template-columns: 1fr; }
+  .fact-editor { grid-template-columns: 1fr; }
   form { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -245,11 +245,13 @@ def test_operation_time_recheck_suppresses_disable_revoke_and_delete_races(race)
             revoked_at=NOW + timedelta(seconds=1),
         )
     elif race == "revoke_fact":
+        stored = facts.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=1,
+        )[0]
         lifecycle.revoke(
-            fact_type="declared_preference",
-            normalized_fact=canonical_principal_fact(
-                {"interview_language": "mixed"}
-            ),
+            fact_id=stored.fact_id,
             expected_version=declared["version"],
         )
     else:

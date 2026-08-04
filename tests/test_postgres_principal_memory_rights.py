@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -186,6 +187,20 @@ def test_postgres_tombstone_is_concurrent_durable_and_integrity_checked(
         ) is None
         assert restarted.import_tombstone(completed) == completed
         assert restarted.import_tombstone(completed) == completed
+        second = restarted.record_requested(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        )
+        second = restarted.mark(second, status="completed")
+        assert second.tombstone_ref != completed.tombstone_ref
+        assert restarted.import_tombstone(completed) == completed
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("SELECT COUNT(*) FROM {table}").format(
+                        table=sql.Identifier(values["tombstones"].table)
+                    )
+                )
+                assert cursor.fetchone()[0] == 2
     finally:
         cleanup(postgres_dsn, values)
 
@@ -314,6 +329,77 @@ def test_postgres_full_delete_and_restore_replay_reach_zero_residue(
         assert values["exports"].count(
             deployment_id="single-tenant-local", principal_id="local-owner"
         ) == 0
+    finally:
+        cleanup(postgres_dsn, values)
+
+
+@pytest.mark.pg_runtime
+def test_postgres_deletion_fence_rejects_concurrent_consent_writer(
+    postgres_dsn, runtime_table_prefix
+):
+    values = stores(postgres_dsn, runtime_table_prefix)
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        assurance="trusted_local",
+        clock=lambda: NOW,
+    )
+    values["consents"].grant(
+        PrincipalMemoryConsent(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            policy_version="principal-memory-consent-v1",
+            allowed_purposes=["fact_storage"],
+            granted_at=NOW,
+        )
+    )
+    entered = Event()
+    release = Event()
+
+    def inject(stage):
+        if stage == "consent":
+            entered.set()
+            assert release.wait(timeout=10)
+
+    deletion = PrincipalMemoryDeletionService(
+        identity_resolver=resolver,
+        consent_store=values["consents"],
+        fact_store=values["facts"],
+        control_store=values["controls"],
+        export_store=values["exports"],
+        tombstone_store=values["tombstones"],
+        cache_purge=values["refs"].purge,
+        failure_injector=inject,
+    )
+
+    def write_consent():
+        assert entered.wait(timeout=10)
+        with values["tombstones"].writer_guard(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+        ):
+            return values["consents"].grant(
+                PrincipalMemoryConsent(
+                    deployment_id="single-tenant-local",
+                    principal_id="local-owner",
+                    policy_version="principal-memory-consent-v1",
+                    allowed_purposes=["fact_storage", "local_consume"],
+                    granted_at=NOW,
+                )
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            deleting = executor.submit(deletion.purge_current_principal)
+            writing = executor.submit(write_consent)
+            assert entered.wait(timeout=10)
+            release.set()
+            assert deleting.result()["status"] == "completed"
+            with pytest.raises(PermissionError, match="deletion fence"):
+                writing.result()
+        assert values["consents"].get_current(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ) is None
     finally:
         cleanup(postgres_dsn, values)
 

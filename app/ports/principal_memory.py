@@ -7,7 +7,15 @@ from typing import Protocol, runtime_checkable
 @runtime_checkable
 class PrincipalMemoryFactStore(Protocol):
     def create_proposal(self, fact): ...
-    def declare_active(self, fact, *, exclusive_key: str | None, now: datetime): ...
+    def declare_active(
+        self,
+        fact,
+        *,
+        exclusive_key: str | None,
+        now: datetime,
+        expected_predecessor_fact_id: str | None = None,
+        expected_predecessor_version: int | None = None,
+    ): ...
     def activate_proposal(
         self,
         *,
@@ -38,6 +46,13 @@ class PrincipalMemoryFactStore(Protocol):
         deployment_id: str,
         principal_id: str,
         limit: int,
+        include_terminal: bool = False,
+    ): ...
+    def list_all_by_principal(
+        self,
+        *,
+        deployment_id: str,
+        principal_id: str,
         include_terminal: bool = False,
     ): ...
     def list_shadow_eligible(

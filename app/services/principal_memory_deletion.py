@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 
 class PrincipalMemoryDeletionIncomplete(RuntimeError):
     def __init__(self, stage: str):
@@ -19,6 +21,7 @@ class PrincipalMemoryDeletionService:
         export_store=None,
         tombstone_store=None,
         cache_purge=None,
+        ledger_writer=None,
         failure_injector=None,
     ):
         self.identity_resolver = identity_resolver
@@ -28,34 +31,53 @@ class PrincipalMemoryDeletionService:
         self.export_store = export_store
         self.tombstone_store = tombstone_store
         self.cache_purge = cache_purge or (lambda **kwargs: 0)
+        self.ledger_writer = ledger_writer
         self.failure_injector = failure_injector or (lambda stage: None)
 
     def purge_current_principal(self):
         identity = self.identity_resolver.resolve()
         if identity is None:
             raise PermissionError("principal identity is unavailable")
-        tombstone = (
-            self.tombstone_store.record_requested(
+        guard = (
+            self.tombstone_store.deletion_guard(
                 deployment_id=identity.deployment_id,
                 principal_id=identity.principal_id,
             )
             if self.tombstone_store is not None
-            else None
+            and hasattr(self.tombstone_store, "deletion_guard")
+            else nullcontext()
         )
-        try:
-            counts = self._purge(identity)
-        except Exception as exc:
-            stage = getattr(exc, "deletion_stage", "unknown")
-            if tombstone is not None:
-                self.tombstone_store.mark(
-                    tombstone,
-                    status="failed",
-                    failed_stage=stage,
+        with guard:
+            tombstone = (
+                self.tombstone_store.record_requested(
+                    deployment_id=identity.deployment_id,
+                    principal_id=identity.principal_id,
                 )
-            raise PrincipalMemoryDeletionIncomplete(stage) from exc
-        if tombstone is not None:
-            self.tombstone_store.mark(tombstone, status="completed")
-        return {"status": "completed", **counts}
+                if self.tombstone_store is not None
+                else None
+            )
+            try:
+                counts = self._purge(identity)
+                if tombstone is not None:
+                    tombstone = self.tombstone_store.mark(
+                        tombstone, status="completed"
+                    )
+                    if self.ledger_writer is not None:
+                        try:
+                            self.ledger_writer(tombstone)
+                        except Exception as exc:
+                            exc.deletion_stage = "operator_ledger"
+                            raise
+            except Exception as exc:
+                stage = getattr(exc, "deletion_stage", "unknown")
+                if tombstone is not None:
+                    self.tombstone_store.mark(
+                        tombstone,
+                        status="failed",
+                        failed_stage=stage,
+                    )
+                raise PrincipalMemoryDeletionIncomplete(stage) from exc
+            return {"status": "completed", **counts}
 
     def replay(self, tombstone):
         self.tombstone_store.validate(tombstone)
@@ -64,18 +86,23 @@ class PrincipalMemoryDeletionService:
             deployment_id = tombstone.deployment_id
             principal_id = tombstone.principal_id
 
-        try:
-            counts = self._purge(Identity())
-        except Exception as exc:
-            stage = getattr(exc, "deletion_stage", "unknown")
-            self.tombstone_store.mark(
-                tombstone,
-                status="failed",
-                failed_stage=stage,
-            )
-            raise PrincipalMemoryDeletionIncomplete(stage) from exc
-        self.tombstone_store.mark(tombstone, status="replayed")
-        return {"status": "replayed", **counts}
+        guard = self.tombstone_store.deletion_guard(
+            deployment_id=tombstone.deployment_id,
+            principal_id=tombstone.principal_id,
+        ) if hasattr(self.tombstone_store, "deletion_guard") else nullcontext()
+        with guard:
+            try:
+                counts = self._purge(Identity())
+            except Exception as exc:
+                stage = getattr(exc, "deletion_stage", "unknown")
+                self.tombstone_store.mark(
+                    tombstone,
+                    status="failed",
+                    failed_stage=stage,
+                )
+                raise PrincipalMemoryDeletionIncomplete(stage) from exc
+            self.tombstone_store.mark(tombstone, status="replayed")
+            return {"status": "replayed", **counts}
 
     def _purge(self, identity):
         counts = {}
@@ -173,4 +200,10 @@ class PrincipalMemoryDeletionService:
         return counts
 
     def purge_session(self, session_id: str) -> int:
-        return self.fact_store.purge_by_session(session_id)
+        facts = self.fact_store.purge_by_session(session_id)
+        controls = (
+            self.control_store.purge_session(session_id)
+            if self.control_store is not None
+            else 0
+        )
+        return int(facts) + int(controls)

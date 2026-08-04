@@ -68,7 +68,15 @@ class PostgresPrincipalMemoryFactStore:
             fact_id=fact.fact_id,
         )
 
-    def declare_active(self, fact, *, exclusive_key: str | None, now):
+    def declare_active(
+        self,
+        fact,
+        *,
+        exclusive_key: str | None,
+        now,
+        expected_predecessor_fact_id=None,
+        expected_predecessor_version=None,
+    ):
         if (
             fact.status != "active"
             or not fact.user_confirmed
@@ -100,6 +108,31 @@ class PostgresPrincipalMemoryFactStore:
                 row = cursor.fetchone()
                 if row is not None:
                     return self._from_row(row)
+                if expected_predecessor_fact_id is not None:
+                    cursor.execute(
+                        sql.SQL(
+                            "SELECT status,version FROM {table} "
+                            "WHERE deployment_id=%s AND principal_id=%s "
+                            "AND fact_id=%s FOR UPDATE"
+                        ).format(table=sql.Identifier(self.table)),
+                        (
+                            fact.deployment_id,
+                            fact.principal_id,
+                            expected_predecessor_fact_id,
+                        ),
+                    )
+                    predecessor_state = cursor.fetchone()
+                    if predecessor_state != (
+                        "active",
+                        expected_predecessor_version,
+                    ):
+                        from app.services.in_memory_principal_memory import (
+                            PrincipalMemoryConflict,
+                        )
+
+                        raise PrincipalMemoryConflict(
+                            "principal memory fact version conflict"
+                        )
                 cursor.execute(
                     sql.SQL(
                         "SELECT {columns} FROM {table} WHERE deployment_id=%s "
@@ -183,16 +216,8 @@ class PostgresPrincipalMemoryFactStore:
     ):
         from psycopg2 import sql
 
-        lock_scope = exclusive_key or fact_id
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
-                    (
-                        f"principal-memory:{deployment_id}:"
-                        f"{principal_id}:{lock_scope}",
-                    ),
-                )
                 cursor.execute(
                     sql.SQL(
                         "SELECT {columns} FROM {table} WHERE deployment_id=%s "
@@ -215,6 +240,14 @@ class PostgresPrincipalMemoryFactStore:
                     raise PrincipalMemoryConflict(
                         "principal memory fact version conflict"
                     )
+                lock_scope = exclusive_key or proposal.normalized_fact
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    (
+                        f"principal-memory:{deployment_id}:"
+                        f"{principal_id}:{lock_scope}",
+                    ),
+                )
                 cursor.execute(
                     sql.SQL(
                         "SELECT {columns} FROM {table} WHERE deployment_id=%s "
@@ -372,6 +405,27 @@ class PostgresPrincipalMemoryFactStore:
             (deployment_id, principal_id, now, limit),
             limit=limit,
         )
+
+    def list_all_by_principal(
+        self, *, deployment_id, principal_id, include_terminal=False
+    ):
+        from psycopg2 import sql
+
+        terminal = "" if include_terminal else " AND status IN ('proposed','active')"
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {columns} FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s" + terminal +
+                        " ORDER BY created_at DESC,fact_id DESC"
+                    ).format(
+                        columns=sql.SQL(self._columns()),
+                        table=sql.Identifier(self.table),
+                    ),
+                    (deployment_id, principal_id),
+                )
+                return [self._from_row(row) for row in cursor.fetchall()]
 
     def expire_batch(
         self,
@@ -542,6 +596,24 @@ class PostgresPrincipalMemoryFactStore:
                     );
                     CREATE INDEX IF NOT EXISTS {principal_idx} ON {table} (deployment_id,principal_id,status,created_at DESC);
                     CREATE INDEX IF NOT EXISTS {session_idx} ON {table} (source_session_id);
+                    WITH ranked AS (
+                        SELECT deployment_id,principal_id,fact_id,
+                            row_number() OVER (
+                                PARTITION BY deployment_id,principal_id,
+                                    fact_type,normalized_fact
+                                ORDER BY created_at DESC,fact_id DESC
+                            ) AS active_rank
+                        FROM {table} WHERE status='active'
+                    )
+                    UPDATE {table} AS facts SET status='superseded',
+                        version=facts.version+1
+                    FROM ranked WHERE ranked.active_rank>1
+                        AND facts.deployment_id=ranked.deployment_id
+                        AND facts.principal_id=ranked.principal_id
+                        AND facts.fact_id=ranked.fact_id;
+                    CREATE UNIQUE INDEX IF NOT EXISTS {active_identity_idx}
+                    ON {table} (deployment_id,principal_id,fact_type,normalized_fact)
+                    WHERE status='active';
                     CREATE TABLE IF NOT EXISTS {effects} (
                         effect_id TEXT PRIMARY KEY,deployment_id TEXT NOT NULL,principal_id TEXT NOT NULL,
                         source_session_id TEXT NOT NULL,status TEXT NOT NULL,
@@ -559,6 +631,12 @@ class PostgresPrincipalMemoryFactStore:
                         runtime_schema_identifier(
                             self.table.split("_principal_memory_facts")[0],
                             "principal_memory_facts_session_idx",
+                        )
+                    ),
+                    active_identity_idx=sql.Identifier(
+                        runtime_schema_identifier(
+                            self.table.split("_principal_memory_facts")[0],
+                            "principal_memory_facts_active_identity_uq",
                         )
                     ),
                 ))

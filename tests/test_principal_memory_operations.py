@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -18,6 +19,7 @@ from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_operations import (
     LOCAL_MEMORY_OPERATION_GATE_CODES,
     PrincipalMemoryOperationsService,
+    append_completed_tombstone_ledger,
     evaluate_local_memory_readiness,
     load_protected_tombstone_ledger,
     replay_tombstone_ledger,
@@ -300,6 +302,41 @@ def test_protected_tombstone_ledger_validates_integrity_before_database_use(
         load_protected_tombstone_ledger(ledger)
 
 
+def test_operator_ledger_capture_is_durable_idempotent_and_loadable(tmp_path):
+    store = InMemoryPrincipalMemoryDeletionTombstoneStore(clock=lambda: NOW)
+    completed = store.mark(
+        store.record_requested(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ),
+        status="completed",
+    )
+    ledger = (tmp_path / "operator-ledger.jsonl").resolve()
+
+    first = append_completed_tombstone_ledger(ledger, completed)
+    second = append_completed_tombstone_ledger(ledger, completed)
+
+    assert first["appended"] == 1
+    assert second["already_present"] == 1
+    assert load_protected_tombstone_ledger(ledger) == [completed]
+
+
+def test_operator_ledger_capture_rejects_workspace_destination(tmp_path):
+    del tmp_path
+    store = InMemoryPrincipalMemoryDeletionTombstoneStore(clock=lambda: NOW)
+    completed = store.mark(
+        store.record_requested(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ),
+        status="completed",
+    )
+
+    with pytest.raises(ValueError, match="TOMBSTONE_LEDGER_INVALID"):
+        append_completed_tombstone_ledger(
+            Path.cwd() / "forbidden-ledger.jsonl",
+            completed,
+        )
+
+
 def test_operator_ledger_imports_missing_tombstone_before_replay():
     source = InMemoryPrincipalMemoryDeletionTombstoneStore(clock=lambda: NOW)
     tombstone = source.record_requested(
@@ -333,6 +370,50 @@ def test_operator_ledger_imports_missing_tombstone_before_replay():
         deployment_id="single-tenant-local",
         principal_id="local-owner",
     ).status == "replayed"
+
+
+def test_operator_ledger_replays_multiple_deletion_cycles_for_one_principal():
+    times = iter(
+        (
+            NOW,
+            NOW,
+            NOW + timedelta(seconds=1),
+            NOW + timedelta(seconds=1),
+        )
+    )
+    source = InMemoryPrincipalMemoryDeletionTombstoneStore(
+        clock=lambda: next(times)
+    )
+    first = source.mark(
+        source.record_requested(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ),
+        status="completed",
+    )
+    second = source.mark(
+        source.record_requested(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ),
+        status="completed",
+    )
+    restored = InMemoryPrincipalMemoryDeletionTombstoneStore(
+        clock=lambda: NOW + timedelta(seconds=2)
+    )
+
+    class Deletion:
+        tombstone_store = restored
+
+        def replay(self, imported):
+            restored.mark(imported, status="replayed")
+            return {"status": "replayed", "facts_deleted": 0}
+
+    result = replay_tombstone_ledger(
+        tombstones=[first, second], deletion_service=Deletion()
+    )
+
+    assert result["validated"] == 2
+    assert result["replayed"] == 2
+    assert first.tombstone_ref != second.tombstone_ref
 
 
 def test_operator_ledger_import_rejects_conflicting_tombstone():

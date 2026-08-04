@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -7,7 +8,10 @@ from app.services.postgres_connections import (
     ConnectionProvider,
     DirectPsycopg2ConnectionProvider,
 )
-from app.services.postgres_identifiers import validate_runtime_table_prefix
+from app.services.postgres_identifiers import (
+    runtime_schema_identifier,
+    validate_runtime_table_prefix,
+)
 from app.services.postgres_schema import resolve_schema_mode, validate_relations
 from app.services.principal_memory_rights import (
     PrincipalMemoryDeletionTombstone,
@@ -244,6 +248,13 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
         )
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
+                current = self._get_latest_with_cursor(
+                    cursor,
+                    deployment_id=deployment_id,
+                    principal_id=principal_id,
+                )
+                if current is not None and current.status in {"requested", "failed"}:
+                    return current
                 cursor.execute(
                     sql.SQL(
                         """
@@ -255,13 +266,7 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                             'principal-memory-deletion-tombstone-v1',%s,%s,%s,
                             %s,NULL,NULL,'requested',NULL,%s
                         )
-                        ON CONFLICT (deployment_id,principal_id) DO UPDATE SET
-                            tombstone_ref=EXCLUDED.tombstone_ref,
-                            requested_at=EXCLUDED.requested_at,
-                            completed_at=NULL,replayed_at=NULL,
-                            status='requested',failed_stage=NULL,
-                            integrity_sha256=EXCLUDED.integrity_sha256
-                        WHERE {table}.status NOT IN ('requested','failed')
+                        ON CONFLICT (tombstone_ref) DO NOTHING
                         RETURNING schema_version,tombstone_ref,deployment_id,
                             principal_id,requested_at,completed_at,replayed_at,
                             status,failed_stage,integrity_sha256
@@ -270,10 +275,7 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                     (f"pm-delete-{digest}", deployment_id, principal_id, now, digest),
                 )
                 row = cursor.fetchone()
-        return self._from_row(row) if row else self.get(
-            deployment_id=deployment_id,
-            principal_id=principal_id,
-        )
+        return self._from_row(row) if row else self.get_by_ref(f"pm-delete-{digest}")
 
     def mark(self, tombstone, *, status, failed_stage=None):
         from psycopg2 import sql
@@ -291,8 +293,8 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                         """
                         UPDATE {table} SET status=%s,failed_stage=%s,
                             completed_at=%s,replayed_at=%s
-                        WHERE deployment_id=%s AND principal_id=%s
-                          AND tombstone_ref=%s AND integrity_sha256=%s
+                        WHERE tombstone_ref=%s AND deployment_id=%s
+                          AND principal_id=%s AND integrity_sha256=%s
                         RETURNING schema_version,tombstone_ref,deployment_id,
                             principal_id,requested_at,completed_at,replayed_at,
                             status,failed_stage,integrity_sha256
@@ -303,9 +305,9 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                         failed_stage,
                         completed_at,
                         replayed_at,
+                        tombstone.tombstone_ref,
                         tombstone.deployment_id,
                         tombstone.principal_id,
-                        tombstone.tombstone_ref,
                         tombstone.integrity_sha256,
                     ),
                 )
@@ -328,7 +330,7 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                             principal_id,requested_at,completed_at,replayed_at,
                             status,failed_stage,integrity_sha256
                         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (deployment_id,principal_id) DO NOTHING
+                        ON CONFLICT (tombstone_ref) DO NOTHING
                         """
                     ).format(table=sql.Identifier(self.table)),
                     (
@@ -344,10 +346,7 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                         tombstone.integrity_sha256,
                     ),
                 )
-        current = self.get(
-            deployment_id=tombstone.deployment_id,
-            principal_id=tombstone.principal_id,
-        )
+        current = self.get_by_ref(tombstone.tombstone_ref)
         if current is None or (
             current.tombstone_ref != tombstone.tombstone_ref
             or current.integrity_sha256 != tombstone.integrity_sha256
@@ -370,17 +369,94 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
 
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
+                return self._get_latest_with_cursor(
+                    cursor,
+                    deployment_id=deployment_id,
+                    principal_id=principal_id,
+                )
+
+    def get_by_ref(self, tombstone_ref):
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
                 cursor.execute(
                     sql.SQL(
                         "SELECT schema_version,tombstone_ref,deployment_id,"
                         "principal_id,requested_at,completed_at,replayed_at,"
                         "status,failed_stage,integrity_sha256 FROM {table} "
-                        "WHERE deployment_id=%s AND principal_id=%s"
+                        "WHERE tombstone_ref=%s"
                     ).format(table=sql.Identifier(self.table)),
-                    (deployment_id, principal_id),
+                    (tombstone_ref,),
                 )
                 row = cursor.fetchone()
         return self._from_row(row) if row else None
+
+    def _get_latest_with_cursor(self, cursor, *, deployment_id, principal_id):
+        from psycopg2 import sql
+
+        cursor.execute(
+            sql.SQL(
+                "SELECT schema_version,tombstone_ref,deployment_id,"
+                "principal_id,requested_at,completed_at,replayed_at,"
+                "status,failed_stage,integrity_sha256 FROM {table} "
+                "WHERE deployment_id=%s AND principal_id=%s "
+                "ORDER BY requested_at DESC,tombstone_ref DESC LIMIT 1"
+            ).format(table=sql.Identifier(self.table)),
+            (deployment_id, principal_id),
+        )
+        row = cursor.fetchone()
+        return self._from_row(row) if row else None
+
+    def is_write_blocked(self, *, deployment_id, principal_id) -> bool:
+        current = self.get(
+            deployment_id=deployment_id, principal_id=principal_id
+        )
+        return bool(current and current.status in {"requested", "failed"})
+
+    @staticmethod
+    def _lock_key(deployment_id, principal_id):
+        return f"principal-memory-deletion:{deployment_id}:{principal_id}"
+
+    @contextmanager
+    def writer_guard(self, *, deployment_id, principal_id):
+        observed = self.get(
+            deployment_id=deployment_id, principal_id=principal_id
+        )
+        observed_state = (
+            (observed.tombstone_ref, observed.status) if observed else None
+        )
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    (self._lock_key(deployment_id, principal_id),),
+                )
+                current = self._get_latest_with_cursor(
+                    cursor,
+                    deployment_id=deployment_id,
+                    principal_id=principal_id,
+                )
+                current_state = (
+                    (current.tombstone_ref, current.status) if current else None
+                )
+                if current_state != observed_state or (
+                    current and current.status in {"requested", "failed"}
+                ):
+                    raise PermissionError(
+                        "principal memory deletion fence is active"
+                    )
+                yield
+
+    @contextmanager
+    def deletion_guard(self, *, deployment_id, principal_id):
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    (self._lock_key(deployment_id, principal_id),),
+                )
+                yield
 
     @staticmethod
     def _from_row(row):
@@ -420,10 +496,42 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                             integrity_sha256 TEXT NOT NULL CHECK (
                                 integrity_sha256 ~ '^[0-9a-f]{{64}}$'
                             ),
-                            PRIMARY KEY (deployment_id,principal_id)
+                            PRIMARY KEY (tombstone_ref)
                         )
                         """
                     ).format(table=sql.Identifier(self.table))
+                )
+                cursor.execute(
+                    "SELECT conname FROM pg_constraint WHERE conrelid=%s::regclass "
+                    "AND contype='p' AND pg_get_constraintdef(oid)<>%s",
+                    (self.table, "PRIMARY KEY (tombstone_ref)"),
+                )
+                old_primary = cursor.fetchone()
+                if old_primary is not None:
+                    cursor.execute(
+                        sql.SQL("ALTER TABLE {table} DROP CONSTRAINT {constraint}").format(
+                            table=sql.Identifier(self.table),
+                            constraint=sql.Identifier(old_primary[0]),
+                        )
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} ADD PRIMARY KEY (tombstone_ref)"
+                        ).format(table=sql.Identifier(self.table))
+                    )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE INDEX IF NOT EXISTS {index} ON {table} "
+                        "(deployment_id,principal_id,requested_at DESC)"
+                    ).format(
+                        index=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table.split("_principal_memory_tombs")[0],
+                                "principal_memory_tombs_principal_requested_idx",
+                            )
+                        ),
+                        table=sql.Identifier(self.table),
+                    )
                 )
 
 
@@ -457,13 +565,33 @@ class PostgresPrincipalMemorySafeRefStore(_PostgresPrincipalMemoryStore):
     def issue(self, fact):
         from psycopg2 import sql
 
+        now = self.clock()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT safe_ref FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s AND fact_id=%s AND fact_version=%s "
+                        "AND expires_at>%s ORDER BY expires_at DESC LIMIT 1"
+                    ).format(table=sql.Identifier(self.table)),
+                    (
+                        fact.deployment_id,
+                        fact.principal_id,
+                        fact.fact_id,
+                        fact.version,
+                        now,
+                    ),
+                )
+                existing = cursor.fetchone()
+        if existing is not None:
+            return existing[0]
         record = PrincipalMemorySafeRefRecord(
             safe_ref=self.ref_factory(),
             deployment_id=fact.deployment_id,
             principal_id=fact.principal_id,
             fact_id=fact.fact_id,
             fact_version=fact.version,
-            expires_at=self.clock() + timedelta(seconds=self.ttl_seconds),
+            expires_at=now + timedelta(seconds=self.ttl_seconds),
         )
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:

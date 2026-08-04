@@ -30,6 +30,21 @@ class InMemoryPrincipalMemorySafeRefStore:
 
     def issue(self, fact):
         now = self.clock()
+        with self._lock:
+            existing = next(
+                (
+                    item
+                    for item in self._items.values()
+                    if item.deployment_id == fact.deployment_id
+                    and item.principal_id == fact.principal_id
+                    and item.fact_id == fact.fact_id
+                    and item.fact_version == fact.version
+                    and item.expires_at > now
+                ),
+                None,
+            )
+            if existing is not None:
+                return existing.safe_ref
         record = PrincipalMemorySafeRefRecord(
             safe_ref=self.ref_factory(),
             deployment_id=fact.deployment_id,

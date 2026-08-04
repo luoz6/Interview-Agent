@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -114,6 +115,7 @@ class LongTermMemoryConfig(FrozenMemoryModel):
         default="local-owner",
         pattern=r"^[A-Za-z0-9_.-]{1,128}$",
     )
+    operator_tombstone_ledger_path: str | None = None
     local_consumption_enabled: bool = False
     consent_policy_version: str = "principal-memory-consent-v1"
     fact_schema_version: str = "principal-memory-fact-v1"
@@ -475,6 +477,12 @@ def load_effective_memory_config(
                 if "MEMORY_LOCAL_PRINCIPAL_ID" in env
                 else "local-owner"
             ),
+            operator_tombstone_ledger_path=_resolve_new_only(
+                env,
+                "MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH",
+                _parse_absolute_jsonl_path,
+                None,
+            ),
             local_consumption_enabled=_new_bool(
                 env,
                 "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED",
@@ -738,6 +746,14 @@ def _parse_required_identifier(name: str, raw: str) -> str:
     if value is None:
         raise ValueError(f"{name} must be a stable identifier")
     return value
+
+
+def _parse_absolute_jsonl_path(name: str, raw: str) -> str:
+    value = raw.strip()
+    path = Path(value)
+    if not value or not path.is_absolute() or path.suffix.lower() != ".jsonl":
+        raise ValueError(f"{name} must be an absolute JSONL path")
+    return str(path)
 
 
 def _parse_deployment_id(name: str, raw: str) -> str:

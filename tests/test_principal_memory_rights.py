@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 
@@ -137,6 +139,40 @@ def test_safe_export_expires_after_twenty_four_hours_and_has_no_locators():
     ) is None
 
 
+def test_safe_export_uses_complete_snapshot_beyond_ui_page_limit():
+    rights = build_rights()
+
+    class CompleteLifecycle:
+        def list_all_safe(self):
+            return [
+                {
+                    "fact_type": "confirmed_skill",
+                    "normalized_value": {"confirmed_skill": "python"},
+                    "status": "active",
+                    "version": 2,
+                    "created_at": NOW.isoformat(),
+                    "confirmed_at": NOW.isoformat(),
+                    "expires_at": None,
+                    "revocable": True,
+                }
+                for _ in range(101)
+            ]
+
+        def list_safe(self, *, limit):
+            raise AssertionError(f"UI pagination used for export: {limit}")
+
+    rights["export_service"].lifecycle_service = CompleteLifecycle()
+    payload = rights["export_service"].create()["payload"]
+
+    assert len(payload["facts"]) == 101
+    assert payload["fact_export"] == {
+        "total": 101,
+        "exported": 101,
+        "truncated": False,
+        "complete": True,
+    }
+
+
 def test_full_delete_reaches_zero_residue_and_keeps_operator_tombstone():
     rights = build_rights()
     rights["export_service"].create()
@@ -257,3 +293,55 @@ def test_tombstone_tampering_is_rejected_before_replay_deletes_anything():
         deployment_id="single-tenant-local",
         principal_id="local-owner",
     ) == 1
+
+
+def test_deletion_fence_rejects_writer_started_during_delete():
+    entered = Event()
+    release = Event()
+
+    def inject(stage):
+        if stage == "consent":
+            entered.set()
+            assert release.wait(timeout=5)
+
+    rights = build_rights(failure_injector=inject)
+
+    def delete():
+        return rights["deletion"].purge_current_principal()
+
+    def write():
+        assert entered.wait(timeout=5)
+        with rights["tombstones"].writer_guard(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+        ):
+            rights["facts"].create_proposal(
+                make_fact(principal_id="local-owner", value="kafka")
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        deletion = executor.submit(delete)
+        writer = executor.submit(write)
+        assert entered.wait(timeout=5)
+        release.set()
+        assert deletion.result()["status"] == "completed"
+        with pytest.raises(PermissionError, match="deletion fence"):
+            writer.result()
+    assert rights["facts"].count_by_principal(
+        deployment_id="single-tenant-local", principal_id="local-owner"
+    ) == 0
+
+
+def test_operator_ledger_failure_blocks_deletion_completion():
+    rights = build_rights()
+    rights["deletion"].ledger_writer = lambda _: (_ for _ in ()).throw(
+        OSError("private locator must not escape")
+    )
+
+    with pytest.raises(PrincipalMemoryDeletionIncomplete) as captured:
+        rights["deletion"].purge_current_principal()
+
+    assert captured.value.stage == "operator_ledger"
+    assert rights["tombstones"].get(
+        deployment_id="single-tenant-local", principal_id="local-owner"
+    ).status == "failed"

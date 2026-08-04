@@ -1,6 +1,9 @@
 import logging
 import os
+from ipaddress import ip_address
+from pathlib import Path
 from collections.abc import Iterator
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Literal
@@ -88,12 +91,25 @@ def _require_trusted_local_metrics() -> None:
         raise HTTPException(status_code=404, detail="not found")
 
 
-def _require_trusted_local_principal_memory():
+def _require_trusted_local_principal_memory(request: Request):
     config = load_effective_memory_config()
     if not (
         config.long_term.local_principal_enabled
         and config.long_term.trusted_local_api_enabled
     ):
+        raise HTTPException(status_code=404, detail="not found")
+    client = request.client
+    try:
+        is_loopback = bool(
+            client
+            and ip_address(client.host.split("%", 1)[0]).is_loopback
+        )
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        # Forwarded headers are intentionally ignored. Proxy deployments must
+        # keep this local-only API unavailable until authenticated proxy trust
+        # is explicitly implemented.
         raise HTTPException(status_code=404, detail="not found")
     identity = get_principal_identity_resolver().resolve()
     if identity is None or identity.assurance != "trusted_local":
@@ -328,6 +344,7 @@ def _principal_memory_lifecycle(identity):
 
     config = load_effective_memory_config()
     resolver = get_principal_identity_resolver()
+    deletion_fence = get_principal_memory_deletion_tombstone_store()
     return PrincipalMemoryLifecycleService(
         identity_resolver=resolver,
         consent_service=PrincipalMemoryConsentService(
@@ -338,11 +355,13 @@ def _principal_memory_lifecycle(identity):
                 identity_resolver=resolver,
                 store=get_principal_memory_control_store(),
             ),
+            deletion_fence=deletion_fence,
         ),
         fact_store=get_principal_memory_fact_store(),
         session_store=get_session_store(),
         config=config,
         clock=lambda: datetime.now(timezone.utc),
+        deletion_fence=deletion_fence,
     )
 
 
@@ -356,8 +375,18 @@ def _principal_memory_control():
     )
 
 
-def _principal_memory_safe_items(*, limit):
-    identity = _require_trusted_local_principal_memory()
+def _principal_memory_writer_guard(identity):
+    fence = get_principal_memory_deletion_tombstone_store()
+    if not hasattr(fence, "writer_guard"):
+        return nullcontext()
+    return fence.writer_guard(
+        deployment_id=identity.deployment_id,
+        principal_id=identity.principal_id,
+    )
+
+
+def _principal_memory_safe_items(*, request, limit):
+    identity = _require_trusted_local_principal_memory(request)
     store = get_principal_memory_fact_store()
     refs = get_principal_memory_safe_ref_store()
     facts = store.list_by_principal(
@@ -375,8 +404,8 @@ def _principal_memory_safe_items(*, limit):
     ]
 
 
-def _resolve_principal_memory_safe_ref(safe_ref):
-    identity = _require_trusted_local_principal_memory()
+def _resolve_principal_memory_safe_ref(request, safe_ref):
+    identity = _require_trusted_local_principal_memory(request)
     try:
         fact = get_principal_memory_safe_ref_store().resolve(
             safe_ref,
@@ -390,30 +419,51 @@ def _resolve_principal_memory_safe_ref(safe_ref):
 
 
 @router.get("/runtime/principal-memory/status")
-def principal_memory_status():
-    identity = _require_trusted_local_principal_memory()
+def principal_memory_status(request: Request):
+    identity = _require_trusted_local_principal_memory(request)
     config = load_effective_memory_config()
     consent = get_principal_memory_consent_store().get_current(
         deployment_id=identity.deployment_id,
         principal_id=identity.principal_id,
     )
-    facts = get_principal_memory_fact_store().list_by_principal(
+    facts = get_principal_memory_fact_store().list_all_by_principal(
         deployment_id=identity.deployment_id,
         principal_id=identity.principal_id,
-        limit=100,
         include_terminal=True,
+    )
+    fence = get_principal_memory_deletion_tombstone_store()
+    deletion_blocked = bool(
+        hasattr(fence, "is_write_blocked")
+        and fence.is_write_blocked(
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
+        )
+    )
+    policy_current = bool(
+        consent
+        and consent.policy_version == config.long_term.consent_policy_version
     )
     return {
         "schema_version": "principal-memory-local-status-v1",
         "mode": config.long_term.mode,
-        "global_enabled": _principal_memory_control().snapshot()["global_enabled"],
+        "global_enabled": bool(
+            config.long_term.mode != "disabled"
+            and _principal_memory_control().snapshot()["global_enabled"]
+            and not deletion_blocked
+        ),
         "consent": {
-            "granted": bool(consent and consent.revoked_at is None),
+            "granted": bool(
+                consent
+                and consent.revoked_at is None
+                and policy_current
+                and not deletion_blocked
+            ),
             "allowed_purposes": list(consent.allowed_purposes) if consent else [],
             "version": consent.version if consent else 0,
         },
         "fact_count": len(facts),
         "local_consumption_enabled": config.long_term.local_consumption_enabled,
+        "deletion_fence_active": deletion_blocked,
     }
 
 
@@ -422,20 +472,24 @@ def grant_principal_memory_consent(
     payload: PrincipalConsentRequest,
     request: Request,
 ):
-    identity = _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     from app.services.principal_memory_consent import PrincipalMemoryConsent
 
     config = load_effective_memory_config()
-    consent = get_principal_memory_consent_store().grant(
-        PrincipalMemoryConsent(
-            deployment_id=identity.deployment_id,
-            principal_id=identity.principal_id,
-            policy_version=config.long_term.consent_policy_version,
-            allowed_purposes=payload.allowed_purposes,
-            granted_at=datetime.now(timezone.utc),
-        )
-    )
+    try:
+        with _principal_memory_writer_guard(identity):
+            consent = get_principal_memory_consent_store().grant(
+                PrincipalMemoryConsent(
+                    deployment_id=identity.deployment_id,
+                    principal_id=identity.principal_id,
+                    policy_version=config.long_term.consent_policy_version,
+                    allowed_purposes=payload.allowed_purposes,
+                    granted_at=datetime.now(timezone.utc),
+                )
+            )
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "schema_version": consent.schema_version,
         "policy_version": consent.policy_version,
@@ -448,14 +502,18 @@ def grant_principal_memory_consent(
 
 @router.delete("/runtime/principal-memory/consent")
 def revoke_principal_memory_consent(request: Request):
-    identity = _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     now = datetime.now(timezone.utc)
-    consent = get_principal_memory_consent_store().revoke(
-        deployment_id=identity.deployment_id,
-        principal_id=identity.principal_id,
-        revoked_at=now,
-    )
+    try:
+        with _principal_memory_writer_guard(identity):
+            consent = get_principal_memory_consent_store().revoke(
+                deployment_id=identity.deployment_id,
+                principal_id=identity.principal_id,
+                revoked_at=now,
+            )
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "revoked": consent is not None,
         "facts_retained": True,
@@ -463,50 +521,57 @@ def revoke_principal_memory_consent(request: Request):
 
 
 @router.get("/runtime/principal-memory/facts")
-def list_principal_memory_facts(limit: int = Query(default=50, ge=1, le=100)):
+def list_principal_memory_facts(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+):
     return {
         "schema_version": "principal-memory-safe-list-v1",
-        "items": _principal_memory_safe_items(limit=limit),
+        "items": _principal_memory_safe_items(request=request, limit=limit),
     }
 
 
 @router.post("/runtime/principal-memory/disable")
 def disable_principal_memory(request: Request):
-    _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    control = _principal_memory_control().set_global_enabled(False)
+    with _principal_memory_writer_guard(identity):
+        control = _principal_memory_control().set_global_enabled(False)
     return {"global_enabled": False, "version": control.version, "facts_retained": True}
 
 
 @router.post("/runtime/principal-memory/enable")
 def enable_principal_memory(request: Request):
-    _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    control = _principal_memory_control().set_global_enabled(True)
+    with _principal_memory_writer_guard(identity):
+        control = _principal_memory_control().set_global_enabled(True)
     return {"global_enabled": True, "version": control.version, "facts_retained": True}
 
 
 @router.post("/runtime/principal-memory/sessions/{session_id}/ignore")
 def ignore_principal_memory_session(session_id: str, request: Request):
-    _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     try:
         get_session_store().get(session_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
-    control = _principal_memory_control().set_session_ignored(session_id, True)
+    with _principal_memory_writer_guard(identity):
+        control = _principal_memory_control().set_session_ignored(session_id, True)
     return {"session_ignored": True, "version": control.version}
 
 
 @router.delete("/runtime/principal-memory/sessions/{session_id}/ignore")
 def allow_principal_memory_session(session_id: str, request: Request):
-    _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     try:
         get_session_store().get(session_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
-    control = _principal_memory_control().set_session_ignored(session_id, False)
+    with _principal_memory_writer_guard(identity):
+        control = _principal_memory_control().set_session_ignored(session_id, False)
     return {"session_ignored": False, "version": control.version}
 
 
@@ -515,7 +580,7 @@ def declare_principal_memory_fact(
     payload: PrincipalFactDeclareRequest,
     request: Request,
 ):
-    identity = _require_trusted_local_principal_memory()
+    identity = _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     from app.services.principal_memory_contracts import canonical_principal_fact
 
@@ -530,14 +595,13 @@ def declare_principal_memory_fact(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-def _principal_fact_ref_action(safe_ref, payload, action):
-    identity, fact = _resolve_principal_memory_safe_ref(safe_ref)
+def _principal_fact_ref_action(request, safe_ref, payload, action):
+    identity, fact = _resolve_principal_memory_safe_ref(request, safe_ref)
     if fact.version != payload.expected_version:
         raise HTTPException(status_code=409, detail="principal memory version changed")
     try:
         return getattr(_principal_memory_lifecycle(identity), action)(
-            fact_type=fact.fact_type,
-            normalized_fact=fact.normalized_fact,
+            fact_id=fact.fact_id,
             expected_version=payload.expected_version,
         )
     except PermissionError as exc:
@@ -552,9 +616,9 @@ def confirm_principal_memory_fact(
     payload: PrincipalFactRefActionRequest,
     request: Request,
 ):
-    _require_trusted_local_principal_memory()
+    _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    return _principal_fact_ref_action(safe_ref, payload, "confirm")
+    return _principal_fact_ref_action(request, safe_ref, payload, "confirm")
 
 
 @router.post("/runtime/principal-memory/facts/{safe_ref}/reject")
@@ -563,9 +627,9 @@ def reject_principal_memory_fact(
     payload: PrincipalFactRefActionRequest,
     request: Request,
 ):
-    _require_trusted_local_principal_memory()
+    _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    return _principal_fact_ref_action(safe_ref, payload, "reject")
+    return _principal_fact_ref_action(request, safe_ref, payload, "reject")
 
 
 @router.post("/runtime/principal-memory/facts/{safe_ref}/revoke")
@@ -574,9 +638,9 @@ def revoke_principal_memory_fact(
     payload: PrincipalFactRefActionRequest,
     request: Request,
 ):
-    _require_trusted_local_principal_memory()
+    _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    return _principal_fact_ref_action(safe_ref, payload, "revoke")
+    return _principal_fact_ref_action(request, safe_ref, payload, "revoke")
 
 
 @router.put("/runtime/principal-memory/facts/{safe_ref}")
@@ -585,9 +649,9 @@ def correct_principal_memory_fact(
     payload: PrincipalFactCorrectionRequest,
     request: Request,
 ):
-    _require_trusted_local_principal_memory()
+    _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
-    identity, fact = _resolve_principal_memory_safe_ref(safe_ref)
+    identity, fact = _resolve_principal_memory_safe_ref(request, safe_ref)
     if fact.version != payload.expected_version or fact.status != "active":
         raise HTTPException(status_code=409, detail="principal memory version changed")
     from app.services.principal_memory_contracts import canonical_principal_fact
@@ -600,6 +664,8 @@ def correct_principal_memory_fact(
         return _principal_memory_lifecycle(identity).declare(
             fact_type=fact.fact_type,
             normalized_fact=normalized,
+            expected_predecessor_fact_id=fact.fact_id,
+            expected_predecessor_version=payload.expected_version,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -609,7 +675,7 @@ def correct_principal_memory_fact(
 
 @router.post("/runtime/principal-memory/export")
 def export_principal_memory(request: Request):
-    _require_trusted_local_principal_memory()
+    _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     from app.services.principal_memory_rights import PrincipalMemoryExportService
 
@@ -627,11 +693,23 @@ def export_principal_memory(request: Request):
 
 @router.delete("/runtime/principal-memory")
 def delete_principal_memory(request: Request):
-    _require_trusted_local_principal_memory()
+    _require_trusted_local_principal_memory(request)
     _require_local_memory_mutation(request)
     from app.services.principal_memory_deletion import (
         PrincipalMemoryDeletionIncomplete,
         PrincipalMemoryDeletionService,
+    )
+    from app.services.principal_memory_operations import (
+        append_completed_tombstone_ledger,
+    )
+
+    ledger_path = load_effective_memory_config().long_term.operator_tombstone_ledger_path
+    ledger_writer = (
+        lambda tombstone: append_completed_tombstone_ledger(
+            Path(ledger_path), tombstone
+        )
+        if ledger_path
+        else None
     )
 
     try:
@@ -643,6 +721,7 @@ def delete_principal_memory(request: Request):
             export_store=get_principal_memory_export_store(),
             tombstone_store=get_principal_memory_deletion_tombstone_store(),
             cache_purge=get_principal_memory_safe_ref_store().purge,
+            ledger_writer=ledger_writer,
         ).purge_current_principal()
     except PrincipalMemoryDeletionIncomplete as exc:
         raise HTTPException(

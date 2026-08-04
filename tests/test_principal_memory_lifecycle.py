@@ -99,16 +99,14 @@ def test_confirm_and_same_fact_key_supersede_create_direct_predecessor_chain():
     service, facts = build_service()
     first = facts.create_proposal(make_source_fact("b"))
     confirmed = service.confirm(
-        fact_type="confirmed_skill",
-        normalized_fact=first.normalized_fact,
+        fact_id=first.fact_id,
         expected_version=1,
     )
     assert confirmed["status"] == "active"
 
     second = facts.create_proposal(make_source_fact("c"))
     second_result = service.confirm(
-        fact_type="confirmed_skill",
-        normalized_fact=second.normalized_fact,
+        fact_id=second.fact_id,
         expected_version=1,
     )
     assert second_result["status"] == "active"
@@ -124,6 +122,33 @@ def test_confirm_and_same_fact_key_supersede_create_direct_predecessor_chain():
     )
     assert stored_first.status == "superseded"
     assert stored_second.supersedes_fact_id == stored_first.fact_id
+
+
+def test_exact_fact_id_controls_same_value_different_source_proposals():
+    service, facts = build_service()
+    first = facts.create_proposal(make_source_fact("7"))
+    second = facts.create_proposal(make_source_fact("8"))
+
+    service.confirm(fact_id=second.fact_id, expected_version=1)
+
+    stored_first = facts.get(
+        deployment_id=first.deployment_id,
+        principal_id=first.principal_id,
+        fact_id=first.fact_id,
+    )
+    stored_second = facts.get(
+        deployment_id=second.deployment_id,
+        principal_id=second.principal_id,
+        fact_id=second.fact_id,
+    )
+    assert stored_first.status == "proposed"
+    assert stored_second.status == "active"
+    service.reject(fact_id=first.fact_id, expected_version=1)
+    assert facts.get(
+        deployment_id=first.deployment_id,
+        principal_id=first.principal_id,
+        fact_id=first.fact_id,
+    ).status == "rejected"
 
 
 def test_safe_list_excludes_internal_fact_and_source_locators():
@@ -236,6 +261,51 @@ def test_concurrent_exclusive_corrections_leave_at_most_one_active_value():
     assert len(active) == 1
 
 
+def test_concurrent_edits_with_one_expected_predecessor_allow_one_winner():
+    service, facts = build_service()
+    service.declare(
+        fact_type="declared_preference",
+        normalized_fact=canonical_principal_fact(
+            {"interview_language": "zh_hans"}
+        ),
+    )
+    predecessor = facts.list_shadow_eligible(
+        deployment_id="single-tenant-local",
+        principal_id="principal-life",
+        now=NOW,
+        limit=1,
+    )[0]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                service.declare,
+                fact_type="declared_preference",
+                normalized_fact=canonical_principal_fact(
+                    {"interview_language": value}
+                ),
+                expected_predecessor_fact_id=predecessor.fact_id,
+                expected_predecessor_version=predecessor.version,
+            )
+            for value in ("en", "mixed")
+        ]
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append(future.result()["status"])
+            except RuntimeError:
+                outcomes.append("conflict")
+
+    assert sorted(outcomes) == ["active", "conflict"]
+    stored = facts.list_by_principal(
+        deployment_id="single-tenant-local",
+        principal_id="principal-life",
+        limit=100,
+        include_terminal=True,
+    )
+    assert [fact.status for fact in stored].count("active") == 1
+
+
 def test_nonexclusive_direct_declarations_coexist():
     service, facts = build_service()
     for value in ("python", "kafka"):
@@ -269,8 +339,7 @@ def test_model_confirmation_and_direct_correction_share_one_atomic_key():
         futures = [
             executor.submit(
                 service.confirm,
-                fact_type="declared_preference",
-                normalized_fact=proposal.normalized_fact,
+                fact_id=proposal.fact_id,
                 expected_version=1,
             ),
             executor.submit(
@@ -312,8 +381,7 @@ def test_source_session_deletion_removes_all_source_bound_facts_only():
     service, facts = build_service()
     proposal = facts.create_proposal(make_source_fact("1"))
     service.confirm(
-        fact_type=proposal.fact_type,
-        normalized_fact=proposal.normalized_fact,
+        fact_id=proposal.fact_id,
         expected_version=1,
     )
     service.declare(

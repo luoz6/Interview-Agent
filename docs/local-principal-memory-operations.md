@@ -121,11 +121,35 @@ Store the deletion tombstone ledger outside application backups and Git. Limit
 access to the operator because each JSONL record contains deletion locators.
 Never paste ledger content into tickets, logs, evidence, or chat.
 
+Before enabling deletion, configure an absolute private destination outside the
+repository and database backup boundary:
+
+```text
+MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH=C:\private\principal-memory-tombstones.jsonl
+```
+
+When this value is configured, the deletion endpoint fails closed if the
+completed tombstone cannot be durably appended. The failure response contains
+only the `operator_ledger` stage, never the path or protected locators. To
+capture an already-completed tombstone explicitly, run:
+
+```powershell
+python -m scripts.local_principal_memory capture-tombstone-ledger --ledger '<absolute-private-ledger-path>.jsonl' --execute
+if ($LASTEXITCODE -ne 0) { throw 'Principal Memory tombstone capture failed' }
+```
+
+Capture is append-only and idempotent by tombstone reference, uses a single
+durable write plus file flush, rejects repository-relative destinations,
+restricts file permissions where the host permits it, and emits aggregate
+counts only. Repeat the capture after every completed deletion cycle and copy
+the ledger to the operator-controlled restore location before rotating or
+restoring application backups.
+
 After restoring an older application backup:
 
 1. Keep interview traffic closed and Local Consume disabled.
 2. Restore the application database into the intended Local V1 scope.
-3. Make the protected JSONL ledger available on the operator host.
+3. Make the captured protected JSONL ledger available on the operator host.
 4. Run the repository preflight and resolve database or migration failures.
 5. Execute replay:
 

@@ -126,6 +126,23 @@ def test_readiness_payload_contains_only_safe_effective_modes():
     assert "base_url" not in payload
 
 
+def test_operator_tombstone_ledger_path_is_private_config_not_readiness_data():
+    config = load_effective_memory_config(
+        {
+            "MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH": (
+                "C:\\private\\principal-memory-tombstones.jsonl"
+            )
+        }
+    )
+
+    assert config.long_term.operator_tombstone_ledger_path.endswith(".jsonl")
+    assert "tombstone_ledger" not in repr(memory_readiness_payload(config))
+    with pytest.raises(ValueError, match="absolute JSONL"):
+        load_effective_memory_config(
+            {"MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH": "relative.jsonl"}
+        )
+
+
 def test_question_memory_consumption_readiness_fails_when_required_coverage_is_missing(
     monkeypatch,
 ):

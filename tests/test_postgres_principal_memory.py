@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 
 from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.services.in_memory_principal_memory import PrincipalMemoryConflict
 from app.services.principal_memory_contracts import (
     CONSENT_POLICY_VERSION,
     TAXONOMY_VERSION,
@@ -236,6 +237,131 @@ def test_postgres_confirmation_competes_atomically_and_retention_is_bounded(
             principal_id=old_proposal.principal_id,
             fact_id=old_proposal.fact_id,
         ).status == "expired"
+    finally:
+        import psycopg2
+        from psycopg2 import sql
+
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_postgres_same_value_proposal_confirmations_leave_one_active_fact(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    proposals = [
+        make_active_language("en", digest).model_copy(
+            update={
+                "authority": "model_proposed",
+                "status": "proposed",
+                "user_confirmed": False,
+                "confirmed_at": None,
+                "expires_at": None,
+                "source_session_id": f"session-{digest}",
+            }
+        )
+        for digest in ("1", "2")
+    ]
+    try:
+        for proposal in proposals:
+            store.create_proposal(proposal)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda proposal: store.activate_proposal(
+                        deployment_id=proposal.deployment_id,
+                        principal_id=proposal.principal_id,
+                        fact_id=proposal.fact_id,
+                        expected_version=1,
+                        exclusive_key=None,
+                        now=NOW,
+                        expires_at=NOW + timedelta(days=180),
+                    ),
+                    proposals,
+                )
+            )
+        assert all(result is not None for result in results)
+        stored = store.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=100,
+            include_terminal=True,
+        )
+        assert [fact.status for fact in stored].count("active") == 1
+        assert [fact.status for fact in stored].count("superseded") == 1
+    finally:
+        import psycopg2
+        from psycopg2 import sql
+
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_postgres_concurrent_corrections_validate_exact_predecessor(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    predecessor = make_active_language("zh_hans", "3")
+    corrections = [
+        make_active_language("en", "4"),
+        make_active_language("mixed", "5"),
+    ]
+    try:
+        store.declare_active(
+            predecessor,
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    store.declare_active,
+                    correction,
+                    exclusive_key="interview_language",
+                    now=NOW,
+                    expected_predecessor_fact_id=predecessor.fact_id,
+                    expected_predecessor_version=predecessor.version,
+                )
+                for correction in corrections
+            ]
+            outcomes = []
+            for future in futures:
+                try:
+                    outcomes.append(future.result().status)
+                except PrincipalMemoryConflict:
+                    outcomes.append("conflict")
+        assert sorted(outcomes) == ["active", "conflict"]
+        stored = store.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=100,
+            include_terminal=True,
+        )
+        assert [fact.status for fact in stored].count("active") == 1
     finally:
         import psycopg2
         from psycopg2 import sql

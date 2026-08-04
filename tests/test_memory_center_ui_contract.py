@@ -74,6 +74,24 @@ def test_memory_center_mutations_are_explicit_and_delete_is_confirmed():
     assert 'request("", { method: "DELETE", headers: mutationHeaders })' in script
 
 
+def test_memory_center_supports_confirmation_correction_and_session_override():
+    html = _read("memory-center.html")
+    script = _read("memory-center.js")
+
+    assert 'actionButton("确认"' in script
+    assert 'actionButton("编辑"' in script
+    assert 'method: "PUT"' in script
+    assert "expected_version: item.version" in script
+    assert "normalized_value: { [key]: select.value }" in script
+    assert 'id="session-control-form"' in html
+    assert 'id="session-key"' in html
+    assert 'data-session-action="ignore"' in html
+    assert 'data-session-action="restore"' in html
+    assert "encodeURIComponent(sessionKey)" in script
+    assert "item.session_id" not in script
+    assert "item.fact_id" not in script
+
+
 def test_memory_center_has_semantic_accessibility_and_reduced_motion_contracts():
     html = _read("memory-center.html")
     css = _read("memory-center.css")

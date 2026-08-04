@@ -298,10 +298,12 @@ def get_principal_memory_proposal_processor():
                     config=config,
                     resolver=resolver,
                 ),
+                deletion_fence=get_principal_memory_deletion_tombstone_store(),
             ),
             fact_store=get_principal_memory_fact_store(),
             extractor=NullPrincipalMemoryExtractor(),
             config=config,
+            deletion_fence=get_principal_memory_deletion_tombstone_store(),
         )
     return _principal_memory_proposal_processor
 
@@ -327,6 +329,7 @@ def get_principal_memory_shadow_service():
                         config=config,
                         resolver=resolver,
                     ),
+                    deletion_fence=get_principal_memory_deletion_tombstone_store(),
                 ),
                 identity_resolver=resolver,
                 session_store=get_session_store(),
@@ -364,6 +367,7 @@ def get_principal_memory_consume_service():
                     config=config,
                     resolver=resolver,
                 ),
+                deletion_fence=get_principal_memory_deletion_tombstone_store(),
             ),
             identity_resolver=resolver,
             session_store=get_session_store(),
@@ -528,6 +532,7 @@ def get_session_deletion_worker():
             ),
             tombstone_store=service.tombstone_store,
             principal_memory_store=get_principal_memory_fact_store(),
+            principal_memory_control_store=get_principal_memory_control_store(),
         )
     return _session_deletion_worker
 

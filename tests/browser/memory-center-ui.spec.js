@@ -12,7 +12,7 @@ function json(route, body, status = 200) {
   });
 }
 
-async function mockMemoryApi(page, { items = [], enabled = true } = {}) {
+async function mockMemoryApi(page, { items = [], enabled = true, staleEdit = false, apiDisabled = false } = {}) {
   const state = {
     enabled,
     purposes: ["fact_storage", "read_shadow"],
@@ -28,6 +28,8 @@ async function mockMemoryApi(page, { items = [], enabled = true } = {}) {
     const method = request.method();
     const body = request.postDataJSON?.() ?? null;
     state.calls.push({ method, path, body, headers: request.headers() });
+
+    if (apiDisabled) return json(route, { detail: "not found" }, 404);
 
     if (method === "GET" && path === "/status") {
       return json(route, {
@@ -61,9 +63,22 @@ async function mockMemoryApi(page, { items = [], enabled = true } = {}) {
     if (method === "POST" && path === "/facts") {
       return json(route, { status: "active", version: 1, normalized_fact: JSON.stringify(body.normalized_value) });
     }
-    if (method === "POST" && /^\/facts\/[^/]+\/(revoke|reject)$/.test(path)) {
+    if (method === "POST" && /^\/facts\/[^/]+\/(confirm|revoke|reject)$/.test(path)) {
       state.items = [];
-      return json(route, { status: path.endsWith("revoke") ? "revoked" : "rejected", version: 2 });
+      const status = path.endsWith("confirm") ? "active" : path.endsWith("revoke") ? "revoked" : "rejected";
+      return json(route, { status, version: 2 });
+    }
+    if (method === "PUT" && /^\/facts\/[^/]+$/.test(path)) {
+      if (staleEdit) return json(route, { detail: "principal memory version changed" }, 409);
+      state.items = state.items.map((item) => ({
+        ...item,
+        version: item.version + 1,
+        normalized_value: body.normalized_value,
+      }));
+      return json(route, { status: "active", version: 8, normalized_value: body.normalized_value });
+    }
+    if (/^\/sessions\/[^/]+\/ignore$/.test(path) && ["POST", "DELETE"].includes(method)) {
+      return json(route, { session_ignored: method === "POST", version: 1 });
     }
     if (method === "POST" && path === "/export") {
       return json(route, {
@@ -135,6 +150,82 @@ test("memory center renders only safe records and uses safe refs for lifecycle a
   expect(revoke.body).toEqual({ expected_version: 7 });
   expect(revoke.headers["x-local-memory-action"]).toBe("1");
   await expect(page.locator("#facts-empty")).toBeVisible();
+});
+
+test("memory center confirms proposals and restores keyboard focus", async ({ page }) => {
+  const state = await mockMemoryApi(page, {
+    items: [{
+      safe_ref: "proposal-safe-ref",
+      status: "proposed",
+      version: 1,
+      fact_type: "confirmed_skill",
+      normalized_value: { confirmed_skill: "python" },
+    }],
+  });
+  await page.goto("/memory-center.html");
+
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+
+  const confirm = state.calls.find((call) => call.path === "/facts/proposal-safe-ref/confirm");
+  expect(confirm.method).toBe("POST");
+  expect(confirm.body).toEqual({ expected_version: 1 });
+  await expect(page.locator("#refresh-facts")).toBeFocused();
+});
+
+test("memory center edits exclusive facts and handles stale versions", async ({ page }) => {
+  const state = await mockMemoryApi(page, {
+    items: [{
+      safe_ref: "language-safe-ref",
+      status: "active",
+      version: 7,
+      fact_type: "declared_preference",
+      normalized_value: { interview_language: "zh_hans" },
+    }],
+  });
+  await page.goto("/memory-center.html");
+
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.getByRole("combobox", { name: "面试语言 更正值" }).selectOption("en");
+  await page.getByRole("button", { name: "保存更正" }).click();
+
+  const correction = state.calls.find((call) => call.method === "PUT");
+  expect(correction.path).toBe("/facts/language-safe-ref");
+  expect(correction.body).toEqual({
+    expected_version: 7,
+    normalized_value: { interview_language: "en" },
+  });
+  await expect(page.locator("#facts-list")).toContainText("en");
+
+  const stalePage = await page.context().newPage();
+  await mockMemoryApi(stalePage, { items: state.items, staleEdit: true });
+  await stalePage.goto("/memory-center.html");
+  await stalePage.getByRole("button", { name: "编辑", exact: true }).click();
+  await stalePage.getByRole("button", { name: "保存更正" }).click();
+  await expect(stalePage.locator("#notice")).toContainText("principal memory version changed");
+  await expect(stalePage.locator("#refresh-facts")).toBeFocused();
+});
+
+test("memory center can ignore and restore one session without rendering it", async ({ page }) => {
+  const state = await mockMemoryApi(page);
+  await page.goto("/memory-center.html");
+
+  await page.locator("#session-key").fill("local-session-42");
+  await page.getByRole("button", { name: "本次忽略" }).click();
+  await page.getByRole("button", { name: "恢复使用" }).click();
+
+  const controls = state.calls.filter((call) => call.path === "/sessions/local-session-42/ignore");
+  expect(controls.map((call) => call.method)).toEqual(["POST", "DELETE"]);
+  await expect(page.locator("#session-key")).toBeFocused();
+  await expect(page.locator("#facts-list")).not.toContainText("local-session-42");
+});
+
+test("memory center fails closed when the local API is unavailable", async ({ page }) => {
+  await mockMemoryApi(page, { apiDisabled: true });
+  await page.goto("/memory-center.html");
+
+  await expect(page.locator("#status-stamp strong")).toHaveText("不可用");
+  await expect(page.locator("#toggle-memory")).toBeDisabled();
+  await expect(page.locator("#refresh-facts")).toBeEnabled();
 });
 
 test("memory center export and destructive deletion require explicit local actions", async ({ page }) => {

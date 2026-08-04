@@ -75,6 +75,22 @@
         <ol id="facts-list" class="facts-list" aria-live="polite"></ol>
       </section>
 
+      <section class="session-section" aria-labelledby="session-title">
+        <div>
+          <p class="section-number">E / SESSION</p>
+          <h2 id="session-title">本次面试忽略长期记忆</h2>
+          <p>此设置只影响指定的本地面试，不会删除已保存条目。恢复后，后续追问才会重新允许使用。</p>
+        </div>
+        <form id="session-control-form" class="session-control-form">
+          <label for="session-key">本地面试编号</label>
+          <input id="session-key" name="session-key" type="search" maxlength="128" autocomplete="off" required />
+          <div class="button-row">
+            <button class="button button-ink" type="submit" data-session-action="ignore">本次忽略</button>
+            <button class="button button-text" type="submit" data-session-action="restore">恢复使用</button>
+          </div>
+        </form>
+      </section>
+
       <section class="rights-section" aria-labelledby="rights-title">
         <div><p class="section-number">E / RIGHTS</p><h2 id="rights-title">导出与删除</h2></div>
         <p>导出文件在 24 小时后失效。删除会清除事实、许可、控制状态和导出记录；删除凭证由本机操作员保留。</p>

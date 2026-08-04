@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import os
+import stat
 from pathlib import Path
+from threading import RLock
 from typing import Mapping
 
 from app.services.principal_memory_rights import (
@@ -32,6 +35,8 @@ LOCAL_MEMORY_OPERATION_GATE_CODES = frozenset(
         "OPERATION_FAILED",
     }
 )
+
+_LEDGER_APPEND_LOCK = RLock()
 
 
 def evaluate_local_memory_readiness(
@@ -260,6 +265,85 @@ def load_protected_tombstone_ledger(path: Path) -> list[PrincipalMemoryDeletionT
     except Exception as exc:
         raise ValueError("TOMBSTONE_LEDGER_INVALID") from exc
     return items
+
+
+def append_completed_tombstone_ledger(
+    path: Path,
+    tombstone: PrincipalMemoryDeletionTombstone,
+) -> dict[str, object]:
+    """Durably append one completed event to an operator-owned JSONL ledger."""
+
+    path = Path(path)
+    try:
+        resolved = path.resolve(strict=False)
+        workspace = Path.cwd().resolve()
+        if not path.is_absolute() or resolved.suffix.lower() != ".jsonl":
+            raise ValueError
+        if resolved == workspace or workspace in resolved.parents:
+            raise ValueError
+        if not resolved.parent.is_dir():
+            raise ValueError
+        _validate_tombstone(tombstone)
+        if tombstone.status not in {"completed", "replayed"}:
+            raise ValueError
+        if tombstone.completed_at is None:
+            raise ValueError
+        line = (
+            json.dumps(
+                tombstone.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        if len(line) > 16_384:
+            raise ValueError
+        with _LEDGER_APPEND_LOCK:
+            if resolved.exists():
+                if not resolved.is_file() or resolved.stat().st_size > 1_000_000:
+                    raise ValueError
+                existing = resolved.read_text(encoding="utf-8")
+                for raw in existing.splitlines():
+                    if raw.strip() and json.loads(raw).get("tombstone_ref") == (
+                        tombstone.tombstone_ref
+                    ):
+                        return {
+                            "schema_version": "principal-memory-ledger-capture-v1",
+                            "status": "completed",
+                            "appended": 0,
+                            "already_present": 1,
+                        }
+            flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+            descriptor = os.open(resolved, flags, 0o600)
+            try:
+                if os.write(descriptor, line) != len(line):
+                    raise OSError("short operator ledger write")
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            try:
+                os.chmod(resolved, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
+    except Exception as exc:
+        raise ValueError("TOMBSTONE_LEDGER_INVALID") from exc
+    return {
+        "schema_version": "principal-memory-ledger-capture-v1",
+        "status": "completed",
+        "appended": 1,
+        "already_present": 0,
+    }
+
+
+def _validate_tombstone(item: PrincipalMemoryDeletionTombstone) -> None:
+    expected = _tombstone_digest(
+        deployment_id=item.deployment_id,
+        principal_id=item.principal_id,
+        requested_at=item.requested_at,
+    )
+    if item.integrity_sha256 != expected or item.tombstone_ref != f"pm-delete-{expected}":
+        raise ValueError("principal deletion tombstone integrity mismatch")
 
 
 def replay_tombstone_ledger(*, tombstones, deletion_service) -> dict[str, object]:

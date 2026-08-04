@@ -93,6 +93,8 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "sessions_workflow_engine_check",
     "principal_memory_facts_principal_idx",
     "principal_memory_facts_session_idx",
+    "principal_memory_facts_active_identity_uq",
+    "principal_memory_tombs_principal_requested_idx",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (

@@ -17,6 +17,9 @@ def build_parser() -> argparse.ArgumentParser:
     replay = subparsers.add_parser("replay-tombstones")
     replay.add_argument("--ledger", type=Path, required=True)
     replay.add_argument("--execute", action="store_true")
+    capture = subparsers.add_parser("capture-tombstone-ledger")
+    capture.add_argument("--ledger", type=Path, required=True)
+    capture.add_argument("--execute", action="store_true")
     return parser
 
 
@@ -91,6 +94,27 @@ def _deletion_service():
     )
 
 
+def _capture_latest_tombstone(ledger: Path):
+    from app.services.principal_memory_operations import (
+        append_completed_tombstone_ledger,
+    )
+    from app.services.runtime import (
+        get_principal_identity_resolver,
+        get_principal_memory_deletion_tombstone_store,
+    )
+
+    identity = get_principal_identity_resolver().resolve()
+    if identity is None or identity.assurance != "trusted_local":
+        raise RuntimeError("TRUSTED_LOCAL_IDENTITY_UNAVAILABLE")
+    tombstone = get_principal_memory_deletion_tombstone_store().get(
+        deployment_id=identity.deployment_id,
+        principal_id=identity.principal_id,
+    )
+    if tombstone is None:
+        raise RuntimeError("TOMBSTONE_LEDGER_INVALID")
+    return append_completed_tombstone_ledger(ledger, tombstone)
+
+
 def execute(args) -> tuple[dict, int]:
     from app.services.principal_memory_operations import (
         load_protected_tombstone_ledger,
@@ -109,6 +133,8 @@ def execute(args) -> tuple[dict, int]:
     if args.command == "cleanup":
         return _service().cleanup(batch_size=args.batch_size), 0
     _service().require_maintenance_boundary()
+    if args.command == "capture-tombstone-ledger":
+        return _capture_latest_tombstone(args.ledger), 0
     tombstones = load_protected_tombstone_ledger(args.ledger)
     return replay_tombstone_ledger(
         tombstones=tombstones,

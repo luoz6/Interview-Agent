@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import nullcontext
 from datetime import timedelta
 
 from app.services.in_memory_principal_memory import PrincipalMemoryConflict
@@ -16,7 +17,7 @@ from app.services.principal_memory_contracts import (
 class PrincipalMemoryLifecycleService:
     def __init__(
         self, *, identity_resolver, consent_service, fact_store, session_store,
-        config, clock,
+        config, clock, deletion_fence=None,
     ):
         self.identity_resolver = identity_resolver
         self.consent_service = consent_service
@@ -24,6 +25,7 @@ class PrincipalMemoryLifecycleService:
         self.session_store = session_store
         self.config = config
         self.clock = clock
+        self.deletion_fence = deletion_fence
 
     def list_safe(self, *, limit: int = 50):
         identity = self._identity()
@@ -35,7 +37,39 @@ class PrincipalMemoryLifecycleService:
         )
         return [self.safe_payload(fact) for fact in facts]
 
-    def declare(self, *, fact_type: str, normalized_fact: str):
+    def list_all_safe(self):
+        identity = self._identity()
+        facts = self.fact_store.list_all_by_principal(
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
+            include_terminal=True,
+        )
+        return [self.safe_payload(fact) for fact in facts]
+
+    def declare(
+        self,
+        *,
+        fact_type: str,
+        normalized_fact: str,
+        expected_predecessor_fact_id: str | None = None,
+        expected_predecessor_version: int | None = None,
+    ):
+        with self._writer_guard():
+            return self._declare(
+                fact_type=fact_type,
+                normalized_fact=normalized_fact,
+                expected_predecessor_fact_id=expected_predecessor_fact_id,
+                expected_predecessor_version=expected_predecessor_version,
+            )
+
+    def _declare(
+        self,
+        *,
+        fact_type: str,
+        normalized_fact: str,
+        expected_predecessor_fact_id=None,
+        expected_predecessor_version=None,
+    ):
         if not self.consent_service.authorize("fact_storage"):
             raise PermissionError("principal memory consent is unavailable")
         identity = self._identity()
@@ -90,27 +124,29 @@ class PrincipalMemoryLifecycleService:
                 else None
             ),
             now=now,
+            expected_predecessor_fact_id=expected_predecessor_fact_id,
+            expected_predecessor_version=expected_predecessor_version,
         )
         return self.safe_payload(stored)
 
-    def confirm(self, *, fact_type: str, normalized_fact: str, expected_version: int):
+    def confirm(self, *, fact_id: str, expected_version: int):
+        with self._writer_guard():
+            return self._confirm(
+                fact_id=fact_id, expected_version=expected_version
+            )
+
+    def _confirm(self, *, fact_id: str, expected_version: int):
         if not self.consent_service.authorize("fact_storage"):
             raise PermissionError("principal memory consent is unavailable")
         identity = self._identity()
-        normalized = validate_normalized_fact(
-            fact_type=fact_type, normalized_fact=normalized_fact
-        )
-        proposal = self._find(
-            identity=identity,
-            fact_type=fact_type,
-            normalized_fact=normalized,
-            status="proposed",
+        proposal = self._get_exact(
+            identity=identity, fact_id=fact_id, status="proposed"
         )
         self._require_source(proposal)
         if not self.consent_service.authorize("fact_storage"):
             raise PermissionError("principal memory consent is unavailable")
         now = self.clock()
-        taxonomy_key = next(iter(json.loads(normalized)))
+        taxonomy_key = next(iter(json.loads(proposal.normalized_fact)))
         confirmed = self.fact_store.activate_proposal(
             deployment_id=identity.deployment_id,
             principal_id=identity.principal_id,
@@ -137,37 +173,41 @@ class PrincipalMemoryLifecycleService:
             - timedelta(days=self.config.long_term.proposal_retention_days),
         )
 
-    def reject(self, *, fact_type: str, normalized_fact: str, expected_version: int):
-        return self._transition_by_key(
-            fact_type=fact_type,
-            normalized_fact=normalized_fact,
-            expected_version=expected_version,
-            source_status="proposed",
-            target_status="rejected",
+    def reject(self, *, fact_id: str, expected_version: int):
+        with self._writer_guard():
+            return self._transition_exact(
+                fact_id=fact_id,
+                expected_version=expected_version,
+                source_status="proposed",
+                target_status="rejected",
+            )
+
+    def revoke(self, *, fact_id: str, expected_version: int):
+        with self._writer_guard():
+            return self._transition_exact(
+                fact_id=fact_id,
+                expected_version=expected_version,
+                source_status="active",
+                target_status="revoked",
+            )
+
+    def _writer_guard(self):
+        if self.deletion_fence is None or not hasattr(
+            self.deletion_fence, "writer_guard"
+        ):
+            return nullcontext()
+        identity = self._identity()
+        return self.deletion_fence.writer_guard(
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
         )
 
-    def revoke(self, *, fact_type: str, normalized_fact: str, expected_version: int):
-        return self._transition_by_key(
-            fact_type=fact_type,
-            normalized_fact=normalized_fact,
-            expected_version=expected_version,
-            source_status="active",
-            target_status="revoked",
-        )
-
-    def _transition_by_key(
-        self, *, fact_type, normalized_fact, expected_version,
-        source_status, target_status,
+    def _transition_exact(
+        self, *, fact_id, expected_version, source_status, target_status,
     ):
         identity = self._identity()
-        normalized = validate_normalized_fact(
-            fact_type=fact_type, normalized_fact=normalized_fact
-        )
-        fact = self._find(
-            identity=identity,
-            fact_type=fact_type,
-            normalized_fact=normalized,
-            status=source_status,
+        fact = self._get_exact(
+            identity=identity, fact_id=fact_id, status=source_status
         )
         updated = self.fact_store.transition(
             deployment_id=identity.deployment_id,
@@ -179,35 +219,21 @@ class PrincipalMemoryLifecycleService:
         )
         return self.safe_payload(updated)
 
+    def _get_exact(self, *, identity, fact_id, status):
+        fact = self.fact_store.get(
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
+            fact_id=fact_id,
+        )
+        if fact is None or fact.status != status:
+            raise ValueError("principal memory fact not found")
+        return fact
+
     def _identity(self):
         identity = self.identity_resolver.resolve()
         if identity is None:
             raise PermissionError("principal identity is unavailable")
         return identity
-
-    def _find(
-        self, *, identity, fact_type, normalized_fact, status,
-        exclude_fact_id=None, required=True,
-    ):
-        facts = self.fact_store.list_by_principal(
-            deployment_id=identity.deployment_id,
-            principal_id=identity.principal_id,
-            limit=100,
-            include_terminal=True,
-        )
-        fact = next(
-            (
-                item for item in facts
-                if item.fact_type == fact_type
-                and item.normalized_fact == normalized_fact
-                and item.status == status
-                and item.fact_id != exclude_fact_id
-            ),
-            None,
-        )
-        if fact is None and required:
-            raise ValueError("principal memory fact not found")
-        return fact
 
     def _require_source(self, fact):
         state = self.session_store.get(fact.source_session_id)

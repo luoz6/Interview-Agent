@@ -124,6 +124,19 @@ class PostgresPrincipalMemoryControlStore:
                 )
                 return int(cursor.fetchone()[0])
 
+    def purge_session(self, session_id: str) -> int:
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {table} WHERE session_key=%s"
+                    ).format(table=sql.Identifier(self.table)),
+                    (session_id,),
+                )
+                return int(cursor.rowcount)
+
     def _get(self, *, deployment_id: str, principal_id: str, session_key: str):
         from psycopg2 import sql
 

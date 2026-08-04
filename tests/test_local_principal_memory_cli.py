@@ -59,6 +59,39 @@ def test_cleanup_outputs_aggregate_counts(monkeypatch):
     assert payload == {"status": "completed", "facts_expired": 17}
 
 
+def test_capture_tombstone_requires_boundary_and_explicit_private_ledger(
+    monkeypatch,
+):
+    calls = []
+
+    class Boundary(Service):
+        def require_maintenance_boundary(self):
+            calls.append("boundary")
+
+    monkeypatch.setattr(local_principal_memory, "_service", lambda: Boundary())
+    monkeypatch.setattr(
+        local_principal_memory,
+        "_capture_latest_tombstone",
+        lambda ledger: {
+            "status": "completed",
+            "appended": 1,
+            "destination_exposed": False,
+        },
+    )
+    payload, code = local_principal_memory.execute(
+        Namespace(
+            command="capture-tombstone-ledger",
+            execute=True,
+            ledger="C:/private/operator-ledger.jsonl",
+        )
+    )
+
+    assert code == 0
+    assert calls == ["boundary"]
+    assert payload["appended"] == 1
+    assert "ledger" not in payload
+
+
 def test_replay_checks_maintenance_boundary_before_reading_ledger(monkeypatch):
     calls = []
 
@@ -80,6 +113,43 @@ def test_replay_checks_maintenance_boundary_before_reading_ledger(monkeypatch):
     else:
         raise AssertionError("replay must fail before reading the ledger")
     assert calls == ["boundary"]
+
+
+def test_replay_passes_a_real_deletion_service_to_the_runner(monkeypatch):
+    calls = []
+    deletion_service = object()
+
+    monkeypatch.setattr(local_principal_memory, "_service", lambda: Service())
+    monkeypatch.setattr(
+        local_principal_memory,
+        "_deletion_service",
+        lambda: deletion_service,
+    )
+    monkeypatch.setattr(
+        "app.services.principal_memory_operations.load_protected_tombstone_ledger",
+        lambda path: ["tombstone"],
+    )
+
+    def replay(*, tombstones, deletion_service):
+        calls.append((tombstones, deletion_service))
+        return {"status": "completed", "replayed": 1}
+
+    monkeypatch.setattr(
+        "app.services.principal_memory_operations.replay_tombstone_ledger",
+        replay,
+    )
+
+    payload, code = local_principal_memory.execute(
+        Namespace(
+            command="replay-tombstones",
+            execute=True,
+            ledger="C:/private/operator-ledger.jsonl",
+        )
+    )
+
+    assert code == 0
+    assert payload == {"status": "completed", "replayed": 1}
+    assert calls == [(["tombstone"], deletion_service)]
 
 
 def test_main_redacts_private_operation_failure(monkeypatch, capsys):
