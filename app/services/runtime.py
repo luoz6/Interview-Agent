@@ -174,44 +174,74 @@ def get_principal_memory_control_store():
 
 def get_principal_memory_export_store():
     global _principal_memory_export_store
-    if get_runtime_store() == "postgres":
-        raise RuntimeError(
-            "durable principal memory export store is not ready"
-        )
     if _principal_memory_export_store is None:
-        from app.services.principal_memory_rights import (
-            InMemoryPrincipalMemoryExportStore,
-        )
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_rights import (
+                PostgresPrincipalMemoryExportStore,
+            )
 
-        _principal_memory_export_store = InMemoryPrincipalMemoryExportStore()
+            _principal_memory_export_store = PostgresPrincipalMemoryExportStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.principal_memory_rights import (
+                InMemoryPrincipalMemoryExportStore,
+            )
+
+            _principal_memory_export_store = InMemoryPrincipalMemoryExportStore()
     return _principal_memory_export_store
 
 
 def get_principal_memory_deletion_tombstone_store():
     global _principal_memory_deletion_tombstone_store
-    if get_runtime_store() == "postgres":
-        raise RuntimeError(
-            "durable principal deletion tombstone store is not ready"
-        )
     if _principal_memory_deletion_tombstone_store is None:
-        from app.services.principal_memory_rights import (
-            InMemoryPrincipalMemoryDeletionTombstoneStore,
-        )
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_rights import (
+                PostgresPrincipalMemoryDeletionTombstoneStore,
+            )
 
-        _principal_memory_deletion_tombstone_store = (
-            InMemoryPrincipalMemoryDeletionTombstoneStore()
-        )
+            _principal_memory_deletion_tombstone_store = (
+                PostgresPrincipalMemoryDeletionTombstoneStore(
+                    dsn=get_postgres_dsn(),
+                    connection_provider=get_postgres_connection_domains().business,
+                    table_prefix=get_runtime_table_prefix(),
+                    schema_mode="validate",
+                )
+            )
+        else:
+            from app.services.principal_memory_rights import (
+                InMemoryPrincipalMemoryDeletionTombstoneStore,
+            )
+
+            _principal_memory_deletion_tombstone_store = (
+                InMemoryPrincipalMemoryDeletionTombstoneStore()
+            )
     return _principal_memory_deletion_tombstone_store
 
 
 def get_principal_memory_safe_ref_store():
     global _principal_memory_safe_ref_store
     if _principal_memory_safe_ref_store is None:
-        from app.services.principal_memory_safe_refs import (
-            InMemoryPrincipalMemorySafeRefStore,
-        )
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_rights import (
+                PostgresPrincipalMemorySafeRefStore,
+            )
 
-        _principal_memory_safe_ref_store = InMemoryPrincipalMemorySafeRefStore()
+            _principal_memory_safe_ref_store = PostgresPrincipalMemorySafeRefStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.principal_memory_safe_refs import (
+                InMemoryPrincipalMemorySafeRefStore,
+            )
+
+            _principal_memory_safe_ref_store = InMemoryPrincipalMemorySafeRefStore()
     return _principal_memory_safe_ref_store
 
 

@@ -79,6 +79,10 @@ def test_trusted_local_fact_list_returns_no_internal_locators(monkeypatch):
         "app.api.routes.get_principal_memory_control_store",
         lambda: InMemoryPrincipalMemoryControlStore(),
     )
+    monkeypatch.setattr(
+        "app.api.routes.get_principal_memory_safe_ref_store",
+        lambda: InMemoryPrincipalMemorySafeRefStore(),
+    )
     monkeypatch.setattr("app.api.routes.get_session_store", lambda: Sessions())
 
     response = TestClient(app).get("/api/runtime/principal-memory/facts")

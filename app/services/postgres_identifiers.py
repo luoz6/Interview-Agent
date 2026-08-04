@@ -54,6 +54,9 @@ _RUNTIME_TABLE_SUFFIXES = (
     "principal_memory_consents",
     "principal_memory_facts",
     "principal_memory_effects",
+    "principal_memory_exports",
+    "principal_memory_tombs",
+    "principal_memory_refs",
     "schema_migrations",
 )
 
