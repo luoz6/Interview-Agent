@@ -28,7 +28,7 @@ real-candidate production processing.
 | Privacy, Prompt and Knowledge firewall | 75 passed | privacy, cross-Principal isolation, consumption isolation, Provider Context isolation, prep, scoring, report/PDF and Knowledge firewall |
 | Review-fix focused regression | 125 passed | trusted-local API, exact Safe Ref lifecycle, PostgreSQL races, deletion fencing, append-only tombstones, external ledger, complete export, session cleanup and Memory Center contracts |
 | Frontend/browser service cleanup | PASS | no listeners on the three test ports after the browser runner exited |
-| PostgreSQL test cleanup | PASS | the exact full run created 762 isolated test tables; all were removed in bounded transactions and final `test_*` relation residue is zero |
+| PostgreSQL test cleanup | PASS | the final exact full run created 381 isolated test tables; all were removed in bounded transactions and final `test_*` relation residue is zero |
 | Python compile check | PASS | `app`, `scripts` and `tests` compile successfully |
 | Hosted disposition | PASS | public GitHub Issue #1 is `closed` with `state_reason=not_planned` |
 | Main worktree protection | PASS | the same 14 pre-existing user-owned paths remain; no Local V1 task wrote to the main worktree |
