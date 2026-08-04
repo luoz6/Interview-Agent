@@ -12,6 +12,7 @@ from app.services.postgres_runtime_migrations import (
 )
 from app.services.postgres_schema import validate_relations
 from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
+from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
 from app.services.embedding_providers import DisabledEmbeddingProvider
 from tests.postgres_support import make_runtime_table_prefix
 from scripts.postgres_runtime_migrate import main
@@ -89,6 +90,10 @@ def _patch_schema_owners(monkeypatch, seen):
         "PostgresMemoryMetricStore",
         "PostgresPrincipalMemoryConsentStore",
         "PostgresPrincipalMemoryFactStore",
+        "PostgresPrincipalMemoryControlStore",
+        "PostgresPrincipalMemoryExportStore",
+        "PostgresPrincipalMemoryDeletionTombstoneStore",
+        "PostgresPrincipalMemorySafeRefStore",
     ):
         monkeypatch.setattr(migrations, name, owner)
 
@@ -118,7 +123,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     )
 
     assert result.applied is True
-    assert len([item for item in seen if item[0] == "migrate"]) == 10
+    assert len([item for item in seen if item[0] == "migrate"]) == 14
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
     assert setup == ["private-dsn"]
     assert connection.commits >= 2
@@ -284,6 +289,23 @@ def test_report_job_contract_requires_independent_heartbeat_column():
     assert "updated_at" not in required or "heartbeat_at" != "updated_at"
 
 
+def test_local_principal_rights_schema_contract_is_complete():
+    from app.services.postgres_schema_contract import required_columns_for_relation
+
+    expected = {
+        "interview_principal_memory_controls": {"session_key", "enabled", "version"},
+        "interview_principal_memory_exports": {"export_ref", "payload", "expires_at"},
+        "interview_principal_memory_tombs": {
+            "tombstone_ref", "integrity_sha256", "status"
+        },
+        "interview_principal_memory_refs": {
+            "safe_ref", "fact_id", "fact_version", "expires_at"
+        },
+    }
+    for relation, columns in expected.items():
+        assert columns.issubset(required_columns_for_relation(relation))
+
+
 def test_schema_validation_rejects_missing_latest_migration_row():
     table = "test_schema_migrations"
     columns = [
@@ -355,12 +377,33 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                     (f"{prefix}_report_jobs",),
                 )
                 columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = ANY(%s::text[])
+                    """,
+                    ([
+                        f"{prefix}_principal_memory_controls",
+                        f"{prefix}_principal_memory_exports",
+                        f"{prefix}_principal_memory_tombs",
+                        f"{prefix}_principal_memory_refs",
+                    ],),
+                )
+                local_rights_tables = {row[0] for row in cursor.fetchall()}
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "report_job_heartbeat_v1"
+        assert first.migration_id == "principal_memory_integrity_v2"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
+        assert local_rights_tables == {
+            f"{prefix}_principal_memory_controls",
+            f"{prefix}_principal_memory_exports",
+            f"{prefix}_principal_memory_tombs",
+            f"{prefix}_principal_memory_refs",
+        }
     finally:
         with psycopg2.connect(postgres_dsn) as connection:
             with connection.cursor() as cursor:
@@ -375,6 +418,104 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                 )
                 names = [row[0] for row in cursor.fetchall()]
                 for name in names:
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(name)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
+    postgres_dsn, monkeypatch
+):
+    import psycopg2
+    from psycopg2 import sql
+    from app.services import runtime
+
+    prefix = make_runtime_table_prefix("principal_rights_upgrade")
+    vector = make_runtime_table_prefix("principal_rights_vector")
+    migrations_table = f"{prefix}_schema_migrations"
+    v10 = RUNTIME_MIGRATIONS[-2]
+    try:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {table} (migration_id TEXT PRIMARY KEY,"
+                        "checksum TEXT NOT NULL,transaction_mode TEXT NOT NULL,"
+                        "applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+                    ).format(table=sql.Identifier(migrations_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {table} (migration_id,checksum,transaction_mode) "
+                        "VALUES (%s,%s,%s)"
+                    ).format(table=sql.Identifier(migrations_table)),
+                    (v10.migration_id, v10.checksum, v10.transaction_mode),
+                )
+
+        result = migrate_postgres_runtime(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled", dimension=3
+            ),
+            run_checkpointer_setup=False,
+        )
+        assert result.applied is True
+        assert result.migration_id == "principal_memory_integrity_v2"
+
+        runtime.reset_runtime_for_tests()
+        monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
+        monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "postgres")
+        monkeypatch.setenv("INTERVIEW_RUNTIME_TABLE_PREFIX", prefix)
+        monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
+        monkeypatch.setenv(
+            "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
+        )
+        assert runtime.get_principal_memory_export_store().__class__.__name__ == (
+            "PostgresPrincipalMemoryExportStore"
+        )
+        assert (
+            runtime.get_principal_memory_deletion_tombstone_store().__class__.__name__
+            == "PostgresPrincipalMemoryDeletionTombstoneStore"
+        )
+        assert runtime.get_principal_memory_safe_ref_store().__class__.__name__ == (
+            "PostgresPrincipalMemorySafeRefStore"
+        )
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app, client=("127.0.0.1", 50000))
+        exported = client.post(
+            "/api/runtime/principal-memory/export",
+            headers={"x-local-memory-action": "1"},
+        )
+        assert exported.status_code == 200
+        assert exported.json()["payload"]["facts"] == []
+        deleted = client.delete(
+            "/api/runtime/principal-memory",
+            headers={"x-local-memory-action": "1"},
+        )
+        assert deleted.status_code == 200
+        assert deleted.json()["status"] == "completed"
+        runtime.reset_runtime_for_tests()
+    finally:
+        runtime.reset_runtime_for_tests()
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND (table_name LIKE %s OR table_name LIKE %s)
+                    """,
+                    (prefix + "_%", vector + "_%"),
+                )
+                for (name,) in cursor.fetchall():
                     cursor.execute(
                         sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
                             table=sql.Identifier(name)

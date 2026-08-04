@@ -95,19 +95,36 @@ _session_deletion_service = None
 _session_deletion_worker = None
 _memory_metric_store = None
 _principal_identity_resolver = None
+_principal_memory_control_store = None
 _principal_memory_consent_store = None
 _principal_memory_fact_store = None
+_principal_memory_export_store = None
+_principal_memory_deletion_tombstone_store = None
+_principal_memory_safe_ref_store = None
 _principal_memory_proposal_processor = None
 _principal_memory_shadow_service = None
+_principal_memory_consume_service = None
 _context_compression_lock = RLock()
 
 
 def get_principal_identity_resolver():
     global _principal_identity_resolver
     if _principal_identity_resolver is None:
-        from app.services.principal_identity import NullPrincipalIdentityResolver
+        from app.services.memory_config import load_effective_memory_config
+        from app.services.principal_identity import (
+            ExplicitPrincipalIdentityResolver,
+            NullPrincipalIdentityResolver,
+        )
 
-        _principal_identity_resolver = NullPrincipalIdentityResolver()
+        config = load_effective_memory_config()
+        if config.long_term.local_principal_enabled:
+            _principal_identity_resolver = ExplicitPrincipalIdentityResolver(
+                deployment_id=config.privacy.deployment_id,
+                principal_id=config.long_term.local_principal_id,
+                assurance="trusted_local",
+            )
+        else:
+            _principal_identity_resolver = NullPrincipalIdentityResolver()
     return _principal_identity_resolver
 
 
@@ -130,6 +147,113 @@ def get_principal_memory_consent_store():
             )
             _principal_memory_consent_store = InMemoryPrincipalMemoryConsentStore()
     return _principal_memory_consent_store
+
+
+def get_principal_memory_control_store():
+    global _principal_memory_control_store
+    if _principal_memory_control_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_control import (
+                PostgresPrincipalMemoryControlStore,
+            )
+
+            _principal_memory_control_store = PostgresPrincipalMemoryControlStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.in_memory_principal_memory_control import (
+                InMemoryPrincipalMemoryControlStore,
+            )
+
+            _principal_memory_control_store = InMemoryPrincipalMemoryControlStore()
+    return _principal_memory_control_store
+
+
+def get_principal_memory_export_store():
+    global _principal_memory_export_store
+    if _principal_memory_export_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_rights import (
+                PostgresPrincipalMemoryExportStore,
+            )
+
+            _principal_memory_export_store = PostgresPrincipalMemoryExportStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.principal_memory_rights import (
+                InMemoryPrincipalMemoryExportStore,
+            )
+
+            _principal_memory_export_store = InMemoryPrincipalMemoryExportStore()
+    return _principal_memory_export_store
+
+
+def get_principal_memory_deletion_tombstone_store():
+    global _principal_memory_deletion_tombstone_store
+    if _principal_memory_deletion_tombstone_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_rights import (
+                PostgresPrincipalMemoryDeletionTombstoneStore,
+            )
+
+            _principal_memory_deletion_tombstone_store = (
+                PostgresPrincipalMemoryDeletionTombstoneStore(
+                    dsn=get_postgres_dsn(),
+                    connection_provider=get_postgres_connection_domains().business,
+                    table_prefix=get_runtime_table_prefix(),
+                    schema_mode="validate",
+                )
+            )
+        else:
+            from app.services.principal_memory_rights import (
+                InMemoryPrincipalMemoryDeletionTombstoneStore,
+            )
+
+            _principal_memory_deletion_tombstone_store = (
+                InMemoryPrincipalMemoryDeletionTombstoneStore()
+            )
+    return _principal_memory_deletion_tombstone_store
+
+
+def get_principal_memory_safe_ref_store():
+    global _principal_memory_safe_ref_store
+    if _principal_memory_safe_ref_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_rights import (
+                PostgresPrincipalMemorySafeRefStore,
+            )
+
+            _principal_memory_safe_ref_store = PostgresPrincipalMemorySafeRefStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.principal_memory_safe_refs import (
+                InMemoryPrincipalMemorySafeRefStore,
+            )
+
+            _principal_memory_safe_ref_store = InMemoryPrincipalMemorySafeRefStore()
+    return _principal_memory_safe_ref_store
+
+
+def _principal_memory_control_service(*, config, resolver):
+    if not config.long_term.local_principal_enabled:
+        return None
+    from app.services.principal_memory_control import PrincipalMemoryControlService
+
+    return PrincipalMemoryControlService(
+        identity_resolver=resolver,
+        store=get_principal_memory_control_store(),
+    )
 
 
 def get_principal_memory_fact_store():
@@ -162,17 +286,24 @@ def get_principal_memory_proposal_processor():
         from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
 
         config = load_effective_memory_config()
+        resolver = get_principal_identity_resolver()
         _principal_memory_proposal_processor = PrincipalMemoryProposalProcessor(
             session_store=get_session_store(),
-            identity_resolver=get_principal_identity_resolver(),
+            identity_resolver=resolver,
             consent_service=PrincipalMemoryConsentService(
-                identity_resolver=get_principal_identity_resolver(),
+                identity_resolver=resolver,
                 store=get_principal_memory_consent_store(),
                 policy_version=config.long_term.consent_policy_version,
+                control_service=_principal_memory_control_service(
+                    config=config,
+                    resolver=resolver,
+                ),
+                deletion_fence=get_principal_memory_deletion_tombstone_store(),
             ),
             fact_store=get_principal_memory_fact_store(),
             extractor=NullPrincipalMemoryExtractor(),
             config=config,
+            deletion_fence=get_principal_memory_deletion_tombstone_store(),
         )
     return _principal_memory_proposal_processor
 
@@ -194,6 +325,11 @@ def get_principal_memory_shadow_service():
                     identity_resolver=resolver,
                     store=get_principal_memory_consent_store(),
                     policy_version=config.long_term.consent_policy_version,
+                    control_service=_principal_memory_control_service(
+                        config=config,
+                        resolver=resolver,
+                    ),
+                    deletion_fence=get_principal_memory_deletion_tombstone_store(),
                 ),
                 identity_resolver=resolver,
                 session_store=get_session_store(),
@@ -201,6 +337,45 @@ def get_principal_memory_shadow_service():
             )
         )
     return _principal_memory_shadow_service
+
+
+def get_principal_memory_consume_service():
+    global _principal_memory_consume_service
+    from app.services.memory_config import load_effective_memory_config
+
+    config = load_effective_memory_config()
+    if config.long_term.mode != "local_consume":
+        return None
+    if get_runtime_store() != "postgres":
+        raise RuntimeError("local principal memory consumption requires PostgreSQL")
+    if _principal_memory_consume_service is None:
+        from app.services.context_runtime import get_context_runtime
+        from app.services.principal_memory_consent import PrincipalMemoryConsentService
+        from app.services.principal_memory_consume import (
+            PrincipalMemoryLocalConsumeService,
+        )
+
+        resolver = get_principal_identity_resolver()
+        context_runtime = get_context_runtime()
+        _principal_memory_consume_service = PrincipalMemoryLocalConsumeService(
+            fact_store=get_principal_memory_fact_store(),
+            consent_service=PrincipalMemoryConsentService(
+                identity_resolver=resolver,
+                store=get_principal_memory_consent_store(),
+                policy_version=config.long_term.consent_policy_version,
+                control_service=_principal_memory_control_service(
+                    config=config,
+                    resolver=resolver,
+                ),
+                deletion_fence=get_principal_memory_deletion_tombstone_store(),
+            ),
+            identity_resolver=resolver,
+            session_store=get_session_store(),
+            config=config,
+            estimator=context_runtime.estimator_resolution.estimator,
+            model=context_runtime.model_profile.model,
+        )
+    return _principal_memory_consume_service
 
 
 def get_memory_metric_store():
@@ -357,6 +532,7 @@ def get_session_deletion_worker():
             ),
             tombstone_store=service.tombstone_store,
             principal_memory_store=get_principal_memory_fact_store(),
+            principal_memory_control_store=get_principal_memory_control_store(),
         )
     return _session_deletion_worker
 
@@ -726,6 +902,7 @@ def build_interview_workflow_service():
         report_job_queue=get_report_job_store(),
         worker_id=_runtime_worker_id("interview-graph"),
         principal_memory_shadow=get_principal_memory_shadow_service(),
+        principal_memory_consumer=get_principal_memory_consume_service(),
     )
     from app.services.context_compression_gating import ContextCompressionGates
 
@@ -1289,9 +1466,13 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _session_deletion_job_store, _session_deletion_tombstone_store
     global _session_deletion_service, _session_deletion_worker
     global _memory_metric_store
-    global _principal_identity_resolver, _principal_memory_consent_store
+    global _principal_identity_resolver, _principal_memory_control_store
+    global _principal_memory_consent_store, _principal_memory_export_store
+    global _principal_memory_deletion_tombstone_store
+    global _principal_memory_safe_ref_store
     global _principal_memory_fact_store, _principal_memory_proposal_processor
     global _principal_memory_shadow_service
+    global _principal_memory_consume_service
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
     if _durable_workflow_maintenance_service is not None:
@@ -1335,10 +1516,15 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _session_deletion_worker = None
     _memory_metric_store = None
     _principal_identity_resolver = None
+    _principal_memory_control_store = None
     _principal_memory_consent_store = None
     _principal_memory_fact_store = None
+    _principal_memory_export_store = None
+    _principal_memory_deletion_tombstone_store = None
+    _principal_memory_safe_ref_store = None
     _principal_memory_proposal_processor = None
     _principal_memory_shadow_service = None
+    _principal_memory_consume_service = None
     from app.services.memory_metrics import reset_memory_metric_store
 
     reset_memory_metric_store()

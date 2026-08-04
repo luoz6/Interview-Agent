@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -100,18 +101,32 @@ class PrivacyMemoryConfig(FrozenMemoryModel):
 
 
 class LongTermMemoryConfig(FrozenMemoryModel):
-    mode: Literal["disabled", "write_shadow", "read_shadow"] = "disabled"
+    mode: Literal[
+        "disabled",
+        "write_shadow",
+        "read_shadow",
+        "local_consume",
+    ] = "disabled"
     write_shadow_enabled: bool = False
     read_shadow_enabled: bool = False
     trusted_local_api_enabled: bool = False
+    local_principal_enabled: bool = False
+    local_principal_id: str = Field(
+        default="local-owner",
+        pattern=r"^[A-Za-z0-9_.-]{1,128}$",
+    )
+    operator_tombstone_ledger_path: str | None = None
+    local_consumption_enabled: bool = False
     consent_policy_version: str = "principal-memory-consent-v1"
     fact_schema_version: str = "principal-memory-fact-v1"
     taxonomy_version: str = "principal-memory-taxonomy-v1"
     max_proposals_per_session: int = Field(default=8, ge=1, le=32)
     max_shadow_facts: int = Field(default=6, ge=1, le=32)
     max_shadow_tokens: int = Field(default=800, ge=1, le=8000)
-    proposal_retention_days: int = Field(default=30, ge=1)
-    active_fact_default_days: int = Field(default=365, ge=1)
+    max_local_consume_facts: int = Field(default=3, ge=1, le=3)
+    max_local_consume_tokens: int = Field(default=120, ge=1, le=120)
+    proposal_retention_days: int = Field(default=7, ge=1)
+    active_fact_default_days: int = Field(default=180, ge=1)
 
 
 class EffectiveMemoryConfig(FrozenMemoryModel):
@@ -449,6 +464,30 @@ def load_effective_memory_config(
                 "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
                 False,
             ),
+            local_principal_enabled=_new_bool(
+                env,
+                "MEMORY_LOCAL_PRINCIPAL_ENABLED",
+                False,
+            ),
+            local_principal_id=(
+                _parse_required_identifier(
+                    "MEMORY_LOCAL_PRINCIPAL_ID",
+                    str(env["MEMORY_LOCAL_PRINCIPAL_ID"]),
+                )
+                if "MEMORY_LOCAL_PRINCIPAL_ID" in env
+                else "local-owner"
+            ),
+            operator_tombstone_ledger_path=_resolve_new_only(
+                env,
+                "MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH",
+                _parse_absolute_jsonl_path,
+                None,
+            ),
+            local_consumption_enabled=_new_bool(
+                env,
+                "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED",
+                False,
+            ),
             consent_policy_version=_resolve_new_only(
                 env,
                 "MEMORY_LONG_TERM_CONSENT_POLICY_VERSION",
@@ -476,11 +515,17 @@ def load_effective_memory_config(
             max_shadow_tokens=_new_positive(
                 env, "MEMORY_LONG_TERM_MAX_SHADOW_TOKENS", 800
             ),
+            max_local_consume_facts=_new_positive(
+                env, "MEMORY_LONG_TERM_MAX_LOCAL_CONSUME_FACTS", 3
+            ),
+            max_local_consume_tokens=_new_positive(
+                env, "MEMORY_LONG_TERM_MAX_LOCAL_CONSUME_TOKENS", 120
+            ),
             proposal_retention_days=_new_positive(
-                env, "MEMORY_LONG_TERM_PROPOSAL_RETENTION_DAYS", 30
+                env, "MEMORY_LONG_TERM_PROPOSAL_RETENTION_DAYS", 7
             ),
             active_fact_default_days=_new_positive(
-                env, "MEMORY_LONG_TERM_ACTIVE_FACT_DEFAULT_DAYS", 365
+                env, "MEMORY_LONG_TERM_ACTIVE_FACT_DEFAULT_DAYS", 180
             ),
         ),
         legacy_environment_used=bool(legacy_used),
@@ -498,6 +543,10 @@ def memory_readiness_payload(config: EffectiveMemoryConfig) -> dict:
         "budget_mode": config.budget.mode,
         "compression_mode": config.compression.mode,
         "long_term_mode": config.long_term.mode,
+        "local_principal_enabled": config.long_term.local_principal_enabled,
+        "local_consumption_enabled": (
+            config.long_term.local_consumption_enabled
+        ),
         "interview_graph_version": config.interview_graph.version,
         "interview_graph_rollout_percent": (
             config.interview_graph.rollout_percent
@@ -579,10 +628,35 @@ def _validate_effective_config(config: EffectiveMemoryConfig) -> None:
         raise ValueError("disabled long-term memory cannot enable shadow operations")
     if long_term.mode == "write_shadow" and not long_term.write_shadow_enabled:
         raise ValueError("write_shadow mode requires its explicit write gate")
-    if long_term.mode == "read_shadow" and not (
-        long_term.write_shadow_enabled and long_term.read_shadow_enabled
+    if long_term.mode == "read_shadow" and not long_term.read_shadow_enabled:
+        raise ValueError("read_shadow mode requires its explicit read gate")
+    if (
+        long_term.local_principal_enabled
+        and config.privacy.deployment_id != "single-tenant-local"
     ):
-        raise ValueError("read_shadow mode requires explicit write and read gates")
+        raise ValueError(
+            "Local Principal requires the single-tenant-local deployment scope"
+        )
+    if (
+        long_term.local_consumption_enabled
+        and long_term.mode != "local_consume"
+    ):
+        raise ValueError(
+            "local consumption gate requires local_consume mode"
+        )
+    if long_term.mode == "local_consume":
+        if not long_term.local_principal_enabled:
+            raise ValueError("local_consume mode requires its local Principal gate")
+        if not long_term.trusted_local_api_enabled:
+            raise ValueError("local_consume mode requires its trusted-local API gate")
+        if not (
+            long_term.write_shadow_enabled and long_term.read_shadow_enabled
+        ):
+            raise ValueError(
+                "local_consume mode requires explicit write and read shadow gates"
+            )
+        if not long_term.local_consumption_enabled:
+            raise ValueError("local_consume mode requires its local consumption gate")
 
 
 def _resolve_new_only(env, name, parser, default):
@@ -660,8 +734,10 @@ def _parse_long_term_mode(name: str, raw: str) -> str:
     value = raw.strip().lower()
     if value == "consume":
         raise ValueError(f"{name}=consume is not supported and cannot be downgraded")
-    if value not in {"disabled", "write_shadow", "read_shadow"}:
-        raise ValueError(f"{name} must be disabled, write_shadow, or read_shadow")
+    if value not in {"disabled", "write_shadow", "read_shadow", "local_consume"}:
+        raise ValueError(
+            f"{name} must be disabled, write_shadow, read_shadow, or local_consume"
+        )
     return value
 
 
@@ -670,6 +746,14 @@ def _parse_required_identifier(name: str, raw: str) -> str:
     if value is None:
         raise ValueError(f"{name} must be a stable identifier")
     return value
+
+
+def _parse_absolute_jsonl_path(name: str, raw: str) -> str:
+    value = raw.strip()
+    path = Path(value)
+    if not value or not path.is_absolute() or path.suffix.lower() != ".jsonl":
+        raise ValueError(f"{name} must be an absolute JSONL path")
+    return str(path)
 
 
 def _parse_deployment_id(name: str, raw: str) -> str:

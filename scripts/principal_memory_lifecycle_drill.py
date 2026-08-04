@@ -43,9 +43,9 @@ def run_lifecycle(*,fact_store,consent_store):
     consent=PrincipalMemoryConsentService(identity_resolver=identity,store=consent_store,policy_version=cfg.long_term.consent_policy_version)
     sessions=Sessions({"session_id":session,"status":"finished","deletion_status":"active","state_version":4,"messages":[]})
     life=PrincipalMemoryLifecycleService(identity_resolver=identity,consent_service=consent,fact_store=fact_store,session_store=sessions,config=cfg,clock=lambda:NOW)
-    first=fact_store.create_proposal(proposal(principal,session,{"confirmed_skill":"python"},"a")); life.confirm(fact_type=first.fact_type,normalized_fact=first.normalized_fact,expected_version=1)
-    second=fact_store.create_proposal(proposal(principal,session,{"confirmed_skill":"python"},"b")); life.confirm(fact_type=second.fact_type,normalized_fact=second.normalized_fact,expected_version=1)
-    third=fact_store.create_proposal(proposal(principal,session,{"learning_goal":"kafka"},"c","learning_goal")); life.reject(fact_type=third.fact_type,normalized_fact=third.normalized_fact,expected_version=1)
+    first=fact_store.create_proposal(proposal(principal,session,{"confirmed_skill":"python"},"a")); life.confirm(fact_id=first.fact_id,expected_version=1)
+    second=fact_store.create_proposal(proposal(principal,session,{"confirmed_skill":"python"},"b")); life.confirm(fact_id=second.fact_id,expected_version=1)
+    third=fact_store.create_proposal(proposal(principal,session,{"learning_goal":"kafka"},"c","learning_goal")); life.reject(fact_id=third.fact_id,expected_version=1)
     retriever=PrincipalMemoryRetriever(fact_store=fact_store,consent_service=consent,identity_resolver=identity,session_store=sessions,config=cfg)
     before=len(retriever.select(current_tags={"python"},role_tags={"backend"},now=NOW).selected)
     consent_store.revoke(deployment_id="single-tenant-local",principal_id=principal,revoked_at=NOW)
@@ -90,7 +90,7 @@ def run_race_matrix():
             return self.state
     lifecycle=PrincipalMemoryLifecycleService(identity_resolver=identity,consent_service=consent,fact_store=facts,session_store=RevokeOnSource(state),config=cfg,clock=lambda:NOW)
     try:
-        lifecycle.confirm(fact_type=confirm_proposal.fact_type,normalized_fact=confirm_proposal.normalized_fact,expected_version=1); confirm_blocked=0
+        lifecycle.confirm(fact_id=confirm_proposal.fact_id,expected_version=1); confirm_blocked=0
     except PermissionError: confirm_blocked=1
     # Purge/delete wins over a replayed queued event.
     consents.grant(PrincipalMemoryConsent(deployment_id="single-tenant-local",principal_id=principal,policy_version=cfg.long_term.consent_policy_version,allowed_purposes=["proposal_write"],granted_at=NOW))

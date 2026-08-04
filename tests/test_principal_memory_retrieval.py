@@ -4,12 +4,16 @@ from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactS
 from app.services.in_memory_principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
+from app.services.in_memory_principal_memory_control import (
+    InMemoryPrincipalMemoryControlStore,
+)
 from app.services.memory_config import load_effective_memory_config
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
+from app.services.principal_memory_control import PrincipalMemoryControlService
 from app.services.principal_memory_contracts import (
     CONSENT_POLICY_VERSION,
     TAXONOMY_VERSION,
@@ -88,12 +92,18 @@ def build_retriever(*, sessions=None):
         )
     )
     facts = InMemoryPrincipalMemoryFactStore()
+    control_service = PrincipalMemoryControlService(
+        identity_resolver=resolver,
+        store=InMemoryPrincipalMemoryControlStore(),
+        clock=lambda: NOW,
+    )
     retriever = PrincipalMemoryRetriever(
         fact_store=facts,
         consent_service=PrincipalMemoryConsentService(
             identity_resolver=resolver,
             store=consent_store,
             policy_version=CONSENT_POLICY_VERSION,
+            control_service=control_service,
         ),
         identity_resolver=resolver,
         session_store=sessions or Sessions(),
@@ -168,3 +178,32 @@ def test_revoked_consent_disables_read_shadow_immediately():
     assert retriever.select(
         current_tags={"python"}, role_tags=set(), now=NOW
     ).selected == ()
+
+
+def test_session_ignore_blocks_only_the_current_session():
+    retriever, facts, _ = build_retriever()
+    make_active_fact(
+        facts,
+        fact_type="confirmed_skill",
+        value={"confirmed_skill": "python"},
+    )
+    retriever.consent_service.control_service.set_session_ignored(
+        "session-current",
+        True,
+    )
+
+    ignored = retriever.select(
+        current_tags={"python"},
+        role_tags=set(),
+        now=NOW,
+        session_id="session-current",
+    )
+    allowed = retriever.select(
+        current_tags={"python"},
+        role_tags=set(),
+        now=NOW,
+        session_id="session-other",
+    )
+
+    assert ignored.selected == ()
+    assert len(allowed.selected) == 1

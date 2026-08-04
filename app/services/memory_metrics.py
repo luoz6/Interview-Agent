@@ -15,6 +15,7 @@ MemoryMetricCode = Literal[
     "deletion_outcome",
     "budget_shadow",
     "principal_read_shadow",
+    "principal_local_consume",
 ]
 MemoryRoute = Literal[
     "deterministic",
@@ -45,6 +46,15 @@ MemoryOutcome = Literal[
     "stopped",
 ]
 
+PrincipalLocalConsumeReason = Literal[
+    "eligible",
+    "no_eligible_fact",
+    "state_changed",
+    "token_cap",
+    "current_candidate_missing",
+    "runtime_failure",
+]
+
 
 class MemoryMetricDimensions(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -62,6 +72,12 @@ class MemoryMetricDimensions(BaseModel):
         "context_artifact_busy",
         "context_artifact_provider_failed",
         "context_artifact_validation_failed",
+        "eligible",
+        "no_eligible_fact",
+        "state_changed",
+        "token_cap",
+        "current_candidate_missing",
+        "runtime_failure",
         "none",
     ] | None = None
     policy_version: str | None = Field(
@@ -427,6 +443,42 @@ def publish_principal_read_shadow_metric(
                 dropped_count=dropped_count,
                 estimated_input_tokens=estimated_input_tokens,
                 latency_ms=latency_ms,
+            ),
+        )
+    )
+
+
+def publish_principal_local_consume_metric(
+    *,
+    outcome: Literal["consumed", "suppressed", "failed"],
+    reason: PrincipalLocalConsumeReason,
+    selected_count: int,
+    estimated_input_tokens: int,
+) -> None:
+    """Publish aggregate-only Local Consume telemetry.
+
+    The schema deliberately accepts no principal, session, fact, source,
+    prompt, answer, or free-text fields.
+    """
+
+    metric_outcome: Literal["completed", "failed", "stopped"] = {
+        "consumed": "completed",
+        "suppressed": "stopped",
+        "failed": "failed",
+    }[outcome]
+    get_memory_metric_store().publish(
+        MemoryMetricEvent(
+            metric_code="principal_local_consume",
+            dimensions=MemoryMetricDimensions(
+                operation="followup",
+                outcome=metric_outcome,
+                reason=reason,
+                shadow_mode=False,
+                consumption_enabled=True,
+            ),
+            values=MemoryMetricValues(
+                selected_count=selected_count,
+                estimated_input_tokens=estimated_input_tokens,
             ),
         )
     )

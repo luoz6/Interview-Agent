@@ -470,6 +470,90 @@ RUNTIME_SCHEMA_V10_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V10_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_controls"] = frozenset(
+    {
+        "schema_version", "deployment_id", "principal_id", "session_key",
+        "enabled", "updated_at", "version",
+    }
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_exports"] = frozenset(
+    {
+        "schema_version", "export_ref", "deployment_id", "principal_id",
+        "payload", "created_at", "expires_at",
+    }
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_tombs"] = frozenset(
+    {
+        "schema_version", "tombstone_ref", "deployment_id", "principal_id",
+        "requested_at", "completed_at", "replayed_at", "status",
+        "failed_stage", "integrity_sha256",
+    }
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_refs"] = frozenset(
+    {
+        "safe_ref", "deployment_id", "principal_id", "fact_id",
+        "fact_version", "expires_at",
+    }
+)
+RUNTIME_SCHEMA_V11_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V10_CHECKSUM,
+        "principal_memory_local_rights": {
+            "control_suffix": "_principal_memory_controls",
+            "export_suffix": "_principal_memory_exports",
+            "tombstone_suffix": "_principal_memory_tombs",
+            "safe_ref_suffix": "_principal_memory_refs",
+            "safe_ref_ttl_seconds": 900,
+            "export_ttl_hours": 24,
+            "tombstone_integrity": "sha256-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V11_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V11_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_facts"] = (
+    frozenset(
+        {
+            "unique",
+            "deployment_id",
+            "principal_id",
+            "fact_type",
+            "normalized_fact",
+            "where",
+            "status",
+            "active",
+        }
+    ),
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_tombs"] = (
+    frozenset({"deployment_id", "principal_id", "requested_at"}),
+)
+RUNTIME_SCHEMA_V12_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V11_CHECKSUM,
+        "principal_memory_integrity": {
+            "active_fact_identity": (
+                "unique(deployment_id,principal_id,fact_type,normalized_fact)"
+            ),
+            "tombstones": "append-only-events-by-tombstone-ref",
+            "deletion_fence": "principal-advisory-lock-and-event-version-v1",
+            "session_controls": "purged-with-session-v1",
+            "rights_export": "complete-fact-snapshot-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V12_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V12_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -519,6 +603,16 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="report_job_heartbeat_v1",
         checksum=RUNTIME_SCHEMA_V10_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="principal_memory_local_rights_v1",
+        checksum=RUNTIME_SCHEMA_V11_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="principal_memory_integrity_v2",
+        checksum=RUNTIME_SCHEMA_V12_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

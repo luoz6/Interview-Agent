@@ -11,7 +11,7 @@ Initial semantic thresholds are atomic fact recall >= 95%, unresolved topic reca
 Run:
 
 ```powershell
-& 'F:\python3.11\python.exe' -m scripts.evaluate_memory_quality --deterministic
+python -m scripts.evaluate_memory_quality --deterministic
 ```
 
 `--real-provider` fails closed unless a separate provider, dataset, budget, and redacted-output authorization workflow is supplied; this repository phase does not grant that authorization.

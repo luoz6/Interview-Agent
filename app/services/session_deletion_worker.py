@@ -17,6 +17,7 @@ class SessionDeletionWorker:
         report_job_store=None,
         tombstone_store=None,
         principal_memory_store=None,
+        principal_memory_control_store=None,
         fault_injector=None,
         worker_id="session-deletion-worker",
         lease_seconds=60,
@@ -29,6 +30,7 @@ class SessionDeletionWorker:
         self.report_job_store = report_job_store
         self.tombstone_store = tombstone_store
         self.principal_memory_store = principal_memory_store
+        self.principal_memory_control_store = principal_memory_control_store
         self.fault_injector = fault_injector
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
@@ -47,6 +49,7 @@ class SessionDeletionWorker:
             "artifact_owner_refs": 0,
             "business_sessions": 0,
             "principal_memory_rows": 0,
+            "principal_memory_control_rows": 0,
         }
         try:
             if self.workflow_service is not None:
@@ -83,6 +86,12 @@ class SessionDeletionWorker:
             if self.principal_memory_store is not None:
                 counts["principal_memory_rows"] = (
                     self.principal_memory_store.purge_by_session(job.session_id)
+                )
+            if self.principal_memory_control_store is not None:
+                counts["principal_memory_control_rows"] = (
+                    self.principal_memory_control_store.purge_session(
+                        job.session_id
+                    )
                 )
             self._inject("after_principal_memory_purge", job)
             counts["business_sessions"] = self.session_store.delete_session(

@@ -115,6 +115,7 @@ class DurableInterviewGraphDependencies:
     evidence_artifact_coordinator: Any | None = None
     question_memory_coordinator: Any | None = None
     principal_memory_shadow: Any | None = None
+    principal_memory_consumer: Any | None = None
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
     worker_id: str = "durable-interview-worker"
     generation_lease_seconds: int = 60
@@ -377,19 +378,62 @@ def generate_followup(state, deps) -> dict:
                     ):
                         artifact_context = evidence_context
                 parent_ownership.ensure_owned()
+            question = _current_question(state)
+            focus_tokens = {
+                token.strip().casefold()
+                for token in str(question.get("focus", "")).replace(",", " ").split()
+                if token.strip()
+            }
+            role_tags = set(state.get("job_tags", []))
+            consume_prepared = None
+            consume_base_context = [dict(message) for message in (context or [])]
+            if deps.principal_memory_consumer is not None:
+                try:
+                    consume_prepared = deps.principal_memory_consumer.prepare(
+                        provider_context=[
+                            dict(message) for message in consume_base_context
+                        ],
+                        current_tags=focus_tokens,
+                        role_tags=role_tags,
+                        now=datetime.now(timezone.utc),
+                        session_id=state["session_id"],
+                    )
+                except Exception:
+                    consume_prepared = None
+                    context = consume_base_context
             if deps.principal_memory_shadow is not None:
-                question = _current_question(state)
-                focus_tokens = {
-                    token.strip().casefold()
-                    for token in str(question.get("focus", "")).replace(",", " ").split()
-                    if token.strip()
-                }
                 deps.principal_memory_shadow.observe(
                     provider_context=context or [],
                     current_tags=focus_tokens,
-                    role_tags=set(state.get("job_tags", [])),
+                    role_tags=role_tags,
                     now=datetime.now(timezone.utc),
+                    session_id=state["session_id"],
                 )
+            if consume_prepared is not None:
+                try:
+                    consume_result = deps.principal_memory_consumer.finalize(
+                        consume_prepared,
+                        now=datetime.now(timezone.utc),
+                    )
+                    context = consume_result.provider_context
+                    try:
+                        from app.services.memory_metrics import (
+                            publish_principal_local_consume_metric,
+                        )
+
+                        publish_principal_local_consume_metric(
+                            outcome=consume_result.outcome,
+                            reason=consume_result.reason,
+                            selected_count=consume_result.selected_count,
+                            estimated_input_tokens=(
+                                consume_result.estimated_tokens
+                            ),
+                        )
+                    except Exception:
+                        # Telemetry is never allowed to change interview output.
+                        pass
+                except Exception:
+                    context = consume_base_context
             for chunk in deps.examiner.stream_followup_attempt(
                 context=context or [],
                 execution_context=AgentExecutionContext(

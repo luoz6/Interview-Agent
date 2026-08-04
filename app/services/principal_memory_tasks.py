@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 from datetime import datetime, timezone
 
 from app.services.principal_memory_contracts import (
@@ -14,7 +15,7 @@ from app.services.runtime_domain_events import PrincipalMemoryProposalRequestedE
 class PrincipalMemoryProposalProcessor:
     def __init__(
         self, *, session_store, identity_resolver, consent_service, fact_store,
-        extractor, config, clock=None,
+        extractor, config, clock=None, deletion_fence=None,
     ):
         self.session_store = session_store
         self.identity_resolver = identity_resolver
@@ -23,6 +24,7 @@ class PrincipalMemoryProposalProcessor:
         self.extractor = extractor
         self.config = config
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.deletion_fence = deletion_fence
 
     def consume(self, payload: dict):
         event = PrincipalMemoryProposalRequestedEvent.model_validate(payload)
@@ -31,7 +33,10 @@ class PrincipalMemoryProposalProcessor:
             return {"status": "cancelled", "reason": "identity_unavailable", "count": 0}
         if identity.deployment_id != event.deployment_locator or identity.principal_id != event.principal_locator:
             return {"status": "cancelled", "reason": "identity_changed", "count": 0}
-        if not self.consent_service.authorize("proposal_write"):
+        if not self.consent_service.authorize(
+            "proposal_write",
+            session_id=event.session_id,
+        ):
             return {"status": "cancelled", "reason": "consent_unavailable", "count": 0}
         state = self.session_store.get(event.session_id)
         if state.get("status") != "finished" or state.get("deletion_status") in {"deleting", "deleted"}:
@@ -51,7 +56,10 @@ class PrincipalMemoryProposalProcessor:
                 return {"status": "cancelled", "reason": "identity_unavailable", "count": created}
             if current_identity.deployment_id != event.deployment_locator or current_identity.principal_id != event.principal_locator:
                 return {"status": "cancelled", "reason": "identity_changed", "count": created}
-            if not self.consent_service.authorize("proposal_write"):
+            if not self.consent_service.authorize(
+                "proposal_write",
+                session_id=event.session_id,
+            ):
                 return {"status": "cancelled", "reason": "consent_unavailable", "count": created}
             current_state = self.session_store.get(event.session_id)
             if current_state.get("deletion_status") in {"deleting", "deleted"}:
@@ -95,7 +103,32 @@ class PrincipalMemoryProposalProcessor:
                 )
             except (TypeError, ValueError):
                 continue
-            self.fact_store.create_proposal(fact)
+            guard = (
+                self.deletion_fence.writer_guard(
+                    deployment_id=identity.deployment_id,
+                    principal_id=identity.principal_id,
+                )
+                if self.deletion_fence is not None
+                and hasattr(self.deletion_fence, "writer_guard")
+                else nullcontext()
+            )
+            try:
+                with guard:
+                    if not self.consent_service.authorize(
+                        "proposal_write", session_id=event.session_id
+                    ):
+                        return {
+                            "status": "cancelled",
+                            "reason": "consent_unavailable",
+                            "count": created,
+                        }
+                    self.fact_store.create_proposal(fact)
+            except PermissionError:
+                return {
+                    "status": "cancelled",
+                    "reason": "deletion_fence_active",
+                    "count": created,
+                }
             created += 1
         return {"status": "completed", "reason": None, "count": created}
 

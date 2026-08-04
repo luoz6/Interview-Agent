@@ -30,6 +30,8 @@ def build_proposal_event_if_eligible(
 ):
     if config.long_term.mode not in {"write_shadow", "read_shadow"}:
         return None
+    if not config.long_term.write_shadow_enabled:
+        return None
     if state.get("status") != "finished":
         return None
     if state.get("deletion_status") in {"deleting", "deleted"}:
@@ -37,7 +39,10 @@ def build_proposal_event_if_eligible(
     if not state.get("state_version"):
         return None
     identity = identity_resolver.resolve()
-    if identity is None or not consent_service.authorize("proposal_write"):
+    if identity is None or not consent_service.authorize(
+        "proposal_write",
+        session_id=state["session_id"],
+    ):
         return None
     policy = config.long_term.consent_policy_version
     return PrincipalMemoryProposalRequestedEvent(

@@ -4,12 +4,16 @@ from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactS
 from app.services.in_memory_principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
+from app.services.in_memory_principal_memory_control import (
+    InMemoryPrincipalMemoryControlStore,
+)
 from app.services.memory_config import load_effective_memory_config
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_consent import (
     PrincipalMemoryConsent,
     PrincipalMemoryConsentService,
 )
+from app.services.principal_memory_control import PrincipalMemoryControlService
 from app.services.principal_memory_extractor import StructuredPrincipalMemoryExtractor
 from app.services.principal_memory_proposals import build_proposal_event_if_eligible
 from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
@@ -27,7 +31,7 @@ class SessionStore:
         return self.state
 
 
-def _processor(candidates, *, max_proposals=8):
+def _processor(candidates, *, max_proposals=8, ignored=False):
     config = load_effective_memory_config(
         {
             "MEMORY_LONG_TERM_MODE": "write_shadow",
@@ -49,10 +53,18 @@ def _processor(candidates, *, max_proposals=8):
             granted_at=NOW,
         )
     )
+    control_service = PrincipalMemoryControlService(
+        identity_resolver=identity,
+        store=InMemoryPrincipalMemoryControlStore(),
+        clock=lambda: NOW,
+    )
+    if ignored:
+        control_service.set_session_ignored("session-task", True)
     consent = PrincipalMemoryConsentService(
         identity_resolver=identity,
         store=consent_store,
         policy_version=config.long_term.consent_policy_version,
+        control_service=control_service,
     )
     state = {
         "session_id": "session-task",
@@ -158,3 +170,34 @@ def test_consent_revoked_after_enqueue_cancels_execution():
     result = processor.consume(event.model_dump())
     assert result["status"] == "cancelled"
     assert result["reason"] == "consent_unavailable"
+
+
+def test_session_ignore_blocks_enqueue_and_cancels_already_enqueued_work():
+    candidate = {
+        "fact_type": "confirmed_skill",
+        "fact": {"confirmed_skill": "python"},
+        "confidence": 0.9,
+        "exact_excerpt": "explicitly use Python",
+        "source_message_id": "m1",
+    }
+    _, _, ignored_event, _ = _processor([candidate], ignored=True)
+    assert ignored_event is None
+
+    processor, facts, event, _ = _processor([candidate])
+    processor.consent_service.control_service.set_session_ignored(
+        "session-task",
+        True,
+    )
+
+    result = processor.consume(event.model_dump())
+
+    assert result == {
+        "status": "cancelled",
+        "reason": "consent_unavailable",
+        "count": 0,
+    }
+    assert facts.list_by_principal(
+        deployment_id="single-tenant-local",
+        principal_id="principal-task",
+        limit=10,
+    ) == []

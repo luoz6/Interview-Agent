@@ -24,19 +24,29 @@ class PrincipalMemoryShadowService:
 
     def observe(
         self, *, provider_context: list[dict[str, str]], current_tags: set[str],
-        role_tags: set[str], now,
+        role_tags: set[str], now, session_id: str | None = None,
     ) -> PrincipalMemoryShadowResult:
         started = monotonic()
         original = canonical_provider_context(provider_context)
         original_digest = sha256(original.encode("utf-8")).hexdigest()
         try:
-            selection = self.retriever.select(
+            selection_args = dict(
                 current_tags=current_tags,
                 role_tags=role_tags,
                 now=now,
             )
+            if session_id is not None:
+                selection_args["session_id"] = session_id
+            selection = self.retriever.select(**selection_args)
             authority_check = getattr(self.retriever, "is_currently_authorized", None)
-            if authority_check is not None and not authority_check():
+            currently_authorized = (
+                authority_check()
+                if authority_check is not None and session_id is None
+                else authority_check(session_id=session_id)
+                if authority_check is not None
+                else True
+            )
+            if not currently_authorized:
                 selection = None
                 outcome = "failed"
             else:

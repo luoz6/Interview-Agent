@@ -115,6 +115,8 @@ def test_readiness_payload_contains_only_safe_effective_modes():
         "budget_mode": "disabled",
         "compression_mode": "disabled",
         "long_term_mode": "disabled",
+        "local_principal_enabled": False,
+        "local_consumption_enabled": False,
         "interview_graph_version": "langgraph-v1",
         "interview_graph_rollout_percent": 0,
         "legacy_environment_used": False,
@@ -122,6 +124,23 @@ def test_readiness_payload_contains_only_safe_effective_modes():
         "reason": None,
     }
     assert "base_url" not in payload
+
+
+def test_operator_tombstone_ledger_path_is_private_config_not_readiness_data():
+    config = load_effective_memory_config(
+        {
+            "MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH": (
+                "C:\\private\\principal-memory-tombstones.jsonl"
+            )
+        }
+    )
+
+    assert config.long_term.operator_tombstone_ledger_path.endswith(".jsonl")
+    assert "tombstone_ledger" not in repr(memory_readiness_payload(config))
+    with pytest.raises(ValueError, match="absolute JSONL"):
+        load_effective_memory_config(
+            {"MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH": "relative.jsonl"}
+        )
 
 
 def test_question_memory_consumption_readiness_fails_when_required_coverage_is_missing(
@@ -170,9 +189,96 @@ def test_long_term_memory_defaults_disabled_and_consume_fails_closed():
     assert config.long_term.write_shadow_enabled is False
     assert config.long_term.read_shadow_enabled is False
     assert config.long_term.trusted_local_api_enabled is False
+    assert config.long_term.local_principal_enabled is False
+    assert config.long_term.local_principal_id == "local-owner"
+    assert config.long_term.local_consumption_enabled is False
+    assert config.long_term.proposal_retention_days == 7
+    assert config.long_term.active_fact_default_days == 180
 
     with pytest.raises(ValueError, match="cannot be downgraded"):
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})
+
+
+def test_local_consume_requires_every_static_local_gate():
+    complete = {
+        "MEMORY_LONG_TERM_MODE": "local_consume",
+        "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+        "MEMORY_LOCAL_PRINCIPAL_ID": "local-owner",
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true",
+    }
+
+    config = load_effective_memory_config(complete)
+
+    assert config.long_term.mode == "local_consume"
+    assert config.long_term.local_principal_enabled is True
+    assert config.long_term.local_consumption_enabled is True
+
+    required = {
+        "MEMORY_LOCAL_PRINCIPAL_ENABLED": "local Principal gate",
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "trusted-local API gate",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "write and read shadow gates",
+        "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "write and read shadow gates",
+        "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "local consumption gate",
+    }
+    for name, error in required.items():
+        invalid = dict(complete)
+        invalid[name] = "false"
+        with pytest.raises(ValueError, match=error):
+            load_effective_memory_config(invalid)
+
+    wrong_scope = dict(complete)
+    wrong_scope["MEMORY_PRIVACY_DEPLOYMENT_ID"] = "hosted-production"
+    with pytest.raises(ValueError, match="single-tenant-local deployment scope"):
+        load_effective_memory_config(wrong_scope)
+
+
+def test_local_gates_cannot_be_reinterpreted_outside_local_scope_or_mode():
+    with pytest.raises(ValueError, match="single-tenant-local deployment scope"):
+        load_effective_memory_config(
+            {
+                "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+                "MEMORY_PRIVACY_DEPLOYMENT_ID": "hosted-production",
+            }
+        )
+
+    with pytest.raises(ValueError, match="requires local_consume mode"):
+        load_effective_memory_config(
+            {"MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true"}
+        )
+
+
+def test_local_principal_configuration_rejects_inference_shaped_identifiers():
+    for value in (
+        "person@example.com",
+        "candidate phone",
+        "principal/../../other",
+        "",
+    ):
+        with pytest.raises(ValueError, match="stable identifier"):
+            load_effective_memory_config(
+                {
+                    "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+                    "MEMORY_LOCAL_PRINCIPAL_ID": value,
+                }
+            )
+
+
+def test_readiness_snapshot_exposes_only_local_gate_state():
+    config = load_effective_memory_config(
+        {
+            "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+            "MEMORY_LOCAL_PRINCIPAL_ID": "local-owner",
+        }
+    )
+
+    payload = memory_readiness_payload(config)
+
+    assert payload["local_principal_enabled"] is True
+    assert payload["local_consumption_enabled"] is False
+    assert "local_principal_id" not in payload
 
 
 def test_long_term_shadow_modes_require_explicit_matching_gates():
@@ -181,8 +287,8 @@ def test_long_term_shadow_modes_require_explicit_matching_gates():
     config = load_effective_memory_config(
         {
             "MEMORY_LONG_TERM_MODE": "read_shadow",
-            "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
             "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
         }
     )
     assert config.long_term.mode == "read_shadow"
+    assert config.long_term.write_shadow_enabled is False
