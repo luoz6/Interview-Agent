@@ -16,7 +16,10 @@ def test_operations_runbook_pins_commands_gates_and_product_boundaries():
         "DURABLE_METRICS_INCOMPLETE",
         "TRUSTED_LOCAL_IDENTITY_UNAVAILABLE",
         "EXECUTION_NOT_AUTHORIZED",
-        "TOMBSTONE_LEDGER_INVALID",
+        "TOMBSTONE_LEDGER_REQUIRED",
+        "TOMBSTONE_REPLAY_REQUIRED",
+        "TOMBSTONE_LEDGER_DIVERGED",
+        "TOMBSTONE_REPLAY_RESIDUE",
         "Metrics failures never change the",
         "Real-candidate production processing remains prohibited",
     ):

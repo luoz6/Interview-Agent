@@ -28,6 +28,17 @@ def completed_tombstone():
     )
 
 
+def completed_tombstone_for(principal_id):
+    store = InMemoryPrincipalMemoryDeletionTombstoneStore(clock=lambda: NOW)
+    return store.mark(
+        store.record_requested(
+            deployment_id="single-tenant-local",
+            principal_id=principal_id,
+        ),
+        status="completed",
+    )
+
+
 def ledger(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -77,6 +88,18 @@ def test_append_is_opaque_hash_chained_durable_and_idempotent(tmp_path):
         assert forbidden not in rendered
 
 
+def test_invalid_completion_time_is_rejected_before_any_append(tmp_path):
+    value = ledger(tmp_path)
+    invalid = completed_tombstone().model_copy(
+        update={"completed_at": completed_tombstone().completed_at.replace(tzinfo=None)}
+    )
+
+    with pytest.raises(PrincipalMemoryLedgerError) as captured:
+        value.append_tombstone(invalid)
+    assert captured.value.gate_code == "TOMBSTONE_LEDGER_INVALID_EVENT"
+    assert value.summary().ledger_event_count == 0
+
+
 def test_torn_line_unknown_field_and_hash_tampering_fail_closed(tmp_path):
     value = ledger(tmp_path)
     value.append_tombstone(completed_tombstone())
@@ -105,6 +128,21 @@ def test_torn_line_unknown_field_and_hash_tampering_fail_closed(tmp_path):
     value.resolved_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     with pytest.raises(PrincipalMemoryLedgerError):
         value.load()
+
+
+def test_ledger_read_failure_is_unwritable_not_content_corruption(
+    tmp_path, monkeypatch
+):
+    value = ledger(tmp_path)
+    value.append_tombstone(completed_tombstone())
+
+    def unreadable(_path):
+        raise OSError("private path deliberately omitted")
+
+    monkeypatch.setattr(type(value.resolved_path), "read_bytes", unreadable)
+    with pytest.raises(PrincipalMemoryLedgerError) as captured:
+        value.load()
+    assert captured.value.gate_code == "TOMBSTONE_LEDGER_UNWRITABLE"
 
 
 def test_relative_and_workspace_paths_are_rejected(tmp_path, monkeypatch):
@@ -163,3 +201,41 @@ def test_os_lock_times_out_across_processes_and_recovers_after_exit(tmp_path):
         if child.poll() is None:
             child.kill()
             child.wait(timeout=5)
+
+
+def test_two_process_append_has_contiguous_chain_and_no_lost_event(tmp_path):
+    value = ledger(tmp_path)
+    children = []
+    for principal_id in ("owner-a", "owner-b"):
+        encoded = completed_tombstone_for(principal_id).model_dump_json()
+        child_code = (
+            "from pathlib import Path; "
+            "from app.services.principal_memory_ledger import "
+            "ProtectedPrincipalMemoryLedger; "
+            "from app.services.principal_memory_rights import "
+            "PrincipalMemoryDeletionTombstone; "
+            f"item=PrincipalMemoryDeletionTombstone.model_validate_json({encoded!r}); "
+            f"ledger=ProtectedPrincipalMemoryLedger(Path({str(value.resolved_path)!r}),"
+            f"workspace=Path({str(value.workspace)!r}),lock_timeout_seconds=5); "
+            "ledger.append_tombstone(item)"
+        )
+        children.append(
+            subprocess.Popen(
+                [sys.executable, "-c", child_code],
+                cwd=Path(__file__).resolve().parents[1],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        )
+
+    failures = []
+    for child in children:
+        stdout, stderr = child.communicate(timeout=10)
+        if child.returncode != 0:
+            failures.append((child.returncode, stdout, stderr))
+    assert failures == []
+    events = value.load()
+    assert [event.event_index for event in events] == [1, 2]
+    assert events[0].event_sha256 == events[1].previous_head_sha256
+    assert len({event.deletion_cycle for event in events}) == 2

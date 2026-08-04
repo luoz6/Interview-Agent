@@ -214,14 +214,37 @@ class InMemoryPrincipalMemoryDeletionTombstoneStore:
             self._latest[key] = item.tombstone_ref
             return item
 
-    def mark(self, tombstone, *, status, failed_stage=None):
+    def completion_candidate(self, tombstone):
+        self.validate(tombstone)
+        completed_at = self.clock()
+        if completed_at.tzinfo is None or completed_at.utcoffset() is None:
+            raise ValueError("principal deletion completion time must be timezone-aware")
+        return tombstone.model_copy(
+            update={
+                "status": "completed",
+                "failed_stage": None,
+                "completed_at": completed_at,
+            }
+        )
+
+    def mark(self, tombstone, *, status, failed_stage=None, completed_at=None):
         self.validate(tombstone)
         now = self.clock()
+        selected_completed_at = completed_at or now
+        if status == "completed" and (
+            selected_completed_at.tzinfo is None
+            or selected_completed_at.utcoffset() is None
+        ):
+            raise ValueError("principal deletion completion time must be timezone-aware")
         item = tombstone.model_copy(
             update={
                 "status": status,
                 "failed_stage": failed_stage,
-                "completed_at": now if status == "completed" else tombstone.completed_at,
+                "completed_at": (
+                    selected_completed_at
+                    if status == "completed"
+                    else tombstone.completed_at
+                ),
                 "replayed_at": now if status == "replayed" else tombstone.replayed_at,
             }
         )

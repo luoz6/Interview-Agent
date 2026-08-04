@@ -243,6 +243,22 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
         "app.api.routes.get_principal_memory_deletion_tombstone_store",
         lambda: tombstones,
     )
+    class DurableLedger:
+        def require_ready(self):
+            return None
+
+        def append_completed(self, tombstone):
+            assert tombstone.status == "completed"
+            return {"ledger_event_count": 1}
+
+        def mark_applied(self, tombstone, receipt):
+            assert tombstone.completed_at is not None
+            assert receipt == {"ledger_event_count": 1}
+
+    monkeypatch.setattr(
+        "app.services.runtime.get_principal_memory_durable_ledger",
+        lambda: DurableLedger(),
+    )
     monkeypatch.setattr("app.api.routes.get_session_store", lambda: Sessions())
     client = local_client()
     mutation = {"x-local-memory-action": "1", "origin": "http://localhost:8000"}

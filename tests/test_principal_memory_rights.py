@@ -345,3 +345,25 @@ def test_operator_ledger_failure_blocks_deletion_completion():
     assert rights["tombstones"].get(
         deployment_id="single-tenant-local", principal_id="local-owner"
     ).status == "failed"
+
+
+def test_operator_ledger_is_durable_before_completed_state_is_persisted():
+    rights = build_rights()
+    observed = []
+
+    def append(candidate):
+        persisted = rights["tombstones"].get(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        )
+        observed.append(
+            (persisted.status, candidate.status, candidate.completed_at)
+        )
+
+    rights["deletion"].ledger_writer = append
+    result = rights["deletion"].purge_current_principal()
+    completed = rights["tombstones"].get(
+        deployment_id="single-tenant-local", principal_id="local-owner"
+    )
+
+    assert result["status"] == "completed"
+    assert observed == [("requested", "completed", completed.completed_at)]

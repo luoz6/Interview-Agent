@@ -277,14 +277,37 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
                 row = cursor.fetchone()
         return self._from_row(row) if row else self.get_by_ref(f"pm-delete-{digest}")
 
-    def mark(self, tombstone, *, status, failed_stage=None):
+    def completion_candidate(self, tombstone):
+        self.validate(tombstone)
+        completed_at = self.clock()
+        if completed_at.tzinfo is None or completed_at.utcoffset() is None:
+            raise ValueError("principal deletion completion time must be timezone-aware")
+        return tombstone.model_copy(
+            update={
+                "status": "completed",
+                "failed_stage": None,
+                "completed_at": completed_at,
+            }
+        )
+
+    def mark(self, tombstone, *, status, failed_stage=None, completed_at=None):
         from psycopg2 import sql
 
         self.validate(tombstone)
         if status not in {"failed", "completed", "replayed"}:
             raise ValueError("principal deletion tombstone status is invalid")
         now = self.clock()
-        completed_at = now if status == "completed" else tombstone.completed_at
+        selected_completed_at = completed_at or now
+        if status == "completed" and (
+            selected_completed_at.tzinfo is None
+            or selected_completed_at.utcoffset() is None
+        ):
+            raise ValueError("principal deletion completion time must be timezone-aware")
+        completed_at = (
+            selected_completed_at
+            if status == "completed"
+            else tombstone.completed_at
+        )
         replayed_at = now if status == "replayed" else tombstone.replayed_at
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -657,6 +680,20 @@ class PostgresPrincipalMemorySafeRefStore(_PostgresPrincipalMemoryStore):
                     (deployment_id, principal_id),
                 )
                 return int(cursor.rowcount)
+
+    def count(self, *, deployment_id, principal_id):
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT COUNT(*) FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s"
+                    ).format(table=sql.Identifier(self.table)),
+                    (deployment_id, principal_id),
+                )
+                return int(cursor.fetchone()[0])
 
     def cleanup_expired(self, *, now=None, batch_size=200):
         now = now or self.clock()

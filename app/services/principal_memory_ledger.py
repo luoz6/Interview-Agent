@@ -128,6 +128,10 @@ class ProtectedPrincipalMemoryLedger:
             return resolved
         except PrincipalMemoryLedgerError:
             raise
+        except OSError as exc:
+            raise PrincipalMemoryLedgerError(
+                "TOMBSTONE_LEDGER_UNWRITABLE"
+            ) from exc
         except Exception as exc:
             raise PrincipalMemoryLedgerError(
                 "TOMBSTONE_LEDGER_PATH_INVALID"
@@ -278,6 +282,10 @@ class ProtectedPrincipalMemoryLedger:
             return tuple(events)
         except PrincipalMemoryLedgerError:
             raise
+        except OSError as exc:
+            raise PrincipalMemoryLedgerError(
+                "TOMBSTONE_LEDGER_UNWRITABLE"
+            ) from exc
         except Exception as exc:
             raise PrincipalMemoryLedgerError(
                 "TOMBSTONE_LEDGER_CORRUPTED"
@@ -297,6 +305,11 @@ class ProtectedPrincipalMemoryLedger:
         if tombstone.status not in {"completed", "replayed"}:
             raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_INVALID_EVENT")
         if tombstone.completed_at is None:
+            raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_INVALID_EVENT")
+        if (
+            tombstone.completed_at.tzinfo is None
+            or tombstone.completed_at.utcoffset() is None
+        ):
             raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_INVALID_EVENT")
         deployment_ref = opaque_ledger_ref(
             "deployment",
@@ -339,25 +352,7 @@ class ProtectedPrincipalMemoryLedger:
                 event_sha256=_event_digest(payload),
             )
             line = _canonical_json(event.as_dict()) + b"\n"
-            descriptor = os.open(
-                self.resolved_path,
-                os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-                0o600,
-            )
-            try:
-                if os.write(descriptor, line) != len(line):
-                    raise PrincipalMemoryLedgerError(
-                        "TOMBSTONE_LEDGER_UNWRITABLE"
-                    )
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-            if os.name != "nt":
-                directory = os.open(self.resolved_path.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
+            self._append_line_durably(line)
             verified = self.summary()
             if (
                 verified.ledger_event_count != event.event_index
@@ -371,3 +366,34 @@ class ProtectedPrincipalMemoryLedger:
                 "already_present": 0,
                 **verified.as_dict(),
             }
+
+    def _append_line_durably(self, line: bytes) -> None:
+        descriptor = None
+        try:
+            descriptor = os.open(
+                self.resolved_path,
+                os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+                0o600,
+            )
+            if os.write(descriptor, line) != len(line):
+                raise PrincipalMemoryLedgerError(
+                    "TOMBSTONE_LEDGER_UNWRITABLE"
+                )
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = None
+            if os.name != "nt":
+                directory = os.open(self.resolved_path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+        except PrincipalMemoryLedgerError:
+            raise
+        except OSError as exc:
+            raise PrincipalMemoryLedgerError(
+                "TOMBSTONE_LEDGER_UNWRITABLE"
+            ) from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)

@@ -1,7 +1,6 @@
 import logging
 import os
 from ipaddress import ip_address
-from pathlib import Path
 from collections.abc import Iterator
 from contextlib import nullcontext
 from copy import deepcopy
@@ -699,18 +698,15 @@ def delete_principal_memory(request: Request):
         PrincipalMemoryDeletionIncomplete,
         PrincipalMemoryDeletionService,
     )
-    from app.services.principal_memory_operations import (
-        append_completed_tombstone_ledger,
-    )
+    from app.services.runtime import get_principal_memory_durable_ledger
 
-    ledger_path = load_effective_memory_config().long_term.operator_tombstone_ledger_path
-    ledger_writer = (
-        lambda tombstone: append_completed_tombstone_ledger(
-            Path(ledger_path), tombstone
-        )
-        if ledger_path
-        else None
-    )
+    try:
+        durable_ledger = get_principal_memory_durable_ledger()
+        if durable_ledger is None:
+            raise RuntimeError("TOMBSTONE_LEDGER_REQUIRED")
+        durable_ledger.require_ready()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="memory deletion unavailable") from exc
 
     try:
         return PrincipalMemoryDeletionService(
@@ -721,7 +717,9 @@ def delete_principal_memory(request: Request):
             export_store=get_principal_memory_export_store(),
             tombstone_store=get_principal_memory_deletion_tombstone_store(),
             cache_purge=get_principal_memory_safe_ref_store().purge,
-            ledger_writer=ledger_writer,
+            cache_count=get_principal_memory_safe_ref_store().count,
+            ledger_writer=durable_ledger.append_completed,
+            ledger_applied_writer=durable_ledger.mark_applied,
         ).purge_current_principal()
     except PrincipalMemoryDeletionIncomplete as exc:
         raise HTTPException(

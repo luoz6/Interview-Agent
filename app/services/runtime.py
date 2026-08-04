@@ -101,6 +101,8 @@ _principal_memory_fact_store = None
 _principal_memory_export_store = None
 _principal_memory_deletion_tombstone_store = None
 _principal_memory_safe_ref_store = None
+_principal_memory_ledger_watermark_store = None
+_principal_memory_durable_ledger = None
 _principal_memory_proposal_processor = None
 _principal_memory_shadow_service = None
 _principal_memory_consume_service = None
@@ -245,6 +247,58 @@ def get_principal_memory_safe_ref_store():
     return _principal_memory_safe_ref_store
 
 
+def get_principal_memory_ledger_watermark_store():
+    global _principal_memory_ledger_watermark_store
+    from app.services.memory_config import load_effective_memory_config
+
+    config = load_effective_memory_config()
+    if config.long_term.mode != "local_consume":
+        return None
+    if get_runtime_store() != "postgres":
+        raise RuntimeError("local principal memory ledger requires PostgreSQL")
+    if _principal_memory_ledger_watermark_store is None:
+        from app.services.postgres_principal_memory_ledger import (
+            PostgresPrincipalMemoryLedgerWatermarkStore,
+        )
+
+        _principal_memory_ledger_watermark_store = (
+            PostgresPrincipalMemoryLedgerWatermarkStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        )
+    return _principal_memory_ledger_watermark_store
+
+
+def get_principal_memory_durable_ledger():
+    global _principal_memory_durable_ledger
+    from pathlib import Path
+
+    from app.services.memory_config import load_effective_memory_config
+
+    config = load_effective_memory_config()
+    if config.long_term.mode != "local_consume":
+        return None
+    path = config.long_term.operator_tombstone_ledger_path
+    if not path:
+        from app.services.principal_memory_ledger import PrincipalMemoryLedgerError
+
+        raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_REQUIRED")
+    if _principal_memory_durable_ledger is None:
+        from app.services.principal_memory_durable_ledger import (
+            PrincipalMemoryDurableLedger,
+        )
+
+        _principal_memory_durable_ledger = PrincipalMemoryDurableLedger(
+            path=path,
+            workspace=Path.cwd(),
+            watermark_store=get_principal_memory_ledger_watermark_store(),
+        )
+    return _principal_memory_durable_ledger
+
+
 def _principal_memory_control_service(*, config, resolver):
     if not config.long_term.local_principal_enabled:
         return None
@@ -355,6 +409,10 @@ def get_principal_memory_consume_service():
         return None
     if get_runtime_store() != "postgres":
         raise RuntimeError("local principal memory consumption requires PostgreSQL")
+    durable_ledger = get_principal_memory_durable_ledger()
+    if durable_ledger is None:
+        raise RuntimeError("TOMBSTONE_LEDGER_REQUIRED")
+    durable_ledger.require_ready()
     if _principal_memory_consume_service is None:
         from app.services.context_runtime import get_context_runtime
         from app.services.principal_memory_consent import PrincipalMemoryConsentService
@@ -1477,6 +1535,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _principal_memory_consent_store, _principal_memory_export_store
     global _principal_memory_deletion_tombstone_store
     global _principal_memory_safe_ref_store
+    global _principal_memory_ledger_watermark_store
+    global _principal_memory_durable_ledger
     global _principal_memory_fact_store, _principal_memory_proposal_processor
     global _principal_memory_shadow_service
     global _principal_memory_consume_service
@@ -1529,6 +1589,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _principal_memory_export_store = None
     _principal_memory_deletion_tombstone_store = None
     _principal_memory_safe_ref_store = None
+    _principal_memory_ledger_watermark_store = None
+    _principal_memory_durable_ledger = None
     _principal_memory_proposal_processor = None
     _principal_memory_shadow_service = None
     _principal_memory_consume_service = None

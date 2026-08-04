@@ -97,6 +97,7 @@ def _patch_schema_owners(monkeypatch, seen):
         "PostgresPrincipalMemoryExportStore",
         "PostgresPrincipalMemoryDeletionTombstoneStore",
         "PostgresPrincipalMemorySafeRefStore",
+        "PostgresPrincipalMemoryLedgerWatermarkStore",
     ):
         monkeypatch.setattr(migrations, name, owner)
 
@@ -133,7 +134,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     )
 
     assert result.applied is True
-    assert len([item for item in seen if item[0] == "migrate"]) == 14
+    assert len([item for item in seen if item[0] == "migrate"]) == 15
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
     assert setup == ["private-dsn"]
     assert connection.commits >= 2
@@ -311,6 +312,13 @@ def test_local_principal_rights_schema_contract_is_complete():
         "interview_principal_memory_refs": {
             "safe_ref", "fact_id", "fact_version", "expires_at"
         },
+        "interview_principal_memory_ledger_watermark": {
+            "singleton_key",
+            "schema_version",
+            "last_applied_ledger_event_count",
+            "last_applied_ledger_head_sha256",
+            "last_applied_at",
+        },
     }
     for relation, columns in expected.items():
         assert columns.issubset(required_columns_for_relation(relation))
@@ -335,6 +343,25 @@ def test_principal_fact_schema_contract_owns_taxonomy_scope_columns_and_index():
         {"taxonomy_key", "exclusive_scope_key"}.issubset(tokens)
         for tokens in checks
     )
+
+
+def test_ledger_watermark_contract_owns_columns_and_database_checks():
+    from app.services.postgres_schema_contract import (
+        required_check_tokens_for_relation,
+        required_columns_for_relation,
+    )
+
+    relation = "interview_principal_memory_ledger_watermark"
+    assert {
+        "singleton_key",
+        "schema_version",
+        "last_applied_ledger_event_count",
+        "last_applied_ledger_head_sha256",
+        "last_applied_at",
+    }.issubset(required_columns_for_relation(relation))
+    checks = required_check_tokens_for_relation(relation)
+    assert any("singleton_key" in tokens for tokens in checks)
+    assert any("schema_version" in tokens for tokens in checks)
 
 
 def test_schema_validation_rejects_missing_latest_migration_row():
@@ -420,13 +447,14 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                         f"{prefix}_principal_memory_exports",
                         f"{prefix}_principal_memory_tombs",
                         f"{prefix}_principal_memory_refs",
+                        f"{prefix}_principal_memory_ledger_watermark",
                     ],),
                 )
                 local_rights_tables = {row[0] for row in cursor.fetchall()}
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "principal_memory_exclusive_scope_v3"
+        assert first.migration_id == "principal_memory_ledger_watermark_v4"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert local_rights_tables == {
@@ -434,6 +462,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
             f"{prefix}_principal_memory_exports",
             f"{prefix}_principal_memory_tombs",
             f"{prefix}_principal_memory_refs",
+            f"{prefix}_principal_memory_ledger_watermark",
         }
     finally:
         with psycopg2.connect(postgres_dsn) as connection:
@@ -458,7 +487,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
 @pytest.mark.pg_runtime
 def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
-    postgres_dsn, monkeypatch
+    postgres_dsn, monkeypatch, tmp_path
 ):
     import psycopg2
     from psycopg2 import sql
@@ -500,7 +529,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "principal_memory_exclusive_scope_v3"
+        assert result.migration_id == "principal_memory_ledger_watermark_v4"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -513,6 +542,9 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
             "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
             "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true",
+            "MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH": str(
+                (tmp_path / "operator-ledger.jsonl").resolve()
+            ),
         }.items():
             monkeypatch.setenv(name, value)
         assert runtime.get_principal_memory_export_store().__class__.__name__ == (
@@ -667,7 +699,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "principal_memory_exclusive_scope_v3"
+        assert result.migration_id == "principal_memory_ledger_watermark_v4"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

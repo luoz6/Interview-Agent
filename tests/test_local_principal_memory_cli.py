@@ -30,18 +30,45 @@ def test_preflight_exit_code_tracks_readiness(monkeypatch):
     assert payload["local_consume_ready"] is True
 
     monkeypatch.setattr(
-        local_principal_memory, "_service", lambda: Service(ready=False)
+        local_principal_memory, "_service", lambda **_: Service(ready=False)
     )
     payload, code = local_principal_memory.execute(Namespace(command="preflight"))
     assert code == 1
     assert payload["gate_codes"] == ["DURABLE_METRICS_INCOMPLETE"]
 
 
+def test_disabled_preflight_constructs_no_memory_or_postgres_dependencies(
+    monkeypatch,
+):
+    from app.services import runtime
+
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
+    monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "postgres")
+
+    def forbidden():
+        raise AssertionError("disabled preflight must remain zero activity")
+
+    for name in (
+        "get_postgres_connection_domains",
+        "get_principal_identity_resolver",
+        "get_memory_metric_store",
+        "get_principal_memory_fact_store",
+        "get_principal_memory_export_store",
+        "get_principal_memory_safe_ref_store",
+        "get_principal_memory_ledger_watermark_store",
+    ):
+        monkeypatch.setattr(runtime, name, forbidden)
+
+    status = local_principal_memory._service().status()
+    assert status["state"] == "disabled"
+    assert status["local_consume_ready"] is False
+
+
 def test_mutating_commands_require_explicit_execute(monkeypatch):
     monkeypatch.setattr(
         local_principal_memory,
         "_service",
-        lambda: (_ for _ in ()).throw(AssertionError("must not build runtime")),
+        lambda **_: (_ for _ in ()).throw(AssertionError("must not build runtime")),
     )
     payload, code = local_principal_memory.execute(
         Namespace(command="cleanup", execute=False, batch_size=200)
@@ -51,7 +78,7 @@ def test_mutating_commands_require_explicit_execute(monkeypatch):
 
 
 def test_cleanup_outputs_aggregate_counts(monkeypatch):
-    monkeypatch.setattr(local_principal_memory, "_service", lambda: Service())
+    monkeypatch.setattr(local_principal_memory, "_service", lambda **_: Service())
     payload, code = local_principal_memory.execute(
         Namespace(command="cleanup", execute=True, batch_size=17)
     )
@@ -68,7 +95,7 @@ def test_capture_tombstone_requires_boundary_and_explicit_private_ledger(
         def require_maintenance_boundary(self):
             calls.append("boundary")
 
-    monkeypatch.setattr(local_principal_memory, "_service", lambda: Boundary())
+    monkeypatch.setattr(local_principal_memory, "_service", lambda **_: Boundary())
     monkeypatch.setattr(
         local_principal_memory,
         "_capture_latest_tombstone",
@@ -100,7 +127,7 @@ def test_replay_checks_maintenance_boundary_before_reading_ledger(monkeypatch):
             calls.append("boundary")
             raise RuntimeError("POSTGRES_RUNTIME_REQUIRED")
 
-    monkeypatch.setattr(local_principal_memory, "_service", lambda: Blocked())
+    monkeypatch.setattr(local_principal_memory, "_service", lambda **_: Blocked())
     payload = Namespace(
         command="replay-tombstones",
         execute=True,
@@ -115,29 +142,16 @@ def test_replay_checks_maintenance_boundary_before_reading_ledger(monkeypatch):
     assert calls == ["boundary"]
 
 
-def test_replay_passes_a_real_deletion_service_to_the_runner(monkeypatch):
+def test_replay_uses_opaque_runner_and_returns_only_counts(monkeypatch):
     calls = []
-    deletion_service = object()
 
-    monkeypatch.setattr(local_principal_memory, "_service", lambda: Service())
-    monkeypatch.setattr(
-        local_principal_memory,
-        "_deletion_service",
-        lambda: deletion_service,
-    )
-    monkeypatch.setattr(
-        "app.services.principal_memory_operations.load_protected_tombstone_ledger",
-        lambda path: ["tombstone"],
-    )
+    monkeypatch.setattr(local_principal_memory, "_service", lambda **_: Service())
 
-    def replay(*, tombstones, deletion_service):
-        calls.append((tombstones, deletion_service))
-        return {"status": "completed", "replayed": 1}
+    def replay(path):
+        calls.append(path)
+        return {"status": "completed", "events_replayed": 1}
 
-    monkeypatch.setattr(
-        "app.services.principal_memory_operations.replay_tombstone_ledger",
-        replay,
-    )
+    monkeypatch.setattr(local_principal_memory, "_replay_tombstones", replay)
 
     payload, code = local_principal_memory.execute(
         Namespace(
@@ -148,8 +162,8 @@ def test_replay_passes_a_real_deletion_service_to_the_runner(monkeypatch):
     )
 
     assert code == 0
-    assert payload == {"status": "completed", "replayed": 1}
-    assert calls == [(["tombstone"], deletion_service)]
+    assert payload == {"status": "completed", "events_replayed": 1}
+    assert calls == ["C:/private/operator-ledger.jsonl"]
 
 
 def test_main_redacts_private_operation_failure(monkeypatch, capsys):
@@ -159,7 +173,7 @@ def test_main_redacts_private_operation_failure(monkeypatch, capsys):
                 "postgresql://operator:secret@127.0.0.1/private local-owner"
             )
 
-    monkeypatch.setattr(local_principal_memory, "_service", lambda: Failing())
+    monkeypatch.setattr(local_principal_memory, "_service", lambda **_: Failing())
 
     assert local_principal_memory.main(["cleanup", "--execute"]) == 1
 

@@ -603,6 +603,44 @@ RUNTIME_SCHEMA_V13_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V13_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX[
+    "_principal_memory_ledger_watermark"
+] = frozenset(
+    {
+        "singleton_key",
+        "schema_version",
+        "last_applied_ledger_event_count",
+        "last_applied_ledger_head_sha256",
+        "last_applied_at",
+    }
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX[
+    "_principal_memory_ledger_watermark"
+] = (
+    frozenset({"singleton_key", "operator-ledger"}),
+    frozenset({"schema_version", "principal-memory-ledger-watermark-v1"}),
+    frozenset({"last_applied_ledger_event_count", "0"}),
+)
+RUNTIME_SCHEMA_V14_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V13_CHECKSUM,
+        "principal_memory_ledger_watermark": {
+            "relation_suffix": "_principal_memory_ledger_watermark",
+            "singleton_key": "operator-ledger",
+            "schema_version": "principal-memory-ledger-watermark-v1",
+            "initial_event_count": 0,
+            "initial_head": "sha256-genesis",
+            "advance": "compare-and-swap-forward-only-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V14_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V14_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -667,6 +705,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="principal_memory_exclusive_scope_v3",
         checksum=RUNTIME_SCHEMA_V13_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="principal_memory_ledger_watermark_v4",
+        checksum=RUNTIME_SCHEMA_V14_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )
