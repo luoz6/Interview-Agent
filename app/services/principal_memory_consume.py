@@ -115,7 +115,11 @@ class PrincipalMemoryLocalConsumeService:
                 selected_count=0,
                 estimated_tokens=0,
                 outcome=prepared.outcome,
-                reason="no_eligible_fact",
+                reason=(
+                    "runtime_failure"
+                    if prepared.outcome == "failed"
+                    else "no_eligible_fact"
+                ),
             )
         try:
             selected = self._select(

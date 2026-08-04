@@ -140,6 +140,25 @@ class PostgresPrincipalMemoryExportStore(_PostgresPrincipalMemoryStore):
             delete=False,
         )
 
+    def cleanup_expired(self, *, now, batch_size: int = 200) -> int:
+        if now.tzinfo is None:
+            raise ValueError("principal memory cleanup time must be timezone-aware")
+        if batch_size < 1:
+            raise ValueError("principal memory cleanup batch size must be positive")
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {table} WHERE ctid IN ("
+                        "SELECT ctid FROM {table} WHERE expires_at<=%s "
+                        "ORDER BY expires_at LIMIT %s FOR UPDATE SKIP LOCKED)"
+                    ).format(table=sql.Identifier(self.table)),
+                    (now, batch_size),
+                )
+                return int(cursor.rowcount)
+
     def _delete_or_count(self, *, deployment_id, principal_id, delete):
         from psycopg2 import sql
 
@@ -294,6 +313,47 @@ class PostgresPrincipalMemoryDeletionTombstoneStore(
         if row is None:
             raise RuntimeError("principal deletion tombstone changed")
         return self._from_row(row)
+
+    def import_tombstone(self, tombstone):
+        self.validate(tombstone)
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        INSERT INTO {table} (
+                            schema_version,tombstone_ref,deployment_id,
+                            principal_id,requested_at,completed_at,replayed_at,
+                            status,failed_stage,integrity_sha256
+                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (deployment_id,principal_id) DO NOTHING
+                        """
+                    ).format(table=sql.Identifier(self.table)),
+                    (
+                        tombstone.schema_version,
+                        tombstone.tombstone_ref,
+                        tombstone.deployment_id,
+                        tombstone.principal_id,
+                        tombstone.requested_at,
+                        tombstone.completed_at,
+                        tombstone.replayed_at,
+                        tombstone.status,
+                        tombstone.failed_stage,
+                        tombstone.integrity_sha256,
+                    ),
+                )
+        current = self.get(
+            deployment_id=tombstone.deployment_id,
+            principal_id=tombstone.principal_id,
+        )
+        if current is None or (
+            current.tombstone_ref != tombstone.tombstone_ref
+            or current.integrity_sha256 != tombstone.integrity_sha256
+        ):
+            raise RuntimeError("principal deletion tombstone conflict")
+        return current
 
     @staticmethod
     def validate(tombstone):
@@ -467,6 +527,26 @@ class PostgresPrincipalMemorySafeRefStore(_PostgresPrincipalMemoryStore):
                         "DELETE FROM {table} WHERE deployment_id=%s AND principal_id=%s"
                     ).format(table=sql.Identifier(self.table)),
                     (deployment_id, principal_id),
+                )
+                return int(cursor.rowcount)
+
+    def cleanup_expired(self, *, now=None, batch_size=200):
+        now = now or self.clock()
+        if now.tzinfo is None:
+            raise ValueError("principal memory cleanup time must be timezone-aware")
+        if batch_size < 1:
+            raise ValueError("principal memory cleanup batch size must be positive")
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {table} WHERE ctid IN ("
+                        "SELECT ctid FROM {table} WHERE expires_at<=%s "
+                        "ORDER BY expires_at LIMIT %s FOR UPDATE SKIP LOCKED)"
+                    ).format(table=sql.Identifier(self.table)),
+                    (now, batch_size),
                 )
                 return int(cursor.rowcount)
 

@@ -77,3 +77,19 @@ class InMemoryPrincipalMemorySafeRefStore:
             for key in keys:
                 del self._items[key]
             return len(keys)
+
+    def cleanup_expired(self, *, now=None, batch_size=200):
+        now = now or self.clock()
+        if now.tzinfo is None:
+            raise ValueError("principal memory cleanup time must be timezone-aware")
+        if batch_size < 1:
+            raise ValueError("principal memory cleanup batch size must be positive")
+        with self._lock:
+            keys = [
+                key
+                for key, item in sorted(self._items.items())
+                if item.expires_at <= now
+            ][:batch_size]
+            for key in keys:
+                del self._items[key]
+            return len(keys)

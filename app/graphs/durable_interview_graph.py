@@ -416,6 +416,22 @@ def generate_followup(state, deps) -> dict:
                         now=datetime.now(timezone.utc),
                     )
                     context = consume_result.provider_context
+                    try:
+                        from app.services.memory_metrics import (
+                            publish_principal_local_consume_metric,
+                        )
+
+                        publish_principal_local_consume_metric(
+                            outcome=consume_result.outcome,
+                            reason=consume_result.reason,
+                            selected_count=consume_result.selected_count,
+                            estimated_input_tokens=(
+                                consume_result.estimated_tokens
+                            ),
+                        )
+                    except Exception:
+                        # Telemetry is never allowed to change interview output.
+                        pass
                 except Exception:
                     context = consume_base_context
             for chunk in deps.examiner.stream_followup_attempt(

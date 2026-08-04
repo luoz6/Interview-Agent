@@ -24,6 +24,10 @@ from app.services.principal_memory_rights import (
     PrincipalMemoryExportRecord,
     PrincipalMemoryExportService,
 )
+from app.services.principal_memory_operations import (
+    PostgresPrincipalMemoryMigrationProbe,
+)
+from app.services.postgres_connections import DirectPsycopg2ConnectionProvider
 from tests.postgres_support import assert_safe_test_prefix
 from tests.test_postgres_principal_memory import make_active_language
 
@@ -166,6 +170,22 @@ def test_postgres_tombstone_is_concurrent_durable_and_integrity_checked(
         tampered = completed.model_copy(update={"principal_id": "other-owner"})
         with pytest.raises(ValueError, match="integrity mismatch"):
             restarted.validate(tampered)
+
+        import psycopg2
+        from psycopg2 import sql
+
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("DELETE FROM {table}").format(
+                        table=sql.Identifier(values["tombstones"].table)
+                    )
+                )
+        assert restarted.get(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ) is None
+        assert restarted.import_tombstone(completed) == completed
+        assert restarted.import_tombstone(completed) == completed
     finally:
         cleanup(postgres_dsn, values)
 
@@ -329,3 +349,135 @@ def test_postgres_rights_validation_rejects_dirty_existing_schema(
                         table=sql.Identifier(table)
                     )
                 )
+
+
+@pytest.mark.pg_runtime
+def test_postgres_expiry_cleanup_is_bounded_and_preserves_live_records(
+    postgres_dsn, runtime_table_prefix
+):
+    prefix = runtime_table_prefix
+    values = stores(postgres_dsn, prefix)
+    expired = PrincipalMemoryExportRecord(
+        export_ref="pm-export-" + "d" * 32,
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        payload={},
+        created_at=NOW - timedelta(hours=48),
+        expires_at=NOW - timedelta(hours=24),
+    )
+    live = expired.model_copy(
+        update={
+            "export_ref": "pm-export-" + "e" * 32,
+            "created_at": NOW,
+            "expires_at": NOW + timedelta(hours=24),
+        }
+    )
+    try:
+        values["exports"].put(expired)
+        values["exports"].put(live)
+        fact = values["facts"].declare_active(
+            make_active_language("en", "9"),
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+        values["refs"].issue(fact)
+
+        assert values["exports"].cleanup_expired(now=NOW, batch_size=1) == 1
+        assert values["exports"].cleanup_expired(now=NOW, batch_size=1) == 0
+        assert values["exports"].get(live.export_ref, now=NOW) == live
+        assert values["refs"].cleanup_expired(
+            now=NOW + timedelta(minutes=16), batch_size=1
+        ) == 1
+        assert values["refs"].cleanup_expired(
+            now=NOW + timedelta(minutes=16), batch_size=1
+        ) == 0
+    finally:
+        cleanup(postgres_dsn, values)
+
+
+@pytest.mark.pg_runtime
+def test_postgres_local_memory_migration_probe_checks_id_and_checksum(
+    postgres_dsn, runtime_table_prefix
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = runtime_table_prefix
+    table = f"{prefix}_schema_migrations"
+    provider = DirectPsycopg2ConnectionProvider(postgres_dsn)
+    probe = PostgresPrincipalMemoryMigrationProbe(
+        connection_provider=provider,
+        table_prefix=prefix,
+        migration_id="principal_memory_local_rights_v1",
+        checksum="a" * 64,
+    )
+    try:
+        assert probe.is_current() is False
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {table} (migration_id TEXT PRIMARY KEY, "
+                        "checksum TEXT NOT NULL)"
+                    ).format(table=sql.Identifier(table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {table} (migration_id,checksum) VALUES (%s,%s)"
+                    ).format(table=sql.Identifier(table)),
+                    ("principal_memory_local_rights_v1", "a" * 64),
+                )
+        assert probe.is_current() is True
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("UPDATE {table} SET checksum=%s").format(
+                        table=sql.Identifier(table)
+                    ),
+                    ("b" * 64,),
+                )
+        assert probe.is_current() is False
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                        table=sql.Identifier(table)
+                    )
+                )
+
+
+@pytest.mark.pg_runtime
+def test_concurrent_postgres_export_cleanup_deletes_each_expired_row_once(
+    postgres_dsn, runtime_table_prefix
+):
+    prefix = runtime_table_prefix
+    values = stores(postgres_dsn, prefix)
+    try:
+        for index in range(20):
+            values["exports"].put(
+                PrincipalMemoryExportRecord(
+                    export_ref=f"pm-export-{index:032x}",
+                    deployment_id="single-tenant-local",
+                    principal_id="local-owner",
+                    payload={},
+                    created_at=NOW - timedelta(hours=48),
+                    expires_at=NOW - timedelta(hours=24),
+                )
+            )
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            counts = list(
+                executor.map(
+                    lambda _: values["exports"].cleanup_expired(
+                        now=NOW, batch_size=3
+                    ),
+                    range(12),
+                )
+            )
+        assert sum(counts) == 20
+        assert values["exports"].count(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+        ) == 0
+    finally:
+        cleanup(postgres_dsn, values)

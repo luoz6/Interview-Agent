@@ -4,6 +4,11 @@ from app.graphs.durable_interview_graph import (
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.principal_memory_consume import ASSISTANCE_CONTEXT_KIND
+from app.services.memory_metrics import (
+    InMemoryMemoryMetricStore,
+    configure_memory_metric_store,
+    reset_memory_metric_store,
+)
 from tests.test_durable_interview_state import make_start_kwargs
 
 
@@ -90,7 +95,11 @@ class Consumer:
                         "context_kind": ASSISTANCE_CONTEXT_KIND,
                     },
                     prepared[-1],
-                ]
+                ],
+                "selected_count": 1,
+                "estimated_tokens": 12,
+                "outcome": "consumed",
+                "reason": "eligible",
             },
         )()
 
@@ -159,3 +168,21 @@ def test_consumer_failure_falls_open_to_unchanged_deterministic_followup():
         for item in examiner.context
     )
     assert "unsafe partial mutation" not in repr(examiner.context)
+
+
+def test_disabled_mode_has_zero_local_consumption_metric_activity():
+    metrics = InMemoryMemoryMetricStore()
+    configure_memory_metric_store(metrics)
+    try:
+        examiner, dependencies = build_dependencies(None)
+        result = generate_followup(make_state(), dependencies)
+        aggregate = metrics.aggregate(window_minutes=60)
+    finally:
+        reset_memory_metric_store()
+
+    assert result["generated_text"] == "bounded follow-up"
+    assert examiner.context[-1]["role"] == "candidate"
+    assert not any(
+        item["metric_code"] == "principal_local_consume"
+        for item in aggregate["items"]
+    )

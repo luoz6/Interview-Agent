@@ -58,6 +58,21 @@ class InMemoryPrincipalMemoryExportStore:
                 for item in self._items.values()
             )
 
+    def cleanup_expired(self, *, now: datetime, batch_size: int = 200) -> int:
+        if now.tzinfo is None:
+            raise ValueError("principal memory cleanup time must be timezone-aware")
+        if batch_size < 1:
+            raise ValueError("principal memory cleanup batch size must be positive")
+        with self._lock:
+            keys = [
+                key
+                for key, item in sorted(self._items.items())
+                if item.expires_at <= now
+            ][:batch_size]
+            for key in keys:
+                del self._items[key]
+            return len(keys)
+
 
 class PrincipalMemoryExportService:
     def __init__(
@@ -197,6 +212,21 @@ class InMemoryPrincipalMemoryDeletionTombstoneStore:
         with self._lock:
             self._items[(item.deployment_id, item.principal_id)] = item
         return item
+
+    def import_tombstone(self, tombstone):
+        self.validate(tombstone)
+        key = (tombstone.deployment_id, tombstone.principal_id)
+        with self._lock:
+            existing = self._items.get(key)
+            if existing is not None and (
+                existing.tombstone_ref != tombstone.tombstone_ref
+                or existing.integrity_sha256 != tombstone.integrity_sha256
+            ):
+                raise RuntimeError("principal deletion tombstone conflict")
+            if existing is None:
+                self._items[key] = tombstone
+                return tombstone
+            return existing
 
     @staticmethod
     def validate(tombstone):

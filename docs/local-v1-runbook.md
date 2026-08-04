@@ -784,3 +784,14 @@ rollout, destructive retention job, real-provider call, or production canary.
 Budget Shadow is prepared as a validate-only workflow documented in `docs/memory-budget-shadow-runbook.md`. Do not set `MEMORY_BUDGET_SHADOW_ENABLED=true` from this repository phase; the status endpoint is read-only and cannot activate it.
 Principal Memory is default-off. Supported repository modes are only `disabled`, `write_shadow`, and `read_shadow`; `MEMORY_LONG_TERM_MODE=consume` is rejected rather than downgraded. Identity must come from an explicit trusted resolver, never from resume text, contact data, browser/device identifiers, network metadata, candidate names, embeddings, or model output. Consent is versioned and checked again for every proposal, storage, and read-shadow operation.
 Final phase acceptance is produced by `python -m scripts.memory_validation_foundation_acceptance` only after full Python/browser/build/live-PostgreSQL evidence is recorded. A successful gate still reports `LONG_TERM_MEMORY_CONSUMPTION=BLOCKED` and `PRODUCTION_OBSERVATION=NOT_RUN`.
+
+## Local V1 Principal Memory operations
+
+Local Consume readiness, aggregate-only telemetry, bounded expiry cleanup, and
+protected deletion-tombstone replay are defined in
+`docs/local-principal-memory-operations.md`. Run
+`python -m scripts.local_principal_memory preflight` before
+Local Consume. A non-zero exit, any gate code, incomplete durable metrics, or an
+unverified PostgreSQL migration keeps consumption blocked. The command does not
+change configuration or run migrations. Mutating cleanup and replay commands
+require `--execute` and return counts only.
