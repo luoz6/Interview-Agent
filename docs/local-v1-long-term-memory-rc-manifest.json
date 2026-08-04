@@ -1,0 +1,44 @@
+{
+  "schema_version": "local-v1-long-term-memory-rc-manifest-v1",
+  "created_date": "2026-08-04",
+  "branch": "codex/local-v1-long-term-memory",
+  "remote": "origin",
+  "base_revision": "a9982d54553a337cfd6858c737a146c8954eed84",
+  "validated_implementation_revision": "a96b52e796984a9d52c63f4e0ac13c5d51ad73a0",
+  "task_13_evidence_revision": "47dc5631b32b8dbedc3a9fa449870a61070c0f34",
+  "scope": {
+    "changed_path_count": 74,
+    "canonical_git_blob_path_sha256": "d32ffc61e2da3316993520eb6cc624b3a9cf3c1b464fcf206fc171d774ba93b2"
+  },
+  "critical_files": {
+    "docs/superpowers/plans/2026-08-04-local-v1-long-term-memory-completion.md": "e3a16ab8db391bf651f7e8dd52760cfc3d7e006db02ecead634ab5934f57b053",
+    "app/services/principal_memory_consume.py": "be02fae9239c09dae703576330f5f39e68403fff5081bcb4b93c26ab23c1ef88",
+    "app/services/principal_memory_operations.py": "b0a9c70b050621a951d63c77bfecab371fc1692fee292628eee54087deb3edcc",
+    "app/services/postgres_principal_memory_rights.py": "051feac99f561a3e1ccee1f78522b643d1e0d539c0df343d8d66b854a2be8fc2",
+    "frontend/public/memory-center.js": "dc41ed8fff5a6df80a0060c11cf05d893e3080af2c072af943d7584441d38f67",
+    "docs/local-v1-long-term-memory-acceptance.json": "21d0e6dec06c79b218355648d21ea34592f054c625ce5a19413de5444540f694",
+    "docs/local-principal-memory-operations.md": "200b86f069ae938181f4f2c8ef8c674994769b7ef87ed954d5396727255e7572"
+  },
+  "acceptance": {
+    "full_python_postgres_passed": 2097,
+    "full_python_skipped": 1,
+    "frontend_build_passed": true,
+    "full_browser_passed": 78,
+    "full_browser_skipped": 38,
+    "memory_center_desktop_passed": 4,
+    "memory_center_mobile_passed": 4,
+    "long_context_passed": 42,
+    "privacy_firewall_isolation_passed": 14,
+    "postgres_test_relation_residue": 0,
+    "test_listener_residue": 0
+  },
+  "boundaries": {
+    "hosted_v2": "NO_GO_FOR_NOW",
+    "default_mode": "DISABLED",
+    "consumption": "AVAILABLE_BUT_DEFAULT_OFF",
+    "scoring_and_report_use": "PROHIBITED",
+    "real_candidate_production_processing": "PROHIBITED",
+    "real_provider_evaluation": "NOT_RUN"
+  },
+  "publication_state": "READY_FOR_EXACT_REVISION_RETEST_AND_PUSH"
+}
