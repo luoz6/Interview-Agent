@@ -98,6 +98,9 @@ _principal_identity_resolver = None
 _principal_memory_control_store = None
 _principal_memory_consent_store = None
 _principal_memory_fact_store = None
+_principal_memory_export_store = None
+_principal_memory_deletion_tombstone_store = None
+_principal_memory_safe_ref_store = None
 _principal_memory_proposal_processor = None
 _principal_memory_shadow_service = None
 _context_compression_lock = RLock()
@@ -166,6 +169,49 @@ def get_principal_memory_control_store():
 
             _principal_memory_control_store = InMemoryPrincipalMemoryControlStore()
     return _principal_memory_control_store
+
+
+def get_principal_memory_export_store():
+    global _principal_memory_export_store
+    if get_runtime_store() == "postgres":
+        raise RuntimeError(
+            "durable principal memory export store is not ready"
+        )
+    if _principal_memory_export_store is None:
+        from app.services.principal_memory_rights import (
+            InMemoryPrincipalMemoryExportStore,
+        )
+
+        _principal_memory_export_store = InMemoryPrincipalMemoryExportStore()
+    return _principal_memory_export_store
+
+
+def get_principal_memory_deletion_tombstone_store():
+    global _principal_memory_deletion_tombstone_store
+    if get_runtime_store() == "postgres":
+        raise RuntimeError(
+            "durable principal deletion tombstone store is not ready"
+        )
+    if _principal_memory_deletion_tombstone_store is None:
+        from app.services.principal_memory_rights import (
+            InMemoryPrincipalMemoryDeletionTombstoneStore,
+        )
+
+        _principal_memory_deletion_tombstone_store = (
+            InMemoryPrincipalMemoryDeletionTombstoneStore()
+        )
+    return _principal_memory_deletion_tombstone_store
+
+
+def get_principal_memory_safe_ref_store():
+    global _principal_memory_safe_ref_store
+    if _principal_memory_safe_ref_store is None:
+        from app.services.principal_memory_safe_refs import (
+            InMemoryPrincipalMemorySafeRefStore,
+        )
+
+        _principal_memory_safe_ref_store = InMemoryPrincipalMemorySafeRefStore()
+    return _principal_memory_safe_ref_store
 
 
 def _principal_memory_control_service(*, config, resolver):
@@ -1346,7 +1392,9 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _session_deletion_service, _session_deletion_worker
     global _memory_metric_store
     global _principal_identity_resolver, _principal_memory_control_store
-    global _principal_memory_consent_store
+    global _principal_memory_consent_store, _principal_memory_export_store
+    global _principal_memory_deletion_tombstone_store
+    global _principal_memory_safe_ref_store
     global _principal_memory_fact_store, _principal_memory_proposal_processor
     global _principal_memory_shadow_service
     if _runtime_outbox_service is not None:
@@ -1395,6 +1443,9 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _principal_memory_control_store = None
     _principal_memory_consent_store = None
     _principal_memory_fact_store = None
+    _principal_memory_export_store = None
+    _principal_memory_deletion_tombstone_store = None
+    _principal_memory_safe_ref_store = None
     _principal_memory_proposal_processor = None
     _principal_memory_shadow_service = None
     from app.services.memory_metrics import reset_memory_metric_store
