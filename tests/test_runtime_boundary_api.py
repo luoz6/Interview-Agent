@@ -71,6 +71,8 @@ def test_runtime_boundary_endpoint_reports_stage_29_components(monkeypatch):
         "budget_mode": "disabled",
             "compression_mode": "disabled",
             "long_term_mode": "disabled",
+            "local_principal_enabled": False,
+            "local_consumption_enabled": False,
         "interview_graph_version": "langgraph-v1",
         "interview_graph_rollout_percent": 0,
         "legacy_environment_used": False,
