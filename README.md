@@ -140,7 +140,8 @@ be written to `.env`, logs, screenshots, or Git.
 ## Install
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock.txt
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-windows.lock.txt
 npm ci
 ```
 
@@ -238,21 +239,54 @@ npm run test:browser
 
 ## Stage 41 Reproducible Release Checks
 
-Supported runtimes are Python 3.11 and Node.js 20 or 22 LTS. Activate a Python
-3.11 virtual environment first; every command below intentionally uses the
-environment-independent `python`, `npm`, or `npx` executable name.
+The mandatory H6 matrix is Windows 11 x64 or Ubuntu 24.04 LTS x64, Python
+3.11.x, Node 22 LTS, PostgreSQL 16.x with the supported pgvector image, and the
+Chromium revision selected by Playwright 1.61.1. Node.js 20 or 22 LTS remains
+runtime-compatible, but Node 20 is not the primary H6 acceptance matrix. Other
+operating systems, Python versions, and Node versions are `UNTESTED` and must
+not be described as supported.
+
+Activate a clean Python 3.11 virtual environment first. A wrong interpreter
+fails with `PYTHON_VERSION_UNSUPPORTED`; an active-environment/executable
+mismatch fails with `PYTHON_ENVIRONMENT_MISMATCH`. Platform locks and their
+generation decision are documented in
+`docs/local-v1-platform-locks-adr.md`. Every command below intentionally uses
+the environment-independent `python`, `npm`, or `npx` executable name.
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock.txt
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-windows.lock.txt
 python -m pip check
 npm ci
 npm --prefix frontend ci
 npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime --check
 npm run test:browser
 python -m scripts.audit_stage40_artifacts
 ```
+
+On Ubuntu 24.04 LTS x64, use the Linux lock instead:
+
+```bash
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-linux.lock.txt
+python -m pip check
+npm ci
+npm --prefix frontend ci
+npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
+npm run build:frontend
+npm run test:browser
+```
+
+`MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH` must be a host-native absolute local
+`.jsonl` path outside the repository workspace. Use a drive-qualified path on
+Windows and a POSIX-rooted path on Ubuntu. Relative paths, workspace paths,
+UNC paths, and any symlink/junction traversal are rejected.
 
 The default `local` event backend does not require Redis. To declare the optional
 Celery profile healthy, configure an authenticated `REDIS_URL`, start the worker,

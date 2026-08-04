@@ -270,22 +270,60 @@ Keep the run directory, `metrics.json`, attempt artifacts, traces, hashes, model
 
 ## 9. Stage 41 Clean-Environment Release Gate
 
-Use Python 3.11 and Node.js 20 or 22 LTS. From a fresh checkout, create and
-activate a Python 3.11 virtual environment, then run:
+The mandatory H6 support matrix is Windows 11 x64 and Ubuntu 24.04 LTS x64,
+Python 3.11.x, Node 22 LTS, PostgreSQL 16.x with the supported pgvector image,
+and Playwright 1.61.1 Chromium. Node.js 20 or 22 LTS remains runtime-compatible,
+but Node 20 is not a primary H6 acceptance environment. Every other platform or
+version is `UNTESTED`.
+
+From a fresh Windows checkout, create and activate a Python 3.11 virtual
+environment, then run:
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock.txt
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-windows.lock.txt
 python -m pip check
 npm ci
 npm --prefix frontend ci
 npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime
 python -m scripts.init_local_runtime --check
+npm run build:frontend
 npm run test:browser
 python -m pytest -q
 python -m scripts.audit_stage40_artifacts
 ```
+
+On Ubuntu 24.04 LTS x64, run the same sequence with the Linux lock:
+
+```bash
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-linux.lock.txt
+python -m pip check
+npm ci
+npm --prefix frontend ci
+npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
+npm run build:frontend
+npm run test:browser
+python -m pytest -q
+```
+
+`PYTHON_VERSION_UNSUPPORTED` means the selected interpreter is not Python
+3.11. `PYTHON_ENVIRONMENT_MISMATCH` means the active virtual environment and
+executable do not match, or a clean-environment command was run globally. Stop
+before installing or testing and rebuild the environment. The pinned generator,
+platform-lock decision, and source/hash binding are recorded in
+`docs/local-v1-platform-locks-adr.md` and `requirements.lock.meta.json`.
+
+`MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH` must use a host-native absolute local
+path outside the repository: a drive-qualified `.jsonl` path on Windows or a
+POSIX-rooted `.jsonl` path on Ubuntu. Relative, workspace-contained, UNC,
+symlink, and junction paths fail closed.
 
 `python -m scripts.init_local_runtime --check` is read-only. Use
 `python -m scripts.init_local_runtime --seed-knowledge --corpus-version stage44a-bge-m3-v1`

@@ -115,11 +115,28 @@ class ProtectedPrincipalMemoryLedger:
 
     def _validate_path(self) -> Path:
         try:
-            if not self.path.is_absolute() or self.path.suffix.lower() != ".jsonl":
+            if (
+                not self.path.is_absolute()
+                or not self.workspace.is_absolute()
+                or self.path.suffix.lower() != ".jsonl"
+                or (os.name == "nt" and str(self.path).startswith("\\\\"))
+            ):
                 raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_PATH_INVALID")
+            lexical = Path(os.path.abspath(self.path))
             resolved = self.path.resolve(strict=False)
             workspace = self.workspace.resolve(strict=True)
-            if resolved == workspace or workspace in resolved.parents:
+            lexical_key = os.path.normcase(str(lexical))
+            resolved_key = os.path.normcase(str(resolved))
+            if lexical_key != resolved_key:
+                # Symlink/junction traversal weakens host-local durability and
+                # can disguise a workspace-contained path as an external one.
+                raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_PATH_INVALID")
+            if (
+                lexical == workspace
+                or workspace in lexical.parents
+                or resolved == workspace
+                or workspace in resolved.parents
+            ):
                 raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_PATH_INVALID")
             if not resolved.parent.is_dir():
                 raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_PATH_INVALID")

@@ -417,9 +417,11 @@ def test_stage_41_docs_are_machine_independent_and_reproducible():
     for expected in (
         "Python 3.11",
         "Node.js 20 or 22 LTS",
-        "requirements.lock.txt",
+        "requirements-windows.lock.txt",
+        "requirements-linux.lock.txt",
         "npm ci",
         "npx playwright install chromium",
+        "npm run test:browser:preflight",
         "npm run test:browser",
         "python -m scripts.runtime_preflight --profile core",
         "python -m scripts.init_local_runtime --check",
