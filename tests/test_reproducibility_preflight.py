@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,31 @@ def test_executable_outside_prefix_fails_without_virtual_env_variable(tmp_path):
             virtual_env=None,
         )
     assert captured.value.gate_code == PYTHON_ENVIRONMENT_MISMATCH
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX venv interpreter symlink")
+def test_venv_interpreter_symlink_to_base_python_is_accepted(tmp_path):
+    base = tmp_path / "base"
+    base_bin = base / "bin"
+    base_bin.mkdir(parents=True)
+    base_python = base_bin / "python3.11"
+    base_python.touch()
+    prefix = tmp_path / "venv"
+    prefix_bin = prefix / "bin"
+    prefix_bin.mkdir(parents=True)
+    executable = prefix_bin / "python"
+    executable.symlink_to(base_python)
+
+    result = validate_python_environment(
+        version_info=(3, 11, 9),
+        executable=executable,
+        prefix=prefix,
+        base_prefix=base,
+        virtual_env=None,
+        require_venv=True,
+    )
+
+    assert result["python_executable_source"] == "virtualenv"
 
 
 def test_primary_node_matrix_requires_node_22():

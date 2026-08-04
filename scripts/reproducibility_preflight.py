@@ -36,7 +36,11 @@ def validate_python_environment(
         raise ReproducibilityPreflightError(PYTHON_VERSION_UNSUPPORTED)
 
     prefix_path = Path(prefix).resolve()
-    executable_path = Path(executable).resolve()
+    # A POSIX virtual environment commonly exposes ``bin/python`` as a
+    # symlink to the base interpreter. Validate the invoked lexical path
+    # against the active prefix; resolving the final symlink would incorrectly
+    # classify a healthy venv as an environment mismatch.
+    executable_path = Path(os.path.abspath(str(executable)))
     in_venv = Path(base_prefix).resolve() != prefix_path
     try:
         executable_path.relative_to(prefix_path)
