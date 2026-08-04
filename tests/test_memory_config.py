@@ -175,6 +175,8 @@ def test_long_term_memory_defaults_disabled_and_consume_fails_closed():
     assert config.long_term.local_principal_enabled is False
     assert config.long_term.local_principal_id == "local-owner"
     assert config.long_term.local_consumption_enabled is False
+    assert config.long_term.proposal_retention_days == 7
+    assert config.long_term.active_fact_default_days == 180
 
     with pytest.raises(ValueError, match="cannot be downgraded"):
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})

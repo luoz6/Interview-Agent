@@ -110,36 +110,32 @@ class PrincipalMemoryLifecycleService:
         if not self.consent_service.authorize("fact_storage"):
             raise PermissionError("principal memory consent is unavailable")
         now = self.clock()
-        predecessor = self._find(
-            identity=identity,
-            fact_type=fact_type,
-            normalized_fact=normalized,
-            status="active",
-            exclude_fact_id=proposal.fact_id,
-            required=False,
-        )
-        if predecessor is not None:
-            self.fact_store.transition(
-                deployment_id=identity.deployment_id,
-                principal_id=identity.principal_id,
-                fact_id=predecessor.fact_id,
-                expected_version=predecessor.version,
-                target_status="superseded",
-                now=now,
-            )
-        confirmed = self.fact_store.transition(
+        taxonomy_key = next(iter(json.loads(normalized)))
+        confirmed = self.fact_store.activate_proposal(
             deployment_id=identity.deployment_id,
             principal_id=identity.principal_id,
             fact_id=proposal.fact_id,
             expected_version=expected_version,
-            target_status="active",
+            exclusive_key=(
+                taxonomy_key
+                if taxonomy_key in EXCLUSIVE_TAXONOMY_KEYS
+                else None
+            ),
             now=now,
             expires_at=now + timedelta(
                 days=self.config.long_term.active_fact_default_days
             ),
-            supersedes_fact_id=predecessor.fact_id if predecessor else None,
         )
         return self.safe_payload(confirmed)
+
+    def expire_due(self, *, limit: int = 200) -> int:
+        now = self.clock()
+        return self.fact_store.expire_batch(
+            now=now,
+            limit=limit,
+            proposal_created_before=now
+            - timedelta(days=self.config.long_term.proposal_retention_days),
+        )
 
     def reject(self, *, fact_type: str, normalized_fact: str, expected_version: int):
         return self._transition_by_key(

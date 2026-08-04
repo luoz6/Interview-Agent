@@ -100,23 +100,26 @@ class PostgresPrincipalMemoryFactStore:
                 row = cursor.fetchone()
                 if row is not None:
                     return self._from_row(row)
-                predecessors = []
-                if exclusive_key is not None:
-                    cursor.execute(
-                        sql.SQL(
-                            "SELECT {columns} FROM {table} WHERE deployment_id=%s "
-                            "AND principal_id=%s AND status='active' FOR UPDATE"
-                        ).format(
-                            columns=sql.SQL(self._columns()),
-                            table=sql.Identifier(self.table),
-                        ),
-                        (fact.deployment_id, fact.principal_id),
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {columns} FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s AND status='active' FOR UPDATE"
+                    ).format(
+                        columns=sql.SQL(self._columns()),
+                        table=sql.Identifier(self.table),
+                    ),
+                    (fact.deployment_id, fact.principal_id),
+                )
+                predecessors = [
+                    self._from_row(item)
+                    for item in cursor.fetchall()
+                    if item[5] == fact.normalized_fact
+                    or (
+                        exclusive_key is not None
+                        and next(iter(json.loads(item[5]))) == exclusive_key
                     )
-                    predecessors = [
-                        self._from_row(item)
-                        for item in cursor.fetchall()
-                        if next(iter(json.loads(item[5]))) == exclusive_key
-                    ]
+                ]
+                if predecessors:
                     for predecessor in predecessors:
                         cursor.execute(
                             sql.SQL(
@@ -166,6 +169,144 @@ class PostgresPrincipalMemoryFactStore:
                     self._params(stored),
                 )
                 return self._from_row(cursor.fetchone())
+
+    def activate_proposal(
+        self,
+        *,
+        deployment_id,
+        principal_id,
+        fact_id,
+        expected_version,
+        exclusive_key,
+        now,
+        expires_at,
+    ):
+        from psycopg2 import sql
+
+        lock_scope = exclusive_key or fact_id
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    (
+                        f"principal-memory:{deployment_id}:"
+                        f"{principal_id}:{lock_scope}",
+                    ),
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {columns} FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s AND fact_id=%s FOR UPDATE"
+                    ).format(
+                        columns=sql.SQL(self._columns()),
+                        table=sql.Identifier(self.table),
+                    ),
+                    (deployment_id, principal_id, fact_id),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                proposal = self._from_row(row)
+                if proposal.version != expected_version:
+                    from app.services.in_memory_principal_memory import (
+                        PrincipalMemoryConflict,
+                    )
+
+                    raise PrincipalMemoryConflict(
+                        "principal memory fact version conflict"
+                    )
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {columns} FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s AND status='active' "
+                        "AND fact_id<>%s FOR UPDATE"
+                    ).format(
+                        columns=sql.SQL(self._columns()),
+                        table=sql.Identifier(self.table),
+                    ),
+                    (deployment_id, principal_id, fact_id),
+                )
+                predecessors = [
+                    self._from_row(item)
+                    for item in cursor.fetchall()
+                    if item[5] == proposal.normalized_fact
+                    or (
+                        exclusive_key is not None
+                        and next(iter(json.loads(item[5]))) == exclusive_key
+                    )
+                ]
+                if predecessors:
+                    for predecessor in predecessors:
+                        cursor.execute(
+                            sql.SQL(
+                                "UPDATE {table} SET status='superseded',"
+                                "version=version+1 WHERE deployment_id=%s "
+                                "AND principal_id=%s AND fact_id=%s "
+                                "AND status='active' AND version=%s"
+                            ).format(table=sql.Identifier(self.table)),
+                            (
+                                predecessor.deployment_id,
+                                predecessor.principal_id,
+                                predecessor.fact_id,
+                                predecessor.version,
+                            ),
+                        )
+                        if cursor.rowcount != 1:
+                            from app.services.in_memory_principal_memory import (
+                                PrincipalMemoryConflict,
+                            )
+
+                            raise PrincipalMemoryConflict(
+                                "principal memory fact version conflict"
+                            )
+                predecessor = max(
+                    predecessors,
+                    key=lambda item: (item.created_at, item.fact_id),
+                    default=None,
+                )
+                active = transition_fact(
+                    proposal,
+                    expected_version=expected_version,
+                    target_status="active",
+                    now=now,
+                    expires_at=expires_at,
+                    supersedes_fact_id=(
+                        predecessor.fact_id if predecessor is not None else None
+                    ),
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {table} SET status=%s,user_confirmed=%s,version=%s,"
+                        "confirmed_at=%s,expires_at=%s,supersedes_fact_id=%s "
+                        "WHERE deployment_id=%s AND principal_id=%s AND fact_id=%s "
+                        "AND version=%s RETURNING {columns}"
+                    ).format(
+                        table=sql.Identifier(self.table),
+                        columns=sql.SQL(self._columns()),
+                    ),
+                    (
+                        active.status,
+                        active.user_confirmed,
+                        active.version,
+                        active.confirmed_at,
+                        active.expires_at,
+                        active.supersedes_fact_id,
+                        deployment_id,
+                        principal_id,
+                        fact_id,
+                        expected_version,
+                    ),
+                )
+                updated_row = cursor.fetchone()
+                if updated_row is None:
+                    from app.services.in_memory_principal_memory import (
+                        PrincipalMemoryConflict,
+                    )
+
+                    raise PrincipalMemoryConflict(
+                        "principal memory fact version conflict"
+                    )
+                return self._from_row(updated_row)
 
     def get(self, *, deployment_id: str, principal_id: str, fact_id: str):
         return self._fetch_one(
@@ -232,18 +373,42 @@ class PostgresPrincipalMemoryFactStore:
             limit=limit,
         )
 
-    def expire_batch(self, *, now, limit):
+    def expire_batch(
+        self,
+        *,
+        now,
+        limit,
+        proposal_created_before=None,
+    ):
         if limit < 1:
             raise ValueError("principal memory expire limit must be positive")
         from psycopg2 import sql
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
+                if proposal_created_before is None:
+                    condition = sql.SQL(
+                        "status='active' AND expires_at<=%s"
+                    )
+                    params = (now, limit)
+                else:
+                    condition = sql.SQL(
+                        "(status='active' AND expires_at<=%s) OR "
+                        "(status='proposed' AND created_at<=%s)"
+                    )
+                    params = (now, proposal_created_before, limit)
+                query = (
+                    sql.SQL(
+                        "UPDATE {table} SET status='expired',version=version+1 "
+                        "WHERE ctid IN (SELECT ctid FROM {table} WHERE "
+                    ).format(table=sql.Identifier(self.table))
+                    + condition
+                    + sql.SQL(
+                        " ORDER BY created_at,fact_id LIMIT %s FOR UPDATE SKIP LOCKED)"
+                    )
+                )
                 cursor.execute(
-                    sql.SQL("UPDATE {table} SET status='expired',version=version+1 "
-                            "WHERE ctid IN (SELECT ctid FROM {table} WHERE status='active' "
-                            "AND expires_at<=%s ORDER BY expires_at LIMIT %s)").format(
-                        table=sql.Identifier(self.table)
-                    ), (now, limit)
+                    query,
+                    params,
                 )
                 return int(cursor.rowcount)
 

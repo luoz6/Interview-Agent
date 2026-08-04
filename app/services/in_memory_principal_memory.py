@@ -14,7 +14,7 @@ TERMINAL_STATUSES = frozenset(
     {"rejected", "superseded", "expired", "revoked", "deleted"}
 )
 ALLOWED_TRANSITIONS = {
-    "proposed": frozenset({"active", "rejected", "deleted"}),
+    "proposed": frozenset({"active", "rejected", "expired", "deleted"}),
     "active": frozenset({"superseded", "expired", "revoked", "deleted"}),
 }
 
@@ -77,16 +77,21 @@ class InMemoryPrincipalMemoryFactStore:
             current = self._facts.get(key)
             if current is not None:
                 return current
-            predecessors = []
-            if exclusive_key is not None:
-                predecessors = [
-                    (item_key, item)
-                    for item_key, item in self._facts.items()
-                    if item_key[:2] == key[:2]
-                    and item.status == "active"
-                    and next(iter(json.loads(item.normalized_fact)))
-                    == exclusive_key
-                ]
+            predecessors = [
+                (item_key, item)
+                for item_key, item in self._facts.items()
+                if item_key[:2] == key[:2]
+                and item.status == "active"
+                and (
+                    item.normalized_fact == fact.normalized_fact
+                    or (
+                        exclusive_key is not None
+                        and next(iter(json.loads(item.normalized_fact)))
+                        == exclusive_key
+                    )
+                )
+            ]
+            if predecessors:
                 for item_key, item in predecessors:
                     self._facts[item_key] = transition_fact(
                         item,
@@ -108,6 +113,67 @@ class InMemoryPrincipalMemoryFactStore:
             )
             self._facts[key] = stored
             return stored
+
+    def activate_proposal(
+        self,
+        *,
+        deployment_id,
+        principal_id,
+        fact_id,
+        expected_version,
+        exclusive_key,
+        now,
+        expires_at,
+    ):
+        key = (deployment_id, principal_id, fact_id)
+        with self._lock:
+            proposal = self._facts.get(key)
+            if proposal is None:
+                return None
+            if proposal.version != expected_version:
+                raise PrincipalMemoryConflict(
+                    "principal memory fact version conflict"
+                )
+            predecessors = [
+                (item_key, item)
+                for item_key, item in self._facts.items()
+                if item_key[:2] == key[:2]
+                and item.fact_id != fact_id
+                and item.status == "active"
+                and (
+                    item.normalized_fact == proposal.normalized_fact
+                    or (
+                        exclusive_key is not None
+                        and next(iter(json.loads(item.normalized_fact)))
+                        == exclusive_key
+                    )
+                )
+            ]
+            if predecessors:
+                for item_key, item in predecessors:
+                    self._facts[item_key] = transition_fact(
+                        item,
+                        expected_version=item.version,
+                        target_status="superseded",
+                        now=now,
+                    )
+            predecessor = max(
+                (item for _, item in predecessors),
+                key=lambda item: (item.created_at, item.fact_id),
+                default=None,
+            )
+            active = transition_fact(
+                proposal,
+                expected_version=expected_version,
+                target_status="active",
+                now=now,
+                expires_at=expires_at,
+                supersedes_fact_id=(
+                    predecessor.fact_id if predecessor is not None else None
+                ),
+            )
+            self._facts[key] = active
+            return active
 
     def get(self, *, deployment_id: str, principal_id: str, fact_id: str):
         with self._lock:
@@ -179,7 +245,13 @@ class InMemoryPrincipalMemoryFactStore:
             and (fact.expires_at is None or fact.expires_at > now)
         ][:limit]
 
-    def expire_batch(self, *, now, limit: int) -> int:
+    def expire_batch(
+        self,
+        *,
+        now,
+        limit: int,
+        proposal_created_before=None,
+    ) -> int:
         if limit < 1:
             raise ValueError("principal memory expire limit must be positive")
         count = 0
@@ -189,7 +261,17 @@ class InMemoryPrincipalMemoryFactStore:
             ):
                 if count >= limit:
                     break
-                if fact.status == "active" and fact.expires_at and fact.expires_at <= now:
+                active_due = (
+                    fact.status == "active"
+                    and fact.expires_at is not None
+                    and fact.expires_at <= now
+                )
+                proposal_due = (
+                    fact.status == "proposed"
+                    and proposal_created_before is not None
+                    and fact.created_at <= proposal_created_before
+                )
+                if active_due or proposal_due:
                     self._facts[key] = transition_fact(
                         fact,
                         expected_version=fact.version,

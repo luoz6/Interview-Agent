@@ -165,3 +165,82 @@ def test_postgres_exclusive_declarations_are_atomic(
                             table=sql.Identifier(table)
                         )
                     )
+
+
+@pytest.mark.pg_runtime
+def test_postgres_confirmation_competes_atomically_and_retention_is_bounded(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    proposal = make_active_language("en", "f").model_copy(
+        update={
+            "authority": "model_proposed",
+            "status": "proposed",
+            "user_confirmed": False,
+            "confirmed_at": None,
+            "expires_at": None,
+        }
+    )
+    direct = make_active_language("mixed", "0")
+    try:
+        store.create_proposal(proposal)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    store.activate_proposal,
+                    deployment_id=proposal.deployment_id,
+                    principal_id=proposal.principal_id,
+                    fact_id=proposal.fact_id,
+                    expected_version=1,
+                    exclusive_key="interview_language",
+                    now=NOW,
+                    expires_at=NOW + timedelta(days=180),
+                ),
+                executor.submit(
+                    store.declare_active,
+                    direct,
+                    exclusive_key="interview_language",
+                    now=NOW,
+                ),
+            ]
+            for future in futures:
+                future.result()
+        stored = store.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=100,
+            include_terminal=True,
+        )
+        assert [fact.status for fact in stored].count("active") == 1
+
+        old_proposal = make_fact(value="kafka").model_copy(
+            update={"created_at": NOW - timedelta(days=7)}
+        )
+        store.create_proposal(old_proposal)
+        assert store.expire_batch(
+            now=NOW,
+            proposal_created_before=NOW - timedelta(days=7),
+            limit=1,
+        ) == 1
+        assert store.get(
+            deployment_id=old_proposal.deployment_id,
+            principal_id=old_proposal.principal_id,
+            fact_id=old_proposal.fact_id,
+        ).status == "expired"
+    finally:
+        import psycopg2
+        from psycopg2 import sql
+
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )

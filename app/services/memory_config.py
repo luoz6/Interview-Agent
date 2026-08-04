@@ -121,8 +121,8 @@ class LongTermMemoryConfig(FrozenMemoryModel):
     max_proposals_per_session: int = Field(default=8, ge=1, le=32)
     max_shadow_facts: int = Field(default=6, ge=1, le=32)
     max_shadow_tokens: int = Field(default=800, ge=1, le=8000)
-    proposal_retention_days: int = Field(default=30, ge=1)
-    active_fact_default_days: int = Field(default=365, ge=1)
+    proposal_retention_days: int = Field(default=7, ge=1)
+    active_fact_default_days: int = Field(default=180, ge=1)
 
 
 class EffectiveMemoryConfig(FrozenMemoryModel):
@@ -506,10 +506,10 @@ def load_effective_memory_config(
                 env, "MEMORY_LONG_TERM_MAX_SHADOW_TOKENS", 800
             ),
             proposal_retention_days=_new_positive(
-                env, "MEMORY_LONG_TERM_PROPOSAL_RETENTION_DAYS", 30
+                env, "MEMORY_LONG_TERM_PROPOSAL_RETENTION_DAYS", 7
             ),
             active_fact_default_days=_new_positive(
-                env, "MEMORY_LONG_TERM_ACTIVE_FACT_DEFAULT_DAYS", 365
+                env, "MEMORY_LONG_TERM_ACTIVE_FACT_DEFAULT_DAYS", 180
             ),
         ),
         legacy_environment_used=bool(legacy_used),
