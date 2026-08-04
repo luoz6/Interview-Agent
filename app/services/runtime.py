@@ -105,9 +105,21 @@ _context_compression_lock = RLock()
 def get_principal_identity_resolver():
     global _principal_identity_resolver
     if _principal_identity_resolver is None:
-        from app.services.principal_identity import NullPrincipalIdentityResolver
+        from app.services.memory_config import load_effective_memory_config
+        from app.services.principal_identity import (
+            ExplicitPrincipalIdentityResolver,
+            NullPrincipalIdentityResolver,
+        )
 
-        _principal_identity_resolver = NullPrincipalIdentityResolver()
+        config = load_effective_memory_config()
+        if config.long_term.local_principal_enabled:
+            _principal_identity_resolver = ExplicitPrincipalIdentityResolver(
+                deployment_id=config.privacy.deployment_id,
+                principal_id=config.long_term.local_principal_id,
+                assurance="trusted_local",
+            )
+        else:
+            _principal_identity_resolver = NullPrincipalIdentityResolver()
     return _principal_identity_resolver
 
 

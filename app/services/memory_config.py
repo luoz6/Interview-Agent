@@ -100,10 +100,21 @@ class PrivacyMemoryConfig(FrozenMemoryModel):
 
 
 class LongTermMemoryConfig(FrozenMemoryModel):
-    mode: Literal["disabled", "write_shadow", "read_shadow"] = "disabled"
+    mode: Literal[
+        "disabled",
+        "write_shadow",
+        "read_shadow",
+        "local_consume",
+    ] = "disabled"
     write_shadow_enabled: bool = False
     read_shadow_enabled: bool = False
     trusted_local_api_enabled: bool = False
+    local_principal_enabled: bool = False
+    local_principal_id: str = Field(
+        default="local-owner",
+        pattern=r"^[A-Za-z0-9_.-]{1,128}$",
+    )
+    local_consumption_enabled: bool = False
     consent_policy_version: str = "principal-memory-consent-v1"
     fact_schema_version: str = "principal-memory-fact-v1"
     taxonomy_version: str = "principal-memory-taxonomy-v1"
@@ -449,6 +460,24 @@ def load_effective_memory_config(
                 "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
                 False,
             ),
+            local_principal_enabled=_new_bool(
+                env,
+                "MEMORY_LOCAL_PRINCIPAL_ENABLED",
+                False,
+            ),
+            local_principal_id=(
+                _parse_required_identifier(
+                    "MEMORY_LOCAL_PRINCIPAL_ID",
+                    str(env["MEMORY_LOCAL_PRINCIPAL_ID"]),
+                )
+                if "MEMORY_LOCAL_PRINCIPAL_ID" in env
+                else "local-owner"
+            ),
+            local_consumption_enabled=_new_bool(
+                env,
+                "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED",
+                False,
+            ),
             consent_policy_version=_resolve_new_only(
                 env,
                 "MEMORY_LONG_TERM_CONSENT_POLICY_VERSION",
@@ -498,6 +527,10 @@ def memory_readiness_payload(config: EffectiveMemoryConfig) -> dict:
         "budget_mode": config.budget.mode,
         "compression_mode": config.compression.mode,
         "long_term_mode": config.long_term.mode,
+        "local_principal_enabled": config.long_term.local_principal_enabled,
+        "local_consumption_enabled": (
+            config.long_term.local_consumption_enabled
+        ),
         "interview_graph_version": config.interview_graph.version,
         "interview_graph_rollout_percent": (
             config.interview_graph.rollout_percent
@@ -583,6 +616,33 @@ def _validate_effective_config(config: EffectiveMemoryConfig) -> None:
         long_term.write_shadow_enabled and long_term.read_shadow_enabled
     ):
         raise ValueError("read_shadow mode requires explicit write and read gates")
+    if (
+        long_term.local_principal_enabled
+        and config.privacy.deployment_id != "single-tenant-local"
+    ):
+        raise ValueError(
+            "Local Principal requires the single-tenant-local deployment scope"
+        )
+    if (
+        long_term.local_consumption_enabled
+        and long_term.mode != "local_consume"
+    ):
+        raise ValueError(
+            "local consumption gate requires local_consume mode"
+        )
+    if long_term.mode == "local_consume":
+        if not long_term.local_principal_enabled:
+            raise ValueError("local_consume mode requires its local Principal gate")
+        if not long_term.trusted_local_api_enabled:
+            raise ValueError("local_consume mode requires its trusted-local API gate")
+        if not (
+            long_term.write_shadow_enabled and long_term.read_shadow_enabled
+        ):
+            raise ValueError(
+                "local_consume mode requires explicit write and read shadow gates"
+            )
+        if not long_term.local_consumption_enabled:
+            raise ValueError("local_consume mode requires its local consumption gate")
 
 
 def _resolve_new_only(env, name, parser, default):
@@ -660,8 +720,10 @@ def _parse_long_term_mode(name: str, raw: str) -> str:
     value = raw.strip().lower()
     if value == "consume":
         raise ValueError(f"{name}=consume is not supported and cannot be downgraded")
-    if value not in {"disabled", "write_shadow", "read_shadow"}:
-        raise ValueError(f"{name} must be disabled, write_shadow, or read_shadow")
+    if value not in {"disabled", "write_shadow", "read_shadow", "local_consume"}:
+        raise ValueError(
+            f"{name} must be disabled, write_shadow, read_shadow, or local_consume"
+        )
     return value
 
 
