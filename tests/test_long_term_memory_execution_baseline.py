@@ -42,7 +42,12 @@ def test_baseline_pins_the_canonical_plan_digest() -> None:
         "docs/superpowers/plans/"
         "2026-08-03-long-term-memory-production-shadows-consumption-and-promotion.md"
     )
-    digest = hashlib.sha256(plan.read_bytes()).hexdigest().upper()
+    canonical_bytes = (
+        plan.read_bytes()
+        .replace(b"\r\n", b"\n")
+        .replace(b"\r", b"\n")
+    )
+    digest = hashlib.sha256(canonical_bytes).hexdigest().upper()
 
     assert digest == "DE0AFE41E815B8BEFBD56AE4ACDD5ED7E07540A0BAFFD3D06BDCA4E6542C3227"
     assert digest in baseline_text()
