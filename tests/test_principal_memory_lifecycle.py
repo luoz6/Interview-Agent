@@ -1,4 +1,7 @@
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 
 from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactStore
 from app.services.in_memory_principal_memory_consent import (
@@ -130,3 +133,116 @@ def test_safe_list_excludes_internal_fact_and_source_locators():
         fact.source_manifest_sha256,
     ):
         assert forbidden not in rendered
+
+
+def test_direct_user_declaration_activates_without_model_proposal():
+    service, facts = build_service()
+
+    payload = service.declare(
+        fact_type="declared_preference",
+        normalized_fact=canonical_principal_fact(
+            {"interview_language": "zh_hans"}
+        ),
+    )
+
+    assert payload["status"] == "active"
+    stored = facts.list_by_principal(
+        deployment_id="single-tenant-local",
+        principal_id="principal-life",
+        limit=10,
+    )
+    assert len(stored) == 1
+    assert stored[0].authority == "user_declared"
+    assert stored[0].user_confirmed is True
+    assert stored[0].source_session_id == "local-user-declaration"
+
+
+def test_direct_declaration_rejects_noncanonical_or_unapproved_values():
+    service, _ = build_service()
+
+    with pytest.raises(ValueError, match="approved taxonomy"):
+        service.declare(
+            fact_type="declared_preference",
+            normalized_fact='{"interview_language":"my private language"}',
+        )
+    with pytest.raises(ValueError, match="canonical JSON"):
+        service.declare(
+            fact_type="declared_preference",
+            normalized_fact='{ "interview_language": "en" }',
+        )
+
+
+def test_exclusive_correction_supersedes_old_value_atomically():
+    service, facts = build_service()
+    service.declare(
+        fact_type="declared_preference",
+        normalized_fact=canonical_principal_fact(
+            {"interview_language": "zh_hans"}
+        ),
+    )
+
+    corrected = service.declare(
+        fact_type="declared_preference",
+        normalized_fact=canonical_principal_fact(
+            {"interview_language": "en"}
+        ),
+    )
+
+    assert corrected["status"] == "active"
+    stored = facts.list_by_principal(
+        deployment_id="single-tenant-local",
+        principal_id="principal-life",
+        limit=10,
+        include_terminal=True,
+    )
+    assert [fact.status for fact in stored].count("active") == 1
+    assert [fact.status for fact in stored].count("superseded") == 1
+    active = next(fact for fact in stored if fact.status == "active")
+    predecessor = next(fact for fact in stored if fact.status == "superseded")
+    assert active.supersedes_fact_id == predecessor.fact_id
+
+
+def test_concurrent_exclusive_corrections_leave_at_most_one_active_value():
+    service, facts = build_service()
+    values = ["zh_hans", "en", "mixed"] * 4
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        list(
+            executor.map(
+                lambda value: service.declare(
+                    fact_type="declared_preference",
+                    normalized_fact=canonical_principal_fact(
+                        {"interview_language": value}
+                    ),
+                ),
+                values,
+            )
+        )
+
+    stored = facts.list_by_principal(
+        deployment_id="single-tenant-local",
+        principal_id="principal-life",
+        limit=100,
+        include_terminal=True,
+    )
+    active = [fact for fact in stored if fact.status == "active"]
+    assert len(active) == 1
+
+
+def test_nonexclusive_direct_declarations_coexist():
+    service, facts = build_service()
+    for value in ("python", "kafka"):
+        service.declare(
+            fact_type="confirmed_skill",
+            normalized_fact=canonical_principal_fact(
+                {"confirmed_skill": value}
+            ),
+        )
+
+    active = facts.list_shadow_eligible(
+        deployment_id="single-tenant-local",
+        principal_id="principal-life",
+        now=NOW,
+        limit=10,
+    )
+    assert len(active) == 2

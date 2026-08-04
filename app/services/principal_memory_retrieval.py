@@ -4,11 +4,7 @@ import json
 from dataclasses import dataclass
 
 from app.services.token_estimation import ConservativeUtf8TokenEstimator
-
-
-EXCLUSIVE_KEYS = frozenset(
-    {"interview_language", "target_role_family", "accessibility_preference"}
-)
+from app.services.principal_memory_contracts import EXCLUSIVE_TAXONOMY_KEYS
 
 
 @dataclass(frozen=True)
@@ -60,12 +56,13 @@ class PrincipalMemoryRetriever:
                 continue
             if fact.consent_policy_version != self.config.long_term.consent_policy_version:
                 continue
-            try:
-                source = self.session_store.get(fact.source_session_id)
-            except Exception:
-                continue
-            if source.get("deletion_status") in {"deleting", "deleted"}:
-                continue
+            if fact.authority == "model_proposed":
+                try:
+                    source = self.session_store.get(fact.source_session_id)
+                except Exception:
+                    continue
+                if source.get("deletion_status") in {"deleting", "deleted"}:
+                    continue
             if fact.authority == "model_proposed" and fact.confidence < 0.7:
                 continue
             eligible.append(fact)
@@ -85,7 +82,7 @@ class PrincipalMemoryRetriever:
         conflicts = {
             key
             for key, facts in by_taxonomy_key.items()
-            if key in EXCLUSIVE_KEYS
+            if key in EXCLUSIVE_TAXONOMY_KEYS
             and len({fact.normalized_fact for fact in facts}) > 1
         }
         ranked = []

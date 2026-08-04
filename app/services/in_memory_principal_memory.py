@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from threading import RLock
 
 from app.services.principal_memory_contracts import PrincipalMemoryFact
@@ -63,6 +64,50 @@ class InMemoryPrincipalMemoryFactStore:
                 return current
             self._facts[key] = fact
             return fact
+
+    def declare_active(self, fact, *, exclusive_key: str | None, now):
+        if (
+            fact.status != "active"
+            or not fact.user_confirmed
+            or fact.authority != "user_declared"
+        ):
+            raise ValueError("direct principal facts must be active user declarations")
+        key = (fact.deployment_id, fact.principal_id, fact.fact_id)
+        with self._lock:
+            current = self._facts.get(key)
+            if current is not None:
+                return current
+            predecessors = []
+            if exclusive_key is not None:
+                predecessors = [
+                    (item_key, item)
+                    for item_key, item in self._facts.items()
+                    if item_key[:2] == key[:2]
+                    and item.status == "active"
+                    and next(iter(json.loads(item.normalized_fact)))
+                    == exclusive_key
+                ]
+                for item_key, item in predecessors:
+                    self._facts[item_key] = transition_fact(
+                        item,
+                        expected_version=item.version,
+                        target_status="superseded",
+                        now=now,
+                    )
+            predecessor = max(
+                (item for _, item in predecessors),
+                key=lambda item: (item.created_at, item.fact_id),
+                default=None,
+            )
+            stored = fact.model_copy(
+                update={
+                    "supersedes_fact_id": (
+                        predecessor.fact_id if predecessor is not None else None
+                    )
+                }
+            )
+            self._facts[key] = stored
+            return stored
 
     def get(self, *, deployment_id: str, principal_id: str, fact_id: str):
         with self._lock:

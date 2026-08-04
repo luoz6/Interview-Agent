@@ -43,6 +43,9 @@ FACT_TYPE_KEYS = {
     "learning_goal": frozenset({"learning_goal"}),
     "accessibility_preference": frozenset({"accessibility_preference"}),
 }
+EXCLUSIVE_TAXONOMY_KEYS = frozenset(
+    {"interview_language", "target_role_family", "accessibility_preference"}
+)
 
 
 def _canonical_scalar(value: str) -> str:

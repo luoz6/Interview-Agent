@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import timedelta
 
 from app.services.in_memory_principal_memory import PrincipalMemoryConflict
-from app.services.principal_memory_contracts import validate_normalized_fact
+from app.services.principal_memory_contracts import (
+    EXCLUSIVE_TAXONOMY_KEYS,
+    PrincipalMemoryFact,
+    derive_principal_fact_id,
+    validate_normalized_fact,
+)
 
 
 class PrincipalMemoryLifecycleService:
@@ -28,6 +34,64 @@ class PrincipalMemoryLifecycleService:
             include_terminal=True,
         )
         return [self.safe_payload(fact) for fact in facts]
+
+    def declare(self, *, fact_type: str, normalized_fact: str):
+        if not self.consent_service.authorize("fact_storage"):
+            raise PermissionError("principal memory consent is unavailable")
+        identity = self._identity()
+        normalized = validate_normalized_fact(
+            fact_type=fact_type,
+            normalized_fact=normalized_fact,
+        )
+        now = self.clock()
+        source_payload = (
+            "local-user-declaration-v1\n"
+            f"{normalized}\n{now.isoformat()}"
+        )
+        manifest_sha = hashlib.sha256(
+            ("manifest\n" + source_payload).encode("utf-8")
+        ).hexdigest()
+        excerpt_sha = hashlib.sha256(
+            ("value\n" + source_payload).encode("utf-8")
+        ).hexdigest()
+        identity_values = {
+            "deployment_id": identity.deployment_id,
+            "principal_id": identity.principal_id,
+            "fact_type": fact_type,
+            "normalized_fact": normalized,
+            "source_manifest_sha256": manifest_sha,
+            "source_excerpt_sha256": excerpt_sha,
+            "consent_policy_version": (
+                self.config.long_term.consent_policy_version
+            ),
+            "taxonomy_version": self.config.long_term.taxonomy_version,
+        }
+        fact = PrincipalMemoryFact(
+            fact_id=derive_principal_fact_id(**identity_values),
+            **identity_values,
+            confidence=1.0,
+            authority="user_declared",
+            status="active",
+            source_session_id="local-user-declaration",
+            user_confirmed=True,
+            created_at=now,
+            confirmed_at=now,
+            expires_at=now
+            + timedelta(days=self.config.long_term.active_fact_default_days),
+        )
+        if not self.consent_service.authorize("fact_storage"):
+            raise PermissionError("principal memory consent is unavailable")
+        taxonomy_key = next(iter(json.loads(normalized)))
+        stored = self.fact_store.declare_active(
+            fact,
+            exclusive_key=(
+                taxonomy_key
+                if taxonomy_key in EXCLUSIVE_TAXONOMY_KEYS
+                else None
+            ),
+            now=now,
+        )
+        return self.safe_payload(stored)
 
     def confirm(self, *, fact_type: str, normalized_fact: str, expected_version: int):
         if not self.consent_service.authorize("fact_storage"):

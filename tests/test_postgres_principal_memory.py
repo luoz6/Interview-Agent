@@ -4,8 +4,41 @@ from datetime import timedelta
 import pytest
 
 from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.services.principal_memory_contracts import (
+    CONSENT_POLICY_VERSION,
+    TAXONOMY_VERSION,
+    PrincipalMemoryFact,
+    canonical_principal_fact,
+    derive_principal_fact_id,
+)
 from tests.postgres_support import assert_safe_test_prefix
 from tests.test_in_memory_principal_memory import NOW, make_fact
+
+
+def make_active_language(value: str, digest: str):
+    normalized = canonical_principal_fact({"interview_language": value})
+    identity = {
+        "deployment_id": "single-tenant-local",
+        "principal_id": "local-owner",
+        "fact_type": "declared_preference",
+        "normalized_fact": normalized,
+        "source_manifest_sha256": digest * 64,
+        "source_excerpt_sha256": digest * 64,
+        "consent_policy_version": CONSENT_POLICY_VERSION,
+        "taxonomy_version": TAXONOMY_VERSION,
+    }
+    return PrincipalMemoryFact(
+        fact_id=derive_principal_fact_id(**identity),
+        **identity,
+        confidence=1.0,
+        authority="user_declared",
+        status="active",
+        source_session_id="local-user-declaration",
+        user_confirmed=True,
+        created_at=NOW,
+        confirmed_at=NOW,
+        expires_at=NOW + timedelta(days=180),
+    )
 
 
 @pytest.mark.pg_runtime
@@ -76,6 +109,54 @@ def test_postgres_principal_fact_store_dedup_cas_isolation_and_purge(
     finally:
         import psycopg2
         from psycopg2 import sql
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_postgres_exclusive_declarations_are_atomic(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    facts = [
+        make_active_language("zh_hans", "c"),
+        make_active_language("en", "d"),
+        make_active_language("mixed", "e"),
+    ] * 4
+    try:
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            list(
+                executor.map(
+                    lambda fact: store.declare_active(
+                        fact,
+                        exclusive_key="interview_language",
+                        now=NOW,
+                    ),
+                    facts,
+                )
+            )
+        stored = store.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=100,
+            include_terminal=True,
+        )
+        assert [fact.status for fact in stored].count("active") == 1
+    finally:
+        import psycopg2
+        from psycopg2 import sql
+
         with psycopg2.connect(postgres_dsn) as connection:
             with connection.cursor() as cursor:
                 for table in (store.effects_table, store.table):
