@@ -103,6 +103,7 @@ _principal_memory_deletion_tombstone_store = None
 _principal_memory_safe_ref_store = None
 _principal_memory_proposal_processor = None
 _principal_memory_shadow_service = None
+_principal_memory_consume_service = None
 _context_compression_lock = RLock()
 
 
@@ -303,6 +304,44 @@ def get_principal_memory_shadow_service():
             )
         )
     return _principal_memory_shadow_service
+
+
+def get_principal_memory_consume_service():
+    global _principal_memory_consume_service
+    from app.services.memory_config import load_effective_memory_config
+
+    config = load_effective_memory_config()
+    if config.long_term.mode != "local_consume":
+        return None
+    if get_runtime_store() != "postgres":
+        raise RuntimeError("local principal memory consumption requires PostgreSQL")
+    if _principal_memory_consume_service is None:
+        from app.services.context_runtime import get_context_runtime
+        from app.services.principal_memory_consent import PrincipalMemoryConsentService
+        from app.services.principal_memory_consume import (
+            PrincipalMemoryLocalConsumeService,
+        )
+
+        resolver = get_principal_identity_resolver()
+        context_runtime = get_context_runtime()
+        _principal_memory_consume_service = PrincipalMemoryLocalConsumeService(
+            fact_store=get_principal_memory_fact_store(),
+            consent_service=PrincipalMemoryConsentService(
+                identity_resolver=resolver,
+                store=get_principal_memory_consent_store(),
+                policy_version=config.long_term.consent_policy_version,
+                control_service=_principal_memory_control_service(
+                    config=config,
+                    resolver=resolver,
+                ),
+            ),
+            identity_resolver=resolver,
+            session_store=get_session_store(),
+            config=config,
+            estimator=context_runtime.estimator_resolution.estimator,
+            model=context_runtime.model_profile.model,
+        )
+    return _principal_memory_consume_service
 
 
 def get_memory_metric_store():
@@ -828,6 +867,7 @@ def build_interview_workflow_service():
         report_job_queue=get_report_job_store(),
         worker_id=_runtime_worker_id("interview-graph"),
         principal_memory_shadow=get_principal_memory_shadow_service(),
+        principal_memory_consumer=get_principal_memory_consume_service(),
     )
     from app.services.context_compression_gating import ContextCompressionGates
 
@@ -1397,6 +1437,7 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _principal_memory_safe_ref_store
     global _principal_memory_fact_store, _principal_memory_proposal_processor
     global _principal_memory_shadow_service
+    global _principal_memory_consume_service
     if _runtime_outbox_service is not None:
         _runtime_outbox_service.shutdown(wait=wait)
     if _durable_workflow_maintenance_service is not None:
@@ -1448,6 +1489,7 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _principal_memory_safe_ref_store = None
     _principal_memory_proposal_processor = None
     _principal_memory_shadow_service = None
+    _principal_memory_consume_service = None
     from app.services.memory_metrics import reset_memory_metric_store
 
     reset_memory_metric_store()

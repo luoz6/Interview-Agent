@@ -604,10 +604,25 @@ class OpenAIInterviewLLM:
             # ContextBudgetExceeded when even the fixed prompt cannot fit.
             return [dict(item) for item in context]
 
+        assistance = [
+            dict(item)
+            for item in context
+            if item.get("role") == "system"
+            and item.get("context_kind") == "principal_memory_assistance_v1"
+            and str(item.get("content", "")).startswith(
+                "[Non-authoritative historical preference]\n"
+            )
+            and str(item.get("content", "")).endswith(
+                "[/Non-authoritative historical preference]"
+            )
+        ]
+        if len(assistance) != 1:
+            assistance = []
         conversation = [
             dict(item)
             for item in context
             if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
+            and item.get("context_kind") != "principal_memory_assistance_v1"
         ]
         evidence = [
             dict(item)
@@ -651,6 +666,29 @@ class OpenAIInterviewLLM:
             estimator=self.token_estimator.estimator,
             model=self.model_profile.model,
         )
+        if assistance:
+            candidate_index = next(
+                (
+                    index
+                    for index in range(len(selected) - 1, -1, -1)
+                    if selected[index].get("role") == "candidate"
+                ),
+                None,
+            )
+            if candidate_index is not None:
+                candidate = selected[candidate_index]
+                with_assistance = [
+                    *selected[:candidate_index],
+                    *selected[candidate_index + 1 :],
+                    assistance[0],
+                    candidate,
+                ]
+                cost = self.token_estimator.estimator.estimate_messages(
+                    with_assistance,
+                    model=self.model_profile.model,
+                )
+                if cost <= selection_budget.selectable_content_tokens:
+                    selected = with_assistance
         return selected
 
     def _fit_plan_inputs(
