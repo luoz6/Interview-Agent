@@ -50,6 +50,7 @@ from app.services.runtime import (
     get_question_memory_index_store,
     get_memory_metric_store,
     get_principal_identity_resolver,
+    get_principal_memory_control_store,
     get_principal_memory_consent_store,
     get_principal_memory_fact_store,
 )
@@ -89,7 +90,7 @@ def _require_trusted_local_principal_memory():
     if not config.long_term.trusted_local_api_enabled:
         raise HTTPException(status_code=404, detail="not found")
     identity = get_principal_identity_resolver().resolve()
-    if identity is None:
+    if identity is None or identity.assurance != "trusted_local":
         raise HTTPException(status_code=404, detail="not found")
     return identity
 
@@ -137,7 +138,12 @@ class SessionCommandRequest(BaseModel):
 
 class PrincipalConsentRequest(BaseModel):
     allowed_purposes: list[
-        Literal["proposal_write", "fact_storage", "read_shadow"]
+        Literal[
+            "proposal_write",
+            "fact_storage",
+            "read_shadow",
+            "local_consume",
+        ]
     ] = Field(min_length=1)
 
 
@@ -282,6 +288,7 @@ def memory_budget_shadow_boundary():
 
 def _principal_memory_lifecycle(identity):
     from app.services.principal_memory_consent import PrincipalMemoryConsentService
+    from app.services.principal_memory_control import PrincipalMemoryControlService
     from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycleService
 
     config = load_effective_memory_config()
@@ -292,6 +299,10 @@ def _principal_memory_lifecycle(identity):
             identity_resolver=resolver,
             store=get_principal_memory_consent_store(),
             policy_version=config.long_term.consent_policy_version,
+            control_service=PrincipalMemoryControlService(
+                identity_resolver=resolver,
+                store=get_principal_memory_control_store(),
+            ),
         ),
         fact_store=get_principal_memory_fact_store(),
         session_store=get_session_store(),
@@ -334,13 +345,9 @@ def revoke_principal_memory_consent():
         principal_id=identity.principal_id,
         revoked_at=now,
     )
-    deleted = get_principal_memory_fact_store().purge_by_principal(
-        deployment_id=identity.deployment_id,
-        principal_id=identity.principal_id,
-    )
     return {
         "revoked": consent is not None,
-        "facts_deleted": deleted,
+        "facts_retained": True,
     }
 
 

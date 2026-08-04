@@ -31,7 +31,10 @@ class PrincipalMemoryProposalProcessor:
             return {"status": "cancelled", "reason": "identity_unavailable", "count": 0}
         if identity.deployment_id != event.deployment_locator or identity.principal_id != event.principal_locator:
             return {"status": "cancelled", "reason": "identity_changed", "count": 0}
-        if not self.consent_service.authorize("proposal_write"):
+        if not self.consent_service.authorize(
+            "proposal_write",
+            session_id=event.session_id,
+        ):
             return {"status": "cancelled", "reason": "consent_unavailable", "count": 0}
         state = self.session_store.get(event.session_id)
         if state.get("status") != "finished" or state.get("deletion_status") in {"deleting", "deleted"}:
@@ -51,7 +54,10 @@ class PrincipalMemoryProposalProcessor:
                 return {"status": "cancelled", "reason": "identity_unavailable", "count": created}
             if current_identity.deployment_id != event.deployment_locator or current_identity.principal_id != event.principal_locator:
                 return {"status": "cancelled", "reason": "identity_changed", "count": created}
-            if not self.consent_service.authorize("proposal_write"):
+            if not self.consent_service.authorize(
+                "proposal_write",
+                session_id=event.session_id,
+            ):
                 return {"status": "cancelled", "reason": "consent_unavailable", "count": created}
             current_state = self.session_store.get(event.session_id)
             if current_state.get("deletion_status") in {"deleting", "deleted"}:

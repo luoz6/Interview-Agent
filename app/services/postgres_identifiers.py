@@ -50,6 +50,7 @@ _RUNTIME_TABLE_SUFFIXES = (
     "context_artifact_refs",
     "runtime_signal_buckets",
     "memory_metric_buckets",
+    "principal_memory_controls",
     "principal_memory_consents",
     "principal_memory_facts",
     "principal_memory_effects",

@@ -37,7 +37,10 @@ def build_proposal_event_if_eligible(
     if not state.get("state_version"):
         return None
     identity = identity_resolver.resolve()
-    if identity is None or not consent_service.authorize("proposal_write"):
+    if identity is None or not consent_service.authorize(
+        "proposal_write",
+        session_id=state["session_id"],
+    ):
         return None
     policy = config.long_term.consent_policy_version
     return PrincipalMemoryProposalRequestedEvent(

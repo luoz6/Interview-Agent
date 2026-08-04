@@ -29,11 +29,17 @@ def test_consent_is_checked_at_operation_time_and_revocation_is_immediate():
             deployment_id="single-tenant-local",
             principal_id="principal-consent",
             policy_version="principal-memory-consent-v1",
-            allowed_purposes=["proposal_write", "fact_storage", "read_shadow"],
+            allowed_purposes=[
+                "proposal_write",
+                "fact_storage",
+                "read_shadow",
+                "local_consume",
+            ],
             granted_at=now,
         )
     )
     assert service.authorize("proposal_write") is True
+    assert service.authorize("local_consume") is True
 
     store.revoke(
         deployment_id="single-tenant-local",

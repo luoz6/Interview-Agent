@@ -389,6 +389,7 @@ def generate_followup(state, deps) -> dict:
                     current_tags=focus_tokens,
                     role_tags=set(state.get("job_tags", [])),
                     now=datetime.now(timezone.utc),
+                    session_id=state["session_id"],
                 )
             for chunk in deps.examiner.stream_followup_attempt(
                 context=context or [],

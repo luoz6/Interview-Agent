@@ -95,6 +95,7 @@ _session_deletion_service = None
 _session_deletion_worker = None
 _memory_metric_store = None
 _principal_identity_resolver = None
+_principal_memory_control_store = None
 _principal_memory_consent_store = None
 _principal_memory_fact_store = None
 _principal_memory_proposal_processor = None
@@ -144,6 +145,40 @@ def get_principal_memory_consent_store():
     return _principal_memory_consent_store
 
 
+def get_principal_memory_control_store():
+    global _principal_memory_control_store
+    if _principal_memory_control_store is None:
+        if get_runtime_store() == "postgres":
+            from app.services.postgres_principal_memory_control import (
+                PostgresPrincipalMemoryControlStore,
+            )
+
+            _principal_memory_control_store = PostgresPrincipalMemoryControlStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        else:
+            from app.services.in_memory_principal_memory_control import (
+                InMemoryPrincipalMemoryControlStore,
+            )
+
+            _principal_memory_control_store = InMemoryPrincipalMemoryControlStore()
+    return _principal_memory_control_store
+
+
+def _principal_memory_control_service(*, config, resolver):
+    if not config.long_term.local_principal_enabled:
+        return None
+    from app.services.principal_memory_control import PrincipalMemoryControlService
+
+    return PrincipalMemoryControlService(
+        identity_resolver=resolver,
+        store=get_principal_memory_control_store(),
+    )
+
+
 def get_principal_memory_fact_store():
     global _principal_memory_fact_store
     if _principal_memory_fact_store is None:
@@ -174,13 +209,18 @@ def get_principal_memory_proposal_processor():
         from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
 
         config = load_effective_memory_config()
+        resolver = get_principal_identity_resolver()
         _principal_memory_proposal_processor = PrincipalMemoryProposalProcessor(
             session_store=get_session_store(),
-            identity_resolver=get_principal_identity_resolver(),
+            identity_resolver=resolver,
             consent_service=PrincipalMemoryConsentService(
-                identity_resolver=get_principal_identity_resolver(),
+                identity_resolver=resolver,
                 store=get_principal_memory_consent_store(),
                 policy_version=config.long_term.consent_policy_version,
+                control_service=_principal_memory_control_service(
+                    config=config,
+                    resolver=resolver,
+                ),
             ),
             fact_store=get_principal_memory_fact_store(),
             extractor=NullPrincipalMemoryExtractor(),
@@ -206,6 +246,10 @@ def get_principal_memory_shadow_service():
                     identity_resolver=resolver,
                     store=get_principal_memory_consent_store(),
                     policy_version=config.long_term.consent_policy_version,
+                    control_service=_principal_memory_control_service(
+                        config=config,
+                        resolver=resolver,
+                    ),
                 ),
                 identity_resolver=resolver,
                 session_store=get_session_store(),
@@ -1301,7 +1345,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _session_deletion_job_store, _session_deletion_tombstone_store
     global _session_deletion_service, _session_deletion_worker
     global _memory_metric_store
-    global _principal_identity_resolver, _principal_memory_consent_store
+    global _principal_identity_resolver, _principal_memory_control_store
+    global _principal_memory_consent_store
     global _principal_memory_fact_store, _principal_memory_proposal_processor
     global _principal_memory_shadow_service
     if _runtime_outbox_service is not None:
@@ -1347,6 +1392,7 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _session_deletion_worker = None
     _memory_metric_store = None
     _principal_identity_resolver = None
+    _principal_memory_control_store = None
     _principal_memory_consent_store = None
     _principal_memory_fact_store = None
     _principal_memory_proposal_processor = None

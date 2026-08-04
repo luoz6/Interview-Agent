@@ -33,11 +33,20 @@ class PrincipalMemoryRetriever:
         self.estimator = estimator or ConservativeUtf8TokenEstimator()
         self.model = model
 
-    def select(self, *, current_tags: set[str], role_tags: set[str], now):
+    def select(
+        self,
+        *,
+        current_tags: set[str],
+        role_tags: set[str],
+        now,
+        session_id: str | None = None,
+    ):
         if self.config.long_term.mode != "read_shadow":
             return PrincipalMemorySelection((), 0, 0, 0, 0)
         identity = self.identity_resolver.resolve()
-        if identity is None or not self.is_currently_authorized():
+        if identity is None or not self.is_currently_authorized(
+            session_id=session_id
+        ):
             return PrincipalMemorySelection((), 0, 0, 0, 0)
         candidates = self.fact_store.list_shadow_eligible(
             deployment_id=identity.deployment_id,
@@ -115,8 +124,11 @@ class PrincipalMemoryRetriever:
             would_confirm_count=would_confirm,
         )
 
-    def is_currently_authorized(self) -> bool:
+    def is_currently_authorized(self, *, session_id: str | None = None) -> bool:
         return bool(
             self.identity_resolver.resolve() is not None
-            and self.consent_service.authorize("read_shadow")
+            and self.consent_service.authorize(
+                "read_shadow",
+                session_id=session_id,
+            )
         )
