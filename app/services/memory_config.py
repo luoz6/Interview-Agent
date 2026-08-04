@@ -612,10 +612,8 @@ def _validate_effective_config(config: EffectiveMemoryConfig) -> None:
         raise ValueError("disabled long-term memory cannot enable shadow operations")
     if long_term.mode == "write_shadow" and not long_term.write_shadow_enabled:
         raise ValueError("write_shadow mode requires its explicit write gate")
-    if long_term.mode == "read_shadow" and not (
-        long_term.write_shadow_enabled and long_term.read_shadow_enabled
-    ):
-        raise ValueError("read_shadow mode requires explicit write and read gates")
+    if long_term.mode == "read_shadow" and not long_term.read_shadow_enabled:
+        raise ValueError("read_shadow mode requires its explicit read gate")
     if (
         long_term.local_principal_enabled
         and config.privacy.deployment_id != "single-tenant-local"

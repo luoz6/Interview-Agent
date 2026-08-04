@@ -270,8 +270,8 @@ def test_long_term_shadow_modes_require_explicit_matching_gates():
     config = load_effective_memory_config(
         {
             "MEMORY_LONG_TERM_MODE": "read_shadow",
-            "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
             "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
         }
     )
     assert config.long_term.mode == "read_shadow"
+    assert config.long_term.write_shadow_enabled is False

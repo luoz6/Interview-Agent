@@ -30,6 +30,8 @@ def build_proposal_event_if_eligible(
 ):
     if config.long_term.mode not in {"write_shadow", "read_shadow"}:
         return None
+    if not config.long_term.write_shadow_enabled:
+        return None
     if state.get("status") != "finished":
         return None
     if state.get("deletion_status") in {"deleting", "deleted"}:
