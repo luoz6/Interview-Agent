@@ -795,3 +795,12 @@ Local Consume. A non-zero exit, any gate code, incomplete durable metrics, or an
 unverified PostgreSQL migration keeps consumption blocked. The command does not
 change configuration or run migrations. Mutating cleanup and replay commands
 require `--execute` and return counts only.
+
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent. `learning_goal` and `target_role_family`
+may change the follow-up trajectory and therefore may indirectly change later
+answers. Do not interpret direct module isolation as proof of equal scores,
+equal reports, fairness, candidate safety, production readiness, or Hosted
+C1-A equivalence. Real-candidate production use remains prohibited.

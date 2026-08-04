@@ -30,6 +30,11 @@ from app.services.context_runtime import (
 )
 from app.services.context_language import classify_context_language
 from app.services.model_capabilities import ContextConfigurationError
+from app.services.principal_memory_sink_policy import (
+    ASSISTANCE_CONTEXT_KIND,
+    FOLLOWUP_GENERATION_SINK,
+    assert_principal_memory_sink,
+)
 
 if TYPE_CHECKING:
     from app.services.report import InterviewReport
@@ -168,6 +173,10 @@ class OpenAIInterviewLLM:
     ):
         from app.services.prep import InterviewPlan
 
+        assert_principal_memory_sink(
+            operation="plan_generation",
+            payload={"knowledge_context": knowledge_context},
+        )
         if context_enforcement_enabled(PLAN_CONTEXT_POLICY.operation):
             job_description, resume_text, knowledge_context = self._fit_plan_inputs(
                 job_description=job_description,
@@ -276,6 +285,10 @@ class OpenAIInterviewLLM:
         return self._parse_raw_json_payload(content)
 
     def generate_followup(self, context: list[dict[str, str]]) -> str:
+        assert_principal_memory_sink(
+            operation=FOLLOWUP_GENERATION_SINK,
+            payload=context,
+        )
         if context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
             context = self._fit_followup_context(context)
         prompt = _build_followup_prompt(context)
@@ -284,6 +297,10 @@ class OpenAIInterviewLLM:
         return str(getattr(message, "content", message)).strip()
 
     def stream_followup(self, context: list[dict[str, str]]) -> Iterator[str]:
+        assert_principal_memory_sink(
+            operation=FOLLOWUP_GENERATION_SINK,
+            payload=context,
+        )
         if context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
             context = self._fit_followup_context(context)
         prompt = _build_followup_prompt(context)
@@ -302,6 +319,10 @@ class OpenAIInterviewLLM:
         from app.services.report import ReportGenerationFailed, ReportOutputFormatError
         from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
 
+        assert_principal_memory_sink(
+            operation="report_generation",
+            payload={"plan": plan, "evaluation_items": evaluation_items},
+        )
         prompt = self._build_report_prompt(
             plan=plan,
             evaluation_items=evaluation_items,
@@ -608,7 +629,7 @@ class OpenAIInterviewLLM:
             dict(item)
             for item in context
             if item.get("role") == "system"
-            and item.get("context_kind") == "principal_memory_assistance_v1"
+            and item.get("context_kind") == ASSISTANCE_CONTEXT_KIND
             and str(item.get("content", "")).startswith(
                 "[Non-authoritative historical preference]\n"
             )
@@ -622,7 +643,7 @@ class OpenAIInterviewLLM:
             dict(item)
             for item in context
             if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
-            and item.get("context_kind") != "principal_memory_assistance_v1"
+            and item.get("context_kind") != ASSISTANCE_CONTEXT_KIND
         ]
         evidence = [
             dict(item)

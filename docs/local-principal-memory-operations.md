@@ -222,12 +222,22 @@ only after preflight is green and the underlying failure has a verified fix.
 
 ## Fixed product boundaries
 
-- Local Consume may assist durable follow-up generation only.
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent.
+
 - Current-session evidence always wins.
-- Memory cannot affect prep, scoring, evaluation, review, report generation,
-  PDF output, hiring decisions, or Knowledge retrieval.
+- `learning_goal` and `target_role_family` may change a follow-up and therefore
+  may indirectly change later answers, scores, or reports. The direct sink
+  firewall does not establish causal equality between different trajectories.
+- Evaluator, scoring, evidence, report generation, PDF, prep, review, Knowledge
+  retrieval, public corpus, embedding, and retrieval-cache modules must not
+  directly receive the Principal Memory block or its internal locators.
 - `confirmed_skill` and `accessibility_preference` never enter the follow-up
   prompt; accessibility values remain UI/interaction settings only.
 - Local V1 does not establish a Hosted V2 authentication, tenancy, consent, or
   production authorization boundary.
+- This evidence does not establish fairness, candidate safety, production
+  readiness, or Hosted C1-A equivalence.
 - Real-candidate production processing remains prohibited.

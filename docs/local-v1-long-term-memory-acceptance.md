@@ -36,6 +36,20 @@ real-candidate production processing.
 The single Python warning is the existing Starlette/httpx deprecation warning.
 It does not change test outcomes or Local Principal Memory behavior.
 
+## Causal evidence boundary clarification
+
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent.
+
+The validated source and runtime firewalls show direct dependency isolation;
+they do not show that later candidate answers, scores, or reports would remain
+identical after a different follow-up. `learning_goal` and
+`target_role_family` may change that trajectory. This acceptance therefore is
+not evidence of fairness, candidate safety, production readiness, or Hosted
+C1-A equivalence, and it does not authorize real-candidate production use.
+
 ## Requirement-to-evidence table
 
 `PASS` below means the stated evidence was executed on the validated revision,
@@ -57,7 +71,7 @@ the exact RC candidate, or is an externally re-read disposition.
 | 12 | safe APIs reveal no internal locators | PASS | API, export, privacy and browser safe-ref tests |
 | 13 | Read Shadow preserves Provider Context equality | PASS | prompt isolation and read-shadow matrix tests |
 | 14 | Local Consume is bounded and follow-up-only | PASS | token/fact caps, graph integration and runtime tests |
-| 15 | scoring, evidence, reports, PDFs, review, prep and Knowledge are isolated | PASS | 75-test privacy/firewall/isolation focus plus full regression |
+| 15 | scoring, evidence, reports, PDFs, review, prep and Knowledge have no direct Principal Memory dependency | PASS | 75-test privacy/firewall/isolation focus plus full regression; no causal-equivalence claim |
 | 16 | export is content-safe, complete and expires | PASS | 101-item complete export plus in-memory/PostgreSQL rights and API tests |
 | 17 | deletion reaches zero residue or returns retryable failure | PASS | in-memory/PostgreSQL delete-vs-write races, durable fence checks and stage-by-stage failure injection |
 | 18 | tombstone replay prevents backup resurrection | PASS | multi-cycle append-only tombstones, production ledger capture, protected-ledger integrity/import and live PostgreSQL restore replay |

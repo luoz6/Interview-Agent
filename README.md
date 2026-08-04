@@ -309,3 +309,14 @@ The runtime control APIs are read-only. Recovery remains CLI-only.
 - 不包含 Docker Compose。
 - 不包含知识库管理 UI。
 Memory validation and Principal Memory foundation are implemented behind safe defaults. Long-term modes default to `disabled`; write/read shadow require explicit gates and consent; `consume` is rejected. This is repository shadow readiness only, not production rollout authorization.
+
+## Local V1 Principal Memory evidence boundary
+
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent. In particular, `learning_goal` and
+`target_role_family` can change which follow-up is asked, and the resulting
+later candidate answers can differ. This boundary is not evidence of fairness,
+candidate safety, production readiness, or Hosted C1-A equivalence. Real-
+candidate production use remains prohibited.
