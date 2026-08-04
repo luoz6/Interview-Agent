@@ -354,3 +354,33 @@ trajectories are causally equivalent. In particular, `learning_goal` and
 later candidate answers can differ. This boundary is not evidence of fairness,
 candidate safety, production readiness, or Hosted C1-A equivalence. Real-
 candidate production use remains prohibited.
+
+## Local V1 long-term-memory hardening closure
+
+Local V1 hardening v0.4 is complete for the trusted-local, single-user,
+default-off boundary. The immutable implementation accepted by the full
+Windows/Ubuntu, PostgreSQL, frontend and browser matrix is revision
+`e6b8f29d25276f17c874d07cebc15565bad37492`, tree
+`354d3d0a1ad99bfef57fd51244d1f5358442c79f`.
+
+The complete sanitized evidence is in
+`docs/local-v1-hardening-acceptance.md`; the machine-readable publication
+record is `docs/local-v1-hardening-manifest.json`; and the frozen Hosted V2
+handoff is `docs/local-v1-hardening-handoff.md`.
+
+```text
+LOCAL_V1_IMPLEMENTATION=FEATURE_COMPLETE
+LOCAL_V1_HARDENING=COMPLETE
+LOCAL_V1_FINAL_ACCEPTANCE=PASS
+LOCAL_V1_DEFAULT=DISABLED
+LOCAL_V1_REAL_CANDIDATE_USE=PROHIBITED
+REAL_PROVIDER_EVALUATION=NOT_RUN
+HOSTED_V2=NO_GO_FOR_NOW
+NEXT_REQUIRED_TASK=NONE
+OPTIONAL_FUTURE_TRACK=HOSTED_PRODUCTIZATION_REDECISION
+```
+
+This status does not enable memory in committed configuration and does not
+authorize production Shadow, a production canary, Hosted V2, real-candidate
+processing, or real Provider evaluation. Safe rollback is to disable the mode
+and all capability gates while retaining the ledger, tombstones and migrations.

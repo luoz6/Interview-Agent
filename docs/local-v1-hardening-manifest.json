@@ -1,0 +1,87 @@
+{
+  "schema_version": "local-v1-hardening-publication-manifest-v0.4",
+  "publication_date": "2026-08-04",
+  "validated_implementation_revision": "e6b8f29d25276f17c874d07cebc15565bad37492",
+  "validated_implementation_tree": "354d3d0a1ad99bfef57fd51244d1f5358442c79f",
+  "evidence_publication_ref": "refs/tags/local-v1-hardening-v0.4-accepted",
+  "evidence_publication_verification_source": "external_remote_ref",
+  "publication_commit_self_hash_recorded_in_manifest": false,
+  "publication_scope": "docs_evidence_contracts_only",
+  "hosted_v2": "NO_GO_FOR_NOW",
+  "status": {
+    "local_v1_implementation": "FEATURE_COMPLETE",
+    "local_v1_hardening": "COMPLETE",
+    "local_v1_final_acceptance": "PASS",
+    "local_v1_default": "DISABLED",
+    "local_v1_real_candidate_use": "PROHIBITED",
+    "real_provider_evaluation": "NOT_RUN",
+    "next_required_task": "NONE",
+    "optional_future_track": "HOSTED_PRODUCTIZATION_REDECISION"
+  },
+  "platforms": {
+    "ubuntu_24_04_x64": {
+      "python": "3.11.15",
+      "node": "22.23.2",
+      "playwright": "1.61.1",
+      "chromium": "149.0.7827.55",
+      "git": "2.43.0",
+      "postgresql": "16.13",
+      "dependency_inventory_sha256": "afa559f31451a7cdacd8742e735a76e44ae6df19d135d52a054612849c1d9b0e"
+    },
+    "windows_11_x64": {
+      "python": "3.11.3",
+      "node": "22.21.0",
+      "playwright": "1.61.1",
+      "chromium": "149.0.7827.55",
+      "git": "2.53.0.windows.3",
+      "postgresql": "16.13",
+      "dependency_inventory_sha256": "e2b488fb10dd6ee51ffee0834663dccdeecb675bca5cd57133cec237a1ac649c"
+    }
+  },
+  "test_counts": {
+    "ubuntu_python_postgresql": {"passed": 2216, "failed": 0, "skipped": 3},
+    "ubuntu_browser": {"passed": 86, "failed": 0, "skipped": 38},
+    "windows_platform": {"passed": 88, "failed": 0, "skipped": 2},
+    "windows_browser": {"passed": 86, "failed": 0, "skipped": 38}
+  },
+  "skip_classification": {
+    "reported_skipped": 81,
+    "conditional_non_applicable": 76,
+    "optional_not_authorized": 5,
+    "blocker": 0,
+    "required_test_skipped": 0
+  },
+  "cleanup": {
+    "postgres_test_relation_residue": 0,
+    "target_port_residue": 0,
+    "target_process_residue": 0,
+    "unexpected_worktree_changes": 0
+  },
+  "external_raw_artifact_sha256": {
+    "raw_manifest": "bb84386d5a2bf674f1f47c51ecaee905ae7a95109b8e60b2832d5792439bc1b0",
+    "command_gates": "30a65cfc71d642635e78692c8d9d704be30544e4bd53ef1eb8c2f890464c0757",
+    "ubuntu_pip_install": "0fb20c81a47500933a07760c8fb3b7bff7ebae30d087c704a2b254842124f40e",
+    "ubuntu_pytest": "23605970ae80f4cb65d88fc4d7321a26782b20ba20dfa6820ad3b60fe77504ad",
+    "ubuntu_browser": "cb210f6bed59d9f68271f8898cbef387501ded6b6c3ec73ed800f83121b91f0f",
+    "windows_pip_install": "9dfa6db08d5929acbed1330e5c7ba6a2134cc3dc18702afd9313d87a2a3431d5",
+    "windows_platform": "c023781cccd42e3e222e09f4915ac019e5972c7b1ba910bce5daad26edad0995",
+    "windows_browser": "3f6fcaff83738cf5b7250846d1e8e3b5521b6b24d0fa47205ac09df902f340a5",
+    "skip_classification": "5acceb3ab6dc64e10c78ddc8617239c682537275f78de67ae26904bdd5903944",
+    "postgres_cleanup": "fca7e2550fc7c6ace01bb961c3d7453879edb2858ba3abc576752dd40716f586",
+    "final_cleanup": "0d15ab490019c8b19a30923728acaeb1905cddeb2036d115e3492d3c96fdcf2e",
+    "sanitizer_dry_run": "b3cb5e4e4e51645ace0d3540094c5b6c71c623eb0293f961f096be6c6b1100d3"
+  },
+  "policy_sha256": {
+    "evidence_schema": "9e2d07fa2538661b1a794f5bbd952c04fa31ff897df279d11ae9ea235ed42daa",
+    "sanitizer_policy": "939ae55709b7e8d8b9dbb95cc8b1f3935811cd980967a260b479a8fd8a716bb1",
+    "publication_allowlist": "0fbefb22f19bea098b33df46c6165adbf5437246ac99258842684898cbcac5fa",
+    "inherited_hosted_plan": "de0afe41e815b8befbd56ae4acdd5ed7e07540a0baffd3d06bdca4e6542c3227"
+  },
+  "authorization": {
+    "production_shadow": "NOT_AUTHORIZED",
+    "production_canary": "NOT_AUTHORIZED",
+    "hosted_v2_implementation": "NOT_AUTHORIZED",
+    "inherited_plan_execution_state": "FROZEN_NON_EXECUTABLE",
+    "hosted_v2_handoff": "RETAINED_NO_GO"
+  }
+}

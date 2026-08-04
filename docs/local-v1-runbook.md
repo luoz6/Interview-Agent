@@ -842,3 +842,85 @@ may change the follow-up trajectory and therefore may indirectly change later
 answers. Do not interpret direct module isolation as proof of equal scores,
 equal reports, fairness, candidate safety, production readiness, or Hosted
 C1-A equivalence. Real-candidate production use remains prohibited.
+
+## Local V1 hardening v0.4 accepted baseline
+
+The accepted implementation is fixed by both commit and tree identity:
+
+```text
+VALIDATED_IMPLEMENTATION_REVISION=e6b8f29d25276f17c874d07cebc15565bad37492
+VALIDATED_IMPLEMENTATION_TREE=354d3d0a1ad99bfef57fd51244d1f5358442c79f
+EVIDENCE_PUBLICATION_REF=refs/tags/local-v1-hardening-v0.4-accepted
+```
+
+The implementation was reproduced on Windows 11 x64 and Ubuntu 24.04 x64 with
+Python 3.11, Node 22, PostgreSQL 16, Playwright 1.61.1 and Chromium
+149.0.7827.55. The Ubuntu full Python/live-PostgreSQL run passed 2,216 tests;
+both Ubuntu and Windows browser runs passed 86 tests. All skips were reviewed:
+76 were conditional non-applicable, 5 were optional real-Provider checks that
+remain unauthorized, and none were blockers. PostgreSQL test relation residue,
+target port residue and target process residue were all zero.
+
+See `docs/local-v1-hardening-acceptance.md` and
+`docs/local-v1-hardening-manifest.json` for the complete aggregate evidence and
+artifact SHA-256 values.
+
+### Verify the published baseline
+
+Use a clean clone and verify the publication tag before using the runbook:
+
+```powershell
+git fetch origin --tags
+git rev-parse refs/tags/local-v1-hardening-v0.4-accepted^{}
+git merge-base --is-ancestor e6b8f29d25276f17c874d07cebc15565bad37492 refs/tags/local-v1-hardening-v0.4-accepted^{}
+python -m pytest tests/test_local_v1_hardening_publication_contract.py -q
+```
+
+The tag resolves to the documentation-only evidence publication revision. The
+implementation revision above must remain in its history. The tracked manifest
+does not contain the publication commit identity because a commit cannot
+truthfully self-record its own hash.
+
+### Operate within the accepted boundary
+
+The accepted repository default is disabled. Before any trusted-local use:
+
+1. confirm the checkout contains the accepted tag and implementation ancestor;
+2. configure only the intended Local V1 mode and its exact capability gates;
+3. run the existing Principal Memory preflight;
+4. verify the protected ledger and durable replay watermark are current;
+5. verify database migrations and aggregate metrics are complete;
+6. keep the disable path available throughout the local session;
+7. never use real candidate data or a real Provider under this acceptance.
+
+Read Shadow must remain zero-write and zero-injection. Disabled mode must
+remain zero activity. Local Consume, when separately enabled by a trusted local
+operator, remains bounded to follow-up generation and can indirectly change
+later answers by changing the follow-up trajectory.
+
+### Roll back safely
+
+Set the long-term mode and all Write, Read, Local Consume, trusted-local API,
+Local Principal and trusted-local metrics gates to disabled, then restart the
+local runtime. Retain the protected ledger, tombstones and migrations. Do not
+erase durable safety records or legitimate user facts as a rollback shortcut.
+
+### Closure and future work
+
+```text
+LOCAL_V1_IMPLEMENTATION=FEATURE_COMPLETE
+LOCAL_V1_HARDENING=COMPLETE
+LOCAL_V1_FINAL_ACCEPTANCE=PASS
+LOCAL_V1_DEFAULT=DISABLED
+LOCAL_V1_REAL_CANDIDATE_USE=PROHIBITED
+REAL_PROVIDER_EVALUATION=NOT_RUN
+NEXT_REQUIRED_TASK=NONE
+OPTIONAL_FUTURE_TRACK=HOSTED_PRODUCTIZATION_REDECISION
+HOSTED_V2=NO_GO_FOR_NOW
+INHERITED_PLAN_EXECUTION_STATE=FROZEN_NON_EXECUTABLE
+```
+
+Hosted V2 is not the next automatic task. If it is reconsidered, begin with a
+new baseline and a newly approved or formally reopened Productization ADR and
+data-use specification. Local facts, Consent records and tombstones must not be
+automatically migrated into a hosted identity boundary.
