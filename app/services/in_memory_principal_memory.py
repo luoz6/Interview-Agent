@@ -302,3 +302,10 @@ class InMemoryPrincipalMemoryFactStore:
             for key in keys:
                 del self._facts[key]
             return len(keys)
+
+    def count_by_principal(self, *, deployment_id: str, principal_id: str) -> int:
+        with self._lock:
+            return sum(
+                key[:2] == (deployment_id, principal_id)
+                for key in self._facts
+            )

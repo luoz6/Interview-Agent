@@ -1,0 +1,213 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+import json
+from threading import RLock
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class PrincipalMemoryExportRecord(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: str = "principal-memory-export-v1"
+    export_ref: str = Field(pattern=r"^pm-export-[0-9a-f]{32}$")
+    deployment_id: str
+    principal_id: str
+    payload: dict
+    created_at: datetime
+    expires_at: datetime
+
+
+class InMemoryPrincipalMemoryExportStore:
+    def __init__(self):
+        self._items = {}
+        self._lock = RLock()
+
+    def put(self, record: PrincipalMemoryExportRecord):
+        with self._lock:
+            self._items[record.export_ref] = record
+        return record
+
+    def get(self, export_ref: str, *, now):
+        with self._lock:
+            record = self._items.get(export_ref)
+            if record is None or record.expires_at <= now:
+                return None
+            return record
+
+    def purge(self, *, deployment_id: str, principal_id: str) -> int:
+        with self._lock:
+            keys = [
+                key
+                for key, item in self._items.items()
+                if item.deployment_id == deployment_id
+                and item.principal_id == principal_id
+            ]
+            for key in keys:
+                del self._items[key]
+            return len(keys)
+
+    def count(self, *, deployment_id: str, principal_id: str) -> int:
+        with self._lock:
+            return sum(
+                item.deployment_id == deployment_id
+                and item.principal_id == principal_id
+                for item in self._items.values()
+            )
+
+
+class PrincipalMemoryExportService:
+    def __init__(
+        self,
+        *,
+        identity_resolver,
+        lifecycle_service,
+        consent_store,
+        control_service,
+        export_store,
+        clock=None,
+        ref_factory=None,
+    ):
+        self.identity_resolver = identity_resolver
+        self.lifecycle_service = lifecycle_service
+        self.consent_store = consent_store
+        self.control_service = control_service
+        self.export_store = export_store
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.ref_factory = ref_factory or (lambda: f"pm-export-{uuid4().hex}")
+
+    def create(self):
+        identity = self.identity_resolver.resolve()
+        if identity is None:
+            raise PermissionError("principal identity is unavailable")
+        now = self.clock()
+        consent = self.consent_store.get_current(
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
+        )
+        payload = {
+            "schema_version": "principal-memory-safe-export-v1",
+            "generated_at": now.isoformat(),
+            "facts": self.lifecycle_service.list_safe(limit=100),
+            "consent": (
+                {
+                    "policy_version": consent.policy_version,
+                    "allowed_purposes": list(consent.allowed_purposes),
+                    "granted_at": consent.granted_at.isoformat(),
+                    "revoked_at": (
+                        consent.revoked_at.isoformat()
+                        if consent.revoked_at is not None
+                        else None
+                    ),
+                    "version": consent.version,
+                }
+                if consent is not None
+                else None
+            ),
+            "control": self.control_service.snapshot(),
+        }
+        record = PrincipalMemoryExportRecord(
+            export_ref=self.ref_factory(),
+            deployment_id=identity.deployment_id,
+            principal_id=identity.principal_id,
+            payload=payload,
+            created_at=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        self.export_store.put(record)
+        return {
+            "export_ref": record.export_ref,
+            "expires_at": record.expires_at.isoformat(),
+            "payload": payload,
+        }
+
+
+class PrincipalMemoryDeletionTombstone(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: str = "principal-memory-deletion-tombstone-v1"
+    tombstone_ref: str = Field(pattern=r"^pm-delete-[0-9a-f]{64}$")
+    deployment_id: str
+    principal_id: str
+    requested_at: datetime
+    completed_at: datetime | None = None
+    replayed_at: datetime | None = None
+    status: str
+    failed_stage: str | None = None
+    integrity_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+def _tombstone_digest(*, deployment_id, principal_id, requested_at):
+    return sha256(
+        json.dumps(
+            {
+                "deployment_id": deployment_id,
+                "principal_id": principal_id,
+                "requested_at": requested_at.isoformat(),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+class InMemoryPrincipalMemoryDeletionTombstoneStore:
+    def __init__(self, *, clock=None):
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self._items = {}
+        self._lock = RLock()
+
+    def record_requested(self, *, deployment_id, principal_id):
+        with self._lock:
+            key = (deployment_id, principal_id)
+            existing = self._items.get(key)
+            if existing is not None and existing.status in {"requested", "failed"}:
+                return existing
+            now = self.clock()
+            digest = _tombstone_digest(
+                deployment_id=deployment_id,
+                principal_id=principal_id,
+                requested_at=now,
+            )
+            item = PrincipalMemoryDeletionTombstone(
+                tombstone_ref=f"pm-delete-{digest}",
+                deployment_id=deployment_id,
+                principal_id=principal_id,
+                requested_at=now,
+                status="requested",
+                integrity_sha256=digest,
+            )
+            self._items[key] = item
+            return item
+
+    def mark(self, tombstone, *, status, failed_stage=None):
+        self.validate(tombstone)
+        now = self.clock()
+        item = tombstone.model_copy(
+            update={
+                "status": status,
+                "failed_stage": failed_stage,
+                "completed_at": now if status == "completed" else tombstone.completed_at,
+                "replayed_at": now if status == "replayed" else tombstone.replayed_at,
+            }
+        )
+        with self._lock:
+            self._items[(item.deployment_id, item.principal_id)] = item
+        return item
+
+    @staticmethod
+    def validate(tombstone):
+        expected = _tombstone_digest(
+            deployment_id=tombstone.deployment_id,
+            principal_id=tombstone.principal_id,
+            requested_at=tombstone.requested_at,
+        )
+        if expected != tombstone.integrity_sha256:
+            raise ValueError("principal deletion tombstone integrity mismatch")
+
+    def get(self, *, deployment_id, principal_id):
+        with self._lock:
+            return self._items.get((deployment_id, principal_id))

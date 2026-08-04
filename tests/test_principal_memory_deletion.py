@@ -21,6 +21,10 @@ def test_principal_and_session_purge_are_conservative_and_idempotent():
     assert deletion.purge_session("session-a") == 1
     assert deletion.purge_session("session-a") == 0
     assert deletion.purge_current_principal() == {
+        "status": "completed",
         "facts_deleted": 0,
         "consents_deleted": 0,
+        "controls_deleted": 0,
+        "exports_deleted": 0,
+        "cache_deleted": 0,
     }

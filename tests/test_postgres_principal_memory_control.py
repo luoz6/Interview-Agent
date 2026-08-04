@@ -49,6 +49,10 @@ def test_postgres_controls_persist_across_store_restart(
             principal_id="local-owner",
             session_id="session-a",
         ) == session_control
+        assert restarted.count(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+        ) == 2
         with pytest.raises(PrincipalMemoryControlConflict):
             restarted.set_global(
                 deployment_id="single-tenant-local",

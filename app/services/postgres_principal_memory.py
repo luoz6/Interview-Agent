@@ -434,9 +434,43 @@ class PostgresPrincipalMemoryFactStore:
         return deleted_facts + deleted_effects
 
     def purge_by_principal(self, *, deployment_id, principal_id):
-        return self._delete(
-            "deployment_id=%s AND principal_id=%s", (deployment_id, principal_id)
-        )
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {effects} WHERE deployment_id=%s "
+                        "AND principal_id=%s"
+                    ).format(effects=sql.Identifier(self.effects_table)),
+                    (deployment_id, principal_id),
+                )
+                effects = int(cursor.rowcount)
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s"
+                    ).format(table=sql.Identifier(self.table)),
+                    (deployment_id, principal_id),
+                )
+                return effects + int(cursor.rowcount)
+
+    def count_by_principal(self, *, deployment_id, principal_id):
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                total = 0
+                for table in (self.table, self.effects_table):
+                    cursor.execute(
+                        sql.SQL(
+                            "SELECT COUNT(*) FROM {table} WHERE deployment_id=%s "
+                            "AND principal_id=%s"
+                        ).format(table=sql.Identifier(table)),
+                        (deployment_id, principal_id),
+                    )
+                    total += int(cursor.fetchone()[0])
+                return total
 
     def _delete(self, where, params):
         from psycopg2 import sql

@@ -110,6 +110,20 @@ class PostgresPrincipalMemoryControlStore:
                 )
                 return int(cursor.rowcount)
 
+    def count(self, *, deployment_id: str, principal_id: str) -> int:
+        from psycopg2 import sql
+
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT COUNT(*) FROM {table} WHERE deployment_id=%s "
+                        "AND principal_id=%s"
+                    ).format(table=sql.Identifier(self.table)),
+                    (deployment_id, principal_id),
+                )
+                return int(cursor.fetchone()[0])
+
     def _get(self, *, deployment_id: str, principal_id: str, session_key: str):
         from psycopg2 import sql
 

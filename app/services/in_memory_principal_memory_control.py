@@ -75,6 +75,13 @@ class InMemoryPrincipalMemoryControlStore:
                 del self._items[key]
             return len(keys)
 
+    def count(self, *, deployment_id: str, principal_id: str) -> int:
+        with self._lock:
+            return sum(
+                key[:2] == (deployment_id, principal_id)
+                for key in self._items
+            )
+
     def _set(
         self,
         *,

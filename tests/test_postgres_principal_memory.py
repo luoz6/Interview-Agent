@@ -98,6 +98,10 @@ def test_postgres_principal_fact_store_dedup_cas_isolation_and_purge(
                     ),
                 )
         assert store.purge_by_session(fact.source_session_id) == 2
+        assert store.count_by_principal(
+            deployment_id=fact.deployment_id,
+            principal_id=fact.principal_id,
+        ) == 0
         with psycopg2.connect(postgres_dsn) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
