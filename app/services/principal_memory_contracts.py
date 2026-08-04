@@ -93,6 +93,24 @@ def validate_normalized_fact(*, fact_type: str, normalized_fact: str) -> str:
     return canonical
 
 
+def derive_principal_fact_taxonomy_keys(
+    *,
+    fact_type: str,
+    normalized_fact: str,
+) -> tuple[str, str | None]:
+    """Derive database-owned taxonomy keys from canonical fact content."""
+
+    canonical = validate_normalized_fact(
+        fact_type=fact_type,
+        normalized_fact=normalized_fact,
+    )
+    taxonomy_key = next(iter(json.loads(canonical)))
+    exclusive_scope_key = (
+        taxonomy_key if taxonomy_key in EXCLUSIVE_TAXONOMY_KEYS else None
+    )
+    return taxonomy_key, exclusive_scope_key
+
+
 def derive_principal_fact_id(
     *,
     deployment_id: str,
