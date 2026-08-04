@@ -118,7 +118,7 @@ def run_read_shadow(*, fact_store, consent_store, sample_count=300) -> dict:
         before=canonical_provider_context_digest(context)
         business={"question":"unchanged","score":"unchanged","report":"unchanged","evidence":"unchanged","api":"unchanged"}
         business_before=json.dumps(business,sort_keys=True,separators=(",",":"))
-        started=perf_counter(); result=PrincipalMemoryShadowService(retriever=retriever).observe(provider_context=context,current_tags={"python","java","sql","kafka","redis"},role_tags={"backend"},now=NOW)
+        started=perf_counter(); result=PrincipalMemoryShadowService(retriever=retriever, mode="read_shadow").observe(provider_context=context,current_tags={"python","java","sql","kafka","redis"},role_tags={"backend"},now=NOW)
         latencies.append(500+(perf_counter()-started)*1000)
         hard["provider_context_mutation"] += int(canonical_provider_context_digest(context)!=before)
         hard["provider_request_mutation"] += int(canonical_provider_context_digest(context)!=before)

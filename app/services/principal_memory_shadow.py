@@ -19,13 +19,22 @@ class PrincipalMemoryShadowResult:
 
 
 class PrincipalMemoryShadowService:
-    def __init__(self, *, retriever):
+    def __init__(self, *, retriever, mode: str):
         self.retriever = retriever
+        self.is_enabled = mode == "read_shadow"
 
     def observe(
         self, *, provider_context: list[dict[str, str]], current_tags: set[str],
         role_tags: set[str], now, session_id: str | None = None,
     ) -> PrincipalMemoryShadowResult:
+        if not self.is_enabled:
+            return PrincipalMemoryShadowResult(
+                provider_context=provider_context,
+                would_select_count=0,
+                conflict_count=0,
+                estimated_tokens=0,
+                outcome="disabled",
+            )
         started = monotonic()
         original = canonical_provider_context(provider_context)
         original_digest = sha256(original.encode("utf-8")).hexdigest()

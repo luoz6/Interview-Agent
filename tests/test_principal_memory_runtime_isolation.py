@@ -19,3 +19,19 @@ def test_read_shadow_runtime_does_not_construct_proposal_processor(monkeypatch):
 
     assert runtime.get_principal_memory_proposal_processor() is None
     assert runtime._principal_memory_proposal_processor is sentinel
+
+
+def test_disabled_runtime_does_not_construct_shadow_dependencies(monkeypatch):
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
+    sentinel = object()
+    monkeypatch.setattr(runtime, "_principal_memory_shadow_service", sentinel)
+    monkeypatch.setattr(
+        runtime,
+        "get_principal_identity_resolver",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("disabled mode must not resolve an identity")
+        ),
+    )
+
+    assert runtime.get_principal_memory_shadow_service() is None
+    assert runtime._principal_memory_shadow_service is sentinel

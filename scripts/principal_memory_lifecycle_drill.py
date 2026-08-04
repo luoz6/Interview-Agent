@@ -82,7 +82,7 @@ def run_race_matrix():
         def select(self,**kwargs):
             result=base.select(**kwargs); consents.revoke(deployment_id="single-tenant-local",principal_id=principal,revoked_at=NOW); return result
         def is_currently_authorized(self): return base.is_currently_authorized()
-    shadow=PrincipalMemoryShadowService(retriever=RevokeAfterSelect()).observe(provider_context=[{"role":"candidate","content":"same"}],current_tags={"python"},role_tags=set(),now=NOW)
+    shadow=PrincipalMemoryShadowService(retriever=RevokeAfterSelect(), mode="read_shadow").observe(provider_context=[{"role":"candidate","content":"same"}],current_tags={"python"},role_tags=set(),now=NOW)
     # Revoke during source validation, before confirm transition.
     consents.grant(PrincipalMemoryConsent(deployment_id="single-tenant-local",principal_id=principal,policy_version=cfg.long_term.consent_policy_version,allowed_purposes=["fact_storage"],granted_at=NOW))
     confirm_proposal=facts.create_proposal(proposal(principal,"race-session",{"learning_goal":"kafka"},"confirm-race","learning_goal"))

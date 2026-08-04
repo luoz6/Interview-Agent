@@ -313,15 +313,19 @@ def get_principal_memory_proposal_processor():
 
 def get_principal_memory_shadow_service():
     global _principal_memory_shadow_service
+    from app.services.memory_config import load_effective_memory_config
+
+    config = load_effective_memory_config()
+    if config.long_term.mode != "read_shadow":
+        return None
     if _principal_memory_shadow_service is None:
-        from app.services.memory_config import load_effective_memory_config
         from app.services.principal_memory_consent import PrincipalMemoryConsentService
         from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
         from app.services.principal_memory_shadow import PrincipalMemoryShadowService
 
-        config = load_effective_memory_config()
         resolver = get_principal_identity_resolver()
         _principal_memory_shadow_service = PrincipalMemoryShadowService(
+            mode=config.long_term.mode,
             retriever=PrincipalMemoryRetriever(
                 fact_store=get_principal_memory_fact_store(),
                 consent_service=PrincipalMemoryConsentService(
