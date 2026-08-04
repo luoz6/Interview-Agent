@@ -14,7 +14,10 @@ from app.services.postgres_schema import validate_relations
 from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
 from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
 from app.services.embedding_providers import DisabledEmbeddingProvider
+from app.services.postgres_identifiers import runtime_schema_identifier
+from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
 from tests.postgres_support import make_runtime_table_prefix
+from tests.test_postgres_principal_memory import NOW, make_active_language
 from scripts.postgres_runtime_migrate import main
 
 
@@ -105,6 +108,13 @@ def _patch_schema_owners(monkeypatch, seen):
             seen.append(("vector_ensure", None))
 
     monkeypatch.setattr(migrations, "PgVectorKnowledgeStore", Vector)
+    monkeypatch.setattr(
+        migrations,
+        "_upgrade_principal_memory_exclusive_scope",
+        lambda connection, *, table_prefix: seen.append(
+            ("exclusive_scope_upgrade", connection)
+        ),
+    )
 
 
 def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
@@ -306,6 +316,27 @@ def test_local_principal_rights_schema_contract_is_complete():
         assert columns.issubset(required_columns_for_relation(relation))
 
 
+def test_principal_fact_schema_contract_owns_taxonomy_scope_columns_and_index():
+    from app.services.postgres_schema_contract import (
+        required_check_tokens_for_relation,
+        required_columns_for_relation,
+        required_index_tokens_for_relation,
+    )
+
+    relation = "interview_principal_memory_facts"
+    assert {
+        "taxonomy_key",
+        "exclusive_scope_key",
+    }.issubset(required_columns_for_relation(relation))
+    requirements = required_index_tokens_for_relation(relation)
+    assert any("exclusive_scope_key" in tokens for tokens in requirements)
+    checks = required_check_tokens_for_relation(relation)
+    assert any(
+        {"taxonomy_key", "exclusive_scope_key"}.issubset(tokens)
+        for tokens in checks
+    )
+
+
 def test_schema_validation_rejects_missing_latest_migration_row():
     table = "test_schema_migrations"
     columns = [
@@ -395,7 +426,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "principal_memory_integrity_v2"
+        assert first.migration_id == "principal_memory_exclusive_scope_v3"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert local_rights_tables == {
@@ -436,7 +467,11 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
     prefix = make_runtime_table_prefix("principal_rights_upgrade")
     vector = make_runtime_table_prefix("principal_rights_vector")
     migrations_table = f"{prefix}_schema_migrations"
-    v10 = RUNTIME_MIGRATIONS[-2]
+    v10 = next(
+        migration
+        for migration in RUNTIME_MIGRATIONS
+        if migration.migration_id == "report_job_heartbeat_v1"
+    )
     try:
         with psycopg2.connect(postgres_dsn) as connection:
             with connection.cursor() as cursor:
@@ -465,16 +500,21 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "principal_memory_integrity_v2"
+        assert result.migration_id == "principal_memory_exclusive_scope_v3"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
         monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "postgres")
         monkeypatch.setenv("INTERVIEW_RUNTIME_TABLE_PREFIX", prefix)
-        monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
-        monkeypatch.setenv(
-            "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
-        )
+        for name, value in {
+            "MEMORY_LONG_TERM_MODE": "local_consume",
+            "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+            "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+            "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+            "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+            "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true",
+        }.items():
+            monkeypatch.setenv(name, value)
         assert runtime.get_principal_memory_export_store().__class__.__name__ == (
             "PostgresPrincipalMemoryExportStore"
         )
@@ -513,6 +553,262 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
                     WHERE table_schema = current_schema()
                       AND (table_name LIKE %s OR table_name LIKE %s)
                     """,
+                    (prefix + "_%", vector + "_%"),
+                )
+                for (name,) in cursor.fetchall():
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(name)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
+    postgres_dsn,
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = make_runtime_table_prefix("exclusive_dirty")
+    vector = make_runtime_table_prefix("exclusive_dirty_vector")
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=prefix,
+        schema_mode="migrate",
+    )
+    migrations_table = f"{prefix}_schema_migrations"
+    exclusive_index = runtime_schema_identifier(
+        prefix,
+        "principal_memory_facts_active_exclusive_uq",
+    )
+    previous = next(
+        migration
+        for migration in RUNTIME_MIGRATIONS
+        if migration.migration_id == "principal_memory_integrity_v2"
+    )
+    facts = [
+        make_active_language("en", "1"),
+        make_active_language("mixed", "2"),
+    ]
+    resolution = make_active_language("zh_hans", "3")
+    try:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("DROP INDEX {index}").format(
+                        index=sql.Identifier(exclusive_index)
+                    )
+                )
+                for fact in facts:
+                    cursor.execute(
+                        sql.SQL(
+                            "INSERT INTO {table} ({columns}) VALUES ({values})"
+                        ).format(
+                            table=sql.Identifier(store.table),
+                            columns=sql.SQL(store._insert_columns()),
+                            values=sql.SQL(",").join(
+                                sql.Placeholder() for _ in range(26)
+                            ),
+                        ),
+                        store._params(fact),
+                    )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {table} (migration_id TEXT PRIMARY KEY,"
+                        "checksum TEXT NOT NULL,transaction_mode TEXT NOT NULL,"
+                        "applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+                    ).format(table=sql.Identifier(migrations_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {table} "
+                        "(migration_id,checksum,transaction_mode) VALUES (%s,%s,%s)"
+                    ).format(table=sql.Identifier(migrations_table)),
+                    (
+                        previous.migration_id,
+                        previous.checksum,
+                        previous.transaction_mode,
+                    ),
+                )
+
+        with pytest.raises(PostgresMigrationConflict, match="explicit resolution"):
+            migrate_postgres_runtime(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                pgvector_table=vector,
+                embedding_provider=DisabledEmbeddingProvider(
+                    model_name="disabled",
+                    dimension=3,
+                ),
+                run_checkpointer_setup=False,
+            )
+        before_resolution = store.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=10,
+            include_terminal=True,
+        )
+        assert [fact.status for fact in before_resolution].count("active") == 2
+
+        store.declare_active(
+            resolution,
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+        result = migrate_postgres_runtime(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled",
+                dimension=3,
+            ),
+            run_checkpointer_setup=False,
+        )
+
+        assert result.migration_id == "principal_memory_exclusive_scope_v3"
+        stored = store.list_by_principal(
+            deployment_id="single-tenant-local",
+            principal_id="local-owner",
+            limit=10,
+            include_terminal=True,
+        )
+        assert [fact.status for fact in stored].count("active") == 1
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' "
+                    "AND tablename=%s AND indexname=%s",
+                    (store.table, exclusive_index),
+                )
+                assert cursor.fetchone()[0] == 1
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema='public' "
+                    "AND (table_name LIKE %s OR table_name LIKE %s)",
+                    (prefix + "_%", vector + "_%"),
+                )
+                for (name,) in cursor.fetchall():
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(name)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_partial_taxonomy_backfill_is_repaired_idempotently(postgres_dsn):
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = make_runtime_table_prefix("exclusive_partial")
+    vector = make_runtime_table_prefix("exclusive_partial_vector")
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=prefix,
+        schema_mode="migrate",
+    )
+    migrations_table = f"{prefix}_schema_migrations"
+    previous = next(
+        migration
+        for migration in RUNTIME_MIGRATIONS
+        if migration.migration_id == "principal_memory_integrity_v2"
+    )
+    proposal = make_active_language("en", "4").model_copy(
+        update={
+            "authority": "model_proposed",
+            "status": "proposed",
+            "user_confirmed": False,
+            "confirmed_at": None,
+            "expires_at": None,
+        }
+    )
+    try:
+        store.create_proposal(proposal)
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {table} ALTER COLUMN taxonomy_key DROP NOT NULL"
+                    ).format(table=sql.Identifier(store.table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {table} SET taxonomy_key=NULL,exclusive_scope_key=NULL"
+                    ).format(table=sql.Identifier(store.table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {table} (migration_id TEXT PRIMARY KEY,"
+                        "checksum TEXT NOT NULL,transaction_mode TEXT NOT NULL,"
+                        "applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+                    ).format(table=sql.Identifier(migrations_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {table} "
+                        "(migration_id,checksum,transaction_mode) VALUES (%s,%s,%s)"
+                    ).format(table=sql.Identifier(migrations_table)),
+                    (
+                        previous.migration_id,
+                        previous.checksum,
+                        previous.transaction_mode,
+                    ),
+                )
+
+        first = migrate_postgres_runtime(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled",
+                dimension=3,
+            ),
+            run_checkpointer_setup=False,
+        )
+        second = migrate_postgres_runtime(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            pgvector_table=vector,
+            embedding_provider=DisabledEmbeddingProvider(
+                model_name="disabled",
+                dimension=3,
+            ),
+            run_checkpointer_setup=False,
+        )
+        assert first.applied is True
+        assert second.applied is False
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT taxonomy_key,exclusive_scope_key "
+                        "FROM {table} WHERE fact_id=%s"
+                    ).format(table=sql.Identifier(store.table)),
+                    (proposal.fact_id,),
+                )
+                assert cursor.fetchone() == (
+                    "interview_language",
+                    "interview_language",
+                )
+                cursor.execute(
+                    "SELECT is_nullable FROM information_schema.columns "
+                    "WHERE table_schema='public' AND table_name=%s "
+                    "AND column_name='taxonomy_key'",
+                    (store.table,),
+                )
+                assert cursor.fetchone()[0] == "NO"
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema='public' "
+                    "AND (table_name LIKE %s OR table_name LIKE %s)",
                     (prefix + "_%", vector + "_%"),
                 )
                 for (name,) in cursor.fetchall():

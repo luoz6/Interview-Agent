@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from app.services.in_memory_principal_memory import transition_fact
 from app.services.postgres_connections import (
     ConnectionProvider,
@@ -12,7 +10,10 @@ from app.services.postgres_identifiers import (
     validate_runtime_table_prefix,
 )
 from app.services.postgres_schema import resolve_schema_mode, validate_relations
-from app.services.principal_memory_contracts import PrincipalMemoryFact
+from app.services.principal_memory_contracts import (
+    PrincipalMemoryFact,
+    derive_principal_fact_taxonomy_keys,
+)
 
 
 class PostgresPrincipalMemoryFactStore:
@@ -57,8 +58,8 @@ class PostgresPrincipalMemoryFactStore:
                         "ON CONFLICT (deployment_id,principal_id,fact_id) DO NOTHING"
                     ).format(
                         table=sql.Identifier(self.table),
-                        columns=sql.SQL(self._columns()),
-                        values=sql.SQL(",").join(sql.Placeholder() for _ in range(24)),
+                        columns=sql.SQL(self._insert_columns()),
+                        values=sql.SQL(",").join(sql.Placeholder() for _ in range(26)),
                     ),
                     self._params(fact),
                 )
@@ -85,6 +86,10 @@ class PostgresPrincipalMemoryFactStore:
             raise ValueError("direct principal facts must be active user declarations")
         from psycopg2 import sql
 
+        _, exclusive_key = self._validated_taxonomy_keys(
+            fact=fact,
+            supplied_exclusive_key=exclusive_key,
+        )
         lock_scope = exclusive_key or fact.normalized_fact
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -149,7 +154,11 @@ class PostgresPrincipalMemoryFactStore:
                     if item[5] == fact.normalized_fact
                     or (
                         exclusive_key is not None
-                        and next(iter(json.loads(item[5]))) == exclusive_key
+                        and derive_principal_fact_taxonomy_keys(
+                            fact_type=item[4],
+                            normalized_fact=item[5],
+                        )[0]
+                        == exclusive_key
                     )
                 ]
                 if predecessors:
@@ -191,12 +200,13 @@ class PostgresPrincipalMemoryFactStore:
                 cursor.execute(
                     sql.SQL(
                         "INSERT INTO {table} ({columns}) VALUES ({values}) "
-                        "RETURNING {columns}"
+                        "RETURNING {returning_columns}"
                     ).format(
                         table=sql.Identifier(self.table),
-                        columns=sql.SQL(self._columns()),
+                        columns=sql.SQL(self._insert_columns()),
+                        returning_columns=sql.SQL(self._columns()),
                         values=sql.SQL(",").join(
-                            sql.Placeholder() for _ in range(24)
+                            sql.Placeholder() for _ in range(26)
                         ),
                     ),
                     self._params(stored),
@@ -240,6 +250,10 @@ class PostgresPrincipalMemoryFactStore:
                     raise PrincipalMemoryConflict(
                         "principal memory fact version conflict"
                     )
+                _, exclusive_key = self._validated_taxonomy_keys(
+                    fact=proposal,
+                    supplied_exclusive_key=exclusive_key,
+                )
                 lock_scope = exclusive_key or proposal.normalized_fact
                 cursor.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
@@ -265,7 +279,11 @@ class PostgresPrincipalMemoryFactStore:
                     if item[5] == proposal.normalized_fact
                     or (
                         exclusive_key is not None
-                        and next(iter(json.loads(item[5]))) == exclusive_key
+                        and derive_principal_fact_taxonomy_keys(
+                            fact_type=item[4],
+                            normalized_fact=item[5],
+                        )[0]
+                        == exclusive_key
                     )
                 ]
                 if predecessors:
@@ -348,6 +366,10 @@ class PostgresPrincipalMemoryFactStore:
         )
 
     def transition(self, **kwargs):
+        if kwargs["target_status"] == "active":
+            raise ValueError(
+                "principal fact activation requires activate_proposal"
+            )
         from psycopg2 import sql
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -563,8 +585,34 @@ class PostgresPrincipalMemoryFactStore:
                 "supersedes_fact_id,revoked_at,deleted_at")
 
     @staticmethod
+    def _insert_columns():
+        return (
+            PostgresPrincipalMemoryFactStore._columns()
+            + ",taxonomy_key,exclusive_scope_key"
+        )
+
+    @staticmethod
     def _params(fact):
-        return tuple(getattr(fact, name) for name in PostgresPrincipalMemoryFactStore._columns().split(","))
+        taxonomy_key, exclusive_scope_key = derive_principal_fact_taxonomy_keys(
+            fact_type=fact.fact_type,
+            normalized_fact=fact.normalized_fact,
+        )
+        return tuple(
+            getattr(fact, name)
+            for name in PostgresPrincipalMemoryFactStore._columns().split(",")
+        ) + (taxonomy_key, exclusive_scope_key)
+
+    @staticmethod
+    def _validated_taxonomy_keys(*, fact, supplied_exclusive_key):
+        taxonomy_key, exclusive_scope_key = derive_principal_fact_taxonomy_keys(
+            fact_type=fact.fact_type,
+            normalized_fact=fact.normalized_fact,
+        )
+        if supplied_exclusive_key != exclusive_scope_key:
+            raise ValueError(
+                "exclusive_key must match the database-owned taxonomy scope"
+            )
+        return taxonomy_key, exclusive_scope_key
 
     @staticmethod
     def _from_row(row):
@@ -581,6 +629,8 @@ class PostgresPrincipalMemoryFactStore:
                         fact_type TEXT NOT NULL,normalized_fact TEXT NOT NULL CHECK (length(normalized_fact)<=512),
                         confidence DOUBLE PRECISION NOT NULL CHECK (confidence>=0 AND confidence<=1),
                         authority TEXT NOT NULL,canonicalization_version TEXT NOT NULL,
+                        taxonomy_key TEXT NOT NULL,
+                        exclusive_scope_key TEXT,
                         status TEXT NOT NULL CHECK (status IN ('proposed','active','rejected','superseded','expired','revoked','deleted')),
                         source_session_id TEXT NOT NULL,source_question_id TEXT,
                         source_manifest_sha256 TEXT NOT NULL CHECK (source_manifest_sha256 ~ '^[0-9a-f]{{64}}$'),
@@ -591,29 +641,25 @@ class PostgresPrincipalMemoryFactStore:
                         supersedes_fact_id TEXT,revoked_at TIMESTAMPTZ,deleted_at TIMESTAMPTZ,
                         PRIMARY KEY (deployment_id,principal_id,fact_id),
                         CHECK (status<>'active' OR (user_confirmed=TRUE AND confirmed_at IS NOT NULL)),
+                        CHECK (
+                            (taxonomy_key IN ('interview_language','target_role_family','accessibility_preference')
+                                AND exclusive_scope_key IS NOT NULL
+                                AND exclusive_scope_key=taxonomy_key)
+                            OR
+                            (taxonomy_key NOT IN ('interview_language','target_role_family','accessibility_preference')
+                                AND exclusive_scope_key IS NULL)
+                        ),
                         CHECK (revoked_at IS NULL OR status='revoked'),
                         CHECK (deleted_at IS NULL OR status='deleted')
                     );
                     CREATE INDEX IF NOT EXISTS {principal_idx} ON {table} (deployment_id,principal_id,status,created_at DESC);
                     CREATE INDEX IF NOT EXISTS {session_idx} ON {table} (source_session_id);
-                    WITH ranked AS (
-                        SELECT deployment_id,principal_id,fact_id,
-                            row_number() OVER (
-                                PARTITION BY deployment_id,principal_id,
-                                    fact_type,normalized_fact
-                                ORDER BY created_at DESC,fact_id DESC
-                            ) AS active_rank
-                        FROM {table} WHERE status='active'
-                    )
-                    UPDATE {table} AS facts SET status='superseded',
-                        version=facts.version+1
-                    FROM ranked WHERE ranked.active_rank>1
-                        AND facts.deployment_id=ranked.deployment_id
-                        AND facts.principal_id=ranked.principal_id
-                        AND facts.fact_id=ranked.fact_id;
                     CREATE UNIQUE INDEX IF NOT EXISTS {active_identity_idx}
                     ON {table} (deployment_id,principal_id,fact_type,normalized_fact)
                     WHERE status='active';
+                    CREATE UNIQUE INDEX IF NOT EXISTS {active_exclusive_idx}
+                    ON {table} (deployment_id,principal_id,exclusive_scope_key)
+                    WHERE status='active' AND exclusive_scope_key IS NOT NULL;
                     CREATE TABLE IF NOT EXISTS {effects} (
                         effect_id TEXT PRIMARY KEY,deployment_id TEXT NOT NULL,principal_id TEXT NOT NULL,
                         source_session_id TEXT NOT NULL,status TEXT NOT NULL,
@@ -637,6 +683,12 @@ class PostgresPrincipalMemoryFactStore:
                         runtime_schema_identifier(
                             self.table.split("_principal_memory_facts")[0],
                             "principal_memory_facts_active_identity_uq",
+                        )
+                    ),
+                    active_exclusive_idx=sql.Identifier(
+                        runtime_schema_identifier(
+                            self.table.split("_principal_memory_facts")[0],
+                            "principal_memory_facts_active_exclusive_uq",
                         )
                     ),
                 ))

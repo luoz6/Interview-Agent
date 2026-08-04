@@ -418,7 +418,8 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_principal_memory_facts"] = frozenset(
     {
         "schema_version", "fact_id", "deployment_id", "principal_id",
         "fact_type", "normalized_fact", "confidence", "authority",
-        "canonicalization_version", "status", "source_session_id",
+        "canonicalization_version", "taxonomy_key", "exclusive_scope_key",
+        "status", "source_session_id",
         "source_question_id", "source_manifest_sha256", "source_excerpt_sha256",
         "consent_policy_version", "taxonomy_version", "user_confirmed", "version",
         "created_at", "confirmed_at", "expires_at", "supersedes_fact_id",
@@ -529,7 +530,34 @@ RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_facts"] = (
             "active",
         }
     ),
+    frozenset(
+        {
+            "unique",
+            "deployment_id",
+            "principal_id",
+            "exclusive_scope_key",
+            "where",
+            "status",
+            "active",
+            "is",
+            "not",
+            "null",
+        }
+    ),
 )
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX = {
+    "_principal_memory_facts": (
+        frozenset(
+            {
+                "taxonomy_key",
+                "exclusive_scope_key",
+                "interview_language",
+                "target_role_family",
+                "accessibility_preference",
+            }
+        ),
+    ),
+}
 RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_tombs"] = (
     frozenset({"deployment_id", "principal_id", "requested_at"}),
 )
@@ -552,6 +580,27 @@ RUNTIME_SCHEMA_V12_MANIFEST = json.dumps(
 )
 RUNTIME_SCHEMA_V12_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V12_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V13_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V12_CHECKSUM,
+        "principal_memory_exclusive_scope": {
+            "taxonomy_key": "database-derived-canonical-taxonomy-key-v1",
+            "exclusive_scope_key": "database-derived-nullable-scope-key-v1",
+            "active_exclusive_invariant": (
+                "unique(deployment_id,principal_id,exclusive_scope_key)"
+                " where status=active and exclusive_scope_key is not null"
+            ),
+            "conflict_policy": "read-only-scan-and-explicit-resolution-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V13_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V13_MANIFEST.encode("utf-8")
 ).hexdigest()
 
 RUNTIME_MIGRATIONS = (
@@ -615,6 +664,11 @@ RUNTIME_MIGRATIONS = (
         checksum=RUNTIME_SCHEMA_V12_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
+    PostgresMigrationSpec(
+        migration_id="principal_memory_exclusive_scope_v3",
+        checksum=RUNTIME_SCHEMA_V13_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
 )
 LATEST_RUNTIME_MIGRATION = RUNTIME_MIGRATIONS[-1]
 
@@ -630,6 +684,15 @@ def required_index_tokens_for_relation(
     name: str,
 ) -> tuple[frozenset[str], ...]:
     for suffix, requirements in RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.items():
+        if name.endswith(suffix):
+            return requirements
+    return ()
+
+
+def required_check_tokens_for_relation(
+    name: str,
+) -> tuple[frozenset[str], ...]:
+    for suffix, requirements in RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX.items():
         if name.endswith(suffix):
             return requirements
     return ()

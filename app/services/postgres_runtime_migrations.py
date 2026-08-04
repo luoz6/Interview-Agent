@@ -34,13 +34,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V12_MANIFEST,
+    RUNTIME_SCHEMA_V13_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V12_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V13_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -232,6 +232,10 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
+            _upgrade_principal_memory_exclusive_scope(
+                connection,
+                table_prefix=table_prefix,
+            )
             PostgresPrincipalMemoryFactStore(
                 dsn=dsn,
                 connection_provider=provider,
@@ -344,6 +348,135 @@ def _setup_langgraph_checkpointer(dsn: str) -> None:
 
     with PostgresSaver.from_conn_string(dsn) as saver:
         saver.setup()
+
+
+def _upgrade_principal_memory_exclusive_scope(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Install database-owned taxonomy keys without choosing fact winners."""
+
+    from psycopg2 import sql
+
+    from app.services.principal_memory_contracts import (
+        derive_principal_fact_taxonomy_keys,
+    )
+    from app.services.principal_memory_exclusive_scan import (
+        scan_exclusive_facts,
+    )
+
+    table = f"{table_prefix}_principal_memory_facts"
+    constraint_name = runtime_schema_identifier(
+        table_prefix,
+        "principal_memory_facts_taxonomy_scope_check",
+    )
+    exclusive_index_name = runtime_schema_identifier(
+        table_prefix,
+        "principal_memory_facts_active_exclusive_uq",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+        relation = cursor.fetchone()
+        if relation is None or relation[0] is None:
+            return
+        cursor.execute(
+            sql.SQL(
+                "SELECT fact_id,deployment_id,principal_id,fact_type,"
+                "normalized_fact,status,supersedes_fact_id FROM {}"
+            ).format(sql.Identifier(table))
+        )
+        names = (
+            "fact_id",
+            "deployment_id",
+            "principal_id",
+            "fact_type",
+            "normalized_fact",
+            "status",
+            "supersedes_fact_id",
+        )
+        rows = [dict(zip(names, row)) for row in cursor.fetchall()]
+        report = scan_exclusive_facts(rows)
+        if report.repair_required:
+            raise PostgresMigrationConflict(
+                "principal memory exclusive facts require explicit resolution"
+            )
+        derived: list[tuple[str, str | None, str, str, str]] = []
+        try:
+            for row in rows:
+                taxonomy_key, exclusive_scope_key = (
+                    derive_principal_fact_taxonomy_keys(
+                        fact_type=row["fact_type"],
+                        normalized_fact=row["normalized_fact"],
+                    )
+                )
+                derived.append(
+                    (
+                        taxonomy_key,
+                        exclusive_scope_key,
+                        row["deployment_id"],
+                        row["principal_id"],
+                        row["fact_id"],
+                    )
+                )
+        except (TypeError, ValueError) as exc:
+            raise PostgresMigrationConflict(
+                "principal memory taxonomy backfill requires explicit repair"
+            ) from exc
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {} ADD COLUMN IF NOT EXISTS taxonomy_key TEXT, "
+                "ADD COLUMN IF NOT EXISTS exclusive_scope_key TEXT"
+            ).format(sql.Identifier(table))
+        )
+        for values in derived:
+            cursor.execute(
+                sql.SQL(
+                    "UPDATE {} SET taxonomy_key=%s,exclusive_scope_key=%s "
+                    "WHERE deployment_id=%s AND principal_id=%s AND fact_id=%s"
+                ).format(sql.Identifier(table)),
+                values,
+            )
+            if cursor.rowcount != 1:
+                raise PostgresMigrationConflict(
+                    "principal memory taxonomy backfill changed concurrently"
+                )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {} ALTER COLUMN taxonomy_key SET NOT NULL").format(
+                sql.Identifier(table)
+            )
+        )
+        cursor.execute(
+            "SELECT 1 FROM pg_constraint "
+            "WHERE conname=%s AND conrelid=to_regclass(%s)",
+            (constraint_name, f"public.{table}"),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {table} ADD CONSTRAINT {constraint} CHECK ("
+                    "(taxonomy_key IN ('interview_language','target_role_family',"
+                    "'accessibility_preference') AND "
+                    "exclusive_scope_key IS NOT NULL AND "
+                    "exclusive_scope_key=taxonomy_key) OR "
+                    "(taxonomy_key NOT IN ('interview_language',"
+                    "'target_role_family','accessibility_preference') AND "
+                    "exclusive_scope_key IS NULL))"
+                ).format(
+                    table=sql.Identifier(table),
+                    constraint=sql.Identifier(constraint_name),
+                )
+            )
+        cursor.execute(
+            sql.SQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS {index} ON {table} "
+                "(deployment_id,principal_id,exclusive_scope_key) "
+                "WHERE status='active' AND exclusive_scope_key IS NOT NULL"
+            ).format(
+                index=sql.Identifier(exclusive_index_name),
+                table=sql.Identifier(table),
+            )
+        )
 
 
 def _upgrade_interview_workflow_engine_constraint(

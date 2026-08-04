@@ -76,7 +76,7 @@ def run_race_matrix():
     queued_result=PrincipalMemoryProposalProcessor(session_store=sessions,identity_resolver=identity,consent_service=consent,fact_store=facts,extractor=FixedExtractor(),config=cfg,clock=lambda:NOW).consume(queued.model_dump())
     # Select completes, then Consent is revoked before observation commit.
     consents.grant(PrincipalMemoryConsent(deployment_id="single-tenant-local",principal_id=principal,policy_version=cfg.long_term.consent_policy_version,allowed_purposes=["read_shadow"],granted_at=NOW))
-    active=facts.create_proposal(proposal(principal,"race-session",{"confirmed_skill":"python"},"race")); facts.transition(deployment_id=active.deployment_id,principal_id=active.principal_id,fact_id=active.fact_id,expected_version=1,target_status="active",now=NOW)
+    active=facts.create_proposal(proposal(principal,"race-session",{"confirmed_skill":"python"},"race")); facts.activate_proposal(deployment_id=active.deployment_id,principal_id=active.principal_id,fact_id=active.fact_id,expected_version=1,exclusive_key=None,now=NOW,expires_at=None)
     base=PrincipalMemoryRetriever(fact_store=facts,consent_service=consent,identity_resolver=identity,session_store=sessions,config=read_cfg)
     class RevokeAfterSelect:
         def select(self,**kwargs):

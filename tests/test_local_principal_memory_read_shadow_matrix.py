@@ -95,7 +95,11 @@ def build_local_read_shadow():
         confirmed_at=NOW,
         expires_at=NOW + timedelta(days=180),
     )
-    facts.declare_active(fact, exclusive_key=None, now=NOW)
+    facts.declare_active(
+        fact,
+        exclusive_key=None,
+        now=NOW,
+    )
     retriever = PrincipalMemoryRetriever(
         fact_store=facts,
         consent_service=consent,

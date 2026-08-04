@@ -12,6 +12,8 @@ from app.services.principal_memory_contracts import (
     canonical_principal_fact,
     derive_principal_fact_id,
 )
+from app.services.postgres_identifiers import runtime_schema_identifier
+from app.services.postgres_connections import PostgresSchemaNotReady
 from tests.postgres_support import assert_safe_test_prefix
 from tests.test_in_memory_principal_memory import NOW, make_fact
 
@@ -56,12 +58,12 @@ def test_postgres_principal_fact_store_dedup_cas_isolation_and_purge(
         with ThreadPoolExecutor(max_workers=4) as executor:
             results = list(executor.map(store.create_proposal, [fact] * 8))
         assert {item.fact_id for item in results} == {fact.fact_id}
-        active = store.transition(
+        active = store.activate_proposal(
             deployment_id=fact.deployment_id,
             principal_id=fact.principal_id,
             fact_id=fact.fact_id,
             expected_version=1,
-            target_status="active",
+            exclusive_key=None,
             now=NOW,
             expires_at=NOW + timedelta(days=365),
         )
@@ -285,7 +287,7 @@ def test_postgres_same_value_proposal_confirmations_leave_one_active_fact(
                         principal_id=proposal.principal_id,
                         fact_id=proposal.fact_id,
                         expected_version=1,
-                        exclusive_key=None,
+                        exclusive_key="interview_language",
                         now=NOW,
                         expires_at=NOW + timedelta(days=180),
                     ),
@@ -366,6 +368,374 @@ def test_postgres_concurrent_corrections_validate_exact_predecessor(
         import psycopg2
         from psycopg2 import sql
 
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_store_rejects_forged_exclusive_scope_key(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    fact = make_active_language("en", "6")
+    try:
+        for forged in (None, "target_role_family"):
+            with pytest.raises(ValueError, match="database-owned taxonomy"):
+                store.declare_active(
+                    fact,
+                    exclusive_key=forged,
+                    now=NOW,
+                )
+        assert store.list_by_principal(
+            deployment_id=fact.deployment_id,
+            principal_id=fact.principal_id,
+            limit=10,
+            include_terminal=True,
+        ) == []
+    finally:
+        import psycopg2
+        from psycopg2 import sql
+
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_database_rejects_direct_sql_exclusive_scope_bypass(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    first = make_active_language("en", "7")
+    second = make_active_language("mixed", "8")
+    try:
+        forged_params = list(store._params(second))
+        forged_params[-1] = None
+        connection = psycopg2.connect(postgres_dsn)
+        connection.autocommit = True
+        try:
+            with connection.cursor() as cursor:
+                with pytest.raises(psycopg2.errors.CheckViolation):
+                    cursor.execute(
+                        sql.SQL(
+                            "INSERT INTO {table} ({columns}) VALUES ({values})"
+                        ).format(
+                            table=sql.Identifier(store.table),
+                            columns=sql.SQL(store._insert_columns()),
+                            values=sql.SQL(",").join(
+                                sql.Placeholder() for _ in range(26)
+                            ),
+                        ),
+                        forged_params,
+                    )
+        finally:
+            connection.close()
+        store.declare_active(
+            first,
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+        connection = psycopg2.connect(postgres_dsn)
+        connection.autocommit = True
+        try:
+            with connection.cursor() as cursor:
+                with pytest.raises(psycopg2.errors.UniqueViolation):
+                    cursor.execute(
+                        sql.SQL(
+                            "INSERT INTO {table} ({columns}) VALUES ({values})"
+                        ).format(
+                            table=sql.Identifier(store.table),
+                            columns=sql.SQL(store._insert_columns()),
+                            values=sql.SQL(",").join(
+                                sql.Placeholder() for _ in range(26)
+                            ),
+                        ),
+                        store._params(second),
+                    )
+        finally:
+            connection.close()
+        stored = store.list_by_principal(
+            deployment_id=first.deployment_id,
+            principal_id=first.principal_id,
+            limit=10,
+            include_terminal=True,
+        )
+        assert [item.status for item in stored].count("active") == 1
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_concurrent_direct_writers_get_one_database_winner(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    facts = [
+        make_active_language("en", "f"),
+        make_active_language("mixed", "0"),
+    ]
+
+    def insert(fact):
+        connection = psycopg2.connect(postgres_dsn)
+        connection.autocommit = True
+        try:
+            with connection.cursor() as cursor:
+                try:
+                    cursor.execute(
+                        sql.SQL(
+                            "INSERT INTO {table} ({columns}) VALUES ({values})"
+                        ).format(
+                            table=sql.Identifier(store.table),
+                            columns=sql.SQL(store._insert_columns()),
+                            values=sql.SQL(",").join(
+                                sql.Placeholder() for _ in range(26)
+                            ),
+                        ),
+                        store._params(fact),
+                    )
+                    return "inserted"
+                except psycopg2.errors.UniqueViolation:
+                    return "unique_violation"
+        finally:
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = list(executor.map(insert, facts))
+        assert sorted(outcomes) == ["inserted", "unique_violation"]
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_terminal_statuses_release_the_exclusive_database_slot(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    facts = [
+        make_active_language("en", "9"),
+        make_active_language("mixed", "a"),
+        make_active_language("zh_hans", "b"),
+        make_active_language("en", "c"),
+    ]
+    try:
+        for index, terminal in enumerate(("revoked", "expired", "deleted")):
+            active = store.declare_active(
+                facts[index],
+                exclusive_key="interview_language",
+                now=NOW,
+            )
+            store.transition(
+                deployment_id=active.deployment_id,
+                principal_id=active.principal_id,
+                fact_id=active.fact_id,
+                expected_version=active.version,
+                target_status=terminal,
+                now=NOW,
+            )
+        final = store.declare_active(
+            facts[-1],
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+        assert final.status == "active"
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (store.effects_table, store.table):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
+
+
+@pytest.mark.pg_runtime
+def test_failed_replacement_insert_rolls_back_predecessor_supersede(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    predecessor = make_active_language("en", "d")
+    replacement = make_active_language("mixed", "e")
+    function_name = runtime_schema_identifier(
+        runtime_table_prefix,
+        "reject_principal_memory_replacement",
+    )
+    trigger_name = runtime_schema_identifier(
+        runtime_table_prefix,
+        "reject_principal_memory_replacement_trigger",
+    )
+    try:
+        store.declare_active(
+            predecessor,
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE FUNCTION {function}() RETURNS trigger "
+                        "LANGUAGE plpgsql AS $$ BEGIN "
+                        "IF NEW.fact_id={replacement} THEN "
+                        "RAISE EXCEPTION 'injected replacement failure'; "
+                        "END IF; RETURN NEW; END $$"
+                    ).format(
+                        function=sql.Identifier(function_name),
+                        replacement=sql.Literal(replacement.fact_id),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TRIGGER {trigger} BEFORE INSERT ON {table} "
+                        "FOR EACH ROW EXECUTE FUNCTION {function}()"
+                    ).format(
+                        trigger=sql.Identifier(trigger_name),
+                        table=sql.Identifier(store.table),
+                        function=sql.Identifier(function_name),
+                    )
+                )
+        with pytest.raises(psycopg2.errors.RaiseException):
+            store.declare_active(
+                replacement,
+                exclusive_key="interview_language",
+                now=NOW,
+            )
+        current = store.get(
+            deployment_id=predecessor.deployment_id,
+            principal_id=predecessor.principal_id,
+            fact_id=predecessor.fact_id,
+        )
+        assert current.status == "active"
+        assert current.version == predecessor.version
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                        table=sql.Identifier(store.effects_table)
+                    )
+                )
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                        table=sql.Identifier(store.table)
+                    )
+                )
+                cursor.execute(
+                    sql.SQL("DROP FUNCTION IF EXISTS {function}()").format(
+                        function=sql.Identifier(function_name)
+                    )
+                )
+
+
+@pytest.mark.pg_runtime
+def test_schema_validation_rejects_missing_taxonomy_scope_check(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    import psycopg2
+    from psycopg2 import sql
+
+    store = PostgresPrincipalMemoryFactStore(
+        dsn=postgres_dsn,
+        table_prefix=runtime_table_prefix,
+        schema_mode="migrate",
+    )
+    try:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT rule.conname,pg_get_constraintdef(rule.oid) "
+                    "FROM pg_constraint AS rule "
+                    "JOIN pg_class AS relation ON relation.oid=rule.conrelid "
+                    "WHERE relation.relname=%s AND rule.contype='c'",
+                    (store.table,),
+                )
+                taxonomy_checks = [
+                    name
+                    for name, definition in cursor.fetchall()
+                    if "taxonomy_key" in definition
+                    and "exclusive_scope_key" in definition
+                ]
+                assert taxonomy_checks
+                for name in taxonomy_checks:
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} DROP CONSTRAINT {constraint}"
+                        ).format(
+                            table=sql.Identifier(store.table),
+                            constraint=sql.Identifier(name),
+                        )
+                    )
+        with pytest.raises(PostgresSchemaNotReady, match="checks"):
+            PostgresPrincipalMemoryFactStore(
+                dsn=postgres_dsn,
+                table_prefix=runtime_table_prefix,
+                schema_mode="validate",
+            )
+    finally:
         with psycopg2.connect(postgres_dsn) as connection:
             with connection.cursor() as cursor:
                 for table in (store.effects_table, store.table):

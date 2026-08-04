@@ -1,7 +1,11 @@
 import json
+from pathlib import Path
 
 from app.services.principal_memory_contracts import canonical_principal_fact
 from app.services.principal_memory_exclusive_scan import scan_exclusive_facts
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def fact(
@@ -179,3 +183,23 @@ def test_missing_invalid_and_self_referential_predecessors_block_schema_install(
     assert result["exclusive_fact_scan"] == "REPAIR_REQUIRED"
     assert result["category_counts"]["INVALID_TAXONOMY_PAYLOAD"] == 1
     assert result["category_counts"]["AMBIGUOUS_MULTIPLE_ACTIVE"] == 3
+
+
+def test_schema_install_has_no_ranked_or_latest_fact_auto_winner():
+    store = (ROOT / "app/services/postgres_principal_memory.py").read_text(
+        encoding="utf-8"
+    )
+    migration = (
+        ROOT / "app/services/postgres_runtime_migrations.py"
+    ).read_text(encoding="utf-8")
+
+    assert "row_number() OVER" not in store
+    assert "WITH ranked" not in store
+    scan = migration.index("scan_exclusive_facts(rows)")
+    schema_change = migration.index(
+        '"ALTER TABLE {} ADD COLUMN IF NOT EXISTS taxonomy_key TEXT'
+    )
+    assert scan < schema_change
+    assert migration.index("_upgrade_principal_memory_exclusive_scope(") < (
+        migration.index("PostgresPrincipalMemoryFactStore(")
+    )
