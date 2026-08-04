@@ -279,13 +279,16 @@ def get_principal_memory_fact_store():
 
 def get_principal_memory_proposal_processor():
     global _principal_memory_proposal_processor
+    from app.services.memory_config import load_effective_memory_config
+
+    config = load_effective_memory_config()
+    if config.long_term.mode != "write_shadow":
+        return None
     if _principal_memory_proposal_processor is None:
-        from app.services.memory_config import load_effective_memory_config
         from app.services.principal_memory_consent import PrincipalMemoryConsentService
         from app.services.principal_memory_extractor import NullPrincipalMemoryExtractor
         from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
 
-        config = load_effective_memory_config()
         resolver = get_principal_identity_resolver()
         _principal_memory_proposal_processor = PrincipalMemoryProposalProcessor(
             session_store=get_session_store(),

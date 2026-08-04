@@ -239,6 +239,8 @@ def test_local_gates_cannot_be_reinterpreted_outside_local_scope_or_mode():
     with pytest.raises(ValueError, match="single-tenant-local deployment scope"):
         load_effective_memory_config(
             {
+                "MEMORY_LONG_TERM_MODE": "read_shadow",
+                "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
                 "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
                 "MEMORY_PRIVACY_DEPLOYMENT_ID": "hosted-production",
             }
@@ -269,6 +271,8 @@ def test_local_principal_configuration_rejects_inference_shaped_identifiers():
 def test_readiness_snapshot_exposes_only_local_gate_state():
     config = load_effective_memory_config(
         {
+            "MEMORY_LONG_TERM_MODE": "read_shadow",
+            "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
             "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
             "MEMORY_LOCAL_PRINCIPAL_ID": "local-owner",
         }
@@ -292,3 +296,66 @@ def test_long_term_shadow_modes_require_explicit_matching_gates():
     )
     assert config.long_term.mode == "read_shadow"
     assert config.long_term.write_shadow_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("environment", "message"),
+    [
+        (
+            {
+                "MEMORY_LONG_TERM_MODE": "read_shadow",
+                "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+                "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+            },
+            "read_shadow mode forbids the write gate",
+        ),
+        (
+            {
+                "MEMORY_LONG_TERM_MODE": "write_shadow",
+                "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+                "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+            },
+            "write_shadow mode forbids the read gate",
+        ),
+        (
+            {
+                "MEMORY_LONG_TERM_MODE": "read_shadow",
+                "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+                "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true",
+            },
+            "local consumption gate requires local_consume mode",
+        ),
+        (
+            {"MEMORY_LOCAL_PRINCIPAL_ENABLED": "true"},
+            "disabled long-term memory forbids the local Principal gate",
+        ),
+        (
+            {
+                "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+            },
+            "disabled long-term memory forbids the trusted-local API gate",
+        ),
+        (
+            {
+                "MEMORY_LONG_TERM_MODE": "read_shadow",
+                "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+                "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+            },
+            "read_shadow mode forbids the trusted-local API gate",
+        ),
+        (
+            {
+                "MEMORY_LONG_TERM_MODE": "write_shadow",
+                "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+                "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+            },
+            "write_shadow mode forbids the trusted-local API gate",
+        ),
+    ],
+)
+def test_long_term_mode_is_authoritative_over_capability_gates(
+    environment,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        load_effective_memory_config(environment)

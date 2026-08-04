@@ -33,7 +33,7 @@ class Sessions:
 def read_shadow_environment() -> dict[str, str]:
     return {
         "MEMORY_LONG_TERM_MODE": "read_shadow",
-        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "false",
         "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
         "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "false",
         "MEMORY_LONG_TERM_MAX_SHADOW_FACTS": "3",
@@ -44,7 +44,9 @@ def read_shadow_environment() -> dict[str, str]:
 
 def validate_read_axis(config) -> list[str]:
     failures=[]
-    if config.long_term.mode != "read_shadow" or not config.long_term.write_shadow_enabled or not config.long_term.read_shadow_enabled: failures.append("READ_SHADOW_NOT_ENABLED")
+    if config.long_term.mode != "read_shadow" or not config.long_term.read_shadow_enabled: failures.append("READ_SHADOW_NOT_ENABLED")
+    if config.long_term.write_shadow_enabled: failures.append("WRITE_SHADOW_GATE_ENABLED")
+    if config.long_term.local_consumption_enabled: failures.append("LOCAL_CONSUMPTION_GATE_ENABLED")
     if config.long_term.trusted_local_api_enabled: failures.append("TRUSTED_LOCAL_API_ENABLED")
     if config.budget.mode != "disabled" or config.compression.mode != "disabled": failures.append("OTHER_MEMORY_AXIS_ENABLED")
     return failures

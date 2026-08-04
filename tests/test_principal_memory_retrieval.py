@@ -74,7 +74,6 @@ def build_retriever(*, sessions=None):
     config = load_effective_memory_config(
         {
             "MEMORY_LONG_TERM_MODE": "read_shadow",
-            "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
             "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
         }
     )
