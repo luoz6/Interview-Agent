@@ -28,19 +28,29 @@ def test_acceptance_counts_match_executed_evidence():
     evidence = json.loads(JSON_RECORD.read_text(encoding="utf-8"))["evidence"]
 
     assert evidence["full_python_postgres"] == {
-        "passed": 2097,
+        "passed": 2123,
         "skipped": 1,
         "failed": 0,
         "skip_scope": "real_provider_evaluation",
     }
     assert evidence["full_browser"] == {
-        "passed": 78,
+        "passed": 86,
         "skipped": 38,
         "failed": 0,
     }
     assert evidence["memory_center_browser"] == {
-        "desktop_passed": 4,
-        "mobile_passed": 4,
+        "desktop_passed": 8,
+        "mobile_passed": 8,
+        "failed": 0,
+    }
+    assert evidence["long_context"] == {
+        "pytest_passed": 14,
+        "deterministic_cases": 3,
+        "hard_invariant_pass_rate": 1.0,
+        "failed": 0,
+    }
+    assert evidence["privacy_firewall_isolation"] == {
+        "passed": 75,
         "failed": 0,
     }
     assert evidence["postgres_test_relation_residue"] == 0
