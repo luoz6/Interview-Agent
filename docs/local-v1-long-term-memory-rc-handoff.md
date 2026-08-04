@@ -78,3 +78,7 @@ rollback shortcut. User-requested deletion remains a separate explicit right.
 4. Push `codex/local-v1-long-term-memory` and verify the remote hash.
 5. Publish the final promotion record without changing implementation code.
 6. Re-run exact-revision acceptance, push, and verify the final remote hash.
+
+The RC candidate sequence through step 4 completed at
+`473f9e092f06aac346716fbfd7c466f7b50ef3ed`. The commit containing this final
+promotion record must complete steps 5 and 6 without any implementation change.

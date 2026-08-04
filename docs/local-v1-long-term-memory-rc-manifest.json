@@ -32,6 +32,17 @@
     "postgres_test_relation_residue": 0,
     "test_listener_residue": 0
   },
+  "rc_candidate": {
+    "revision": "473f9e092f06aac346716fbfd7c466f7b50ef3ed",
+    "full_python_postgres_passed": 2105,
+    "full_python_skipped": 1,
+    "frontend_build_passed": true,
+    "full_browser_passed": 78,
+    "full_browser_skipped": 38,
+    "postgres_test_relation_residue": 0,
+    "test_listener_residue": 0,
+    "remote_branch_verified": true
+  },
   "boundaries": {
     "hosted_v2": "NO_GO_FOR_NOW",
     "default_mode": "DISABLED",
@@ -40,5 +51,6 @@
     "real_candidate_production_processing": "PROHIBITED",
     "real_provider_evaluation": "NOT_RUN"
   },
-  "publication_state": "READY_FOR_EXACT_REVISION_RETEST_AND_PUSH"
+  "publication_state": "CANDIDATE_REMOTE_VERIFIED",
+  "final_commit_gate": "EXACT_RETEST_AND_REMOTE_MATCH_REQUIRED"
 }

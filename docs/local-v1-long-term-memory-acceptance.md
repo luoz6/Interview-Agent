@@ -6,13 +6,14 @@
 
 **Date:** 2026-08-04
 
-**Overall program state:** `LOCAL_V1_LONG_TERM_MEMORY=IN_PROGRESS`
+**Overall program state:** `LOCAL_V1_LONG_TERM_MEMORY=COMPLETE`
 
 This record covers Task 13 of the Local V1 completion plan. It proves the
 repository implementation and Local V1 operational boundary on one clean
-revision. It does not authorize Hosted V2, production Shadows, a real-provider
-canary, or real-candidate production processing. Task 14 still has to create
-and push the final release candidate and verify the remote branch.
+revision. Task 14 subsequently published and verified the RC candidate at
+`473f9e092f06aac346716fbfd7c466f7b50ef3ed`. It does not authorize Hosted V2,
+production Shadows, a real-provider canary, or real-candidate production
+processing.
 
 ## Executed evidence
 
@@ -38,9 +39,8 @@ It does not change test outcomes or Local Principal Memory behavior.
 
 ## Requirement-to-evidence table
 
-`PASS` below means the stated evidence was executed on the validated revision or
-is an externally re-read disposition. `PENDING_TASK_14` is intentionally not a
-pass.
+`PASS` below means the stated evidence was executed on the validated revision,
+the exact RC candidate, or is an externally re-read disposition.
 
 | DoD | Requirement | Status | Evidence |
 |---:|---|---|---|
@@ -66,10 +66,10 @@ pass.
 | 20 | Memory Center keyboard and reduced-motion behavior pass | PASS | 8 executed desktop/mobile Memory Center cases |
 | 21 | disabled mode performs zero Local Consume work | PASS | graph metric zero-activity and default-off config tests |
 | 22 | telemetry is aggregate and content-free | PASS | metric schema denylist, output redaction and durable aggregate tests |
-| 23 | every Task Auto-review passed | PENDING_TASK_14 | Tasks 0–12 passed; Task 13 is this record; Task 14 has not run |
+| 23 | every Task Auto-review passed | PASS | Tasks 0–13 passed; Task 14 candidate passed exact Python/PostgreSQL, build, browser, privacy, cleanup and remote verification gates |
 | 24 | full repository regression passed | PASS | 2097 Python tests plus production build and 78 browser tests |
 | 25 | main-worktree user changes remain untouched | PASS | exact 14-path comparison after all Task 13 execution |
-| 26 | RC branch is clean, pushed and reviewable | PENDING_TASK_14 | local acceptance revision is clean; remote publication is Task 14 |
+| 26 | RC branch is clean, pushed and reviewable | PASS | `origin/codex/local-v1-long-term-memory` was read back at exact candidate `473f9e092f06aac346716fbfd7c466f7b50ef3ed` and has a GitHub review URL |
 
 ## Explicit non-claims
 
@@ -83,10 +83,16 @@ The real-provider test is not required to prove deterministic Local V1 memory
 contracts and was not enabled merely to eliminate a skip. Provider use needs a
 separate authorization and evidence process.
 
-## Task 13 decision
+## Final promotion decision
 
 ```text
 LOCAL_MEMORY_ACCEPTANCE=PASS
-LOCAL_V1_LONG_TERM_MEMORY=IN_PROGRESS
-NEXT_REQUIRED_TASK=TASK_14_RC_PUSH_AND_HANDOFF
+LOCAL_V1_LONG_TERM_MEMORY=COMPLETE
+LOCAL_MEMORY_DEFAULT=DISABLED
+LOCAL_MEMORY_WRITE=USER_CONTROLLED
+LOCAL_MEMORY_READ_SHADOW=AVAILABLE
+LOCAL_MEMORY_CONSUMPTION=AVAILABLE_BUT_DEFAULT_OFF
+SCORING_AND_REPORT_USE=PROHIBITED
+REAL_CANDIDATE_PRODUCTION_PROCESSING=PROHIBITED
+NEXT_REQUIRED_TASK=NONE
 ```

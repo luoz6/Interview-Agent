@@ -65,9 +65,21 @@ def test_rc_manifest_preserves_safe_boundaries_and_public_artifact_privacy():
         "real_candidate_production_processing": "PROHIBITED",
         "real_provider_evaluation": "NOT_RUN",
     }
-    assert manifest["publication_state"] == (
-        "READY_FOR_EXACT_REVISION_RETEST_AND_PUSH"
+    assert manifest["publication_state"] == "CANDIDATE_REMOTE_VERIFIED"
+    assert manifest["final_commit_gate"] == (
+        "EXACT_RETEST_AND_REMOTE_MATCH_REQUIRED"
     )
+    assert manifest["rc_candidate"] == {
+        "revision": "473f9e092f06aac346716fbfd7c466f7b50ef3ed",
+        "full_python_postgres_passed": 2105,
+        "full_python_skipped": 1,
+        "frontend_build_passed": True,
+        "full_browser_passed": 78,
+        "full_browser_skipped": 38,
+        "postgres_test_relation_residue": 0,
+        "test_listener_residue": 0,
+        "remote_branch_verified": True,
+    }
     rendered = MANIFEST_PATH.read_text(encoding="utf-8") + HANDOFF_PATH.read_text(
         encoding="utf-8"
     )

@@ -3,7 +3,7 @@
   "validated_revision": "a96b52e796984a9d52c63f4e0ac13c5d51ad73a0",
   "date": "2026-08-04",
   "local_memory_acceptance": "PASS",
-  "overall_program_state": "IN_PROGRESS",
+  "overall_program_state": "COMPLETE",
   "hosted_v2": "NO_GO_FOR_NOW",
   "real_candidate_production_processing": "PROHIBITED",
   "real_provider_evaluation": "NOT_RUN",
@@ -63,10 +63,10 @@
     "DOD-20": "PASS",
     "DOD-21": "PASS",
     "DOD-22": "PASS",
-    "DOD-23": "PENDING_TASK_14",
+    "DOD-23": "PASS",
     "DOD-24": "PASS",
     "DOD-25": "PASS",
-    "DOD-26": "PENDING_TASK_14"
+    "DOD-26": "PASS"
   },
-  "next_required_task": "TASK_14_RC_PUSH_AND_HANDOFF"
+  "next_required_task": "NONE"
 }
