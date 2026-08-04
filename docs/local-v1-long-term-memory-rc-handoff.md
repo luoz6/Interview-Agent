@@ -2,10 +2,12 @@
 
 ## Review outcome
 
-The Local V1 single-user long-term-memory implementation is functionally
-accepted and ready for final exact-revision retest and branch publication. The
-capability remains disabled in committed configuration. Hosted V2 and
-real-candidate production processing remain prohibited.
+The Local V1 single-user long-term-memory implementation has passed the
+post-review hardening gate. All nine review findings were fixed, and the
+automatic review also found and fixed a tombstone-replay service-construction
+defect before publication. The capability remains disabled in committed
+configuration. Hosted V2 and real-candidate production processing remain
+prohibited.
 
 The machine-readable scope and hashes are in
 `docs/local-v1-long-term-memory-rc-manifest.json`. Task 13 evidence and all 26
@@ -26,6 +28,10 @@ Definition-of-Done states are in
 8. Review aggregate-only metrics, fail-closed preflight and expiry cleanup.
 9. Exercise the Memory Center on desktop and mobile with reduced motion.
 10. Confirm all environment defaults remain disabled.
+11. Confirm trusted-local routes validate the actual loopback peer and ignore
+    forwarded-address spoofing.
+12. Confirm deletion fencing, multi-cycle tombstones, external ledger capture,
+    complete exports and session-control purge remain intact.
 
 ## Reproduce the final checks
 
@@ -79,6 +85,6 @@ rollback shortcut. User-requested deletion remains a separate explicit right.
 5. Publish the final promotion record without changing implementation code.
 6. Re-run exact-revision acceptance, push, and verify the final remote hash.
 
-The RC candidate sequence through step 4 completed at
-`473f9e092f06aac346716fbfd7c466f7b50ef3ed`. The commit containing this final
-promotion record must complete steps 5 and 6 without any implementation change.
+The hardened implementation sequence through step 4 completed at
+`3d4dccbb38afcf9792f368b0a2ff4a3146f0d1be`. The commit containing this updated
+evidence record must complete steps 5 and 6 without any implementation change.
