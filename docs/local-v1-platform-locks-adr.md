@@ -32,6 +32,8 @@ that result.
 - Every generated lock must be regenerated twice with the same output name and
   compared byte-for-byte before publication.
 - `requirements.lock.meta.json` binds the source, tools, and generated lock
+  digests. Reviewed text sources use canonical UTF-8/LF digests so the binding
+  is stable across Windows and Ubuntu checkouts; generated locks use exact byte
   digests. Contract tests reject a source/lock/metadata mismatch.
 
 ## Consequences

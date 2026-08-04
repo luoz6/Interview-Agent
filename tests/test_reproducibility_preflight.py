@@ -21,6 +21,11 @@ from scripts.reproducibility_preflight import (
 )
 
 
+def _canonical_text_sha256(path):
+    canonical = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def test_python_311_environment_is_required_before_execution(tmp_path):
     prefix = tmp_path / "venv"
     executable = prefix / ("Scripts/python.exe" if __import__("os").name == "nt" else "bin/python")
@@ -154,12 +159,14 @@ def test_dependency_source_generator_and_lock_metadata_are_bound():
     assert "colorama==" in windows_lock
     assert "uvloop==" not in windows_lock
     assert legacy_lock == (root / "requirements-windows.lock.txt").read_bytes()
-    assert hashlib.sha256((root / metadata["source_file"]).read_bytes()).hexdigest() == (
-        metadata["source_sha256"]
-    )
-    assert hashlib.sha256((root / metadata["tooling_file"]).read_bytes()).hexdigest() == (
-        metadata["tooling_sha256"]
-    )
+    assert metadata["source_digest_mode"] == "canonical_utf8_lf"
+    assert metadata["tooling_digest_mode"] == "canonical_utf8_lf"
+    assert _canonical_text_sha256(root / metadata["source_file"]) == metadata[
+        "source_sha256"
+    ]
+    assert _canonical_text_sha256(root / metadata["tooling_file"]) == metadata[
+        "tooling_sha256"
+    ]
     for lock in metadata["locks"].values():
         assert hashlib.sha256((root / lock["file"]).read_bytes()).hexdigest() == (
             lock["sha256"]

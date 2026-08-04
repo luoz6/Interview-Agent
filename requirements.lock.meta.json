@@ -5,8 +5,10 @@
   "pip_tools_version": "7.6.0",
   "command_template": "python -m piptools compile --allow-unsafe --generate-hashes --resolver=backtracking --no-strip-extras --newline=lf --output-file={output_file} requirements.txt",
   "source_file": "requirements.txt",
-  "source_sha256": "0db048bec795d5ec198bd7c0c9ed0f88d1dd1e7b8c8f49ee95df786cf63633b9",
+  "source_digest_mode": "canonical_utf8_lf",
+  "source_sha256": "a331789b64e1e37741aa6030579a4a51b9531619605216d539d612983426c693",
   "tooling_file": "requirements-tooling.txt",
+  "tooling_digest_mode": "canonical_utf8_lf",
   "tooling_sha256": "293b64fb64519e996ebcaa044a0a2ab6cff351d0f37b3d8dad9490b9d373e51b",
   "locks": {
     "ubuntu_24_04_x64": {
