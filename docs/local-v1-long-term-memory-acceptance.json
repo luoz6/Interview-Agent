@@ -1,0 +1,72 @@
+{
+  "schema_version": "local-v1-long-term-memory-acceptance-v1",
+  "validated_revision": "a96b52e796984a9d52c63f4e0ac13c5d51ad73a0",
+  "date": "2026-08-04",
+  "local_memory_acceptance": "PASS",
+  "overall_program_state": "IN_PROGRESS",
+  "hosted_v2": "NO_GO_FOR_NOW",
+  "real_candidate_production_processing": "PROHIBITED",
+  "real_provider_evaluation": "NOT_RUN",
+  "evidence": {
+    "full_python_postgres": {
+      "passed": 2097,
+      "skipped": 1,
+      "failed": 0,
+      "skip_scope": "real_provider_evaluation"
+    },
+    "frontend_build": {
+      "passed": true,
+      "modules_transformed": 4591
+    },
+    "full_browser": {
+      "passed": 78,
+      "skipped": 38,
+      "failed": 0
+    },
+    "memory_center_browser": {
+      "desktop_passed": 4,
+      "mobile_passed": 4,
+      "failed": 0
+    },
+    "long_context": {
+      "passed": 42,
+      "failed": 0
+    },
+    "privacy_firewall_isolation": {
+      "passed": 14,
+      "failed": 0
+    },
+    "postgres_test_relation_residue": 0,
+    "test_listener_residue": 0,
+    "main_protected_paths": 14
+  },
+  "definition_of_done": {
+    "DOD-01": "PASS",
+    "DOD-02": "PASS",
+    "DOD-03": "PASS",
+    "DOD-04": "PASS",
+    "DOD-05": "PASS",
+    "DOD-06": "PASS",
+    "DOD-07": "PASS",
+    "DOD-08": "PASS",
+    "DOD-09": "PASS",
+    "DOD-10": "PASS",
+    "DOD-11": "PASS",
+    "DOD-12": "PASS",
+    "DOD-13": "PASS",
+    "DOD-14": "PASS",
+    "DOD-15": "PASS",
+    "DOD-16": "PASS",
+    "DOD-17": "PASS",
+    "DOD-18": "PASS",
+    "DOD-19": "PASS",
+    "DOD-20": "PASS",
+    "DOD-21": "PASS",
+    "DOD-22": "PASS",
+    "DOD-23": "PENDING_TASK_14",
+    "DOD-24": "PASS",
+    "DOD-25": "PASS",
+    "DOD-26": "PENDING_TASK_14"
+  },
+  "next_required_task": "TASK_14_RC_PUSH_AND_HANDOFF"
+}
