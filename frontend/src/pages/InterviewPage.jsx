@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ChatCircleDots,
   CheckCircle,
@@ -20,9 +20,12 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { apiUrl, getJson, HttpError, postJson, postSse, readSse } from "../api/client";
+import { AppShell } from "../components/AppShell";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { AssistanceNotice } from "../components/UI";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
+import { createCommandId } from "../utils/ids";
 import "../styles/interview-app.css";
 
 const questionStateLabels = {
@@ -56,10 +59,6 @@ function formatDuration(seconds) {
   const total = Math.max(0, Math.round(Number(seconds)));
   const minutes = Math.floor(total / 60);
   return `${minutes}:${String(total % 60).padStart(2, "0")}`;
-}
-
-function newCommandId() {
-  return globalThis.crypto?.randomUUID?.() || `command-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function draftKey(sessionId, questionId) {
@@ -160,6 +159,9 @@ export function InterviewPage() {
   const [focusMode, setFocusMode] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const [announceAssistanceNotice, setAnnounceAssistanceNotice] = useState(false);
+  const [skipArmed, setSkipArmed] = useState(false);
+  const [dialog, setDialog] = useState(null);
+  const [liveMessage, setLiveMessage] = useState("");
   const messageListRef = useRef(null);
   const followConversationRef = useRef(true);
   const programmaticScrollUntilRef = useRef(0);
@@ -167,7 +169,7 @@ export function InterviewPage() {
   const resumedCommandRef = useRef(null);
   const assistanceNoticeAnnouncedRef = useRef(null);
 
-  async function loadSnapshot() {
+  const loadSnapshot = useCallback(async () => {
     if (!sessionId) return;
     const data = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}`);
     setSnapshot(data);
@@ -185,12 +187,30 @@ export function InterviewPage() {
     }
     setStatus(data.status === "finished" ? "finished" : "active");
     if (data.status === "finished") {
+      localStorage.setItem("interview-agent:last-report-session-id", sessionId);
+      if (localStorage.getItem("interview-agent:last-active-session-id") === sessionId) {
+        localStorage.removeItem("interview-agent:last-active-session-id");
+      }
       window.location.replace(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
+    } else {
+      localStorage.setItem("interview-agent:last-active-session-id", sessionId);
     }
     const evaluations = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}/question-evaluations`).catch(() => ({ items: [] }));
     setReviewCount((evaluations.items || []).filter((item) => ["completed", "failed"].includes(item.status)).length);
     return data;
-  }
+  }, [sessionId]);
+
+  const followReconnect = useCallback(async function reconnect(commandId, lastEventId, handlers) {
+    const response = await fetch(apiUrl(`/api/interviews/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(commandId)}/stream`), {
+      headers: lastEventId ? { "Last-Event-ID": lastEventId } : {},
+    });
+    const terminal = await readSse(response, handlers);
+    if (terminal.type === "reconnect") {
+      await new Promise((resolve) => setTimeout(resolve, terminal.data.retry_after_ms || 200));
+      return reconnect(commandId, terminal.data.last_event_id || lastEventId, handlers);
+    }
+    return terminal;
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -202,7 +222,17 @@ export function InterviewPage() {
       setStatus("error");
       setNotice({ tone: "danger", text: error.message });
     });
-  }, [sessionId]);
+  }, [loadSnapshot, sessionId]);
+
+  useEffect(() => {
+    setSkipArmed(false);
+  }, [snapshot?.current_question?.id]);
+
+  useEffect(() => {
+    if (!skipArmed) return undefined;
+    const timeout = window.setTimeout(() => setSkipArmed(false), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [skipArmed]);
 
   useEffect(() => {
     const streamUrl = snapshot?.active_stream_url;
@@ -245,15 +275,18 @@ export function InterviewPage() {
         setStatus("error");
         setNotice({ tone: "warning", text: `流式回答恢复失败：${error.message}` });
       });
-  }, [snapshot?.active_stream_url, snapshot?.active_command_id]);
+  }, [followReconnect, loadSnapshot, snapshot?.active_stream_url, snapshot?.active_command_id]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key === "Escape" && focusMode) setFocusMode(false);
+      if (event.key === "Escape") {
+        if (focusMode) setFocusMode(false);
+        if (skipArmed) setSkipArmed(false);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [focusMode]);
+  }, [focusMode, skipArmed]);
 
   useEffect(() => {
     document.body.dataset.interviewState = status;
@@ -292,22 +325,10 @@ export function InterviewPage() {
   }
 
   const commandPayload = (extra = {}) => ({
-    command_id: newCommandId(),
+    command_id: createCommandId(),
     ...(Number.isInteger(snapshot?.state_version) ? { expected_version: snapshot.state_version } : {}),
     ...extra,
   });
-
-  async function followReconnect(commandId, lastEventId, handlers) {
-    const response = await fetch(apiUrl(`/api/interviews/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(commandId)}/stream`), {
-      headers: lastEventId ? { "Last-Event-ID": lastEventId } : {},
-    });
-    const terminal = await readSse(response, handlers);
-    if (terminal.type === "reconnect") {
-      await new Promise((resolve) => setTimeout(resolve, terminal.data.retry_after_ms || 200));
-      return followReconnect(commandId, terminal.data.last_event_id || lastEventId, handlers);
-    }
-    return terminal;
-  }
 
   async function submitAnswer(event) {
     event.preventDefault();
@@ -346,6 +367,7 @@ export function InterviewPage() {
       setAnswer("");
       setStreamingText("");
       await loadSnapshot();
+      setLiveMessage("回答已提交，面试已进入下一步。");
     } catch (error) {
       setStatus("error");
       setNotice({ tone: error.status === 409 ? "warning" : "danger", text: error.status === 409 ? "会话状态已刷新，请检查最新题目后继续。" : error.message });
@@ -360,12 +382,15 @@ export function InterviewPage() {
     try {
       await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/${type}`, commandPayload());
       if (type === "finish") {
+        localStorage.setItem("interview-agent:last-report-session-id", sessionId);
+        localStorage.removeItem("interview-agent:last-active-session-id");
         window.location.assign(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
       } else {
         const questionId = snapshot?.current_question?.id;
         localStorage.removeItem(draftKey(sessionId, questionId));
         setAnswer("");
         await loadSnapshot();
+        setLiveMessage("当前题已跳过，面试已进入下一题。");
       }
     } catch (error) {
       setStatus("error");
@@ -375,10 +400,44 @@ export function InterviewPage() {
   }
 
   function updateAnswer(value) {
+    if (skipArmed) setSkipArmed(false);
     setAnswer(value);
     if (value.trim() && notice?.text?.startsWith("回答不能为空")) setNotice(null);
     const questionId = snapshot?.current_question?.id;
     if (sessionId && questionId) localStorage.setItem(draftKey(sessionId, questionId), value);
+  }
+
+  function requestSkip() {
+    if (!skipArmed) {
+      setSkipArmed(true);
+      setNotice({
+        tone: "warning",
+        text: answer.trim()
+          ? "再次点击“确认跳过”才会继续；当前草稿不会作为本题回答提交。"
+          : "再次点击“确认跳过”才会继续；5 秒后将自动取消。",
+      });
+      return;
+    }
+    setSkipArmed(false);
+    runCommand("skip");
+  }
+
+  function requestNavigation(href) {
+    setDialog({ type: "leave", href });
+    return false;
+  }
+
+  function confirmDialogAction() {
+    const current = dialog;
+    setDialog(null);
+    if (current?.type === "finish") {
+      runCommand("finish");
+      return;
+    }
+    if (current?.type === "leave") {
+      if (sessionId) localStorage.setItem("interview-agent:last-active-session-id", sessionId);
+      window.location.assign(current.href || "/prep");
+    }
   }
 
   const tags = snapshot?.job_tags || [];
@@ -394,23 +453,13 @@ export function InterviewPage() {
   );
   const totalQuestions = snapshot?.total_questions || snapshot?.questions?.length || 0;
   const answeredQuestions = snapshot?.completed_questions || 0;
+  const skippedQuestions = (snapshot?.questions || []).filter((item) => item.state === "skipped").length;
+  const remainingQuestions = Math.max(0, totalQuestions - answeredQuestions - skippedQuestions);
   const statusState = runtimeStates[status] || "idle";
 
   return (
-    <div className="start-app-root interview-app" data-focus-mode={focusMode}>
-      <a className="start-skip-link" href="#answerInput">跳到回答输入</a>
-      <header className="app-topbar start-app-topbar interview-app-topbar">
-        <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
-          <span className="start-brand-mark" aria-hidden="true">IA</span>
-          <span className="start-brand-copy"><strong>面试智能体</strong><small>实时面试工作台</small></span>
-        </a>
-        <nav className="app-nav start-nav" aria-label="主导航">
-          <a href="/prep" aria-current="page">准备</a>
-          <a href="/reports">报告</a>
-          <a href="/help">帮助</a>
-        </nav>
-        <InterviewRuntime status={status} />
-      </header>
+    <AppShell className="interview-app" headerClassName="interview-app-topbar" data-focus-mode={focusMode} skipHref="#answerInput" skipLabel="跳到回答输入" brandSubtitle="实时面试工作台" status={<InterviewRuntime status={status} />} onNavigate={requestNavigation}>
+      <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{liveMessage}</div>
 
       <main id="main-content" className={`start-app-shell interview-app-shell ${shellClass}`} tabIndex="-1">
         {!focusMode && <QuestionNavigator snapshot={snapshot} />}
@@ -438,7 +487,7 @@ export function InterviewPage() {
           </div>
 
           <div className="interview-workspace-scroll">
-            <section className="current-question" key={question?.id || "question-loading"} aria-live="polite" aria-labelledby="current-question-title">
+            <section className="current-question" key={question?.id || "question-loading"} aria-labelledby="current-question-title">
               <div className="question-code" aria-hidden="true"><span>{question ? String(currentQuestionIndex + 1).padStart(2, "0") : "--"}</span><small>{question?.kind || "等待题目"}</small></div>
               <div className="current-question-copy"><p><Crosshair size={14} weight="bold" aria-hidden="true" />{question?.focus || "正在确认考察点"}</p><h2 id="current-question-title">{question?.prompt || "正在加载当前问题"}</h2></div>
             </section>
@@ -449,7 +498,7 @@ export function InterviewPage() {
 
             <InterviewNotice key={notice ? `${notice.tone}-${notice.text}` : "no-notice"} notice={notice} onDismiss={() => setNotice(null)} />
 
-            <section className="agent-console" aria-label="面试对话" aria-live="polite">
+            <section className="agent-console" aria-label="面试对话">
               <header className="console-head">
                 <div><span className="console-live"><ChatCircleDots size={16} weight="duotone" aria-hidden="true" />对话记录</span><small>已确认的回答与追问</small></div>
                 <span className="interview-live-state" data-state={statusState}>{status === "submitting" || status === "loading" || status === "finishing" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : status === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}<span key={`conversation-state-${status}`}>{runtimeLabels[status] || "等待状态"}</span></span>
@@ -490,13 +539,13 @@ export function InterviewPage() {
                 placeholder="先说明你的判断，再展开方案、取舍、风险和验证方式……"
               />
               <div className="composer-foot">
-                <div id="answer-draft-state" className="composer-draft-state" data-ready={Boolean(answer)} aria-live="polite"><ShieldCheck size={14} weight={answer ? "fill" : "regular"} aria-hidden="true" /><span>{answer ? "草稿已保存在当前浏览器" : "输入内容会自动保存"}</span><strong>{answer.length} / 5000</strong></div>
+                <div id="answer-draft-state" className="composer-draft-state" data-ready={Boolean(answer)}><ShieldCheck size={14} weight={answer ? "fill" : "regular"} aria-hidden="true" /><span>{answer ? "草稿已保存在当前浏览器" : "输入内容会自动保存"}</span><strong>{answer.length} / 5000</strong></div>
                 <div className="action-row compact interview-actions">
-                  <button className="button interview-end-button" type="button" onClick={() => runCommand("finish")} disabled={disabled}>
+                  <button className="button interview-end-button" type="button" onClick={() => setDialog({ type: "finish" })} disabled={disabled}>
                     <SignOut size={16} weight="bold" aria-hidden="true" /><span>结束面试</span>
                   </button>
-                  <button className="button interview-skip-button" type="button" onClick={() => runCommand("skip")} disabled={disabled || !question}>
-                    <SkipForward size={16} weight="bold" aria-hidden="true" /><span>跳过此题</span>
+                  <button className="button interview-skip-button" type="button" onClick={requestSkip} disabled={disabled || !question} data-state={skipArmed ? "confirm" : undefined}>
+                    <SkipForward size={16} weight="bold" aria-hidden="true" /><span>{skipArmed ? "确认跳过" : "跳过此题"}</span>
                   </button>
                   <button className="button button-primary interview-submit-button" type="submit" aria-busy={status === "submitting" || undefined} disabled={disabled || !question}>
                     {status === "submitting" ? <SpinnerGap className="start-spinner" size={17} weight="bold" aria-hidden="true" /> : <PaperPlaneTilt size={17} weight="fill" aria-hidden="true" />}
@@ -543,6 +592,28 @@ export function InterviewPage() {
         <StatusBarItem icon={FileText} label="草稿" value={answer ? `${answer.length} 字` : "自动保存"} state={answer ? "ready" : "idle"} />
         <StatusBarItem icon={CheckCircle} label="评审" value={`${reviewCount} / ${answeredQuestions}`} state={reviewCount && reviewCount >= answeredQuestions ? "ready" : answeredQuestions ? "generating" : "idle"} />
       </footer>
-    </div>
+      <ConfirmDialog
+        open={Boolean(dialog)}
+        title={dialog?.type === "finish" ? "结束本次面试？" : "离开并稍后继续？"}
+        description={dialog?.type === "finish" ? "结束后将锁定当前回答并开始生成报告，无法返回继续作答。" : "当前会话不会结束。你可以稍后从准备页继续。"}
+        confirmLabel={dialog?.type === "finish" ? "结束并生成报告" : "离开并稍后继续"}
+        cancelLabel="返回面试"
+        tone={dialog?.type === "finish" ? "danger" : "warning"}
+        busy={status === "finishing"}
+        onCancel={() => setDialog(null)}
+        onConfirm={confirmDialogAction}
+      >
+        {dialog?.type === "finish" ? (
+          <>
+            <div className="confirm-dialog-metrics" aria-label="面试完成情况">
+              <div><strong>{answeredQuestions}</strong><span>已回答</span></div>
+              <div><strong>{skippedQuestions}</strong><span>已跳过</span></div>
+              <div><strong>{remainingQuestions}</strong><span>未完成</span></div>
+            </div>
+            {remainingQuestions > 0 && <p>未回答题目会降低反馈覆盖范围；报告会明确标记无法评估的部分。</p>}
+          </>
+        ) : null}
+      </ConfirmDialog>
+    </AppShell>
   );
 }

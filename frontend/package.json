@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "eslint ."
+    "check": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

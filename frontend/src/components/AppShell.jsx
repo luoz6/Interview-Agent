@@ -1,47 +1,54 @@
-const navigation = [
-  { href: "/prep", label: "开始面试", match: ["/", "/prep", "/interview"] },
-  { href: "/reports", label: "报告中心", match: ["/reports", "/report-processing", "/report-detail"] },
-  { href: "/help", label: "帮助", match: ["/help"] },
-];
+import { forwardRef } from "react";
+import { MobileNav } from "./MobileNav";
+import { PrimaryNav } from "./PrimaryNav";
 
-export function AppShell({
+export const AppShell = forwardRef(function AppShell({
   children,
+  className = "",
+  headerClassName = "",
+  status,
   statusLabel,
   statusTone = "ready",
+  skipHref = "#main-content",
   skipLabel = "跳到主要内容",
-}) {
+  brandSubtitle = "面试配置工作台",
+  onNavigate,
+  ...rootProps
+}, ref) {
   const pathname = window.location.pathname;
+  const navigate = (href, item) => onNavigate?.(href, item);
+
   return (
-    <>
-      <a className="skip-link" href="#main-content">{skipLabel}</a>
-      <header className="app-topbar">
-        <a className="app-brand" href="/prep" aria-label="面试智能体首页">
-          <span className="app-brand-mark" aria-hidden="true">IA</span>
-          <span className="app-brand-copy">
+    <div ref={ref} className={`start-app-root ${className}`.trim()} {...rootProps}>
+      <a className="start-skip-link" href={skipHref}>{skipLabel}</a>
+      <header className={`app-topbar start-app-topbar ${headerClassName}`.trim()}>
+        <a
+          className="start-brand"
+          href="/prep"
+          aria-label="面试智能体开始页"
+          onClick={(event) => {
+            if (navigate("/prep") === false) event.preventDefault();
+          }}
+        >
+          <span className="start-brand-mark" aria-hidden="true">IA</span>
+          <span className="start-brand-copy">
             <strong>面试智能体</strong>
-            <small>AI Assessment Lab</small>
+            <small>{brandSubtitle}</small>
           </span>
         </a>
-        <nav className="app-nav" aria-label="主导航">
-          {navigation.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              aria-current={item.match.includes(pathname) ? "page" : undefined}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-        <div className={`app-topbar-status status-${statusTone}`}>
-          <span className="status-dot" aria-hidden="true" />
-          <span>{statusLabel}</span>
-        </div>
+        <PrimaryNav pathname={pathname} onNavigate={navigate} />
+        {status || (
+          <div className={`app-topbar-status status-${statusTone}`}>
+            <span className="status-dot" aria-hidden="true" />
+            <span>{statusLabel}</span>
+          </div>
+        )}
       </header>
       {children}
-    </>
+      <MobileNav pathname={pathname} onNavigate={navigate} />
+    </div>
   );
-}
+});
 
 export function PageHeading({ kicker, title, description, aside }) {
   return (

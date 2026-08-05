@@ -15,6 +15,7 @@ import {
   WarningCircle,
   Wrench,
 } from "@phosphor-icons/react";
+import { AppShell } from "../components/AppShell";
 import { usePageMeta } from "../hooks/usePageMeta";
 import "../styles/help-app.css";
 
@@ -216,23 +217,12 @@ export function HelpPage() {
   const activeIndex = useMemo(() => Object.keys(views).indexOf(activeView) + 1, [activeView]);
 
   return (
-    <div className="start-app-root help-app" data-help-view={activeView}>
-      <a className="start-skip-link" href="#help-workspace-content">跳到帮助内容</a>
-      <header className="app-topbar start-app-topbar help-app-topbar">
-        <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
-          <span className="start-brand-mark" aria-hidden="true">IA</span>
-          <span className="start-brand-copy"><strong>面试智能体</strong><small>面试配置工作台</small></span>
-        </a>
-        <nav className="app-nav start-nav" aria-label="主导航">
-          <a href="/prep">准备</a>
-          <a href="/reports">报告</a>
-          <a href="/help" aria-current="page">帮助</a>
-        </nav>
-        <div className="start-runtime" data-state="ready" role="status">
+    <AppShell className="help-app" headerClassName="help-app-topbar" data-help-view={activeView} skipHref="#help-workspace-content" skipLabel="跳到帮助内容" status={
+      <div className="start-runtime" data-state="ready" role="status">
           <span className="start-runtime-icon" aria-hidden="true"><CheckCircle size={15} weight="fill" /></span>
           <span>本地指南</span><strong>帮助可用</strong>
         </div>
-      </header>
+    }>
 
       <main className="start-app-shell help-app-shell">
         <nav className="start-activity-rail help-activity-rail" aria-label="帮助主题">
@@ -321,6 +311,6 @@ export function HelpPage() {
         <HelpStatusItem icon={Database} label="快照" value="服务端为准" />
         <HelpStatusItem icon={CheckCircle} label="状态" value="帮助可用" state="ready" current />
       </footer>
-    </div>
+    </AppShell>
   );
 }

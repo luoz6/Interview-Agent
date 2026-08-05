@@ -23,6 +23,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { downloadFile, getJson } from "../api/client";
+import { AppShell } from "../components/AppShell";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
 import "../styles/report-detail-app.css";
@@ -294,7 +295,13 @@ export function ReportDetailPage() {
     }).catch((error) => {
       if (error.name === "AbortError") return;
       setState("error");
-      setNotice({ tone: "danger", title: "报告读取失败", text: error.message });
+      setNotice({
+        tone: "danger",
+        title: "报告读取失败",
+        text: error.status === 503
+          ? "报告存储暂时不可用，请稍后重试。"
+          : error.message,
+      });
     });
     return () => controller.abort();
   }, [reloadGeneration, sessionId]);
@@ -343,7 +350,7 @@ export function ReportDetailPage() {
     return () => window.clearTimeout(timer);
   }, [downloadState]);
 
-  const feedbacks = report?.feedbacks || [];
+  const feedbacks = useMemo(() => report?.feedbacks || [], [report?.feedbacks]);
   const dimensions = report?.overall_dimension_scores || {};
   const score = Number(report?.overall_score) || 0;
   const band = scoreBand(score);
@@ -394,18 +401,7 @@ export function ReportDetailPage() {
   const downloadLabel = downloading ? "正在准备 PDF" : downloadState === "success" ? "下载已开始" : downloadState === "error" ? "重试下载" : "下载 PDF";
 
   return (
-    <div className="start-app-root report-detail-app" data-report-state={state} data-score-tone={band.tone}>
-      <a className="start-skip-link" href="#overview">跳到报告内容</a>
-      <header className="app-topbar start-app-topbar report-detail-topbar">
-        <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
-          <span className="start-brand-mark" aria-hidden="true">IA</span>
-          <span className="start-brand-copy"><strong>面试智能体</strong><small>面试配置工作台</small></span>
-        </a>
-        <nav className="app-nav start-nav" aria-label="主导航">
-          <a href="/prep">准备</a><a href="/reports" aria-current="page">报告</a><a href="/help">帮助</a>
-        </nav>
-        <ReportRuntime state={state} />
-      </header>
+    <AppShell className="report-detail-app" headerClassName="report-detail-topbar" data-report-state={state} data-score-tone={band.tone} skipHref="#overview" skipLabel="跳到报告内容" status={<ReportRuntime state={state} />}>
 
       <main id="main-content" className="start-app-shell report-detail-shell" tabIndex="-1">
         <nav className="start-activity-rail report-detail-activity-rail" aria-label="报告章节">
@@ -558,6 +554,6 @@ export function ReportDetailPage() {
         <StatusBarItem icon={evaluationUnavailable ? WarningCircle : ListChecks} label="评审" value={evaluationUnavailable ? "不可用" : evaluations.length} state={evaluationUnavailable ? "warning" : "idle"} />
         <StatusBarItem icon={state === "error" ? WarningCircle : reportReady ? CheckCircle : Circle} label="当前" value={activeSectionLabel} state={state === "error" ? "error" : reportReady ? "ready" : "generating"} current />
       </footer>
-    </div>
+    </AppShell>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowCounterClockwise,
   ArrowRight,
@@ -9,6 +9,7 @@ import {
   Clock,
   ClipboardText,
   Columns,
+  Eraser,
   FileText,
   Files,
   FloppyDisk,
@@ -21,10 +22,40 @@ import {
   UploadSimple,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { deleteJson, getJson, postJson } from "../api/client";
+import { AppShell } from "../components/AppShell";
+import { createCommandId } from "../utils/ids";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TEXT_LENGTH = 50000;
+const LAST_ACTIVE_SESSION_KEY = "interview-agent:last-active-session-id";
+const LAST_REPORT_SESSION_KEY = "interview-agent:last-report-session-id";
+
+function pendingStartKey(planId) {
+  return `interview-agent:pending-start:${planId}`;
+}
+
+function readPendingStart(planId, expectedVersion) {
+  if (!planId) return null;
+  try {
+    const value = JSON.parse(localStorage.getItem(pendingStartKey(planId)) || "null");
+    if (value?.command_id && value.expected_plan_version === expectedVersion) return value;
+  } catch {
+    localStorage.removeItem(pendingStartKey(planId));
+  }
+  return null;
+}
+
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
 
 const KNOWLEDGE_STATUS_LABELS = {
   completed: "检索完成",
@@ -54,31 +85,6 @@ function storeDraftId(value) {
 
 function clearStoredDraftId() {
   DRAFT_KEYS.forEach((key) => window.localStorage.removeItem(key));
-}
-
-function errorMessage(payload, fallback) {
-  if (typeof payload?.detail === "string") return payload.detail;
-  if (Array.isArray(payload?.detail)) {
-    return payload.detail.map((item) => item?.msg).filter(Boolean).join("；") || fallback;
-  }
-  return fallback;
-}
-
-async function requestJson(url, options = {}) {
-  let response;
-  try {
-    response = await fetch(url, {
-      ...options,
-      headers: options.body
-        ? { "Content-Type": "application/json", ...(options.headers || {}) }
-        : options.headers,
-    });
-  } catch {
-    throw new Error("无法连接后端服务。请确认服务已启动并稍后重试。");
-  }
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(errorMessage(payload, `请求失败（${response.status}）`));
-  return payload;
 }
 
 function SourceEditor({
@@ -270,6 +276,22 @@ function StatusBarItem({ ready = false, state = "idle", label, value, current = 
   );
 }
 
+function SessionResumeCard({ recovery, onContinue, onDismiss }) {
+  if (!recovery) return null;
+  const isReport = recovery.kind === "report";
+  return (
+    <section className="start-resume-card" data-state={recovery.state} aria-label={isReport ? "上次面试报告" : "继续上次面试"}>
+      <span className="start-resume-icon" aria-hidden="true">{isReport ? <FileText size={18} weight="duotone" /> : <Clock size={18} weight="duotone" />}</span>
+      <div>
+        <strong>{isReport ? "上次面试已结束" : "继续上次面试"}</strong>
+        <p>{recovery.state === "unavailable" ? "暂时无法确认服务端快照；会话引用已保留。" : isReport ? "报告正在生成或已经可以查看。" : "已确认服务端会话仍可继续。"}</p>
+      </div>
+      <button className="button start-tool-button" type="button" onClick={onContinue}>{recovery.state === "unavailable" ? "重新确认" : isReport ? "查看报告" : "继续面试"}</button>
+      <button className="start-resume-dismiss" type="button" onClick={onDismiss} aria-label="隐藏上次会话入口">×</button>
+    </section>
+  );
+}
+
 export function StartPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [resumeText, setResumeText] = useState("");
@@ -283,6 +305,9 @@ export function StartPage() {
   const [inspectorView, setInspectorView] = useState("plan");
   const [focusTarget, setFocusTarget] = useState("");
   const [clearArmed, setClearArmed] = useState(false);
+  const [recovery, setRecovery] = useState(null);
+  const [launchAttempt, setLaunchAttempt] = useState(0);
+  const launchControllerRef = useRef(null);
 
   const questions = plan?.questions || [];
   const prepContext = plan?.prep_context || {};
@@ -333,6 +358,49 @@ export function StartPage() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeDocument, focusTarget]);
+
+  useEffect(() => () => launchControllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    verifyRecoveryReference();
+  }, []);
+
+  async function verifyRecoveryReference() {
+    const activeSessionId = localStorage.getItem(LAST_ACTIVE_SESSION_KEY);
+    if (!activeSessionId) {
+      const reportSessionId = localStorage.getItem(LAST_REPORT_SESSION_KEY);
+      setRecovery(reportSessionId ? { kind: "report", sessionId: reportSessionId, state: "ready" } : null);
+      return;
+    }
+    setRecovery({ kind: "interview", sessionId: activeSessionId, state: "checking" });
+    try {
+      const snapshot = await getJson(`/api/interviews/${encodeURIComponent(activeSessionId)}`, { cache: "no-store" });
+      if (snapshot.status === "finished") {
+        localStorage.removeItem(LAST_ACTIVE_SESSION_KEY);
+        localStorage.setItem(LAST_REPORT_SESSION_KEY, activeSessionId);
+        setRecovery({ kind: "report", sessionId: activeSessionId, state: "ready" });
+      } else {
+        setRecovery({ kind: "interview", sessionId: activeSessionId, state: "ready" });
+      }
+    } catch (error) {
+      if ([404, 410].includes(error.status)) {
+        localStorage.removeItem(LAST_ACTIVE_SESSION_KEY);
+        setRecovery(null);
+      } else {
+        setRecovery({ kind: "interview", sessionId: activeSessionId, state: "unavailable" });
+      }
+    }
+  }
+
+  function continueRecovery() {
+    if (!recovery) return;
+    if (recovery.state === "unavailable") {
+      verifyRecoveryReference();
+      return;
+    }
+    const path = recovery.kind === "report" ? "/report-processing" : "/interview";
+    window.location.assign(`${path}?session_id=${encodeURIComponent(recovery.sessionId)}`);
+  }
 
   function validateSources() {
     const next = {
@@ -392,9 +460,10 @@ export function StartPage() {
     setStatus("generating");
     setNotice({ tone: "info", text: "正在提取岗位约束、候选人经历与可用知识证据。" });
     try {
-      const nextPlan = await requestJson("/api/prep", {
-        method: "POST",
-        body: JSON.stringify({ job_description: jobDescription, resume_text: resumeText }),
+      const nextPlan = await postJson("/api/prep", {
+        job_description: jobDescription,
+        resume_text: resumeText,
+        draft_id: draftId || null,
       });
       setPlan(nextPlan);
       setStatus("ready");
@@ -411,20 +480,22 @@ export function StartPage() {
     setStatus("saving");
     setNotice({ tone: "info", text: "正在保存到当前浏览器对应的匿名草稿。" });
     try {
-      const draft = await requestJson("/api/interview-drafts", {
-        method: "POST",
-        body: JSON.stringify({
+      const draft = await postJson("/api/interview-drafts", {
           draft_id: draftId || null,
           job_description: jobDescription,
           resume_text: resumeText,
           title: plan?.title || null,
           job_tags: jobTags.length ? jobTags : null,
-        }),
       });
       setDraftId(draft.draft_id);
       storeDraftId(draft.draft_id);
       setStatus(plan ? "ready" : "idle");
-      setNotice({ tone: "success", text: "草稿已保存在本机浏览器中。它不会跨浏览器或跨设备同步。" });
+      setNotice({
+        tone: "success",
+        text: draft.durability === "postgres"
+          ? `草稿已持久保存至 ${new Date(draft.expires_at).toLocaleString("zh-CN")}，当前浏览器只保存恢复标识。`
+          : "草稿已保存在本机浏览器中关联的当前服务进程；服务重启后会失效，浏览器只保存恢复标识。",
+      });
     } catch (error) {
       setStatus("error");
       setNotice({ tone: "error", text: error.message });
@@ -440,7 +511,7 @@ export function StartPage() {
     setStatus("restoring");
     setNotice({ tone: "info", text: "正在恢复当前浏览器保存的资料。" });
     try {
-      const draft = await requestJson(`/api/interview-drafts/${encodeURIComponent(storedId)}`);
+      const draft = await getJson(`/api/interview-drafts/${encodeURIComponent(storedId)}`);
       setDraftId(draft.draft_id);
       setJobDescription(draft.job_description || "");
       setResumeText(draft.resume_text || "");
@@ -452,10 +523,43 @@ export function StartPage() {
       setInspectorView("readiness");
       setNotice({ tone: "success", text: "草稿已恢复。为保证计划与内容一致，请重新生成面试蓝图。" });
     } catch (error) {
+      if ([404, 410].includes(error.status)) {
+        clearStoredDraftId();
+        setDraftId("");
+      }
+      setStatus("error");
+      setNotice({
+        tone: "error",
+        text: [404, 410].includes(error.status)
+          ? "草稿已失效或被删除，恢复标识已清理。"
+          : `草稿暂时无法恢复，恢复标识已保留：${error.message}`,
+      });
+    }
+  }
+
+  async function deleteSavedDraft() {
+    const storedId = draftId || getStoredDraftId();
+    if (!storedId) {
+      setNotice({ tone: "info", text: "当前没有已保存草稿可删除。" });
+      return;
+    }
+    setStatus("saving");
+    try {
+      await deleteJson(`/api/interview-drafts/${encodeURIComponent(storedId)}`);
       clearStoredDraftId();
       setDraftId("");
-      setStatus("error");
-      setNotice({ tone: "error", text: `草稿恢复失败：${error.message}` });
+      setStatus(plan ? "ready" : "idle");
+      setNotice({ tone: "success", text: "已保存草稿已从服务端删除；当前画布内容仍保留。" });
+    } catch (error) {
+      if ([404, 410].includes(error.status)) {
+        clearStoredDraftId();
+        setDraftId("");
+        setStatus(plan ? "ready" : "idle");
+        setNotice({ tone: "info", text: "草稿已经不存在，本地恢复标识已清理。" });
+      } else {
+        setStatus("error");
+        setNotice({ tone: "error", text: `草稿删除未完成，恢复标识仍保留：${error.message}` });
+      }
     }
   }
 
@@ -479,17 +583,76 @@ export function StartPage() {
 
   async function startInterview() {
     if (!plan || !validateSources()) return;
+    if (!plan.plan_id || !Number.isInteger(plan.plan_version)) {
+      setStatus("error");
+      setNotice({ tone: "error", text: "当前计划缺少权威版本，请重新生成后再开始。" });
+      return;
+    }
+    let pending = readPendingStart(plan.plan_id, plan.plan_version);
+    if (!pending) {
+      try {
+        pending = {
+          command_id: createCommandId("start"),
+          expected_plan_version: plan.plan_version,
+          created_at: new Date().toISOString(),
+        };
+      } catch (error) {
+        setStatus("error");
+        setNotice({ tone: "error", text: error.message });
+        return;
+      }
+      localStorage.setItem(pendingStartKey(plan.plan_id), JSON.stringify(pending));
+    }
     setStatus("starting");
-    setNotice({ tone: "info", text: "正在创建可恢复的面试会话。" });
+    setLaunchAttempt(0);
+    setNotice({ tone: "info", text: "正在创建可恢复的面试会话；连接中断时会复用同一启动标识。" });
+    launchControllerRef.current?.abort();
+    const controller = new AbortController();
+    launchControllerRef.current = controller;
     try {
-      const session = await requestJson("/api/interviews", {
-        method: "POST",
-        body: JSON.stringify({ job_description: jobDescription, resume_text: resumeText }),
-      });
+      let session;
+      const delays = [1500, 3000, 5000];
+      for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+        setLaunchAttempt(attempt + 1);
+        try {
+          session = await postJson("/api/interviews", {
+            plan_id: plan.plan_id,
+            expected_plan_version: pending.expected_plan_version,
+            command_id: pending.command_id,
+          }, { signal: controller.signal });
+          break;
+        } catch (error) {
+          const errorDetails = error.body?.details || error.body?.detail?.details || {};
+          if (error.code === "PREP_PLAN_ALREADY_CONSUMED" && errorDetails.session_id) {
+            session = { session_id: errorDetails.session_id };
+            break;
+          }
+          const bootstrapPending = error.code === "INTERVIEW_BOOTSTRAP_PENDING";
+          if (!bootstrapPending || attempt >= delays.length) throw error;
+          const serverDelay = Number(errorDetails.retry_after_seconds) * 1000;
+          const delay = Number.isFinite(serverDelay) && serverDelay > 0 ? serverDelay : delays[attempt];
+          setNotice({ tone: "info", text: `会话已创建，初始化仍在恢复；${Math.round(delay / 1000)} 秒后使用同一标识继续。` });
+          await wait(delay, controller.signal);
+        }
+      }
+      if (!session?.session_id) throw new Error("服务未返回可恢复的会话标识。");
+      localStorage.setItem(LAST_ACTIVE_SESSION_KEY, session.session_id);
+      localStorage.removeItem(pendingStartKey(plan.plan_id));
       window.location.assign(`/interview?session_id=${encodeURIComponent(session.session_id)}`);
     } catch (error) {
       setStatus("error");
-      setNotice({ tone: "error", text: error.message });
+      const terminal = [404, 410].includes(error.status);
+      if (terminal) localStorage.removeItem(pendingStartKey(plan.plan_id));
+      setNotice({
+        tone: "error",
+        text: error.code === "INTERVIEW_BOOTSTRAP_PENDING"
+          ? "自动恢复次数已用完。原启动标识仍保留；点击“继续准备面试”可安全重试。"
+          : terminal
+            ? "当前计划已失效，请重新生成后再开始。"
+            : `${error.message} 原启动标识已保留，可安全重试。`,
+      });
+    } finally {
+      if (launchControllerRef.current === controller) launchControllerRef.current = null;
     }
   }
 
@@ -499,7 +662,7 @@ export function StartPage() {
     ready: "蓝图就绪",
     saving: "保存草稿",
     restoring: "恢复草稿",
-    starting: "创建会话",
+    starting: launchAttempt > 1 ? `恢复会话 · ${launchAttempt}` : "创建会话",
     error: "需要处理",
   }[status];
   const knowledgeStatus = prepContext.knowledge_status || (plan ? "unknown" : "pending");
@@ -552,20 +715,7 @@ export function StartPage() {
   }
 
   return (
-    <div className="start-app-root">
-      <a className="start-skip-link" href="#main-content">跳到主要内容</a>
-      <header className="app-topbar start-app-topbar">
-        <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
-          <span className="start-brand-mark" aria-hidden="true">IA</span>
-          <span className="start-brand-copy"><strong>面试智能体</strong><small>面试配置工作台</small></span>
-        </a>
-        <nav className="app-nav start-nav" aria-label="主导航">
-          <a href="/prep" aria-current="page">准备</a>
-          <a href="/reports">报告</a>
-          <a href="/help">帮助</a>
-        </nav>
-        <RuntimeStatus status={status} label={statusLabel} />
-      </header>
+    <AppShell status={<RuntimeStatus status={status} label={statusLabel} />}>
 
       <main id="main-content" className="start-app-shell" tabIndex="-1">
         <nav className="start-activity-rail" aria-label="准备工作区">
@@ -575,6 +725,11 @@ export function StartPage() {
         </nav>
 
         <section className="start-editor-workspace" aria-labelledby="workspace-title">
+          <SessionResumeCard
+            recovery={recovery}
+            onContinue={continueRecovery}
+            onDismiss={() => setRecovery(null)}
+          />
           <header className="start-workspace-head">
             <div className="start-workspace-title">
               <span className="start-workspace-mark" aria-hidden="true"><Files size={18} weight="bold" focusable="false" /></span>
@@ -598,7 +753,8 @@ export function StartPage() {
             <div className="start-editor-tools" aria-label="文档工具">
               <button className="button start-tool-button" type="button" onClick={saveDraft} disabled={busy} aria-busy={status === "saving" || undefined} data-state={status === "saving" ? "loading" : undefined}>{status === "saving" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <FloppyDisk size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "saving" ? "正在保存" : "保存草稿"}</span></button>
               <button className="button start-tool-button" type="button" onClick={restoreDraft} disabled={busy} aria-busy={status === "restoring" || undefined} data-state={status === "restoring" ? "loading" : undefined}>{status === "restoring" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowCounterClockwise size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "restoring" ? "正在恢复" : "恢复草稿"}</span></button>
-              <button className="button start-tool-button start-tool-danger" type="button" onClick={clearWorkspace} disabled={busy || (!jobDescription && !resumeText)} data-state={clearArmed ? "confirm" : undefined} aria-label={clearArmed ? "确认清空当前画布" : "清空当前画布"}>{clearArmed ? <WarningCircle size={16} weight="fill" aria-hidden="true" focusable="false" /> : <Trash size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{clearArmed ? "确认清空" : "清空"}</span></button>
+              <button className="button start-tool-button" type="button" onClick={deleteSavedDraft} disabled={busy || !draftId}><Trash size={16} weight="bold" aria-hidden="true" focusable="false" /><span>删除草稿</span></button>
+              <button className="button start-tool-button start-tool-danger" type="button" onClick={clearWorkspace} disabled={busy || (!jobDescription && !resumeText)} data-state={clearArmed ? "confirm" : undefined} aria-label={clearArmed ? "确认清空当前画布" : "清空当前画布"}>{clearArmed ? <WarningCircle size={16} weight="fill" aria-hidden="true" focusable="false" /> : <Eraser size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{clearArmed ? "确认清空" : "清空画布"}</span></button>
             </div>
           </div>
 
@@ -687,7 +843,7 @@ export function StartPage() {
                   <ReadinessItem ready={Boolean(draftId)} label="匿名草稿" value={draftId ? "当前浏览器已关联" : "尚未保存"} />
                   <ReadinessItem ready={Boolean(plan)} label="面试计划" value={plan ? "已生成" : "尚未生成"} />
                 </div>
-                <div className="start-privacy-note"><ShieldCheck size={17} weight="bold" aria-hidden="true" focusable="false" /><p><strong>仅与当前浏览器关联</strong><span>资料用于当前面试流程；匿名草稿不会跨设备同步。</span></p></div>
+                <div className="start-privacy-note"><ShieldCheck size={17} weight="bold" aria-hidden="true" focusable="false" /><p><strong>浏览器只保存恢复标识</strong><span>正文保存在当前服务配置的存储中；持久性以保存成功提示为准。</span></p></div>
               </section>
             ) : null}
           </div>
@@ -699,7 +855,7 @@ export function StartPage() {
             </button>
             <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!plan || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined}>
               {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" focusable="false" />}
-              <span>{status === "starting" ? "正在创建面试" : "开始本次面试"}</span>
+              <span>{status === "starting" ? "正在创建面试" : readPendingStart(plan?.plan_id, plan?.plan_version) ? "继续准备面试" : "开始本次面试"}</span>
             </button>
           </footer>
         </aside>
@@ -712,6 +868,6 @@ export function StartPage() {
         <StatusBarItem ready={knowledgeStatus === "completed"} state={knowledgeStatus === "degraded" ? "warning" : knowledgeStatus === "empty" ? "info" : "idle"} label="知识" value={knowledgeStatusLabel} />
         <StatusBarItem ready={status === "ready"} state={status} label="请求" value={statusLabel} current />
       </footer>
-    </div>
+    </AppShell>
   );
 }

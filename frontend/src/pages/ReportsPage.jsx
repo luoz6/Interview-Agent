@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise,
   ArrowRight,
@@ -17,6 +17,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { downloadFile, getJson, postJson } from "../api/client";
+import { AppShell } from "../components/AppShell";
 import { usePageMeta } from "../hooks/usePageMeta";
 import "../styles/reports-app.css";
 
@@ -125,7 +126,7 @@ export function ReportsPage() {
   const [busyAction, setBusyAction] = useState("");
   const requestSequence = useRef(0);
 
-  async function loadReports() {
+  const loadReports = useCallback(async () => {
     const requestId = ++requestSequence.current;
     setState("loading");
     setNotice(null);
@@ -143,9 +144,9 @@ export function ReportsPage() {
       setState("error");
       setNotice({ tone: "danger", text: error.message });
     }
-  }
+  }, [days, page, query, status]);
 
-  useEffect(() => { loadReports(); }, [status, query, days, page]);
+  useEffect(() => { loadReports(); }, [loadReports]);
   useEffect(() => { document.body.dataset.reportsState = state; }, [state]);
   useEffect(() => {
     if (notice?.tone !== "success") return undefined;
@@ -213,20 +214,7 @@ export function ReportsPage() {
   }
 
   return (
-    <div className="start-app-root reports-app">
-      <a className="start-skip-link" href="#main-content">跳到报告列表</a>
-      <header className="app-topbar start-app-topbar reports-app-topbar">
-        <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
-          <span className="start-brand-mark" aria-hidden="true">IA</span>
-          <span className="start-brand-copy"><strong>面试智能体</strong><small>面试配置工作台</small></span>
-        </a>
-        <nav className="app-nav start-nav" aria-label="主导航">
-          <a href="/prep">准备</a>
-          <a href="/reports" aria-current="page">报告</a>
-          <a href="/help">帮助</a>
-        </nav>
-        <ReportRuntime state={state} total={payload.total || 0} />
-      </header>
+    <AppShell className="reports-app" headerClassName="reports-app-topbar" skipLabel="跳到报告列表" status={<ReportRuntime state={state} total={payload.total || 0} />}>
 
       <main id="main-content" className="start-app-shell reports-app-shell" tabIndex="-1">
         <nav className="start-activity-rail reports-activity-rail" aria-label="报告状态">
@@ -446,6 +434,6 @@ export function ReportsPage() {
         <StatusBarItem icon={WarningCircle} label="失败" value={totals.failed} state={totals.failed ? "error" : "idle"} />
         <StatusBarItem icon={state === "loading" ? SpinnerGap : state === "error" ? WarningCircle : CheckCircle} label="请求" value={state === "loading" ? "同步中" : state === "error" ? "异常" : "已同步"} state={state === "loading" ? "generating" : state === "error" ? "error" : "ready"} current />
       </footer>
-    </div>
+    </AppShell>
   );
 }
