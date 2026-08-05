@@ -5,6 +5,7 @@ from app.services.report import (
     InterviewReport,
 )
 from app.services.report_pdf import (
+    _build_story,
     _build_styles,
     _dimension_table,
     _feedback_story,
@@ -90,7 +91,10 @@ def test_report_pdf_contains_skipped_answer_marker():
         update={
             "user_answer": "Question was skipped by the candidate.",
             "answer_state": "skipped",
-            "score": 0,
+            "score": None,
+            "dimension_scores": DimensionScores(),
+            "evaluation_status": "not_evaluated",
+            "evaluation_reason_code": "skipped",
         }
     )
     report = report.model_copy(update={"feedbacks": [skipped_feedback]})
@@ -110,3 +114,54 @@ def test_dimension_table_uses_chinese_labels():
     assert table._cellvalues[3][0] == "系统设计"
     assert table._cellvalues[4][0] == "工程实践"
     assert table._cellvalues[5][0] == "表达沟通"
+
+
+def test_unscored_pdf_never_prints_none_or_numeric_placeholders():
+    report = make_report().model_copy(
+        update={
+            "overall_score": None,
+            "overall_dimension_scores": DimensionScores(),
+            "score_status": "unscored",
+            "score_reason_code": "insufficient_evidence",
+            "coverage_status": "none",
+            "feedbacks": [
+                make_report().feedbacks[0].model_copy(
+                    update={
+                        "score": None,
+                        "dimension_scores": DimensionScores(),
+                        "evaluation_status": "insufficient_evidence",
+                        "evaluation_reason_code": "evidence_extraction_failed",
+                    }
+                )
+            ],
+        }
+    )
+
+    story = _build_story(report)
+    text = "\n".join(
+        block.getPlainText() for block in story if hasattr(block, "getPlainText")
+    )
+    table = _dimension_table(report)
+
+    assert "Overall Score: Not scored" in text
+    assert "Score: Insufficient evidence" in text
+    assert "Overall Score: None" not in text
+    assert all(row[1] == "Not evaluated" for row in table._cellvalues[1:])
+
+
+def test_partial_pdf_prints_coverage_denominator():
+    report = make_report().model_copy(
+        update={
+            "score_status": "partial",
+            "coverage_status": "partial",
+            "evaluated_count": 1,
+            "total_eligible_count": 2,
+        }
+    )
+
+    story = _build_story(report)
+    text = "\n".join(
+        block.getPlainText() for block in story if hasattr(block, "getPlainText")
+    )
+
+    assert "Overall Score: 81/100 (partial 1/2)" in text

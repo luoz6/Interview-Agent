@@ -439,7 +439,7 @@ def test_generate_microbatch_report_reports_reuse_stats():
         reviewer_factory=FakeReviewer,
     )
 
-    assert report.overall_score == 80
+    assert report.overall_score == 81
     assert FakeReviewer.calls == ["q2"]
     assert len(captured_stats) == 1
     stats = captured_stats[0]

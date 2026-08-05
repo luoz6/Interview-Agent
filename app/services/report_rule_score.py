@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import hashlib
+import json
 import logging
 import re
 from typing import Literal
@@ -7,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.services.report import DimensionScores
 
-REPORT_SCORING_RUBRIC_VERSION = "stage40-rubric-v2"
+REPORT_SCORING_RUBRIC_VERSION = "interview-quality-rubric-v3.3-candidate"
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +101,72 @@ SIGNAL_POINTS: dict[QualitySignal, int] = {
     "clarity": 5,
 }
 
+SIGNAL_TERMS: dict[QualitySignal, tuple[str, ...]] = {
+    "concrete_steps": (
+        "step", "first", "then", "next", "finally", "1.", "2.",
+        "首先", "然后", "接着", "最后", "第一", "第二", "先", "再",
+        "因为", "因此", "所以", "导致", "从而",
+    ),
+    "tradeoff": (
+        "tradeoff", "trade-off", "however", "but", "instead", "cost",
+        "取舍", "权衡", "但是", "不过", "代价", "成本", "相比", "牺牲",
+    ),
+    "risk": (
+        "risk", "failure", "fail", "race", "inconsistent", "timeout", "loss",
+        "风险", "失败", "故障", "竞态", "竞争窗口", "不一致", "超时", "丢失",
+        "雪崩", "击穿", "穿透",
+    ),
+    "fallback": (
+        "ttl", "fallback", "retry", "rollback", "compensat", "degrad", "recover",
+        "兜底", "重试", "回滚", "补偿", "降级", "恢复", "熔断", "限流", "过期",
+    ),
+    "metric": (
+        "p95", "p99", "qps", "latency", "throughput", "error rate", "lag",
+        "延迟", "吞吐", "错误率", "命中率", "成功率", "可用性", "耗时", "响应时间",
+    ),
+    "production": (
+        "production", "monitor", "alert", "on-call", "runbook", "canary",
+        "生产环境", "生产系统", "生产流量", "线上", "监控", "告警", "值班", "预案", "灰度", "巡检",
+    ),
+    "code_or_api": (
+        "api", "sql", "explain", "redis", "binlog", "mq", "http", "endpoint", "offset",
+        "接口", "索引", "事务", "缓存", "消息队列", "日志", "数据库",
+    ),
+    "clarity": (",", ".", ";", ":", "，", "。", "；", "：", "！", "？"),
+    "concept": (),
+}
+
+_NEGATION_TERMS = (
+    "没有", "并没有", "未", "不", "不需要", "不用", "无需", "无", "缺少", "从不", "尚未",
+    "no ", "not ", "never ", "without ", "didn't ", "doesn't ", "do not ",
+)
+
+MISSING_POINT_SIGNAL_MAP: dict[str, QualitySignal] = {
+    "tradeoff_gap": "tradeoff",
+    "metric_gap": "metric",
+    "production_gap": "production",
+    "recovery_gap": "fallback",
+}
+
+REPORT_SCORING_RUBRIC_SHA256 = hashlib.sha256(
+    json.dumps(
+        {
+            "version": REPORT_SCORING_RUBRIC_VERSION,
+            "signal_points": SIGNAL_POINTS,
+            "signal_terms": SIGNAL_TERMS,
+            "question_kind_dimensions": QUESTION_KIND_DIMENSIONS,
+            "question_kind_weights": QUESTION_KIND_WEIGHTS,
+            "negative_terms": _NEGATION_TERMS,
+            "missing_point_signal_map": MISSING_POINT_SIGNAL_MAP,
+            "missing_evidence_caps": {"advanced_signal_present": 90, "otherwise": 75},
+            "deterministic_low_quality_without_extracted_evidence": 0,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+).hexdigest()
+
 
 class DimensionEvidence(BaseModel):
     dimension: DimensionName
@@ -109,9 +177,12 @@ class DimensionEvidence(BaseModel):
 
 @dataclass(frozen=True)
 class RuleQuestionScore:
-    score: int
+    score: int | None
     dimension_scores: DimensionScores
     applicable_dimensions: list[DimensionName]
+    evaluation_status: Literal["evaluated", "insufficient_evidence"]
+    evaluation_reason_code: str
+    evidence_count: int
 
 
 def applicable_dimensions_for_item(item: dict) -> list[DimensionName]:
@@ -133,7 +204,12 @@ def score_dimension_evidence(evidence: DimensionEvidence) -> int:
     if not _has_observed_evidence(evidence):
         return 0
 
-    signals = list(dict.fromkeys(evidence.quality_signals))
+    missing_signals = _missing_quality_signals(evidence.missing)
+    signals = [
+        signal
+        for signal in dict.fromkeys(evidence.quality_signals)
+        if signal not in missing_signals
+    ]
     if not signals:
         return 40
 
@@ -143,9 +219,24 @@ def score_dimension_evidence(evidence: DimensionEvidence) -> int:
             continue
         score += SIGNAL_POINTS[signal]
 
-    if evidence.missing and score > 85:
-        score = 85
+    if evidence.missing:
+        advanced_signals = {"tradeoff", "metric", "production"}.intersection(signals)
+        cap = 90 if advanced_signals else 75
+        score = min(score, cap)
     return max(0, min(score, 95))
+
+
+def _missing_quality_signals(missing_points: list[str]) -> set[QualitySignal]:
+    codes = {
+        point.partition(":")[0].strip().lower()
+        for point in missing_points
+        if point.strip()
+    }
+    return {
+        signal
+        for code, signal in MISSING_POINT_SIGNAL_MAP.items()
+        if code in codes
+    }
 
 
 def score_question_from_evidence(
@@ -164,6 +255,8 @@ def score_question_from_evidence(
         for text in evidence.observed
         if text.strip()
     ]
+    if not observed:
+        return score_question_without_evidence(item)
     missing = [
         text
         for evidence in evidence_items
@@ -183,17 +276,17 @@ def score_question_from_evidence(
     dimension_values = {
         dimension: score_dimension_evidence(evidence_by_dimension[dimension])
         if dimension in evidence_by_dimension
-        else 0
+        else None
         for dimension in DIMENSIONS
     }
     answer_cap = answer_quality_score_cap(item)
     dimension_values = {
-        dimension: min(value, answer_cap)
+        dimension: min(value, answer_cap) if value is not None else None
         for dimension, value in dimension_values.items()
     }
     score = round(
         sum(
-            dimension_values[dimension] * weights.get(dimension, 0)
+            (dimension_values[dimension] or 0) * weights.get(dimension, 0)
             for dimension in applicable
         )
     )
@@ -202,6 +295,9 @@ def score_question_from_evidence(
         score=score,
         dimension_scores=DimensionScores(**dimension_values),
         applicable_dimensions=applicable,
+        evaluation_status="evaluated",
+        evaluation_reason_code="sufficient_evidence",
+        evidence_count=len(observed),
     )
 
 
@@ -234,21 +330,21 @@ def derive_quality_signals(
     detected: list[QualitySignal] = []
     if len(meaningful) >= 20:
         detected.append("concept")
-    if _contains_any(answer, ("step", "first", "then", "next", "finally", "1.", "2.")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["concrete_steps"]):
         detected.append("concrete_steps")
-    if _contains_any(answer, ("tradeoff", "trade-off", "however", "but", "instead", "cost")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["tradeoff"]):
         detected.append("tradeoff")
-    if _contains_any(answer, ("risk", "failure", "fail", "race", "inconsistent", "timeout", "loss")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["risk"]):
         detected.append("risk")
-    if _contains_any(answer, ("ttl", "fallback", "retry", "rollback", "compensat", "degrad")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["fallback"]):
         detected.append("fallback")
-    if _contains_any(answer, ("p95", "p99", "qps", "latency", "throughput", "error rate", "lag")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["metric"]):
         detected.append("metric")
-    if _contains_any(answer, ("production", "monitor", "alert", "on-call", "runbook", "canary")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["production"]):
         detected.append("production")
-    if _contains_any(answer, ("api", "sql", "explain", "redis", "binlog", "mq", "http", "endpoint", "offset")):
+    if _contains_positive_signal(answer, SIGNAL_TERMS["code_or_api"]):
         detected.append("code_or_api")
-    if len(meaningful) >= 30 and _contains_any(answer, (",", ".", ";", ":")):
+    if len(meaningful) >= 30 and _contains_any(answer, SIGNAL_TERMS["clarity"]):
         detected.append("clarity")
 
     allowed_by_dimension: dict[DimensionName, set[QualitySignal]] = {
@@ -264,16 +360,28 @@ def derive_quality_signals(
 
 def score_question_without_evidence(item: dict) -> RuleQuestionScore:
     applicable = applicable_dimensions_for_item(item)
+    answer_cap = answer_quality_score_cap(item)
+    if answer_cap == 0 and _candidate_answer_text(item):
+        return RuleQuestionScore(
+            score=0,
+            dimension_scores=DimensionScores(
+                **{
+                    dimension: 0 if dimension in applicable else None
+                    for dimension in DIMENSIONS
+                }
+            ),
+            applicable_dimensions=applicable,
+            evaluation_status="evaluated",
+            evaluation_reason_code="deterministic_low_quality_answer",
+            evidence_count=1,
+        )
     return RuleQuestionScore(
-        score=0,
-        dimension_scores=DimensionScores(
-            breadth=0,
-            depth=0,
-            architecture=0,
-            engineering=0,
-            communication=0,
-        ),
+        score=None,
+        dimension_scores=DimensionScores(),
         applicable_dimensions=applicable,
+        evaluation_status="insufficient_evidence",
+        evaluation_reason_code="evidence_extraction_failed",
+        evidence_count=0,
     )
 
 
@@ -323,6 +431,14 @@ def _contains_unsafe_absolute_claim(answer: str) -> bool:
         "\u4e00\u5b9a\u4f7f\u7528",
         "\u4fdd\u8bc1\u96f6\u6545\u969c",
         "\u5b8c\u5168\u6b63\u5e38",
+        "永远",
+        "绝不会",
+        "百分之百",
+        "完全避免",
+        "零风险",
+        "天然共享",
+        "天然可靠",
+        "不会丢失",
     )
     dismissive_terms = (
         "no need",
@@ -334,6 +450,9 @@ def _contains_unsafe_absolute_claim(answer: str) -> bool:
         "\u4e0d\u9700\u8981",
         "\u4e0d\u7528\u5206\u6790",
         "\u4e0d\u4f1a\u4e22\u5931",
+        "不用监控",
+        "没有必要",
+        "无需回滚",
     )
     return _contains_any(answer, absolute_terms) and _contains_any(answer, dismissive_terms)
 
@@ -352,28 +471,11 @@ def weights_for_item(
     return {dimension: equal_weight for dimension in applicable}
 
 
-def aggregate_feedback_scores(feedbacks) -> tuple[int, DimensionScores]:
-    feedbacks = list(feedbacks)
-    if not feedbacks:
-        return 0, DimensionScores(
-            breadth=0,
-            depth=0,
-            architecture=0,
-            engineering=0,
-            communication=0,
-        )
+def aggregate_feedback_scores(feedbacks) -> tuple[int | None, DimensionScores]:
+    from app.services.report_coverage import aggregate_report_coverage
 
-    overall_score = round(sum(feedback.score for feedback in feedbacks) / len(feedbacks))
-    dimension_values = {}
-    for dimension in DIMENSIONS:
-        values = [
-            getattr(feedback.dimension_scores, dimension)
-            if _dimension_applies(feedback, dimension)
-            else 0
-            for feedback in feedbacks
-        ]
-        dimension_values[dimension] = round(sum(values) / len(values)) if values else 0
-    return overall_score, DimensionScores(**dimension_values)
+    coverage = aggregate_report_coverage(list(feedbacks))
+    return coverage.overall_score, coverage.overall_dimension_scores
 
 
 def _dimension_applies(feedback, dimension: str) -> bool:
@@ -389,6 +491,30 @@ def _has_observed_evidence(evidence: DimensionEvidence) -> bool:
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
+
+
+def _contains_positive_signal(text: str, terms: tuple[str, ...]) -> bool:
+    for term in terms:
+        start = 0
+        while True:
+            index = text.find(term, start)
+            if index < 0:
+                break
+            prefix = text[max(0, index - 12) : index]
+            if not _is_negated_prefix(prefix):
+                return True
+            start = index + max(1, len(term))
+    return False
+
+
+def _is_negated_prefix(prefix: str) -> bool:
+    compact = re.sub(r"[\s，。；：、,.!?！？]+", "", prefix.lower())
+    for term in _NEGATION_TERMS:
+        normalized = re.sub(r"\s+", "", term)
+        index = compact.rfind(normalized)
+        if index >= 0 and len(compact) - index - len(normalized) <= 4:
+            return True
+    return False
 
 
 _LOW_INFORMATION_ANSWERS = {

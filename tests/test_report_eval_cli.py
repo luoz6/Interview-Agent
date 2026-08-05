@@ -150,7 +150,7 @@ def test_deepseek_case_evaluator_counts_invalid_json_as_fallback(tmp_path):
     )
 
     assert result["fallback"] is True
-    assert result["score"] == 0
+    assert result["score"] is None
     assert result["provider_invocations"] == 1
     assert list((tmp_path / "stage40-invalid-1").glob("*_report_output_format_error.json"))
 
@@ -200,21 +200,22 @@ def run_main(monkeypatch, tmp_path, *, payload, runs_per_case=1, budget=5):
     return exit_code, model, tmp_path / "test-run"
 
 
-def test_main_returns_zero_for_complete_passing_run(monkeypatch, tmp_path):
+def test_main_returns_two_when_completed_run_has_insufficient_gate_sample(monkeypatch, tmp_path):
     exit_code, model, run_dir = run_main(monkeypatch, tmp_path, payload=provider_payload)
 
-    assert exit_code == 0
+    assert exit_code == 2
     assert model.invoke_calls == 1
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["base_url_host"] == "api.example.com"
     assert "secret" not in (run_dir / "manifest.json").read_text(encoding="utf-8")
-    assert manifest["decision"] == "PASS"
+    assert manifest["decision"] == "INSUFFICIENT_SAMPLE"
+    assert len(manifest["rubric_sha256"]) == 64
 
 
-def test_main_returns_one_for_completed_fallback_failure(monkeypatch, tmp_path):
+def test_main_returns_two_for_fallback_run_below_formal_sample_size(monkeypatch, tmp_path):
     exit_code, _, run_dir = run_main(monkeypatch, tmp_path, payload="not json")
 
-    assert exit_code == 1
+    assert exit_code == 2
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["fallback_rate"] == 1.0
 

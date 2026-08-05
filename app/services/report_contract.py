@@ -6,15 +6,27 @@ from app.services.report import (
     InterviewFeedback,
     InterviewReport,
 )
-from app.services.report_rule_score import aggregate_feedback_scores
+from app.services.report_coverage import (
+    aggregate_report_coverage,
+    dimension_evaluations,
+    populate_feedback_dimension_evaluations,
+    question_evaluations,
+)
+from app.services.report_rule_score import (
+    REPORT_SCORING_RUBRIC_SHA256,
+    REPORT_SCORING_RUBRIC_VERSION,
+)
 
 
 class CanonicalQuestionResult(BaseModel):
     question_id: str
     question_text: str
     user_answer: str
-    score: int = Field(ge=0, le=100)
+    score: int | None = Field(default=None, ge=0, le=100)
     dimension_scores: DimensionScores
+    evaluation_status: str = "evaluated"
+    evaluation_reason_code: str = "sufficient_evidence"
+    evidence_count: int = Field(default=0, ge=0)
     applicable_dimensions: list[str] = Field(default_factory=list)
     dimension_evidence: list[dict] = Field(default_factory=list)
     rationale: str
@@ -40,6 +52,9 @@ def assemble_interview_report(
             user_answer=result.user_answer,
             score=result.score,
             dimension_scores=result.dimension_scores,
+            evaluation_status=result.evaluation_status,
+            evaluation_reason_code=result.evaluation_reason_code,
+            evidence_count=result.evidence_count,
             applicable_dimensions=result.applicable_dimensions,
             dimension_evidence=result.dimension_evidence,
             rationale=result.rationale,
@@ -54,15 +69,26 @@ def assemble_interview_report(
         for result in question_results
     ]
 
-    overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
+    feedbacks = populate_feedback_dimension_evaluations(feedbacks)
+    coverage = aggregate_report_coverage(feedbacks)
 
     highlights = _build_highlights(question_results)
     summary = _build_summary(question_results, highlights)
 
     return InterviewReport(
         session_id=session_id,
-        overall_score=overall_score,
-        overall_dimension_scores=overall_dimension_scores,
+        overall_score=coverage.overall_score,
+        overall_dimension_scores=coverage.overall_dimension_scores,
+        score_status=coverage.score_status,
+        score_reason_code=coverage.score_reason_code,
+        coverage_status=coverage.coverage_status,
+        evaluated_count=coverage.evaluated_count,
+        total_eligible_count=coverage.total_eligible_count,
+        evidence_count=coverage.evidence_count,
+        scoring_rubric_version=REPORT_SCORING_RUBRIC_VERSION,
+        scoring_rubric_sha256=REPORT_SCORING_RUBRIC_SHA256,
+        dimension_evaluations=dimension_evaluations(coverage),
+        question_evaluations=question_evaluations(feedbacks),
         summary=summary,
         highlights=highlights,
         feedbacks=feedbacks,

@@ -23,7 +23,10 @@ from app.services.report_eval_dataset import EvaluationDataset, load_evaluation_
 from app.services.report_eval_metrics import AttemptResult, calculate_metrics
 from app.services.interview_quality_gate import load_gate_config
 from app.services.report_eval_runner import EvaluationRunner
-from app.services.report_rule_score import REPORT_SCORING_RUBRIC_VERSION
+from app.services.report_rule_score import (
+    REPORT_SCORING_RUBRIC_SHA256,
+    REPORT_SCORING_RUBRIC_VERSION,
+)
 from app.services.report_trace import ReportTraceRecorder
 
 
@@ -87,6 +90,9 @@ class DeepSeekCaseEvaluator:
                 "quality_level": case.quality_level,
                 "run_number": run_number,
                 "score": feedback.score,
+                "expected_score_range": list(case.expected_score_range),
+                "language": _answer_language(case.answer),
+                "question_type": case.question_kind,
                 "answer": case.answer,
                 "observed": [
                     value
@@ -110,7 +116,10 @@ class DeepSeekCaseEvaluator:
                 "group_id": case.group_id,
                 "quality_level": case.quality_level,
                 "run_number": run_number,
-                "score": 0,
+                "score": None,
+                "expected_score_range": list(case.expected_score_range),
+                "language": _answer_language(case.answer),
+                "question_type": case.question_kind,
                 "answer": case.answer,
                 "observed": [],
                 "required_observations": case.required_observations,
@@ -166,7 +175,7 @@ def render_markdown(metrics: dict) -> str:
         symbols = {"gte": ">=", "lte": "<=", "eq": "=="}
         return f"{symbols[rule.operator]} {rule.threshold:g}"
 
-    decision = "PASS" if metrics["passed"] else "FAIL"
+    decision = metrics.get("decision", "PASS" if metrics["passed"] else "FAIL")
     lines = [
         f"# Stage 40 Release Decision: {decision}",
         "",
@@ -176,6 +185,10 @@ def render_markdown(metrics: dict) -> str:
         f"| evidence_grounding_rate | {metrics['evidence_grounding_rate']:.3f} | {gate_text('evidence_grounding_rate')} |",
         f"| max_score_delta | {metrics['max_score_delta']:.3f} | {gate_text('max_score_delta')} |",
         f"| fallback_rate | {metrics['fallback_rate']:.3f} | {gate_text('fallback_rate')} |",
+        f"| expected_range_attempt_hit_rate | {metrics.get('expected_range_attempt_hit_rate', 0):.3f} | GateConfig |",
+        f"| strong_attempt_hit_rate | {metrics.get('strong_attempt_hit_rate', 0):.3f} | GateConfig |",
+        f"| interval_outside_mae | {metrics.get('interval_outside_mae', 0):.3f} | GateConfig |",
+        f"| expert_score_spearman | {metrics.get('expert_score_spearman', 0):.3f} | GateConfig |",
         "",
         f"- completed_attempts: {metrics['completed_attempt_count']}/{metrics['expected_attempt_count']}",
         f"- failed_gates: {', '.join(metrics['failed_gates']) or 'none'}",
@@ -247,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
                 "base_url": config.base_url or "",
                 "prompt_version": REPORT_EVIDENCE_PROMPT_VERSION,
                 "rubric_version": REPORT_SCORING_RUBRIC_VERSION,
+                "rubric_sha256": REPORT_SCORING_RUBRIC_SHA256,
                 "completed_attempts": 0,
                 "provider_invocations": 0,
             },
@@ -286,7 +300,11 @@ def main(argv: list[str] | None = None) -> int:
             "provider_invocations": int(manifest.get("provider_invocations", 0))
             + budget.used,
             "last_command_provider_invocations": budget.used,
-            "decision": "PASS" if metrics.passed else "INCOMPLETE" if budget_exhausted else "FAIL",
+            "decision": (
+                "INCOMPLETE"
+                if budget_exhausted
+                else metrics.decision
+            ),
         }
     )
     store.write_manifest(manifest)
@@ -297,7 +315,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if budget_exhausted and len(attempts) < expected_attempts:
         return 2
+    if metrics.decision == "INSUFFICIENT_SAMPLE":
+        return 2
     return 0 if metrics.passed else 1
+
+
+def _answer_language(value: str) -> str:
+    has_chinese = any("\u4e00" <= char <= "\u9fff" for char in value)
+    has_latin = any("a" <= char.lower() <= "z" for char in value)
+    if has_chinese and has_latin:
+        return "mixed"
+    if has_chinese:
+        return "zh"
+    if has_latin:
+        return "en"
+    return "unknown"
 
 
 def _filter_dataset(

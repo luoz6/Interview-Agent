@@ -578,7 +578,7 @@ def test_generate_report_ignores_provider_scores_and_uses_rule_evidence():
     assert report.feedbacks[0].dimension_scores.engineering == 65
     assert report.feedbacks[0].dimension_scores.breadth == 40
     assert report.feedbacks[0].dimension_scores.communication == 45
-    assert report.feedbacks[0].dimension_scores.architecture == 0
+    assert report.feedbacks[0].dimension_scores.architecture is None
     assert report.feedbacks[0].applicable_dimensions == [
         "depth",
         "engineering",
@@ -638,10 +638,11 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
     assert report.summary == "Explained delete-after-write but missed race-window handling."
-    assert report.overall_score == 0
-    assert report.overall_dimension_scores.depth == 0
+    assert report.overall_score is None
+    assert report.overall_dimension_scores.depth is None
+    assert report.score_status == "unscored"
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
-    assert report.feedbacks[0].dimension_scores.engineering == 0
+    assert report.feedbacks[0].dimension_scores.engineering is None
     assert report.feedbacks[0].critique == "模型输出未提供明确问题点。"
     assert (
         report.feedbacks[0].better_answer
@@ -665,9 +666,10 @@ def test_generate_report_normalizes_sparse_deepseek_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 0
+    assert report.overall_score is None
     assert report.summary == "Measured latency improvement with Redis cache-aside."
-    assert report.feedbacks[0].score == 0
+    assert report.feedbacks[0].score is None
+    assert report.feedbacks[0].evaluation_status == "insufficient_evidence"
     assert "cache-aside pattern" in report.feedbacks[0].rationale
     assert report.feedbacks[0].critique == "No cache invalidation race-window mitigation."
     assert (
@@ -691,15 +693,15 @@ def test_generate_report_normalizes_evaluation_results_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 0
-    assert report.overall_dimension_scores.engineering == 0
+    assert report.overall_score is None
+    assert report.overall_dimension_scores.engineering is None
     assert report.summary == "Mentioned p95 latency reduction. Described update-then-delete pattern."
     assert report.highlights == [
         "Mentioned p95 latency reduction.",
         "Described update-then-delete pattern.",
     ]
-    assert report.feedbacks[0].score == 0
-    assert report.feedbacks[0].dimension_scores.depth == 0
+    assert report.feedbacks[0].score is None
+    assert report.feedbacks[0].dimension_scores.depth is None
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",

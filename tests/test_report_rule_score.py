@@ -1,6 +1,7 @@
 from app.services.report import DimensionScores
 from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_VERSION,
+    REPORT_SCORING_RUBRIC_SHA256,
     DimensionEvidence,
     aggregate_feedback_scores,
     answer_quality_score_cap,
@@ -12,7 +13,94 @@ from app.services.report_rule_score import (
 
 
 def test_report_scoring_rubric_has_stable_version():
-    assert REPORT_SCORING_RUBRIC_VERSION == "stage40-rubric-v2"
+    assert REPORT_SCORING_RUBRIC_VERSION == "interview-quality-rubric-v3.3-candidate"
+    assert len(REPORT_SCORING_RUBRIC_SHA256) == 64
+    assert set(REPORT_SCORING_RUBRIC_SHA256) <= set("0123456789abcdef")
+
+
+def test_chinese_process_tradeoff_risk_recovery_metrics_and_operations_are_detected():
+    item = {
+        "messages": [{
+            "role": "candidate",
+            "content": (
+                "首先提交数据库事务，然后删除 Redis 缓存；因为存在并发窗口，"
+                "所以要权衡一致性和延迟。失败时重试并降级到数据库，线上监控 p95、"
+                "错误率和告警，最后通过灰度发布验证。"
+            ),
+        }]
+    }
+
+    assert derive_quality_signals(item, dimension="engineering") == [
+        "concept",
+        "concrete_steps",
+        "risk",
+        "fallback",
+        "metric",
+        "production",
+        "code_or_api",
+        "clarity",
+    ]
+    assert "tradeoff" in derive_quality_signals(item, dimension="depth")
+
+
+def test_negated_monitoring_and_metrics_do_not_create_positive_signals():
+    item = {
+        "messages": [{
+            "role": "candidate",
+            "content": "这个方案没有监控，也未设置告警，没有 p95 指标，不需要重试。",
+        }]
+    }
+
+    signals = derive_quality_signals(item, dimension="engineering")
+
+    assert "production" not in signals
+    assert "metric" not in signals
+    assert "fallback" not in signals
+
+
+def test_positive_recovery_after_negated_history_is_still_detected():
+    item = {
+        "messages": [{
+            "role": "candidate",
+            "content": "最初没有监控，复盘后补充监控和告警，并设置失败重试。",
+        }]
+    }
+
+    signals = derive_quality_signals(item, dimension="engineering")
+
+    assert "production" in signals
+    assert "fallback" in signals
+
+
+def test_chinese_producer_word_does_not_count_as_production_operations():
+    item = {
+        "messages": [{
+            "role": "candidate",
+            "content": "Kafka 生产者设置 acks=all，消费者成功后提交 offset。",
+        }]
+    }
+
+    assert "production" not in derive_quality_signals(item, dimension="engineering")
+
+
+def test_chinese_unsafe_absolute_claim_caps_score():
+    item = {
+        "question_kind": "technical",
+        "messages": [{
+            "role": "candidate",
+            "content": "这个缓存方案永远一致，所以无需回滚，也没有必要做监控。",
+        }],
+    }
+    evidence = [
+        DimensionEvidence(
+            dimension="depth",
+            observed=["这个缓存方案永远一致"],
+        )
+    ]
+
+    result = score_question_from_evidence(item, evidence)
+
+    assert result.score <= 35
 
 
 def test_answer_quality_cap_warns_when_answer_payload_is_missing(caplog):
@@ -148,6 +236,31 @@ def test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback():
     assert score_dimension_evidence(evidence) == 95
 
 
+def test_structured_missing_points_override_false_positive_advanced_signals():
+    evidence = DimensionEvidence(
+        dimension="architecture",
+        observed=["The answer explicitly says it lacks a complete tradeoff and metrics."],
+        missing=[
+            "tradeoff_gap: incomplete tradeoff",
+            "metric_gap: missing measurable metrics",
+            "production_gap: missing production feedback loop",
+            "recovery_gap: missing recovery loop",
+        ],
+        quality_signals=[
+            "concept",
+            "concrete_steps",
+            "tradeoff",
+            "risk",
+            "fallback",
+            "metric",
+            "production",
+            "clarity",
+        ],
+    )
+
+    assert score_dimension_evidence(evidence) == 70
+
+
 def test_applicable_dimensions_use_question_kind_before_focus_text():
     item = {
         "question_id": "q1",
@@ -213,7 +326,7 @@ def test_score_question_ignores_non_applicable_architecture_evidence():
     result = score_question_from_evidence(item, evidence)
 
     assert result.score == 66
-    assert result.dimension_scores.architecture == 0
+    assert result.dimension_scores.architecture is None
     assert result.dimension_scores.depth == 70
     assert result.dimension_scores.engineering == 70
     assert result.dimension_scores.breadth == 50
@@ -262,13 +375,13 @@ def test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence(
     assert result.dimension_scores == DimensionScores(
         breadth=0,
         depth=0,
-        architecture=0,
+        architecture=None,
         engineering=0,
         communication=0,
     )
 
 
-def test_aggregate_feedback_scores_counts_missing_dimension_coverage_as_zero():
+def test_aggregate_feedback_scores_excludes_non_applicable_dimensions():
     class Feedback:
         def __init__(self, score, dimension_scores, applicable_dimensions):
             self.score = score
@@ -304,9 +417,9 @@ def test_aggregate_feedback_scores_counts_missing_dimension_coverage_as_zero():
 
     assert overall_score == 70
     assert overall_dimensions == DimensionScores(
-        breadth=0,
-        depth=40,
-        architecture=30,
+        breadth=None,
+        depth=80,
+        architecture=60,
         engineering=70,
         communication=70,
     )

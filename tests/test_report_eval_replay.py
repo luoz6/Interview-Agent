@@ -5,7 +5,7 @@ from app.services.report_eval_artifacts import EvaluationArtifactStore
 from app.services.report_eval_replay import rescore_run
 
 
-def test_rescore_run_uses_saved_evidence_and_updates_manifest(tmp_path):
+def test_rescore_run_uses_saved_evidence_without_mutating_source(tmp_path):
     dataset_path = Path("tests/golden/report_quality_v1.json")
     case_id = "redis-cache-consistency-medium"
     store = EvaluationArtifactStore.create(
@@ -55,9 +55,38 @@ def test_rescore_run_uses_saved_evidence_and_updates_manifest(tmp_path):
         encoding="utf-8",
     )
 
-    metrics = rescore_run(run_dir=store.run_dir, dataset_path=dataset_path)
+    output_dir = tmp_path / "run-1-v3-replay"
+    metrics = rescore_run(
+        run_dir=store.run_dir,
+        dataset_path=dataset_path,
+        output_dir=output_dir,
+    )
+    replay_store = EvaluationArtifactStore.open(output_dir)
 
-    assert store.load_normalized_attempts()[0]["score"] > 0
+    assert store.load_normalized_attempts()[0]["score"] == 0
+    assert replay_store.load_normalized_attempts()[0]["score"] > 0
     assert metrics["completed_attempt_count"] == 1
-    assert store.read_manifest()["rubric_version"] == "stage40-rubric-v2"
-    assert store.read_manifest()["rescored_from_saved_evidence"] is True
+    assert replay_store.read_manifest()["rubric_version"] == "interview-quality-rubric-v3.3-candidate"
+    assert replay_store.read_manifest()["rescored_from_saved_evidence"] is True
+    assert replay_store.read_manifest()["provider_invocations"] == 0
+    assert metrics["saved_response_replay_delta"] == 0
+
+
+def test_rescore_run_refuses_to_overwrite_existing_replay_artifact(tmp_path):
+    dataset_path = Path("tests/golden/report_quality_v1.json")
+    source = EvaluationArtifactStore.create(
+        root=tmp_path,
+        run_id="source",
+        manifest={"run_id": "source", "target_attempts": 0},
+    )
+    output_dir = tmp_path / "existing"
+    output_dir.mkdir()
+
+    import pytest
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        rescore_run(
+            run_dir=source.run_dir,
+            dataset_path=dataset_path,
+            output_dir=output_dir,
+        )

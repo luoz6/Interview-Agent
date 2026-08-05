@@ -207,16 +207,22 @@ def test_evaluator_returns_fallback_completed_report_when_structured_output_fail
 
     assert report.status == "completed"
     assert report.is_fallback is True
-    assert report.overall_score == 60
-    assert report.overall_dimension_scores.depth == 60
+    assert report.overall_score is None
+    assert report.overall_dimension_scores.depth is None
+    assert report.score_status == "unscored"
+    assert report.generation_status == "degraded"
     assert (
         report.summary
         == "AI 评估未能生成完整报告，请结合原始回答继续复盘。"
     )
     assert len(report.feedbacks) == 2
     assert {feedback.question_id for feedback in report.feedbacks} == {"q1", "q2"}
-    assert all(feedback.score == 60 for feedback in report.feedbacks)
-    assert report.feedbacks[0].dimension_scores.engineering == 60
+    assert all(feedback.score is None for feedback in report.feedbacks)
+    assert report.feedbacks[0].dimension_scores.engineering is None
+    assert all(
+        feedback.evaluation_status == "insufficient_evidence"
+        for feedback in report.feedbacks
+    )
     assert report.feedbacks[0].references == []
     assert "兜底报告" in report.feedbacks[0].rationale
 
@@ -255,10 +261,13 @@ def test_evaluator_marks_skipped_question_in_evaluation_items():
     q2_feedback = next(feedback for feedback in report.feedbacks if feedback.question_id == "q2")
     assert q2_item["answer_state"] == "skipped"
     assert q2_feedback.answer_state == "skipped"
-    assert q2_feedback.score == 0
+    assert q2_feedback.score is None
     assert q2_feedback.user_answer == "候选人跳过了这道题。"
     assert q2_feedback.references == []
-    assert report.overall_score == 41
+    assert report.overall_score == 82
+    assert report.score_status == "scored"
+    assert report.evaluated_count == 1
+    assert report.total_eligible_count == 1
 
 
 def test_evaluator_marks_finished_missing_answer_as_unanswered():
@@ -277,7 +286,7 @@ def test_evaluator_marks_finished_missing_answer_as_unanswered():
     q2_feedback = next(feedback for feedback in report.feedbacks if feedback.question_id == "q2")
     assert q2_item["answer_state"] == "unanswered"
     assert q2_feedback.answer_state == "unanswered"
-    assert q2_feedback.score == 0
+    assert q2_feedback.score is None
     assert q2_feedback.user_answer == "候选人未作答这道题。"
     assert q2_feedback.critique == "当前没有可评估的候选人回答。"
 

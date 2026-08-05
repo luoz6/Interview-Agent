@@ -51,7 +51,12 @@ def _build_story(report: InterviewReport) -> list:
         Spacer(1, 6),
         Paragraph(f"Session ID: {report.session_id}", styles["meta"]),
         Spacer(1, 8),
-        Paragraph(f"Overall Score: {report.overall_score}", styles["score"]),
+        Paragraph(f"Overall Score: {_overall_score_label(report)}", styles["score"]),
+        Paragraph(
+            f"Generation: {report.generation_status} ({report.generation_reason_code}); "
+            f"Coverage: {report.coverage_status}; Score status: {report.score_status}",
+            styles["meta"],
+        ),
         Spacer(1, 8),
         Paragraph("Overall Summary", styles["section"]),
         Paragraph(report.summary, styles["body"]),
@@ -96,7 +101,16 @@ def _build_styles() -> dict[str, ParagraphStyle]:
 def _dimension_table(report: InterviewReport) -> Table:
     rows = [["维度", "分数"]]
     for name, value in report.overall_dimension_scores.model_dump().items():
-        rows.append([_DIMENSION_LABELS.get(name, name), str(value)])
+        evaluation = report.dimension_evaluations.get(name)
+        rows.append(
+            [
+                _DIMENSION_LABELS.get(name, name),
+                _score_value_label(
+                    value,
+                    status=evaluation.status if evaluation is not None else None,
+                ),
+            ]
+        )
     table = Table(rows, colWidths=[70 * mm, 30 * mm])
     table.setStyle(
         TableStyle(
@@ -115,7 +129,10 @@ def _feedback_story(feedback: InterviewFeedback, styles: dict[str, ParagraphStyl
     blocks = [
         Spacer(1, 8),
         Paragraph(feedback.question_text, styles["section"]),
-        Paragraph(f"Score: {feedback.score}", styles["body"]),
+        Paragraph(
+            f"Score: {_score_value_label(feedback.score, status=feedback.evaluation_status)}",
+            styles["body"],
+        ),
     ]
     status_label = _answer_status_label(feedback)
     if status_label:
@@ -144,4 +161,28 @@ def _answer_status_label(feedback: InterviewFeedback) -> str | None:
         return "Status: skipped"
     if feedback.answer_state == "unanswered":
         return "Status: unanswered"
+    if feedback.evaluation_status == "insufficient_evidence":
+        return f"Status: insufficient evidence ({feedback.evaluation_reason_code})"
     return None
+
+
+def _overall_score_label(report: InterviewReport) -> str:
+    if report.overall_score is None:
+        return "Not scored"
+    if report.score_status == "partial":
+        numerator = report.evaluated_count if report.evaluated_count is not None else "?"
+        denominator = (
+            report.total_eligible_count
+            if report.total_eligible_count is not None
+            else "?"
+        )
+        return f"{report.overall_score}/100 (partial {numerator}/{denominator})"
+    return f"{report.overall_score}/100"
+
+
+def _score_value_label(value: int | None, *, status: str | None = None) -> str:
+    if value is not None:
+        return f"{value}/100"
+    if status == "insufficient_evidence":
+        return "Insufficient evidence"
+    return "Not evaluated"

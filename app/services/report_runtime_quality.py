@@ -51,12 +51,6 @@ def evaluate_runtime_report_quality(
     *,
     expected_question_count: int,
 ) -> RuntimeReportQualityResult:
-    if report.is_fallback:
-        return RuntimeReportQualityResult(
-            blocking_issues=[],
-            warning_issues=["fallback report bypassed runtime quality enforcement"],
-        )
-
     return RuntimeReportQualityResult(
         blocking_issues=collect_report_quality_issues(
             report,

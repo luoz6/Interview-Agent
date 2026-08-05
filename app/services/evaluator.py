@@ -11,7 +11,14 @@ from app.services.report import (
     ReportGenerationTimeout,
     ReportOutputFormatError,
 )
-from app.services.report_rule_score import aggregate_feedback_scores
+from app.services.report_coverage import (
+    aggregate_report_coverage,
+    apply_report_coverage,
+)
+from app.services.report_rule_score import (
+    REPORT_SCORING_RUBRIC_SHA256,
+    REPORT_SCORING_RUBRIC_VERSION,
+)
 
 
 class EvaluationChunk(BaseModel):
@@ -61,14 +68,8 @@ def build_evaluation_chunks(state: InterviewState) -> list[EvaluationChunk]:
     ]
 
 
-def _default_dimension_scores(score: int = 60) -> DimensionScores:
-    return DimensionScores(
-        breadth=score,
-        depth=score,
-        architecture=score,
-        engineering=score,
-        communication=score,
-    )
+def _null_dimension_scores() -> DimensionScores:
+    return DimensionScores()
 
 
 def build_fallback_report(
@@ -78,8 +79,19 @@ def build_fallback_report(
     chunks = chunks if chunks is not None else build_evaluation_chunks(state)
     return InterviewReport(
         session_id=state["session_id"],
-        overall_score=60,
-        overall_dimension_scores=_default_dimension_scores(),
+        overall_score=None,
+        overall_dimension_scores=_null_dimension_scores(),
+        generation_status="degraded",
+        generation_reason_code="invalid_provider_output",
+        score_status="unscored",
+        score_reason_code="scoring_generation_failed",
+        coverage_status="none",
+        evaluated_count=0,
+        total_eligible_count=sum(chunk.answer_state == "answered" for chunk in chunks),
+        evidence_count=0,
+        report_path="heuristic",
+        scoring_rubric_version=REPORT_SCORING_RUBRIC_VERSION,
+        scoring_rubric_sha256=REPORT_SCORING_RUBRIC_SHA256,
         summary=(
             "AI 评估未能生成完整报告，请结合原始回答继续复盘。"
         ),
@@ -91,8 +103,18 @@ def build_fallback_report(
                 question_text=chunk.question_text,
                 user_answer=_summarize_candidate_answers(chunk),
                 answer_state=chunk.answer_state,
-                score=60,
-                dimension_scores=_default_dimension_scores(),
+                score=None,
+                dimension_scores=_null_dimension_scores(),
+                evaluation_status=(
+                    "insufficient_evidence"
+                    if chunk.answer_state == "answered"
+                    else "not_evaluated"
+                ),
+                evaluation_reason_code=(
+                    "scoring_generation_failed"
+                    if chunk.answer_state == "answered"
+                    else chunk.answer_state
+                ),
                 rationale=(
                     "兜底报告：本题未能生成稳定的结构化专家评估。"
                 ),
@@ -141,14 +163,7 @@ def _apply_answer_state_overrides(
                 references=feedback.references,
             )
         )
-    overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
-    return report.model_copy(
-        update={
-            "feedbacks": feedbacks,
-            "overall_score": overall_score,
-            "overall_dimension_scores": overall_dimension_scores,
-        }
-    )
+    return apply_report_coverage(report, feedbacks=feedbacks)
 
 
 def build_empty_answer_feedback(
@@ -166,8 +181,10 @@ def build_empty_answer_feedback(
             else "候选人未作答这道题。"
         ),
         answer_state=chunk.answer_state,
-        score=0,
-        dimension_scores=_default_dimension_scores(0),
+        score=None,
+        dimension_scores=_null_dimension_scores(),
+        evaluation_status="not_evaluated",
+        evaluation_reason_code=chunk.answer_state,
         rationale=(
             "候选人跳过了这道题。"
             if skipped
@@ -179,24 +196,12 @@ def build_empty_answer_feedback(
     )
 
 
-def _average_score(feedbacks: list[InterviewFeedback]) -> int:
-    if not feedbacks:
-        return 0
-    return round(sum(feedback.score for feedback in feedbacks) / len(feedbacks))
+def _average_score(feedbacks: list[InterviewFeedback]) -> int | None:
+    return aggregate_report_coverage(feedbacks).overall_score
 
 
 def _average_dimension_scores(feedbacks: list[InterviewFeedback]) -> DimensionScores:
-    if not feedbacks:
-        return _default_dimension_scores(0)
-    fields = DimensionScores.model_fields.keys()
-    values = {
-        field: round(
-            sum(getattr(feedback.dimension_scores, field) for feedback in feedbacks)
-            / len(feedbacks)
-        )
-        for field in fields
-    }
-    return DimensionScores(**values)
+    return aggregate_report_coverage(feedbacks).overall_dimension_scores
 
 
 def _messages_for_question(

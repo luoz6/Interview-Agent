@@ -1,0 +1,888 @@
+{
+  "passed": false,
+  "decision": "INSUFFICIENT_SAMPLE",
+  "ranking_accuracy": 0.9583333333333334,
+  "evidence_grounding_rate": 1.0,
+  "max_score_delta": 8.0,
+  "fallback_rate": 0.0,
+  "expected_range_attempt_hit_rate": 0.6,
+  "strong_attempt_hit_rate": 0.3,
+  "interval_outside_mae": 8.45,
+  "expert_score_spearman": 0.9109984691778845,
+  "strata": {
+    "language:mixed": {
+      "attempt_count": 34,
+      "hit_count": 18,
+      "hit_rate": 0.5294117647058824,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.5294117647058824,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 34,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.3205882352941176,
+        "reason": "actual=0.529412 violates gte threshold=0.85"
+      }
+    },
+    "language:unknown": {
+      "attempt_count": 4,
+      "hit_count": 4,
+      "hit_rate": 1.0,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "INSUFFICIENT_SAMPLE",
+        "blocking": true,
+        "actual": 1.0,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 4,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": null,
+        "reason": "sample_size=4 is below 8"
+      }
+    },
+    "language:zh": {
+      "attempt_count": 2,
+      "hit_count": 2,
+      "hit_rate": 1.0,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "INSUFFICIENT_SAMPLE",
+        "blocking": true,
+        "actual": 1.0,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 2,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": null,
+        "reason": "sample_size=2 is below 8"
+      }
+    },
+    "overall": {
+      "attempt_count": 40,
+      "hit_count": 24,
+      "hit_rate": 0.6,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.6,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 40,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.25,
+        "reason": "actual=0.6 violates gte threshold=0.85"
+      }
+    },
+    "quality_level:empty": {
+      "attempt_count": 4,
+      "hit_count": 4,
+      "hit_rate": 1.0,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "INSUFFICIENT_SAMPLE",
+        "blocking": true,
+        "actual": 1.0,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 4,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": null,
+        "reason": "sample_size=4 is below 8"
+      }
+    },
+    "quality_level:incorrect": {
+      "attempt_count": 10,
+      "hit_count": 8,
+      "hit_rate": 0.8,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.8,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 10,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.04999999999999993,
+        "reason": "actual=0.8 violates gte threshold=0.85"
+      }
+    },
+    "quality_level:medium": {
+      "attempt_count": 10,
+      "hit_count": 6,
+      "hit_rate": 0.6,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.6,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 10,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.25,
+        "reason": "actual=0.6 violates gte threshold=0.85"
+      }
+    },
+    "quality_level:off_topic": {
+      "attempt_count": 6,
+      "hit_count": 3,
+      "hit_rate": 0.5,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "INSUFFICIENT_SAMPLE",
+        "blocking": true,
+        "actual": 0.5,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 6,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": null,
+        "reason": "sample_size=6 is below 8"
+      }
+    },
+    "quality_level:strong": {
+      "attempt_count": 10,
+      "hit_count": 3,
+      "hit_rate": 0.3,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.3,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 10,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.55,
+        "reason": "actual=0.3 violates gte threshold=0.85"
+      }
+    },
+    "question_type:project": {
+      "attempt_count": 8,
+      "hit_count": 5,
+      "hit_rate": 0.625,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.625,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 8,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.22499999999999998,
+        "reason": "actual=0.625 violates gte threshold=0.85"
+      }
+    },
+    "question_type:system-design": {
+      "attempt_count": 8,
+      "hit_count": 6,
+      "hit_rate": 0.75,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.75,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 8,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.09999999999999998,
+        "reason": "actual=0.75 violates gte threshold=0.85"
+      }
+    },
+    "question_type:technical": {
+      "attempt_count": 24,
+      "hit_count": 13,
+      "hit_rate": 0.5416666666666666,
+      "gate": {
+        "metric_key": "report_scoring.blocking_stratum_hit_rate",
+        "status": "FAIL",
+        "blocking": true,
+        "actual": 0.5416666666666666,
+        "operator": "gte",
+        "configured_threshold": 0.85,
+        "effective_threshold": 0.85,
+        "unit": "ratio",
+        "sample_size": 24,
+        "minimum_sample_size": 8,
+        "baseline": null,
+        "deviation": -0.30833333333333335,
+        "reason": "actual=0.541667 violates gte threshold=0.85"
+      }
+    }
+  },
+  "out_of_range_attempts": [
+    {
+      "case_id": "kafka-reliability-medium",
+      "run_number": 1,
+      "quality_level": "medium",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        45,
+        75
+      ]
+    },
+    {
+      "case_id": "kafka-reliability-medium",
+      "run_number": 2,
+      "quality_level": "medium",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        45,
+        75
+      ]
+    },
+    {
+      "case_id": "kafka-reliability-off_topic",
+      "run_number": 2,
+      "quality_level": "off_topic",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": null,
+      "expected_score_range": [
+        0,
+        10
+      ]
+    },
+    {
+      "case_id": "kafka-reliability-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "mysql-index-transaction-strong",
+      "run_number": 1,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "mysql-index-transaction-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "project-incident-review-off_topic",
+      "run_number": 2,
+      "quality_level": "off_topic",
+      "language": "mixed",
+      "question_type": "project",
+      "score": null,
+      "expected_score_range": [
+        0,
+        10
+      ]
+    },
+    {
+      "case_id": "project-incident-review-strong",
+      "run_number": 1,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "project",
+      "score": 77.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "project-incident-review-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "project",
+      "score": 77.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-medium",
+      "run_number": 1,
+      "quality_level": "medium",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        45,
+        75
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-medium",
+      "run_number": 2,
+      "quality_level": "medium",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        45,
+        75
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-off_topic",
+      "run_number": 1,
+      "quality_level": "off_topic",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": null,
+      "expected_score_range": [
+        0,
+        10
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-strong",
+      "run_number": 1,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "system-design-job-queue-incorrect",
+      "run_number": 1,
+      "quality_level": "incorrect",
+      "language": "mixed",
+      "question_type": "system-design",
+      "score": 45.0,
+      "expected_score_range": [
+        0,
+        40
+      ]
+    },
+    {
+      "case_id": "system-design-job-queue-incorrect",
+      "run_number": 2,
+      "quality_level": "incorrect",
+      "language": "mixed",
+      "question_type": "system-design",
+      "score": 45.0,
+      "expected_score_range": [
+        0,
+        40
+      ]
+    }
+  ],
+  "strong_below_lower_bound": [
+    {
+      "case_id": "kafka-reliability-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "mysql-index-transaction-strong",
+      "run_number": 1,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "mysql-index-transaction-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "project-incident-review-strong",
+      "run_number": 1,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "project",
+      "score": 77.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "project-incident-review-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "project",
+      "score": 77.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-strong",
+      "run_number": 1,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    },
+    {
+      "case_id": "redis-cache-consistency-strong",
+      "run_number": 2,
+      "quality_level": "strong",
+      "language": "mixed",
+      "question_type": "technical",
+      "score": 78.0,
+      "expected_score_range": [
+        80,
+        95
+      ]
+    }
+  ],
+  "gate_results": [
+    {
+      "metric_key": "report_scoring.pairwise_ranking_accuracy",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 0.9583333333333334,
+      "operator": "gte",
+      "configured_threshold": 0.95,
+      "effective_threshold": 0.95,
+      "unit": "ratio",
+      "sample_size": 40,
+      "minimum_sample_size": 20,
+      "baseline": null,
+      "deviation": 0.008333333333333415,
+      "reason": "actual=0.958333 gte threshold=0.95"
+    },
+    {
+      "metric_key": "report_scoring.evidence_grounding_rate",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 1.0,
+      "operator": "gte",
+      "configured_threshold": 0.95,
+      "effective_threshold": 0.95,
+      "unit": "ratio",
+      "sample_size": 40,
+      "minimum_sample_size": 20,
+      "baseline": null,
+      "deviation": 0.050000000000000044,
+      "reason": "actual=1 gte threshold=0.95"
+    },
+    {
+      "metric_key": "report_scoring.provider_repeat_max_delta",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 8.0,
+      "operator": "lte",
+      "configured_threshold": 8.0,
+      "effective_threshold": 8.0,
+      "unit": "score_points",
+      "sample_size": 40,
+      "minimum_sample_size": 20,
+      "baseline": null,
+      "deviation": 0.0,
+      "reason": "actual=8 lte threshold=8"
+    },
+    {
+      "metric_key": "report_scoring.fallback_rate",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 0.0,
+      "operator": "lte",
+      "configured_threshold": 0.05,
+      "effective_threshold": 0.05,
+      "unit": "ratio",
+      "sample_size": 40,
+      "minimum_sample_size": 40,
+      "baseline": null,
+      "deviation": -0.05,
+      "reason": "actual=0 lte threshold=0.05"
+    },
+    {
+      "metric_key": "report_scoring.attempt_completeness_rate",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 1.0,
+      "operator": "eq",
+      "configured_threshold": 1.0,
+      "effective_threshold": 1.0,
+      "unit": "ratio",
+      "sample_size": 40,
+      "minimum_sample_size": 1,
+      "baseline": null,
+      "deviation": 0.0,
+      "reason": "actual=1 eq threshold=1"
+    },
+    {
+      "metric_key": "report_scoring.expected_range_attempt_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.6,
+      "operator": "gte",
+      "configured_threshold": 0.9,
+      "effective_threshold": 0.9,
+      "unit": "ratio",
+      "sample_size": 40,
+      "minimum_sample_size": 40,
+      "baseline": null,
+      "deviation": -0.30000000000000004,
+      "reason": "actual=0.6 violates gte threshold=0.9"
+    },
+    {
+      "metric_key": "report_scoring.strong_attempt_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.3,
+      "operator": "gte",
+      "configured_threshold": 0.9,
+      "effective_threshold": 0.9,
+      "unit": "ratio",
+      "sample_size": 10,
+      "minimum_sample_size": 10,
+      "baseline": null,
+      "deviation": -0.6000000000000001,
+      "reason": "actual=0.3 violates gte threshold=0.9"
+    },
+    {
+      "metric_key": "report_scoring.expert_score_spearman",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 0.9109984691778845,
+      "operator": "gte",
+      "configured_threshold": 0.8,
+      "effective_threshold": 0.8,
+      "unit": "correlation",
+      "sample_size": 40,
+      "minimum_sample_size": 20,
+      "baseline": null,
+      "deviation": 0.11099846917788447,
+      "reason": "actual=0.910998 gte threshold=0.8"
+    },
+    {
+      "metric_key": "report_scoring.interval_outside_mae",
+      "status": "PASS",
+      "blocking": true,
+      "actual": 8.45,
+      "operator": "lte",
+      "configured_threshold": 10.0,
+      "effective_threshold": 10.0,
+      "unit": "score_points",
+      "sample_size": 40,
+      "minimum_sample_size": 20,
+      "baseline": null,
+      "deviation": -1.5500000000000007,
+      "reason": "actual=8.45 lte threshold=10"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.5294117647058824,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 34,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.3205882352941176,
+      "reason": "actual=0.529412 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "INSUFFICIENT_SAMPLE",
+      "blocking": true,
+      "actual": 1.0,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 4,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": null,
+      "reason": "sample_size=4 is below 8"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "INSUFFICIENT_SAMPLE",
+      "blocking": true,
+      "actual": 1.0,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 2,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": null,
+      "reason": "sample_size=2 is below 8"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.6,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 40,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.25,
+      "reason": "actual=0.6 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "INSUFFICIENT_SAMPLE",
+      "blocking": true,
+      "actual": 1.0,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 4,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": null,
+      "reason": "sample_size=4 is below 8"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.8,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 10,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.04999999999999993,
+      "reason": "actual=0.8 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.6,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 10,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.25,
+      "reason": "actual=0.6 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "INSUFFICIENT_SAMPLE",
+      "blocking": true,
+      "actual": 0.5,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 6,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": null,
+      "reason": "sample_size=6 is below 8"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.3,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 10,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.55,
+      "reason": "actual=0.3 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.625,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 8,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.22499999999999998,
+      "reason": "actual=0.625 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.75,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 8,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.09999999999999998,
+      "reason": "actual=0.75 violates gte threshold=0.85"
+    },
+    {
+      "metric_key": "report_scoring.blocking_stratum_hit_rate",
+      "status": "FAIL",
+      "blocking": true,
+      "actual": 0.5416666666666666,
+      "operator": "gte",
+      "configured_threshold": 0.85,
+      "effective_threshold": 0.85,
+      "unit": "ratio",
+      "sample_size": 24,
+      "minimum_sample_size": 8,
+      "baseline": null,
+      "deviation": -0.30833333333333335,
+      "reason": "actual=0.541667 violates gte threshold=0.85"
+    }
+  ],
+  "completed_attempt_count": 40,
+  "expected_attempt_count": 40,
+  "failed_gates": [
+    "expected_range_attempt_hit_rate",
+    "strong_attempt_hit_rate",
+    "stratum:language:mixed",
+    "stratum:language:unknown",
+    "stratum:language:zh",
+    "stratum:overall",
+    "stratum:quality_level:empty",
+    "stratum:quality_level:incorrect",
+    "stratum:quality_level:medium",
+    "stratum:quality_level:off_topic",
+    "stratum:quality_level:strong",
+    "stratum:question_type:project",
+    "stratum:question_type:system-design",
+    "stratum:question_type:technical"
+  ],
+  "blocking_failures": [
+    {
+      "type": "unexpected_unscored",
+      "case_id": "kafka-reliability-off_topic",
+      "run_number": 2
+    },
+    {
+      "type": "unexpected_unscored",
+      "case_id": "project-incident-review-off_topic",
+      "run_number": 2
+    },
+    {
+      "type": "unexpected_unscored",
+      "case_id": "redis-cache-consistency-off_topic",
+      "run_number": 1
+    }
+  ],
+  "saved_response_replay_delta": 0.0,
+  "provider_invocations": 0
+}

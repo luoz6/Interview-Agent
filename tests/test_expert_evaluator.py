@@ -322,7 +322,7 @@ def test_expert_evaluator_keeps_rationale_aligned_with_references():
     assert "delete-after-write" in feedback.rationale.lower()
 
 
-def test_expert_evaluator_zeroes_skipped_question_feedback():
+def test_expert_evaluator_marks_skipped_question_not_evaluated():
     state = make_state()
     state["skipped_question_ids"] = ["q1"]
     state["messages"] = [
@@ -336,7 +336,8 @@ def test_expert_evaluator_zeroes_skipped_question_feedback():
 
     feedback = report.feedbacks[0]
     assert feedback.answer_state == "skipped"
-    assert feedback.score == 0
+    assert feedback.score is None
+    assert feedback.evaluation_status == "not_evaluated"
     assert feedback.user_answer == "候选人跳过了这道题。"
 
 
@@ -423,6 +424,8 @@ def test_v2_evaluator_fallback_preserves_backend_bound_references():
     ).evaluate(make_v2_state())
 
     assert report.is_fallback is True
+    assert report.overall_score is None
+    assert report.score_status == "unscored"
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1"
     ]

@@ -103,9 +103,9 @@ def test_assemble_interview_report_averages_scores_and_resolves_references():
     assert report.is_fallback is False
     assert report.overall_score == 80
     assert report.overall_dimension_scores == DimensionScores(
-        breadth=40,
+        breadth=80,
         depth=70,
-        architecture=35,
+        architecture=70,
         engineering=78,
         communication=82,
     )

@@ -51,6 +51,7 @@ const stateLabels = {
 };
 
 function scoreBand(score) {
+  if (!Number.isFinite(score)) return { label: "未形成评分", tone: "neutral" };
   if (score >= 85) return { label: "表现稳健", tone: "success" };
   if (score >= 70) return { label: "基础扎实", tone: "good" };
   if (score >= 60) return { label: "仍有提升空间", tone: "warning" };
@@ -73,6 +74,10 @@ function AnimatedScore({ score, reducedMotion }) {
   useEffect(() => {
     const node = scoreRef.current;
     if (!node) return undefined;
+    if (!Number.isFinite(score)) {
+      node.textContent = "未评分";
+      return undefined;
+    }
     if (reducedMotion) {
       node.textContent = String(score);
       return undefined;
@@ -90,7 +95,7 @@ function AnimatedScore({ score, reducedMotion }) {
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
   }, [reducedMotion, score]);
-  return <strong ref={scoreRef}>{reducedMotion ? score : 0}</strong>;
+  return <strong ref={scoreRef}>{Number.isFinite(score) ? (reducedMotion ? score : 0) : "未评分"}</strong>;
 }
 
 function StatusBarItem({ icon: ItemIcon, label, value, state = "idle", current = false }) {
@@ -147,19 +152,23 @@ function ReportSkeleton() {
   );
 }
 
-function DimensionBars({ values = {} }) {
+function DimensionBars({ values = {}, evaluations = {} }) {
   return (
     <ol className="report-detail-dimensions">
       {Object.entries(dimensionLabels).map(([key, label], index) => {
-        const value = Math.max(0, Math.min(100, Number(values[key]) || 0));
+        const rawValue = values[key];
+        const hasScore = Number.isFinite(rawValue);
+        const value = hasScore ? Math.max(0, Math.min(100, rawValue)) : null;
+        const status = evaluations[key]?.status;
+        const statusLabel = status === "insufficient_evidence" ? "证据不足" : "未评估";
         return (
-          <li className="report-detail-dimension" key={key} style={{ "--dimension-index": index }}>
+          <li className="report-detail-dimension" key={key} data-evaluation-status={status || (hasScore ? "evaluated" : "not_evaluated")} style={{ "--dimension-index": index }}>
             <span className="report-detail-dimension-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
             <span className="report-detail-dimension-label">{label}</span>
-            <div className="report-detail-dimension-track" role="progressbar" aria-label={`${label} ${value} 分`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={value}>
-              <span style={{ "--dimension-scale": value / 100 }} />
+            <div className="report-detail-dimension-track" role={hasScore ? "progressbar" : undefined} aria-label={hasScore ? `${label} ${value} 分` : `${label} ${statusLabel}`} aria-valuemin={hasScore ? "0" : undefined} aria-valuemax={hasScore ? "100" : undefined} aria-valuenow={hasScore ? value : undefined}>
+              <span style={{ "--dimension-scale": hasScore ? value / 100 : 0 }} />
             </div>
-            <strong>{value}<small>/100</small></strong>
+            <strong>{hasScore ? <>{value}<small>/100</small></> : statusLabel}</strong>
           </li>
         );
       })}
@@ -170,7 +179,7 @@ function DimensionBars({ values = {} }) {
 function FeedbackItem({ feedback, index }) {
   const references = feedback.references || [];
   const dimensionEvidence = feedback.dimension_evidence || [];
-  const score = Number(feedback.score) || 0;
+  const score = Number.isFinite(feedback.score) ? feedback.score : null;
   const band = scoreBand(score);
   const skipped = ["skipped", "unanswered"].includes(feedback.answer_state);
   const [open, setOpen] = useState(index === 0);
@@ -182,7 +191,7 @@ function FeedbackItem({ feedback, index }) {
           <strong>{feedback.question_text || feedback.question_id}</strong>
           <small>{skipped ? "本题未形成可评估回答" : (feedback.applicable_dimensions || []).map((value) => dimensionLabels[value] || value).join(" · ") || "综合能力"}</small>
         </div>
-        <span className="report-detail-feedback-score" data-tone={band.tone}><strong>{score}</strong><small>/100</small></span>
+        <span className="report-detail-feedback-score" data-tone={band.tone}>{Number.isFinite(score) ? <><strong>{score}</strong><small>/100</small></> : <strong>{feedback.evaluation_status === "insufficient_evidence" ? "证据不足" : "未评估"}</strong>}</span>
         <CaretDown className="report-detail-feedback-caret" size={17} weight="bold" aria-hidden="true" />
       </summary>
       <div className="report-detail-feedback-body">
@@ -345,15 +354,18 @@ export function ReportDetailPage() {
 
   const feedbacks = report?.feedbacks || [];
   const dimensions = report?.overall_dimension_scores || {};
-  const score = Number(report?.overall_score) || 0;
+  const score = Number.isFinite(report?.overall_score) ? report.overall_score : null;
   const band = scoreBand(score);
+  const scoreStatus = report?.score_status || (Number.isFinite(score) ? "scored" : "unscored");
+  const dimensionEvaluations = report?.dimension_evaluations || {};
   const answeredCount = feedbacks.filter((item) => item.answer_state === "answered").length;
   const improvements = [...new Set(feedbacks.map((item) => item.critique).filter(Boolean))];
   const observations = [...new Set((report?.highlights || []).filter(Boolean))];
   const rankedDimensions = Object.entries(dimensionLabels)
-    .map(([key, label]) => ({ key, label, value: Number(dimensions[key]) || 0 }))
+    .filter(([key]) => Number.isFinite(dimensions[key]))
+    .map(([key, label]) => ({ key, label, value: dimensions[key] }))
     .sort((left, right) => right.value - left.value);
-  const hasDimensionSignal = rankedDimensions.some((item) => item.value > 0);
+  const hasDimensionSignal = rankedDimensions.length > 0;
   const strongestDimension = hasDimensionSignal ? rankedDimensions[0] : null;
   const weakestDimension = hasDimensionSignal ? rankedDimensions[rankedDimensions.length - 1] : null;
   const evidence = useMemo(() => {
@@ -447,7 +459,7 @@ export function ReportDetailPage() {
             )}
 
             {reportReady && <>
-              {state === "fallback" && <ReportNotice notice={{ tone: "warning", title: "使用降级生成路径", text: "这份报告使用全会话降级路径完成。分数和反馈仍来自真实会话，但逐题证据复用链路未完全可用。" }} />}
+              {state === "fallback" && <ReportNotice notice={{ tone: "warning", title: "使用降级生成路径", text: Number.isFinite(score) ? "文案生成使用了降级路径；已显示的数字只来自后端规则和有效证据。" : "文案生成使用了降级路径，当前证据不足，因此没有发布数字评分。" }} />}
 
               <section id="overview" className="report-detail-section report-detail-overview" aria-labelledby="report-overview-title" data-report-reveal style={{ "--reveal-order": 0 }}>
                 <div className="report-detail-overview-copy">
@@ -455,21 +467,22 @@ export function ReportDetailPage() {
                   <h2 id="report-overview-title">{band.label}</h2>
                   <p>{report.summary || "当前报告没有返回总结，请继续查看逐题评分依据。"}</p>
                   <dl className="report-detail-overview-facts">
-                    <div><dt>有效回答</dt><dd>{answeredCount} / {feedbacks.length || "—"}</dd></div>
+                    <div><dt>完成回答</dt><dd>{answeredCount} / {feedbacks.length || "—"}</dd></div>
+                    <div><dt>评分覆盖</dt><dd>{report.evaluated_count ?? 0} / {report.total_eligible_count ?? answeredCount}</dd></div>
                     <div><dt>生成路径</dt><dd>{state === "fallback" ? "全会话降级" : "结构化评审"}</dd></div>
                   </dl>
                 </div>
-                <div className="report-detail-score-mark" data-tone={band.tone} aria-label={`综合评分 ${score} 分，${band.label}`}>
+                <div className="report-detail-score-mark" data-tone={band.tone} aria-label={Number.isFinite(score) ? `综合评分 ${score} 分，${band.label}` : `综合评分未发布，${band.label}`}>
                   <header><Gauge size={18} weight="duotone" aria-hidden="true" /><span>综合评分</span></header>
-                  <span className="report-detail-score-value"><AnimatedScore score={score} reducedMotion={reducedMotion} /><small>/100</small></span>
-                  <div className="report-detail-score-track" aria-hidden="true"><span style={{ "--score-scale": score / 100 }} /></div>
-                  <p>数值由后端规则确认</p>
+                  <span className="report-detail-score-value"><AnimatedScore score={score} reducedMotion={reducedMotion} />{Number.isFinite(score) && <small>/100</small>}</span>
+                  {Number.isFinite(score) && <div className="report-detail-score-track" aria-hidden="true"><span style={{ "--score-scale": score / 100 }} /></div>}
+                  <p>{scoreStatus === "partial" ? `部分评分 · ${report.evaluated_count ?? "?"}/${report.total_eligible_count ?? "?"} 道有效回答` : Number.isFinite(score) ? "数值由后端规则确认" : "证据不足，未发布数字"}</p>
                 </div>
               </section>
 
               <section className="report-detail-panel report-detail-dimension-panel" aria-labelledby="report-dimensions-title" data-report-reveal style={{ "--reveal-order": 1 }}>
                 <ReportSectionHeading icon={ChartBar} title="五维评分" titleId="report-dimensions-title" meta="对照五个能力维度，定位最需要补强的部分。" />
-                <DimensionBars values={dimensions} />
+                <DimensionBars values={dimensions} evaluations={dimensionEvaluations} />
               </section>
 
               <section className="report-detail-panel report-detail-insight-panel" aria-labelledby="report-insights-title" data-report-reveal style={{ "--reveal-order": 2 }}>
@@ -522,10 +535,10 @@ export function ReportDetailPage() {
 
           <div className="start-inspector-content report-detail-inspector-content">
             {!reportReady ? <ReportSkeleton /> : <>
-              <section className="report-detail-inspector-score" aria-label={`综合评分 ${score} 分，${band.label}`}>
+              <section className="report-detail-inspector-score" aria-label={Number.isFinite(score) ? `综合评分 ${score} 分，${band.label}` : `综合评分未发布，${band.label}`}>
                 <span className="report-detail-inspector-score-icon" aria-hidden="true"><Gauge size={19} weight="duotone" /></span>
                 <div><span>本轮结论</span><h3>{band.label}</h3><p>{answeredCount} / {feedbacks.length} 道题形成有效回答</p></div>
-                <strong>{score}<small>/100</small></strong>
+                <strong>{Number.isFinite(score) ? <>{score}<small>/100</small></> : "未评分"}</strong>
               </section>
 
               <section className="report-detail-inspector-section" aria-labelledby="report-detail-facts-title">
@@ -552,7 +565,7 @@ export function ReportDetailPage() {
       </main>
 
       <footer className="start-status-bar report-detail-status-bar" aria-label="报告详情工作区状态">
-        <StatusBarItem icon={ChartBar} label="总分" value={reportReady ? `${score} / 100` : "读取中"} state={reportReady ? "ready" : "idle"} />
+        <StatusBarItem icon={ChartBar} label="总分" value={reportReady ? (Number.isFinite(score) ? `${score} / 100` : "未评分") : "读取中"} state={reportReady ? (Number.isFinite(score) ? "ready" : "warning") : "idle"} />
         <StatusBarItem icon={ChatCircleDots} label="回答" value={`${answeredCount} / ${feedbacks.length || "—"}`} />
         <StatusBarItem icon={Database} label="证据" value={evidence.length} />
         <StatusBarItem icon={evaluationUnavailable ? WarningCircle : ListChecks} label="评审" value={evaluationUnavailable ? "不可用" : evaluations.length} state={evaluationUnavailable ? "warning" : "idle"} />

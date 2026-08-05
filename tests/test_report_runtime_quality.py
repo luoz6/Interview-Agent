@@ -111,7 +111,7 @@ def test_runtime_report_quality_blocks_grounded_report_with_stage27_issues():
     )
 
 
-def test_runtime_report_quality_does_not_block_fallback_report():
+def test_runtime_report_quality_does_not_bypass_fallback_report():
     result = evaluate_runtime_report_quality(
         make_report(
             summary="Evidence was insufficient for a grounded expert report.",
@@ -127,5 +127,5 @@ def test_runtime_report_quality_does_not_block_fallback_report():
         expected_question_count=1,
     )
 
-    assert result.blocking_issues == []
-    assert "fallback report bypassed runtime quality enforcement" in result.warning_issues
+    assert "summary must include Simplified Chinese text" in result.blocking_issues
+    assert result.warning_issues == []

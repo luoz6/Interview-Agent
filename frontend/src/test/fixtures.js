@@ -22,6 +22,30 @@ export const unscoredArtifact = {
   latest_job: { job_id: "job-2", status: "completed" },
 };
 
+export const partialArtifact = {
+  active_artifact: {
+    report_id: "report-partial",
+    score_status: "partial",
+    coverage_status: "partial",
+    overall_score: 76,
+    evaluated_count: 2,
+    total_eligible_count: 3,
+    overall_dimension_scores: { depth: 76, breadth: null },
+    dimension_evaluations: {
+      depth: { status: "evaluated", score: 76 },
+      breadth: { status: "insufficient_evidence", score: null },
+    },
+    payload: {},
+  },
+  latest_job: { job_id: "job-partial", status: "completed" },
+};
+
+export const legacyReport = {
+  session_id: "legacy-session",
+  overall_score: 60,
+  overall_dimension_scores: { depth: 60 },
+};
+
 export const failedInitialJob = {
   active_artifact: null,
   latest_job: { job_id: "job-3", status: "failed", error_code: "provider_timeout" },

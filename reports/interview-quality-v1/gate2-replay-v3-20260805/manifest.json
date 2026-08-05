@@ -1,0 +1,18 @@
+{
+  "run_id": "gate2-replay-v3-20260805",
+  "artifact_kind": "saved-response-deterministic-replay",
+  "source_run_dir": "reports\\stage40-acceptance\\20260710T124843Z",
+  "source_run_id": "20260710T124843Z",
+  "source_rubric_version": "stage40-rubric-v2",
+  "source_manifest_sha256": "66a7913af61face2ef0227bd609fe1e34641997b35b41102796c65687b4410f1",
+  "source_attempts_sha256": "14741ecd7a586c4866253f6c2bac28421179228ddfaed5b0483ff1a2317ce90a",
+  "dataset_path": "tests\\golden\\report_quality_v1.json",
+  "dataset_sha256": "31b5116500b990d2ec2f35c048a9ec221a8e76fcab0175123183d5e2a9991c12",
+  "target_attempts": 40,
+  "provider_invocations": 0,
+  "rubric_version": "interview-quality-rubric-v3",
+  "rubric_sha256": "84180e246bb9fb67a96b34cf7c508b0fc9a03c114e091c891f7f995d140b4cf4",
+  "rescored_from_saved_evidence": true,
+  "decision": "INSUFFICIENT_SAMPLE",
+  "saved_response_replay_delta": 0.0
+}

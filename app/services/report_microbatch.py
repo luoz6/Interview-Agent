@@ -12,8 +12,8 @@ from app.services.agent_runtime import (
 )
 from app.services.evaluator import build_evaluation_chunks
 from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import DimensionScores, InterviewReport, ReportProgress
-from app.services.report_rule_score import aggregate_feedback_scores
+from app.services.report import InterviewReport, ReportProgress
+from app.services.report_coverage import apply_report_coverage
 from app.services.round_review_runner import run_round_review_event_from_state
 from app.services.runtime_domain_events import RoundClosedEvent
 
@@ -258,21 +258,21 @@ def finalize_report_with_microbatch_feedback(
     ]
     if len(feedbacks) != len(records):
         raise MicrobatchReportUnavailable("microbatch report feedback is incomplete")
-    overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
+    scored_report = apply_report_coverage(
+        report,
+        feedbacks=feedbacks,
+        report_path="microbatch",
+    )
     summary = report.summary
     if not any("\u4e00" <= char <= "\u9fff" for char in summary):
-        summary = (
-            f"本次面试共评估 {len(feedbacks)} 道题，"
-            f"后端规则聚合得分为 {overall_score} 分。"
-        )
-    return report.model_copy(
-        update={
-            "summary": summary,
-            "feedbacks": feedbacks,
-            "overall_score": overall_score,
-            "overall_dimension_scores": overall_dimension_scores,
-        }
-    )
+        if scored_report.overall_score is None:
+            summary = f"本次面试共处理 {len(feedbacks)} 道题，当前证据不足，未发布数字评分。"
+        else:
+            summary = (
+                f"本次面试共评估 {len(feedbacks)} 道题，"
+                f"后端规则聚合得分为 {scored_report.overall_score} 分。"
+            )
+    return scored_report.model_copy(update={"summary": summary})
 
 
 def build_report_coach_items_from_question_evaluations(
@@ -305,6 +305,9 @@ def build_report_coach_items_from_question_evaluations(
                 "microbatch_score": feedback.score,
                 "score": feedback.score,
                 "dimension_scores": feedback.dimension_scores.model_dump(),
+                "evaluation_status": feedback.evaluation_status,
+                "evaluation_reason_code": feedback.evaluation_reason_code,
+                "evidence_count": feedback.evidence_count,
                 "applicable_dimensions": list(feedback.applicable_dimensions),
                 "dimension_evidence": dimension_evidence,
                 "observed_provenance": observed_provenance,
@@ -362,6 +365,8 @@ def _is_completed_record(record: QuestionEvaluationRecord | None) -> bool:
         return False
     if record.answer_state != "answered":
         return True
+    if record.feedback.evaluation_status != "evaluated":
+        return True
     return bool(
         record.feedback.applicable_dimensions
         and record.feedback.dimension_evidence
@@ -376,29 +381,3 @@ def _coerce_answer_state(value: str) -> AnswerState:
         extra={"answer_state": value},
     )
     return "unanswered"
-
-
-def _average_score(feedbacks) -> int:
-    if not feedbacks:
-        return 0
-    return round(sum(feedback.score for feedback in feedbacks) / len(feedbacks))
-
-
-def _average_dimension_scores(feedbacks) -> DimensionScores:
-    if not feedbacks:
-        return DimensionScores(
-            breadth=0,
-            depth=0,
-            architecture=0,
-            engineering=0,
-            communication=0,
-        )
-    fields = DimensionScores.model_fields.keys()
-    values = {
-        field: round(
-            sum(getattr(feedback.dimension_scores, field) for feedback in feedbacks)
-            / len(feedbacks)
-        )
-        for field in fields
-    }
-    return DimensionScores(**values)

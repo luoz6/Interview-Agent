@@ -261,7 +261,15 @@ def report_snapshot(report: InterviewReport) -> dict:
         "summary": report.summary,
         "highlights": report.highlights,
         "feedback": feedback.model_dump(
-            exclude={"references", "applicable_dimensions", "dimension_evidence"}
+            exclude={
+                "references",
+                "applicable_dimensions",
+                "dimension_evidence",
+                "dimension_evaluations",
+                "evaluation_status",
+                "evaluation_reason_code",
+                "evidence_count",
+            }
         ),
         "reference_ids": [reference.chunk_id for reference in feedback.references],
     }
