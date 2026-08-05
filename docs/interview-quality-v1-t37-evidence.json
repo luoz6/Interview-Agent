@@ -1,0 +1,234 @@
+{
+  "schema_version": "interview-quality-task-evidence-v1",
+  "task": "T37",
+  "generated_at": "2026-08-05T23:45:00+08:00",
+  "implementation_revision": "67b7144b1af89b3db1804c1a7a8d443f87b840a8",
+  "implementation_tree": "c642bc9cf2cf7d78849cb8cd22c6bd5840b8c863",
+  "engineering_status": "PASS",
+  "automated_review": "PASS",
+  "automated_fixture_gate_status": "PASS",
+  "quality_status": "BLOCKED",
+  "quality_reason": "BLOCKED_NOT_RUN_REAL_PROVIDER",
+  "overall_status": "BLOCKED",
+  "provider_calls": 0,
+  "instrumentation": {
+    "decision_latency": "RECORDED_SEPARATELY",
+    "generation_ttft": "RECORDED_ON_FIRST_PROVIDER_STREAM_ITEM",
+    "generation_complete_latency": "RECORDED_AS_AGENT_RUN_DURATION",
+    "followup_e2e_ttft": "RECORDED_FROM_ANSWER_ACCEPTANCE_TO_FIRST_FOLLOWUP_TOKEN",
+    "next_question_e2e": "RECORDED_SEPARATELY_FROM_GENERATION",
+    "turn_latency": "RECORDED",
+    "sse_resume": "RECORDED_SEPARATELY_FROM_FIRST_EXECUTION",
+    "input_output_cache_tokens": "RECORDED",
+    "retry_fallback_and_calls": "RECORDED",
+    "provider_model": "RECORDED_WITHOUT_PAYLOAD"
+  },
+  "contract_guards": {
+    "fixed_decision_latency_baseline": null,
+    "fixed_decision_latency_baseline_reason": "fixed_v1 has no Decision stage; a zero baseline is prohibited",
+    "exact_cohort_dimensions": [
+      "cold_or_warm",
+      "fixed_or_adaptive",
+      "followup_or_next_question",
+      "first_or_recovery",
+      "schema_version",
+      "question_count",
+      "provider_path"
+    ],
+    "percentile_algorithm": "nearest-rank",
+    "missing_fixed_cohort_result": "INSUFFICIENT_BASELINE",
+    "recovery_duplicates_provider_usage": false,
+    "provider_calls_after_second_followup": 0,
+    "real_capture_requires_source_sha256": true,
+    "real_capture_requires_request_trace_ids": true,
+    "real_capture_requires_pricing_snapshot": true,
+    "real_cost_recomputed_from_tokens": true,
+    "arbitrary_string_payload_fields_allowed": false
+  },
+  "frozen_inputs": {
+    "gate_config": {
+      "path": "config/interview_quality_v1_gate.json",
+      "sha256": "2b650efab1242c00d8e501046fba985ad6a6db191d6043058be0671f9f851535"
+    },
+    "provider_authorization": {
+      "path": "config/interview_quality_v1_provider_authorization.json",
+      "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+      "sha256": "ca6c10bcdd9d95d213d56b553bd889dc261cbe678a0fc405027c072899dbf5ac",
+      "provider": "DeepSeek",
+      "model": "deepseek-chat",
+      "fallback": "prohibited",
+      "budget": "unlimited",
+      "requests": "unlimited",
+      "tokens": "unlimited"
+    }
+  },
+  "fixture_run": {
+    "run_id": "t37-offline-full-20260805-v1",
+    "mode": "fixture-replay",
+    "source_kind": "synthetic_fixture",
+    "capture_status": "complete",
+    "sample_count": 360,
+    "cohort_count": 10,
+    "same_path_comparison_count": 2,
+    "session_count": 240,
+    "automated_gate_status": "PASS",
+    "engineering_status": "PASS",
+    "quality_status": "BLOCKED_NOT_RUN_REAL_PROVIDER",
+    "overall_status": "BLOCKED",
+    "gate_result_count": 22,
+    "gate_status_counts": {
+      "PASS": 19,
+      "RECORDED": 3
+    },
+    "provider_called": false,
+    "first_data_request_sent": false,
+    "implementation_worktree_dirty": false
+  },
+  "scalar_gates": {
+    "decision_output_tokens": {
+      "actual": 30,
+      "threshold": 300,
+      "sample_size": 120,
+      "status": "PASS"
+    },
+    "followup_output_tokens": {
+      "actual": 45,
+      "threshold": 120,
+      "sample_size": 120,
+      "status": "PASS"
+    },
+    "provider_calls_per_answer": {
+      "actual": 2,
+      "threshold": 2,
+      "sample_size": 360,
+      "status": "PASS"
+    },
+    "provider_calls_per_main_question": {
+      "actual": 4,
+      "threshold": 4,
+      "sample_size": 360,
+      "status": "PASS"
+    },
+    "provider_calls_after_second_followup": {
+      "actual": 0,
+      "threshold": 0,
+      "sample_size": 60,
+      "status": "PASS"
+    },
+    "retry_amplification": {
+      "actual": 1.0,
+      "threshold": 1.15,
+      "sample_size": 240,
+      "status": "PASS"
+    },
+    "decision_degradation_rate": {
+      "actual": 0.0,
+      "threshold": 0.02,
+      "sample_size": 120,
+      "status": "PASS"
+    }
+  },
+  "latency_gates": {
+    "adaptive_decision_p95_seconds": {
+      "cold_followup": 0.5700000000000001,
+      "cold_next_question": 0.5700000000000001,
+      "warm_followup": 0.47000000000000003,
+      "warm_next_question": 0.47000000000000003,
+      "threshold": 3.0,
+      "sample_size_per_cohort": 30,
+      "statuses": ["PASS", "PASS", "PASS", "PASS"]
+    },
+    "adaptive_followup_e2e_ttft_p95_seconds": {
+      "cold": 1.09,
+      "cold_effective_threshold": 1.4040000000000001,
+      "warm": 0.8900000000000001,
+      "warm_effective_threshold": 1.284,
+      "sample_size_per_cohort": 30,
+      "statuses": ["PASS", "PASS"]
+    },
+    "adaptive_next_question_p95_seconds": {
+      "cold": 0.6200000000000001,
+      "warm": 0.52,
+      "threshold": 3.0,
+      "sample_size_per_cohort": 60,
+      "statuses": ["PASS", "PASS"]
+    },
+    "sse_resume_p95_seconds": {
+      "cold_fixed": 0.32000000000000006,
+      "cold_adaptive": 0.32000000000000006,
+      "warm_fixed": 0.22,
+      "warm_adaptive": 0.22,
+      "threshold": 5.0,
+      "sample_size_per_cohort": 30,
+      "statuses": ["PASS", "PASS", "PASS", "PASS"]
+    }
+  },
+  "record_only_usage": {
+    "session_input_tokens": 96000,
+    "session_output_tokens": 9000,
+    "session_estimated_cost": 0.19199999999999992,
+    "sample_size": 240,
+    "claim_scope": "SYNTHETIC_AGGREGATION_ONLY"
+  },
+  "sse_recovery_check": {
+    "service": "InterviewEventStreamService",
+    "disconnect_after_events": 2,
+    "last_event_id_before_disconnect": "generation-1:1:2",
+    "first_resumed_event_id": "generation-1:2:0",
+    "generation_reset_precedes_replacement": true,
+    "duplicate_event_count": 0,
+    "payload_persisted_in_measurement": false
+  },
+  "provider_quality_blocker": {
+    "inherited_preflight_task": "T36",
+    "preflight_manifest_path": "tmp/interview-quality-v1-provider-runs/t36-provider-smoke-20260805-v4/manifest.json",
+    "preflight_manifest_sha256": "134cd3540f0627c08a5b161e4e396a15247e143bf6107c65b62f17d044c8e160",
+    "authorized_model": "deepseek-chat",
+    "available_models": [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro"
+    ],
+    "hard_stop": "MODEL_VERSION_DRIFT",
+    "first_data_request_sent": false,
+    "automatic_model_substitution_used": false,
+    "real_t37_performance_capture_available": false
+  },
+  "local_run_artifacts": {
+    "path": "tmp/interview-quality-v1-provider-runs/t37-offline-full-20260805-v1",
+    "manifest_sha256": "81c1ac20672d1ea410e4957164019b99278dd63099e9509c8cd832e2faef0b33",
+    "metrics_sha256": "cad9f3d300e543992e145bac16dc3fa68aa8dff0c3dcdef873504f54f0274490",
+    "performance_artifact_sha256": "763e2df85997a424211ce50ac9b99bc5bcf039e993a80b3fc73ac67e83695b63",
+    "report_sha256": "9d9a09a4c78d49bdca3e98f89bb4ed305ec06af5c3c9fe85b84296110ca67fe1",
+    "raw_response_policy": "local_redacted_only",
+    "git_contains_raw_provider_response": false
+  },
+  "automatic_review_findings_closed": [
+    "Successful-stream TTFT, empty-stream no-TTFT, Provider model without usage, cache aliases, and sanitizer behavior now have direct tests.",
+    "Real performance artifacts are bound to a local redacted source capture SHA and one unique safe trace ID per Provider request.",
+    "Complete real cost evidence carries a frozen pricing snapshot and is recomputed from input/output/cache Token counts.",
+    "All identifier fields use a bounded machine alphabet so performance metadata cannot carry free-form candidate content.",
+    "Retry, fallback, stage-output, total-output, cache, and zero-call accounting contradictions fail schema validation before Gate evaluation.",
+    "SSE recovery now interrupts and resumes the production cursor iterator while exporting timing and event IDs only."
+  ],
+  "verification": {
+    "focused_t37_and_instrumentation": {
+      "passed": 49,
+      "failed": 0
+    },
+    "followup_durable_sse_telemetry_regression": {
+      "passed": 141,
+      "failed": 0
+    },
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS_NO_SECRET_MARKERS",
+    "fixture_runner_exit": 0
+  },
+  "candidate_data_used": false,
+  "principal_memory_used": false,
+  "automatic_model_fallback_used": false,
+  "reviewer": {
+    "automatic": "primary-agent",
+    "independent_performance_reviewer": null
+  }
+}
