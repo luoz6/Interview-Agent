@@ -1,0 +1,188 @@
+{
+  "schema_version": "interview-quality-gate-evidence-v1",
+  "gate": "Gate 2",
+  "generated_at": "2026-08-05T20:36:22+08:00",
+  "implementation_revision": "2a51b71e2fa87189e1f83f087f309904419db79f",
+  "implementation_tree": "8dd125f027251cba37f633ae9ff263d9875a7ae4",
+  "engineering_status": "BLOCKED",
+  "quality_status": "NOT_RUN",
+  "overall_status": "BLOCKED",
+  "automatic_review": "PASS",
+  "open_findings": 0,
+  "blocking_skips": 0,
+  "tasks": {
+    "T19": "PASS",
+    "T20": "PASS",
+    "T21": "PASS",
+    "T22": "PASS",
+    "T23": "PASS",
+    "T24": "PASS",
+    "T25": "BLOCKED",
+    "T26": "BLOCKED",
+    "T27": "NOT_RUN"
+  },
+  "blockers": [
+    {
+      "task": "T25",
+      "reason": "The synthetic 80-case calibration dataset requires an independent technical reviewer; review_status is PENDING_INDEPENDENT_REVIEW."
+    },
+    {
+      "task": "T26",
+      "reason": "The blind partition is fail-closed until T25 independent review is approved, so the one-time blind evaluation was not executed."
+    },
+    {
+      "task": "T27",
+      "reason": "T27 requires T26 to pass; no Provider call was made despite valid unified authorization."
+    }
+  ],
+  "artifacts": {
+    "calibration_dataset": {
+      "path": "tests/golden/interview_quality_v1/report-score-calibration-v1.json",
+      "version": "2026-08-05.2",
+      "sha256": "a5837fcb6286fe7f26d5f572eeddfd210eda54bfdb12a2fa07cb34428fd4bcfb",
+      "case_count": 80,
+      "dev_count": 60,
+      "blind_count": 20,
+      "review_status": "PENDING_INDEPENDENT_REVIEW",
+      "gate_eligible": false
+    },
+    "rubric": {
+      "version": "interview-quality-rubric-v3.3-candidate",
+      "sha256": "913d673fad8bfbde134788e2a48d96acfafe92936abded090bb3b9d5de514c03"
+    },
+    "saved_response_replay": {
+      "path": "reports/interview-quality-v1/gate2-replay-v3-3-candidate-20260805",
+      "source_run": "reports/stage40-acceptance/20260710T124843Z",
+      "source_manifest_sha256": "66a7913af61face2ef0227bd609fe1e34641997b35b41102796c65687b4410f1",
+      "source_attempts_sha256": "14741ecd7a586c4866253f6c2bac28421179228ddfaed5b0483ff1a2317ce90a",
+      "dataset_sha256": "31b5116500b990d2ec2f35c048a9ec221a8e76fcab0175123183d5e2a9991c12",
+      "attempt_count": 40,
+      "decision": "INSUFFICIENT_SAMPLE",
+      "provider_invocations": 0,
+      "saved_response_replay_delta": 0.0
+    },
+    "dev_diagnostic": "reports/interview-quality-v1/gate2-calibration-dev-v3-3-candidate-20260805.json"
+  },
+  "metrics": {
+    "saved_response_replay": {
+      "expected_range_attempt_hit_rate": 1.0,
+      "strong_attempt_hit_rate": 1.0,
+      "interval_outside_mae": 0.0,
+      "expert_score_spearman": 0.9851505174084382,
+      "ranking_accuracy": 1.0,
+      "evidence_grounding_rate": 1.0,
+      "max_score_delta": 4.0,
+      "fallback_rate": 0.0,
+      "failed_gates": [
+        "stratum:language:unknown",
+        "stratum:language:zh",
+        "stratum:quality_level:empty",
+        "stratum:quality_level:off_topic"
+      ],
+      "blocking_failures": []
+    },
+    "dev_diagnostic": {
+      "decision": "INSUFFICIENT_SAMPLE",
+      "expected_range_attempt_hit_rate": 1.0,
+      "strong_attempt_hit_rate": 1.0,
+      "interval_outside_mae": 0.0,
+      "expert_score_spearman": 0.9827188065342134,
+      "ranking_accuracy": 1.0,
+      "evidence_grounding_rate": 1.0,
+      "max_score_delta": 0.0,
+      "fallback_rate": 0.0,
+      "provider_invocations": 0,
+      "error_categories": {},
+      "failed_gates": [
+        "stratum:language:mixed",
+        "stratum:quality_level:empty"
+      ],
+      "blocking_failures": []
+    }
+  },
+  "verification": {
+    "backend_full": {
+      "passed": 2327,
+      "failed": 0,
+      "skipped": 3,
+      "deselected_historical_guards": 2
+    },
+    "backend_report_focused": {
+      "passed": 397,
+      "failed": 0
+    },
+    "gate_contracts": {
+      "passed": 23,
+      "failed": 0
+    },
+    "postgres_durable_report": {
+      "passed": 31,
+      "failed": 0
+    },
+    "calibration_metrics_rubric": {
+      "passed": 42,
+      "failed": 0
+    },
+    "round_review_truth_semantics": {
+      "passed": 11,
+      "failed": 0
+    },
+    "frontend_unit": {
+      "passed": 7,
+      "failed": 0
+    },
+    "frontend_build": "PASS",
+    "diff_check": "PASS",
+    "postgresql": "16.14",
+    "pgvector": "0.8.6"
+  },
+  "skip_classification": [
+    "POSIX Principal Memory ledger path contract is not applicable on Windows",
+    "POSIX virtual-environment symlink contract is not applicable on Windows",
+    "real LLM smoke remains opt-in and is not used as T27 evidence"
+  ],
+  "non_applicable_historical_guards": [
+    {
+      "test": "test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged",
+      "reason": "The historical Local V1 publication lock intentionally rejects every implementation change on a development branch."
+    },
+    {
+      "test": "test_dependency_source_generator_and_lock_metadata_are_bound",
+      "reason": "The Windows worktree uses core.autocrlf=true while historical lock metadata hashes LF bytes; Gate 2 did not edit dependency sources or lock contents."
+    }
+  ],
+  "migration_status": "PASS_NO_SCHEMA_CHANGE",
+  "rollback_rehearsal": "PASS_COMPATIBILITY_AND_FAILED_REGENERATION_PATHS",
+  "known_limitations": [
+    "Independent calibration review is pending.",
+    "The blind partition has not been opened or executed.",
+    "T27 real Provider acceptance has not run.",
+    "The old 40-attempt saved run cannot satisfy four frozen stratum sample minima."
+  ],
+  "reviewer": {
+    "automatic": "primary-agent",
+    "independent_calibration_reviewer": null
+  },
+  "provider_authorization": {
+    "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "status": "VALID_NOT_USED",
+    "provider": "DeepSeek",
+    "model": "deepseek-chat",
+    "allowed_tasks": [
+      "T27",
+      "T36",
+      "T57",
+      "T65"
+    ],
+    "data_scope": [
+      "synthetic",
+      "public",
+      "redacted"
+    ],
+    "fallback": "prohibited"
+  },
+  "provider_calls": 0,
+  "candidate_data_used": false,
+  "principal_memory_used": false,
+  "destructive_database_changes": false
+}
