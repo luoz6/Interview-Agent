@@ -61,6 +61,10 @@ _RUNTIME_TABLE_SUFFIXES = (
     "plan_sources",
     "plan_source_refs",
     "plan_revisions",
+    "report_artifacts",
+    "report_heads",
+    "followup_decisions",
+    "decision_attempts",
     "schema_migrations",
 )
 

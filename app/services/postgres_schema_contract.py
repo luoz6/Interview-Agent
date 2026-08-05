@@ -675,6 +675,59 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "request_sha256",
             }
         ),
+        "_report_jobs": RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_report_jobs"]
+        | frozenset(
+            {
+                "job_id",
+                "session_id",
+                "job_kind",
+                "parent_job_id",
+                "source_report_id",
+                "activate_on_success",
+                "idempotency_key",
+                "fencing_version",
+                "report_id",
+                "created_at",
+            }
+        ),
+        "_report_artifacts": frozenset(
+            {
+                "report_id",
+                "session_id",
+                "revision",
+                "schema_version",
+                "payload_json",
+                "artifact_sha256",
+                "source_job_id",
+            }
+        ),
+        "_report_heads": frozenset(
+            {"session_id", "active_report_id", "latest_job_id", "updated_at"}
+        ),
+        "_followup_decisions": frozenset(
+            {
+                "decision_id",
+                "session_id",
+                "source_command_id",
+                "input_sha256",
+                "max_attempts",
+                "status",
+                "final_decision_json",
+                "decision_sha256",
+            }
+        ),
+        "_decision_attempts": frozenset(
+            {
+                "attempt_id",
+                "decision_id",
+                "attempt_number",
+                "status",
+                "lease_owner",
+                "lease_token",
+                "lease_expires_at",
+                "fencing_version",
+            }
+        ),
     }
 )
 RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
@@ -684,6 +737,15 @@ RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
             frozenset({"plan_family_id", "revision"}),
             frozenset({"unique", "plan_family_id", "revision"}),
             frozenset({"unique", "plan_family_id", "request_id", "where"}),
+        ),
+        "_report_jobs": RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_report_jobs"]
+        + (
+            frozenset({"unique", "session_id", "where", "queued", "running"}),
+            frozenset({"session_id", "created_at"}),
+        ),
+        "_report_artifacts": (
+            frozenset({"unique", "session_id", "revision"}),
+            frozenset({"unique", "source_job_id"}),
         ),
     }
 )
@@ -727,6 +789,55 @@ RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
 )
 RUNTIME_SCHEMA_V16_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V16_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V17_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V16_CHECKSUM,
+        "report_artifacts": {
+            "schema_version": "report-artifact-v2",
+            "immutability": "database-update-trigger-v1",
+            "source_job_unique": True,
+            "session_revision_unique": True,
+        },
+        "report_heads": {
+            "active_report_id": "published-artifact-only",
+            "latest_job_id": "job-history-pointer",
+        },
+        "report_jobs": {
+            "session_id_unique": False,
+            "active_session_partial_unique": True,
+            "job_kinds": ["initial", "rescore"],
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V17_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V17_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V18_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V17_CHECKSUM,
+        "followup_decisions": {
+            "unique_command": ["session_id", "source_command_id"],
+            "final_payload": "immutable-after-completion",
+            "max_attempts": "frozen-at-prepare",
+        },
+        "decision_attempts": {
+            "lease": True,
+            "fencing": True,
+            "bounded_attempts": True,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V18_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V18_MANIFEST.encode("utf-8")
 ).hexdigest()
 
 RUNTIME_MIGRATIONS = (
@@ -808,6 +919,16 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="session_plan_binding_v1",
         checksum=RUNTIME_SCHEMA_V16_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="report_artifact_v2",
+        checksum=RUNTIME_SCHEMA_V17_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_v1",
+        checksum=RUNTIME_SCHEMA_V18_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

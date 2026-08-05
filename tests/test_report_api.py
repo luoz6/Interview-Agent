@@ -12,10 +12,12 @@ from app.services.report import (
     ReportProgress,
 )
 from app.services.session import InterviewSessionStore
+from app.services.interview_plan_revision_store import InMemoryInterviewPlanRevisionStore
 from app.services.vector_store import KnowledgeChunk
 
 
 _ORIGINAL_GET_REPORT_JOB_STORE = route_module.get_report_job_store
+_ORIGINAL_PREPARE_INTERVIEW = route_module.prepare_interview
 
 
 class ReportApiLLM:
@@ -217,14 +219,22 @@ def make_client():
     llm = ReportApiLLM()
     store = InterviewSessionStore(llm=llm)
     job_store = FakeReportJobStore(store)
+    revision_store = InMemoryInterviewPlanRevisionStore()
     app.dependency_overrides[get_session_store] = lambda: store
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
     route_module.get_report_job_store = lambda: job_store
+    route_module.prepare_interview = (
+        lambda job_description, resume_text, **_kwargs: llm.generate_plan(
+            job_description, resume_text
+        )
+    )
     return TestClient(app), store, llm, job_store
 
 
 def teardown_function():
     app.dependency_overrides.clear()
     route_module.get_report_job_store = _ORIGINAL_GET_REPORT_JOB_STORE
+    route_module.prepare_interview = _ORIGINAL_PREPARE_INTERVIEW
 
 
 def test_public_report_error_fallback_only_classifies_explicit_queue_failure():
@@ -245,11 +255,21 @@ def test_retry_exhaustion_is_explicitly_terminal_even_with_frontend_guidance():
 
 
 def start_interview(client: TestClient) -> str:
-    response = client.post(
-        "/api/interviews",
+    prepared = client.post(
+        "/api/prep",
         json={
             "job_description": "Backend role using Python and Redis.",
             "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    response = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": revision["plan_revision_id"],
+            "expected_revision": revision["revision"],
+            "plan_sha256": revision["plan_sha256"],
         },
     )
     assert response.status_code == 200

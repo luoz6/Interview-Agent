@@ -81,6 +81,15 @@ class PostgresReportJobStore:
         psycopg2, sql = self._import_psycopg2()
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
+                for table_name in (
+                    f"{self.table_prefix}_report_heads",
+                    f"{self.table_prefix}_report_artifacts",
+                ):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table}").format(
+                            table=sql.Identifier(table_name)
+                        )
+                    )
                 cursor.execute(
                     sql.SQL("DROP TABLE IF EXISTS {jobs}").format(
                         jobs=sql.Identifier(self.jobs_table)
@@ -221,9 +230,10 @@ class PostgresReportJobStore:
                         INSERT INTO {jobs} (
                             job_id, session_id, status, attempt_count,
                             max_attempts, review_engine,
-                            review_graph_schema_version
+                            review_graph_schema_version, job_kind,
+                            activate_on_success, idempotency_key
                         )
-                        VALUES (%s::uuid, %s, 'queued', 0, 3, %s, %s)
+                        VALUES (%s::uuid, %s, 'queued', 0, 3, %s, %s, %s, %s, %s)
                         RETURNING job_id, session_id, status, lease_owner, lease_expires_at,
                                   attempt_count, max_attempts, last_error,
                                   last_error_code, replay_count, review_engine,
@@ -237,9 +247,23 @@ class PostgresReportJobStore:
                         session_id,
                         review_engine,
                         review_graph_schema_version,
+                        "initial",
+                        True,
+                        f"legacy-request:{session_id}",
                     ),
                 )
                 row = cursor.fetchone()
+                heads_table = f"{self.table_prefix}_report_heads"
+                cursor.execute("SELECT to_regclass(%s)", (f"public.{heads_table}",))
+                if cursor.fetchone()[0] is not None:
+                    cursor.execute(
+                        sql.SQL(
+                            "INSERT INTO {heads}(session_id,latest_job_id,updated_at) "
+                            "VALUES(%s,%s::uuid,NOW()) ON CONFLICT(session_id) DO UPDATE "
+                            "SET latest_job_id=EXCLUDED.latest_job_id,updated_at=NOW()"
+                        ).format(heads=sql.Identifier(heads_table)),
+                        (session_id, job_id),
+                    )
         return self._job_row_to_dict(row)
 
     def claim_next(self, worker_id: str, lease_seconds: int | None = None) -> dict | None:
@@ -837,6 +861,31 @@ class PostgresReportJobStore:
                         ALTER TABLE {jobs}
                         ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ
                         """
+                    ).format(jobs=sql.Identifier(self.jobs_table))
+                )
+                for column_name, column_type in (
+                    ("job_kind", "TEXT NOT NULL DEFAULT 'initial'"),
+                    ("parent_job_id", "UUID"),
+                    ("source_report_id", "UUID"),
+                    ("activate_on_success", "BOOLEAN NOT NULL DEFAULT TRUE"),
+                    ("idempotency_key", "TEXT"),
+                    ("fencing_version", "INTEGER NOT NULL DEFAULT 0"),
+                    ("report_id", "UUID"),
+                    ("created_at", "TIMESTAMPTZ NOT NULL DEFAULT NOW()"),
+                ):
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {jobs} ADD COLUMN IF NOT EXISTS {column} {kind}"
+                        ).format(
+                            jobs=sql.Identifier(self.jobs_table),
+                            column=sql.Identifier(column_name),
+                            kind=sql.SQL(column_type),
+                        )
+                    )
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {jobs} SET idempotency_key='legacy:' || job_id::text "
+                        "WHERE idempotency_key IS NULL"
                     ).format(jobs=sql.Identifier(self.jobs_table))
                 )
                 cursor.execute(

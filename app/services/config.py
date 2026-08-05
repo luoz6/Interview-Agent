@@ -81,6 +81,13 @@ def get_runtime_store() -> str:
     return os.getenv("INTERVIEW_RUNTIME_STORE", DEFAULT_RUNTIME_STORE).strip().lower() or DEFAULT_RUNTIME_STORE
 
 
+def get_report_artifact_read_mode() -> str:
+    mode = os.getenv("REPORT_ARTIFACT_READ_MODE", "artifact_first").strip().lower()
+    if mode not in {"artifact_first", "legacy"}:
+        raise ValueError("REPORT_ARTIFACT_READ_MODE must be artifact_first or legacy")
+    return mode
+
+
 def get_report_runtime_profile() -> ReportRuntimeProfile:
     runtime_store = get_runtime_store()
     explicit_name = os.getenv("REPORT_RUNTIME_PROFILE", "").strip().lower()

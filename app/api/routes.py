@@ -6,6 +6,7 @@ from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -46,6 +47,7 @@ from app.services.interview_plan_revision_store import (
 )
 from app.services.session_plan_binding import session_plan_binding_from_revision
 from app.services.config import (
+    get_report_artifact_read_mode,
     get_report_runtime_profile,
     get_interview_langgraph_rollout_percent,
     get_runtime_event_backend,
@@ -65,6 +67,7 @@ from app.services.runtime import (
     get_plan_revision_store,
     get_event_publisher,
     get_report_job_store,
+    get_report_artifact_store,
     get_runtime_control_store,
     get_session_store,
     get_interview_workflow_service,
@@ -80,6 +83,9 @@ from app.services.runtime import (
     get_principal_memory_fact_store,
     get_principal_memory_safe_ref_store,
 )
+from app.services.report_artifact_store import ReportArtifactNotFound, ReportArtifactConflict
+from app.services.report_view import compose_report_view
+from app.services.postgres_connections import PostgresSchemaNotReady
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
 from app.graphs.interview_state import is_durable_interview_version
@@ -225,6 +231,11 @@ class AnswerRequest(BaseModel):
 class SessionCommandRequest(BaseModel):
     expected_version: int | None = None
     command_id: str | None = None
+
+
+class RescoreReportRequest(BaseModel):
+    activate_on_success: bool = True
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class PrincipalConsentRequest(BaseModel):
@@ -1650,6 +1661,7 @@ def stream_interview_command(
 @router.get("/interviews/{session_id}/report")
 def get_interview_report(
     session_id: str,
+    request: Request,
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
@@ -1660,6 +1672,40 @@ def get_interview_report(
 
     if state["status"] != "finished":
         raise HTTPException(status_code=404, detail="interview is not finished")
+
+    artifact_store = _optional_report_artifact_store(request)
+    active_artifact, latest_job = (
+        _active_report_view(artifact_store, session_id)
+        if artifact_store is not None
+        and get_report_artifact_read_mode() == "artifact_first"
+        else (None, None)
+    )
+    if active_artifact is not None:
+        return {
+            "active_artifact": _report_artifact_to_dict(
+                active_artifact,
+                active=True,
+                latest_job=latest_job,
+            ),
+            "latest_job": _report_job_v2_to_dict(latest_job),
+        }
+    if latest_job is not None:
+        if latest_job.status in {"queued", "running", "retrying"}:
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "active_artifact": None,
+                    "latest_job": _report_job_v2_to_dict(latest_job),
+                },
+            )
+        if latest_job.status == "failed":
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "active_artifact": None,
+                    "latest_job": _report_job_v2_to_dict(latest_job),
+                },
+            )
 
     record = store.get_report_record(session_id)
     if record is None or record.status == "processing":
@@ -1675,6 +1721,57 @@ def get_interview_report(
     if record.status == "failed":
         raise HTTPException(status_code=500, detail=record.error)
     return record.report.model_dump()
+
+
+def _active_report_view(artifact_store, session_id: str):
+    try:
+        head = artifact_store.get_head(session_id)
+    except ReportArtifactNotFound:
+        head = None
+    jobs = artifact_store.list_jobs(session_id)
+    latest_job = jobs[-1] if jobs else None
+    if head is None or head.active_report_id is None:
+        return None, latest_job
+    try:
+        return artifact_store.get_artifact(head.active_report_id), latest_job
+    except ReportArtifactNotFound as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="active report pointer is invalid",
+        ) from exc
+
+
+def _optional_report_artifact_store(request: Request):
+    override = request.app.dependency_overrides.get(get_report_artifact_store)
+    try:
+        return override() if override is not None else get_report_artifact_store()
+    except PostgresSchemaNotReady:
+        # Legacy compatibility endpoints remain readable before the additive
+        # artifact migration. Version-specific endpoints still fail closed.
+        return None
+
+
+def _report_artifact_to_dict(
+    artifact,
+    *,
+    active: bool = False,
+    latest_job=None,
+) -> dict:
+    return compose_report_view(
+        artifact,
+        latest_job=latest_job,
+        active=active,
+    ).model_dump(mode="json")
+
+
+def _report_job_v2_to_dict(job) -> dict | None:
+    if job is None:
+        return None
+    result = job.model_dump(mode="json")
+    result["internal_status"] = job.status
+    result["status"] = "running" if job.status == "retrying" else job.status
+    result["retrying"] = job.status == "retrying"
+    return result
 
 
 @router.get("/interviews/{session_id}/report.pdf")
@@ -1704,6 +1801,120 @@ def download_interview_report_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/interviews/{session_id}/reports")
+def list_interview_report_artifacts(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+    artifact_store=Depends(get_report_artifact_store),
+):
+    try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    head = artifact_store.get_head(session_id)
+    artifacts = artifact_store.list_artifacts(session_id)
+    active_id = head.active_report_id
+    return {
+        "items": [
+            _report_artifact_to_dict(item, active=item.report_id == active_id)
+            for item in artifacts
+        ],
+        "active_report_id": active_id,
+    }
+
+
+@router.get("/interviews/{session_id}/report-jobs")
+def list_interview_report_jobs(
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
+    artifact_store=Depends(get_report_artifact_store),
+):
+    try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "items": [_report_job_v2_to_dict(item) for item in artifact_store.list_jobs(session_id)]
+    }
+
+
+@router.get("/reports/{report_id}.pdf")
+def download_report_artifact_pdf(
+    report_id: str,
+    artifact_store=Depends(get_report_artifact_store),
+):
+    try:
+        artifact = artifact_store.get_artifact(report_id)
+    except ReportArtifactNotFound as exc:
+        raise HTTPException(status_code=404, detail="report artifact not found") from exc
+    from app.services.report import InterviewReport
+
+    try:
+        report = InterviewReport.model_validate(artifact.payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="report artifact is not renderable as the legacy PDF schema",
+        ) from exc
+    pdf_bytes = build_report_pdf(report)
+    filename = f"interview-report-r{artifact.revision}-{artifact.report_id[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/reports/{report_id}")
+def get_report_artifact(
+    report_id: str,
+    artifact_store=Depends(get_report_artifact_store),
+):
+    try:
+        return _report_artifact_to_dict(artifact_store.get_artifact(report_id))
+    except ReportArtifactNotFound as exc:
+        raise HTTPException(status_code=404, detail="report artifact not found") from exc
+
+
+@router.post("/interviews/{session_id}/report/rescore", status_code=202)
+def rescore_interview_report(
+    session_id: str,
+    body: RescoreReportRequest | None = None,
+    store: InterviewSessionStore = Depends(get_session_store),
+    artifact_store=Depends(get_report_artifact_store),
+):
+    try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="interview session not found") from exc
+    active_artifact, _ = _active_report_view(artifact_store, session_id)
+    if active_artifact is None:
+        raise HTTPException(status_code=409, detail="an active report is required before rescoring")
+    request_body = body or RescoreReportRequest()
+    key = request_body.idempotency_key or f"rescore:{uuid4()}"
+    try:
+        job = artifact_store.enqueue_job(
+            session_id=session_id,
+            job_kind="rescore",
+            source_report_id=active_artifact.report_id,
+            activate_on_success=request_body.activate_on_success,
+            idempotency_key=key,
+        )
+    except ReportArtifactConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "session_id": session_id,
+        "report_job_id": job.job_id,
+        "status": job.status,
+        "job_kind": job.job_kind,
+        "source_report_id": job.source_report_id,
+        "active_report_id": active_artifact.report_id,
+    }
 
 
 @router.get("/interviews/{session_id}/report/progress")
@@ -1759,6 +1970,7 @@ def get_interview_report_progress(
 )
 def requeue_failed_report(
     session_id: str,
+    request: Request,
     store: InterviewSessionStore = Depends(get_session_store),
     queue=Depends(get_report_job_queue),
 ):
@@ -1770,6 +1982,35 @@ def requeue_failed_report(
             status_code=404,
             detail="interview session not found",
         ) from exc
+
+    artifact_store = _optional_report_artifact_store(request)
+    artifact_jobs = artifact_store.list_jobs(session_id) if artifact_store is not None else []
+    artifact_job = artifact_jobs[-1] if artifact_jobs else None
+    if artifact_job is not None:
+        if artifact_job.status in {"queued", "retrying", "running"}:
+            raise HTTPException(
+                status_code=409,
+                detail="report job is already queued or processing",
+            )
+        if artifact_job.status == "completed":
+            raise HTTPException(
+                status_code=409,
+                detail="completed report cannot be requeued",
+            )
+        try:
+            requeued = artifact_store.requeue_failed(artifact_job.job_id)
+        except ReportArtifactConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        head = artifact_store.get_head(session_id)
+        return {
+            "session_id": session_id,
+            "report_job_id": requeued.job_id,
+            "status": requeued.status,
+            "job_kind": requeued.job_kind,
+            "active_report_id": head.active_report_id,
+            "recovered_from": "failed",
+            "report_progress_url": f"/api/interviews/{session_id}/report/progress",
+        }
 
     job = queue.get_job_by_session(session_id)
     if job is None:

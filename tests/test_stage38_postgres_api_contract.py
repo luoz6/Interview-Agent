@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 import app.api.routes as route_module
 from app.main import app
 from app.services.postgres_session import PostgresInterviewSessionStore
+from app.services.interview_plan_revision_store import InMemoryInterviewPlanRevisionStore
+from app.services.prep import InterviewQuestion
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.runtime import reset_runtime_for_tests
 from scripts.stage38_postgres_runtime_acceptance import drop_isolated_tables
@@ -36,10 +38,11 @@ def postgres_api_client(monkeypatch):
     reset_runtime_for_tests()
     dsn = require_dsn()
     table_prefix = "stage38_api_" + uuid4().hex[:10]
+    llm = FakeStage38InterviewLLM()
     store = PostgresInterviewSessionStore(
         dsn=dsn,
         table_prefix=table_prefix,
-        llm=FakeStage38InterviewLLM(),
+        llm=llm,
     )
     job_store = PostgresReportJobStore(
         dsn=dsn,
@@ -47,9 +50,28 @@ def postgres_api_client(monkeypatch):
         lease_seconds=300,
     )
     publisher = FakePublisher()
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    def prepare_v2_compatible(job_description, resume_text, **_kwargs):
+        plan = llm.generate_plan(job_description, resume_text)
+        if len(plan.questions) < 3:
+            plan.questions.append(
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design a reliable backend service.",
+                    focus="reliability",
+                )
+            )
+        return plan
     monkeypatch.setattr(route_module, "get_report_job_store", lambda: job_store)
+    monkeypatch.setattr(
+        route_module,
+        "prepare_interview",
+        prepare_v2_compatible,
+    )
     app.dependency_overrides[route_module.get_session_store] = lambda: store
     app.dependency_overrides[route_module.get_event_publisher] = lambda: publisher
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
     try:
         yield TestClient(app), store, job_store, publisher
     finally:
@@ -58,15 +80,29 @@ def postgres_api_client(monkeypatch):
         drop_isolated_tables(dsn=dsn, table_prefix=table_prefix)
 
 
-def test_stage38_postgres_api_versioned_stream_contract(postgres_api_client):
-    client, store, _job_store, publisher = postgres_api_client
-    started = client.post(
-        "/api/interviews",
+def start_versioned_interview(client):
+    prepared = client.post(
+        "/api/prep",
         json={
             "job_description": "Backend role with FastAPI, Redis, and PostgreSQL.",
             "resume_text": "Built FastAPI services with Redis cache-aside.",
         },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    return client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": revision["plan_revision_id"],
+            "expected_revision": revision["revision"],
+            "plan_sha256": revision["plan_sha256"],
+        },
     ).json()
+
+
+def test_stage38_postgres_api_versioned_stream_contract(postgres_api_client):
+    client, store, _job_store, publisher = postgres_api_client
+    started = start_versioned_interview(client)
     session_id = started["session_id"]
 
     stale = client.post(
@@ -114,13 +150,7 @@ def test_stage38_postgres_api_finish_preserves_command_id_through_report_process
     postgres_api_client,
 ):
     client, store, job_store, _publisher = postgres_api_client
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role with FastAPI, Redis, and PostgreSQL.",
-            "resume_text": "Built FastAPI services with Redis cache-aside.",
-        },
-    ).json()
+    started = start_versioned_interview(client)
     session_id = started["session_id"]
 
     finish = client.post(

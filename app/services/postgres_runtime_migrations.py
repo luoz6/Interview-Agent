@@ -37,13 +37,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V16_MANIFEST,
+    RUNTIME_SCHEMA_V18_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V16_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V18_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -270,6 +270,24 @@ def migrate_postgres_runtime(
                 schema_mode="migrate",
             )
             PostgresPrincipalMemoryLedgerWatermarkStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            from app.services.postgres_report_artifact_store import (
+                PostgresReportArtifactStore,
+            )
+
+            PostgresReportArtifactStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            from app.services.postgres_decision_store import PostgresDecisionStore
+
+            PostgresDecisionStore(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,

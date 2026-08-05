@@ -43,6 +43,7 @@ from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.memory_report_jobs import InMemoryReportJobStore
+from app.services.report_artifact_store import InMemoryReportArtifactStore
 from app.services.runtime_outbox_dispatcher import (
     CeleryRuntimeEventSink,
     LocalRuntimeEventSink,
@@ -63,6 +64,8 @@ class ReportExecutor:
 
 _session_store = None
 _report_job_store = None
+_report_artifact_store = None
+_decision_store = None
 _report_executor = None
 _draft_store = None
 _plan_revision_store = None
@@ -648,6 +651,42 @@ def build_report_job_store():
     )
 
 
+def build_report_artifact_store():
+    if get_runtime_store() == "memory":
+        return InMemoryReportArtifactStore()
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_report_artifact_store import (
+            PostgresReportArtifactStore,
+        )
+
+        domains = get_postgres_connection_domains()
+        return PostgresReportArtifactStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=domains.business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+
+
+def build_decision_store():
+    if get_runtime_store() == "memory":
+        from app.services.decision_store import InMemoryDecisionStore
+
+        return InMemoryDecisionStore()
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_decision_store import PostgresDecisionStore
+
+        domains = get_postgres_connection_domains()
+        return PostgresDecisionStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=domains.business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+
+
 def build_draft_store():
     return AnonymousDraftStore()
 
@@ -736,6 +775,20 @@ def get_report_job_store():
     if _report_job_store is None:
         _report_job_store = build_report_job_store()
     return _report_job_store
+
+
+def get_report_artifact_store():
+    global _report_artifact_store
+    if _report_artifact_store is None:
+        _report_artifact_store = build_report_artifact_store()
+    return _report_artifact_store
+
+
+def get_decision_store():
+    global _decision_store
+    if _decision_store is None:
+        _decision_store = build_decision_store()
+    return _decision_store
 
 
 def get_draft_store():
@@ -1543,7 +1596,7 @@ def shutdown_runtime(*, wait: bool = True) -> None:
 
 
 def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
-    global _session_store, _report_job_store, _report_executor, _draft_store
+    global _session_store, _report_job_store, _report_artifact_store, _decision_store, _report_executor, _draft_store
     global _plan_revision_store
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
@@ -1587,6 +1640,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _shutdown_cached_publisher(_event_publisher, wait=wait)
     _session_store = None
     _report_job_store = None
+    _report_artifact_store = None
+    _decision_store = None
     _report_executor = None
     _draft_store = None
     _plan_revision_store = None
