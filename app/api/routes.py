@@ -62,6 +62,7 @@ from app.services.runtime import (
     get_principal_memory_safe_ref_store,
 )
 from app.services.prep_plans import PrepPlanError
+from app.services.prep_question_regeneration import PrepQuestionRegenerator
 from app.services.interview_launch import InterviewLaunchCoordinator
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
@@ -165,6 +166,14 @@ class PrepRequest(BaseModel):
 class PrepPlanPatchRequest(BaseModel):
     expected_version: int = Field(ge=1)
     operations: list[dict] = Field(min_length=1, max_length=20)
+
+
+class PrepQuestionRegenerateRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+
+
+def get_prep_question_regenerator() -> PrepQuestionRegenerator:
+    return PrepQuestionRegenerator()
 
 
 class StartInterviewRequest(BaseModel):
@@ -845,6 +854,25 @@ def patch_prep_plan(
             plan_id,
             expected_version=payload.expected_version,
             operations=payload.operations,
+        )
+    except PrepPlanError as exc:
+        _raise_prep_plan_error(exc)
+
+
+@router.post("/prep-plans/{plan_id}/questions/{question_id}/regenerate")
+def regenerate_prep_question(
+    plan_id: str,
+    question_id: str,
+    payload: PrepQuestionRegenerateRequest,
+    plan_store=Depends(get_prep_plan_store),
+    regenerator: PrepQuestionRegenerator = Depends(get_prep_question_regenerator),
+):
+    try:
+        return regenerator.regenerate(
+            plan_store,
+            plan_id=plan_id,
+            question_id=question_id,
+            expected_version=payload.expected_version,
         )
     except PrepPlanError as exc:
         _raise_prep_plan_error(exc)

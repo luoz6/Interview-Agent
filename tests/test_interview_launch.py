@@ -88,6 +88,24 @@ def test_patch_is_atomic_allows_different_operations_and_rejects_duplicate_type(
     assert store.version_count(public["plan_id"]) == 2
 
 
+def test_patch_move_accepts_a_valid_reordered_position_sequence():
+    store = InMemoryPrepPlanStore()
+    public = create_public_plan(store)
+    second = public["questions"][1]["question_id"]
+
+    updated = store.apply_operations(
+        public["plan_id"],
+        expected_version=public["plan_version"],
+        operations=[{"type": "move", "question_id": second, "position": 1}],
+    )
+
+    positions = {
+        item["question_id"]: item["position"] for item in updated["questions"]
+    }
+    assert positions[second] == 1
+    assert sorted(positions.values()) == [1, 2, 3, 4]
+
+
 def test_patch_normalizes_positions_and_enforces_question_limit():
     store = InMemoryPrepPlanStore()
     public = create_public_plan(store)

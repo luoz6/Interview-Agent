@@ -59,7 +59,9 @@
   "focus": "redis consistency",
   "required": false,
   "enabled": true,
-  "source_signals": ["jd", "resume"]
+  "source_signals": ["jd", "resume"],
+  "topic_labels": ["缓存一致性"],
+  "evidence_ids": ["redis_consistency"]
 }
 ```
 
@@ -75,6 +77,8 @@
 | `required` | boolean | `true` 的题目不能被禁用 |
 | `enabled` | boolean | 排除使用 `false`，不物理删除题目 |
 | `source_signals` | string[] | 公开安全来源标签，不返回完整 JD/简历片段 |
+| `topic_labels` | string[] | 与本题绑定的安全主题名称；不返回内部查询或简历原文 |
+| `evidence_ids` | string[] | 与本题绑定的公开安全证据标识；无知识证据时为空数组 |
 
 ### 3.2 `PrepPlanPublic`
 
@@ -175,6 +179,19 @@ Store 必须在一次 compare-and-swap 中：
 7. 写入一条新版本快照；任意失败则当前计划、版本号和快照均不变。
 
 再次启用的题目默认追加到 enabled 列表末尾，之后可通过 `move` 调整。单题重生成创建新的 `question_id` 和服务端生成的 `kind`，继承原启用位置；旧 ID 不复用。
+
+### 5.3 单题重生成
+
+```json
+POST /api/prep-plans/{plan_id}/questions/{question_id}/regenerate
+{
+  "expected_version": 3
+}
+```
+
+生成在计划锁外执行，写入时重新锁定并比较版本。成功响应返回最新完整计划以及 `replaced_question_id`、`replacement_question_id`；新题继承原题的 `position/enabled/required`，其 `kind/prompt/focus/source_signals/topic_labels/evidence_ids` 来自服务端重新生成结果。成功写一条 `change_type=regenerated` 的不可变快照；生成失败、重复候选或版本冲突均不得修改当前计划和版本历史。
+
+稳定错误：`PREP_PLAN_REGENERATION_FAILED`、`PREP_PLAN_REGENERATION_DUPLICATE`、`PREP_PLAN_VERSION_CONFLICT`、`PREP_PLAN_QUESTION_NOT_FOUND`。错误响应不包含 Provider 原文、提示词或原始 JD/简历。
 
 ### 5.2 版本快照
 

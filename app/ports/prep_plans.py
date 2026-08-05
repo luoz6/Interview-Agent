@@ -29,6 +29,23 @@ class PrepPlanStore(Protocol):
         operations: list[dict[str, Any]],
     ) -> dict[str, Any]: ...
 
+    def get_regeneration_context(
+        self,
+        plan_id: str,
+        *,
+        question_id: str,
+        expected_version: int,
+    ) -> dict[str, Any]: ...
+
+    def replace_question(
+        self,
+        plan_id: str,
+        *,
+        question_id: str,
+        expected_version: int,
+        replacement: dict[str, Any],
+    ) -> dict[str, Any]: ...
+
     def delete_by_source_draft(self, draft_id: str) -> int: ...
 
     def cleanup(self) -> int: ...

@@ -12,8 +12,10 @@ from app.services.postgres_interview_launch_repository import (
 from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep_plans import PrepPlanError
+from app.services.prep_question_regeneration import PrepQuestionRegenerator
 from tests.postgres_support import drop_runtime_tables
 from tests.test_interview_launch import sample_plan
+from tests.test_prep_question_regeneration import plan_with_context
 
 
 pytestmark = pytest.mark.pg_runtime
@@ -236,5 +238,91 @@ def test_postgres_consumed_plan_cleanup_keeps_launch_tombstone(
             )
         assert conflict.value.code == "PREP_PLAN_ALREADY_CONSUMED"
         assert count_rows(postgres_dsn, f"{prefix}_sessions") == 1
+    finally:
+        drop_runtime_tables(postgres_dsn, prefix)
+
+
+def test_postgres_question_regeneration_is_versioned_and_cas_safe(
+    postgres_dsn,
+    runtime_table_prefix,
+):
+    prefix = runtime_table_prefix
+    try:
+        plans, _sessions, _launches = build_postgres_launch_runtime(
+            postgres_dsn,
+            prefix,
+        )
+        public = plans.create(
+            plan=plan_with_context(),
+            job_description="Backend role with Redis",
+            resume_text="Built a cache-backed platform",
+            job_tags=["redis"],
+        )
+        target_id = public["questions"][0]["question_id"]
+
+        with pytest.raises(PrepPlanError) as failed:
+            PrepQuestionRegenerator(
+                lambda _context: (_ for _ in ()).throw(RuntimeError("provider failed"))
+            ).regenerate(
+                plans,
+                plan_id=public["plan_id"],
+                question_id=target_id,
+                expected_version=1,
+            )
+        assert failed.value.code == "PREP_PLAN_REGENERATION_FAILED"
+        assert count_rows(postgres_dsn, f"{prefix}_prep_plan_versions") == 1
+
+        regenerated = PrepQuestionRegenerator(
+            lambda _context: plan_with_context(replacement=True)
+        ).regenerate(
+            plans,
+            plan_id=public["plan_id"],
+            question_id=target_id,
+            expected_version=1,
+        )
+        assert regenerated["plan_version"] == 2
+        assert regenerated["replacement_question_id"] != target_id
+        assert regenerated["questions"][0]["evidence_ids"] == [
+            "knowledge-cache-v2"
+        ]
+        persisted = plans.get(public["plan_id"])
+        assert persisted["questions"] == regenerated["questions"]
+        assert count_rows(postgres_dsn, f"{prefix}_prep_plan_versions") == 2
+
+        concurrent = plans.create(
+            plan=plan_with_context(),
+            job_description="Backend role with Redis",
+            resume_text="Built a cache-backed platform",
+            job_tags=["redis"],
+        )
+        concurrent_target = concurrent["questions"][0]["question_id"]
+        other_id = concurrent["questions"][1]["question_id"]
+
+        def generate_after_patch(_context):
+            plans.apply_operations(
+                concurrent["plan_id"],
+                expected_version=1,
+                operations=[
+                    {
+                        "type": "set_focus",
+                        "question_id": other_id,
+                        "focus": "事务边界",
+                    }
+                ],
+            )
+            return plan_with_context(replacement=True)
+
+        with pytest.raises(PrepPlanError) as conflict:
+            PrepQuestionRegenerator(generate_after_patch).regenerate(
+                plans,
+                plan_id=concurrent["plan_id"],
+                question_id=concurrent_target,
+                expected_version=1,
+            )
+        assert conflict.value.code == "PREP_PLAN_VERSION_CONFLICT"
+        latest = plans.get(concurrent["plan_id"])
+        assert latest["plan_version"] == 2
+        assert latest["questions"][0]["question_id"] == concurrent_target
+        assert latest["questions"][1]["focus"] == "事务边界"
     finally:
         drop_runtime_tables(postgres_dsn, prefix)

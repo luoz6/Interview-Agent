@@ -10,10 +10,12 @@ from app.services.prep import InterviewPlan
 from app.services.prep_plans import (
     PrepPlanError,
     apply_plan_operations,
+    build_regenerated_state,
     build_prep_plan_record,
     plan_expired,
     plan_not_found,
     public_from_record,
+    regeneration_context_from_record,
     version_snapshot,
 )
 
@@ -97,6 +99,53 @@ class InMemoryPrepPlanStore:
                 change_type="patched",
             )
             return public_from_record(record)
+
+    def get_regeneration_context(
+        self,
+        plan_id: str,
+        *,
+        question_id: str,
+        expected_version: int,
+    ) -> dict[str, Any]:
+        with self.transaction(plan_id) as record:
+            self._assert_editable(record)
+            return regeneration_context_from_record(
+                record,
+                expected_version=expected_version,
+                question_id=question_id,
+            )
+
+    def replace_question(
+        self,
+        plan_id: str,
+        *,
+        question_id: str,
+        expected_version: int,
+        replacement: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.transaction(plan_id) as record:
+            self._assert_editable(record)
+            next_public, contexts, catalog = build_regenerated_state(
+                record,
+                expected_version=expected_version,
+                replaced_question_id=question_id,
+                replacement=replacement,
+            )
+            replacement_id = replacement["public_question"]["question_id"]
+            record["public"] = next_public
+            record["question_contexts"] = contexts
+            record["context_catalog"] = catalog
+            record["updated_at"] = self._aware(self._clock()).isoformat()
+            record["versions"][next_public["plan_version"]] = version_snapshot(
+                next_public,
+                change_type="regenerated",
+                replaced_question_id=question_id,
+                replacement_question_id=replacement_id,
+            )
+            response = public_from_record(record)
+            response["replaced_question_id"] = question_id
+            response["replacement_question_id"] = replacement_id
+            return response
 
     @contextmanager
     def transaction(self, plan_id: str) -> Iterator[dict[str, Any]]:

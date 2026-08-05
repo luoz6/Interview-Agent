@@ -7,7 +7,14 @@ import json
 from typing import Any
 from uuid import uuid4
 
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    KnowledgeEvidenceRef,
+    PrepContext,
+    PrepKnowledgeTopic,
+    PrepQuestionHint,
+)
 
 
 class PrepPlanError(ValueError):
@@ -67,19 +74,25 @@ def build_prep_plan_record(
 ) -> dict[str, Any]:
     plan_id = f"prep_{uuid4()}"
     questions = []
+    question_contexts: dict[str, dict[str, Any]] = {}
     for position, question in enumerate(plan.questions, start=1):
+        question_id = f"pq_{uuid4()}"
+        metadata = question_metadata(plan, question.id)
         questions.append(
             {
-                "question_id": f"pq_{uuid4()}",
+                "question_id": question_id,
                 "position": position,
                 "kind": question.kind,
                 "prompt": question.prompt,
                 "focus": question.focus,
                 "required": False,
                 "enabled": True,
-                "source_signals": _source_signals(plan, question.id),
+                "source_signals": metadata["source_signals"],
+                "topic_labels": metadata["topic_labels"],
+                "evidence_ids": metadata["evidence_ids"],
             }
         )
+        question_contexts[question_id] = metadata["question_hint"]
     source_sha256 = source_digest(job_description, resume_text)
     public = {
         "plan_id": plan_id,
@@ -96,6 +109,8 @@ def build_prep_plan_record(
     return {
         "public": public,
         "internal_plan": plan.model_dump(mode="json"),
+        "question_contexts": question_contexts,
+        "context_catalog": context_catalog(plan),
         "job_description": job_description,
         "resume_text": resume_text,
         "job_tags": list(job_tags),
@@ -152,8 +167,119 @@ def launch_plan_from_record(record: dict[str, Any]) -> tuple[InterviewPlan, list
     return InterviewPlan(
         title=record["public"]["title"],
         questions=projected,
-        prep_context=original.prep_context,
+        prep_context=_launch_prep_context(record, enabled, original.prep_context),
     ), mappings
+
+
+def regeneration_context_from_record(
+    record: dict[str, Any],
+    *,
+    expected_version: int,
+    question_id: str,
+) -> dict[str, Any]:
+    public = record["public"]
+    _assert_expected_version(public, expected_version)
+    question = next(
+        (item for item in public["questions"] if item["question_id"] == question_id),
+        None,
+    )
+    if question is None:
+        raise PrepPlanError(
+            "PREP_PLAN_QUESTION_NOT_FOUND",
+            "计划中的题目不存在。",
+            status_code=422,
+            details={"question_id": question_id},
+        )
+    return {
+        "plan_id": public["plan_id"],
+        "expected_version": expected_version,
+        "target_question": deepcopy(question),
+        "current_questions": deepcopy(public["questions"]),
+        "job_description": record["job_description"],
+        "resume_text": record["resume_text"],
+    }
+
+
+def build_question_replacement(
+    generated_plan: InterviewPlan,
+    *,
+    target_question: dict[str, Any],
+    current_questions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidate = select_regeneration_candidate(
+        generated_plan,
+        target_question=target_question,
+        current_questions=current_questions,
+    )
+    replacement_id = f"pq_{uuid4()}"
+    metadata = question_metadata(generated_plan, candidate.id)
+    return {
+        "public_question": {
+            "question_id": replacement_id,
+            "position": target_question["position"],
+            "kind": candidate.kind,
+            "prompt": candidate.prompt,
+            "focus": candidate.focus,
+            "required": bool(target_question["required"]),
+            "enabled": bool(target_question["enabled"]),
+            "source_signals": metadata["source_signals"],
+            "topic_labels": metadata["topic_labels"],
+            "evidence_ids": metadata["evidence_ids"],
+        },
+        "question_hint": metadata["question_hint"],
+        "context_catalog": context_catalog(generated_plan),
+    }
+
+
+def build_regenerated_state(
+    record: dict[str, Any],
+    *,
+    expected_version: int,
+    replaced_question_id: str,
+    replacement: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, Any]]:
+    public = record["public"]
+    _assert_expected_version(public, expected_version)
+    working = deepcopy(public)
+    question_index = next(
+        (
+            index
+            for index, item in enumerate(working["questions"])
+            if item["question_id"] == replaced_question_id
+        ),
+        None,
+    )
+    if question_index is None:
+        raise PrepPlanError(
+            "PREP_PLAN_QUESTION_NOT_FOUND",
+            "计划中的题目不存在。",
+            status_code=422,
+            details={"question_id": replaced_question_id},
+        )
+    new_question = deepcopy(replacement["public_question"])
+    if any(
+        item["question_id"] == new_question["question_id"]
+        for item in working["questions"]
+    ):
+        raise PrepPlanError(
+            "PREP_PLAN_DUPLICATE_QUESTION_ID",
+            "替代题目标识与当前计划冲突。",
+            status_code=422,
+        )
+    working["questions"][question_index] = new_question
+    validate_public_questions([item for item in working["questions"] if item["enabled"]])
+    working["plan_version"] = int(public["plan_version"]) + 1
+
+    contexts = deepcopy(record.get("question_contexts") or {})
+    contexts.pop(replaced_question_id, None)
+    contexts[new_question["question_id"]] = deepcopy(replacement["question_hint"])
+    catalog = merge_context_catalogs(
+        record.get("context_catalog") or context_catalog(
+            InterviewPlan.model_validate(record["internal_plan"])
+        ),
+        replacement["context_catalog"],
+    )
+    return working, contexts, catalog
 
 
 def apply_plan_operations(
@@ -163,14 +289,7 @@ def apply_plan_operations(
     operations: list[dict[str, Any]],
 ) -> dict[str, Any]:
     current_version = int(public["plan_version"])
-    if expected_version != current_version:
-        raise PrepPlanError(
-            "PREP_PLAN_VERSION_CONFLICT",
-            "计划已经更新，请确认最新版本。",
-            status_code=409,
-            retryable=True,
-            details={"plan_id": public["plan_id"], "latest_version": current_version},
-        )
+    _assert_expected_version(public, expected_version)
     if not operations:
         raise PrepPlanError(
             "PREP_PLAN_EMPTY_OPERATION",
@@ -261,7 +380,8 @@ def validate_public_questions(enabled: list[dict[str, Any]]) -> None:
             "计划题目标识重复。",
             status_code=422,
         )
-    if [item["position"] for item in enabled] != list(range(1, len(enabled) + 1)):
+    positions = sorted(item["position"] for item in enabled)
+    if positions != list(range(1, len(enabled) + 1)):
         raise PrepPlanError(
             "PREP_PLAN_INVALID_POSITION",
             "启用题目顺序不连续。",
@@ -297,14 +417,178 @@ def source_digest(job_description: str, resume_text: str) -> str:
     return sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _source_signals(plan: InterviewPlan, question_id: str) -> list[str]:
+def question_metadata(plan: InterviewPlan, question_id: str) -> dict[str, Any]:
     context = plan.prep_context
     if not context:
-        return ["jd", "resume"]
+        return {
+            "source_signals": ["jd", "resume"],
+            "topic_labels": [],
+            "evidence_ids": [],
+            "question_hint": PrepQuestionHint(question_id=question_id).model_dump(
+                mode="json"
+            ),
+        }
     hint = next((item for item in context.question_hints if item.question_id == question_id), None)
-    if hint and hint.evidence_ids:
-        return ["jd", "resume", "knowledge"]
-    return ["jd", "resume"]
+    hint = hint or PrepQuestionHint(question_id=question_id)
+    topic_by_id = {item.id: item.label for item in context.topics}
+    topic_labels = [
+        topic_by_id[topic_id]
+        for topic_id in hint.topic_ids
+        if topic_id in topic_by_id
+    ]
+    evidence_ids = list(dict.fromkeys(hint.evidence_ids))
+    return {
+        "source_signals": (
+            ["jd", "resume", "knowledge"]
+            if evidence_ids
+            else ["jd", "resume"]
+        ),
+        "topic_labels": list(dict.fromkeys(topic_labels)),
+        "evidence_ids": evidence_ids,
+        "question_hint": hint.model_dump(mode="json"),
+    }
+
+
+def context_catalog(plan: InterviewPlan) -> dict[str, Any]:
+    context = plan.prep_context
+    if context is None:
+        return {"topics": [], "evidence_refs": []}
+    return {
+        "topics": [item.model_dump(mode="json") for item in context.topics],
+        "evidence_refs": [
+            item.model_dump(mode="json") for item in context.evidence_refs
+        ],
+    }
+
+
+def merge_context_catalogs(
+    current: dict[str, Any],
+    replacement: dict[str, Any],
+) -> dict[str, Any]:
+    topics = {
+        item["id"]: deepcopy(item)
+        for item in current.get("topics", []) + replacement.get("topics", [])
+    }
+    evidence = {
+        item["evidence_id"]: deepcopy(item)
+        for item in current.get("evidence_refs", [])
+        + replacement.get("evidence_refs", [])
+    }
+    return {"topics": list(topics.values()), "evidence_refs": list(evidence.values())}
+
+
+def select_regeneration_candidate(
+    generated_plan: InterviewPlan,
+    *,
+    target_question: dict[str, Any],
+    current_questions: list[dict[str, Any]],
+) -> InterviewQuestion:
+    existing_prompts = [item["prompt"] for item in current_questions]
+    eligible = [
+        candidate
+        for candidate in generated_plan.questions
+        if all(
+            _text_similarity(candidate.prompt, prompt) < 0.78
+            for prompt in existing_prompts
+        )
+    ]
+    if not eligible:
+        raise PrepPlanError(
+            "PREP_PLAN_REGENERATION_DUPLICATE",
+            "没有生成与当前计划足够不同的替代题，请稍后重试。",
+            status_code=422,
+            retryable=True,
+            details={"question_id": target_question["question_id"]},
+        )
+
+    def score(candidate: InterviewQuestion) -> tuple[float, float, str]:
+        focus_similarity = _text_similarity(candidate.focus, target_question["focus"])
+        kind_bonus = 1.0 if candidate.kind == target_question["kind"] else 0.0
+        novelty = 1.0 - max(
+            (_text_similarity(candidate.prompt, prompt) for prompt in existing_prompts),
+            default=0.0,
+        )
+        return (focus_similarity * 4 + kind_bonus + novelty, novelty, candidate.id)
+
+    return max(eligible, key=score)
+
+
+def _launch_prep_context(
+    record: dict[str, Any],
+    enabled: list[dict[str, Any]],
+    original: PrepContext | None,
+) -> PrepContext | None:
+    if original is None and not record.get("question_contexts"):
+        return None
+    base = original.model_copy(deep=True) if original is not None else PrepContext(summary="")
+    catalog = record.get("context_catalog") or {}
+    available_topics = (
+        [PrepKnowledgeTopic.model_validate(item) for item in catalog["topics"]]
+        if catalog.get("topics")
+        else list(base.topics)
+    )
+    available_evidence = (
+        [KnowledgeEvidenceRef.model_validate(item) for item in catalog["evidence_refs"]]
+        if catalog.get("evidence_refs")
+        else list(base.evidence_refs)
+    )
+    contexts = record.get("question_contexts") or {}
+    projected_hints = []
+    for position, question in enumerate(enabled, start=1):
+        raw_hint = deepcopy(contexts.get(question["question_id"]) or {})
+        raw_hint["question_id"] = f"q{position}"
+        raw_hint.setdefault("topic_ids", [])
+        raw_hint.setdefault("follow_up_hints", [])
+        raw_hint.setdefault("evidence_titles", [])
+        raw_hint.setdefault("evidence_ids", question.get("evidence_ids", []))
+        projected_hints.append(PrepQuestionHint.model_validate(raw_hint))
+    base.question_hints = projected_hints
+    referenced_topic_ids = {
+        topic_id for hint in projected_hints for topic_id in hint.topic_ids
+    }
+    base.topics = [
+        topic for topic in available_topics if topic.id in referenced_topic_ids
+    ]
+    referenced_evidence_ids = {
+        evidence_id for hint in projected_hints for evidence_id in hint.evidence_ids
+    }
+    referenced_evidence_ids.update(
+        evidence_id for topic in base.topics for evidence_id in topic.evidence_ids
+    )
+    base.evidence_refs = [
+        evidence
+        for evidence in available_evidence
+        if evidence.evidence_id in referenced_evidence_ids
+    ]
+    return base
+
+
+def _assert_expected_version(public: dict[str, Any], expected_version: int) -> None:
+    current_version = int(public["plan_version"])
+    if expected_version != current_version:
+        raise PrepPlanError(
+            "PREP_PLAN_VERSION_CONFLICT",
+            "计划已经更新，请确认最新版本。",
+            status_code=409,
+            retryable=True,
+            details={"plan_id": public["plan_id"], "latest_version": current_version},
+        )
+
+
+def _text_similarity(left: str, right: str) -> float:
+    def tokens(value: str) -> set[str]:
+        normalized = "".join(character.lower() for character in value if character.isalnum())
+        if not normalized:
+            return set()
+        if len(normalized) == 1:
+            return {normalized}
+        return {normalized[index : index + 2] for index in range(len(normalized) - 1)}
+
+    left_tokens = tokens(left)
+    right_tokens = tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
 
 
 def _public_context(plan: InterviewPlan) -> dict[str, Any]:

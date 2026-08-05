@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 from typing import Any
@@ -14,10 +15,12 @@ from app.services.prep import InterviewPlan
 from app.services.prep_plans import (
     PrepPlanError,
     apply_plan_operations,
+    build_regenerated_state,
     build_prep_plan_record,
     plan_expired,
     plan_not_found,
     public_from_record,
+    regeneration_context_from_record,
     version_snapshot,
 )
 
@@ -209,6 +212,90 @@ class PostgresPrepPlanStore:
                 raise
         return next_public
 
+    def get_regeneration_context(
+        self,
+        plan_id: str,
+        *,
+        question_id: str,
+        expected_version: int,
+    ) -> dict[str, Any]:
+        self.cleanup()
+        with self._provider.connection() as connection:
+            with connection.cursor() as cursor:
+                record = self.select_locked(cursor, plan_id, for_update=False)
+        self._assert_available(record, plan_id)
+        self._assert_editable(record)
+        return regeneration_context_from_record(
+            record,
+            expected_version=expected_version,
+            question_id=question_id,
+        )
+
+    def replace_question(
+        self,
+        plan_id: str,
+        *,
+        question_id: str,
+        expected_version: int,
+        replacement: dict[str, Any],
+    ) -> dict[str, Any]:
+        from psycopg2 import sql
+
+        self.cleanup()
+        with self._provider.connection() as connection:
+            try:
+                with connection.cursor() as cursor:
+                    record = self.select_locked(cursor, plan_id, for_update=True)
+                    self._assert_available(record, plan_id)
+                    self._assert_editable(record)
+                    next_public, contexts, catalog = build_regenerated_state(
+                        record,
+                        expected_version=expected_version,
+                        replaced_question_id=question_id,
+                        replacement=replacement,
+                    )
+                    replacement_id = replacement["public_question"]["question_id"]
+                    record["question_contexts"] = contexts
+                    record["context_catalog"] = catalog
+                    cursor.execute(
+                        sql.SQL(
+                            "UPDATE {plans} SET plan_version=%s, plan_json=%s::jsonb, "
+                            "internal_context_json=%s::jsonb, updated_at=NOW() "
+                            "WHERE plan_id=%s AND plan_version=%s"
+                        ).format(plans=sql.Identifier(self._plans_table)),
+                        (
+                            next_public["plan_version"],
+                            json.dumps(next_public, ensure_ascii=False),
+                            json.dumps(self._internal_payload(record), ensure_ascii=False),
+                            plan_id,
+                            expected_version,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise PrepPlanError(
+                            "PREP_PLAN_VERSION_CONFLICT",
+                            "计划已经更新，请确认最新版本。",
+                            status_code=409,
+                            retryable=True,
+                        )
+                    self._insert_version(
+                        cursor,
+                        version_snapshot(
+                            next_public,
+                            change_type="regenerated",
+                            replaced_question_id=question_id,
+                            replacement_question_id=replacement_id,
+                        ),
+                    )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        response = deepcopy(next_public)
+        response["replaced_question_id"] = question_id
+        response["replacement_question_id"] = replacement_id
+        return response
+
     def delete_by_source_draft(self, draft_id: str) -> int:
         from psycopg2 import sql
 
@@ -302,12 +389,7 @@ class PostgresPrepPlanStore:
         from psycopg2 import sql
 
         public = record["public"]
-        internal = {
-            "internal_plan": record["internal_plan"],
-            "job_description": record["job_description"],
-            "resume_text": record["resume_text"],
-            "job_tags": record["job_tags"],
-        }
+        internal = self._internal_payload(record)
         cursor.execute(
             sql.SQL(
                 """
@@ -357,6 +439,8 @@ class PostgresPrepPlanStore:
         return {
             "public": public,
             "internal_plan": internal["internal_plan"],
+            "question_contexts": dict(internal.get("question_contexts") or {}),
+            "context_catalog": dict(internal.get("context_catalog") or {}),
             "job_description": internal["job_description"],
             "resume_text": internal["resume_text"],
             "job_tags": list(internal.get("job_tags") or []),
@@ -369,6 +453,17 @@ class PostgresPrepPlanStore:
             "consumed_plan_version": row[10],
             "created_at": row[11].isoformat(),
             "updated_at": row[12].isoformat(),
+        }
+
+    @staticmethod
+    def _internal_payload(record: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "internal_plan": record["internal_plan"],
+            "question_contexts": record.get("question_contexts") or {},
+            "context_catalog": record.get("context_catalog") or {},
+            "job_description": record["job_description"],
+            "resume_text": record["resume_text"],
+            "job_tags": record["job_tags"],
         }
 
     @staticmethod
