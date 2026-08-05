@@ -1,30 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowCounterClockwise,
   ArrowRight,
-  Books,
   Briefcase,
+  CaretLeft,
   CheckCircle,
   Circle,
   Clock,
-  ClipboardText,
-  Columns,
+  CloudCheck,
   Eraser,
   FileText,
-  Files,
   FloppyDisk,
   IdentificationCard,
   Info,
   ListChecks,
+  PencilSimple,
   ShieldCheck,
   SpinnerGap,
   Trash,
   UploadSimple,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { deleteJson, getJson, postJson } from "../api/client";
+import { deleteJson, getJson, patchJson, postJson } from "../api/client";
 import { AppShell } from "../components/AppShell";
+import { PlanEditor } from "../components/PlanEditor";
 import { createCommandId } from "../utils/ids";
+import "../styles/prep-workbench.css";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -56,24 +57,6 @@ function wait(ms, signal) {
     }, { once: true });
   });
 }
-
-const KNOWLEDGE_STATUS_LABELS = {
-  completed: "检索完成",
-  degraded: "检索降级",
-  empty: "无公开证据",
-  pending: "等待计划",
-  unknown: "状态未提供",
-};
-
-const QUESTION_KIND_LABELS = {
-  project: "项目经历",
-  technical: "技术能力",
-  "system-design": "系统设计",
-  system_design: "系统设计",
-  behavioral: "行为问题",
-  follow_up: "追问",
-  "follow-up": "追问",
-};
 
 function getStoredDraftId() {
   return DRAFT_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) || "";
@@ -164,22 +147,6 @@ function SourceEditor({
   );
 }
 
-function PlanQuestion({ question, index }) {
-  const kind = QUESTION_KIND_LABELS[question.kind] || question.kind || "综合考察";
-  return (
-    <li className="start-plan-question">
-      <span className="start-plan-index">{String(index + 1).padStart(2, "0")}</span>
-      <div className="start-plan-copy">
-        <div className="start-plan-meta">
-          <span>{kind}</span>
-          <span>{question.focus || "综合考察"}</span>
-        </div>
-        <strong>{question.prompt}</strong>
-      </div>
-    </li>
-  );
-}
-
 function StatusNotice({ notice }) {
   if (!notice) return null;
   const NoticeIcon = notice.tone === "error" || notice.tone === "warning" ? WarningCircle : notice.tone === "success" ? CheckCircle : Info;
@@ -199,7 +166,7 @@ function StatusNotice({ notice }) {
 }
 
 function RuntimeStatus({ status, label }) {
-  const loading = ["generating", "saving", "restoring", "starting"].includes(status);
+  const loading = ["generating", "saving", "restoring", "starting", "updating", "regenerating"].includes(status);
   const StateIcon = status === "ready" ? CheckCircle : status === "error" ? WarningCircle : Circle;
   return (
     <div className="start-runtime" data-state={status} role="status" aria-live="polite">
@@ -213,65 +180,36 @@ function RuntimeStatus({ status, label }) {
   );
 }
 
-function InspectorStatus({ status, label }) {
-  const loading = ["generating", "saving", "restoring", "starting"].includes(status);
-  const StateIcon = status === "ready" ? CheckCircle : status === "error" ? WarningCircle : Circle;
+function PrepStepper({ planReady }) {
+  const steps = [
+    { number: 1, label: "填写资料", state: planReady ? "complete" : "current" },
+    { number: 2, label: "检查计划", state: planReady ? "current" : "upcoming" },
+    { number: 3, label: "开始面试", state: "upcoming" },
+  ];
   return (
-    <span className="start-inspector-state" data-state={status}>
-      {loading
-        ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" focusable="false" />
-        : <StateIcon size={13} weight={status === "idle" ? "fill" : "bold"} aria-hidden="true" focusable="false" />}
-      <span>{label}</span>
-    </span>
+    <ol className="prep-stepper" aria-label="面试准备步骤">
+      {steps.map((step) => (
+        <li key={step.number} data-state={step.state} aria-current={step.state === "current" ? "step" : undefined}>
+          <span aria-hidden="true">{step.state === "complete" ? <CheckCircle size={16} weight="fill" /> : step.number}</span>
+          <strong>{step.label}</strong>
+        </li>
+      ))}
+    </ol>
   );
 }
 
-function InspectorEmpty({ icon: EmptyIcon, title, children }) {
+function DraftSaveState({ meta, saving }) {
+  if (saving) {
+    return <span className="prep-draft-state"><SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" />正在保存草稿</span>;
+  }
+  if (!meta) {
+    return <span className="prep-draft-state"><Circle size={15} weight="regular" aria-hidden="true" />尚未保存</span>;
+  }
+  const savedAt = new Date(meta.savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   return (
-    <div className="start-inspector-empty">
-      <div className="start-inspector-empty-head">
-        <EmptyIcon size={18} weight="bold" aria-hidden="true" focusable="false" />
-        <strong>{title}</strong>
-      </div>
-      <p>{children}</p>
-    </div>
-  );
-}
-
-function ReadinessItem({ ready, label, value }) {
-  const StateIcon = ready ? CheckCircle : Circle;
-  return (
-    <div data-ready={ready}>
-      <span className="start-readiness-label">
-        <StateIcon size={16} weight={ready ? "fill" : "regular"} aria-hidden="true" focusable="false" />
-        <span>{label}</span>
-      </span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function KnowledgeStatus({ status }) {
-  const normalized = status || "pending";
-  const label = KNOWLEDGE_STATUS_LABELS[normalized] || normalized.replaceAll("_", " ");
-  const StateIcon = normalized === "completed" ? CheckCircle : normalized === "degraded" ? WarningCircle : normalized === "empty" ? Info : Circle;
-  return (
-    <span className="start-knowledge-state" data-state={normalized}>
-      <StateIcon size={14} weight={normalized === "completed" || normalized === "degraded" ? "fill" : "bold"} aria-hidden="true" focusable="false" />
-      <strong>{label}</strong>
-    </span>
-  );
-}
-
-function StatusBarItem({ ready = false, state = "idle", label, value, current = false }) {
-  const loading = ["generating", "saving", "restoring", "starting"].includes(state);
-  const StateIcon = state === "error" || state === "warning" ? WarningCircle : state === "info" ? Info : ready || state === "ready" ? CheckCircle : Circle;
-  return (
-    <span className={current ? "start-status-current" : undefined} data-ready={ready} data-state={state}>
-      {loading
-        ? <SpinnerGap className="start-spinner" size={12} weight="bold" aria-hidden="true" focusable="false" />
-        : <StateIcon size={12} weight={ready || state === "ready" || state === "warning" ? "fill" : "regular"} aria-hidden="true" focusable="false" />}
-      <strong>{label}</strong>{value}
+    <span className="prep-draft-state" data-durability={meta.durability}>
+      <CloudCheck size={15} weight="bold" aria-hidden="true" />
+      {savedAt} · {meta.durability === "postgres" ? "持久保存" : "进程内临时保存"}
     </span>
   );
 }
@@ -302,23 +240,25 @@ export function StartPage() {
   const [fileNames, setFileNames] = useState({ jd: "未导入文件", resume: "未导入文件" });
   const [invalid, setInvalid] = useState({ jd: false, resume: false });
   const [activeDocument, setActiveDocument] = useState("jd");
-  const [inspectorView, setInspectorView] = useState("plan");
+  const [workspaceView, setWorkspaceView] = useState("sources");
   const [focusTarget, setFocusTarget] = useState("");
   const [clearArmed, setClearArmed] = useState(false);
   const [recovery, setRecovery] = useState(null);
   const [launchAttempt, setLaunchAttempt] = useState(0);
+  const [draftMeta, setDraftMeta] = useState(null);
+  const [planAnnouncement, setPlanAnnouncement] = useState("");
+  const [activePlanQuestionId, setActivePlanQuestionId] = useState("");
   const launchControllerRef = useRef(null);
+  const lastPersistedSourcesRef = useRef("");
 
   const questions = plan?.questions || [];
-  const prepContext = plan?.prep_context || {};
-  const topics = prepContext.topics || [];
-  const evidence = prepContext.evidence_refs || [];
+  const enabledQuestions = questions.filter((question) => question.enabled !== false);
   const jobTags = plan?.job_tags || [];
-  const busy = ["generating", "saving", "restoring", "starting"].includes(status);
+  const busy = ["generating", "saving", "restoring", "starting", "updating", "regenerating"].includes(status);
   const sourcesReady = Number(Boolean(jobDescription.trim())) + Number(Boolean(resumeText.trim()));
   const estimatedMinutes = useMemo(
-    () => questions.length ? `${questions.length * 4}–${questions.length * 6} 分钟` : "待生成",
-    [questions.length],
+    () => enabledQuestions.length ? `${enabledQuestions.length * 4}–${enabledQuestions.length * 6} 分钟` : "待生成",
+    [enabledQuestions.length],
   );
 
   useEffect(() => {
@@ -412,7 +352,7 @@ export function StartPage() {
       const missingDocument = next.jd ? "jd" : "resume";
       setActiveDocument(missingDocument);
       setFocusTarget(missingDocument);
-      setInspectorView("readiness");
+      setWorkspaceView("sources");
       setNotice({ tone: "error", text: `${next.jd ? "岗位 JD" : "候选人经历"}尚未填写。需要同时提供两份资料，才能建立可信的考察边界。` });
       return false;
     }
@@ -423,7 +363,7 @@ export function StartPage() {
     if (!file) return;
     const extension = file.name.split(".").pop()?.toLowerCase();
     if (!extension || !["txt", "md"].includes(extension)) {
-      setNotice({ tone: "error", text: "仅支持 .txt 或 .md 文件；PDF、Word 和图片不会被静默解析。" });
+      setNotice({ tone: "error", text: "仅支持 .txt 或 .md 文件；PDF、Word 和图片不会被静默解析。请复制其中的文本后粘贴到编辑区。" });
       input.value = "";
       return;
     }
@@ -451,6 +391,7 @@ export function StartPage() {
     }
     setFileNames((value) => ({ ...value, [target]: file.name }));
     setPlan(null);
+    setWorkspaceView("sources");
     setNotice({ tone: truncated ? "info" : "success", text: truncated ? `${file.name} 已导入，并按上限保留前 50,000 字。` : `${file.name} 已导入。生成计划前仍可继续编辑。` });
     input.value = "";
   }
@@ -467,7 +408,7 @@ export function StartPage() {
       });
       setPlan(nextPlan);
       setStatus("ready");
-      setInspectorView("plan");
+      setWorkspaceView("plan");
       setNotice({ tone: "success", text: "面试蓝图已生成。请先检查题目与证据路径，再开始面试。" });
     } catch (error) {
       setStatus("error");
@@ -475,32 +416,80 @@ export function StartPage() {
     }
   }
 
-  async function saveDraft() {
-    if (!validateSources()) return;
+  const saveDraft = useCallback(async ({ automatic = false } = {}) => {
+    if (!jobDescription.trim() || !resumeText.trim()) {
+      if (!automatic) {
+        const missingDocument = !jobDescription.trim() ? "jd" : "resume";
+        setInvalid({
+          jd: !jobDescription.trim(),
+          resume: !resumeText.trim(),
+        });
+        setActiveDocument(missingDocument);
+        setFocusTarget(missingDocument);
+        setWorkspaceView("sources");
+        setNotice({
+          tone: "error",
+          text: `${missingDocument === "jd" ? "岗位 JD" : "候选人经历"}尚未填写。补齐两份资料后才能保存完整草稿。`,
+        });
+      }
+      return;
+    }
+    const sourceFingerprint = JSON.stringify([jobDescription, resumeText]);
     setStatus("saving");
-    setNotice({ tone: "info", text: "正在保存到当前浏览器对应的匿名草稿。" });
+    if (!automatic) {
+      setNotice({ tone: "info", text: "正在保存当前资料。浏览器只保留恢复标识。" });
+    }
     try {
       const draft = await postJson("/api/interview-drafts", {
           draft_id: draftId || null,
           job_description: jobDescription,
           resume_text: resumeText,
           title: plan?.title || null,
-          job_tags: jobTags.length ? jobTags : null,
+          job_tags: plan?.job_tags?.length ? plan.job_tags : null,
       });
       setDraftId(draft.draft_id);
       storeDraftId(draft.draft_id);
-      setStatus(plan ? "ready" : "idle");
-      setNotice({
-        tone: "success",
-        text: draft.durability === "postgres"
-          ? `草稿已持久保存至 ${new Date(draft.expires_at).toLocaleString("zh-CN")}，当前浏览器只保存恢复标识。`
-          : "草稿已保存在本机浏览器中关联的当前服务进程；服务重启后会失效，浏览器只保存恢复标识。",
+      lastPersistedSourcesRef.current = sourceFingerprint;
+      setDraftMeta({
+        savedAt: draft.updated_at || new Date().toISOString(),
+        durability: draft.durability,
+        expiresAt: draft.expires_at,
       });
+      setStatus(plan ? "ready" : "idle");
+      if (!automatic) {
+        setNotice({
+          tone: "success",
+          text: draft.durability === "postgres"
+            ? `草稿已持久保存至 ${new Date(draft.expires_at).toLocaleString("zh-CN")}，当前浏览器只保存恢复标识。`
+            : "草稿已保存在当前服务进程；服务重启后会失效，浏览器只保存恢复标识。",
+        });
+      }
     } catch (error) {
       setStatus("error");
-      setNotice({ tone: "error", text: error.message });
+      setNotice({
+        tone: "error",
+        text: automatic
+          ? `自动保存未完成，当前文字和恢复标识已保留：${error.message}`
+          : error.message,
+      });
     }
-  }
+  }, [draftId, jobDescription, plan, resumeText]);
+
+  useEffect(() => {
+    const sourceFingerprint = JSON.stringify([jobDescription, resumeText]);
+    if (
+      !jobDescription.trim()
+      || !resumeText.trim()
+      || sourceFingerprint === lastPersistedSourcesRef.current
+      || busy
+    ) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => {
+      saveDraft({ automatic: true });
+    }, 900);
+    return () => window.clearTimeout(timeout);
+  }, [busy, jobDescription, resumeText, saveDraft]);
 
   async function restoreDraft() {
     const storedId = draftId || getStoredDraftId();
@@ -515,17 +504,28 @@ export function StartPage() {
       setDraftId(draft.draft_id);
       setJobDescription(draft.job_description || "");
       setResumeText(draft.resume_text || "");
+      lastPersistedSourcesRef.current = JSON.stringify([
+        draft.job_description || "",
+        draft.resume_text || "",
+      ]);
+      setDraftMeta({
+        savedAt: draft.updated_at || new Date().toISOString(),
+        durability: draft.durability,
+        expiresAt: draft.expires_at,
+      });
       setPlan(null);
       setInvalid({ jd: false, resume: false });
       setFileNames({ jd: "来自匿名草稿", resume: "来自匿名草稿" });
       setStatus("idle");
       setActiveDocument("jd");
-      setInspectorView("readiness");
+      setWorkspaceView("sources");
       setNotice({ tone: "success", text: "草稿已恢复。为保证计划与内容一致，请重新生成面试蓝图。" });
     } catch (error) {
       if ([404, 410].includes(error.status)) {
         clearStoredDraftId();
         setDraftId("");
+        setDraftMeta(null);
+        lastPersistedSourcesRef.current = "";
       }
       setStatus("error");
       setNotice({
@@ -548,12 +548,16 @@ export function StartPage() {
       await deleteJson(`/api/interview-drafts/${encodeURIComponent(storedId)}`);
       clearStoredDraftId();
       setDraftId("");
+      setDraftMeta(null);
+      lastPersistedSourcesRef.current = "";
       setStatus(plan ? "ready" : "idle");
       setNotice({ tone: "success", text: "已保存草稿已从服务端删除；当前画布内容仍保留。" });
     } catch (error) {
       if ([404, 410].includes(error.status)) {
         clearStoredDraftId();
         setDraftId("");
+        setDraftMeta(null);
+        lastPersistedSourcesRef.current = "";
         setStatus(plan ? "ready" : "idle");
         setNotice({ tone: "info", text: "草稿已经不存在，本地恢复标识已清理。" });
       } else {
@@ -576,9 +580,89 @@ export function StartPage() {
     setFileNames({ jd: "未导入文件", resume: "未导入文件" });
     setStatus("idle");
     setActiveDocument("jd");
-    setInspectorView("readiness");
+    setWorkspaceView("sources");
     setClearArmed(false);
     setNotice({ tone: "info", text: "当前画布已清空；此前保存的匿名草稿仍可恢复。" });
+  }
+
+  async function updatePlan(operations, successMessage, questionId) {
+    if (!plan || busy) return;
+    setStatus("updating");
+    setActivePlanQuestionId(questionId || "");
+    try {
+      const updated = await patchJson(
+        `/api/prep-plans/${encodeURIComponent(plan.plan_id)}`,
+        {
+          expected_version: plan.plan_version,
+          operations,
+        },
+      );
+      setPlan(updated);
+      setStatus("ready");
+      setPlanAnnouncement(successMessage);
+      setNotice(null);
+    } catch (error) {
+      if (error.code === "PREP_PLAN_VERSION_CONFLICT") {
+        try {
+          const latest = await getJson(`/api/prep-plans/${encodeURIComponent(plan.plan_id)}`);
+          setPlan(latest);
+          setStatus("ready");
+          setNotice({ tone: "warning", text: "计划已在其他操作中更新，已载入服务端最新版本。请确认后重试。" });
+          setPlanAnnouncement("计划版本发生冲突，已载入服务端最新版本。");
+        } catch (refreshError) {
+          setStatus("error");
+          setNotice({ tone: "error", text: refreshError.message });
+        }
+      } else {
+        if ([404, 410].includes(error.status)) {
+          setPlan(null);
+          setWorkspaceView("sources");
+        }
+        setStatus("error");
+        setNotice({ tone: "error", text: error.message });
+      }
+    } finally {
+      setActivePlanQuestionId("");
+    }
+  }
+
+  async function regeneratePlanQuestion(questionId, position) {
+    if (!plan || busy) return;
+    setStatus("regenerating");
+    setActivePlanQuestionId(questionId);
+    setNotice({ tone: "info", text: `正在为第 ${position} 题生成不重复的替代题，原题会保留到成功写入。` });
+    try {
+      const updated = await postJson(
+        `/api/prep-plans/${encodeURIComponent(plan.plan_id)}/questions/${encodeURIComponent(questionId)}/regenerate`,
+        { expected_version: plan.plan_version },
+      );
+      setPlan(updated);
+      setStatus("ready");
+      setNotice({ tone: "success", text: `第 ${position} 题已替换；顺序、启用状态和必考标记保持不变。` });
+      setPlanAnnouncement(`第 ${position} 题已重新生成。`);
+    } catch (error) {
+      if (error.code === "PREP_PLAN_VERSION_CONFLICT") {
+        try {
+          const latest = await getJson(`/api/prep-plans/${encodeURIComponent(plan.plan_id)}`);
+          setPlan(latest);
+          setStatus("ready");
+          setNotice({ tone: "warning", text: "生成期间计划版本已变化，原题未被覆盖；已载入服务端最新版本。" });
+          setPlanAnnouncement("单题重生成遇到版本冲突，已载入最新计划。");
+        } catch (refreshError) {
+          setStatus("error");
+          setNotice({ tone: "error", text: refreshError.message });
+        }
+      } else {
+        if ([404, 410].includes(error.status)) {
+          setPlan(null);
+          setWorkspaceView("sources");
+        }
+        setStatus("error");
+        setNotice({ tone: "error", text: `${error.message} 原题没有变化。` });
+      }
+    } finally {
+      setActivePlanQuestionId("");
+    }
   }
 
   async function startInterview() {
@@ -662,11 +746,11 @@ export function StartPage() {
     ready: "蓝图就绪",
     saving: "保存草稿",
     restoring: "恢复草稿",
+    updating: "保存计划",
+    regenerating: "替换题目",
     starting: launchAttempt > 1 ? `恢复会话 · ${launchAttempt}` : "创建会话",
     error: "需要处理",
   }[status];
-  const knowledgeStatus = prepContext.knowledge_status || (plan ? "unknown" : "pending");
-  const knowledgeStatusLabel = KNOWLEDGE_STATUS_LABELS[knowledgeStatus] || knowledgeStatus.replaceAll("_", " ");
 
   const documentConfig = {
     jd: {
@@ -683,6 +767,7 @@ export function StartPage() {
         if (plan) setNotice({ tone: "info", text: "岗位 JD 已修改。原面试计划已失效，请重新生成。" });
         else if (invalid.jd) setNotice(invalid.resume ? { tone: "error", text: "岗位 JD 已补充；候选人经历仍未填写。" } : null);
         setPlan(null);
+        setWorkspaceView("sources");
         setInvalid((state) => ({ ...state, jd: false }));
       },
       onFile: (file, input) => importFile(file, "jd", input),
@@ -702,6 +787,7 @@ export function StartPage() {
         if (plan) setNotice({ tone: "info", text: "候选人经历已修改。原面试计划已失效，请重新生成。" });
         else if (invalid.resume) setNotice(invalid.jd ? { tone: "error", text: "候选人经历已补充；岗位 JD 仍未填写。" } : null);
         setPlan(null);
+        setWorkspaceView("sources");
         setInvalid((state) => ({ ...state, resume: false }));
       },
       onFile: (file, input) => importFile(file, "resume", input),
@@ -716,158 +802,117 @@ export function StartPage() {
 
   return (
     <AppShell status={<RuntimeStatus status={status} label={statusLabel} />}>
+      <main id="main-content" className="prep-flow" tabIndex="-1">
+        <PrepStepper planReady={Boolean(plan)} />
 
-      <main id="main-content" className="start-app-shell" tabIndex="-1">
-        <nav className="start-activity-rail" aria-label="准备工作区">
-          <button type="button" aria-pressed={inspectorView === "readiness"} aria-controls="inspector-panel" onClick={() => setInspectorView("readiness")}><span aria-hidden="true"><FileText size={20} weight="bold" focusable="false" /></span><strong>资料</strong></button>
-          <button type="button" aria-pressed={inspectorView === "plan"} aria-controls="inspector-panel" onClick={() => setInspectorView("plan")}><span aria-hidden="true"><ClipboardText size={20} weight="bold" focusable="false" /></span><strong>蓝图</strong></button>
-          <button type="button" aria-pressed={inspectorView === "evidence"} aria-controls="inspector-panel" onClick={() => setInspectorView("evidence")}><span aria-hidden="true"><Books size={20} weight="bold" focusable="false" /></span><strong>证据</strong></button>
-        </nav>
+        <SessionResumeCard
+          recovery={recovery}
+          onContinue={continueRecovery}
+          onDismiss={() => setRecovery(null)}
+        />
 
-        <section className="start-editor-workspace" aria-labelledby="workspace-title">
-          <SessionResumeCard
-            recovery={recovery}
-            onContinue={continueRecovery}
-            onDismiss={() => setRecovery(null)}
-          />
-          <header className="start-workspace-head">
-            <div className="start-workspace-title">
-              <span className="start-workspace-mark" aria-hidden="true"><Files size={18} weight="bold" focusable="false" /></span>
-              <div><h1 id="workspace-title">面试输入</h1><p>编辑两份源文档，生成有证据约束的技术面试计划。</p></div>
-            </div>
-            <div className="start-readiness" data-ready={sourcesReady === 2} aria-label={`资料完成度 ${sourcesReady}/2，${sourcesReady === 2 ? "资料完整" : "等待资料"}`}><span>{sourcesReady}/2</span><strong>{sourcesReady === 2 ? "资料完整" : "等待资料"}</strong></div>
-          </header>
+        <StatusNotice key={notice ? `${notice.tone}-${notice.text}` : "empty"} notice={notice} />
 
-          <div className="start-editor-commandbar">
-            <div className="start-document-tabs" role="tablist" aria-label="源文档">
-              <button id="document-tab-jd" type="button" role="tab" aria-selected={activeDocument === "jd"} aria-controls="document-workspace" onClick={() => setActiveDocument("jd")}>
-                <span className="start-tab-label"><Briefcase size={16} weight="bold" aria-hidden="true" focusable="false" />岗位 JD</span>
-                <span className="start-tab-state" data-ready={Boolean(jobDescription.trim())}>{jobDescription.trim() ? <CheckCircle size={13} weight="fill" aria-hidden="true" focusable="false" /> : <Circle size={13} weight="regular" aria-hidden="true" focusable="false" />}{jobDescription.trim() ? "已填写" : "待填写"}</span>
-              </button>
-              <button id="document-tab-resume" type="button" role="tab" aria-selected={activeDocument === "resume"} aria-controls="document-workspace" onClick={() => setActiveDocument("resume")}>
-                <span className="start-tab-label"><IdentificationCard size={16} weight="bold" aria-hidden="true" focusable="false" />候选人经历</span>
-                <span className="start-tab-state" data-ready={Boolean(resumeText.trim())}>{resumeText.trim() ? <CheckCircle size={13} weight="fill" aria-hidden="true" focusable="false" /> : <Circle size={13} weight="regular" aria-hidden="true" focusable="false" />}{resumeText.trim() ? "已填写" : "待填写"}</span>
-              </button>
-              <button className="start-split-tab" id="document-tab-split" type="button" role="tab" aria-selected={activeDocument === "split"} aria-controls="document-workspace" onClick={() => setActiveDocument("split")}><span className="start-tab-label"><Columns size={16} weight="bold" aria-hidden="true" focusable="false" />并排查看</span></button>
-            </div>
-            <div className="start-editor-tools" aria-label="文档工具">
-              <button className="button start-tool-button" type="button" onClick={saveDraft} disabled={busy} aria-busy={status === "saving" || undefined} data-state={status === "saving" ? "loading" : undefined}>{status === "saving" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <FloppyDisk size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "saving" ? "正在保存" : "保存草稿"}</span></button>
-              <button className="button start-tool-button" type="button" onClick={restoreDraft} disabled={busy} aria-busy={status === "restoring" || undefined} data-state={status === "restoring" ? "loading" : undefined}>{status === "restoring" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowCounterClockwise size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "restoring" ? "正在恢复" : "恢复草稿"}</span></button>
-              <button className="button start-tool-button" type="button" onClick={deleteSavedDraft} disabled={busy || !draftId}><Trash size={16} weight="bold" aria-hidden="true" focusable="false" /><span>删除草稿</span></button>
-              <button className="button start-tool-button start-tool-danger" type="button" onClick={clearWorkspace} disabled={busy || (!jobDescription && !resumeText)} data-state={clearArmed ? "confirm" : undefined} aria-label={clearArmed ? "确认清空当前画布" : "清空当前画布"}>{clearArmed ? <WarningCircle size={16} weight="fill" aria-hidden="true" focusable="false" /> : <Eraser size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{clearArmed ? "确认清空" : "清空画布"}</span></button>
-            </div>
-          </div>
-
-          <StatusNotice key={notice ? `${notice.tone}-${notice.text}` : "empty"} notice={notice} />
-
-          <div
-            id="document-workspace"
-            className={activeDocument === "split" ? "start-document-canvas start-document-split" : "start-document-canvas"}
-            role="tabpanel"
-            aria-label="源文档编辑区"
-          >
-            {activeDocument === "split" ? <>{renderDocument("jd", true)}{renderDocument("resume", true)}</> : renderDocument(activeDocument)}
-          </div>
-        </section>
-
-        <aside className="start-inspector" aria-labelledby="inspector-title">
-          <header className="start-inspector-head">
-            <div><span>工作面板</span><h2 id="inspector-title">{inspectorView === "evidence" ? "知识证据" : inspectorView === "readiness" ? "准备状态" : "面试计划"}</h2></div>
-            <InspectorStatus status={status} label={statusLabel} />
-          </header>
-          <div className="start-inspector-tabs" role="tablist" aria-label="工作面板视图">
-            <button id="inspector-tab-plan" type="button" role="tab" aria-selected={inspectorView === "plan"} aria-controls="inspector-panel" onClick={() => setInspectorView("plan")}><ListChecks size={16} weight="bold" aria-hidden="true" focusable="false" />计划</button>
-            <button id="inspector-tab-evidence" type="button" role="tab" aria-selected={inspectorView === "evidence"} aria-controls="inspector-panel" onClick={() => setInspectorView("evidence")}><Books size={16} weight="bold" aria-hidden="true" focusable="false" />证据</button>
-            <button id="inspector-tab-readiness" type="button" role="tab" aria-selected={inspectorView === "readiness"} aria-controls="inspector-panel" onClick={() => setInspectorView("readiness")}><ShieldCheck size={16} weight="bold" aria-hidden="true" focusable="false" />就绪</button>
-          </div>
-
-          <div id="inspector-panel" className="start-inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${inspectorView}`}>
-            {inspectorView === "plan" ? (
-              <section className="start-plan-panel" aria-label="面试计划">
-                {plan ? (
-                  <>
-                    <header className="start-plan-summary">
-                      <div><span>计划已生成</span><h3>{plan.title}</h3></div>
-                      {jobTags.length ? <div className="start-job-tags" aria-label="岗位标签">{jobTags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
-                    </header>
-                    <dl className="start-plan-metrics">
-                      <div><dt><ListChecks size={14} weight="bold" aria-hidden="true" focusable="false" />问题</dt><dd>{questions.length || "暂无"}</dd></div>
-                      <div><dt><Clock size={14} weight="bold" aria-hidden="true" focusable="false" />时长</dt><dd>{estimatedMinutes}</dd></div>
-                      <div><dt><Books size={14} weight="bold" aria-hidden="true" focusable="false" />证据</dt><dd>{evidence.length}</dd></div>
-                    </dl>
-                    {questions.length ? <ol className="start-plan-list">{questions.map((question, index) => <PlanQuestion key={question.id || index} question={question} index={index} />)}</ol> : <InspectorEmpty icon={ClipboardText} title="计划没有返回可用题目。">请重新生成计划；系统不会使用示例题填充空列表。</InspectorEmpty>}
-                  </>
-                ) : (
-                  <InspectorEmpty icon={ClipboardText} title="这里不会预填示例题。">补齐岗位 JD 与候选人经历后生成计划，真实题目会按顺序出现在这里。</InspectorEmpty>
-                )}
-              </section>
-            ) : null}
-
-            {inspectorView === "evidence" ? (
-              <section className="start-evidence-panel" aria-label="知识证据">
-                {plan ? (
-                  <>
-                    <header className="start-evidence-head">
-                      <div><span>知识检索</span><h3>检索路径与证据</h3></div>
-                      <KnowledgeStatus status={knowledgeStatus} />
-                    </header>
-                    <p className="start-evidence-summary">{prepContext.summary || "当前计划没有返回知识检索摘要。"}</p>
-                    {topics.length ? <div className="start-topic-list" aria-label="考察主题">{topics.map((topic) => <span key={topic.id || topic.label}>{topic.label || topic.id}</span>)}</div> : null}
-                    {evidence.length ? (
-                      <div className="start-evidence-list">
-                        {evidence.map((item, index) => (
-                          <article key={item.evidence_id} data-evidence-id={item.evidence_id}>
-                            <span>{String(index + 1).padStart(2, "0")}</span>
-                            <div><strong>{item.title}</strong><p>{item.candidate_summary || "该证据已绑定到本次准备上下文。"}</p><code>{item.source_type === "theory" ? "理论资料" : item.source_type === "expert_benchmark" ? "专家基准" : item.source_type} / {item.evidence_id}</code></div>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="start-evidence-state" data-tone={prepContext.knowledge_status === "degraded" ? "warning" : "info"} role="status">
-                        <span aria-hidden="true">{prepContext.knowledge_status === "degraded" ? <WarningCircle size={18} weight="fill" focusable="false" /> : <Info size={18} weight="bold" focusable="false" />}</span>
-                        <div><strong>{prepContext.knowledge_status === "degraded" ? "知识检索已降级" : "暂无公开知识证据"}</strong><p>{prepContext.knowledge_status === "degraded" ? "面试仍可继续；系统不会展示不存在的引用。" : "计划仍可使用；证据列表保持为空，不会填充示例引用。"}</p></div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <InspectorEmpty icon={Books} title="证据面板正在等待计划。">系统只展示真实可用的知识检索结果。</InspectorEmpty>
-                )}
-              </section>
-            ) : null}
-
-            {inspectorView === "readiness" ? (
-              <section className="start-readiness-panel" aria-label="准备状态">
-                <div className="start-readiness-list">
-                  <ReadinessItem ready={Boolean(jobDescription.trim())} label="岗位 JD" value={jobDescription.trim() ? jobDescription.length.toLocaleString() + " 字" : "尚未填写"} />
-                  <ReadinessItem ready={Boolean(resumeText.trim())} label="候选人经历" value={resumeText.trim() ? resumeText.length.toLocaleString() + " 字" : "尚未填写"} />
-                  <ReadinessItem ready={Boolean(draftId)} label="匿名草稿" value={draftId ? "当前浏览器已关联" : "尚未保存"} />
-                  <ReadinessItem ready={Boolean(plan)} label="面试计划" value={plan ? "已生成" : "尚未生成"} />
+        {workspaceView === "sources" || !plan ? (
+          <section className="prep-stage prep-source-stage" aria-labelledby="prep-source-title">
+            <header className="prep-stage-heading">
+              <div>
+                <span className="prep-stage-kicker">步骤 1 · 输入资料</span>
+                <h1 id="prep-source-title">建立本轮面试边界</h1>
+                <p>提供岗位要求和候选人经历。系统只接受文本，不会假装解析 PDF 或 Word。</p>
+              </div>
+              {plan ? (
+                <button className="prep-text-action" type="button" onClick={() => setWorkspaceView("plan")}>
+                  <CaretLeft size={16} weight="bold" aria-hidden="true" />返回已生成计划
+                </button>
+              ) : (
+                <div className="prep-source-count" aria-label={`资料完成度 ${sourcesReady}/2`}>
+                  <strong>{sourcesReady}/2</strong><span>资料已填写</span>
                 </div>
-                <div className="start-privacy-note"><ShieldCheck size={17} weight="bold" aria-hidden="true" focusable="false" /><p><strong>浏览器只保存恢复标识</strong><span>正文保存在当前服务配置的存储中；持久性以保存成功提示为准。</span></p></div>
-              </section>
-            ) : null}
-          </div>
+              )}
+            </header>
 
-          <footer className="start-inspector-actions">
-            <button className={plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"} type="button" onClick={generatePlan} disabled={busy} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
-              {status === "generating" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ListChecks size={18} weight="bold" aria-hidden="true" focusable="false" />}
-              <span>{status === "generating" ? "正在生成面试计划" : plan ? "重新生成计划" : "生成面试计划"}</span>
-            </button>
-            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!plan || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined}>
-              {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" focusable="false" />}
-              <span>{status === "starting" ? "正在创建面试" : readPendingStart(plan?.plan_id, plan?.plan_version) ? "继续准备面试" : "开始本次面试"}</span>
-            </button>
-          </footer>
-        </aside>
+            <div className="prep-mobile-document-tabs" role="tablist" aria-label="选择资料">
+              <button type="button" role="tab" aria-selected={activeDocument === "jd"} onClick={() => setActiveDocument("jd")}>
+                <Briefcase size={16} weight="bold" aria-hidden="true" />岗位 JD
+              </button>
+              <button type="button" role="tab" aria-selected={activeDocument === "resume"} onClick={() => setActiveDocument("resume")}>
+                <IdentificationCard size={16} weight="bold" aria-hidden="true" />候选人经历
+              </button>
+            </div>
+
+            <div id="document-workspace" className="prep-source-grid" aria-label="源文档编辑区">
+              <div data-document="jd" data-active={activeDocument === "jd"}>{renderDocument("jd", true)}</div>
+              <div data-document="resume" data-active={activeDocument === "resume"}>{renderDocument("resume", true)}</div>
+            </div>
+
+            <footer className="prep-source-footer">
+              <div className="prep-draft-row">
+                <DraftSaveState meta={draftMeta} saving={status === "saving"} />
+                <span className="prep-storage-note"><ShieldCheck size={15} weight="bold" aria-hidden="true" />浏览器只保存恢复标识</span>
+              </div>
+              <div className="prep-source-tools" aria-label="草稿与画布操作">
+                <button className="button start-tool-button" type="button" onClick={() => saveDraft()} disabled={busy}>
+                  <FloppyDisk size={16} weight="bold" aria-hidden="true" />保存草稿
+                </button>
+                <button className="button start-tool-button" type="button" onClick={restoreDraft} disabled={busy}>
+                  <ArrowCounterClockwise size={16} weight="bold" aria-hidden="true" />恢复草稿
+                </button>
+                <button className="button start-tool-button" type="button" onClick={deleteSavedDraft} disabled={busy || !draftId}>
+                  <Trash size={16} weight="bold" aria-hidden="true" />删除已保存草稿
+                </button>
+                <button className="button start-tool-button start-tool-danger" type="button" onClick={clearWorkspace} disabled={busy || (!jobDescription && !resumeText)} data-state={clearArmed ? "confirm" : undefined}>
+                  {clearArmed ? <WarningCircle size={16} weight="fill" aria-hidden="true" /> : <Eraser size={16} weight="bold" aria-hidden="true" />}
+                  {clearArmed ? "确认清空画布" : "清空当前画布"}
+                </button>
+              </div>
+              <button className="button start-button button-primary prep-generate-action" type="button" onClick={generatePlan} disabled={busy} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
+                {status === "generating" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" /> : <ListChecks size={18} weight="bold" aria-hidden="true" />}
+                {status === "generating" ? "正在生成计划" : plan ? "根据当前资料重新生成" : "生成并检查面试计划"}
+              </button>
+            </footer>
+          </section>
+        ) : (
+          <section className="prep-stage prep-plan-stage" aria-labelledby="prep-plan-title">
+            <header className="prep-stage-heading prep-plan-stage-heading">
+              <div>
+                <span className="prep-stage-kicker">步骤 2 · 检查计划</span>
+                <h1 id="prep-plan-title">确认本轮要问什么</h1>
+                <p>题目范围、顺序、重点和来源都可以在这里确认。开始后将使用当前显示的版本。</p>
+              </div>
+              <button className="prep-text-action" type="button" onClick={() => setWorkspaceView("sources")}>
+                <PencilSimple size={16} weight="bold" aria-hidden="true" />查看或修改资料
+              </button>
+            </header>
+
+            {jobTags.length ? <div className="prep-job-tags" aria-label="岗位标签">{jobTags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
+
+            <PlanEditor
+              plan={plan}
+              busy={busy}
+              activeQuestionId={activePlanQuestionId}
+              onPatch={updatePlan}
+              onRegenerate={regeneratePlanQuestion}
+            />
+
+            <footer className="prep-launch-bar">
+              <div className="prep-ready-state" role="status">
+                <CheckCircle size={20} weight="fill" aria-hidden="true" />
+                <p><strong>当前计划可以开始</strong><span>版本 {plan.plan_version} · {enabledQuestions.length} 道题 · 约 {estimatedMinutes}</span></p>
+              </div>
+              <button className="button start-button prep-regenerate-all" type="button" onClick={generatePlan} disabled={busy}>
+                <ListChecks size={17} weight="bold" aria-hidden="true" />重新生成整个计划
+              </button>
+              <button className="button start-button button-primary" type="button" disabled={busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined}>
+                {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" />}
+                {status === "starting" ? "正在创建面试" : readPendingStart(plan.plan_id, plan.plan_version) ? "继续准备面试" : "确认版本并开始面试"}
+              </button>
+            </footer>
+          </section>
+        )}
+
+        <p className="sr-only" aria-live="polite" aria-atomic="true">{planAnnouncement}</p>
       </main>
-
-      <footer className="start-status-bar" aria-label="工作区状态">
-        <StatusBarItem ready={Boolean(draftId)} label="草稿" value={draftId ? "已关联" : "未保存"} />
-        <StatusBarItem ready={Boolean(jobDescription.trim())} label="JD" value={jobDescription.trim() ? "已填写" : "待填写"} />
-        <StatusBarItem ready={Boolean(resumeText.trim())} label="经历" value={resumeText.trim() ? "已填写" : "待填写"} />
-        <StatusBarItem ready={knowledgeStatus === "completed"} state={knowledgeStatus === "degraded" ? "warning" : knowledgeStatus === "empty" ? "info" : "idle"} label="知识" value={knowledgeStatusLabel} />
-        <StatusBarItem ready={status === "ready"} state={status} label="请求" value={statusLabel} current />
-      </footer>
     </AppShell>
   );
 }

@@ -248,7 +248,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--start-space-2xs);
-  min-height: 2.5rem;
+  min-height: 2.75rem;
   padding: 0 var(--start-space-xs);
   border: var(--start-rule-thin) solid transparent;
   border-radius: var(--start-radius-control);
