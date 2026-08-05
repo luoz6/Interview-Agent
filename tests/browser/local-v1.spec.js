@@ -4,23 +4,24 @@ const jd = "Backend role using Python, FastAPI, Redis, and PostgreSQL.";
 const resume = "Built a FastAPI service with Redis cache-aside and PostgreSQL.";
 
 async function fillPrepSources(page, jobDescription = jd, resumeText = resume) {
-  await page.getByRole("tab", { name: /岗位 JD/ }).click();
+  const jdTab = page.getByRole("tab", { name: /岗位 JD/ });
+  if (await jdTab.isVisible()) await jdTab.click();
   await page.getByLabel("岗位 JD").fill(jobDescription);
-  await page.getByRole("tab", { name: /候选人经历/ }).click();
+  const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
+  if (await resumeTab.isVisible()) await resumeTab.click();
   await page.getByLabel("简历内容").fill(resumeText);
 }
 
 async function startInterview(page) {
   await page.goto("/prep");
   await fillPrepSources(page);
-  await page.getByRole("button", { name: "生成面试计划" }).click();
-  await expect(page.locator(".start-plan-question")).toHaveCount(3);
-  await page.getByRole("tab", { name: "证据", exact: true }).click();
-  await expect(page.locator('[data-evidence-id="redis_consistency"]')).toBeVisible();
-  const prepEvidenceIds = await page.locator("[data-evidence-id]").evaluateAll((items) => (
-    [...new Set(items.map((item) => item.dataset.evidenceId))].sort()
-  ));
-  await page.getByRole("button", { name: "开始本次面试" }).click();
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await expect(page.locator(".plan-question")).toHaveCount(5);
+  const evidence = page.locator(".plan-question-evidence").first();
+  await evidence.click();
+  await expect(evidence.locator("code")).toContainText("redis_consistency");
+  const prepEvidenceIds = ["redis_consistency", "system_design_backend"];
+  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
   await expect(
     page.getByRole("status").filter({ hasText: "当前会话" }),
@@ -57,9 +58,10 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
 test("React preparation evidence is visible and bounded on mobile", async ({ page }) => {
   await page.goto("/prep");
   await fillPrepSources(page);
-  await page.getByRole("button", { name: "生成面试计划" }).click();
-  await page.getByRole("tab", { name: "证据", exact: true }).click();
-  await expect(page.locator('[data-evidence-id="redis_consistency"]')).toBeVisible();
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  const evidence = page.locator(".plan-question-evidence").first();
+  await evidence.click();
+  await expect(evidence.locator("code")).toContainText("redis_consistency");
   const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
   expect(widths.document).toBeLessThanOrEqual(widths.viewport);
   await expect(page.locator("body")).not.toContainText("Internal benchmark answer");
@@ -68,12 +70,12 @@ test("React preparation evidence is visible and bounded on mobile", async ({ pag
 test("degraded knowledge is explicit and report completes without fake references", async ({ page, request }) => {
   await page.goto("/prep");
   await fillPrepSources(page, "Backend Redis role simulate degraded", "Built Redis APIs");
-  await page.getByRole("button", { name: "生成面试计划" }).click();
-  await page.getByRole("tab", { name: "证据", exact: true }).click();
-  await expect(page.locator(".start-evidence-panel")).toContainText("检索降级");
-  await expect(page.locator(".start-knowledge-state")).toHaveAttribute("data-state", "degraded");
-  await expect(page.locator("[data-evidence-id]")).toHaveCount(0);
-  await page.getByRole("button", { name: "开始本次面试" }).click();
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  const evidence = page.locator(".plan-question-evidence").first();
+  await evidence.click();
+  await expect(evidence).toContainText("知识证据不可用");
+  await expect(evidence.locator("code")).toHaveCount(0);
+  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   await page.getByRole("button", { name: "结束面试" }).click();

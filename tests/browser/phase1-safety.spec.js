@@ -21,13 +21,15 @@ async function openInterview(page, request) {
 
 async function preparePlan(page) {
   await page.goto("/prep");
-  await expect(page.locator(".start-editor-workspace")).toBeVisible();
-  await page.getByRole("tab", { name: /岗位 JD/ }).click();
+  await expect(page.locator(".prep-stage")).toBeVisible();
+  const jdTab = page.getByRole("tab", { name: /岗位 JD/ });
+  if (await jdTab.isVisible()) await jdTab.click();
   await page.getByLabel("岗位 JD").fill(jobDescription);
-  await page.getByRole("tab", { name: /候选人经历/ }).click();
+  const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
+  if (await resumeTab.isVisible()) await resumeTab.click();
   await page.getByLabel("简历内容").fill(resumeText);
-  await page.getByRole("button", { name: "生成面试计划" }).click();
-  await expect(page.locator(".start-plan-question")).toHaveCount(3);
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await expect(page.locator(".plan-question")).toHaveCount(5);
 }
 
 test("mobile navigation remains reachable from 360 through 900 pixels", async ({ page }) => {
@@ -147,7 +149,7 @@ test("bootstrap recovery retries with the same pending start command", async ({ 
     });
   });
 
-  await page.getByRole("button", { name: "开始本次面试" }).click();
+  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
   await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(3);
   expect(new Set(attempts.map((item) => item.command_id)).size).toBe(1);
   expect(attempts[0].command_id.replace(/^start_/, "")).toMatch(uuidPattern);

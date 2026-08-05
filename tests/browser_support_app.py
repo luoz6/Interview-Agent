@@ -25,6 +25,7 @@ from app.services.prep import (
     PrepKnowledgeTopic,
     PrepQuestionHint,
 )
+from app.services.prep_question_regeneration import PrepQuestionRegenerator
 from app.services.report import (
     DimensionScores,
     FeedbackReference,
@@ -629,6 +630,26 @@ def _build_browser_interview(
         job_description,
         resume_text,
     )
+    if len(plan.questions) == 3:
+        plan = plan.model_copy(
+            update={
+                "questions": [
+                    *plan.questions,
+                    InterviewQuestion(
+                        id="q4",
+                        kind="behavioral",
+                        prompt="Describe how you handled a production incident with incomplete information.",
+                        focus="incident ownership and communication",
+                    ),
+                    InterviewQuestion(
+                        id="q5",
+                        kind="technical",
+                        prompt="Explain how you would test database retry and idempotency boundaries.",
+                        focus="retries and idempotency",
+                    ),
+                ]
+            }
+        )
     if "simulate degraded" in job_description.lower():
         return plan.model_copy(
             update={
@@ -730,6 +751,54 @@ def _build_browser_interview(
 
 
 route_module.prepare_interview = prepare_browser_interview
+
+
+def generate_browser_replacement(context: dict) -> InterviewPlan:
+    """Return a deterministic, non-duplicate replacement for browser tests."""
+    target = context["target_question"]
+    replacement_id = "replacement"
+    return InterviewPlan(
+        title="Stage 41 browser replacement",
+        questions=[
+            InterviewQuestion(
+                id=replacement_id,
+                kind=target["kind"],
+                prompt="请设计一次灰度发布演练，并说明监控、回滚与验证边界。",
+                focus="灰度发布、可观测性与安全回滚",
+            )
+        ],
+        prep_context=PrepContext(
+            schema_version="v2",
+            summary="浏览器验收使用确定性的替代题。",
+            knowledge_status="completed",
+            topics=[
+                PrepKnowledgeTopic(
+                    id="topic-release-safety",
+                    label="发布安全",
+                    source="retrieval",
+                    evidence="Release safety evidence",
+                    tags=["release", "rollback"],
+                    evidence_ids=["release_safety"],
+                )
+            ],
+            question_hints=[
+                PrepQuestionHint(
+                    question_id=replacement_id,
+                    topic_ids=["topic-release-safety"],
+                    evidence_ids=["release_safety"],
+                    evidence_titles=["Release Safety"],
+                )
+            ],
+            evidence_refs=[],
+            binding_snapshot=KnowledgeBindingSnapshot(
+                prep_run_id=f"browser-regenerate-{uuid4().hex}",
+                corpus_manifest_sha256="d" * 64,
+                status="completed",
+            ),
+        ),
+    )
+
+
 store = InterviewSessionStore(llm=browser_llm)
 publisher = NoopRuntimeEventPublisher()
 job_store = BrowserReportJobStore(store)
@@ -742,6 +811,9 @@ app.dependency_overrides[route_module.get_session_store] = lambda: store
 app.dependency_overrides[route_module.get_event_publisher] = lambda: publisher
 app.dependency_overrides[original_report_job_dependency] = lambda: job_store
 app.dependency_overrides[original_report_queue_dependency] = lambda: job_store
+app.dependency_overrides[route_module.get_prep_question_regenerator] = (
+    lambda: PrepQuestionRegenerator(generate_browser_replacement)
+)
 route_module.get_report_job_store = lambda: job_store
 route_module.get_interview_workflow_service = lambda: durable_workflow
 

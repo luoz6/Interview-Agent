@@ -168,9 +168,11 @@ test("report center presents one bounded recovery alert", async ({ page }) => {
 });
 
 test("report center exposes a stable functional sync motion", async ({ page }) => {
+  let releaseRequests;
+  const requestBarrier = new Promise((resolve) => { releaseRequests = resolve; });
   await page.route("**/api/reports?**", async (route) => {
     const response = await route.fetch();
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await requestBarrier;
     await route.fulfill({ response });
   });
   await page.goto("/reports");
@@ -182,6 +184,7 @@ test("report center exposes a stable functional sync motion", async ({ page }) =
   }));
   expect(progressMotion.name).toContain("reports-progress-track");
   expect(progressMotion.duration).toBe("1.4s");
+  releaseRequests();
   await expect(progress).toHaveAttribute("data-active", "false");
   await expect(page.locator(".reports-count-update").first()).toBeVisible();
 });
