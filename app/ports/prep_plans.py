@@ -17,6 +17,7 @@ class PrepPlanStore(Protocol):
         resume_text: str,
         job_tags: list[str],
         source_draft_id: str | None = None,
+        practice_provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
     def get(self, plan_id: str) -> dict[str, Any]: ...

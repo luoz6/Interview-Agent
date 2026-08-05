@@ -71,6 +71,7 @@ def build_prep_plan_record(
     created_at: datetime,
     expires_at: datetime,
     source_draft_id: str | None = None,
+    practice_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     plan_id = f"prep_{uuid4()}"
     questions = []
@@ -106,6 +107,8 @@ def build_prep_plan_record(
         "job_tags": list(job_tags),
         "durability": durability,
     }
+    if practice_provenance is not None:
+        public["practice_provenance"] = deepcopy(practice_provenance)
     return {
         "public": public,
         "internal_plan": plan.model_dump(mode="json"),
@@ -115,6 +118,7 @@ def build_prep_plan_record(
         "resume_text": resume_text,
         "job_tags": list(job_tags),
         "source_draft_id": source_draft_id,
+        "practice_provenance": deepcopy(practice_provenance),
         "source_sha256": source_sha256,
         "created_at": _iso(created_at),
         "updated_at": _iso(created_at),

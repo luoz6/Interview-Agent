@@ -532,6 +532,7 @@ class InterviewSessionStore:
             if status is not None and record.status != status:
                 continue
             state = self._sessions[session_id]
+            answer_counts = _question_answer_counts(state)
             timestamp = record.finished_at or record.created_at
             if cutoff is not None and _parse_utc_timestamp(timestamp) < cutoff:
                 continue
@@ -556,6 +557,7 @@ class InterviewSessionStore:
                         "job_title": state["plan"].title,
                         "job_tags": list(state["job_tags"]),
                         "question_count": len(state["plan"].questions),
+                        "answered_question_count": answer_counts["answered"],
                         "started_at": state["started_at"],
                         "finished_at": state["finished_at"],
                     },

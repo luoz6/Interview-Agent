@@ -138,6 +138,7 @@ class PostgresPrepPlanStore:
         resume_text: str,
         job_tags: list[str],
         source_draft_id: str | None = None,
+        practice_provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         record = build_prep_plan_record(
@@ -149,6 +150,7 @@ class PostgresPrepPlanStore:
             created_at=now,
             expires_at=now + self._ttl,
             source_draft_id=source_draft_id,
+            practice_provenance=practice_provenance,
         )
         with self._provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -444,6 +446,9 @@ class PostgresPrepPlanStore:
             "job_description": internal["job_description"],
             "resume_text": internal["resume_text"],
             "job_tags": list(internal.get("job_tags") or []),
+            "practice_provenance": deepcopy(
+                internal.get("practice_provenance")
+            ),
             "source_sha256": row[5],
             "source_draft_id": row[6],
             "expires_at": row[7].isoformat(),
@@ -464,6 +469,7 @@ class PostgresPrepPlanStore:
             "job_description": record["job_description"],
             "resume_text": record["resume_text"],
             "job_tags": record["job_tags"],
+            "practice_provenance": record.get("practice_provenance"),
         }
 
     @staticmethod

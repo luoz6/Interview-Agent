@@ -712,10 +712,21 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                                reports.error, reports.created_at,
                                reports.completed_at, reports.failed_at,
                                sessions.plan_json, sessions.job_tags,
-                               sessions.started_at, sessions.finished_at
+                               sessions.started_at, sessions.finished_at,
+                               COALESCE(answer_counts.answered_question_count, 0)
                         FROM {reports} AS reports
                         LEFT JOIN {sessions} AS sessions
                           ON sessions.session_id = reports.session_id
+                        LEFT JOIN (
+                            SELECT session_id,
+                                   COUNT(DISTINCT question_id) AS answered_question_count
+                            FROM {messages}
+                            WHERE role = 'candidate'
+                              AND question_id IS NOT NULL
+                              AND BTRIM(content) <> ''
+                            GROUP BY session_id
+                        ) AS answer_counts
+                          ON answer_counts.session_id = reports.session_id
                         {where_clause}
                         ORDER BY reports.created_at DESC, reports.session_id DESC
                         LIMIT %s OFFSET %s
@@ -723,6 +734,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     ).format(
                         reports=sql.Identifier(self.reports_table),
                         sessions=sql.Identifier(self.sessions_table),
+                        messages=sql.Identifier(self.messages_table),
                         where_clause=where_clause,
                     ),
                     tuple(page_params),
@@ -748,6 +760,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                         "job_title": plan.title,
                         "job_tags": list(row[9]),
                         "question_count": len(plan.questions),
+                        "answered_question_count": row[12],
                         "started_at": self._iso_timestamp(row[10]),
                         "finished_at": self._iso_timestamp(row[11]),
                     },

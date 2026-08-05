@@ -104,6 +104,29 @@ class PostgresInterviewLaunchRepository:
             with connection.cursor() as cursor:
                 return self.select_by_plan(cursor, plan_id)
 
+    def mappings_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        from psycopg2 import sql
+
+        with self._provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT plan_question_id, session_question_id, position, kind "
+                        "FROM {mappings} WHERE session_id=%s ORDER BY position"
+                    ).format(mappings=sql.Identifier(self._mappings_table)),
+                    (session_id,),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "plan_question_id": row[0],
+                "session_question_id": row[1],
+                "position": row[2],
+                "kind": row[3],
+            }
+            for row in rows
+        ]
+
     def select_command(self, cursor, plan_id: str, command_id: str) -> dict[str, Any] | None:
         from psycopg2 import sql
 

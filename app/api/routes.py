@@ -34,6 +34,7 @@ from app.services.config import (
 from app.services.interview_rounds import round_closed_event_from_transition
 from app.services.report_enqueue import enqueue_report_if_needed
 from app.services.report_pdf import build_report_pdf
+from app.services.report_reliability import build_report_reliability
 from app.services.runtime_events import (
     InterviewStreamChunkEvent,
     InterviewStreamDoneEvent,
@@ -47,6 +48,7 @@ from app.services.runtime import (
     get_runtime_control_store,
     get_session_store,
     get_interview_workflow_service,
+    get_interview_launch_repository,
     get_prep_plan_store,
     get_interview_launch_coordinator,
     get_session_deletion_service,
@@ -63,6 +65,7 @@ from app.services.runtime import (
 )
 from app.services.prep_plans import PrepPlanError
 from app.services.prep_question_regeneration import PrepQuestionRegenerator
+from app.services.practice_plans import PracticePlanError, PracticePlanService
 from app.services.interview_launch import InterviewLaunchCoordinator
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
@@ -170,6 +173,17 @@ class PrepPlanPatchRequest(BaseModel):
 
 class PrepQuestionRegenerateRequest(BaseModel):
     expected_version: int = Field(ge=1)
+
+
+class PracticePlanRequest(BaseModel):
+    focus_dimension: str
+    session_question_ids: list[str]
+    mode: Literal["targeted"] = "targeted"
+
+    @field_validator("session_question_ids")
+    @classmethod
+    def validate_session_question_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value]
 
 
 def get_prep_question_regenerator() -> PrepQuestionRegenerator:
@@ -1432,7 +1446,86 @@ def get_interview_report(
         )
     if record.status == "failed":
         raise HTTPException(status_code=500, detail=record.error)
-    return record.report.model_dump()
+    evaluations = (
+        store.list_question_evaluations(session_id)
+        if hasattr(store, "list_question_evaluations")
+        else []
+    )
+    reliability = build_report_reliability(
+        state,
+        record.report,
+        evaluations,
+        report_path=_public_report_path(record),
+    )
+    return {
+        **record.report.model_dump(),
+        "reliability": reliability.model_dump(),
+    }
+
+
+@router.post("/interviews/{session_id}/practice-plan", status_code=201)
+def create_practice_plan(
+    session_id: str,
+    payload: PracticePlanRequest,
+    store: InterviewSessionStore = Depends(get_session_store),
+    plan_store=Depends(get_prep_plan_store),
+    launch_repository=Depends(get_interview_launch_repository),
+):
+    try:
+        state = store.get(session_id)
+        _raise_if_deleting(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="interview not found") from exc
+    if state["status"] != "finished":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PRACTICE_INTERVIEW_NOT_FINISHED",
+                "message": "面试结束并生成报告后才能创建针对性练习。",
+                "retryable": False,
+            },
+        )
+    record = store.get_report_record(session_id)
+    if record is None or record.status != "completed" or record.report is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PRACTICE_REPORT_NOT_READY",
+                "message": "报告尚未完成，暂时无法创建针对性练习。",
+                "retryable": record is not None and record.status == "processing",
+            },
+        )
+    evaluations = (
+        store.list_question_evaluations(session_id)
+        if hasattr(store, "list_question_evaluations")
+        else []
+    )
+    reliability = build_report_reliability(
+        state,
+        record.report,
+        evaluations,
+        report_path=_public_report_path(record),
+    )
+    try:
+        return PracticePlanService(
+            prep_plan_store=plan_store,
+            launch_repository=launch_repository,
+        ).create(
+            state=state,
+            report=record.report,
+            reliability=reliability,
+            focus_dimension=payload.focus_dimension,
+            session_question_ids=payload.session_question_ids,
+        )
+    except PracticePlanError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "retryable": exc.retryable,
+            },
+        ) from exc
 
 
 @router.get("/interviews/{session_id}/report.pdf")
@@ -1683,6 +1776,9 @@ def _report_summary_to_dict(
         "job_title": session_summary.get("job_title"),
         "job_tags": list(session_summary.get("job_tags") or []),
         "question_count": session_summary.get("question_count"),
+        "answered_question_count": session_summary.get(
+            "answered_question_count", 0
+        ),
         "started_at": session_summary.get("started_at"),
         "duration_seconds": _duration_seconds(session_summary),
         "report_path": _public_report_path(record),

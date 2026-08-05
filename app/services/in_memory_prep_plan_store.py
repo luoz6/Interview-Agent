@@ -53,6 +53,7 @@ class InMemoryPrepPlanStore:
         resume_text: str,
         job_tags: list[str],
         source_draft_id: str | None = None,
+        practice_provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = self._aware(self._clock())
         record = build_prep_plan_record(
@@ -64,6 +65,7 @@ class InMemoryPrepPlanStore:
             created_at=now,
             expires_at=now + self._ttl,
             source_draft_id=source_draft_id,
+            practice_provenance=practice_provenance,
         )
         plan_id = record["public"]["plan_id"]
         with self._registry_lock:

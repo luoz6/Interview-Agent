@@ -6,6 +6,8 @@ from typing import Any, Protocol
 class InterviewLaunchRepository(Protocol):
     def get(self, plan_id: str, command_id: str) -> dict[str, Any] | None: ...
 
+    def mappings_for_session(self, session_id: str) -> list[dict[str, Any]]: ...
+
     def create_pending(
         self,
         *,
