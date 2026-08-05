@@ -12,8 +12,28 @@ OBSERVATION=ROOT/"docs"/"principal-memory-read-shadow-observation.json"
 def test_read_shadow_is_single_axis_and_bounded():
     config=load_effective_memory_config(read_shadow_environment())
     assert validate_read_axis(config)==[]
+    assert config.long_term.write_shadow_enabled is False
+    assert config.long_term.read_shadow_enabled is True
     assert config.long_term.max_shadow_facts==3
     assert config.long_term.max_shadow_tokens==200
+
+
+def test_read_shadow_axis_rejects_dual_axis_config_even_if_model_is_bypassed():
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(
+        long_term=SimpleNamespace(
+            mode="read_shadow",
+            write_shadow_enabled=True,
+            read_shadow_enabled=True,
+            local_consumption_enabled=False,
+            trusted_local_api_enabled=False,
+        ),
+        budget=SimpleNamespace(mode="disabled"),
+        compression=SimpleNamespace(mode="disabled"),
+    )
+
+    assert "WRITE_SHADOW_GATE_ENABLED" in validate_read_axis(config)
 
 
 def test_300_sample_read_shadow_is_zero_injection():

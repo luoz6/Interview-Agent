@@ -31,7 +31,7 @@ from scripts.memory_postgres_validation import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RC_EVIDENCE = ROOT / "docs" / "memory-validation-operational-evidence.json"
-SAFE_STAGING_PREFIX = re.compile(r"^test_memory_validation_[0-9a-f]{12}$")
+SAFE_STAGING_PREFIX = re.compile(r"^test_memval_[0-9a-f]{12}$")
 SAFE_REVISION = re.compile(r"^[0-9a-f]{7,40}$")
 SAFE_ROLE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 
@@ -57,7 +57,7 @@ class StagingDeclaration:
 
 
 def make_staging_prefix() -> str:
-    return f"test_memory_validation_{uuid4().hex[:12]}"
+    return f"test_memval_{uuid4().hex[:12]}"
 
 
 def assert_safe_staging_prefix(prefix: str) -> None:

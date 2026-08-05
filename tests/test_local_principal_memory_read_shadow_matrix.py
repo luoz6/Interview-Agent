@@ -95,7 +95,11 @@ def build_local_read_shadow():
         confirmed_at=NOW,
         expires_at=NOW + timedelta(days=180),
     )
-    facts.declare_active(fact, exclusive_key=None, now=NOW)
+    facts.declare_active(
+        fact,
+        exclusive_key=None,
+        now=NOW,
+    )
     retriever = PrincipalMemoryRetriever(
         fact_store=facts,
         consent_service=consent,
@@ -135,7 +139,7 @@ def test_manual_fact_read_shadow_requires_no_write_shadow_or_proposal():
 
 def test_three_hundred_case_read_shadow_matrix_preserves_provider_digest():
     _, _, _, controls, consent_store, _, retriever = build_local_read_shadow()
-    shadow = PrincipalMemoryShadowService(retriever=retriever)
+    shadow = PrincipalMemoryShadowService(retriever=retriever, mode="read_shadow")
     languages = ("English", "简体中文", "mixed 中英")
 
     for index in range(300):

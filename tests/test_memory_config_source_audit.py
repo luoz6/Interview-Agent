@@ -28,3 +28,18 @@ def test_memory_environment_reads_are_confined_to_effective_config_adapter():
                 offenders.append(f"{relative}:{line_number}")
 
     assert offenders == []
+
+
+def test_principal_shadow_runtime_has_factory_service_and_graph_mode_guards():
+    runtime = (APP / "services" / "runtime.py").read_text(encoding="utf-8")
+    shadow = (APP / "services" / "principal_memory_shadow.py").read_text(
+        encoding="utf-8"
+    )
+    graph = (APP / "graphs" / "durable_interview_graph.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'if config.long_term.mode != "read_shadow":\n        return None' in runtime
+    assert 'def __init__(self, *, retriever, mode: str):' in shadow
+    assert 'self.is_enabled = mode == "read_shadow"' in shadow
+    assert "and deps.principal_memory_shadow.is_enabled" in graph

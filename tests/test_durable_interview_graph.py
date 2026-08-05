@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+import re
 from threading import Event
 from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
+import psycopg2
+from psycopg2 import sql
 
 from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
@@ -27,6 +30,45 @@ from app.services.report import ReportGenerationFailed
 from app.services.workflow_thread_lock import GenerationLeaseLost
 from tests.test_durable_interview_state import make_start_kwargs
 from tests.test_postgres_session_store import require_dsn
+
+
+DURABLE_GRAPH_TEST_TABLE = re.compile(
+    r"^test_durable_graph_[0-9a-f]{10}_[a-z0-9_]+$"
+)
+
+
+def _durable_graph_test_tables() -> set[str]:
+    with psycopg2.connect(require_dsn()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT tablename
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename LIKE 'test_durable_graph_%'
+                """
+            )
+            return {row[0] for row in cursor.fetchall()}
+
+
+@pytest.fixture
+def durable_graph_table_cleanup():
+    before = _durable_graph_test_tables()
+    yield
+    created = _durable_graph_test_tables() - before
+    if not created:
+        return
+    if any(DURABLE_GRAPH_TEST_TABLE.fullmatch(name) is None for name in created):
+        pytest.fail("refusing to clean a non-isolated durable graph relation")
+    with psycopg2.connect(require_dsn()) as connection:
+        with connection.cursor() as cursor:
+            for name in sorted(created):
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
+                        sql.Identifier(name)
+                    )
+                )
+    assert _durable_graph_test_tables() == before
 
 
 def test_v2_projection_clears_only_bounded_active_artifact_reference_fields():
@@ -439,7 +481,9 @@ def make_postgres_graph(*, fail=False):
 
 
 @pytest.mark.pg_runtime
-def test_successful_generation_commits_one_complete_message():
+def test_successful_generation_commits_one_complete_message(
+    durable_graph_table_cleanup,
+):
     graph, config, store, examiner = make_postgres_graph()
     session_id = config["configurable"]["thread_id"]
     store.enqueue_command(
@@ -466,7 +510,7 @@ def test_successful_generation_commits_one_complete_message():
 
 
 @pytest.mark.pg_runtime
-def test_retry_interrupt_waits_for_due_event():
+def test_retry_interrupt_waits_for_due_event(durable_graph_table_cleanup):
     graph, config, store, examiner = make_postgres_graph(fail=True)
     session_id = config["configurable"]["thread_id"]
     store.enqueue_command(
@@ -510,7 +554,7 @@ def test_retry_interrupt_waits_for_due_event():
 
 
 @pytest.mark.pg_runtime
-def test_third_failure_commits_template_fallback():
+def test_third_failure_commits_template_fallback(durable_graph_table_cleanup):
     graph, config, store, examiner = make_postgres_graph(fail=True)
     session_id = config["configurable"]["thread_id"]
     store.enqueue_command(
@@ -549,7 +593,9 @@ def test_third_failure_commits_template_fallback():
 
 
 @pytest.mark.pg_runtime
-def test_finish_projects_before_report_job_enqueue():
+def test_finish_projects_before_report_job_enqueue(
+    durable_graph_table_cleanup,
+):
     graph, config, store, _ = make_postgres_graph()
     session_id = config["configurable"]["thread_id"]
     store.enqueue_command(

@@ -12,7 +12,7 @@ from app.services.review_workflow import ReviewWorkflowService
 from app.services.review_workflow_store import PostgresReviewWorkflowStore
 from tests.test_durable_review_graph import FakeStore
 from tests.test_durable_review_state import make_finished_state, make_job
-from tests.postgres_support import require_postgres_dsn
+from tests.postgres_support import make_runtime_table_prefix, require_postgres_dsn
 
 
 pytestmark = pytest.mark.langgraph_review_recovery
@@ -73,7 +73,7 @@ def test_graph_node_process_loss_replays_to_one_business_result(fault_point):
 def test_provider_retry_survives_saver_restart(monkeypatch):
     dsn = require_postgres_dsn()
     monkeypatch.setenv("REPORT_LANGGRAPH_ROLLOUT_PERCENT", "100")
-    prefix = "test_review_recovery_" + uuid4().hex[:12]
+    prefix = make_runtime_table_prefix("review_recovery")
     session_store = PostgresInterviewSessionStore(dsn=dsn, table_prefix=prefix)
     jobs = PostgresReportJobStore(dsn=dsn, table_prefix=prefix)
     workflow_store = PostgresReviewWorkflowStore(dsn=dsn, table_prefix=prefix)

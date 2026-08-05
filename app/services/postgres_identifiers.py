@@ -57,6 +57,7 @@ _RUNTIME_TABLE_SUFFIXES = (
     "principal_memory_exports",
     "principal_memory_tombs",
     "principal_memory_refs",
+    "principal_memory_ledger_watermark",
     "schema_migrations",
 )
 

@@ -401,7 +401,10 @@ def generate_followup(state, deps) -> dict:
                 except Exception:
                     consume_prepared = None
                     context = consume_base_context
-            if deps.principal_memory_shadow is not None:
+            if (
+                deps.principal_memory_shadow is not None
+                and deps.principal_memory_shadow.is_enabled
+            ):
                 deps.principal_memory_shadow.observe(
                     provider_context=context or [],
                     current_tags=focus_tokens,

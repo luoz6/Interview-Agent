@@ -7,6 +7,10 @@ from app.services.agent_runtime import (
     AgentFallback,
 )
 from app.services.llm import InterviewLLM
+from app.services.principal_memory_sink_policy import (
+    FOLLOWUP_GENERATION_SINK,
+    assert_principal_memory_sink,
+)
 
 
 def fallback_followup(focus: str) -> str:
@@ -29,6 +33,10 @@ class ExaminerAgent:
         focus: str,
         execution_context: AgentExecutionContext | None = None,
     ) -> str:
+        assert_principal_memory_sink(
+            operation=FOLLOWUP_GENERATION_SINK,
+            payload=context,
+        )
         resolved_context = execution_context or self._standalone_context(
             operation="generate_followup"
         )
@@ -48,6 +56,10 @@ class ExaminerAgent:
         focus: str,
         execution_context: AgentExecutionContext | None = None,
     ) -> Iterator[str]:
+        assert_principal_memory_sink(
+            operation=FOLLOWUP_GENERATION_SINK,
+            payload=context,
+        )
         resolved_context = execution_context or self._standalone_context(
             operation="stream_followup"
         )
@@ -80,6 +92,10 @@ class ExaminerAgent:
         context: list[dict[str, str]],
         execution_context: AgentExecutionContext,
     ) -> Iterator[str]:
+        assert_principal_memory_sink(
+            operation=FOLLOWUP_GENERATION_SINK,
+            payload=context,
+        )
         def provider_stream():
             emitted = False
             for chunk in (self.llm or self._default_llm()).stream_followup(

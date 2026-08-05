@@ -59,7 +59,10 @@ def test_latest_migration_contract_requires_deletion_lease_and_indexes():
         migration.migration_id == "principal_memory_v1"
         for migration in RUNTIME_MIGRATIONS
     )
-    assert LATEST_RUNTIME_MIGRATION.migration_id == "principal_memory_integrity_v2"
+    assert (
+        LATEST_RUNTIME_MIGRATION.migration_id
+        == "principal_memory_ledger_watermark_v4"
+    )
     columns = required_columns_for_relation(
         "memory_test_session_deletion_jobs"
     )

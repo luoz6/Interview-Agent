@@ -28,7 +28,7 @@ def derive_principal_memory_effect_id(
 def build_proposal_event_if_eligible(
     *, state: dict, config, identity_resolver, consent_service, clock=None,
 ):
-    if config.long_term.mode not in {"write_shadow", "read_shadow"}:
+    if config.long_term.mode != "write_shadow":
         return None
     if not config.long_term.write_shadow_enabled:
         return None

@@ -46,7 +46,7 @@ def test_runtime_prefix_rejects_empty_whitespace_or_unsafe_values(prefix):
 
 
 def test_runtime_prefix_rejects_longest_table_identifier_before_truncation():
-    accepted = "p" * 37
+    accepted = "p" * 29
     rejected = accepted + "x"
 
     assert validate_runtime_table_prefix(accepted) == accepted

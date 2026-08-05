@@ -7,9 +7,9 @@ from datetime import timedelta
 
 from app.services.in_memory_principal_memory import PrincipalMemoryConflict
 from app.services.principal_memory_contracts import (
-    EXCLUSIVE_TAXONOMY_KEYS,
     PrincipalMemoryFact,
     derive_principal_fact_id,
+    derive_principal_fact_taxonomy_keys,
     validate_normalized_fact,
 )
 
@@ -115,14 +115,13 @@ class PrincipalMemoryLifecycleService:
         )
         if not self.consent_service.authorize("fact_storage"):
             raise PermissionError("principal memory consent is unavailable")
-        taxonomy_key = next(iter(json.loads(normalized)))
+        _, exclusive_scope_key = derive_principal_fact_taxonomy_keys(
+            fact_type=fact_type,
+            normalized_fact=normalized,
+        )
         stored = self.fact_store.declare_active(
             fact,
-            exclusive_key=(
-                taxonomy_key
-                if taxonomy_key in EXCLUSIVE_TAXONOMY_KEYS
-                else None
-            ),
+            exclusive_key=exclusive_scope_key,
             now=now,
             expected_predecessor_fact_id=expected_predecessor_fact_id,
             expected_predecessor_version=expected_predecessor_version,
@@ -146,17 +145,16 @@ class PrincipalMemoryLifecycleService:
         if not self.consent_service.authorize("fact_storage"):
             raise PermissionError("principal memory consent is unavailable")
         now = self.clock()
-        taxonomy_key = next(iter(json.loads(proposal.normalized_fact)))
+        _, exclusive_scope_key = derive_principal_fact_taxonomy_keys(
+            fact_type=proposal.fact_type,
+            normalized_fact=proposal.normalized_fact,
+        )
         confirmed = self.fact_store.activate_proposal(
             deployment_id=identity.deployment_id,
             principal_id=identity.principal_id,
             fact_id=proposal.fact_id,
             expected_version=expected_version,
-            exclusive_key=(
-                taxonomy_key
-                if taxonomy_key in EXCLUSIVE_TAXONOMY_KEYS
-                else None
-            ),
+            exclusive_key=exclusive_scope_key,
             now=now,
             expires_at=now + timedelta(
                 days=self.config.long_term.active_fact_default_days

@@ -93,6 +93,14 @@ class InMemoryPrincipalMemorySafeRefStore:
                 del self._items[key]
             return len(keys)
 
+    def count(self, *, deployment_id, principal_id):
+        with self._lock:
+            return sum(
+                item.deployment_id == deployment_id
+                and item.principal_id == principal_id
+                for item in self._items.values()
+            )
+
     def cleanup_expired(self, *, now=None, batch_size=200):
         now = now or self.clock()
         if now.tzinfo is None:

@@ -622,14 +622,33 @@ def _validate_effective_config(config: EffectiveMemoryConfig) -> None:
         custom_base_url=config.model.custom_base_url,
     )
     long_term = config.long_term
-    if long_term.mode == "disabled" and (
-        long_term.write_shadow_enabled or long_term.read_shadow_enabled
-    ):
-        raise ValueError("disabled long-term memory cannot enable shadow operations")
-    if long_term.mode == "write_shadow" and not long_term.write_shadow_enabled:
-        raise ValueError("write_shadow mode requires its explicit write gate")
-    if long_term.mode == "read_shadow" and not long_term.read_shadow_enabled:
-        raise ValueError("read_shadow mode requires its explicit read gate")
+    if long_term.mode == "disabled":
+        if long_term.write_shadow_enabled or long_term.read_shadow_enabled:
+            raise ValueError(
+                "disabled long-term memory cannot enable shadow operations"
+            )
+        if long_term.local_principal_enabled:
+            raise ValueError(
+                "disabled long-term memory forbids the local Principal gate"
+            )
+        if long_term.trusted_local_api_enabled:
+            raise ValueError(
+                "disabled long-term memory forbids the trusted-local API gate"
+            )
+    if long_term.mode == "write_shadow":
+        if not long_term.write_shadow_enabled:
+            raise ValueError("write_shadow mode requires its explicit write gate")
+        if long_term.read_shadow_enabled:
+            raise ValueError("write_shadow mode forbids the read gate")
+        if long_term.trusted_local_api_enabled:
+            raise ValueError("write_shadow mode forbids the trusted-local API gate")
+    if long_term.mode == "read_shadow":
+        if not long_term.read_shadow_enabled:
+            raise ValueError("read_shadow mode requires its explicit read gate")
+        if long_term.write_shadow_enabled:
+            raise ValueError("read_shadow mode forbids the write gate")
+        if long_term.trusted_local_api_enabled:
+            raise ValueError("read_shadow mode forbids the trusted-local API gate")
     if (
         long_term.local_principal_enabled
         and config.privacy.deployment_id != "single-tenant-local"

@@ -88,3 +88,32 @@ def test_disabled_mode_never_enqueues_even_with_identity_and_consent():
         identity_resolver=identity,
         consent_service=consent,
     ) is None
+
+
+def test_read_shadow_never_resolves_identity_or_builds_a_proposal():
+    config = load_effective_memory_config(
+        {
+            "MEMORY_LONG_TERM_MODE": "read_shadow",
+            "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+        }
+    )
+
+    class UnexpectedIdentityResolver:
+        def resolve(self):
+            raise AssertionError("Read Shadow must not resolve proposal identity")
+
+    class UnexpectedConsentService:
+        def authorize(self, *args, **kwargs):
+            raise AssertionError("Read Shadow must not authorize proposal writes")
+
+    assert build_proposal_event_if_eligible(
+        state={
+            "session_id": "read-only-session",
+            "status": "finished",
+            "deletion_status": "active",
+            "state_version": 3,
+        },
+        config=config,
+        identity_resolver=UnexpectedIdentityResolver(),
+        consent_service=UnexpectedConsentService(),
+    ) is None

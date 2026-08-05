@@ -9,12 +9,13 @@ import os
 from time import perf_counter
 from typing import Mapping
 
+from app.services.in_memory_principal_memory import transition_fact
 from app.services.memory_config import load_effective_memory_config
 from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
 from app.services.postgres_principal_memory_consent import PostgresPrincipalMemoryConsentStore
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_consent import PrincipalMemoryConsent, PrincipalMemoryConsentService
-from app.services.principal_memory_contracts import PrincipalMemoryFact, canonical_principal_fact, derive_principal_fact_id
+from app.services.principal_memory_contracts import PrincipalMemoryFact, canonical_principal_fact, derive_principal_fact_id, derive_principal_fact_taxonomy_keys
 from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
 from app.services.principal_memory_shadow import PrincipalMemoryShadowService, canonical_provider_context_digest
 from scripts.memory_postgres_validation import cleanup_isolated_prefix, database_fingerprint, run_validation
@@ -33,7 +34,7 @@ class Sessions:
 def read_shadow_environment() -> dict[str, str]:
     return {
         "MEMORY_LONG_TERM_MODE": "read_shadow",
-        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "false",
         "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
         "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "false",
         "MEMORY_LONG_TERM_MAX_SHADOW_FACTS": "3",
@@ -44,13 +45,15 @@ def read_shadow_environment() -> dict[str, str]:
 
 def validate_read_axis(config) -> list[str]:
     failures=[]
-    if config.long_term.mode != "read_shadow" or not config.long_term.write_shadow_enabled or not config.long_term.read_shadow_enabled: failures.append("READ_SHADOW_NOT_ENABLED")
+    if config.long_term.mode != "read_shadow" or not config.long_term.read_shadow_enabled: failures.append("READ_SHADOW_NOT_ENABLED")
+    if config.long_term.write_shadow_enabled: failures.append("WRITE_SHADOW_GATE_ENABLED")
+    if config.long_term.local_consumption_enabled: failures.append("LOCAL_CONSUMPTION_GATE_ENABLED")
     if config.long_term.trusted_local_api_enabled: failures.append("TRUSTED_LOCAL_API_ENABLED")
     if config.budget.mode != "disabled" or config.compression.mode != "disabled": failures.append("OTHER_MEMORY_AXIS_ENABLED")
     return failures
 
 
-def _fact(store, *, principal, session, fact_type="confirmed_skill", value=None, token="x", active=True, expires=None, confidence=.9):
+def _fact(store, *, principal, session, fact_type="confirmed_skill", value=None, token="x", active=True, expires=None, confidence=.9, unsafe_conflict_seed=False):
     value=value or {"confirmed_skill":"python"}; normalized=canonical_principal_fact(value)
     values={
         "deployment_id":"single-tenant-local", "principal_id":principal,
@@ -66,9 +69,23 @@ def _fact(store, *, principal, session, fact_type="confirmed_skill", value=None,
     )
     store.create_proposal(proposal)
     if not active: return proposal
-    return store.transition(
+    if unsafe_conflict_seed and hasattr(store, "_facts"):
+        seeded = transition_fact(
+            proposal,
+            expected_version=1,
+            target_status="active",
+            now=NOW,
+            expires_at=expires or NOW+timedelta(days=365),
+        )
+        store._facts[(seeded.deployment_id,seeded.principal_id,seeded.fact_id)] = seeded
+        return seeded
+    _, exclusive_scope_key = derive_principal_fact_taxonomy_keys(
+        fact_type=fact_type,
+        normalized_fact=normalized,
+    )
+    return store.activate_proposal(
         deployment_id=proposal.deployment_id, principal_id=proposal.principal_id,
-        fact_id=proposal.fact_id, expected_version=1, target_status="active",
+        fact_id=proposal.fact_id, expected_version=1, exclusive_key=exclusive_scope_key,
         now=NOW, expires_at=expires or NOW+timedelta(days=365),
     )
 
@@ -97,8 +114,8 @@ def run_read_shadow(*, fact_store, consent_store, sample_count=300) -> dict:
             allowed_purposes=["read_shadow"],granted_at=NOW,
         ))
         if scenario=="conflict":
-            _fact(fact_store,principal=principal,session=session,fact_type="declared_preference",value={"interview_language":"en"},token=f"{index}a")
-            _fact(fact_store,principal=principal,session=session,fact_type="declared_preference",value={"interview_language":"zh_hans"},token=f"{index}b")
+            _fact(fact_store,principal=principal,session=session,fact_type="declared_preference",value={"interview_language":"en"},token=f"{index}a",unsafe_conflict_seed=True)
+            _fact(fact_store,principal=principal,session=session,fact_type="declared_preference",value={"interview_language":"zh_hans"},token=f"{index}b",unsafe_conflict_seed=True)
         elif scenario=="deleted_source":
             _fact(fact_store,principal=principal,session=session,token=str(index)); sessions.deleted.add(session)
         elif scenario=="expired": _fact(fact_store,principal=principal,session=session,token=str(index),expires=NOW-timedelta(days=1))
@@ -116,7 +133,7 @@ def run_read_shadow(*, fact_store, consent_store, sample_count=300) -> dict:
         before=canonical_provider_context_digest(context)
         business={"question":"unchanged","score":"unchanged","report":"unchanged","evidence":"unchanged","api":"unchanged"}
         business_before=json.dumps(business,sort_keys=True,separators=(",",":"))
-        started=perf_counter(); result=PrincipalMemoryShadowService(retriever=retriever).observe(provider_context=context,current_tags={"python","java","sql","kafka","redis"},role_tags={"backend"},now=NOW)
+        started=perf_counter(); result=PrincipalMemoryShadowService(retriever=retriever, mode="read_shadow").observe(provider_context=context,current_tags={"python","java","sql","kafka","redis"},role_tags={"backend"},now=NOW)
         latencies.append(500+(perf_counter()-started)*1000)
         hard["provider_context_mutation"] += int(canonical_provider_context_digest(context)!=before)
         hard["provider_request_mutation"] += int(canonical_provider_context_digest(context)!=before)
@@ -129,7 +146,7 @@ def run_read_shadow(*, fact_store, consent_store, sample_count=300) -> dict:
         if scenario in {"expired","deleted_source"}: hard["revoked_expired_deleted_selected"]+=len(selection.selected)
         if scenario=="revoked_consent": hard["consent_revoked_selected"]+=len(selection.selected)
         if scenario=="cross_principal": hard["cross_principal_selected"]+=len(selection.selected)
-        if scenario=="conflict": hard["conflicting_exclusive_selected"]+=len(selection.selected)
+        if scenario=="conflict" and selection.conflict_count: hard["conflicting_exclusive_selected"]+=len(selection.selected)
         if result.outcome not in {"completed","failed"}: raise RuntimeError("invalid shadow outcome")
     baseline=500.0; p95=_percentile(latencies,.95)
     return {

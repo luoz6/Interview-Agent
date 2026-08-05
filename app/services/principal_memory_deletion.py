@@ -21,7 +21,9 @@ class PrincipalMemoryDeletionService:
         export_store=None,
         tombstone_store=None,
         cache_purge=None,
+        cache_count=None,
         ledger_writer=None,
+        ledger_applied_writer=None,
         failure_injector=None,
     ):
         self.identity_resolver = identity_resolver
@@ -31,7 +33,9 @@ class PrincipalMemoryDeletionService:
         self.export_store = export_store
         self.tombstone_store = tombstone_store
         self.cache_purge = cache_purge or (lambda **kwargs: 0)
+        self.cache_count = cache_count or (lambda **kwargs: 0)
         self.ledger_writer = ledger_writer
+        self.ledger_applied_writer = ledger_applied_writer
         self.failure_injector = failure_injector or (lambda stage: None)
 
     def purge_current_principal(self):
@@ -59,23 +63,46 @@ class PrincipalMemoryDeletionService:
             try:
                 counts = self._purge(identity)
                 if tombstone is not None:
-                    tombstone = self.tombstone_store.mark(
-                        tombstone, status="completed"
-                    )
                     if self.ledger_writer is not None:
                         try:
-                            self.ledger_writer(tombstone)
+                            candidate = self.tombstone_store.completion_candidate(
+                                tombstone
+                            )
+                            ledger_receipt = self.ledger_writer(candidate)
                         except Exception as exc:
                             exc.deletion_stage = "operator_ledger"
                             raise
+                        tombstone = self.tombstone_store.mark(
+                            tombstone,
+                            status="completed",
+                            completed_at=candidate.completed_at,
+                        )
+                        if self.ledger_applied_writer is not None:
+                            try:
+                                self.ledger_applied_writer(
+                                    candidate, ledger_receipt
+                                )
+                            except Exception as exc:
+                                exc.deletion_stage = "operator_ledger_watermark"
+                                raise
+                    else:
+                        tombstone = self.tombstone_store.mark(
+                            tombstone, status="completed"
+                        )
             except Exception as exc:
                 stage = getattr(exc, "deletion_stage", "unknown")
                 if tombstone is not None:
-                    self.tombstone_store.mark(
-                        tombstone,
-                        status="failed",
-                        failed_stage=stage,
-                    )
+                    try:
+                        self.tombstone_store.mark(
+                            tombstone,
+                            status="failed",
+                            failed_stage=stage,
+                        )
+                    except Exception:
+                        # The external ledger/readiness state remains the
+                        # fail-closed source of truth even if this diagnostic
+                        # state update cannot be persisted.
+                        pass
                 raise PrincipalMemoryDeletionIncomplete(stage) from exc
             return {"status": "completed", **counts}
 
@@ -103,6 +130,32 @@ class PrincipalMemoryDeletionService:
                 raise PrincipalMemoryDeletionIncomplete(stage) from exc
             self.tombstone_store.mark(tombstone, status="replayed")
             return {"status": "replayed", **counts}
+
+    def replay_opaque_scope(self, *, deployment_id: str, principal_id: str):
+        """Purge one operator-resolved scope without importing raw ledger data."""
+
+        class Identity:
+            pass
+
+        identity = Identity()
+        identity.deployment_id = deployment_id
+        identity.principal_id = principal_id
+        guard = (
+            self.tombstone_store.deletion_guard(
+                deployment_id=deployment_id,
+                principal_id=principal_id,
+            )
+            if self.tombstone_store is not None
+            and hasattr(self.tombstone_store, "deletion_guard")
+            else nullcontext()
+        )
+        with guard:
+            try:
+                counts = self._purge(identity)
+            except Exception as exc:
+                stage = getattr(exc, "deletion_stage", "unknown")
+                raise PrincipalMemoryDeletionIncomplete(stage) from exc
+        return {"status": "replayed", **counts}
 
     def _purge(self, identity):
         counts = {}
@@ -187,6 +240,10 @@ class PrincipalMemoryDeletionService:
                     )
                     if self.export_store is not None
                     else 0
+                ),
+                "cache": self.cache_count(
+                    deployment_id=identity.deployment_id,
+                    principal_id=identity.principal_id,
                 ),
             }
             if any(residue.values()):

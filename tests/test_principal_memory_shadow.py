@@ -11,7 +11,7 @@ def test_read_shadow_reports_would_select_but_returns_same_provider_context():
         fact_type="confirmed_skill",
         value={"confirmed_skill": "python"},
     )
-    service = PrincipalMemoryShadowService(retriever=retriever)
+    service = PrincipalMemoryShadowService(retriever=retriever, mode="read_shadow")
     context = [{"role": "candidate", "content": "original prompt bytes"}]
     before = repr(context).encode("utf-8")
 
@@ -34,13 +34,46 @@ def test_shadow_failure_is_fail_open_and_does_not_mutate_context():
             raise RuntimeError("private backend failure")
 
     context = [{"role": "candidate", "content": "unchanged"}]
-    result = PrincipalMemoryShadowService(retriever=FailingRetriever()).observe(
+    result = PrincipalMemoryShadowService(
+        retriever=FailingRetriever(),
+        mode="read_shadow",
+    ).observe(
         provider_context=context,
         current_tags=set(),
         role_tags=set(),
         now=NOW,
     )
     assert result.outcome == "failed"
+    assert context == [{"role": "candidate", "content": "unchanged"}]
+
+
+def test_disabled_shadow_service_is_content_free_zero_activity(monkeypatch):
+    class UnexpectedRetriever:
+        def select(self, **kwargs):
+            raise AssertionError("disabled mode must not retrieve facts")
+
+    monkeypatch.setattr(
+        "app.services.principal_memory_shadow.publish_principal_read_shadow_metric",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("disabled mode must not publish a metric")
+        ),
+    )
+    context = [{"role": "candidate", "content": "unchanged"}]
+    result = PrincipalMemoryShadowService(
+        retriever=UnexpectedRetriever(),
+        mode="disabled",
+    ).observe(
+        provider_context=context,
+        current_tags={"python"},
+        role_tags={"backend"},
+        now=NOW,
+    )
+
+    assert result.provider_context is context
+    assert result.would_select_count == 0
+    assert result.conflict_count == 0
+    assert result.estimated_tokens == 0
+    assert result.outcome == "disabled"
     assert context == [{"role": "candidate", "content": "unchanged"}]
 
 

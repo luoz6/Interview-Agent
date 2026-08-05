@@ -140,7 +140,8 @@ be written to `.env`, logs, screenshots, or Git.
 ## Install
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock.txt
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-windows.lock.txt
 npm ci
 ```
 
@@ -238,21 +239,54 @@ npm run test:browser
 
 ## Stage 41 Reproducible Release Checks
 
-Supported runtimes are Python 3.11 and Node.js 20 or 22 LTS. Activate a Python
-3.11 virtual environment first; every command below intentionally uses the
-environment-independent `python`, `npm`, or `npx` executable name.
+The mandatory H6 matrix is Windows 11 x64 or Ubuntu 24.04 LTS x64, Python
+3.11.x, Node 22 LTS, PostgreSQL 16.x with the supported pgvector image, and the
+Chromium revision selected by Playwright 1.61.1. Node.js 20 or 22 LTS remains
+runtime-compatible, but Node 20 is not the primary H6 acceptance matrix. Other
+operating systems, Python versions, and Node versions are `UNTESTED` and must
+not be described as supported.
+
+Activate a clean Python 3.11 virtual environment first. A wrong interpreter
+fails with `PYTHON_VERSION_UNSUPPORTED`; an active-environment/executable
+mismatch fails with `PYTHON_ENVIRONMENT_MISMATCH`. Platform locks and their
+generation decision are documented in
+`docs/local-v1-platform-locks-adr.md`. Every command below intentionally uses
+the environment-independent `python`, `npm`, or `npx` executable name.
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock.txt
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-windows.lock.txt
 python -m pip check
 npm ci
 npm --prefix frontend ci
 npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime --check
 npm run test:browser
 python -m scripts.audit_stage40_artifacts
 ```
+
+On Ubuntu 24.04 LTS x64, use the Linux lock instead:
+
+```bash
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-linux.lock.txt
+python -m pip check
+npm ci
+npm --prefix frontend ci
+npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
+npm run build:frontend
+npm run test:browser
+```
+
+`MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH` must be a host-native absolute local
+`.jsonl` path outside the repository workspace. Use a drive-qualified path on
+Windows and a POSIX-rooted path on Ubuntu. Relative paths, workspace paths,
+UNC paths, and any symlink/junction traversal are rejected.
 
 The default `local` event backend does not require Redis. To declare the optional
 Celery profile healthy, configure an authenticated `REDIS_URL`, start the worker,
@@ -309,3 +343,44 @@ The runtime control APIs are read-only. Recovery remains CLI-only.
 - 不包含 Docker Compose。
 - 不包含知识库管理 UI。
 Memory validation and Principal Memory foundation are implemented behind safe defaults. Long-term modes default to `disabled`; write/read shadow require explicit gates and consent; `consume` is rejected. This is repository shadow readiness only, not production rollout authorization.
+
+## Local V1 Principal Memory evidence boundary
+
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent. In particular, `learning_goal` and
+`target_role_family` can change which follow-up is asked, and the resulting
+later candidate answers can differ. This boundary is not evidence of fairness,
+candidate safety, production readiness, or Hosted C1-A equivalence. Real-
+candidate production use remains prohibited.
+
+## Local V1 long-term-memory hardening closure
+
+Local V1 hardening v0.4 is complete for the trusted-local, single-user,
+default-off boundary. The immutable implementation accepted by the full
+Windows/Ubuntu, PostgreSQL, frontend and browser matrix is revision
+`e6b8f29d25276f17c874d07cebc15565bad37492`, tree
+`354d3d0a1ad99bfef57fd51244d1f5358442c79f`.
+
+The complete sanitized evidence is in
+`docs/local-v1-hardening-acceptance.md`; the machine-readable publication
+record is `docs/local-v1-hardening-manifest.json`; and the frozen Hosted V2
+handoff is `docs/local-v1-hardening-handoff.md`.
+
+```text
+LOCAL_V1_IMPLEMENTATION=FEATURE_COMPLETE
+LOCAL_V1_HARDENING=COMPLETE
+LOCAL_V1_FINAL_ACCEPTANCE=PASS
+LOCAL_V1_DEFAULT=DISABLED
+LOCAL_V1_REAL_CANDIDATE_USE=PROHIBITED
+REAL_PROVIDER_EVALUATION=NOT_RUN
+HOSTED_V2=NO_GO_FOR_NOW
+NEXT_REQUIRED_TASK=NONE
+OPTIONAL_FUTURE_TRACK=HOSTED_PRODUCTIZATION_REDECISION
+```
+
+This status does not enable memory in committed configuration and does not
+authorize production Shadow, a production canary, Hosted V2, real-candidate
+processing, or real Provider evaluation. Safe rollback is to disable the mode
+and all capability gates while retaining the ledger, tombstones and migrations.

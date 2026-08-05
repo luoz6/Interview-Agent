@@ -49,12 +49,12 @@ def test_proposal_dedup_transition_isolation_and_purge():
     assert store.create_proposal(fact) == fact
     assert isinstance(store, PrincipalMemoryFactStore)
 
-    active = store.transition(
+    active = store.activate_proposal(
         deployment_id=fact.deployment_id,
         principal_id=fact.principal_id,
         fact_id=fact.fact_id,
         expected_version=1,
-        target_status="active",
+        exclusive_key=None,
         now=NOW,
         expires_at=NOW + timedelta(days=365),
     )
@@ -88,12 +88,12 @@ def test_proposal_dedup_transition_isolation_and_purge():
 def test_expire_batch_is_bounded_and_terminal_facts_do_not_reactivate():
     store = InMemoryPrincipalMemoryFactStore()
     fact = store.create_proposal(make_fact())
-    active = store.transition(
+    active = store.activate_proposal(
         deployment_id=fact.deployment_id,
         principal_id=fact.principal_id,
         fact_id=fact.fact_id,
         expected_version=1,
-        target_status="active",
+        exclusive_key=None,
         now=NOW,
         expires_at=NOW,
     )
@@ -105,13 +105,14 @@ def test_expire_batch_is_bounded_and_terminal_facts_do_not_reactivate():
     )
     assert expired.status == "expired"
     with pytest.raises(PrincipalMemoryConflict, match="transition"):
-        store.transition(
+        store.activate_proposal(
             deployment_id=fact.deployment_id,
             principal_id=fact.principal_id,
             fact_id=fact.fact_id,
             expected_version=expired.version,
-            target_status="active",
+            exclusive_key=None,
             now=NOW,
+            expires_at=NOW + timedelta(days=365),
         )
 
 
@@ -196,3 +197,44 @@ def test_proposal_retention_boundary_is_inclusive_and_batch_is_bounded():
         principal_id=fresh.principal_id,
         fact_id=fresh.fact_id,
     ).status == "proposed"
+
+
+def test_in_memory_store_rejects_forged_taxonomy_scope_key():
+    store = InMemoryPrincipalMemoryFactStore()
+    fact = make_fact().model_copy(
+        update={
+            "authority": "user_declared",
+            "status": "active",
+            "user_confirmed": True,
+            "confirmed_at": NOW,
+        }
+    )
+
+    with pytest.raises(ValueError, match="store-owned taxonomy"):
+        store.declare_active(
+            fact,
+            exclusive_key="interview_language",
+            now=NOW,
+        )
+
+    assert store.declare_active(
+        fact,
+        exclusive_key=None,
+        now=NOW,
+    ).status == "active"
+
+
+def test_generic_transition_cannot_bypass_atomic_activation():
+    store = InMemoryPrincipalMemoryFactStore()
+    fact = store.create_proposal(make_fact())
+
+    with pytest.raises(ValueError, match="activate_proposal"):
+        store.transition(
+            deployment_id=fact.deployment_id,
+            principal_id=fact.principal_id,
+            fact_id=fact.fact_id,
+            expected_version=1,
+            target_status="active",
+            now=NOW,
+            expires_at=NOW + timedelta(days=365),
+        )

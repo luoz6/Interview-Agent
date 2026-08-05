@@ -22,8 +22,17 @@ from app.services.principal_memory_consent import PrincipalMemoryConsent
 from app.services.principal_memory_control import PrincipalMemoryControlService
 from app.services.principal_memory_deletion import PrincipalMemoryDeletionService
 from app.services.principal_memory_rights import (
+    InMemoryPrincipalMemoryDeletionTombstoneStore,
     PrincipalMemoryExportRecord,
     PrincipalMemoryExportService,
+)
+from app.services.principal_memory_ledger import ProtectedPrincipalMemoryLedger
+from app.services.principal_memory_ledger_replay import (
+    PostgresPrincipalMemoryScopeInventory,
+    PrincipalMemoryOpaqueLedgerReplay,
+)
+from app.services.postgres_principal_memory_ledger import (
+    PostgresPrincipalMemoryLedgerWatermarkStore,
 )
 from app.services.principal_memory_operations import (
     PostgresPrincipalMemoryMigrationProbe,
@@ -96,6 +105,8 @@ def cleanup(postgres_dsn, values):
         values["tombstones"].table,
         values["refs"].table,
     }
+    if "watermark" in values:
+        tables.add(values["watermark"].table)
     with psycopg2.connect(postgres_dsn) as connection:
         with connection.cursor() as cursor:
             for table in tables:
@@ -329,6 +340,99 @@ def test_postgres_full_delete_and_restore_replay_reach_zero_residue(
         assert values["exports"].count(
             deployment_id="single-tenant-local", principal_id="local-owner"
         ) == 0
+    finally:
+        cleanup(postgres_dsn, values)
+
+
+@pytest.mark.pg_runtime
+def test_old_backup_opaque_ledger_replay_advances_watermark_and_prevents_revive(
+    postgres_dsn, runtime_table_prefix, tmp_path
+):
+    prefix = runtime_table_prefix
+    values = stores(postgres_dsn, prefix)
+    values["watermark"] = PostgresPrincipalMemoryLedgerWatermarkStore(
+        dsn=postgres_dsn, table_prefix=prefix, schema_mode="migrate"
+    )
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        assurance="trusted_local",
+        clock=lambda: NOW,
+    )
+    control_service = PrincipalMemoryControlService(
+        identity_resolver=resolver,
+        store=values["controls"],
+        clock=lambda: NOW,
+    )
+    deletion = PrincipalMemoryDeletionService(
+        identity_resolver=resolver,
+        consent_store=values["consents"],
+        fact_store=values["facts"],
+        control_store=values["controls"],
+        export_store=values["exports"],
+        tombstone_store=values["tombstones"],
+        cache_purge=values["refs"].purge,
+        cache_count=values["refs"].count,
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    ledger = ProtectedPrincipalMemoryLedger(
+        protected / "operator.jsonl", workspace=workspace
+    )
+
+    # The external event represents deletion truth newer than the restored DB.
+    event_store = InMemoryPrincipalMemoryDeletionTombstoneStore(clock=lambda: NOW)
+    requested = event_store.record_requested(
+        deployment_id="single-tenant-local", principal_id="local-owner"
+    )
+    ledger.append_tombstone(event_store.completion_candidate(requested))
+
+    try:
+        fact = make_active_language("mixed", "e")
+        stored = values["facts"].declare_active(
+            fact, exclusive_key="interview_language", now=NOW
+        )
+        values["consents"].grant(
+            PrincipalMemoryConsent(
+                deployment_id="single-tenant-local",
+                principal_id="local-owner",
+                policy_version="principal-memory-consent-v1",
+                allowed_purposes=["fact_storage", "local_consume"],
+                granted_at=NOW,
+            )
+        )
+        control_service.set_global_enabled(False)
+        values["refs"].issue(stored)
+
+        result = PrincipalMemoryOpaqueLedgerReplay(
+            ledger=ledger,
+            watermark_store=values["watermark"],
+            scope_inventory=PostgresPrincipalMemoryScopeInventory(
+                connection_provider=DirectPsycopg2ConnectionProvider(postgres_dsn),
+                table_prefix=prefix,
+            ),
+            deletion_service=deletion,
+        ).replay_missing()
+
+        assert result["events_replayed"] == 1
+        assert values["facts"].count_by_principal(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ) == 0
+        assert values["consents"].get_current(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ) is None
+        assert values["controls"].count(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ) == 0
+        assert values["refs"].count(
+            deployment_id="single-tenant-local", principal_id="local-owner"
+        ) == 0
+        assert values["watermark"].get().last_applied_ledger_event_count == 1
+        rendered = repr(result)
+        assert "local-owner" not in rendered
+        assert str(ledger.resolved_path) not in rendered
     finally:
         cleanup(postgres_dsn, values)
 

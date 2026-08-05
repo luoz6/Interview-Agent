@@ -30,7 +30,7 @@ from app.services.postgres_principal_memory_consent import (
 )
 
 
-SAFE_PREFIX = re.compile(r"^test_memory_validation_[0-9a-f]{12}$")
+SAFE_PREFIX = re.compile(r"^test_memval_[0-9a-f]{12}$")
 PRODUCTION_DATABASE = re.compile(r"(?:^|[_-])(prod|production|live)(?:$|[_-])", re.I)
 
 
@@ -52,7 +52,7 @@ class MemoryPostgresValidationResult:
 
 
 def make_validation_prefix() -> str:
-    return f"test_memory_validation_{uuid4().hex[:12]}"
+    return f"test_memval_{uuid4().hex[:12]}"
 
 
 def assert_safe_prefix(prefix: str) -> None:

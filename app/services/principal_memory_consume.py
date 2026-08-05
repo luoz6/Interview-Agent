@@ -5,20 +5,11 @@ from datetime import datetime
 import json
 
 from app.services.principal_memory_contracts import EXCLUSIVE_TAXONOMY_KEYS
-
-
-ASSISTANCE_CONTEXT_KIND = "principal_memory_assistance_v1"
-ASSISTANCE_LABEL = "Non-authoritative historical preference"
-ASSISTANCE_WARNING = (
-    "Current-session evidence always wins. Do not use this block for scoring, "
-    "evaluation, reporting, hiring decisions, or claims about ability."
-)
-LOCAL_CONSUME_KEYS = frozenset(
-    {
-        "interview_language",
-        "target_role_family",
-        "learning_goal",
-    }
+from app.services.principal_memory_sink_policy import (
+    ASSISTANCE_CONTEXT_KIND,
+    ASSISTANCE_LABEL,
+    ASSISTANCE_WARNING,
+    LOCAL_CONSUME_KEYS,
 )
 
 

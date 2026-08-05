@@ -28,6 +28,18 @@ def local_client():
     return TestClient(app, client=("127.0.0.1", 50000))
 
 
+def enable_local_consume(monkeypatch):
+    for name, value in {
+        "MEMORY_LONG_TERM_MODE": "local_consume",
+        "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+
 @pytest.fixture(autouse=True)
 def isolated_deletion_fence(monkeypatch):
     fence = InMemoryPrincipalMemoryDeletionTombstoneStore()
@@ -76,10 +88,7 @@ def test_trusted_local_fact_list_returns_no_internal_locators(monkeypatch):
     )
     facts = InMemoryPrincipalMemoryFactStore()
     fact = facts.create_proposal(make_fact())
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
-    )
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver", lambda: resolver
     )
@@ -120,11 +129,7 @@ def test_revoking_consent_does_not_delete_principal_facts(monkeypatch):
         assurance="trusted_local",
     )
     consents = InMemoryPrincipalMemoryConsentStore()
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
-        "true",
-    )
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver",
         lambda: resolver,
@@ -156,11 +161,7 @@ def test_principal_memory_api_rejects_non_local_identity_assurance(monkeypatch):
         principal_id="principal-a",
         assurance="authenticated",
     )
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
-        "true",
-    )
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver",
         lambda: resolver,
@@ -179,10 +180,7 @@ def test_principal_memory_api_rejects_non_loopback_peer_and_spoofed_headers(
         principal_id="local-owner",
         assurance="trusted_local",
     )
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
-    )
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver", lambda: resolver
     )
@@ -216,11 +214,7 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
     refs = InMemoryPrincipalMemorySafeRefStore()
     exports = InMemoryPrincipalMemoryExportStore()
     tombstones = InMemoryPrincipalMemoryDeletionTombstoneStore()
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
-        "true",
-    )
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver",
         lambda: resolver,
@@ -248,6 +242,22 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_memory_deletion_tombstone_store",
         lambda: tombstones,
+    )
+    class DurableLedger:
+        def require_ready(self):
+            return None
+
+        def append_completed(self, tombstone):
+            assert tombstone.status == "completed"
+            return {"ledger_event_count": 1}
+
+        def mark_applied(self, tombstone, receipt):
+            assert tombstone.completed_at is not None
+            assert receipt == {"ledger_event_count": 1}
+
+    monkeypatch.setattr(
+        "app.services.runtime.get_principal_memory_durable_ledger",
+        lambda: DurableLedger(),
     )
     monkeypatch.setattr("app.api.routes.get_session_store", lambda: Sessions())
     client = local_client()
@@ -362,10 +372,7 @@ def test_safe_ref_confirmation_changes_only_the_exact_same_value_proposal(
     )
     facts.create_proposal(first)
     facts.create_proposal(second)
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED", "true"
-    )
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver", lambda: resolver
     )
@@ -412,11 +419,7 @@ def test_memory_center_mutations_require_local_header_and_origin(monkeypatch):
         principal_id="local-owner",
         assurance="trusted_local",
     )
-    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "true")
-    monkeypatch.setenv(
-        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
-        "true",
-    )
+    enable_local_consume(monkeypatch)
     monkeypatch.setattr(
         "app.api.routes.get_principal_identity_resolver",
         lambda: resolver,

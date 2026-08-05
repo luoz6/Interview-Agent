@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
-from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactStore
+from app.services.in_memory_principal_memory import (
+    InMemoryPrincipalMemoryFactStore,
+    transition_fact,
+)
 from app.services.in_memory_principal_memory_consent import (
     InMemoryPrincipalMemoryConsentStore,
 )
@@ -20,6 +23,7 @@ from app.services.principal_memory_contracts import (
     PrincipalMemoryFact,
     canonical_principal_fact,
     derive_principal_fact_id,
+    derive_principal_fact_taxonomy_keys,
 )
 from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
 
@@ -38,7 +42,15 @@ class Sessions:
         }
 
 
-def make_active_fact(store, *, fact_type, value, source="session-shadow", digest="b"):
+def make_active_fact(
+    store,
+    *,
+    fact_type,
+    value,
+    source="session-shadow",
+    digest="b",
+    unsafe_seed=False,
+):
     normalized = canonical_principal_fact(value)
     identity = {
         "deployment_id": "single-tenant-local",
@@ -59,12 +71,30 @@ def make_active_fact(store, *, fact_type, value, source="session-shadow", digest
         created_at=NOW,
     )
     store.create_proposal(proposal)
-    return store.transition(
+    if unsafe_seed:
+        active = transition_fact(
+            proposal,
+            expected_version=1,
+            target_status="active",
+            now=NOW,
+            expires_at=NOW + timedelta(days=365),
+        )
+        store._facts[(
+            active.deployment_id,
+            active.principal_id,
+            active.fact_id,
+        )] = active
+        return active
+    _, exclusive_scope_key = derive_principal_fact_taxonomy_keys(
+        fact_type=fact_type,
+        normalized_fact=normalized,
+    )
+    return store.activate_proposal(
         deployment_id=proposal.deployment_id,
         principal_id=proposal.principal_id,
         fact_id=proposal.fact_id,
         expected_version=1,
-        target_status="active",
+        exclusive_key=exclusive_scope_key,
         now=NOW,
         expires_at=NOW + timedelta(days=365),
     )
@@ -74,7 +104,6 @@ def build_retriever(*, sessions=None):
     config = load_effective_memory_config(
         {
             "MEMORY_LONG_TERM_MODE": "read_shadow",
-            "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
             "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
         }
     )
@@ -151,12 +180,14 @@ def test_conflicting_exclusive_values_are_both_excluded():
         fact_type="declared_preference",
         value={"interview_language": "zh_hans"},
         digest="e",
+        unsafe_seed=True,
     )
     make_active_fact(
         facts,
         fact_type="declared_preference",
         value={"interview_language": "en"},
         digest="f",
+        unsafe_seed=True,
     )
     result = retriever.select(current_tags=set(), role_tags=set(), now=NOW)
     assert result.conflict_count == 1

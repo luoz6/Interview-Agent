@@ -38,10 +38,10 @@ def require_postgres_dsn() -> str:
 
 def make_runtime_table_prefix(scope: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "_", scope.lower()).strip("_")
-    # The longest runtime table suffix is 25 bytes. Reserve one underscore and
+    # The longest runtime table suffix is 34 bytes. Reserve one underscore and
     # the 12-byte uniqueness token so every table remains within PostgreSQL's
     # 63-byte identifier limit. Long indexes/constraints are separately hashed.
-    normalized = normalized[:18].rstrip("_") or "runtime"
+    normalized = normalized[:11].rstrip("_") or "runtime"
     prefix = f"test_{normalized}_{uuid4().hex[:12]}"
     assert_safe_test_prefix(prefix)
     return prefix

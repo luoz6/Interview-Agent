@@ -18,7 +18,11 @@ Local Consume preflight succeeds only when all of the following are true:
 - Local Principal, trusted-local API, Write Shadow, Read Shadow, Local Consume,
   and trusted-local metrics gates are explicitly enabled;
 - the explicit identity resolver returns a `trusted_local` identity;
-- durable aggregate metrics report complete PostgreSQL data.
+- durable aggregate metrics report complete PostgreSQL data;
+- the operator ledger uses a native absolute path outside the workspace;
+- the ledger sibling write/fsync probe and cross-process lock succeed;
+- the full versioned hash chain validates; and
+- the external ledger head exactly equals the PostgreSQL applied watermark.
 
 The preflight never changes configuration, runs migrations, creates facts, or
 calls a model. Unknown database, identity, or metrics state is a failure.
@@ -39,6 +43,7 @@ MEMORY_LONG_TERM_MODE=local_consume
 MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED=true
 MEMORY_LONG_TERM_READ_SHADOW_ENABLED=true
 MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED=true
+MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH=<native-absolute-path-outside-workspace>.jsonl
 ```
 
 Do not derive `MEMORY_LOCAL_PRINCIPAL_ID` from a name, résumé, answer, request,
@@ -91,7 +96,15 @@ present, or output is missing.
 | `DURABLE_METRICS_INCOMPLETE` | metrics are unavailable or using the process-local fallback |
 | `TRUSTED_LOCAL_IDENTITY_UNAVAILABLE` | explicit trusted-local identity cannot be resolved |
 | `EXECUTION_NOT_AUTHORIZED` | a mutating operator command omitted `--execute` |
-| `TOMBSTONE_LEDGER_INVALID` | a ledger is absent, empty, oversized, malformed, or fails schema validation |
+| `TOMBSTONE_LEDGER_REQUIRED` | Local Consume has no configured operator ledger |
+| `TOMBSTONE_LEDGER_PATH_INVALID` | the path is relative, inside the workspace, non-native, or otherwise unsafe |
+| `TOMBSTONE_LEDGER_UNWRITABLE` | the sibling probe, file fsync, or directory durability check failed |
+| `TOMBSTONE_LEDGER_LOCK_UNAVAILABLE` | another process held the ledger lock past the bounded timeout |
+| `TOMBSTONE_LEDGER_SCHEMA_UNSUPPORTED` | the ledger uses an unknown schema version |
+| `TOMBSTONE_LEDGER_CORRUPTED` | the canonical JSON, event order, timestamp, or SHA-256 chain is invalid |
+| `TOMBSTONE_REPLAY_REQUIRED` | the external ledger is a valid strict continuation of the database watermark |
+| `TOMBSTONE_LEDGER_DIVERGED` | the database watermark is not a valid external-ledger prefix |
+| `TOMBSTONE_REPLAY_RESIDUE` | a replay event cannot map uniquely or protected data remains |
 | `OPERATION_FAILED` | a maintenance operation failed without exposing private details |
 
 ## Run bounded expiry cleanup
@@ -117,9 +130,13 @@ all expiry counts are zero. A command without `--execute` must fail with
 
 ## Replay protected deletion tombstones after restore
 
-Store the deletion tombstone ledger outside application backups and Git. Limit
-access to the operator because each JSONL record contains deletion locators.
-Never paste ledger content into tickets, logs, evidence, or chat.
+Store the deletion ledger outside application backups, the workspace, and Git.
+Each versioned canonical JSONL event contains only opaque SHA-256 references,
+an event index, previous/current chain digests, a deletion-cycle digest, and a
+completion timestamp. It contains no raw deployment, Principal, tombstone,
+fact, session, prompt, or answer locator. The file is still operator-controlled
+security state. Never paste ledger content into tickets, logs, evidence, or
+chat.
 
 Before enabling deletion, configure an absolute private destination outside the
 repository and database backup boundary:
@@ -128,29 +145,33 @@ repository and database backup boundary:
 MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH=C:\private\principal-memory-tombstones.jsonl
 ```
 
-When this value is configured, the deletion endpoint fails closed if the
-completed tombstone cannot be durably appended. The failure response contains
-only the `operator_ledger` stage, never the path or protected locators. To
-capture an already-completed tombstone explicitly, run:
+The deletion endpoint first proves ledger/watermark equality. It then fences
+writes, purges and verifies residue zero, appends and fsyncs the opaque event,
+persists the database completion state, and advances the watermark. A failure
+at any boundary is retryable and never truncates or rewrites the ledger. The
+response contains only a stable stage, never the path, head digest, opaque
+references, or protected locators. To migrate an already-completed historical
+tombstone explicitly, run:
 
 ```powershell
 python -m scripts.local_principal_memory capture-tombstone-ledger --ledger '<absolute-private-ledger-path>.jsonl' --execute
 if ($LASTEXITCODE -ne 0) { throw 'Principal Memory tombstone capture failed' }
 ```
 
-Capture is append-only and idempotent by tombstone reference, uses a single
-durable write plus file flush, rejects repository-relative destinations,
-restricts file permissions where the host permits it, and emits aggregate
-counts only. Repeat the capture after every completed deletion cycle and copy
-the ledger to the operator-controlled restore location before rotating or
-restoring application backups.
+Capture is append-only and idempotent by an opaque deletion-cycle digest. It
+uses an OS-level cross-process lock, writes one complete canonical line,
+flushes/fsyncs, rereads the chain, then advances the database watermark. Normal
+new deletion cycles perform this capture automatically; the explicit command
+exists only for migration of already-completed historical tombstones.
 
 After restoring an older application backup:
 
 1. Keep interview traffic closed and Local Consume disabled.
 2. Restore the application database into the intended Local V1 scope.
 3. Make the captured protected JSONL ledger available on the operator host.
-4. Run the repository preflight and resolve database or migration failures.
+4. Run preflight. `TOMBSTONE_REPLAY_REQUIRED` is expected when the external
+   ledger is a valid continuation; any corruption or divergence code is a hard
+   stop requiring operator investigation.
 5. Execute replay:
 
 ```powershell
@@ -158,11 +179,14 @@ python -m scripts.local_principal_memory replay-tombstones --ledger '<protected-
 if ($LASTEXITCODE -ne 0) { throw 'Principal Memory tombstone replay failed' }
 ```
 
-Replay validates each SHA-256 integrity digest before deleting anything. It
-purges facts, Consent, controls, exports, and safe-reference cache entries, then
-marks the tombstone replayed. Output contains only validated/replayed totals and
-aggregate deletion counts. A restore is incomplete until replay succeeds and a
-second replay reaches zero business-data residue.
+Replay holds the same OS-level ledger lock, validates the complete hash chain,
+and compares the database watermark with the external prefix. It enumerates
+restored Principal Memory scopes internally, derives their opaque references,
+and requires exactly one match per missing event. It then purges facts,
+proposal effects, Consent, controls, exports, and Safe Refs, verifies residue
+zero, and advances the watermark one event at a time with compare-and-swap.
+Output contains only event/deletion counts. Traffic remains closed until a new
+preflight reports exact head/watermark equality and no gate codes.
 
 ## Observe Local Consume
 
@@ -198,12 +222,22 @@ only after preflight is green and the underlying failure has a verified fix.
 
 ## Fixed product boundaries
 
-- Local Consume may assist durable follow-up generation only.
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent.
+
 - Current-session evidence always wins.
-- Memory cannot affect prep, scoring, evaluation, review, report generation,
-  PDF output, hiring decisions, or Knowledge retrieval.
+- `learning_goal` and `target_role_family` may change a follow-up and therefore
+  may indirectly change later answers, scores, or reports. The direct sink
+  firewall does not establish causal equality between different trajectories.
+- Evaluator, scoring, evidence, report generation, PDF, prep, review, Knowledge
+  retrieval, public corpus, embedding, and retrieval-cache modules must not
+  directly receive the Principal Memory block or its internal locators.
 - `confirmed_skill` and `accessibility_preference` never enter the follow-up
   prompt; accessibility values remain UI/interaction settings only.
 - Local V1 does not establish a Hosted V2 authentication, tenancy, consent, or
   production authorization boundary.
+- This evidence does not establish fairness, candidate safety, production
+  readiness, or Hosted C1-A equivalence.
 - Real-candidate production processing remains prohibited.

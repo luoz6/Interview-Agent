@@ -126,6 +126,9 @@ def test_memory_center_does_not_connect_memory_to_evaluation_or_knowledge_paths(
         assert forbidden_route not in executable
     assert "resume" not in executable
     assert "candidate" not in executable
-    for forbidden_copy in ("评分", "报告", "知识库", "Knowledge"):
+    for forbidden_copy in ("知识库", "Knowledge"):
         assert forbidden_copy not in html
+    assert "评分和报告模块不会直接读取长期记忆" in html
+    assert "追问变化可能改变后续回答" in html
+    assert "不代表不同面试路径具有因果等价性" in html
     assert "只用于你明确许可的本机记忆用途" in html

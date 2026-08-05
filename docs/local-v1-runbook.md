@@ -270,22 +270,60 @@ Keep the run directory, `metrics.json`, attempt artifacts, traces, hashes, model
 
 ## 9. Stage 41 Clean-Environment Release Gate
 
-Use Python 3.11 and Node.js 20 or 22 LTS. From a fresh checkout, create and
-activate a Python 3.11 virtual environment, then run:
+The mandatory H6 support matrix is Windows 11 x64 and Ubuntu 24.04 LTS x64,
+Python 3.11.x, Node 22 LTS, PostgreSQL 16.x with the supported pgvector image,
+and Playwright 1.61.1 Chromium. Node.js 20 or 22 LTS remains runtime-compatible,
+but Node 20 is not a primary H6 acceptance environment. Every other platform or
+version is `UNTESTED`.
+
+From a fresh Windows checkout, create and activate a Python 3.11 virtual
+environment, then run:
 
 ```powershell
-python -m pip install --require-hashes -r requirements.lock.txt
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-windows.lock.txt
 python -m pip check
 npm ci
 npm --prefix frontend ci
 npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime
 python -m scripts.init_local_runtime --check
+npm run build:frontend
 npm run test:browser
 python -m pytest -q
 python -m scripts.audit_stage40_artifacts
 ```
+
+On Ubuntu 24.04 LTS x64, run the same sequence with the Linux lock:
+
+```bash
+python -m scripts.reproducibility_preflight --python-only
+python -m pip install --require-hashes -r requirements-linux.lock.txt
+python -m pip check
+npm ci
+npm --prefix frontend ci
+npx playwright install chromium
+python -m scripts.reproducibility_preflight --require-venv
+npm run test:browser:preflight
+npm run build:frontend
+npm run test:browser
+python -m pytest -q
+```
+
+`PYTHON_VERSION_UNSUPPORTED` means the selected interpreter is not Python
+3.11. `PYTHON_ENVIRONMENT_MISMATCH` means the active virtual environment and
+executable do not match, or a clean-environment command was run globally. Stop
+before installing or testing and rebuild the environment. The pinned generator,
+platform-lock decision, and source/hash binding are recorded in
+`docs/local-v1-platform-locks-adr.md` and `requirements.lock.meta.json`.
+
+`MEMORY_PRINCIPAL_TOMBSTONE_LEDGER_PATH` must use a host-native absolute local
+path outside the repository: a drive-qualified `.jsonl` path on Windows or a
+POSIX-rooted `.jsonl` path on Ubuntu. Relative, workspace-contained, UNC,
+symlink, and junction paths fail closed.
 
 `python -m scripts.init_local_runtime --check` is read-only. Use
 `python -m scripts.init_local_runtime --seed-knowledge --corpus-version stage44a-bge-m3-v1`
@@ -795,3 +833,94 @@ Local Consume. A non-zero exit, any gate code, incomplete durable metrics, or an
 unverified PostgreSQL migration keeps consumption blocked. The command does not
 change configuration or run migrations. Mutating cleanup and replay commands
 require `--execute` and return counts only.
+
+Local V1 is a trusted-local, default-off experiment. Principal Memory may
+influence follow-up generation only. Score and report modules have no direct
+Principal Memory dependency. No claim is made that changed interview
+trajectories are causally equivalent. `learning_goal` and `target_role_family`
+may change the follow-up trajectory and therefore may indirectly change later
+answers. Do not interpret direct module isolation as proof of equal scores,
+equal reports, fairness, candidate safety, production readiness, or Hosted
+C1-A equivalence. Real-candidate production use remains prohibited.
+
+## Local V1 hardening v0.4 accepted baseline
+
+The accepted implementation is fixed by both commit and tree identity:
+
+```text
+VALIDATED_IMPLEMENTATION_REVISION=e6b8f29d25276f17c874d07cebc15565bad37492
+VALIDATED_IMPLEMENTATION_TREE=354d3d0a1ad99bfef57fd51244d1f5358442c79f
+EVIDENCE_PUBLICATION_REF=refs/tags/local-v1-hardening-v0.4-accepted
+```
+
+The implementation was reproduced on Windows 11 x64 and Ubuntu 24.04 x64 with
+Python 3.11, Node 22, PostgreSQL 16, Playwright 1.61.1 and Chromium
+149.0.7827.55. The Ubuntu full Python/live-PostgreSQL run passed 2,216 tests;
+both Ubuntu and Windows browser runs passed 86 tests. All skips were reviewed:
+76 were conditional non-applicable, 5 were optional real-Provider checks that
+remain unauthorized, and none were blockers. PostgreSQL test relation residue,
+target port residue and target process residue were all zero.
+
+See `docs/local-v1-hardening-acceptance.md` and
+`docs/local-v1-hardening-manifest.json` for the complete aggregate evidence and
+artifact SHA-256 values.
+
+### Verify the published baseline
+
+Use a clean clone and verify the publication tag before using the runbook:
+
+```powershell
+git fetch origin --tags
+git rev-parse refs/tags/local-v1-hardening-v0.4-accepted^{}
+git merge-base --is-ancestor e6b8f29d25276f17c874d07cebc15565bad37492 refs/tags/local-v1-hardening-v0.4-accepted^{}
+python -m pytest tests/test_local_v1_hardening_publication_contract.py -q
+```
+
+The tag resolves to the documentation-only evidence publication revision. The
+implementation revision above must remain in its history. The tracked manifest
+does not contain the publication commit identity because a commit cannot
+truthfully self-record its own hash.
+
+### Operate within the accepted boundary
+
+The accepted repository default is disabled. Before any trusted-local use:
+
+1. confirm the checkout contains the accepted tag and implementation ancestor;
+2. configure only the intended Local V1 mode and its exact capability gates;
+3. run the existing Principal Memory preflight;
+4. verify the protected ledger and durable replay watermark are current;
+5. verify database migrations and aggregate metrics are complete;
+6. keep the disable path available throughout the local session;
+7. never use real candidate data or a real Provider under this acceptance.
+
+Read Shadow must remain zero-write and zero-injection. Disabled mode must
+remain zero activity. Local Consume, when separately enabled by a trusted local
+operator, remains bounded to follow-up generation and can indirectly change
+later answers by changing the follow-up trajectory.
+
+### Roll back safely
+
+Set the long-term mode and all Write, Read, Local Consume, trusted-local API,
+Local Principal and trusted-local metrics gates to disabled, then restart the
+local runtime. Retain the protected ledger, tombstones and migrations. Do not
+erase durable safety records or legitimate user facts as a rollback shortcut.
+
+### Closure and future work
+
+```text
+LOCAL_V1_IMPLEMENTATION=FEATURE_COMPLETE
+LOCAL_V1_HARDENING=COMPLETE
+LOCAL_V1_FINAL_ACCEPTANCE=PASS
+LOCAL_V1_DEFAULT=DISABLED
+LOCAL_V1_REAL_CANDIDATE_USE=PROHIBITED
+REAL_PROVIDER_EVALUATION=NOT_RUN
+NEXT_REQUIRED_TASK=NONE
+OPTIONAL_FUTURE_TRACK=HOSTED_PRODUCTIZATION_REDECISION
+HOSTED_V2=NO_GO_FOR_NOW
+INHERITED_PLAN_EXECUTION_STATE=FROZEN_NON_EXECUTABLE
+```
+
+Hosted V2 is not the next automatic task. If it is reconsidered, begin with a
+new baseline and a newly approved or formally reopened Productization ADR and
+data-use specification. Local facts, Consent records and tombstones must not be
+automatically migrated into a hosted identity boundary.

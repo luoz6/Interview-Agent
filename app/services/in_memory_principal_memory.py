@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import json
 from threading import RLock
 
-from app.services.principal_memory_contracts import PrincipalMemoryFact
+from app.services.principal_memory_contracts import (
+    PrincipalMemoryFact,
+    derive_principal_fact_taxonomy_keys,
+)
 
 
 class PrincipalMemoryConflict(RuntimeError):
@@ -80,6 +82,15 @@ class InMemoryPrincipalMemoryFactStore:
             or fact.authority != "user_declared"
         ):
             raise ValueError("direct principal facts must be active user declarations")
+        _, derived_exclusive_key = derive_principal_fact_taxonomy_keys(
+            fact_type=fact.fact_type,
+            normalized_fact=fact.normalized_fact,
+        )
+        if exclusive_key != derived_exclusive_key:
+            raise ValueError(
+                "exclusive_key must match the store-owned taxonomy scope"
+            )
+        exclusive_key = derived_exclusive_key
         key = (fact.deployment_id, fact.principal_id, fact.fact_id)
         with self._lock:
             current = self._facts.get(key)
@@ -110,7 +121,10 @@ class InMemoryPrincipalMemoryFactStore:
                     item.normalized_fact == fact.normalized_fact
                     or (
                         exclusive_key is not None
-                        and next(iter(json.loads(item.normalized_fact)))
+                        and derive_principal_fact_taxonomy_keys(
+                            fact_type=item.fact_type,
+                            normalized_fact=item.normalized_fact,
+                        )[0]
                         == exclusive_key
                     )
                 )
@@ -158,6 +172,15 @@ class InMemoryPrincipalMemoryFactStore:
                 raise PrincipalMemoryConflict(
                     "principal memory fact version conflict"
                 )
+            _, derived_exclusive_key = derive_principal_fact_taxonomy_keys(
+                fact_type=proposal.fact_type,
+                normalized_fact=proposal.normalized_fact,
+            )
+            if exclusive_key != derived_exclusive_key:
+                raise ValueError(
+                    "exclusive_key must match the store-owned taxonomy scope"
+                )
+            exclusive_key = derived_exclusive_key
             predecessors = [
                 (item_key, item)
                 for item_key, item in self._facts.items()
@@ -168,7 +191,10 @@ class InMemoryPrincipalMemoryFactStore:
                     item.normalized_fact == proposal.normalized_fact
                     or (
                         exclusive_key is not None
-                        and next(iter(json.loads(item.normalized_fact)))
+                        and derive_principal_fact_taxonomy_keys(
+                            fact_type=item.fact_type,
+                            normalized_fact=item.normalized_fact,
+                        )[0]
                         == exclusive_key
                     )
                 )
@@ -204,6 +230,10 @@ class InMemoryPrincipalMemoryFactStore:
             return self._facts.get((deployment_id, principal_id, fact_id))
 
     def transition(self, **kwargs):
+        if kwargs["target_status"] == "active":
+            raise ValueError(
+                "principal fact activation requires activate_proposal"
+            )
         key = (
             kwargs["deployment_id"],
             kwargs["principal_id"],

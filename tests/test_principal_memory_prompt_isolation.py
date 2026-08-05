@@ -47,7 +47,10 @@ def test_read_shadow_observation_never_mutates_provider_context():
     ]
     before = [dict(item) for item in context]
 
-    result = PrincipalMemoryShadowService(retriever=retriever).observe(
+    result = PrincipalMemoryShadowService(
+        retriever=retriever,
+        mode="read_shadow",
+    ).observe(
         provider_context=context,
         current_tags={"python"},
         role_tags={"backend"},
