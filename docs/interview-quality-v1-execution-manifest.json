@@ -1,0 +1,79 @@
+{
+  "schema_version": "interview-quality-v1-execution-manifest-v0.2.1",
+  "plan": {
+    "version": "v0.2.1",
+    "sha256": "3E513EA0BDA3F2116A956FB191ABBAA094F2DA0B38F6208CF3F00F887C1600FE",
+    "bytes": 138547,
+    "status": "IN_EXECUTION",
+    "execution_authorized": true
+  },
+  "workspace": {
+    "main": "F:/agent/Interview-Agent",
+    "execution": "F:/agent/Interview-Agent-quality-v1",
+    "branch": "codex/interview-quality-v1",
+    "start_head": "81ff57ce22842b2bc4fdb48274b4fa9952b29f0d",
+    "start_tree": "21e49f57d70abde583f30052928d60cd4f3a16f4",
+    "origin_master_ahead": 0,
+    "origin_master_behind": 0,
+    "execution_start_dirty_paths": 0,
+    "main_user_owned_dirty_paths": 14,
+    "main_observed_at_gate_0_head": "2f16aeee2ce8d643b942b62da37a3033eb1f48dd",
+    "main_observed_at_gate_0_branch": "codex/frontend-optimization-v031",
+    "main_observed_at_gate_0_dirty_paths": 0,
+    "main_external_state_changed_since_t00": true,
+    "execution_worktree_merged_external_main": false
+  },
+  "authorization": {
+    "provider_authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "provider_authorization": "GRANTED_UNIFIED_UNLIMITED",
+    "provider": "DeepSeek_OPENAI_COMPATIBLE",
+    "model": "deepseek-chat",
+    "data_scope": "SYNTHETIC_PUBLIC_OR_REDACTED_ONLY",
+    "budget_limit": "UNLIMITED",
+    "request_limit": "UNLIMITED",
+    "token_limit": "UNLIMITED",
+    "real_candidate_use": "PROHIBITED",
+    "hosted_v2": "FROZEN_NON_EXECUTABLE"
+  },
+  "gate_status": {
+    "gate_0_engineering": "PASS",
+    "gate_0_quality": "NOT_REQUIRED"
+  },
+  "toolchain": {
+    "os": "Microsoft Windows 11 Home 10.0.26200 AMD64",
+    "python": "3.11.3",
+    "python_executable": "F:/python3.11/python.exe",
+    "node": "22.21.0",
+    "npm": "10.9.4",
+    "git": "2.53.0.windows.3",
+    "playwright": "1.61.1",
+    "chromium": "149.0.7827.55",
+    "postgresql": "16.14",
+    "pgvector": "0.8.6",
+    "postgres_image_digest": "sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b",
+    "dependency_inventory_sha256": "d28f9ac6f61516ef4128362e87cdacde8d4466b1205556ace834d0da441c839a"
+  },
+  "tasks": {
+    "T00": "PASS",
+    "T01": "PASS",
+    "T02": "PASS",
+    "T03": "PASS",
+    "T04": "PASS",
+    "T05": "PASS",
+    "T06": "PASS",
+    "T07": "PASS",
+    "T08": "PASS",
+    "T09": "PASS",
+    "T02_T09": "PASS"
+  },
+  "gate_0": {
+    "review_status": "PASS",
+    "review_kind": "primary_agent_automatic_phase_review",
+    "reviewed_at": "2026-08-05T16:56:22.7072079+08:00",
+    "evidence": "docs/interview-quality-v1-gate-0-evidence.json",
+    "gate_config_sha256": "2b650efab1242c00d8e501046fba985ad6a6db191d6043058be0671f9f851535",
+    "provider_authorization_sha256": "ca6c10bcdd9d95d213d56b553bd889dc261cbe678a0fc405027c072899dbf5ac",
+    "blocking_test_skips": 0,
+    "prompt_or_production_scoring_changes": 0
+  }
+}

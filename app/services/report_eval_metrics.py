@@ -4,6 +4,8 @@ from itertools import combinations
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from app.services.interview_quality_gate import GateConfig, load_gate_config
+
 QualityLevel = Literal["strong", "medium", "incorrect", "off_topic", "empty"]
 QUALITY_ORDER = {"strong": 4, "medium": 3, "incorrect": 2, "off_topic": 1, "empty": 0}
 
@@ -50,11 +52,40 @@ def ngram_coverage(value: str, source: str, *, size: int = 2) -> float:
     source_grams = {source_text[index : index + size] for index in range(len(source_text) - size + 1)}
     return len(value_grams & source_grams) / len(value_grams)
 
-def calculate_metrics(attempts, *, expected_attempt_count: int) -> EvaluationMetrics:
+def calculate_metrics(
+    attempts,
+    *,
+    expected_attempt_count: int,
+    gate_config: GateConfig | None = None,
+) -> EvaluationMetrics:
+    config = gate_config or load_gate_config()
     items = [a if isinstance(a, AttemptResult) else AttemptResult.model_validate(a) for a in attempts]
-    ranking, grounding, delta = _ranking(items), _grounding(items), _delta(items)
+    ranking = _ranking(items)
+    grounding = _grounding(
+        items,
+        ngram_min_coverage=config.algorithm_parameters[
+            "evidence_ngram_min_coverage"
+        ],
+    )
+    delta = _delta(items)
     fallback = sum(a.fallback for a in items) / len(items) if items else 0.0
-    failed = [name for name, bad in (("ranking_accuracy", ranking < .85), ("evidence_grounding_rate", grounding < .9), ("score_stability", delta > 8), ("fallback_rate", fallback > .05), ("attempt_completeness", len(items) != expected_attempt_count)) if bad]
+    completeness = len(items) / expected_attempt_count if expected_attempt_count else 0.0
+    gate_values = (
+        ("ranking_accuracy", "report_scoring.pairwise_ranking_accuracy", ranking),
+        ("evidence_grounding_rate", "report_scoring.evidence_grounding_rate", grounding),
+        ("score_stability", "report_scoring.provider_repeat_max_delta", delta),
+        ("fallback_rate", "report_scoring.fallback_rate", fallback),
+        (
+            "attempt_completeness",
+            "report_scoring.attempt_completeness_rate",
+            completeness,
+        ),
+    )
+    failed = [
+        name
+        for name, metric_key, actual in gate_values
+        if not _meets_configured_threshold(config, metric_key, actual)
+    ]
     blocking = _blocking(items, expected_attempt_count)
     return EvaluationMetrics(passed=not failed and not blocking, ranking_accuracy=ranking, evidence_grounding_rate=grounding, max_score_delta=delta, fallback_rate=fallback, completed_attempt_count=len(items), expected_attempt_count=expected_attempt_count, failed_gates=failed, blocking_failures=blocking)
 
@@ -70,7 +101,7 @@ def _ranking(items):
             total += 1; passed += high[1] > low[1]
     return passed / total if total else 1.0
 
-def _grounding(items):
+def _grounding(items, *, ngram_min_coverage: float):
     grounded = total = 0
     for a in items:
         if not a.observed:
@@ -79,10 +110,24 @@ def _grounding(items):
         for evidence in a.observed:
             total += 1; value = normalize_text(evidence)
             grounded += (
-                ngram_coverage(evidence, a.answer) >= 0.75
+                ngram_coverage(evidence, a.answer) >= ngram_min_coverage
                 or any(t in value and t in answer for t in terms)
             )
     return grounded / total if total else 1.0
+
+
+def _meets_configured_threshold(
+    config: GateConfig, metric_key: str, actual: float
+) -> bool:
+    rule = config.resolve_rule(metric_key)
+    assert rule.threshold is not None
+    if rule.operator == "gte":
+        return actual >= rule.threshold
+    if rule.operator == "lte":
+        return actual <= rule.threshold
+    if rule.operator == "eq":
+        return actual == rule.threshold
+    raise ValueError(f"record-only metric cannot be a release gate: {metric_key}")
 
 def _delta(items):
     scores = defaultdict(list)

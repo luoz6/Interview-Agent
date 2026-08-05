@@ -1,0 +1,28 @@
+{
+  "schema_version": "interview-quality-dataset-contract-v1",
+  "dataset_id": "report-score-quality-v2",
+  "dataset_version": "report-score-quality-v2",
+  "description": "Synthetic schema fixture for deterministic report scoring.",
+  "fixture_only": true,
+  "cases": [
+    {
+      "case_id": "score-idempotency-en-dev-001",
+      "case_version": 1,
+      "language": "en",
+      "case_type": "report_score",
+      "question_type": "system_design",
+      "difficulty": "advanced",
+      "quality_label": "strong",
+      "partition": "dev",
+      "source_boundary": {"classification": "synthetic", "description": "Synthetic answer about idempotency and fencing.", "contains_real_candidate_data": false, "contains_employer_confidential_data": false, "contains_principal_memory": false},
+      "input": {"question": "How do you prevent duplicate effects after worker recovery?", "answer": "Use a stable command id, transactional outbox, leases, and monotonically increasing fencing tokens."},
+      "expectation": {"action": null, "score_range": [80, 95]},
+      "must_have_evidence": ["stable command id", "fencing tokens"],
+      "forbidden_inference": ["Do not claim exactly-once delivery from the broker."],
+      "annotation": {"annotator_id": "synthetic-fixture-author-v1", "reviewer_id": null, "review_status": "pending", "dispute_status": "none", "resolution": null},
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {"algorithm": "sha256-canonical-json-v1", "source_sha256": "3a67bcd8450a3aea55743b2356585002c1562a52dbb2786c44dd4386533b73a5", "content_sha256": "d1d7f8dc6a3e33f10d0c3ad206b02cef924a004f4ca5886e717253ef068147f9"}
+    }
+  ]
+}

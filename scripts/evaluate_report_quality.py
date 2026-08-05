@@ -21,6 +21,7 @@ from app.services.report_eval_artifacts import EvaluationArtifactStore
 from app.services.report_eval_case_builder import build_report_evaluation_input
 from app.services.report_eval_dataset import EvaluationDataset, load_evaluation_dataset
 from app.services.report_eval_metrics import AttemptResult, calculate_metrics
+from app.services.interview_quality_gate import load_gate_config
 from app.services.report_eval_runner import EvaluationRunner
 from app.services.report_rule_score import REPORT_SCORING_RUBRIC_VERSION
 from app.services.report_trace import ReportTraceRecorder
@@ -146,16 +147,35 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def render_markdown(metrics: dict) -> str:
+    config = load_gate_config()
+    rules = {
+        "ranking_accuracy": config.resolve_rule(
+            "report_scoring.pairwise_ranking_accuracy"
+        ),
+        "evidence_grounding_rate": config.resolve_rule(
+            "report_scoring.evidence_grounding_rate"
+        ),
+        "max_score_delta": config.resolve_rule(
+            "report_scoring.provider_repeat_max_delta"
+        ),
+        "fallback_rate": config.resolve_rule("report_scoring.fallback_rate"),
+    }
+
+    def gate_text(name: str) -> str:
+        rule = rules[name]
+        symbols = {"gte": ">=", "lte": "<=", "eq": "=="}
+        return f"{symbols[rule.operator]} {rule.threshold:g}"
+
     decision = "PASS" if metrics["passed"] else "FAIL"
     lines = [
         f"# Stage 40 Release Decision: {decision}",
         "",
         "| Metric | Result | Gate |",
         "| --- | ---: | ---: |",
-        f"| ranking_accuracy | {metrics['ranking_accuracy']:.3f} | >= 0.85 |",
-        f"| evidence_grounding_rate | {metrics['evidence_grounding_rate']:.3f} | >= 0.90 |",
-        f"| max_score_delta | {metrics['max_score_delta']:.3f} | <= 8 |",
-        f"| fallback_rate | {metrics['fallback_rate']:.3f} | <= 0.05 |",
+        f"| ranking_accuracy | {metrics['ranking_accuracy']:.3f} | {gate_text('ranking_accuracy')} |",
+        f"| evidence_grounding_rate | {metrics['evidence_grounding_rate']:.3f} | {gate_text('evidence_grounding_rate')} |",
+        f"| max_score_delta | {metrics['max_score_delta']:.3f} | {gate_text('max_score_delta')} |",
+        f"| fallback_rate | {metrics['fallback_rate']:.3f} | {gate_text('fallback_rate')} |",
         "",
         f"- completed_attempts: {metrics['completed_attempt_count']}/{metrics['expected_attempt_count']}",
         f"- failed_gates: {', '.join(metrics['failed_gates']) or 'none'}",
