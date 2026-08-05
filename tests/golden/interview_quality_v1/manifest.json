@@ -3,6 +3,7 @@
   "hash_algorithm": "sha256-file-bytes",
   "files": {
     "followup-decision-quality-v1.json": "1eb034cf752c65ccba056cce41fe01367abb9667f34c140ec78a6cca2cb9b767",
+    "followup-decision-quality-v2.json": "da5cb380dad6c391a77a6d65293d56e4b908db0461c2ce85d3c1c77867e172a6",
     "initial-question-quality-v1.json": "68287ac738e0749a2810c6d537997ab15278b45b777c2d37646bcf77297c7388",
     "report-score-quality-v2.json": "71d473b97f446870584f7d157c2cc475c53db2fdee5bb05d4efe8a3dc7505438",
     "report-semantic-quality-v1.json": "409c22f00f48fb85f7432b16a4a5b7d2b646cb606a394d965aaf6e3dff156cfc"

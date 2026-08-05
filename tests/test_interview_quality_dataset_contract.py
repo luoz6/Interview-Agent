@@ -14,12 +14,13 @@ DATASET_DIR = Path("tests/golden/interview_quality_v1")
 DATASET_FILES = {
     "initial-question-quality-v1": DATASET_DIR / "initial-question-quality-v1.json",
     "followup-decision-quality-v1": DATASET_DIR / "followup-decision-quality-v1.json",
+    "followup-decision-quality-v2": DATASET_DIR / "followup-decision-quality-v2.json",
     "report-score-quality-v2": DATASET_DIR / "report-score-quality-v2.json",
     "report-semantic-quality-v1": DATASET_DIR / "report-semantic-quality-v1.json",
 }
 
 
-def test_all_four_frozen_dataset_contract_fixtures_load_and_verify_hashes():
+def test_all_frozen_datasets_load_and_verify_hashes():
     loaded = {
         dataset_id: load_interview_quality_dataset(path)
         for dataset_id, path in DATASET_FILES.items()
@@ -29,10 +30,34 @@ def test_all_four_frozen_dataset_contract_fixtures_load_and_verify_hashes():
     for dataset_id, dataset in loaded.items():
         assert dataset.dataset_id == dataset_id
         assert dataset.dataset_version == dataset_id
-        assert dataset.fixture_only is True
+        if dataset_id != "followup-decision-quality-v2":
+            assert dataset.fixture_only is True
         assert all(not case.gate_eligible for case in dataset.cases)
         assert all(case.source_boundary.contains_real_candidate_data is False for case in dataset.cases)
         assert all(case.source_boundary.contains_principal_memory is False for case in dataset.cases)
+
+
+def test_followup_v2_has_required_scale_sequences_adversarial_and_boundaries():
+    dataset = load_interview_quality_dataset(
+        DATASET_FILES["followup-decision-quality-v2"]
+    )
+    sequences = {
+        case.input["sequence_id"]
+        for case in dataset.cases
+        if case.input.get("sequence_id")
+    }
+    adversarial = [
+        case
+        for case in dataset.cases
+        if "adversarial" in case.input["scenario_tags"]
+    ]
+
+    assert len(dataset.cases) == 100
+    assert len(sequences) == 20
+    assert len(adversarial) >= 20
+    assert dataset.fixture_only is False
+    assert all(case.annotation.review_status == "pending" for case in dataset.cases)
+    assert all(case.gate_eligible is False for case in dataset.cases)
 
 
 def test_report_score_uses_range_and_other_datasets_use_action():

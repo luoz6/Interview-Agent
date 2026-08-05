@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 DatasetId = Literal[
     "initial-question-quality-v1",
     "followup-decision-quality-v1",
+    "followup-decision-quality-v2",
     "report-score-quality-v2",
     "report-semantic-quality-v1",
 ]
@@ -18,6 +19,7 @@ DatasetId = Literal[
 DATASET_CASE_TYPES = {
     "initial-question-quality-v1": "initial_question",
     "followup-decision-quality-v1": "followup_decision",
+    "followup-decision-quality-v2": "followup_decision",
     "report-score-quality-v2": "report_score",
     "report-semantic-quality-v1": "report_semantic",
 }
@@ -38,6 +40,12 @@ class CaseExpectation(BaseModel):
 
     action: str | None = None
     score_range: tuple[int, int] | None = None
+    acceptable_actions: list[str] = Field(default_factory=list)
+    acceptable_gaps: list[dict[str, Any]] = Field(default_factory=list)
+    forbidden_gaps: list[str] = Field(default_factory=list)
+    forbidden_questions: list[str] = Field(default_factory=list)
+    allow_multiple_reasonable_decisions: bool = False
+    expected_reason_codes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_expectation(self):
@@ -60,6 +68,8 @@ class AnnotationRecord(BaseModel):
     review_status: Literal["pending", "reviewed"]
     dispute_status: Literal["none", "open", "resolved"]
     resolution: str | None
+    rationale: str | None = None
+    review_notes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_annotation(self):
@@ -149,9 +159,104 @@ class InterviewQualityDataset(BaseModel):
                 raise ValueError("report-score cases require score_range")
         elif any(case.expectation.action is None for case in self.cases):
             raise ValueError(f"{self.dataset_id} cases require expected action")
+        if self.dataset_id == "followup-decision-quality-v2":
+            self._validate_followup_v2()
         if self.fixture_only and any(case.gate_eligible for case in self.cases):
             raise ValueError("contract-only fixtures cannot be gate eligible")
         return self
+
+    def _validate_followup_v2(self) -> None:
+        if not 80 <= len(self.cases) <= 120:
+            raise ValueError("followup v2 requires 80..120 cases")
+        sequence_steps: dict[str, set[int]] = {}
+        sequence_partitions: dict[str, set[str]] = {}
+        partition_coverage: dict[str, set[str]] = {
+            "train": set(),
+            "dev": set(),
+            "blind-test": set(),
+        }
+        adversarial_count = 0
+        coverage: set[str] = set()
+        languages: set[str] = set()
+        knowledge_boundaries: set[str] = set()
+        memory_modes: set[str] = set()
+        for case in self.cases:
+            languages.add(case.language)
+            tags = set(case.input.get("scenario_tags") or [])
+            coverage.update(tags)
+            partition_coverage[case.partition].update(tags)
+            if "adversarial" in tags:
+                adversarial_count += 1
+            knowledge_boundaries.add(str(case.input.get("knowledge_boundary")))
+            memory_modes.add(str(case.input.get("memory_mode")))
+            sequence_id = case.input.get("sequence_id")
+            sequence_step = case.input.get("sequence_step")
+            if sequence_id is not None:
+                if sequence_step not in {1, 2}:
+                    raise ValueError("followup sequence_step must be 1 or 2")
+                sequence_steps.setdefault(str(sequence_id), set()).add(
+                    int(sequence_step)
+                )
+                sequence_partitions.setdefault(str(sequence_id), set()).add(
+                    case.partition
+                )
+            expectation = case.expectation
+            if expectation.action not in {"follow_up", "next_question"}:
+                raise ValueError("followup action must be bounded")
+            if not expectation.acceptable_actions:
+                raise ValueError("followup cases require acceptable_actions")
+            if expectation.action not in expectation.acceptable_actions:
+                raise ValueError("expected action must be acceptable")
+            if not expectation.expected_reason_codes:
+                raise ValueError("followup cases require expected reason codes")
+            if not expectation.forbidden_questions:
+                raise ValueError("followup cases require forbidden questions")
+            if expectation.action == "follow_up" and not expectation.acceptable_gaps:
+                raise ValueError("follow_up cases require acceptable gaps")
+            if not (case.annotation.rationale or "").strip():
+                raise ValueError("followup cases require annotation rationale")
+            if case.gate_eligible:
+                raise ValueError("followup v2 remains ineligible before review")
+        if len(sequence_steps) < 20 or any(
+            steps != {1, 2} for steps in sequence_steps.values()
+        ):
+            raise ValueError("followup v2 requires at least 20 complete two-step sequences")
+        if any(len(partitions) != 1 for partitions in sequence_partitions.values()):
+            raise ValueError("a followup sequence cannot cross partitions")
+        if adversarial_count < 20:
+            raise ValueError("followup v2 requires at least 20 adversarial cases")
+        required_coverage = {
+            "strong_answer",
+            "single_critical_gap",
+            "technical_error",
+            "off_topic",
+            "empty_answer",
+            "duplicate_gap",
+            "repeated_question",
+            "provider_timeout",
+            "provider_invalid_output",
+            "provider_failed",
+            "low_confidence",
+            "prompt_injection",
+            "mixed_language",
+        }
+        if not required_coverage <= coverage:
+            raise ValueError("followup v2 coverage matrix is incomplete")
+        if languages != {"zh-Hans", "en", "mixed"}:
+            raise ValueError("followup v2 requires zh-Hans, en and mixed cases")
+        if not {"none", "public_evidence", "local_auxiliary"} <= knowledge_boundaries:
+            raise ValueError("followup v2 knowledge boundaries are incomplete")
+        if not {"disabled", "local_auxiliary"} <= memory_modes:
+            raise ValueError("followup v2 memory boundaries are incomplete")
+        for partition, tags in partition_coverage.items():
+            if not {
+                "strong_answer",
+                "single_critical_gap",
+                "adversarial",
+            } <= tags:
+                raise ValueError(
+                    f"followup v2 partition coverage is incomplete: {partition}"
+                )
 
 
 def canonical_json_bytes(payload: Any) -> bytes:
@@ -169,7 +274,13 @@ def sha256_canonical_json(payload: Any) -> str:
 
 
 def expected_case_hashes(case: InterviewQualityCase) -> tuple[str, str]:
-    payload = case.model_dump(mode="json", exclude={"hashes"})
+    # Schema extensions must not retroactively change hashes of frozen older
+    # datasets by materializing newly added default fields.  New revisions
+    # explicitly serialize their fields, so exclude_unset preserves both
+    # backward compatibility and complete v2 coverage.
+    payload = case.model_dump(
+        mode="json", exclude={"hashes"}, exclude_unset=True
+    )
     return sha256_canonical_json(payload["input"]), sha256_canonical_json(payload)
 
 

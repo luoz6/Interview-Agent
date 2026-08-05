@@ -1,9 +1,18 @@
 # Interview Quality V1 dataset contract fixtures
 
-This directory freezes the four dataset identities and their common machine schema.
+This directory freezes four dataset families, their versioned revisions, and their
+common machine schema.
 The checked-in records are synthetic contract fixtures only, not completed calibrated
 quality sets. Every fixture has `fixture_only=true` and `gate_eligible=false`; passing
 their schema tests is not a Quality Gate result.
+
+`followup-decision-quality-v2.json` is the first non-fixture construction set:
+it contains 100 synthetic cases, including 20 complete two-step sequences and
+20 adversarial cases. It remains `gate_eligible=false` because all annotations
+are still `pending` independent review. Its existence proves T35 Engineering
+coverage, not Gate 3 Quality PASS. The deterministic builder is
+`scripts/build_followup_decision_dataset.py`; rebuilding must reproduce the
+same case hashes and refresh only the dataset file manifest.
 
 The common schema requires case identity/version, language, case and question type,
 difficulty, quality label, source boundary, expected action or score range, must-have
