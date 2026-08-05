@@ -39,7 +39,11 @@
     "gate_0_engineering": "PASS",
     "gate_0_quality": "NOT_REQUIRED",
     "gate_1_engineering": "PASS",
-    "gate_1_quality": "NOT_REQUIRED"
+    "gate_1_quality": "NOT_REQUIRED",
+    "gate_2_engineering": "BLOCKED",
+    "gate_2_quality": "NOT_RUN",
+    "gate_3_engineering": "IN_PROGRESS",
+    "gate_3_quality": "BLOCKED"
   },
   "toolchain": {
     "os": "Microsoft Windows 11 Home 10.0.26200 AMD64",
@@ -75,7 +79,25 @@
     "T15": "PASS",
     "T16": "PASS",
     "T17": "PASS",
-    "T18": "PASS"
+    "T18": "PASS",
+    "T19": "PASS",
+    "T20": "PASS",
+    "T21": "PASS",
+    "T22": "PASS",
+    "T23": "PASS",
+    "T24": "PASS",
+    "T25": "BLOCKED",
+    "T26": "BLOCKED",
+    "T27": "NOT_RUN",
+    "T28": "PASS",
+    "T29": "PASS",
+    "T30": "PASS",
+    "T31": "PASS",
+    "T32": "PASS",
+    "T33": "PASS",
+    "T34": "PASS",
+    "T35": "ENGINEERING_PASS_REVIEW_PENDING",
+    "T36": "ENGINEERING_PASS_QUALITY_BLOCKED"
   },
   "gate_0": {
     "review_status": "PASS",
@@ -95,5 +117,17 @@
     "blocking_test_skips": 0,
     "provider_calls": 0,
     "open_findings": 0
+  },
+  "t36": {
+    "review_status": "PASS_ENGINEERING_BLOCKED_QUALITY",
+    "review_kind": "primary_agent_automatic_task_review",
+    "reviewed_at": "2026-08-05T23:11:09+08:00",
+    "implementation_revision": "c6c83b34318e74992c735e3aebfa8e5dab85e9f3",
+    "evidence": "docs/interview-quality-v1-t36-evidence.json",
+    "automated_fixture_status": "PASS",
+    "provider_smoke_status": "BLOCKED_MODEL_VERSION_DRIFT",
+    "independent_review_status": "PENDING",
+    "provider_calls": 0,
+    "open_engineering_findings": 0
   }
 }
