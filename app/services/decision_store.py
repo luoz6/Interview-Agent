@@ -22,6 +22,28 @@ GapType = Literal[
     "technical_error",
     "none",
 ]
+DecisionReasonCode = Literal[
+    "answer_complete",
+    "missing_detail",
+    "missing_tradeoff",
+    "missing_failure_mode",
+    "missing_evidence",
+    "clarification_needed",
+    "technical_error",
+    "off_topic",
+    "empty_answer_clarification",
+    "followup_limit_reached",
+    "question_closed",
+    "skip_command",
+    "session_finished",
+    "stale_command",
+    "duplicate_gap",
+    "low_confidence",
+    "provider_timeout",
+    "provider_invalid_output",
+    "provider_failed",
+]
+FollowupPolicyVersion = Literal["fixed_v1", "adaptive_v1"]
 DecisionStatus = Literal["pending", "completed", "failed"]
 AttemptStatus = Literal["pending", "running", "completed", "failed", "abandoned"]
 
@@ -32,18 +54,34 @@ class DecisionContract(BaseModel):
     action: DecisionAction
     answer_state: AnswerState
     gap_type: GapType
-    gap_summary: str = Field(max_length=400)
-    reason_code: str = Field(min_length=1, max_length=100)
+    gap_summary: str = Field(max_length=240)
+    reason_code: DecisionReasonCode
     decision_confidence: Literal["high", "medium", "low"]
-    closed_gap_ids: list[str] = Field(default_factory=list)
-    policy_version: str = Field(min_length=1, max_length=100)
+    closed_gap_ids: list[str] = Field(default_factory=list, max_length=16)
+    policy_version: FollowupPolicyVersion
 
     @model_validator(mode="after")
     def validate_contract(self) -> "DecisionContract":
         if self.action == "next_question" and self.gap_type != "none":
             raise ValueError("next_question decisions must not carry an open gap")
+        if self.action == "next_question" and self.gap_summary:
+            raise ValueError("next_question decisions must not carry a gap summary")
+        if self.action == "follow_up" and self.gap_type == "none":
+            raise ValueError("follow_up decisions require one open gap")
+        if self.action == "follow_up" and not self.gap_summary.strip():
+            raise ValueError("follow_up decisions require a gap summary")
         if "\n" in self.gap_summary:
             raise ValueError("gap_summary must be a single-line diagnostic")
+        normalized_summary = self.gap_summary.casefold()
+        if any(
+            marker in normalized_summary
+            for marker in ("标准答案", "参考答案全文", "reference answer", "ideal answer")
+        ):
+            raise ValueError("gap_summary must not disclose a reference answer")
+        if len(self.closed_gap_ids) != len(set(self.closed_gap_ids)):
+            raise ValueError("closed_gap_ids must be unique")
+        if any(not item.strip() or len(item) > 100 for item in self.closed_gap_ids):
+            raise ValueError("closed_gap_ids must be non-empty stable identifiers")
         return self
 
 
@@ -75,6 +113,10 @@ class DecisionAttempt(BaseModel):
     fencing_version: int = Field(ge=0)
     error_code: str | None = None
     output_sha256: str | None = None
+    duration_ms: float | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    provider_invocations: int = Field(default=0, ge=0, le=1)
     created_at: datetime
     updated_at: datetime
 
@@ -159,8 +201,10 @@ class InMemoryDecisionStore:
             decision = self._decisions.get(decision_id)
             if decision is None:
                 raise DecisionNotFound("decision not found")
-            if decision.status == "completed":
-                raise DecisionStoreConflict("completed decision cannot be claimed")
+            if decision.status in {"completed", "failed"}:
+                raise DecisionStoreConflict(
+                    f"{decision.status} decision cannot be claimed"
+                )
             attempts = [self._attempts[item] for item in self._attempt_by_decision[decision_id]]
             current = attempts[-1]
             if current.status == "running" and current.lease_expires_at and current.lease_expires_at > now:
@@ -193,7 +237,18 @@ class InMemoryDecisionStore:
             )
             return True
 
-    def complete(self, attempt_id: str, *, worker_id: str, lease_token: str, decision: DecisionContract) -> DecisionRecord:
+    def complete(
+        self,
+        attempt_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        decision: DecisionContract,
+        duration_ms: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        provider_invocations: int = 0,
+    ) -> DecisionRecord:
         now = self._clock()
         with self._lock:
             attempt = self._attempts.get(attempt_id)
@@ -214,6 +269,10 @@ class InMemoryDecisionStore:
                     "lease_token": None,
                     "lease_expires_at": None,
                     "output_sha256": digest,
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "provider_invocations": provider_invocations,
                     "updated_at": now,
                 }
             )
@@ -229,7 +288,18 @@ class InMemoryDecisionStore:
             self._decisions[record.decision_id] = completed_record
             return deepcopy(completed_record)
 
-    def fail(self, attempt_id: str, *, worker_id: str, lease_token: str, error_code: str) -> DecisionAttempt:
+    def fail(
+        self,
+        attempt_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        error_code: str,
+        duration_ms: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        provider_invocations: int = 0,
+    ) -> DecisionAttempt:
         now = self._clock()
         with self._lock:
             attempt = self._attempts.get(attempt_id)
@@ -244,6 +314,10 @@ class InMemoryDecisionStore:
                     "lease_token": None,
                     "lease_expires_at": None,
                     "error_code": error_code,
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "provider_invocations": provider_invocations,
                     "updated_at": now,
                 }
             )

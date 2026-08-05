@@ -726,6 +726,10 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "lease_token",
                 "lease_expires_at",
                 "fencing_version",
+                "duration_ms",
+                "input_tokens",
+                "output_tokens",
+                "provider_invocations",
             }
         ),
     }
@@ -840,6 +844,25 @@ RUNTIME_SCHEMA_V18_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V18_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_SCHEMA_V19_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V18_CHECKSUM,
+        "decision_attempt_observability": {
+            "duration_ms": "nullable-non-negative",
+            "input_tokens": "nullable-non-negative",
+            "output_tokens": "nullable-non-negative",
+            "provider_invocations": "zero-or-one-per-attempt",
+            "raw_provider_error_persisted": False,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V19_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V19_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -929,6 +952,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="followup_decision_v1",
         checksum=RUNTIME_SCHEMA_V18_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_attempt_observability_v2",
+        checksum=RUNTIME_SCHEMA_V19_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

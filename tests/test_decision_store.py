@@ -14,8 +14,8 @@ def decision(action="follow_up"):
         action=action,
         answer_state="partial",
         gap_type="evidence" if action == "follow_up" else "none",
-        gap_summary="Need one concrete failure mode.",
-        reason_code="missing_evidence" if action == "follow_up" else "complete",
+        gap_summary="Need one concrete failure mode." if action == "follow_up" else "",
+        reason_code="missing_evidence" if action == "follow_up" else "answer_complete",
         decision_confidence="medium",
         closed_gap_ids=[],
         policy_version="adaptive_v1",
@@ -49,6 +49,8 @@ def test_decision_fencing_rejects_late_worker_and_failure_creates_bounded_retry(
     store.fail(second.attempt_id, worker_id="w2", lease_token=second.lease_token, error_code="invalid_output")
     assert store.get(record.decision_id).status == "failed"
     assert len(store.list_attempts(record.decision_id)) == 2
+    with pytest.raises(DecisionStoreConflict, match="failed decision"):
+        store.claim(record.decision_id, worker_id="w3")
 
 
 def test_next_question_contract_has_no_gap():
@@ -58,7 +60,7 @@ def test_next_question_contract_has_no_gap():
             answer_state="complete",
             gap_type="evidence",
             gap_summary="bad",
-            reason_code="complete",
+            reason_code="answer_complete",
             decision_confidence="high",
             policy_version="fixed_v1",
         )

@@ -31,7 +31,14 @@ def test_postgres_decision_unique_prepare_lease_fencing_and_retry():
     assert store.prepare(session_id=session.session_id, source_command_id="cmd-1", input_sha256="a" * 64).decision_id == record.decision_id
     first = store.claim(record.decision_id, worker_id="w1")
     assert store.heartbeat(first.attempt_id, worker_id="w1", lease_token=first.lease_token)
-    store.fail(first.attempt_id, worker_id="w1", lease_token=first.lease_token, error_code="timeout")
+    store.fail(
+        first.attempt_id,
+        worker_id="w1",
+        lease_token=first.lease_token,
+        error_code="timeout",
+        duration_ms=25.5,
+        provider_invocations=1,
+    )
     second = store.claim(record.decision_id, worker_id="w2")
     from app.services.decision_store import DecisionContract
 
@@ -40,12 +47,28 @@ def test_postgres_decision_unique_prepare_lease_fencing_and_retry():
         answer_state="complete",
         gap_type="none",
         gap_summary="",
-        reason_code="complete",
+        reason_code="answer_complete",
         decision_confidence="high",
         policy_version="fixed_v1",
     )
     with pytest.raises(DecisionStoreConflict):
         store.complete(first.attempt_id, worker_id="w1", lease_token=first.lease_token, decision=final)
-    completed = store.complete(second.attempt_id, worker_id="w2", lease_token=second.lease_token, decision=final)
+    completed = store.complete(
+        second.attempt_id,
+        worker_id="w2",
+        lease_token=second.lease_token,
+        decision=final,
+        duration_ms=12.5,
+        input_tokens=100,
+        output_tokens=20,
+        provider_invocations=1,
+    )
     assert completed.status == "completed"
     assert store.get(record.decision_id).final_decision.action == "next_question"
+    attempts = store.list_attempts(record.decision_id)
+    assert attempts[0].duration_ms == 25.5
+    assert attempts[0].provider_invocations == 1
+    assert attempts[1].duration_ms == 12.5
+    assert attempts[1].input_tokens == 100
+    assert attempts[1].output_tokens == 20
+    assert attempts[1].provider_invocations == 1
