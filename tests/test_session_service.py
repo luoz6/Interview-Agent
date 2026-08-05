@@ -123,7 +123,10 @@ def test_submit_answer_uses_llm_context_to_generate_followup():
         "You mentioned caching. Please explain how you protect the database "
         "when the cache becomes invalid."
     )
-    assert llm.last_context == [
+    assert llm.last_context[0]["role"] == "system"
+    assert "[FOLLOWUP_DECISION_TARGET]" in llm.last_context[0]["content"]
+    assert '"gap_type":"clarification"' in llm.last_context[0]["content"]
+    assert llm.last_context[1:] == [
         {"role": "interviewer", "content": "Introduce one project."},
         {
             "role": "candidate",

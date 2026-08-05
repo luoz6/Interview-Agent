@@ -57,6 +57,9 @@ class InterviewState(TypedDict):
     followup_policy_version: Literal["fixed_v1", "adaptive_v1"]
     current_followup_count: int
     closed_gap_ids: list[str]
+    active_gap_id: str | None
+    termination_reason_code: str | None
+    termination_diagnostic: dict[str, Any] | None
     pending_output: str | None
     status: Literal["active", "finished"]
     phase: Literal["prep", "interview", "review"]
@@ -152,6 +155,9 @@ def build_initial_state(
         ),
         "current_followup_count": 0,
         "closed_gap_ids": [],
+        "active_gap_id": None,
+        "termination_reason_code": None,
+        "termination_diagnostic": None,
         "pending_output": first_output,
         "status": "active" if first_question else "finished",
         "phase": "interview",

@@ -14,6 +14,11 @@ from app.services.followup_diagnostics import (
     FollowupDiagnosticInput,
     FollowupDiagnostics,
     diagnose_followup,
+    stable_followup_fingerprint,
+)
+from app.services.followup_prompts import (
+    FOLLOWUP_DECISION_PROMPT_SHA256,
+    FOLLOWUP_DECISION_PROMPT_VERSION,
 )
 
 
@@ -65,6 +70,16 @@ class FollowupDecisionExecutionService:
         self.store = store
         self.provider = provider
         self.clock = clock
+        self.decision_prompt_version = getattr(
+            provider,
+            "prompt_version",
+            FOLLOWUP_DECISION_PROMPT_VERSION,
+        )
+        self.decision_prompt_sha256 = getattr(
+            provider,
+            "prompt_sha256",
+            FOLLOWUP_DECISION_PROMPT_SHA256,
+        )
 
     def execute(
         self,
@@ -84,6 +99,8 @@ class FollowupDecisionExecutionService:
             session_id=typed_request.session_id,
             source_command_id=source_command_id,
             input_sha256=diagnostics.input_sha256,
+            decision_prompt_version=self.decision_prompt_version,
+            decision_prompt_sha256=self.decision_prompt_sha256,
         )
         if record.status == "completed":
             return self._completed_result(
@@ -217,6 +234,7 @@ class FollowupDecisionExecutionService:
                     "decision": _enforce_runtime_policy(
                         result.decision,
                         request=request,
+                        diagnostics=diagnostics,
                     )
                 }
             )
@@ -263,13 +281,51 @@ def _enforce_runtime_policy(
     decision: DecisionContract,
     *,
     request: FollowupDiagnosticInput,
+    diagnostics: FollowupDiagnostics,
 ) -> DecisionContract:
     if decision.policy_version != request.policy.policy_version:
         raise ValueError("decision policy version mismatch")
+    allowed_closed_gap_ids = set(request.closed_gap_ids)
+    if request.open_gap_id is not None:
+        allowed_closed_gap_ids.add(request.open_gap_id)
+    if any(
+        item not in allowed_closed_gap_ids for item in decision.closed_gap_ids
+    ):
+        raise ValueError("Provider returned an unknown closed gap identifier")
     closed_gap_ids = list(
         dict.fromkeys([*request.closed_gap_ids, *decision.closed_gap_ids])
     )
     decision = decision.model_copy(update={"closed_gap_ids": closed_gap_ids})
+    if decision.action == "follow_up":
+        new_gap_id = stable_followup_fingerprint(decision.gap_summary)
+        forbidden_gap_ids = set(diagnostics.forbidden_gap_fingerprints)
+        if request.open_gap_id is not None:
+            forbidden_gap_ids.add(request.open_gap_id)
+        if new_gap_id in forbidden_gap_ids:
+            if request.open_gap_id is not None:
+                closed_gap_ids = list(
+                    dict.fromkeys([*closed_gap_ids, request.open_gap_id])
+                )
+            return DecisionContract(
+                action="next_question",
+                answer_state=decision.answer_state,
+                gap_type="none",
+                gap_summary="",
+                reason_code="duplicate_gap",
+                decision_confidence=decision.decision_confidence,
+                closed_gap_ids=closed_gap_ids,
+                policy_version=decision.policy_version,
+            )
+        if request.open_gap_id is not None:
+            decision = decision.model_copy(
+                update={
+                    "closed_gap_ids": list(
+                        dict.fromkeys(
+                            [*decision.closed_gap_ids, request.open_gap_id]
+                        )
+                    )
+                }
+            )
     if decision.action == "follow_up" and decision.decision_confidence == "low":
         return DecisionContract(
             action="next_question",
@@ -292,20 +348,9 @@ def _fallback_decision(
         "provider_timeout", "provider_invalid_output", "provider_failed"
     ],
 ) -> DecisionContract:
-    if (
-        "off_topic_candidate" in diagnostics.signals
-        and request.followup_count == 0
-    ):
-        return DecisionContract(
-            action="follow_up",
-            answer_state="off_topic",
-            gap_type="clarification",
-            gap_summary="请回到当前问题，并先澄清一个直接相关的关键点。",
-            reason_code=reason_code,
-            decision_confidence="low",
-            closed_gap_ids=request.closed_gap_ids,
-            policy_version=request.policy.policy_version,
-        )
+    # Exhausted Provider failures always fail closed.  An off-topic answer is
+    # not a reason to create one more model-dependent Generation after the
+    # Decision Provider has already failed repeatedly.
     return DecisionContract(
         action="next_question",
         answer_state=(

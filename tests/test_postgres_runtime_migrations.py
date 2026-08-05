@@ -521,6 +521,16 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                 generation_columns = {row[0] for row in cursor.fetchall()}
                 cursor.execute(
                     """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_followup_decisions",),
+                )
+                decision_columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
                     SELECT pg_get_constraintdef(oid)
                     FROM pg_constraint
                     WHERE conrelid = to_regclass(%s)
@@ -561,10 +571,20 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "followup_decision_generation_link_v1"
+        assert first.migration_id == "followup_prompt_lineage_v1"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert "source_decision_id" in generation_columns
+        assert {
+            "decision_prompt_version",
+            "decision_prompt_sha256",
+            "generation_prompt_version",
+            "generation_prompt_sha256",
+        } <= generation_columns
+        assert {
+            "decision_prompt_version",
+            "decision_prompt_sha256",
+        } <= decision_columns
         assert "foreign key (source_decision_id)" in generation_constraints
         assert f"{prefix}_followup_decisions" in generation_constraints
         assert "unique index" in generation_indexes
@@ -642,7 +662,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "followup_decision_generation_link_v1"
+        assert result.migration_id == "followup_prompt_lineage_v1"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -812,7 +832,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "followup_decision_generation_link_v1"
+        assert result.migration_id == "followup_prompt_lineage_v1"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

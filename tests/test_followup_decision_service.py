@@ -1,5 +1,10 @@
 from app.services.decision_store import DecisionContract, InMemoryDecisionStore
 from app.services.followup_decision_service import FollowupDecisionExecutionService
+from app.services.followup_prompts import (
+    FOLLOWUP_DECISION_PROMPT_SHA256,
+    FOLLOWUP_DECISION_PROMPT_VERSION,
+)
+from app.services.followup_diagnostics import stable_followup_fingerprint
 
 
 def request(**updates):
@@ -126,6 +131,32 @@ def test_invalid_output_retries_once_then_persists_safe_next_fallback():
     assert len(calls) == 2
 
 
+def test_repeated_provider_failure_for_off_topic_answer_forces_safe_next():
+    calls = []
+
+    def failed_provider(context):
+        calls.append(context)
+        raise RuntimeError("provider unavailable")
+
+    service = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(max_attempts=2),
+        provider=failed_provider,
+    )
+
+    result = service.execute(
+        request(
+            candidate_answers=["This is off topic and does not answer the question."],
+        ),
+        source_command_id="cmd-provider-failed-off-topic",
+        worker_id="w1",
+    )
+
+    assert result.decision.action == "next_question"
+    assert result.decision.reason_code == "provider_failed"
+    assert result.provider_invocations == 2
+    assert len(calls) == 2
+
+
 def test_low_confidence_followup_is_conservatively_persisted_as_next():
     service = FollowupDecisionExecutionService(
         store=InMemoryDecisionStore(),
@@ -162,3 +193,73 @@ def test_provider_usage_is_returned_without_entering_decision_contract():
     assert attempt.input_tokens == 123
     assert attempt.output_tokens == 45
     assert attempt.duration_ms is not None
+    record = service.store.get(result.decision_id)
+    assert record.decision_prompt_version == FOLLOWUP_DECISION_PROMPT_VERSION
+    assert record.decision_prompt_sha256 == FOLLOWUP_DECISION_PROMPT_SHA256
+
+
+def test_repeated_gap_is_closed_and_safely_terminates_question():
+    previous_gap = stable_followup_fingerprint(
+        "The answer does not explain recovery after a failed write."
+    )
+    service = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=lambda context: provider_decision(),
+    )
+
+    result = service.execute(
+        request(
+            candidate_answers=["first", "second"],
+            asked_followups=["How do you recover a failed write?"],
+            followup_count=1,
+            open_gap_id=previous_gap,
+        ),
+        source_command_id="cmd-duplicate-gap",
+        worker_id="w1",
+    )
+
+    assert result.decision.action == "next_question"
+    assert result.decision.reason_code == "duplicate_gap"
+    assert result.decision.closed_gap_ids == [previous_gap]
+
+
+def test_distinct_second_gap_closes_previous_server_owned_gap():
+    previous_gap = stable_followup_fingerprint("Missing write recovery.")
+    service = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=lambda context: provider_decision(
+            gap_type="tradeoff",
+            gap_summary="The latency and consistency tradeoff is still missing.",
+            reason_code="missing_tradeoff",
+        ),
+    )
+
+    result = service.execute(
+        request(
+            candidate_answers=["first", "second"],
+            asked_followups=["How do you recover the write?"],
+            followup_count=1,
+            open_gap_id=previous_gap,
+        ),
+        source_command_id="cmd-distinct-gap",
+        worker_id="w1",
+    )
+
+    assert result.decision.action == "follow_up"
+    assert result.decision.closed_gap_ids == [previous_gap]
+
+
+def test_provider_cannot_invent_server_owned_closed_gap_ids():
+    service = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(max_attempts=1),
+        provider=lambda context: provider_decision(
+            closed_gap_ids=[stable_followup_fingerprint("invented")]
+        ),
+    )
+
+    result = service.execute(
+        request(), source_command_id="cmd-invented-gap", worker_id="w1"
+    )
+
+    assert result.decision.action == "next_question"
+    assert result.decision.reason_code == "provider_invalid_output"

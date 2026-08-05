@@ -52,7 +52,15 @@ class PostgresDecisionStore:
         else:
             validate_relations(self._provider, (self.decisions_table, self.attempts_table))
 
-    def prepare(self, *, session_id: str, source_command_id: str, input_sha256: str) -> DecisionRecord:
+    def prepare(
+        self,
+        *,
+        session_id: str,
+        source_command_id: str,
+        input_sha256: str,
+        decision_prompt_version: str | None = None,
+        decision_prompt_sha256: str | None = None,
+    ) -> DecisionRecord:
         _, sql = self._import_psycopg2()
         decision_id = str(uuid4())
         attempt_id = str(uuid4())
@@ -69,13 +77,37 @@ class PostgresDecisionStore:
                 if existing is not None:
                     if existing[1] != input_sha256:
                         raise DecisionStoreConflict("source command input conflicts")
-                    return self._get_decision(cursor, str(existing[0]))
+                    record = self._get_decision(cursor, str(existing[0]))
+                    if (
+                        decision_prompt_version is not None
+                        and record.decision_prompt_version is not None
+                        and record.decision_prompt_version
+                        != decision_prompt_version
+                    ) or (
+                        decision_prompt_sha256 is not None
+                        and record.decision_prompt_sha256 is not None
+                        and record.decision_prompt_sha256
+                        != decision_prompt_sha256
+                    ):
+                        raise DecisionStoreConflict(
+                            "source command prompt conflicts"
+                        )
+                    return record
                 cursor.execute(
                     sql.SQL(
-                        "INSERT INTO {decisions}(decision_id,session_id,source_command_id,input_sha256,max_attempts,status) "
-                        "VALUES(%s::uuid,%s,%s,%s,%s,'pending')"
+                        "INSERT INTO {decisions}(decision_id,session_id,source_command_id,input_sha256,"
+                        "decision_prompt_version,decision_prompt_sha256,max_attempts,status) "
+                        "VALUES(%s::uuid,%s,%s,%s,%s,%s,%s,'pending')"
                     ).format(decisions=sql.Identifier(self.decisions_table)),
-                    (decision_id, session_id, source_command_id, input_sha256, self.max_attempts),
+                    (
+                        decision_id,
+                        session_id,
+                        source_command_id,
+                        input_sha256,
+                        decision_prompt_version,
+                        decision_prompt_sha256,
+                        self.max_attempts,
+                    ),
                 )
                 cursor.execute(
                     sql.SQL(
@@ -293,7 +325,8 @@ class PostgresDecisionStore:
         _, sql = self._import_psycopg2()
         cursor.execute(
             sql.SQL(
-                "SELECT decision_id,session_id,source_command_id,input_sha256,max_attempts,status,final_decision_json,decision_sha256,created_at,updated_at "
+                "SELECT decision_id,session_id,source_command_id,input_sha256,decision_prompt_version,decision_prompt_sha256,"
+                "max_attempts,status,final_decision_json,decision_sha256,created_at,updated_at "
                 "FROM {decisions} WHERE decision_id=%s::uuid"
                 + (" FOR UPDATE" if lock else "")
             ).format(decisions=sql.Identifier(self.decisions_table)),
@@ -302,10 +335,12 @@ class PostgresDecisionStore:
         row = cursor.fetchone()
         if row is None:
             raise DecisionNotFound("decision not found")
-        final = DecisionContract.model_validate(row[6]) if row[6] is not None else None
+        final = DecisionContract.model_validate(row[8]) if row[8] is not None else None
         return DecisionRecord(
             decision_id=str(row[0]), session_id=row[1], source_command_id=row[2], input_sha256=row[3],
-            max_attempts=int(row[4]), status=row[5], final_decision=final, decision_sha256=row[7], created_at=row[8], updated_at=row[9]
+            decision_prompt_version=row[4], decision_prompt_sha256=row[5],
+            max_attempts=int(row[6]), status=row[7], final_decision=final,
+            decision_sha256=row[9], created_at=row[10], updated_at=row[11]
         )
 
     @staticmethod
@@ -330,6 +365,18 @@ class PostgresDecisionStore:
                         "final_decision_json JSONB,decision_sha256 TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),"
                         "UNIQUE(session_id,source_command_id))"
                     ).format(decisions=sql.Identifier(self.decisions_table), sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {decisions} ADD COLUMN IF NOT EXISTS "
+                        "decision_prompt_version TEXT"
+                    ).format(decisions=sql.Identifier(self.decisions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {decisions} ADD COLUMN IF NOT EXISTS "
+                        "decision_prompt_sha256 TEXT"
+                    ).format(decisions=sql.Identifier(self.decisions_table))
                 )
                 cursor.execute(
                     sql.SQL(

@@ -39,6 +39,14 @@ DecisionReasonCode = Literal[
     "session_finished",
     "stale_command",
     "duplicate_gap",
+    "duplicate_question",
+    "repeated_state",
+    "provider_call_limit_reached",
+    "generation_retry_exhausted",
+    "event_limit_reached",
+    "node_step_limit_reached",
+    "checkpoint_stalled",
+    "followup_progress_stalled",
     "low_confidence",
     "provider_timeout",
     "provider_invalid_output",
@@ -93,6 +101,10 @@ class DecisionRecord(BaseModel):
     session_id: str
     source_command_id: str
     input_sha256: str
+    decision_prompt_version: str | None = None
+    decision_prompt_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     max_attempts: int = Field(ge=1)
     status: DecisionStatus = "pending"
     final_decision: DecisionContract | None = None
@@ -149,7 +161,15 @@ class InMemoryDecisionStore:
         self._attempts: dict[str, DecisionAttempt] = {}
         self._attempt_by_decision: dict[str, list[str]] = {}
 
-    def prepare(self, *, session_id: str, source_command_id: str, input_sha256: str) -> DecisionRecord:
+    def prepare(
+        self,
+        *,
+        session_id: str,
+        source_command_id: str,
+        input_sha256: str,
+        decision_prompt_version: str | None = None,
+        decision_prompt_sha256: str | None = None,
+    ) -> DecisionRecord:
         key = (session_id, source_command_id)
         now = self._clock()
         with self._lock:
@@ -158,12 +178,26 @@ class InMemoryDecisionStore:
                 existing = self._decisions[existing_id]
                 if existing.input_sha256 != input_sha256:
                     raise DecisionStoreConflict("source command input conflicts")
+                if (
+                    decision_prompt_version is not None
+                    and existing.decision_prompt_version is not None
+                    and existing.decision_prompt_version
+                    != decision_prompt_version
+                ) or (
+                    decision_prompt_sha256 is not None
+                    and existing.decision_prompt_sha256 is not None
+                    and existing.decision_prompt_sha256
+                    != decision_prompt_sha256
+                ):
+                    raise DecisionStoreConflict("source command prompt conflicts")
                 return deepcopy(existing)
             record = DecisionRecord(
                 decision_id=str(uuid4()),
                 session_id=session_id,
                 source_command_id=source_command_id,
                 input_sha256=input_sha256,
+                decision_prompt_version=decision_prompt_version,
+                decision_prompt_sha256=decision_prompt_sha256,
                 max_attempts=self.max_attempts,
                 created_at=now,
                 updated_at=now,

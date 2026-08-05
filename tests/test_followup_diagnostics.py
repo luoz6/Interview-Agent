@@ -7,6 +7,7 @@ from app.services.followup_diagnostics import (
     FollowupDiagnosticRejected,
     FollowupPolicySnapshot,
     diagnose_followup,
+    stable_followup_fingerprint,
 )
 
 
@@ -126,6 +127,16 @@ def test_regular_answer_produces_bounded_provider_context_and_stable_fingerprint
         )
     ) <= 512
     assert result.forbidden_question_fingerprints == diagnose_followup(payload).forbidden_question_fingerprints
+
+
+def test_existing_gap_fingerprint_is_not_hashed_twice():
+    fingerprint = stable_followup_fingerprint("missing recovery")
+    result = diagnose_followup(
+        request(closed_gap_ids=[fingerprint], open_gap_id=fingerprint)
+    )
+
+    assert result.forbidden_gap_fingerprints == [fingerprint]
+    assert result.provider_context["open_gap_fingerprint"] == fingerprint
 
 
 def test_diagnostics_input_cannot_accept_scores_or_report_fields():

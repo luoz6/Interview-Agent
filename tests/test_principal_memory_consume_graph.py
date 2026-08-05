@@ -115,6 +115,8 @@ def make_state():
             "generation_id": "generation-local-memory",
             "generation_attempt": 1,
             "state_version": 2,
+            "decision_gap_type": "clarification",
+            "decision_gap_summary": "Clarify one key isolation detail.",
             "job_tags": ["backend"],
             "messages": [
                 {"role": "interviewer", "content": "Why?", "question_id": "q1"},

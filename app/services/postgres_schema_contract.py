@@ -651,6 +651,10 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "source_command_id",
                 "question_id",
                 "source_decision_id",
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+                "generation_prompt_version",
+                "generation_prompt_sha256",
                 "status",
                 "active_attempt",
             }
@@ -725,6 +729,8 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "status",
                 "final_decision_json",
                 "decision_sha256",
+                "decision_prompt_version",
+                "decision_prompt_sha256",
             }
         ),
         "_decision_attempts": frozenset(
@@ -896,6 +902,31 @@ RUNTIME_SCHEMA_V20_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V20_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_SCHEMA_V21_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V20_CHECKSUM,
+        "followup_prompt_lineage": {
+            "decision_artifact": [
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+            ],
+            "generation_artifact": [
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+                "generation_prompt_version",
+                "generation_prompt_sha256",
+            ],
+            "prompt_roles": "decision-and-generation-independent",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V21_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V21_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -995,6 +1026,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="followup_decision_generation_link_v1",
         checksum=RUNTIME_SCHEMA_V20_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_prompt_lineage_v1",
+        checksum=RUNTIME_SCHEMA_V21_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

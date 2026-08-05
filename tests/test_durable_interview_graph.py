@@ -17,6 +17,12 @@ from app.graphs.durable_interview_graph import (
     generate_followup,
     prepare_or_load_decision,
     project_state_node,
+    _is_duplicate_followup_text,
+    _followup_guard_updates,
+    MAX_FOLLOWUP_NODE_STEPS_PER_COMMAND,
+    MAX_FOLLOWUP_PROVIDER_INVOCATIONS_PER_COMMAND,
+    MAX_FOLLOWUP_GENERATION_ENTRIES_PER_COMMAND,
+    MAX_FOLLOWUP_STREAM_EVENTS_PER_COMMAND,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.interview_generation_store import (
@@ -31,8 +37,8 @@ from app.services.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
 from app.services.postgres_session import PostgresInterviewSessionStore
+from app.services.prep import InterviewQuestion
 from app.services.report_jobs import PostgresReportJobStore
-from app.agents.examiner import fallback_followup
 from app.services.report import ReportGenerationFailed
 from app.services.workflow_thread_lock import GenerationLeaseLost
 from tests.test_durable_interview_state import make_start_kwargs
@@ -406,6 +412,8 @@ def test_generation_heartbeat_is_throttled_independently_of_chunk_flushes():
             "generation_id": "gen-1",
             "generation_attempt": 1,
             "state_version": 1,
+            "decision_gap_type": "clarification",
+            "decision_gap_summary": "Clarify one key implementation detail.",
         }
     )
     generation_store = GenerationStore()
@@ -464,6 +472,178 @@ def test_generation_heartbeat_exception_fails_closed_with_original_cause():
     assert caught.value.__cause__ is failure
     assert heartbeat._thread is not None
     assert not heartbeat._thread.is_alive()
+
+
+def test_near_duplicate_followup_is_detected_without_rejecting_new_question():
+    state = make_initial_input()
+    state["messages"] = [
+        state["messages"][0],
+        {
+            "role": "candidate",
+            "content": "I persist the write before acknowledging.",
+            "question_id": "q1",
+        },
+        {
+            "role": "interviewer",
+            "content": "请具体说明失败写入后的恢复步骤和幂等保障。",
+            "question_id": "q1",
+        },
+        {
+            "role": "candidate",
+            "content": "I replay from the durable log.",
+            "question_id": "q1",
+        },
+    ]
+
+    assert _is_duplicate_followup_text(
+        state, "请具体说明失败写入后的恢复步骤与幂等保障。"
+    )
+    assert not _is_duplicate_followup_text(
+        state, "当恢复日志本身损坏时，你会如何验证并回滚？"
+    )
+
+
+@pytest.mark.parametrize(
+    ("updates", "kwargs", "expected_reason"),
+    [
+        (
+            {"command_node_steps": MAX_FOLLOWUP_NODE_STEPS_PER_COMMAND},
+            {"action": "decision", "step_increment": 1},
+            "node_step_limit_reached",
+        ),
+        (
+            {
+                "command_provider_invocations": (
+                    MAX_FOLLOWUP_PROVIDER_INVOCATIONS_PER_COMMAND
+                )
+            },
+            {
+                "action": "generation",
+                "step_increment": 1,
+                "provider_call_expected": True,
+            },
+            "provider_call_limit_reached",
+        ),
+        (
+            {
+                "command_generation_entries": (
+                    MAX_FOLLOWUP_GENERATION_ENTRIES_PER_COMMAND
+                ),
+                "command_generation_followup_count": 0,
+            },
+            {
+                "action": "generation",
+                "step_increment": 1,
+                "generation_entry": True,
+            },
+            "followup_progress_stalled",
+        ),
+        (
+            {"command_last_checkpoint_version": 0, "state_version": 0},
+            {
+                "action": "generation",
+                "step_increment": 1,
+                "checkpoint_observed": True,
+            },
+            "checkpoint_stalled",
+        ),
+    ],
+)
+def test_followup_guard_has_stable_fail_closed_reasons(
+    updates, kwargs, expected_reason
+):
+    state = make_initial_input()
+    state.update(updates)
+
+    result = _followup_guard_updates(state, **kwargs)
+
+    assert result["followup_guard_reason_code"] == expected_reason
+
+
+def test_followup_guard_detects_same_state_and_action_repetition():
+    state = make_initial_input()
+    first = _followup_guard_updates(
+        state, action="decision", step_increment=1
+    )
+    state.update(first)
+
+    repeated = _followup_guard_updates(
+        state, action="decision", step_increment=1
+    )
+
+    assert repeated["followup_guard_reason_code"] == "repeated_state"
+
+
+def test_stream_event_limit_fails_attempt_closed_with_diagnostic_code():
+    class Store:
+        def __init__(self):
+            self.failed = []
+
+        def start_or_reclaim_attempt(self, *args, **kwargs):
+            return type(
+                "Attempt",
+                (),
+                {
+                    "generation_id": "gen-event-limit",
+                    "attempt_number": 1,
+                    "lease_token": "lease",
+                    "fencing_version": 1,
+                },
+            )()
+
+        def append_chunk(self, *args, **kwargs):
+            pass
+
+        def complete_attempt(self, *args, **kwargs):
+            pytest.fail("event-limited generation must not complete")
+
+        def fail_attempt(self, *args, **kwargs):
+            self.failed.append((args, kwargs))
+
+    class Heartbeat:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def ensure_owned(self):
+            pass
+
+    class Examiner:
+        def stream_followup_attempt(self, **kwargs):
+            for _ in range(MAX_FOLLOWUP_STREAM_EVENTS_PER_COMMAND + 1):
+                yield "x"
+
+    state = make_initial_input()
+    state.update(
+        {
+            "active_command_id": "cmd-event-limit",
+            "generation_id": "gen-event-limit",
+            "generation_attempt": 1,
+            "state_version": 1,
+            "decision_gap_type": "clarification",
+            "decision_gap_summary": "Clarify one implementation detail.",
+        }
+    )
+    store = Store()
+    result = generate_followup(
+        state,
+        DurableInterviewGraphDependencies(
+            workflow_store=FakeWorkflowStore(),
+            generation_store=store,
+            examiner=Examiner(),
+            generation_heartbeat_factory=Heartbeat,
+        ),
+    )
+
+    assert result["generation_outcome"] == "terminal"
+    assert result["last_error_code"] == "event_limit_reached"
+    assert result["command_provider_invocations"] == 1
+    assert store.failed[0][0][2] == "event_limit_reached"
 
 
 def test_generation_heartbeat_preserves_first_failure():
@@ -553,6 +733,8 @@ def test_generation_lease_loss_stops_before_any_stale_mutation():
             "generation_id": "gen-1",
             "generation_attempt": 1,
             "state_version": 1,
+            "decision_gap_type": "clarification",
+            "decision_gap_summary": "Clarify one key implementation detail.",
         }
     )
     store = GenerationStore()
@@ -573,21 +755,34 @@ def test_generation_lease_loss_stops_before_any_stale_mutation():
 
 
 class FakeExaminer:
-    def __init__(self, *, fail=False):
+    def __init__(self, *, fail=False, output="Generated follow-up."):
         self.fail = fail
+        self.output = output
         self.attempt_count = 0
 
     def stream_followup_attempt(self, *, context, execution_context):
         self.attempt_count += 1
         if self.fail:
             raise ReportGenerationFailed("provider unavailable")
-        yield "Generated follow-up."
+        yield self.output
 
 
-def make_postgres_graph(*, fail=False):
+def make_postgres_graph(*, fail=False, output="Generated follow-up."):
     prefix = f"test_durable_graph_{uuid4().hex[:10]}"
     session_id = f"session-{uuid4().hex}"
-    plan = make_start_kwargs()["plan"]
+    plan = make_start_kwargs()["plan"].model_copy(
+        update={
+            "questions": [
+                *make_start_kwargs()["plan"].questions,
+                InterviewQuestion(
+                    id="q2",
+                    kind="technical",
+                    prompt="Explain Redis.",
+                    focus="Redis",
+                ),
+            ]
+        }
+    )
     session_store = PostgresInterviewSessionStore(
         dsn=require_dsn(), table_prefix=prefix
     )
@@ -607,11 +802,12 @@ def make_postgres_graph(*, fail=False):
     generation_store = PostgresInterviewGenerationStore(
         dsn=require_dsn(), table_prefix=prefix
     )
-    examiner = FakeExaminer(fail=fail)
+    examiner = FakeExaminer(fail=fail, output=output)
     report_jobs = PostgresReportJobStore(
         dsn=require_dsn(), table_prefix=prefix
     )
     workflow_store.report_jobs = report_jobs
+    workflow_store.generation_store = generation_store
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
@@ -662,6 +858,75 @@ def test_successful_generation_commits_one_complete_message(
 
 
 @pytest.mark.pg_runtime
+def test_duplicate_main_question_is_not_committed_and_replay_does_not_regenerate(
+    durable_graph_table_cleanup,
+):
+    graph, config, store, examiner = make_postgres_graph(
+        output="Explain an API boundary."
+    )
+    session_id = config["configurable"]["thread_id"]
+    store.enqueue_command(
+        session_id=session_id,
+        command_id="cmd-duplicate-question",
+        command_type="answer",
+        expected_version=1,
+        answer_text="I used cache-aside.",
+    )
+
+    graph.invoke(
+        Command(
+            resume={
+                "kind": "answer_command",
+                "command_id": "cmd-duplicate-question",
+            }
+        ),
+        config=config,
+    )
+
+    state = graph.get_state(config).values
+    generation = store.generation_store.get_by_source_command(
+        session_id, "cmd-duplicate-question"
+    )
+    with store.generation_store._connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                store.generation_store._sql(
+                    """
+                    SELECT attempt_number, status, last_error_code
+                    FROM {attempts}
+                    WHERE generation_id = %s
+                    ORDER BY attempt_number
+                    """
+                ),
+                (generation.generation_id,),
+            )
+            attempts = cursor.fetchall()
+    assert state["current_index"] == 1
+    assert state["messages"][-1]["content"] == "Explain Redis."
+    assert all(
+        message["content"] != "Explain an API boundary."
+        for message in state["messages"][1:]
+    )
+    assert state["current_followup_count"] == 0
+    assert state["termination_reason_code"] == "duplicate_question"
+    assert state["termination_diagnostic"]["event_type"] == "followup_terminated"
+    assert state["termination_diagnostic"]["command_id"] == "cmd-duplicate-question"
+    assert attempts[0] == (1, "failed", "duplicate_question")
+    assert examiner.attempt_count == 1
+
+    graph.invoke(
+        Command(
+            resume={
+                "kind": "answer_command",
+                "command_id": "cmd-duplicate-question",
+            }
+        ),
+        config=config,
+    )
+    assert examiner.attempt_count == 1
+
+
+@pytest.mark.pg_runtime
 def test_retry_interrupt_waits_for_due_event(durable_graph_table_cleanup):
     graph, config, store, examiner = make_postgres_graph(fail=True)
     session_id = config["configurable"]["thread_id"]
@@ -707,7 +972,7 @@ def test_retry_interrupt_waits_for_due_event(durable_graph_table_cleanup):
 
 
 @pytest.mark.pg_runtime
-def test_third_failure_commits_template_fallback(durable_graph_table_cleanup):
+def test_third_generation_failure_safely_advances(durable_graph_table_cleanup):
     graph, config, store, examiner = make_postgres_graph(fail=True)
     session_id = config["configurable"]["thread_id"]
     store.enqueue_command(
@@ -737,9 +1002,10 @@ def test_third_failure_commits_template_fallback(durable_graph_table_cleanup):
         )
 
     state = graph.get_state(config).values
-    assert state["messages"][-1]["content"] == fallback_followup(
-        "Architecture"
-    )
+    assert state["current_index"] == 1
+    assert state["interview_status"] == "active"
+    assert state["messages"][-1]["content"] == "Explain Redis."
+    assert state["termination_reason_code"] == "generation_retry_exhausted"
     assert state["last_error_code"] == "provider_unavailable"
     assert state["state_version"] == 3
     assert examiner.attempt_count == 3

@@ -1007,6 +1007,9 @@ def build_interview_workflow_service():
     from app.services.followup_decision_service import (
         FollowupDecisionExecutionService,
     )
+    from app.services.followup_prompts import (
+        StructuredFollowupDecisionProvider,
+    )
     from app.services.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
     )
@@ -1037,14 +1040,17 @@ def build_interview_workflow_service():
         table_prefix=prefix,
         schema_mode="validate",
     )
+    decision_provider = (
+        StructuredFollowupDecisionProvider(store.llm.chat_model)
+        if store.llm is not None and hasattr(store.llm, "chat_model")
+        else None
+    )
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
         decision_service=FollowupDecisionExecutionService(
             store=get_decision_store(),
-            # fixed_v1 is fully deterministic.  The adaptive Provider adapter
-            # is installed with the separately versioned Decision prompt.
-            provider=None,
+            provider=decision_provider,
         ),
         examiner=ExaminerAgent(
             llm=store.llm,

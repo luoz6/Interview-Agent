@@ -38,6 +38,55 @@ def test_decision_prepare_is_idempotent_and_completed_replay_is_stable():
     assert store.get(first.decision_id).decision_sha256 == completed.decision_sha256
 
 
+def test_decision_prompt_lineage_replay_is_compatible_with_legacy_nulls():
+    store = InMemoryDecisionStore()
+    legacy = store.prepare(
+        session_id="s1",
+        source_command_id="cmd-legacy",
+        input_sha256="b" * 64,
+    )
+
+    replay = store.prepare(
+        session_id="s1",
+        source_command_id="cmd-legacy",
+        input_sha256="b" * 64,
+        decision_prompt_version="followup-decision-v1",
+        decision_prompt_sha256="c" * 64,
+    )
+
+    assert replay.decision_id == legacy.decision_id
+    assert replay.decision_prompt_version is None
+    assert replay.decision_prompt_sha256 is None
+
+
+def test_decision_prompt_lineage_replay_rejects_non_null_drift():
+    store = InMemoryDecisionStore()
+    first = store.prepare(
+        session_id="s1",
+        source_command_id="cmd-prompt",
+        input_sha256="d" * 64,
+        decision_prompt_version="followup-decision-v1",
+        decision_prompt_sha256="e" * 64,
+    )
+    replay = store.prepare(
+        session_id="s1",
+        source_command_id="cmd-prompt",
+        input_sha256="d" * 64,
+        decision_prompt_version="followup-decision-v1",
+        decision_prompt_sha256="e" * 64,
+    )
+
+    assert replay.decision_id == first.decision_id
+    with pytest.raises(DecisionStoreConflict, match="prompt conflicts"):
+        store.prepare(
+            session_id="s1",
+            source_command_id="cmd-prompt",
+            input_sha256="d" * 64,
+            decision_prompt_version="followup-decision-v2",
+            decision_prompt_sha256="f" * 64,
+        )
+
+
 def test_decision_fencing_rejects_late_worker_and_failure_creates_bounded_retry():
     store = InMemoryDecisionStore(max_attempts=2)
     record = store.prepare(session_id="s1", source_command_id="cmd-1", input_sha256="a" * 64)

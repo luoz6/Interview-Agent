@@ -1,3 +1,5 @@
+import pytest
+
 from app.graphs.interview_graph import InterviewGraphRunner
 from app.graphs.interview_state import (
     InterviewDecision,
@@ -183,6 +185,40 @@ def test_runner_submit_answer_generates_followup_decision():
     }
 
 
+def test_legacy_duplicate_followup_safely_advances_with_same_reason_code():
+    class DuplicateFollowupLLM(FakeLLM):
+        def generate_followup(self, context: list[dict[str, str]]) -> str:
+            return "Introduce the project."
+
+    runner = InterviewGraphRunner(llm=DuplicateFollowupLLM())
+    state = runner.start(**make_start_kwargs())
+
+    result = runner.submit_answer(
+        state, "I used Redis to cache hot records."
+    )
+
+    assert result["current_index"] == 1
+    assert result["pending_output"] == "Explain Redis."
+    assert result["messages"][-1]["content"] == "Explain Redis."
+    assert result["current_followup_count"] == 0
+    assert result["decision_reason_code"] == "duplicate_question"
+    assert result["termination_reason_code"] == "duplicate_question"
+    assert result["termination_diagnostic"]["event_type"] == "followup_terminated"
+
+
+def test_legacy_stream_has_a_hard_event_limit():
+    class ChattyExaminer:
+        def stream_followup(self, **kwargs):
+            for _ in range(129):
+                yield "x"
+
+    runner = InterviewGraphRunner(llm=FakeLLM(), examiner=ChattyExaminer())
+    state = runner.start(**make_start_kwargs())
+
+    with pytest.raises(RuntimeError, match="event_limit_reached"):
+        list(runner.stream_followup(state))
+
+
 def test_runner_accepts_examiner_agent_boundary():
     class Agent:
         def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
@@ -314,7 +350,12 @@ def test_runner_preserves_followup_context_without_prep_context():
 
     runner.submit_answer(state, "I used Redis.")
 
-    assert [item["role"] for item in captured_context] == ["interviewer", "candidate"]
+    assert [item["role"] for item in captured_context] == [
+        "system",
+        "interviewer",
+        "candidate",
+    ]
+    assert "FOLLOWUP_DECISION_TARGET" in captured_context[0]["content"]
 
 
 def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles():
@@ -343,15 +384,16 @@ def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles()
 
     assert result["pending_output"] == "How do concurrent reads affect the cache?"
     assert [item["role"] for item in captured_context] == [
+        "system",
         "interviewer",
         "candidate",
         "knowledge_agent",
         "knowledge_evidence",
     ]
-    assert captured_context[1]["content"] == (
+    assert captured_context[2]["content"] == (
         "I update the database and delete the cache."
     )
-    assert "Redis internal consistency evidence" in captured_context[3]["content"]
+    assert "Redis internal consistency evidence" in captured_context[4]["content"]
     assert "Kafka internal delivery evidence" not in str(captured_context)
     assert resolver.last_resolution.retrieval_path == "bound_evidence_ids"
     assert repository.search_calls == 0

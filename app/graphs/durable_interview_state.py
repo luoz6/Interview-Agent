@@ -93,7 +93,10 @@ class DurableInterviewState(TypedDict):
     followup_policy_version: Literal["fixed_v1", "adaptive_v1"]
     current_followup_count: int
     closed_gap_ids: list[str]
+    active_gap_id: str | None
     decision_outcome: Literal["pending", "completed"] | None
+    decision_prompt_version: str | None
+    decision_prompt_sha256: str | None
     generation_id: str | None
     generation_attempt: int
     expected_retry_attempt: int | None
@@ -101,6 +104,17 @@ class DurableInterviewState(TypedDict):
     retry_validation: Literal["accepted", "stale"] | None
     next_retry_at: str | None
     last_error_code: str | None
+    termination_reason_code: str | None
+    termination_diagnostic: dict[str, Any] | None
+    followup_guard_reason_code: str | None
+    command_node_steps: int
+    command_provider_invocations: int
+    command_generation_entries: int
+    command_generation_followup_count: int | None
+    command_last_progress_hash: str | None
+    command_last_progress_action: str | None
+    command_repeat_count: int
+    command_last_checkpoint_version: int
     command_type: Literal["answer", "skip", "finish"] | None
     command_outcome: Literal[
         "accepted", "duplicate", "conflict", "completed"
@@ -160,7 +174,10 @@ def make_durable_initial_state(
         ),
         "current_followup_count": 0,
         "closed_gap_ids": [],
+        "active_gap_id": None,
         "decision_outcome": None,
+        "decision_prompt_version": None,
+        "decision_prompt_sha256": None,
         "generation_id": None,
         "generation_attempt": 1,
         "expected_retry_attempt": None,
@@ -168,6 +185,17 @@ def make_durable_initial_state(
         "retry_validation": None,
         "next_retry_at": None,
         "last_error_code": None,
+        "termination_reason_code": None,
+        "termination_diagnostic": None,
+        "followup_guard_reason_code": None,
+        "command_node_steps": 0,
+        "command_provider_invocations": 0,
+        "command_generation_entries": 0,
+        "command_generation_followup_count": None,
+        "command_last_progress_hash": None,
+        "command_last_progress_action": None,
+        "command_repeat_count": 0,
+        "command_last_checkpoint_version": 0,
         "command_type": None,
         "command_outcome": None,
         "generation_outcome": None,

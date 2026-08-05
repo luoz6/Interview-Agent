@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
+import hashlib
+import json
 from threading import Event, Lock, Thread
 from typing import Any, Callable
 
@@ -18,6 +20,15 @@ from app.services.followup_diagnostics import (
     FollowupDiagnosticInput,
     FollowupPolicySnapshot,
     diagnose_followup,
+    is_duplicate_followup_text,
+    stable_followup_fingerprint,
+)
+from app.services.followup_prompts import (
+    FOLLOWUP_DECISION_PROMPT_SHA256,
+    FOLLOWUP_DECISION_PROMPT_VERSION,
+    FOLLOWUP_GENERATION_PROMPT_SHA256,
+    FOLLOWUP_GENERATION_PROMPT_VERSION,
+    generation_context_for_target,
 )
 from app.services.knowledge_binding import resolve_evidence_by_ids
 from app.services.runtime_work import (
@@ -106,6 +117,20 @@ class GenerationLeaseHeartbeat:
             self._mark_lost(exc)
 
 
+class DuplicateFollowupGenerated(ValueError):
+    pass
+
+
+class FollowupEventLimitExceeded(RuntimeError):
+    pass
+
+
+MAX_FOLLOWUP_NODE_STEPS_PER_COMMAND = 24
+MAX_FOLLOWUP_PROVIDER_INVOCATIONS_PER_COMMAND = 4
+MAX_FOLLOWUP_GENERATION_ENTRIES_PER_COMMAND = 3
+MAX_FOLLOWUP_STREAM_EVENTS_PER_COMMAND = 128
+
+
 @dataclass
 class DurableInterviewGraphDependencies:
     workflow_store: Any
@@ -160,6 +185,8 @@ def project_state_node(state, deps) -> dict:
                 "decision_gap_type": None,
                 "decision_gap_summary": None,
                 "decision_outcome": None,
+                "decision_prompt_version": None,
+                "decision_prompt_sha256": None,
             }
         )
     if state.get("workflow_engine") == "langgraph-v2" and state.get(
@@ -206,6 +233,8 @@ def validate_command(state, deps) -> dict:
     return {
         "command_type": command.command_type,
         "command_outcome": "accepted",
+        "termination_reason_code": None,
+        "termination_diagnostic": None,
     }
 
 
@@ -223,7 +252,16 @@ def append_candidate_answer(state, deps) -> dict:
                 "content": command.answer_text.strip(),
                 "question_id": question["id"],
             },
-        ]
+        ],
+        "followup_guard_reason_code": None,
+        "command_node_steps": 2,
+        "command_provider_invocations": 0,
+        "command_generation_entries": 0,
+        "command_generation_followup_count": None,
+        "command_last_progress_hash": None,
+        "command_last_progress_action": None,
+        "command_repeat_count": 0,
+        "command_last_checkpoint_version": state["state_version"],
     }
 
 
@@ -241,6 +279,7 @@ def apply_skip(state) -> dict:
             "current_index": len(questions),
             "current_followup_count": 0,
             "closed_gap_ids": [],
+            "active_gap_id": None,
             "command_outcome": "completed",
         }
     next_question = questions[next_index]
@@ -252,6 +291,7 @@ def apply_skip(state) -> dict:
         "current_index": next_index,
         "current_followup_count": 0,
         "closed_gap_ids": [],
+        "active_gap_id": None,
         "messages": [
             *state["messages"],
             {
@@ -281,12 +321,24 @@ def prepare_or_load_decision(state, deps) -> dict:
         session_id=state["session_id"],
         source_command_id=state["active_command_id"],
         input_sha256=diagnostics.input_sha256,
+        decision_prompt_version=getattr(
+            deps.decision_service,
+            "decision_prompt_version",
+            FOLLOWUP_DECISION_PROMPT_VERSION,
+        ),
+        decision_prompt_sha256=getattr(
+            deps.decision_service,
+            "decision_prompt_sha256",
+            FOLLOWUP_DECISION_PROMPT_SHA256,
+        ),
     )
     updates = {
         "active_decision_id": record.decision_id,
         "followup_policy_version": request.policy.policy_version,
         "current_followup_count": request.followup_count,
         "decision_outcome": "pending",
+        "decision_prompt_version": record.decision_prompt_version,
+        "decision_prompt_sha256": record.decision_prompt_sha256,
     }
     if record.status == "completed":
         updates.update(_decision_state_updates(record.final_decision))
@@ -309,7 +361,51 @@ def execute_decision_attempt(state, deps) -> dict:
         # condition lets the command delivery retry after Lease expiry without
         # advancing the graph or creating a second Decision.
         raise RuntimeError("durable interview Decision attempt is still leased")
-    return _decision_state_updates(result.decision)
+    updates = _decision_state_updates(result.decision)
+    attempts = deps.decision_service.store.list_attempts(result.decision_id)
+    updates["command_provider_invocations"] = sum(
+        attempt.provider_invocations for attempt in attempts
+    )
+    return updates
+
+
+def guard_after_answer(state) -> dict:
+    return _followup_guard_updates(state, action="answer", step_increment=1)
+
+
+def guard_after_decision(state) -> dict:
+    return _followup_guard_updates(state, action="decision", step_increment=2)
+
+
+def guard_before_generation(state, deps) -> dict:
+    generation = deps.generation_store.get_by_id(state["generation_id"])
+    first_generation_entry = int(
+        state.get("command_generation_entries") or 0
+    ) == 0
+    return _followup_guard_updates(
+        state,
+        action="generation",
+        step_increment=2,
+        generation_entry=True,
+        provider_call_expected=generation.status != "completed",
+        checkpoint_observed=first_generation_entry,
+    )
+
+
+def guard_after_generation(state) -> dict:
+    return _followup_guard_updates(
+        state,
+        action="generation_result",
+        step_increment=1,
+    )
+
+
+def guard_after_retry(state) -> dict:
+    return _followup_guard_updates(
+        state,
+        action="generation_retry",
+        step_increment=4,
+    )
 
 
 def prepare_generation(state, deps) -> dict:
@@ -323,6 +419,10 @@ def prepare_generation(state, deps) -> dict:
         source_command_id=state["active_command_id"],
         question_id=question["id"],
         source_decision_id=state["active_decision_id"],
+        decision_prompt_version=state["decision_prompt_version"],
+        decision_prompt_sha256=state["decision_prompt_sha256"],
+        generation_prompt_version=FOLLOWUP_GENERATION_PROMPT_VERSION,
+        generation_prompt_sha256=FOLLOWUP_GENERATION_PROMPT_SHA256,
     )
     return {
         "generation_id": generation.generation_id,
@@ -333,6 +433,7 @@ def prepare_generation(state, deps) -> dict:
 def generate_followup(state, deps) -> dict:
     coalescer = deps.coalescer_factory()
     attempt = None
+    provider_invocations = int(state.get("command_provider_invocations") or 0)
     try:
         attempt = deps.generation_store.start_or_reclaim_attempt(
             state["generation_id"],
@@ -345,9 +446,11 @@ def generate_followup(state, deps) -> dict:
         return {
             "generation_outcome": "completed",
             "generated_text": generation.final_text or "",
+            "command_provider_invocations": provider_invocations,
         }
     chunks: list[str] = []
     sequence = 0
+    raw_event_count = 0
     is_v2 = state.get("workflow_engine") == "langgraph-v2"
     context = None
     if not is_v2:
@@ -498,6 +601,12 @@ def generate_followup(state, deps) -> dict:
                         pass
                 except Exception:
                     context = consume_base_context
+            context = generation_context_for_target(
+                context or [],
+                gap_type=state["decision_gap_type"],
+                gap_summary=state["decision_gap_summary"],
+            )
+            provider_invocations += 1
             for chunk in deps.examiner.stream_followup_attempt(
                 context=context or [],
                 execution_context=AgentExecutionContext(
@@ -513,6 +622,11 @@ def generate_followup(state, deps) -> dict:
                     attempt_number=attempt.attempt_number,
                 ),
             ):
+                raw_event_count += 1
+                if raw_event_count > MAX_FOLLOWUP_STREAM_EVENTS_PER_COMMAND:
+                    raise FollowupEventLimitExceeded(
+                        "follow-up stream event limit exceeded"
+                    )
                 chunks.append(chunk)
                 persisted = coalescer.add(chunk)
                 if not persisted:
@@ -540,6 +654,10 @@ def generate_followup(state, deps) -> dict:
                     fencing_version=attempt.fencing_version,
                 )
             final_text = "".join(chunks).strip()
+            if _is_duplicate_followup_text(state, final_text):
+                raise DuplicateFollowupGenerated(
+                    "generated follow-up duplicates the current question history"
+                )
             heartbeat.ensure_owned()
             if parent_ownership is not None:
                 parent_ownership.ensure_owned()
@@ -566,10 +684,17 @@ def generate_followup(state, deps) -> dict:
         return {
             "generation_outcome": "completed",
             "generated_text": final_text,
+            "command_provider_invocations": provider_invocations,
             **artifact_updates,
         }
     except Exception as exc:
-        failure = deps.failure_classifier(exc)
+        failure = (
+            RuntimeFailure("duplicate_question", False)
+            if isinstance(exc, DuplicateFollowupGenerated)
+            else RuntimeFailure("event_limit_reached", False)
+            if isinstance(exc, FollowupEventLimitExceeded)
+            else deps.failure_classifier(exc)
+        )
         # Unknown exceptions include programming defects and injected/process
         # loss after a durable write. Treating them as provider failures would
         # both hide the original interruption and may attempt to fail an
@@ -591,6 +716,7 @@ def generate_followup(state, deps) -> dict:
                 "retryable" if failure.retryable else "terminal"
             ),
             "last_error_code": code,
+            "command_provider_invocations": provider_invocations,
         }
 
 
@@ -662,6 +788,53 @@ def fallback_followup_node(state) -> dict:
     return {"generated_text": fallback_followup(question["focus"])}
 
 
+def terminate_followup_generation(state) -> dict:
+    reason = state.get("followup_guard_reason_code")
+    if reason is None and state.get("last_error_code") in {
+        "duplicate_question",
+        "event_limit_reached",
+        "provider_call_limit_reached",
+    }:
+        reason = state["last_error_code"]
+    if reason is None:
+        reason = "generation_retry_exhausted"
+    return {
+        "decision_action": "next_question",
+        "decision_reason_code": reason,
+        "decision_gap_type": "none",
+        "decision_gap_summary": "",
+        "active_gap_id": None,
+        "termination_reason_code": reason,
+        "termination_diagnostic": {
+            "event_type": "followup_terminated",
+            "reason_code": reason,
+            "command_id": state.get("active_command_id"),
+            "question_id": _current_question(state)["id"],
+            "generation_id": state.get("generation_id"),
+            "generation_attempt": state.get("generation_attempt"),
+            "state_version": state.get("state_version"),
+            "followup_count": state.get("current_followup_count"),
+            "node_steps": state.get("command_node_steps"),
+            "provider_invocations": state.get(
+                "command_provider_invocations"
+            ),
+            "generation_entries": state.get("command_generation_entries"),
+            "progress_hash": state.get("command_last_progress_hash"),
+        },
+        # A terminal Generation must not remain routable after the next
+        # question is projected.  Leaving this cursor populated re-enters the
+        # old Generation with a new question and can loop without increasing
+        # the follow-up count.
+        "generation_id": None,
+        "generation_outcome": None,
+        "generated_text": None,
+        "expected_retry_attempt": None,
+        "retry_resume_attempt": None,
+        "retry_validation": None,
+        "next_retry_at": None,
+    }
+
+
 def commit_next_question(state) -> dict:
     questions = state["plan_snapshot"]["questions"]
     next_index = state["current_index"] + 1
@@ -671,6 +844,7 @@ def commit_next_question(state) -> dict:
             "current_index": len(questions),
             "current_followup_count": 0,
             "closed_gap_ids": [],
+            "active_gap_id": None,
             "command_outcome": "completed",
         }
     question = questions[next_index]
@@ -678,6 +852,7 @@ def commit_next_question(state) -> dict:
         "current_index": next_index,
         "current_followup_count": 0,
         "closed_gap_ids": [],
+        "active_gap_id": None,
         "messages": [
             *state["messages"],
             {
@@ -710,7 +885,7 @@ def route_after_projection(state) -> str:
     if state["interview_status"] == "finished":
         return "emit_report_event"
     if state["generation_id"] is not None:
-        return "generate_followup"
+        return "guard_before_generation"
     return "wait_for_answer"
 
 
@@ -732,17 +907,147 @@ def route_generation(state) -> str:
         and state["generation_attempt"] < 3
     ):
         return "enqueue_retry"
-    return "fallback_followup"
+    return "terminate_followup_generation"
 
 
 def route_validated_retry(state) -> str:
     if state["retry_validation"] == "accepted":
-        return "prepare_retry"
+        return "guard_after_retry"
     return "wait_for_retry"
+
+
+def route_guard_to_decision(state) -> str:
+    if state.get("followup_guard_reason_code"):
+        return "terminate_followup_generation"
+    return "prepare_or_load_decision"
+
+
+def route_guard_after_decision(state) -> str:
+    if state.get("followup_guard_reason_code"):
+        return "terminate_followup_generation"
+    return route_decision(state)
+
+
+def route_guard_to_generation(state) -> str:
+    if state.get("followup_guard_reason_code"):
+        return "terminate_followup_generation"
+    return "generate_followup"
+
+
+def route_guard_after_generation(state) -> str:
+    if state.get("followup_guard_reason_code"):
+        return "terminate_followup_generation"
+    return route_generation(state)
+
+
+def route_guard_after_retry(state) -> str:
+    if state.get("followup_guard_reason_code"):
+        return "terminate_followup_generation"
+    return "prepare_retry"
 
 
 def _current_question(state) -> dict:
     return state["plan_snapshot"]["questions"][state["current_index"]]
+
+
+def _is_duplicate_followup_text(state, generated_text: str) -> bool:
+    question_id = _current_question(state)["id"]
+    prior = [
+        message["content"]
+        for message in state["messages"]
+        if message["role"] == "interviewer"
+        and message.get("question_id") == question_id
+    ]
+    return is_duplicate_followup_text(generated_text, prior)
+
+
+def _followup_guard_updates(
+    state,
+    *,
+    action: str,
+    step_increment: int,
+    generation_entry: bool = False,
+    provider_call_expected: bool = False,
+    checkpoint_observed: bool = False,
+) -> dict:
+    node_steps = int(state.get("command_node_steps") or 0) + step_increment
+    provider_invocations = int(
+        state.get("command_provider_invocations") or 0
+    )
+    generation_entries = int(state.get("command_generation_entries") or 0)
+    generation_followup_count = state.get("command_generation_followup_count")
+    if generation_entry:
+        generation_entries += 1
+        if generation_followup_count is None:
+            generation_followup_count = state.get("current_followup_count", 0)
+
+    progress_hash = _followup_progress_hash(state)
+    same_progress = (
+        state.get("command_last_progress_action") == action
+        and state.get("command_last_progress_hash") == progress_hash
+    )
+    repeat_count = (
+        int(state.get("command_repeat_count") or 0) + 1
+        if same_progress
+        else 0
+    )
+    last_checkpoint = int(state.get("command_last_checkpoint_version") or 0)
+    reason = None
+    if node_steps > MAX_FOLLOWUP_NODE_STEPS_PER_COMMAND:
+        reason = "node_step_limit_reached"
+    elif repeat_count >= 1:
+        reason = "repeated_state"
+    elif (
+        generation_entry
+        and generation_entries > MAX_FOLLOWUP_GENERATION_ENTRIES_PER_COMMAND
+        and generation_followup_count == state.get("current_followup_count", 0)
+    ):
+        reason = "followup_progress_stalled"
+    elif provider_call_expected and provider_invocations >= (
+        MAX_FOLLOWUP_PROVIDER_INVOCATIONS_PER_COMMAND
+    ):
+        reason = "provider_call_limit_reached"
+    elif checkpoint_observed and int(state.get("state_version") or 0) <= last_checkpoint:
+        reason = "checkpoint_stalled"
+
+    return {
+        "command_node_steps": node_steps,
+        "command_generation_entries": generation_entries,
+        "command_generation_followup_count": generation_followup_count,
+        "command_last_progress_hash": progress_hash,
+        "command_last_progress_action": action,
+        "command_repeat_count": repeat_count,
+        "command_last_checkpoint_version": (
+            int(state.get("state_version") or 0)
+            if checkpoint_observed
+            else last_checkpoint
+        ),
+        "followup_guard_reason_code": reason,
+    }
+
+
+def _followup_progress_hash(state) -> str:
+    payload = {
+        "session_id": state.get("session_id"),
+        "command_id": state.get("active_command_id"),
+        "state_version": state.get("state_version"),
+        "current_index": state.get("current_index"),
+        "followup_count": state.get("current_followup_count"),
+        "message_count": len(state.get("messages") or []),
+        "decision_action": state.get("decision_action"),
+        "decision_reason_code": state.get("decision_reason_code"),
+        "active_gap_id": state.get("active_gap_id"),
+        "generation_id": state.get("generation_id"),
+        "generation_attempt": state.get("generation_attempt"),
+        "generation_outcome": state.get("generation_outcome"),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _build_followup_diagnostic_input(state) -> FollowupDiagnosticInput:
@@ -780,6 +1085,7 @@ def _build_followup_diagnostic_input(state) -> FollowupDiagnosticInput:
         asked_followups=asked_followups,
         followup_count=len(asked_followups),
         closed_gap_ids=list(state.get("closed_gap_ids") or []),
+        open_gap_id=state.get("active_gap_id"),
         # Bound plan evidence may include resume or job-description material;
         # do not relabel it as public knowledge for Decision input.
         public_knowledge_summary="",
@@ -797,6 +1103,11 @@ def _decision_state_updates(decision) -> dict:
         "decision_gap_summary": decision.gap_summary,
         "followup_policy_version": decision.policy_version,
         "closed_gap_ids": list(decision.closed_gap_ids),
+        "active_gap_id": (
+            stable_followup_fingerprint(decision.gap_summary)
+            if decision.action == "follow_up"
+            else None
+        ),
         "decision_outcome": "completed",
     }
 
@@ -948,6 +1259,14 @@ def build_durable_interview_graph_for_schema(
         "execute_decision_attempt",
         partial(execute_decision_attempt, deps=deps),
     )
+    builder.add_node("guard_after_answer", guard_after_answer)
+    builder.add_node("guard_after_decision", guard_after_decision)
+    builder.add_node(
+        "guard_before_generation",
+        partial(guard_before_generation, deps=deps),
+    )
+    builder.add_node("guard_after_generation", guard_after_generation)
+    builder.add_node("guard_after_retry", guard_after_retry)
     builder.add_node(
         "prepare_generation", partial(prepare_generation, deps=deps)
     )
@@ -962,6 +1281,9 @@ def build_durable_interview_graph_for_schema(
         "commit_interviewer_message", commit_interviewer_message
     )
     builder.add_node("fallback_followup", fallback_followup_node)
+    builder.add_node(
+        "terminate_followup_generation", terminate_followup_generation
+    )
     builder.add_node("commit_next_question", commit_next_question)
     builder.add_node(
         "emit_report_event", partial(emit_report_event, deps=deps)
@@ -973,11 +1295,23 @@ def build_durable_interview_graph_for_schema(
     builder.add_conditional_edges(
         "validate_command", route_validated_command
     )
-    builder.add_edge("append_candidate_answer", "prepare_or_load_decision")
+    builder.add_edge("append_candidate_answer", "guard_after_answer")
+    builder.add_conditional_edges(
+        "guard_after_answer", route_guard_to_decision
+    )
     builder.add_edge("prepare_or_load_decision", "execute_decision_attempt")
-    builder.add_conditional_edges("execute_decision_attempt", route_decision)
+    builder.add_edge("execute_decision_attempt", "guard_after_decision")
+    builder.add_conditional_edges(
+        "guard_after_decision", route_guard_after_decision
+    )
     builder.add_edge("prepare_generation", "project_state")
-    builder.add_conditional_edges("generate_followup", route_generation)
+    builder.add_conditional_edges(
+        "guard_before_generation", route_guard_to_generation
+    )
+    builder.add_edge("generate_followup", "guard_after_generation")
+    builder.add_conditional_edges(
+        "guard_after_generation", route_guard_after_generation
+    )
     builder.add_edge(
         "commit_interviewer_message", "project_state"
     )
@@ -986,8 +1320,14 @@ def build_durable_interview_graph_for_schema(
     builder.add_conditional_edges(
         "validate_retry", route_validated_retry
     )
-    builder.add_edge("prepare_retry", "generate_followup")
+    builder.add_conditional_edges(
+        "guard_after_retry", route_guard_after_retry
+    )
+    builder.add_edge("prepare_retry", "guard_before_generation")
     builder.add_edge("fallback_followup", "commit_interviewer_message")
+    builder.add_edge(
+        "terminate_followup_generation", "commit_next_question"
+    )
     builder.add_edge("commit_next_question", "project_state")
     builder.add_edge("apply_skip", "project_state")
     builder.add_edge("apply_finish", "project_state")

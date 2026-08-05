@@ -784,19 +784,9 @@ class OpenAIInterviewLLM:
 
 
 def _build_followup_prompt(context: list[dict[str, str]]) -> str:
-    transcript = "\n".join(
-        f"{item['role']}: {item['content']}" for item in context if item.get("content")
-    )
-    return (
-        "You are a professional technical interviewer.\n"
-        "Based on the recent interview context, ask exactly one sharp follow-up question.\n"
-        "The follow-up must be grounded in the candidate's latest answer.\n"
-        "Use knowledge_agent entries as interview guidance, not as candidate answers.\n"
-        "Use knowledge_evidence entries only as reference material, never as candidate answers.\n"
-        "Prefer tradeoffs, edge cases, fallback plans, performance bottlenecks, or source-code reasoning.\n"
-        "Return only the follow-up question, without explanation.\n\n"
-        f"Recent context:\n{transcript}"
-    )
+    from app.services.followup_prompts import render_followup_generation_prompt
+
+    return render_followup_generation_prompt(context)
 
 
 def _extract_json_object(content: str) -> str:

@@ -41,6 +41,10 @@ class InterviewGeneration:
     active_attempt: int
     final_text: str | None
     source_decision_id: str | None = None
+    decision_prompt_version: str | None = None
+    decision_prompt_sha256: str | None = None
+    generation_prompt_version: str | None = None
+    generation_prompt_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +115,10 @@ class PostgresInterviewGenerationStore:
         source_command_id: str,
         question_id: str,
         source_decision_id: str | None = None,
+        decision_prompt_version: str | None = None,
+        decision_prompt_sha256: str | None = None,
+        generation_prompt_version: str | None = None,
+        generation_prompt_sha256: str | None = None,
     ) -> InterviewGeneration:
         generation_id = "generation-" + hashlib.sha256(
             f"{session_id}:{source_command_id}".encode("utf-8")
@@ -123,9 +131,14 @@ class PostgresInterviewGenerationStore:
                         INSERT INTO {generations} (
                             generation_id, session_id, source_command_id,
                             question_id, status, active_attempt,
-                            source_decision_id
+                            source_decision_id, decision_prompt_version,
+                            decision_prompt_sha256, generation_prompt_version,
+                            generation_prompt_sha256
                         )
-                        VALUES (%s, %s, %s, %s, 'pending', 1, %s::uuid)
+                        VALUES (
+                            %s, %s, %s, %s, 'pending', 1, %s::uuid,
+                            %s, %s, %s, %s
+                        )
                         ON CONFLICT (session_id, source_command_id) DO NOTHING
                         """
                     ),
@@ -135,6 +148,10 @@ class PostgresInterviewGenerationStore:
                         source_command_id,
                         question_id,
                         source_decision_id,
+                        decision_prompt_version,
+                        decision_prompt_sha256,
+                        generation_prompt_version,
+                        generation_prompt_sha256,
                     ),
                 )
                 cursor.execute(
@@ -142,7 +159,9 @@ class PostgresInterviewGenerationStore:
                         """
                         SELECT generation_id, session_id, source_command_id,
                                question_id, status, active_attempt, final_text,
-                               source_decision_id
+                               source_decision_id, decision_prompt_version,
+                               decision_prompt_sha256, generation_prompt_version,
+                               generation_prompt_sha256
                         FROM {generations}
                         WHERE session_id = %s AND source_command_id = %s
                         """
@@ -151,7 +170,17 @@ class PostgresInterviewGenerationStore:
                 )
                 row = cursor.fetchone()
                 stored_decision_id = str(row[7]) if row[7] is not None else None
-                if row[3] != question_id or stored_decision_id != source_decision_id:
+                expected_prompt_metadata = (
+                    decision_prompt_version,
+                    decision_prompt_sha256,
+                    generation_prompt_version,
+                    generation_prompt_sha256,
+                )
+                if (
+                    row[3] != question_id
+                    or stored_decision_id != source_decision_id
+                    or tuple(row[8:12]) != expected_prompt_metadata
+                ):
                     raise GenerationInputConflict(
                         "source command generation input conflicts"
                     )
@@ -630,7 +659,9 @@ class PostgresInterviewGenerationStore:
                         """
                         SELECT generation_id, session_id, source_command_id,
                                question_id, status, active_attempt, final_text,
-                               source_decision_id
+                               source_decision_id, decision_prompt_version,
+                               decision_prompt_sha256, generation_prompt_version,
+                               generation_prompt_sha256
                         FROM {generations}
                         WHERE session_id = %s AND source_command_id = %s
                         """
@@ -648,7 +679,9 @@ class PostgresInterviewGenerationStore:
                         """
                         SELECT generation_id, session_id, source_command_id,
                                question_id, status, active_attempt, final_text,
-                               source_decision_id
+                               source_decision_id, decision_prompt_version,
+                               decision_prompt_sha256, generation_prompt_version,
+                               generation_prompt_sha256
                         FROM {generations}
                         WHERE generation_id = %s
                         """
@@ -671,6 +704,10 @@ class PostgresInterviewGenerationStore:
             active_attempt=int(row[5]),
             final_text=row[6],
             source_decision_id=str(row[7]) if row[7] is not None else None,
+            decision_prompt_version=row[8],
+            decision_prompt_sha256=row[9],
+            generation_prompt_version=row[10],
+            generation_prompt_sha256=row[11],
         )
 
     def cleanup_completed_chunks(self, *, older_than: datetime) -> int:
@@ -815,6 +852,10 @@ class PostgresInterviewGenerationStore:
                             active_attempt INTEGER NOT NULL DEFAULT 1,
                             final_text TEXT,
                             source_decision_id UUID,
+                            decision_prompt_version TEXT,
+                            decision_prompt_sha256 TEXT,
+                            generation_prompt_version TEXT,
+                            generation_prompt_sha256 TEXT,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             completed_at TIMESTAMPTZ,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -831,6 +872,18 @@ class PostgresInterviewGenerationStore:
                         """
                     )
                 )
+                for prompt_column in (
+                    "decision_prompt_version TEXT",
+                    "decision_prompt_sha256 TEXT",
+                    "generation_prompt_version TEXT",
+                    "generation_prompt_sha256 TEXT",
+                ):
+                    cursor.execute(
+                        self._sql(
+                            "ALTER TABLE {generations} ADD COLUMN IF NOT EXISTS "
+                            + prompt_column
+                        )
+                    )
                 source_decision_index = runtime_schema_identifier(
                     self.table_prefix, "generations_source_decision_unique"
                 )

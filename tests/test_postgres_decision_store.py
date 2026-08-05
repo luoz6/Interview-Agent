@@ -72,3 +72,50 @@ def test_postgres_decision_unique_prepare_lease_fencing_and_retry():
     assert attempts[1].input_tokens == 100
     assert attempts[1].output_tokens == 20
     assert attempts[1].provider_invocations == 1
+
+
+def test_postgres_decision_prompt_lineage_legacy_replay_and_drift():
+    dsn = require_postgres_dsn()
+    prefix = "test_decision_" + uuid4().hex[:10]
+    sessions = PostgresInterviewSessionStore(dsn=dsn, table_prefix=prefix)
+    session = sessions.start(
+        plan(), job_description="role", resume_text="resume", job_tags=[]
+    )
+    store = PostgresDecisionStore(dsn=dsn, table_prefix=prefix)
+    legacy = store.prepare(
+        session_id=session.session_id,
+        source_command_id="cmd-legacy",
+        input_sha256="b" * 64,
+    )
+    legacy_replay = store.prepare(
+        session_id=session.session_id,
+        source_command_id="cmd-legacy",
+        input_sha256="b" * 64,
+        decision_prompt_version="followup-decision-v1",
+        decision_prompt_sha256="c" * 64,
+    )
+    assert legacy_replay.decision_id == legacy.decision_id
+    assert legacy_replay.decision_prompt_version is None
+
+    current = store.prepare(
+        session_id=session.session_id,
+        source_command_id="cmd-current",
+        input_sha256="d" * 64,
+        decision_prompt_version="followup-decision-v1",
+        decision_prompt_sha256="e" * 64,
+    )
+    assert store.prepare(
+        session_id=session.session_id,
+        source_command_id="cmd-current",
+        input_sha256="d" * 64,
+        decision_prompt_version="followup-decision-v1",
+        decision_prompt_sha256="e" * 64,
+    ).decision_id == current.decision_id
+    with pytest.raises(DecisionStoreConflict, match="prompt conflicts"):
+        store.prepare(
+            session_id=session.session_id,
+            source_command_id="cmd-current",
+            input_sha256="d" * 64,
+            decision_prompt_version="followup-decision-v2",
+            decision_prompt_sha256="f" * 64,
+        )

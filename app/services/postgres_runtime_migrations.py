@@ -37,13 +37,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V20_MANIFEST,
+    RUNTIME_SCHEMA_V21_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V20_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V21_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 

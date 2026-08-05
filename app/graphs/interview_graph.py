@@ -32,12 +32,19 @@ from app.services.decision_store import InMemoryDecisionStore
 from app.services.followup_diagnostics import (
     FollowupDiagnosticInput,
     FollowupPolicySnapshot,
+    is_duplicate_followup_text,
+    stable_followup_fingerprint,
 )
 from app.services.followup_decision_service import (
     FollowupDecisionExecutionService,
 )
+from app.services.followup_prompts import (
+    StructuredFollowupDecisionProvider,
+    generation_context_for_decision,
+)
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
+MAX_LEGACY_FOLLOWUP_STREAM_EVENTS = 128
 
 
 class InterviewGraphRunner:
@@ -66,9 +73,17 @@ class InterviewGraphRunner:
             "context_runtime",
             None,
         )
-        self._decision_service = decision_service or FollowupDecisionExecutionService(
-            store=InMemoryDecisionStore(),
-            provider=None,
+        decision_provider = (
+            StructuredFollowupDecisionProvider(llm.chat_model)
+            if llm is not None and hasattr(llm, "chat_model")
+            else None
+        )
+        self._decision_service = (
+            decision_service
+            or FollowupDecisionExecutionService(
+                store=InMemoryDecisionStore(),
+                provider=decision_provider,
+            )
         )
 
     def start(
@@ -143,7 +158,7 @@ class InterviewGraphRunner:
     def stream_followup(self, state: InterviewState):
         question = get_current_question(state)
         focus = question.focus if question is not None else "current question"
-        yield from _stream_examiner_followup(
+        for index, chunk in enumerate(_stream_examiner_followup(
             self._examiner,
             context=_build_followup_context(
                 state,
@@ -152,7 +167,10 @@ class InterviewGraphRunner:
             ),
             focus=focus,
             execution_context=_examiner_execution_context(state),
-        )
+        ), start=1):
+            if index > MAX_LEGACY_FOLLOWUP_STREAM_EVENTS:
+                raise RuntimeError("event_limit_reached")
+            yield chunk
 
 
 def brain_node(
@@ -196,13 +214,17 @@ def brain_node(
     follow_up = None
     if generate_followup_text and contract.action == "follow_up":
         resolved_examiner = examiner or ExaminerAgent(llm=llm)
-        follow_up = _generate_examiner_followup(
-            resolved_examiner,
-            context=_build_followup_context(
+        generation_context = generation_context_for_decision(
+            _build_followup_context(
                 state,
                 knowledge_binding_resolver,
                 context_runtime=context_runtime,
             ),
+            contract,
+        )
+        follow_up = _generate_examiner_followup(
+            resolved_examiner,
+            context=generation_context,
             focus=question.focus,
             execution_context=_examiner_execution_context(
                 state,
@@ -222,6 +244,11 @@ def brain_node(
     state["decision_gap_summary"] = contract.gap_summary
     state["followup_policy_version"] = contract.policy_version
     state["closed_gap_ids"] = list(contract.closed_gap_ids)
+    state["active_gap_id"] = (
+        stable_followup_fingerprint(contract.gap_summary)
+        if contract.action == "follow_up"
+        else None
+    )
     state["current_followup_count"] = len(request.asked_followups)
     return state
 
@@ -238,17 +265,49 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
     if action == "follow_up" and question is not None:
         output = decision.get("follow_up") or fallback_followup(question.focus)
-        state["pending_output"] = output
-        state["messages"].append(
-            {"role": "interviewer", "content": output, "question_id": question.id}
-        )
-        state["current_followup_count"] += 1
-        return state
+        prior_questions = [
+            message["content"]
+            for message in state["messages"]
+            if message["role"] == "interviewer"
+            and message.get("question_id") == question.id
+        ]
+        if is_duplicate_followup_text(output, prior_questions):
+            state["decision"] = {
+                "action": "next_question",
+                "follow_up": None,
+                "reason": "duplicate_question",
+            }
+            state["decision_action"] = "next_question"
+            state["decision_reason_code"] = "duplicate_question"
+            state["decision_gap_type"] = "none"
+            state["decision_gap_summary"] = ""
+            state["active_gap_id"] = None
+            state["termination_reason_code"] = "duplicate_question"
+            state["termination_diagnostic"] = {
+                "event_type": "followup_terminated",
+                "reason_code": "duplicate_question",
+                "question_id": question.id,
+                "state_version": state.get("state_version"),
+                "followup_count": state.get("current_followup_count"),
+            }
+            action = "next_question"
+        else:
+            state["pending_output"] = output
+            state["messages"].append(
+                {
+                    "role": "interviewer",
+                    "content": output,
+                    "question_id": question.id,
+                }
+            )
+            state["current_followup_count"] += 1
+            return state
 
     if action == "next_question":
         state["current_index"] += 1
         state["current_followup_count"] = 0
         state["closed_gap_ids"] = []
+        state["active_gap_id"] = None
         next_question = get_current_question(state)
         if next_question is None:
             state["status"] = "finished"
@@ -283,6 +342,8 @@ def fallback_followup(focus: str) -> str:
 
 def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewState:
     next_state = deepcopy(state)
+    next_state["termination_reason_code"] = None
+    next_state["termination_diagnostic"] = None
     question = get_current_question(next_state)
     if question is None:
         next_state["status"] = "finished"
@@ -338,6 +399,7 @@ def _build_followup_diagnostic_input(
         asked_followups=asked_followups,
         followup_count=len(asked_followups),
         closed_gap_ids=list(state.get("closed_gap_ids") or []),
+        open_gap_id=state.get("active_gap_id"),
         public_knowledge_summary="",
         policy=FollowupPolicySnapshot(
             policy_version=policy_version,

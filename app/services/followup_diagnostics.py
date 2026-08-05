@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from difflib import SequenceMatcher
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -43,6 +44,9 @@ class FollowupDiagnosticInput(BaseModel):
     asked_followups: list[str] = Field(default_factory=list, max_length=2)
     followup_count: int = Field(default=0, ge=0, le=2)
     closed_gap_ids: list[str] = Field(default_factory=list, max_length=16)
+    open_gap_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     public_knowledge_summary: str = Field(default="", max_length=4000)
     policy: FollowupPolicySnapshot
 
@@ -92,9 +96,11 @@ def diagnose_followup(value: FollowupDiagnosticInput | dict) -> FollowupDiagnost
         # limit must always produce a zero-call Decision even when the answer
         # history would not fit the Provider context.
         context, truncated = {}, False
-    gap_fingerprints = [_stable_fingerprint(item) for item in request.closed_gap_ids]
+    gap_fingerprints = [
+        stable_followup_fingerprint(item) for item in request.closed_gap_ids
+    ]
     question_fingerprints = [
-        _stable_fingerprint(item)
+        stable_followup_fingerprint(item)
         for item in [request.question_text, *request.asked_followups]
     ]
     return FollowupDiagnostics(
@@ -230,8 +236,9 @@ def _bounded_provider_context(
         "asked_followups": list(request.asked_followups),
         "followup_count": request.followup_count,
         "closed_gap_fingerprints": [
-            _stable_fingerprint(item) for item in request.closed_gap_ids
+            stable_followup_fingerprint(item) for item in request.closed_gap_ids
         ],
+        "open_gap_fingerprint": request.open_gap_id,
         "public_knowledge_summary": request.public_knowledge_summary,
         "policy": request.policy.model_dump(mode="json"),
     }
@@ -270,8 +277,10 @@ def _bounded_provider_context(
             "asked_followups": [],
             "followup_count": request.followup_count,
             "closed_gap_fingerprints": [
-                _stable_fingerprint(item) for item in request.closed_gap_ids[-2:]
+                stable_followup_fingerprint(item)
+                for item in request.closed_gap_ids[-2:]
             ],
+            "open_gap_fingerprint": request.open_gap_id,
             "public_knowledge_summary": "",
             "policy": {
                 "policy_version": request.policy.policy_version,
@@ -289,9 +298,35 @@ def _input_sha256(request: FollowupDiagnosticInput) -> str:
     ).hexdigest()
 
 
-def _stable_fingerprint(value: str) -> str:
+def stable_followup_fingerprint(value: str) -> str:
+    if re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        return value.casefold()
     normalized = re.sub(r"[\W_]+", "", value.casefold(), flags=re.UNICODE)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def is_duplicate_followup_text(
+    generated_text: str,
+    prior_questions: list[str],
+    *,
+    similarity_threshold: float = 0.9,
+) -> bool:
+    normalized = normalize_followup_text(generated_text)
+    if not normalized:
+        return True
+    for text in prior_questions:
+        other = normalize_followup_text(text)
+        if normalized == other:
+            return True
+        if min(len(normalized), len(other)) >= 12 and SequenceMatcher(
+            None, normalized, other
+        ).ratio() >= similarity_threshold:
+            return True
+    return False
+
+
+def normalize_followup_text(value: str) -> str:
+    return re.sub(r"[\W_]+", "", value.casefold(), flags=re.UNICODE)
 
 
 def _canonical_json(value: object) -> str:
