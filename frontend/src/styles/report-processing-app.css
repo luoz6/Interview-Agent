@@ -1,9 +1,4 @@
-/* Hallmark · macrostructure: Observable Execution Workbench · genre: modern-minimal application · tone: calm, precise, transparent · anchor hue: cobalt blue
- * structural fingerprint: lifecycle rail · compact live progress · continuous stage/event ledger · factual inspector · persistent status bar
- * variation knobs: stage-specific duotone glyphs · 2px state anchor · structured alerts · 15/14 type hierarchy · lock-to-arrow action · single live spinner · no enrichment
- * pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41) · nav: existing product shell · footer: application status bar · slop: pass (42–45)
- * honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30) · mobile: pass (34, 49, 50–57) · slop test: 58/58
- */
+/* Calm Cobalt report progress: lifecycle rail · authoritative progress · continuous stage ledger · recovery panel. */
 
 .processing-app {
   -webkit-font-smoothing: antialiased;
@@ -543,6 +538,78 @@
   color: var(--start-color-action-hover);
 }
 
+.processing-away-card {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: var(--start-space-xs);
+  margin: var(--start-space-xs);
+  padding: var(--start-space-sm);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-surface-secondary);
+}
+
+.processing-away-card > span {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--start-radius-small);
+  background: var(--start-color-surface);
+  color: var(--start-color-action-hover);
+}
+
+.processing-away-card h3,
+.processing-away-card p {
+  margin: 0;
+}
+
+.processing-away-card h3 {
+  color: var(--start-color-ink);
+  font-size: var(--start-text-sm);
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.processing-away-card p {
+  margin-top: var(--start-space-3xs);
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-ui-sm);
+  line-height: 1.55;
+}
+
+.processing-diagnostics {
+  margin: var(--start-space-xs);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-canvas);
+}
+
+.processing-diagnostics summary {
+  display: flex;
+  align-items: center;
+  gap: var(--start-space-2xs);
+  min-height: 2.75rem;
+  padding: 0 var(--start-space-xs);
+  color: var(--start-color-ink-soft);
+  font-size: var(--start-text-ui-sm);
+  font-weight: var(--start-font-weight-semibold);
+  cursor: pointer;
+}
+
+.processing-diagnostics summary::marker {
+  color: var(--start-color-text-muted);
+}
+
+.processing-diagnostics summary:focus-visible {
+  outline: var(--start-rule-focus) solid var(--start-control-focus-ring);
+  outline-offset: var(--start-space-3xs);
+}
+
+.processing-diagnostics .processing-facts {
+  margin: 0;
+  padding: 0 var(--start-space-xs) var(--start-space-xs);
+}
+
 .processing-facts,
 .processing-metrics {
   display: grid;
@@ -778,6 +845,8 @@
   }
 
   .processing-inspector-section:first-child,
+  .processing-away-card,
+  .processing-diagnostics,
   .processing-notice {
     grid-column: 1 / -1;
   }

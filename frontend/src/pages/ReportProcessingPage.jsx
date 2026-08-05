@@ -10,7 +10,6 @@ import {
   Circle,
   Clock,
   ClipboardText,
-  Database,
   FileText,
   Files,
   HourglassMedium,
@@ -44,7 +43,7 @@ const stages = [
 
 const stageIndex = Object.fromEntries(stages.map(({ name }, index) => [name, index]));
 const stageLabels = Object.fromEntries(stages.map(({ name, title }) => [name, title]));
-const stageByName = Object.fromEntries(stages.map((stage) => [stage.name, stage]));
+const showRuntimeDiagnostics = import.meta.env.VITE_SHOW_RUNTIME_DIAGNOSTICS === "true";
 
 const statusLabels = {
   queued: "等待处理",
@@ -66,7 +65,7 @@ const errorGuidance = {
   knowledge_store_unavailable: "知识库暂时不可用，可以稍后重新尝试。",
   knowledge_corpus_missing: "当前没有可用的岗位知识库，请返回准备页检查配置。",
   report_job_missing: "报告任务已经失去执行者，可以安全地重新创建任务。",
-  report_retry_exhausted: "多次尝试后仍未完成，请查看服务诊断信息。",
+  report_retry_exhausted: "多次尝试后仍未完成，请稍后重试或返回报告中心。",
 };
 
 function nextPollDelay(startedAt) {
@@ -100,8 +99,7 @@ const reportPathLabels = {
   full_session_fallback: "全会话降级",
 };
 
-function formatEventTime(event) {
-  const value = event.created_at || event.timestamp || event.time;
+function formatTimestamp(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -110,6 +108,13 @@ function formatEventTime(event) {
     minute: "2-digit",
     second: "2-digit",
   }).format(date);
+}
+
+function formatElapsed(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  return minutes > 0 ? `${minutes} 分 ${remaining} 秒` : `${remaining} 秒`;
 }
 
 function RuntimeIcon({ state, size = 15, animated = false }) {
@@ -148,25 +153,6 @@ function ProcessingNotice({ tone, title, children }) {
   );
 }
 
-function StatusBarItem({ icon: ItemIcon, label, value, state = "idle", current = false }) {
-  return (
-    <span className={current ? "start-status-current" : undefined} data-state={state}>
-      <ItemIcon size={12} weight={["ready", "error", "warning"].includes(state) ? "fill" : "regular"} aria-hidden="true" />
-      <strong>{label}</strong><span>{value}</span>
-    </span>
-  );
-}
-
-function LoadingLedger() {
-  return (
-    <div className="processing-loading-ledger" role="status" aria-label="正在读取运行事件">
-      {Array.from({ length: 3 }, (_, index) => (
-        <div key={index} aria-hidden="true"><span /><span /><span /></div>
-      ))}
-    </div>
-  );
-}
-
 export function ReportProcessingPage() {
   usePageMeta({
     title: "报告生成中",
@@ -182,7 +168,9 @@ export function ReportProcessingPage() {
   const [requeueing, setRequeueing] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
   const [displaySnapshot, setDisplaySnapshot] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const pollStartedAt = useRef(Date.now());
+  const waitingStartedAt = useRef(Date.now());
   const pageRef = useRef(null);
   const stageCopyRef = useRef(null);
   const displayedPercentRef = useRef(null);
@@ -219,7 +207,7 @@ export function ReportProcessingPage() {
           text: errorGuidance[code] || payload.error?.message || "请检查服务状态后重新尝试；已完成的面试内容不会丢失。",
         });
       } else if (payload.stalled) {
-        setNotice({ tone: "warning", title: "进度长时间未更新", text: "后台任务仍有身份，但最近没有心跳。页面会继续低频同步，等待 Worker 恢复或租约被重新领取。" });
+        setNotice({ tone: "warning", title: "进度长时间未更新", text: "报告仍在保留中。页面会继续低频同步；如果任务停止，系统会提供可用的重新尝试入口。" });
       } else {
         setNotice(null);
       }
@@ -298,6 +286,15 @@ export function ReportProcessingPage() {
   }, [loadProgress, pollGeneration]);
 
   useEffect(() => {
+    const updateElapsed = () => {
+      setElapsedSeconds((Date.now() - waitingStartedAt.current) / 1000);
+    };
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (progress?.status !== "completed" || !sessionId) return undefined;
     const timer = window.setTimeout(() => {
       window.location.assign(`/report-detail?session_id=${encodeURIComponent(sessionId)}`);
@@ -314,6 +311,8 @@ export function ReportProcessingPage() {
     try {
       await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/report/requeue`, {});
       pollStartedAt.current = Date.now();
+      waitingStartedAt.current = Date.now();
+      setElapsedSeconds(0);
       setPollGeneration((generation) => generation + 1);
     } catch (error) {
       setNotice({ tone: "danger", title: "无法重新创建任务", text: error.message });
@@ -329,7 +328,6 @@ export function ReportProcessingPage() {
 
   const currentIndex = stageIndex[progress?.stage] ?? 0;
   const apiPercent = clampPercent(progress?.percent);
-  const events = progress?.events || [];
   const metadata = progress?.metadata || {};
   const rag = progress?.rag || {};
   const retrying = requeueing || (notice?.tone === "warning" && polling && !progress?.stalled);
@@ -355,17 +353,17 @@ export function ReportProcessingPage() {
   const progressMessage = progress?.message || (viewState === "loading"
     ? "正在读取报告任务状态…"
     : viewState === "error"
-      ? "无法读取最新任务状态，请根据任务检查器中的提示继续处理。"
+      ? "无法读取最新任务状态，请根据页面提示继续处理。"
       : "等待后台任务返回公开状态。");
   const syncMessage = retrying
     ? "正在重新建立报告任务；当前面试内容不会被清空"
     : viewState === "stalled"
-      ? "最近没有收到 Worker 心跳；页面已切换为低频同步"
+      ? "进度已较长时间没有更新；页面已切换为低频同步"
     : polling
       ? "同步频率会从 1 秒逐步放缓到 5 秒；返回标签页时立即刷新"
       : completed
         ? "报告已生成，正在打开完整报告"
-        : "自动轮询已停止；请根据任务检查器中的提示继续处理";
+        : "自动同步已停止；请根据页面提示继续处理";
   const actionGuidance = completed
     ? "报告已经就绪，正在自动打开；也可以立即手动查看。"
     : canRequeue
@@ -376,15 +374,12 @@ export function ReportProcessingPage() {
       ? "任务心跳异常，系统仍在等待 Worker 恢复。"
       : syncError
         ? "无法继续同步当前任务；请检查服务后从报告中心重新进入。"
-      : "生成完成后会自动打开完整报告。";
+      : "可以离开此页；报告会在后台继续生成，稍后可从报告中心查看。";
   const ActionGuidanceIcon = completed ? CheckCircle : canRequeue ? ArrowClockwise : failed || interrupted ? WarningCircle : LockSimple;
   const SyncStateIcon = retrying || failed || interrupted ? WarningCircle : completed ? CheckCircle : Clock;
-  const metrics = useMemo(() => [
-    ["任务状态", statusLabels[viewState] || viewState],
-    ["执行尝试", `${progress?.attempt ?? 0} / ${progress?.max_attempts || "—"}`],
-    ["当前题目", progress?.current_question_id || "未提供"],
-    ["Worker 心跳", progress?.heartbeat_at ? new Date(progress.heartbeat_at).toLocaleTimeString("zh-CN", { hour12: false }) : "未提供"],
-  ], [progress, viewState]);
+  const lastUpdatedLabel = progress?.last_updated_at
+    ? formatTimestamp(progress.last_updated_at)
+    : "等待首次更新";
   const attemptIdentity = progress
     ? `${progress.report_job_id || sessionId || "session"}:${progress.attempt ?? 0}`
     : "pending";
@@ -573,7 +568,7 @@ export function ReportProcessingPage() {
           <header className="start-workspace-head processing-workspace-head">
             <div className="start-workspace-title">
               <span className="start-workspace-mark" aria-hidden="true"><ListChecks size={18} weight="bold" /></span>
-              <div><h1 id="processing-workspace-title">报告生成</h1><p>把等待变成一条透明流水线：进度来自后台权威状态，只有持久化后的阶段记录才会展示为运行事件。</p></div>
+              <div><h1 id="processing-workspace-title">正在整理本轮报告</h1><p>进度来自后台权威状态。你可以留在这里查看，也可以离开后从报告中心回来。</p></div>
             </div>
             <span className="processing-head-step" aria-label={`当前第 ${currentStageNumber} 个阶段，共 ${stages.length} 个阶段`}>
               <span>{String(currentStageNumber).padStart(2, "0")}</span><strong>/ {String(stages.length).padStart(2, "0")} 阶段</strong>
@@ -633,40 +628,12 @@ export function ReportProcessingPage() {
               </ol>
             </section>
 
-            <section className="processing-ledger processing-events" aria-labelledby="processing-events-title">
-              <header className="processing-section-head">
-                <div><span>公开记录</span><h2 id="processing-events-title">持久化事件</h2></div>
-                <p>{events.length} 条</p>
-              </header>
-              {!progress ? <LoadingLedger /> : events.length ? (
-                <ol className="processing-event-list">
-                  {events.map((event, index) => {
-                    const eventFailed = event.stage === "failed";
-                    const eventTime = formatEventTime(event);
-                    const EventIcon = eventFailed ? WarningCircle : event.stage === "completed" ? CheckCircle : stageByName[event.stage]?.icon || Info;
-                    return (
-                      <li key={`${event.stage}-${eventTime}-${index}`} data-state={eventFailed ? "failed" : "recorded"} style={{ "--processing-event-index": index }}>
-                        <span className="processing-event-index">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="processing-event-icon" aria-hidden="true"><EventIcon size={17} weight={eventFailed ? "fill" : "duotone"} /></span>
-                        <div><strong>{stageLabels[event.stage] || event.stage || "运行事件"}</strong><p>{event.message || "后端未提供公开事件说明。"}</p></div>
-                        {eventTime && <time dateTime={event.created_at || event.timestamp || event.time}>{eventTime}</time>}
-                      </li>
-                    );
-                  })}
-                </ol>
-              ) : (
-                <div className="processing-empty-event">
-                  <Clock size={20} weight="duotone" aria-hidden="true" />
-                  <div><strong>暂无持久化事件历史</strong><p>当前阶段以上方权威状态为准；后端写入真实事件后才会在这里按时间展示。</p></div>
-                </div>
-              )}
-            </section>
           </div>
         </section>
 
         <aside className="start-inspector processing-inspector" aria-labelledby="processing-inspector-title">
           <header className="start-inspector-head">
-            <div><span>工作面板</span><h2 id="processing-inspector-title">任务检查器</h2></div>
+            <div><span>等待期间</span><h2 id="processing-inspector-title">当前情况</h2></div>
             <span className="start-inspector-state" data-state={completed ? "ready" : failed ? "error" : "generating"}>
               <span aria-hidden="true"><RuntimeIcon state={viewState} size={13} /></span><span>{statusLabels[viewState] || viewState}</span>
             </span>
@@ -674,33 +641,31 @@ export function ReportProcessingPage() {
 
           <div className="start-inspector-content processing-inspector-content">
             <section className="processing-inspector-section" aria-labelledby="processing-task-title">
-              <header><h3 id="processing-task-title"><ClipboardText size={17} weight="duotone" aria-hidden="true" />当前报告</h3></header>
+              <header><h3 id="processing-task-title"><Clock size={17} weight="duotone" aria-hidden="true" />生成状态</h3></header>
+              <dl className="processing-facts">
+                <div><dt>当前阶段</dt><dd>{activeStageLabel}</dd></div>
+                <div><dt>最近更新</dt><dd>{lastUpdatedLabel}</dd></div>
+                <div><dt>已等待</dt><dd>{formatElapsed(elapsedSeconds)}</dd></div>
+                <div><dt>回答评审</dt><dd>{progress?.total_question_count == null ? "等待统计" : `${progress?.completed_question_count ?? 0} / ${progress.total_question_count}`}</dd></div>
+              </dl>
+            </section>
+
+            <section className="processing-away-card" aria-labelledby="processing-away-title">
+              <span aria-hidden="true"><Files size={19} weight="duotone" /></span>
+              <div><h3 id="processing-away-title">不必停留在此页</h3><p>关闭或离开页面不会取消任务。报告会继续生成，完成后可从报告中心打开。</p></div>
+            </section>
+
+            {showRuntimeDiagnostics && <details className="processing-diagnostics">
+              <summary><ListChecks size={16} weight="duotone" aria-hidden="true" />运行诊断</summary>
               <dl className="processing-facts">
                 <div className="is-technical"><dt>任务 ID</dt><dd><code>{progress?.report_job_id || "未提供"}</code></dd></div>
                 <div><dt>执行尝试</dt><dd>{progress?.attempt ?? 0} / {progress?.max_attempts || "—"}</dd></div>
-                <div><dt>最近更新</dt><dd>{progress?.last_updated_at ? new Date(progress.last_updated_at).toLocaleTimeString("zh-CN", { hour12: false }) : "未提供"}</dd></div>
                 <div><dt>生成路径</dt><dd>{reportPathLabels[metadata.report_path] || metadata.report_path || "未提供"}</dd></div>
-                {metadata.knowledge_path && <div className="is-technical"><dt>知识路径</dt><dd>{metadata.knowledge_path}</dd></div>}
-                <div className="is-technical"><dt>工作流</dt><dd><code>{progress?.workflow_engine || "未提供"}</code></dd></div>
+                <div><dt>工作流</dt><dd><code>{progress?.workflow_engine || "未提供"}</code></dd></div>
+                <div><dt>知识片段</dt><dd>{rag.matched_chunks ?? "未提供"}</dd></div>
+                <div><dt>最近心跳</dt><dd>{formatTimestamp(progress?.heartbeat_at) || "未提供"}</dd></div>
               </dl>
-            </section>
-
-            <section className="processing-inspector-section" aria-labelledby="processing-metrics-title">
-              <header><h3 id="processing-metrics-title"><ListChecks size={17} weight="duotone" aria-hidden="true" />评审进度</h3></header>
-              <dl className="processing-metrics">
-                {metrics.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-              </dl>
-            </section>
-
-            <section className="processing-inspector-section" aria-labelledby="processing-knowledge-title">
-              <header><h3 id="processing-knowledge-title"><Database size={17} weight="duotone" aria-hidden="true" />知识检索</h3></header>
-              <div className="processing-knowledge-summary"><span>匹配片段</span><strong>{rag.matched_chunks ?? "处理中"}</strong></div>
-              {(rag.source_types || []).length ? (
-                <ul className="processing-source-list" aria-label="知识来源类型">
-                  {rag.source_types.map((type) => <li key={type}>{type}</li>)}
-                </ul>
-              ) : <p className="processing-muted-copy">来源类型将在检索阶段返回后显示。</p>}
-            </section>
+            </details>}
 
             {metadata.full_session_fallback && <ProcessingNotice tone="warning" title="使用降级生成路径">本次报告使用全会话降级路径生成；报告仍然有效，但逐题证据复用链路未完全可用。</ProcessingNotice>}
             <ProcessingNotice tone={notice?.tone} title={notice?.title}>{notice?.text}</ProcessingNotice>
@@ -727,14 +692,6 @@ export function ReportProcessingPage() {
           </footer>
         </aside>
       </main>
-
-      <footer className="start-status-bar processing-status-bar" aria-label="报告生成工作区状态">
-        <StatusBarItem icon={ListChecks} label="阶段" value={activeStageLabel} state={failed ? "error" : completed ? "ready" : "info"} />
-        <StatusBarItem icon={FileText} label="评审" value={`${progress?.completed_question_count ?? 0} / ${progress?.total_question_count ?? "—"}`} />
-        <StatusBarItem icon={Files} label="事件" value={events.length} />
-        <StatusBarItem icon={Clock} label="同步" value={polling ? "自适应" : "已停止"} state={retrying || interrupted ? "warning" : "idle"} />
-        <StatusBarItem icon={failed || interrupted ? WarningCircle : completed ? CheckCircle : Circle} label="任务" value={statusLabels[viewState] || viewState} state={failed ? "error" : completed ? "ready" : retrying || interrupted ? "warning" : "generating"} current />
-      </footer>
     </AppShell>
   );
 }

@@ -25,7 +25,6 @@ const PAGE_SIZE = 10;
 const statusLabels = { all: "全部", completed: "已完成", processing: "生成中", failed: "生成失败" };
 const statusRailLabels = { all: "全部", completed: "完成", processing: "生成中", failed: "失败" };
 const statusIcons = { all: Files, completed: CheckCircle, processing: SpinnerGap, failed: WarningCircle };
-const pathLabels = { microbatch: "逐题评审复用", full_session: "全会话评审", full_session_fallback: "全会话降级" };
 
 function formatDate(value) {
   if (!value) return "--";
@@ -96,15 +95,6 @@ function ReportSkeleton() {
         </div>
       ))}
     </div>
-  );
-}
-
-function StatusBarItem({ icon: ItemIcon, label, value, state = "idle", current = false }) {
-  return (
-    <span className={current ? "start-status-current" : undefined} data-state={state}>
-      <ItemIcon className={state === "generating" ? "start-spinner" : undefined} size={12} weight={state === "ready" || state === "error" ? "fill" : "regular"} aria-hidden="true" focusable="false" />
-      <strong>{label}</strong><span className="reports-status-value" key={`${label}-${value}`}>{value}</span>
-    </span>
   );
 }
 
@@ -275,6 +265,7 @@ export function ReportsPage() {
                 <button className="button start-tool-button reports-refresh-button" type="button" onClick={loadReports} disabled={state === "loading"} aria-busy={state === "loading" || undefined} data-state={state === "loading" ? "loading" : undefined} aria-label={state === "loading" ? "正在同步报告" : "刷新报告"} title={state === "loading" ? "正在同步报告" : "刷新报告"}>
                   <ArrowClockwise className={state === "loading" ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{state === "loading" ? "同步中" : "刷新"}</span>
                 </button>
+                <button className="button start-tool-button button-primary reports-new-interview-button" type="button" onClick={() => window.location.assign("/prep")}><Plus size={16} weight="bold" aria-hidden="true" /><span>新面试</span></button>
               </div>
 
               <div
@@ -339,9 +330,9 @@ export function ReportsPage() {
                   return (
                   <article key={item.session_id} className={`reports-report-row reports-report-row-${item.status}`} style={{ "--report-row-index": index }}>
                     <div className="reports-row-main">
-                      <div className="reports-row-title"><h3>{item.job_title || "未提供岗位标题"}</h3><span>#{item.session_id.slice(0, 8)}</span></div>
+                      <div className="reports-row-title"><h3>{item.job_title || "未提供岗位标题"}</h3></div>
                       <p>{item.summary || item.error || "报告任务正在处理，完成后显示结构化摘要。"}</p>
-                      <div className="reports-row-context"><span>{pathLabels[item.report_path] || "生成路径未提供"}</span>{(item.job_tags || []).slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div>
+                      <div className="reports-row-context"><span>有效回答 {item.answered_question_count ?? 0} / {item.question_count ?? "—"}</span>{(item.job_tags || []).slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div>
                     </div>
 
                     <div className="reports-row-status" data-status={item.status}>
@@ -379,61 +370,7 @@ export function ReportsPage() {
           </div>
         </section>
 
-        <aside className="start-inspector reports-inspector" aria-labelledby="inspector-title">
-          <header className="start-inspector-head">
-            <div><span>工作面板</span><h2 id="inspector-title">报告概览</h2></div>
-            <span className="start-inspector-state" data-state={state === "loading" ? "generating" : state}>
-              {state === "loading" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : state === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}
-              <span>{state === "loading" ? "同步中" : state === "error" ? "连接异常" : "已同步"}</span>
-            </span>
-          </header>
-
-          <div className="start-inspector-content reports-inspector-content">
-            <section className="reports-inspector-section" aria-labelledby="status-summary-title">
-              <header><h3 id="status-summary-title">当前数据集</h3><span>与搜索和日期范围同步</span></header>
-              <dl className="reports-status-strip">
-                {Object.entries(statusLabels).map(([value, label]) => {
-                  const StatusIcon = statusIcons[value];
-                  return <div key={value} data-status={value}><dt><StatusIcon className={value === "processing" && totals.processing > 0 ? "reports-processing-icon" : undefined} size={15} weight={value === "completed" || value === "failed" ? "fill" : "bold"} aria-hidden="true" />{label}</dt><dd className="reports-count-update" key={`${value}-${totals[value]}`}>{totals[value]}</dd></div>;
-                })}
-              </dl>
-            </section>
-
-            <section className="reports-inspector-section reports-current-view" aria-labelledby="current-view-title">
-              <header><h3 id="current-view-title">筛选条件</h3><span>决定中央台账内容</span></header>
-              <dl>
-                <div><dt>状态</dt><dd>{activeStatusLabel}</dd></div>
-                <div><dt>日期</dt><dd>{activeRangeLabel}</dd></div>
-                <div><dt>关键词</dt><dd>{query || "未设置"}</dd></div>
-                <div><dt>页码</dt><dd>{page} / {totalPages}</dd></div>
-              </dl>
-              {hasActiveFilters && <button className="reports-inspector-clear" type="button" onClick={clearFilters}><X size={14} weight="bold" aria-hidden="true" />清除全部筛选</button>}
-            </section>
-
-            <section className="reports-inspector-section reports-status-guide" aria-labelledby="status-guide-title">
-              <header><h3 id="status-guide-title">操作规则</h3><span>按报告状态继续</span></header>
-              <ul>
-                <li><CheckCircle size={15} weight="fill" aria-hidden="true" /><span><strong>已完成</strong>查看报告或下载 PDF</span></li>
-                <li><SpinnerGap size={15} weight="bold" aria-hidden="true" /><span><strong>生成中</strong>进入进度页跟踪任务</span></li>
-                <li><WarningCircle size={15} weight="fill" aria-hidden="true" /><span><strong>生成失败</strong>重新排队后继续跟进</span></li>
-              </ul>
-            </section>
-          </div>
-
-          <footer className="start-inspector-actions reports-inspector-actions">
-            <button className="button start-button start-inspector-secondary reports-refresh-button" type="button" onClick={loadReports} disabled={state === "loading"} data-state={state === "loading" ? "loading" : undefined}><ArrowClockwise className={state === "loading" ? "start-spinner" : undefined} size={17} weight="bold" aria-hidden="true" /><span>{state === "loading" ? "正在刷新" : "刷新报告"}</span></button>
-            <button className="button start-button button-primary reports-new-interview-button" type="button" onClick={() => window.location.assign("/prep")}><Plus size={17} weight="bold" aria-hidden="true" /><span>开始新面试</span></button>
-          </footer>
-        </aside>
       </main>
-
-      <footer className="start-status-bar reports-status-bar" aria-label="报告工作区状态">
-        <StatusBarItem icon={Files} label="全部" value={totals.all} />
-        <StatusBarItem icon={CheckCircle} label="完成" value={totals.completed} state={totals.completed ? "ready" : "idle"} />
-        <StatusBarItem icon={SpinnerGap} label="生成中" value={totals.processing} state={totals.processing ? "info" : "idle"} />
-        <StatusBarItem icon={WarningCircle} label="失败" value={totals.failed} state={totals.failed ? "error" : "idle"} />
-        <StatusBarItem icon={state === "loading" ? SpinnerGap : state === "error" ? WarningCircle : CheckCircle} label="请求" value={state === "loading" ? "同步中" : state === "error" ? "异常" : "已同步"} state={state === "loading" ? "generating" : state === "error" ? "error" : "ready"} current />
-      </footer>
     </AppShell>
   );
 }

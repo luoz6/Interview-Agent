@@ -445,7 +445,9 @@ V15 必须支持：
 - `score_applicability` 为 `normal | limited | insufficient`，前端不得自行计算或放宽阈值；
 - 没有统计校准数据前不展示 AI 置信度数字。
 
-进度公开字段沿用现有 `last_updated_at`，不引入未版本化的 `updated_at`。产品模式不请求 Agent runs、runtime events、heartbeat 或 attempt；诊断模式按能力开关按需请求。
+`GET /api/reports` 的每个列表项同时返回服务端权威 `answered_question_count`。内存实现从会话 answer state 统计，PostgreSQL 实现从带 `question_id` 的非空 candidate message 去重统计；报告中心不得以 `feedbacks.length`、逐题评分数组或浏览器缓存推断该值。
+
+进度公开字段沿用现有 `last_updated_at`，不引入未版本化的 `updated_at`。产品模式不请求 Agent runs、runtime events，也不渲染 job ID、heartbeat、attempt、workflow engine、knowledge path 或 report path；诊断模式按能力开关按需请求。报告中心列表同样不以 report path 作为产品标签。
 
 ## 10. Practice-plan 映射
 
@@ -458,7 +460,8 @@ practice-plan 输入可以使用 `session_question_id`，但服务端必须通�
   "source_session_id": "...",
   "source_session_question_ids": ["q2"],
   "source_plan_question_ids": ["pq_..."],
-  "source_report_id": "..."
+  "source_report_id": "...",
+  "focus_dimension": "engineering"
 }
 ```
 

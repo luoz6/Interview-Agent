@@ -1,15 +1,11 @@
-/* Hallmark · genre: modern-minimal · macrostructure: Search-first Report Archive Workbench · design-system: DESIGN.md · designed-as-app
- * audience: candidate reviewing interview history · primary use: find and open the right report · tone: calm technical utilitarian
- * motion: query sync · ledger update · internal icon feedback · pre-emit critique: P5 H5 E5 S5 R5 V5
- * contrast: pass (40–41) · icons: pass (30) · tokens: pass (48) · mobile: pass (34, 49–57) · slop: 58/58
- */
+/* Calm Cobalt report archive: search-first filters · authoritative counts · compact recovery actions. */
 
 .reports-app {
   font-family: var(--start-font-body);
 }
 
 .reports-app-shell {
-  grid-template-columns: var(--start-app-rail-width) minmax(0, 1fr) minmax(18.5rem, var(--start-app-inspector-width));
+  grid-template-columns: var(--start-app-rail-width) minmax(0, 1fr);
 }
 
 .reports-activity-rail button[aria-pressed="true"] svg {
@@ -1119,7 +1115,9 @@
   }
 
   .reports-editor-tools {
-    display: none;
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
   }
 
   .reports-table-head,
@@ -1154,6 +1152,10 @@
   .reports-commandbar {
     display: block;
     padding: 0 var(--start-space-xs) var(--start-space-xs);
+  }
+
+  .reports-editor-tools {
+    margin-top: var(--start-space-2xs);
   }
 
   .reports-command-form {

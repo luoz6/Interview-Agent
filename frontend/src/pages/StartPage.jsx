@@ -305,6 +305,38 @@ export function StartPage() {
     verifyRecoveryReference();
   }, []);
 
+  useEffect(() => {
+    const planId = new URLSearchParams(window.location.search).get("plan_id")?.trim();
+    if (!planId) return undefined;
+    const controller = new AbortController();
+    setStatus("restoring");
+    setNotice({ tone: "info", text: "正在打开针对性练习计划。" });
+    getJson(`/api/prep-plans/${encodeURIComponent(planId)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    }).then((restoredPlan) => {
+      setPlan(restoredPlan);
+      setWorkspaceView("plan");
+      setStatus("ready");
+      setNotice({
+        tone: "success",
+        text: restoredPlan.practice_provenance
+          ? "针对性练习计划已打开。三道题可以继续调整，确认后会原样用于下一轮模拟。"
+          : "面试计划已打开，可以继续检查和调整。",
+      });
+    }).catch((error) => {
+      if (error.name === "AbortError") return;
+      setStatus("error");
+      setNotice({
+        tone: "error",
+        text: [404, 410].includes(error.status)
+          ? "练习计划已失效或不存在，请返回报告重新创建。"
+          : `练习计划暂时无法打开：${error.message}`,
+      });
+    });
+    return () => controller.abort();
+  }, []);
+
   async function verifyRecoveryReference() {
     const activeSessionId = localStorage.getItem(LAST_ACTIVE_SESSION_KEY);
     if (!activeSessionId) {
@@ -666,7 +698,7 @@ export function StartPage() {
   }
 
   async function startInterview() {
-    if (!plan || !validateSources()) return;
+    if (!plan || (!plan.practice_provenance && !validateSources())) return;
     if (!plan.plan_id || !Number.isInteger(plan.plan_version)) {
       setStatus("error");
       setNotice({ tone: "error", text: "当前计划缺少权威版本，请重新生成后再开始。" });
@@ -880,9 +912,9 @@ export function StartPage() {
                 <h1 id="prep-plan-title">确认本轮要问什么</h1>
                 <p>题目范围、顺序、重点和来源都可以在这里确认。开始后将使用当前显示的版本。</p>
               </div>
-              <button className="prep-text-action" type="button" onClick={() => setWorkspaceView("sources")}>
+              {!plan.practice_provenance && <button className="prep-text-action" type="button" onClick={() => setWorkspaceView("sources")}>
                 <PencilSimple size={16} weight="bold" aria-hidden="true" />查看或修改资料
-              </button>
+              </button>}
             </header>
 
             {jobTags.length ? <div className="prep-job-tags" aria-label="岗位标签">{jobTags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
@@ -900,9 +932,9 @@ export function StartPage() {
                 <CheckCircle size={20} weight="fill" aria-hidden="true" />
                 <p><strong>当前计划可以开始</strong><span>版本 {plan.plan_version} · {enabledQuestions.length} 道题 · 约 {estimatedMinutes}</span></p>
               </div>
-              <button className="button start-button prep-regenerate-all" type="button" onClick={generatePlan} disabled={busy}>
+              {!plan.practice_provenance && <button className="button start-button prep-regenerate-all" type="button" onClick={generatePlan} disabled={busy}>
                 <ListChecks size={17} weight="bold" aria-hidden="true" />重新生成整个计划
-              </button>
+              </button>}
               <button className="button start-button button-primary" type="button" disabled={busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined}>
                 {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" />}
                 {status === "starting" ? "正在创建面试" : readPendingStart(plan.plan_id, plan.plan_version) ? "继续准备面试" : "确认版本并开始面试"}
