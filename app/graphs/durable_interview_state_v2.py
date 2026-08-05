@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from app.graphs.durable_interview_state import DurablePlanSnapshot
 from app.graphs.interview_state import InterviewMessage, MemoryPolicyVersion
 from app.services.prep import InterviewPlan
+from app.services.session_plan_binding import (
+    SessionPlanBinding,
+    legacy_session_plan_binding,
+)
 
 
 class DurableInterviewStateV2(TypedDict):
@@ -47,14 +51,23 @@ class DurableInterviewStateV2(TypedDict):
         "memory_index_empty",
     ] | None
     memory_policy_version: MemoryPolicyVersion
+    plan_origin: Literal["plan_revision", "legacy_session_snapshot"]
+    plan_revision_id: str | None
+    plan_family_id: str | None
+    revision: int | None
+    plan_sha256: str
+    configuration_snapshot: dict[str, Any] | None
+    immutable_plan_snapshot: dict[str, Any]
 
 
 def make_durable_initial_state_v2(
     session_id: str,
     plan: InterviewPlan,
     memory_policy_version: MemoryPolicyVersion = "question-conversation-v1",
+    plan_binding: SessionPlanBinding | None = None,
 ) -> DurableInterviewStateV2:
     snapshot = DurablePlanSnapshot.from_plan(plan)
+    binding = plan_binding or legacy_session_plan_binding(plan)
     first = snapshot.questions[0] if snapshot.questions else None
     return {
         "session_id": session_id,
@@ -95,4 +108,11 @@ def make_durable_initial_state_v2(
         "active_context_policy_version": None,
         "context_route": None,
         "memory_policy_version": memory_policy_version,
+        "plan_origin": binding.plan_origin,
+        "plan_revision_id": binding.plan_revision_id,
+        "plan_family_id": binding.plan_family_id,
+        "revision": binding.revision,
+        "plan_sha256": binding.plan_sha256,
+        "configuration_snapshot": binding.configuration_snapshot,
+        "immutable_plan_snapshot": binding.plan_snapshot,
     }

@@ -1,8 +1,12 @@
 import hashlib
 from datetime import datetime, timezone
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.session_plan_binding import (
+    SessionPlanBinding,
+    legacy_session_plan_binding,
+)
 
 
 WorkflowEngine = Literal["legacy", "langgraph-v1", "langgraph-v2"]
@@ -65,6 +69,13 @@ class InterviewState(TypedDict):
     projection_sha256: str | None
     memory_policy_version: MemoryPolicyVersion
     deletion_status: Literal["active", "deleting"]
+    plan_origin: Literal["plan_revision", "legacy_session_snapshot"]
+    plan_revision_id: str | None
+    plan_family_id: str | None
+    revision: int | None
+    plan_sha256: str
+    configuration_snapshot: dict[str, Any] | None
+    plan_snapshot: dict[str, Any]
 
 
 def choose_workflow_engine(
@@ -97,6 +108,7 @@ def build_initial_state(
     resume_text: str,
     job_tags: list[str],
     memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+    plan_binding: SessionPlanBinding | None = None,
 ) -> InterviewState:
     if memory_policy_version not in SUPPORTED_MEMORY_POLICY_VERSIONS:
         raise ValueError("unsupported interview memory policy version")
@@ -107,6 +119,7 @@ def build_initial_state(
         else "Interview finished because the plan is empty."
     )
     now = utc_now_iso()
+    binding = plan_binding or legacy_session_plan_binding(plan)
     return {
         "session_id": session_id,
         "plan": plan,
@@ -139,6 +152,7 @@ def build_initial_state(
         "projection_sha256": None,
         "memory_policy_version": memory_policy_version,
         "deletion_status": "active",
+        **binding.model_dump(mode="json"),
     }
 
 

@@ -27,6 +27,7 @@ from app.services.context_budget import (
 )
 from app.services.context_selection import build_interview_context
 from app.services.context_runtime import ContextRuntime, get_context_runtime
+from app.services.session_plan_binding import SessionPlanBinding
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
@@ -65,6 +66,7 @@ class InterviewGraphRunner:
         resume_text: str,
         job_tags: list[str],
         memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewState:
         return build_initial_state(
             session_id=session_id,
@@ -73,6 +75,7 @@ class InterviewGraphRunner:
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
 
     def submit_answer(

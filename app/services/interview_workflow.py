@@ -13,6 +13,7 @@ from app.graphs.interview_state import (
 )
 from app.services.interview_event_stream import InterviewEventStreamService
 from app.services.runtime_events import AcceptedInterviewCommand
+from app.services.session_plan_binding import session_plan_binding_from_state
 from app.services.workflow_thread_lock import (
     NoopWorkflowThreadLock,
     interview_thread_identity,
@@ -65,6 +66,7 @@ class InterviewWorkflowService:
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        plan_binding=None,
     ):
         session_id = str(uuid4())
         engine = choose_workflow_engine(
@@ -83,6 +85,7 @@ class InterviewWorkflowService:
                 job_tags=job_tags,
                 session_id=session_id,
                 memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
             )
         self.legacy_store.insert_durable_session_shell(
             session_id=session_id,
@@ -92,6 +95,7 @@ class InterviewWorkflowService:
             job_tags=job_tags,
             graph_version=self.default_graph_version,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         self.ensure_interview_bootstrapped(session_id, plan=plan)
         return self.legacy_store._to_turn(
@@ -154,6 +158,7 @@ class InterviewWorkflowService:
             if not version:
                 raise ValueError("durable graph version is missing")
             resolved_plan = plan or public_state["plan"]
+            plan_binding = session_plan_binding_from_state(public_state)
             initial_state = (
                 make_durable_initial_state_v2(
                     session_id,
@@ -161,9 +166,14 @@ class InterviewWorkflowService:
                     memory_policy_version=public_state[
                         "memory_policy_version"
                     ],
+                    plan_binding=plan_binding,
                 )
                 if version == "langgraph-v2"
-                else make_durable_initial_state(session_id, resolved_plan)
+                else make_durable_initial_state(
+                    session_id,
+                    resolved_plan,
+                    plan_binding=plan_binding,
+                )
             )
             canonical = json.dumps(
                 {

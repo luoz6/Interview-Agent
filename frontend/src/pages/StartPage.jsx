@@ -419,6 +419,8 @@ export function StartPage() {
           resume_text: resumeText,
           title: plan?.title || null,
           job_tags: jobTags.length ? jobTags : null,
+          plan_family_id: plan?.plan_family_id || null,
+          latest_plan_revision_id: plan?.plan_revision_id || null,
         }),
       });
       setDraftId(draft.draft_id);
@@ -444,13 +446,32 @@ export function StartPage() {
       setDraftId(draft.draft_id);
       setJobDescription(draft.job_description || "");
       setResumeText(draft.resume_text || "");
-      setPlan(null);
+      if (draft.plan_status === "active" && draft.plan_family_id && draft.latest_plan_revision_id) {
+        const revision = await requestJson(
+          `/api/interview-plans/${encodeURIComponent(draft.plan_family_id)}/revisions/${encodeURIComponent(draft.latest_plan_revision_id)}`,
+        );
+        setPlan({
+          ...revision.legacy_plan,
+          job_tags: draft.job_tags || [],
+          plan_family_id: revision.plan_family_id,
+          plan_revision_id: revision.plan_revision_id,
+          revision: revision.revision,
+          plan_sha256: revision.plan_sha256,
+          plan: revision.plan,
+        });
+      } else {
+        setPlan(null);
+      }
       setInvalid({ jd: false, resume: false });
       setFileNames({ jd: "来自匿名草稿", resume: "来自匿名草稿" });
-      setStatus("idle");
+      setStatus(draft.plan_status === "active" ? "ready" : "idle");
       setActiveDocument("jd");
       setInspectorView("readiness");
-      setNotice({ tone: "success", text: "草稿已恢复。为保证计划与内容一致，请重新生成面试蓝图。" });
+      setNotice(
+        draft.plan_status === "stale"
+          ? { tone: "warning", text: "草稿已恢复，但源文档已经变更。请重新生成计划后再开始面试。" }
+          : { tone: "success", text: "草稿和对应的同一份计划修订已恢复。" },
+      );
     } catch (error) {
       clearStoredDraftId();
       setDraftId("");
@@ -479,12 +500,20 @@ export function StartPage() {
 
   async function startInterview() {
     if (!plan || !validateSources()) return;
+    if (!plan.plan_revision_id || !plan.revision || !plan.plan_sha256) {
+      setNotice({ tone: "error", text: "当前计划缺少可验证的修订信息。请重新生成计划后再开始。" });
+      return;
+    }
     setStatus("starting");
     setNotice({ tone: "info", text: "正在创建可恢复的面试会话。" });
     try {
       const session = await requestJson("/api/interviews", {
         method: "POST",
-        body: JSON.stringify({ job_description: jobDescription, resume_text: resumeText }),
+        body: JSON.stringify({
+          plan_revision_id: plan.plan_revision_id,
+          expected_revision: plan.revision,
+          plan_sha256: plan.plan_sha256,
+        }),
       });
       window.location.assign(`/interview?session_id=${encodeURIComponent(session.session_id)}`);
     } catch (error) {

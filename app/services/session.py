@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, Optional
 from uuid import uuid4
@@ -25,11 +26,17 @@ from app.graphs.interview_transitions import (
 from app.services.llm import InterviewLLM
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    public_interview_plan_payload,
+)
+from app.services.interview_plan_revision import InterviewPlanV2, v2_plan_to_legacy
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
 from app.services.session_errors import SessionVersionConflict
+from app.services.session_plan_binding import SessionPlanBinding
 from app.services.memory_retention import (
     InMemorySessionCapacityExceeded,
     InMemorySessionRetentionPolicy,
@@ -94,6 +101,7 @@ class InterviewSessionStore:
         job_tags: list[str],
         session_id: str | None = None,
         memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewTurn:
         self.cleanup_retention()
         self._ensure_capacity_for_new_session()
@@ -105,6 +113,7 @@ class InterviewSessionStore:
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         self._sessions[session_id] = state
         return self._to_turn(state, follow_up=None)
@@ -214,6 +223,15 @@ class InterviewSessionStore:
             "graph_schema_version": state.get("graph_schema_version"),
             "memory_policy_version": state["memory_policy_version"],
             "deletion_status": state.get("deletion_status", "active"),
+            "plan_origin": state["plan_origin"],
+            "plan_revision_id": state.get("plan_revision_id"),
+            "plan_family_id": state.get("plan_family_id"),
+            "revision": state.get("revision"),
+            "plan_sha256": state["plan_sha256"],
+            "configuration_snapshot": deepcopy(
+                state.get("configuration_snapshot")
+            ),
+            "plan_snapshot": _public_session_plan_snapshot(state["plan_snapshot"]),
             **interview_assistance_metadata(state),
             "job_tags": list(state["job_tags"]),
             "current_question": current_question.model_dump() if current_question else None,
@@ -753,3 +771,16 @@ def _merge_question_evaluation_records(
         merged_by_question_id[record.question_id] = record
 
     return [merged_by_question_id[question_id] for question_id in ordered_question_ids]
+
+
+def _public_session_plan_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    public_snapshot = deepcopy(snapshot)
+    if public_snapshot.get("schema_version") != "interview-plan-v2":
+        return public_snapshot
+    plan = InterviewPlanV2.model_validate(public_snapshot)
+    public_legacy = public_interview_plan_payload(v2_plan_to_legacy(plan))
+    if "prep_context" in public_legacy:
+        public_snapshot["prep_context"] = public_legacy["prep_context"]
+    else:
+        public_snapshot.pop("prep_context", None)
+    return public_snapshot

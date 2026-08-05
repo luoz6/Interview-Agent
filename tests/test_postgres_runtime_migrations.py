@@ -16,9 +16,83 @@ from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
 from app.services.embedding_providers import DisabledEmbeddingProvider
 from app.services.postgres_identifiers import runtime_schema_identifier
 from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.services.postgres_session import PostgresInterviewSessionStore
+from app.services.prep import InterviewPlan, InterviewQuestion
 from tests.postgres_support import make_runtime_table_prefix
 from tests.test_postgres_principal_memory import NOW, make_active_language
 from scripts.postgres_runtime_migrate import main
+
+
+@pytest.mark.pg_runtime
+def test_session_plan_binding_backfill_marks_legacy_snapshot(postgres_dsn):
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = make_runtime_table_prefix("plan_binding")
+    store = PostgresInterviewSessionStore(
+        dsn=postgres_dsn,
+        table_prefix=prefix,
+        schema_mode="migrate",
+    )
+    turn = store.start(
+        InterviewPlan(
+            title="Legacy plan",
+            questions=[
+                InterviewQuestion(
+                    id="q1",
+                    kind="technical",
+                    prompt="Explain caching.",
+                    focus="cache",
+                )
+            ],
+        ),
+        job_description="Backend role",
+        resume_text="Built APIs",
+        job_tags=["backend"],
+    )
+    try:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {sessions} SET plan_binding_json=NULL WHERE session_id=%s"
+                    ).format(sessions=sql.Identifier(store.sessions_table)),
+                    (turn.session_id,),
+                )
+            migrations._upgrade_session_plan_bindings(
+                connection,
+                table_prefix=prefix,
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT plan_binding_json FROM {sessions} WHERE session_id=%s"
+                    ).format(sessions=sql.Identifier(store.sessions_table)),
+                    (turn.session_id,),
+                )
+                binding = cursor.fetchone()[0]
+
+        assert binding["plan_origin"] == "legacy_session_snapshot"
+        assert binding["plan_revision_id"] is None
+        assert binding["plan_snapshot"]["title"] == "Legacy plan"
+        assert len(binding["plan_sha256"]) == 64
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (
+                    store.question_evaluations_table,
+                    store.reports_table,
+                    store.messages_table,
+                    store.sessions_table,
+                    f"{prefix}_runtime_outbox",
+                    f"{prefix}_runtime_event_receipts",
+                    f"{prefix}_agent_runs",
+                ):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
 
 
 class FakeCursor:
@@ -454,7 +528,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "interview_plan_revision_v2"
+        assert first.migration_id == "session_plan_binding_v1"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert local_rights_tables == {
@@ -529,7 +603,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "interview_plan_revision_v2"
+        assert result.migration_id == "session_plan_binding_v1"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -699,7 +773,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "interview_plan_revision_v2"
+        assert result.migration_id == "session_plan_binding_v1"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

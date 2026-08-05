@@ -16,14 +16,13 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services.job_tags import extract_job_tags
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import (
     prepare_interview,
     public_interview_plan_payload,
-    validate_launchable_interview_plan,
 )
 from app.services.interview_plan_editor import (
     InterviewPlanEditor,
@@ -32,7 +31,6 @@ from app.services.interview_plan_editor import (
     PlanOperationValidationError,
 )
 from app.services.interview_plan_revision import (
-    InterviewPlanV2,
     canonical_sha256,
     legacy_plan_to_v2,
     v2_plan_to_legacy,
@@ -46,6 +44,7 @@ from app.services.interview_plan_revision_store import (
     PlanRevisionNotFound,
     PlanSourceUnavailable,
 )
+from app.services.session_plan_binding import session_plan_binding_from_revision
 from app.services.config import (
     get_report_runtime_profile,
     get_interview_langgraph_rollout_percent,
@@ -185,11 +184,25 @@ def get_plan_regenerator() -> ProviderPlanRegenerator:
 
 
 class PrepRequest(BaseModel):
-    job_description: str | None = None
-    resume_text: str | None = None
-    plan_revision_id: str | None = None
-    expected_revision: int | None = Field(default=None, ge=1)
-    plan_sha256: str | None = None
+    model_config = {"extra": "forbid"}
+
+    job_description: str = Field(min_length=1)
+    resume_text: str = Field(min_length=1)
+
+    @field_validator("job_description", "resume_text")
+    @classmethod
+    def reject_blank_source(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+
+class StartInterviewRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    plan_revision_id: str = Field(min_length=1)
+    expected_revision: int = Field(ge=1)
+    plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class RegenerateQuestionRequest(BaseModel):
@@ -260,6 +273,9 @@ class DraftRequest(BaseModel):
     draft_id: str | None = None
     title: str | None = None
     job_tags: list[str] | None = None
+    plan_family_id: str | None = None
+    latest_plan_revision_id: str | None = None
+    clear_plan: bool = False
 
     @field_validator("job_description", "resume_text")
     @classmethod
@@ -267,6 +283,16 @@ class DraftRequest(BaseModel):
         if not value.strip():
             raise ValueError("must not be blank")
         return value
+
+    @model_validator(mode="after")
+    def validate_plan_binding(self):
+        if (self.plan_family_id is None) != (self.latest_plan_revision_id is None):
+            raise ValueError(
+                "plan_family_id and latest_plan_revision_id must be provided together"
+            )
+        if self.clear_plan and self.plan_family_id is not None:
+            raise ValueError("clear_plan cannot be combined with a plan revision")
+        return self
 
 
 @router.get("/health")
@@ -781,8 +807,6 @@ def prep_interview(
     payload: PrepRequest,
     revision_store=Depends(get_plan_revision_store),
 ):
-    if not payload.job_description or not payload.resume_text:
-        raise HTTPException(status_code=422, detail="job_description and resume_text are required")
     try:
         plan = prepare_interview(
             payload.job_description,
@@ -828,6 +852,21 @@ def edit_interview_plan(
             },
         )
     return _apply_plan_edit(plan_family_id, payload, revision_store)
+
+
+@router.get("/interview-plans/{plan_family_id}/revisions/{plan_revision_id}")
+def get_interview_plan_revision(
+    plan_family_id: str,
+    plan_revision_id: str,
+    revision_store=Depends(get_plan_revision_store),
+):
+    try:
+        revision = revision_store.get_by_id(plan_revision_id)
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if revision.plan_family_id != plan_family_id:
+        raise HTTPException(status_code=404, detail="plan revision not found")
+    return _plan_revision_payload(revision)
 
 
 def _apply_plan_edit(
@@ -1024,9 +1063,32 @@ def regenerate_entire_interview_plan(
 
 
 @router.post("/interview-drafts")
-def save_interview_draft(payload: DraftRequest, draft_store=Depends(get_draft_store)):
+def save_interview_draft(
+    payload: DraftRequest,
+    draft_store=Depends(get_draft_store),
+    revision_store=Depends(get_plan_revision_store),
+):
     try:
-        return draft_store.save(
+        previous_revision = None
+        if payload.draft_id is not None:
+            try:
+                existing_draft = draft_store.get(payload.draft_id)
+                previous_revision_id = existing_draft.get("latest_plan_revision_id")
+                if previous_revision_id:
+                    previous_revision = revision_store.get_by_id(previous_revision_id)
+            except ValueError:
+                pass
+        plan_source_sha256 = None
+        revision = None
+        if payload.latest_plan_revision_id is not None:
+            revision = revision_store.get_by_id(payload.latest_plan_revision_id)
+            if revision.plan_family_id != payload.plan_family_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "draft_plan_family_mismatch"},
+                )
+            plan_source_sha256 = revision.source_sha256
+        draft = draft_store.save(
             draft_id=payload.draft_id,
             job_description=payload.job_description,
             resume_text=payload.resume_text,
@@ -1034,7 +1096,32 @@ def save_interview_draft(payload: DraftRequest, draft_store=Depends(get_draft_st
             job_tags=payload.job_tags
             if payload.job_tags is not None
             else extract_job_tags(payload.job_description),
+            plan_family_id=payload.plan_family_id,
+            latest_plan_revision_id=payload.latest_plan_revision_id,
+            plan_source_sha256=plan_source_sha256,
+            clear_plan=payload.clear_plan,
         )
+        if previous_revision is not None and (
+            payload.clear_plan
+            or (
+                revision is not None
+                and revision.source_id != previous_revision.source_id
+            )
+        ):
+            revision_store.remove_source_reference(
+                previous_revision.source_id,
+                owner_type="draft",
+                owner_id=draft["draft_id"],
+            )
+        if revision is not None:
+            revision_store.add_source_reference(
+                revision.source_id,
+                owner_type="draft",
+                owner_id=draft["draft_id"],
+            )
+        return draft
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1045,6 +1132,28 @@ def get_interview_draft(draft_id: str, draft_store=Depends(get_draft_store)):
         return draft_store.get(draft_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/interview-drafts/{draft_id}", status_code=204)
+def delete_interview_draft(
+    draft_id: str,
+    draft_store=Depends(get_draft_store),
+    revision_store=Depends(get_plan_revision_store),
+):
+    try:
+        draft = draft_store.get(draft_id)
+        revision_id = draft.get("latest_plan_revision_id")
+        revision = revision_store.get_by_id(revision_id) if revision_id else None
+        draft_store.delete(draft_id)
+        if revision is not None:
+            revision_store.remove_source_reference(
+                revision.source_id,
+                owner_type="draft",
+                owner_id=draft_id,
+            )
+    except (ValueError, PlanRevisionNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @router.get("/reports")
@@ -1094,41 +1203,25 @@ def list_reports(
 
 @router.post("/interviews")
 def start_interview(
-    payload: PrepRequest,
+    payload: StartInterviewRequest,
     store: InterviewSessionStore = Depends(get_session_store),
+    revision_store=Depends(get_plan_revision_store),
 ):
     try:
-        if payload.plan_revision_id:
-            revision_store = get_plan_revision_store()
-            revision = revision_store.get_by_id(payload.plan_revision_id)
-            if payload.expected_revision != revision.revision:
-                raise HTTPException(status_code=409, detail="plan revision conflict")
-            if payload.plan_sha256 != revision.plan_sha256:
-                raise HTTPException(status_code=409, detail="plan hash conflict")
-            source = revision_store.get_source(revision.source_id)
-            if source.protected_payload is None:
-                raise HTTPException(status_code=422, detail="plan source unavailable")
-            plan = v2_plan_to_legacy(revision.plan)
-            source_payload = source.protected_payload
-            job_description = source_payload.job_description
-            resume_text = source_payload.resume_text
-            job_tags = list(source_payload.job_tags)
-        else:
-            # Legacy clients remain readable during additive migration. New clients
-            # must use a revision; this compatibility path is slated for removal
-            # after T12 and is intentionally not used by the revision contract tests.
-            if not payload.job_description or not payload.resume_text:
-                raise HTTPException(status_code=422, detail="plan_revision_id is required")
-            plan = prepare_interview(
-                payload.job_description,
-                payload.resume_text,
-                llm=store.llm,
-                execution_runner=get_agent_execution_runner(),
-            )
-            job_description = payload.job_description
-            resume_text = payload.resume_text
-            job_tags = extract_job_tags(payload.job_description)
-        validate_launchable_interview_plan(plan)
+        revision = revision_store.get_by_id(payload.plan_revision_id)
+        if payload.expected_revision != revision.revision:
+            raise HTTPException(status_code=409, detail="plan revision conflict")
+        if payload.plan_sha256 != revision.plan_sha256:
+            raise HTTPException(status_code=409, detail="plan hash conflict")
+        source = revision_store.get_source(revision.source_id)
+        if source.protected_payload is None:
+            raise HTTPException(status_code=422, detail="plan source unavailable")
+        plan = v2_plan_to_legacy(revision.plan)
+        source_payload = source.protected_payload
+        job_description = source_payload.job_description
+        resume_text = source_payload.resume_text
+        job_tags = list(source_payload.job_tags)
+        plan_binding = session_plan_binding_from_revision(revision)
         if (
             get_runtime_store() == "postgres"
             and get_interview_langgraph_rollout_percent() > 0
@@ -1138,6 +1231,7 @@ def start_interview(
                 job_description=job_description,
                 resume_text=resume_text,
                 job_tags=job_tags,
+                plan_binding=plan_binding,
             )
         else:
             turn = store.start(
@@ -1145,9 +1239,17 @@ def start_interview(
                 job_description=job_description,
                 resume_text=resume_text,
                 job_tags=job_tags,
+                plan_binding=plan_binding,
             )
+        revision_store.add_source_reference(
+            revision.source_id,
+            owner_type="session",
+            owner_id=turn.session_id,
+        )
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _turn_to_dict(turn)
 
 

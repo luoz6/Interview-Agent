@@ -24,6 +24,7 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX: dict[str, frozenset[str]] = {
             "state_version",
             "projection_sha256",
             "bootstrap_input_sha256",
+            "plan_binding_json",
         }
     ),
     "_runtime_outbox": frozenset(
@@ -709,6 +710,25 @@ RUNTIME_SCHEMA_V15_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V15_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V15_CHECKSUM,
+        "session_plan_binding": {
+            "column": "_sessions.plan_binding_json",
+            "schema_version": "session-plan-binding-v1",
+            "legacy_origin": "legacy_session_snapshot",
+            "revision_origin": "plan_revision",
+            "snapshot_write": "atomic-with-session-row",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V16_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V16_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -783,6 +803,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="interview_plan_revision_v2",
         checksum=RUNTIME_SCHEMA_V15_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="session_plan_binding_v1",
+        checksum=RUNTIME_SCHEMA_V16_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

@@ -8,6 +8,8 @@ from app.services.interview_plan_revision import InterviewPlanQuestionV2
 from app.services.interview_plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
+from app.services.session import InterviewSessionStore
+from app.services.drafts import AnonymousDraftStore
 from tests.test_interview_plan_revision import plan, source
 
 
@@ -52,6 +54,7 @@ def api_plan():
     regenerator = StubRegenerator()
     app.dependency_overrides[route_module.get_plan_revision_store] = lambda: store
     app.dependency_overrides[route_module.get_plan_regenerator] = lambda: regenerator
+    app.dependency_overrides[route_module.get_draft_store] = lambda: AnonymousDraftStore()
     try:
         yield TestClient(app), store, initial, regenerator
     finally:
@@ -285,3 +288,166 @@ def test_client_cannot_supply_provider_output_and_full_regeneration_requires_con
     assert confirmed.json()["plan"]["title"] == "Provider regenerated plan"
     assert regenerator.all_calls == 1
     assert len(store.list_revisions(initial.plan_family_id)) == 2
+
+
+class ProviderSpy:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_plan(self, *_args, **_kwargs):
+        self.calls += 1
+        raise AssertionError("interview start must not call the Provider")
+
+
+def test_start_uses_verified_revision_snapshot_with_zero_provider_calls(api_plan):
+    client, revision_store, initial, _ = api_plan
+    provider = ProviderSpy()
+    session_store = InterviewSessionStore(llm=provider)
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+    }
+
+    started = client.post("/api/interviews", json=payload)
+
+    assert started.status_code == 200
+    assert provider.calls == 0
+    session_id = started.json()["session_id"]
+    state = session_store.get(session_id)
+    assert state["plan_origin"] == "plan_revision"
+    assert state["plan_revision_id"] == initial.plan_revision_id
+    assert state["plan_family_id"] == initial.plan_family_id
+    assert state["revision"] == initial.revision
+    assert state["plan_sha256"] == initial.plan_sha256
+    assert state["configuration_snapshot"] == initial.configuration_snapshot.model_dump(
+        mode="json"
+    )
+    assert state["plan_snapshot"] == initial.plan.model_dump(mode="json")
+    assert any(
+        ref.owner_type == "session" and ref.owner_id == session_id
+        for ref in revision_store.list_source_references(initial.source_id)
+    )
+
+
+def test_started_session_does_not_follow_later_plan_edits(api_plan):
+    client, revision_store, initial, _ = api_plan
+    session_store = InterviewSessionStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    started = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": initial.plan_revision_id,
+            "expected_revision": 1,
+            "plan_sha256": initial.plan_sha256,
+        },
+    ).json()
+    original_snapshot = session_store.get(started["session_id"])["plan_snapshot"]
+
+    client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            1,
+            "post-start-edit",
+            {
+                "op": "edit_focus",
+                "question_id": initial.plan.questions[0].question_id,
+                "focus": "changed after start",
+            },
+        ),
+    )
+
+    assert revision_store.get_latest(initial.plan_family_id).revision == 2
+    assert session_store.get(started["session_id"])["plan_snapshot"] == original_snapshot
+    assert original_snapshot == initial.plan.model_dump(mode="json")
+
+
+def test_start_rejects_raw_inputs_mismatch_and_missing_revision(api_plan):
+    client, _, initial, _ = api_plan
+    app.dependency_overrides[route_module.get_session_store] = lambda: InterviewSessionStore()
+    raw = client.post(
+        "/api/interviews",
+        json={"job_description": "JD", "resume_text": "Resume"},
+    )
+    revision_mismatch = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": initial.plan_revision_id,
+            "expected_revision": 99,
+            "plan_sha256": initial.plan_sha256,
+        },
+    )
+    hash_mismatch = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": initial.plan_revision_id,
+            "expected_revision": 1,
+            "plan_sha256": "0" * 64,
+        },
+    )
+    missing = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": "00000000-0000-0000-0000-000000000000",
+            "expected_revision": 1,
+            "plan_sha256": "0" * 64,
+        },
+    )
+
+    assert raw.status_code == 422
+    assert revision_mismatch.status_code == 409
+    assert hash_mismatch.status_code == 409
+    assert missing.status_code == 404
+
+
+def test_draft_restores_exact_revision_and_source_edits_mark_it_stale(api_plan):
+    client, revision_store, initial, _ = api_plan
+    draft_store = AnonymousDraftStore()
+    app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
+    source_payload = source()
+    created = client.post(
+        "/api/interview-drafts",
+        json={
+            "job_description": source_payload.job_description,
+            "resume_text": source_payload.resume_text,
+            "job_tags": list(source_payload.job_tags),
+            "plan_family_id": initial.plan_family_id,
+            "latest_plan_revision_id": initial.plan_revision_id,
+        },
+    )
+    restored_revision = client.get(
+        f"/api/interview-plans/{initial.plan_family_id}/revisions/"
+        f"{initial.plan_revision_id}"
+    )
+    edited = client.post(
+        "/api/interview-drafts",
+        json={
+            "draft_id": created.json()["draft_id"],
+            "job_description": source_payload.job_description + " changed",
+            "resume_text": source_payload.resume_text,
+            "job_tags": list(source_payload.job_tags),
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["plan_status"] == "active"
+    assert any(
+        ref.owner_type == "draft" and ref.owner_id == created.json()["draft_id"]
+        for ref in revision_store.list_source_references(initial.source_id)
+    )
+    assert restored_revision.status_code == 200
+    assert restored_revision.json()["plan_revision_id"] == initial.plan_revision_id
+    assert restored_revision.json()["plan_sha256"] == initial.plan_sha256
+    assert edited.status_code == 200
+    assert edited.json()["plan_status"] == "stale"
+    assert edited.json()["latest_plan_revision_id"] == initial.plan_revision_id
+
+    deleted = client.delete(
+        f"/api/interview-drafts/{created.json()['draft_id']}"
+    )
+    assert deleted.status_code == 204
+    assert not any(
+        ref.owner_type == "draft" and ref.owner_id == created.json()["draft_id"]
+        for ref in revision_store.list_source_references(initial.source_id)
+    )

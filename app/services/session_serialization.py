@@ -14,9 +14,15 @@ from app.services.report import (
     ReportProgress,
     ReportRecord,
 )
+from app.services.session_plan_binding import (
+    SessionPlanBinding,
+    legacy_session_plan_binding,
+    session_plan_binding_from_state,
+)
 
 
 def session_row_from_state(state: InterviewState) -> dict[str, Any]:
+    binding = session_plan_binding_from_state(state)
     return {
         "session_id": state["session_id"],
         "plan_json": state["plan"].model_dump(mode="json"),
@@ -42,6 +48,7 @@ def session_row_from_state(state: InterviewState) -> dict[str, Any]:
         "projection_sha256": state.get("projection_sha256"),
         "memory_policy_version": state["memory_policy_version"],
         "deletion_status": state.get("deletion_status", "active"),
+        "plan_binding_json": binding.model_dump(mode="json"),
     }
 
 
@@ -71,9 +78,16 @@ def state_from_rows(
         )
     if memory_policy_version not in SUPPORTED_MEMORY_POLICY_VERSIONS:
         raise ValueError("unsupported stored interview memory policy version")
+    plan = InterviewPlan.model_validate(session_row["plan_json"])
+    stored_binding = session_row.get("plan_binding_json")
+    binding = (
+        SessionPlanBinding.model_validate(stored_binding)
+        if stored_binding
+        else legacy_session_plan_binding(plan)
+    )
     return {
         "session_id": session_row["session_id"],
-        "plan": InterviewPlan.model_validate(session_row["plan_json"]),
+        "plan": plan,
         "current_index": int(session_row["current_index"]),
         "messages": [
             {
@@ -104,6 +118,7 @@ def state_from_rows(
         "projection_sha256": session_row.get("projection_sha256"),
         "memory_policy_version": memory_policy_version,
         "deletion_status": session_row.get("deletion_status", "active"),
+        **binding.model_dump(mode="json"),
     }
 
 

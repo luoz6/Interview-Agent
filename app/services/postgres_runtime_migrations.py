@@ -37,13 +37,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V15_MANIFEST,
+    RUNTIME_SCHEMA_V16_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V15_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V16_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -274,6 +274,10 @@ def migrate_postgres_runtime(
                 connection_provider=provider,
                 table_prefix=table_prefix,
                 schema_mode="migrate",
+            )
+            _upgrade_session_plan_bindings(
+                connection,
+                table_prefix=table_prefix,
             )
             from app.services.postgres_plan_revision_store import (
                 PostgresInterviewPlanRevisionStore,
@@ -610,3 +614,44 @@ def _upgrade_interview_memory_policy_constraint(
                 "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET DEFAULT 'deterministic-v1'"
             ).format(sessions=sql.Identifier(sessions_table))
         )
+
+
+def _upgrade_session_plan_bindings(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Backfill legacy session provenance without consulting Plan Revisions."""
+
+    import json
+
+    from psycopg2 import sql
+
+    from app.services.interview_plan_revision import canonical_sha256
+
+    sessions_table = f"{table_prefix}_sessions"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "SELECT session_id,plan_json FROM {sessions} "
+                "WHERE plan_binding_json IS NULL"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        rows = cursor.fetchall()
+        for session_id, plan_json in rows:
+            binding = {
+                "plan_origin": "legacy_session_snapshot",
+                "plan_revision_id": None,
+                "plan_family_id": None,
+                "revision": None,
+                "plan_sha256": canonical_sha256(plan_json),
+                "configuration_snapshot": None,
+                "plan_snapshot": plan_json,
+            }
+            cursor.execute(
+                sql.SQL(
+                    "UPDATE {sessions} SET plan_binding_json=%s::jsonb "
+                    "WHERE session_id=%s AND plan_binding_json IS NULL"
+                ).format(sessions=sql.Identifier(sessions_table)),
+                (json.dumps(binding, ensure_ascii=False), session_id),
+            )
