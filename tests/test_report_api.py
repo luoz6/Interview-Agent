@@ -5,6 +5,9 @@ import app.api.routes as route_module
 from app.api.routes import get_session_store
 from app.main import app
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.in_memory_interview_launch_repository import InMemoryInterviewLaunchRepository
+from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
+from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
     InterviewFeedback,
@@ -217,9 +220,18 @@ def make_client():
     llm = ReportApiLLM()
     store = InterviewSessionStore(llm=llm)
     job_store = FakeReportJobStore(store)
+    prep_plan_store = InMemoryPrepPlanStore()
+    launch_repository = InMemoryInterviewLaunchRepository()
     app.dependency_overrides[get_session_store] = lambda: store
+    app.dependency_overrides[route_module.get_prep_plan_store] = lambda: prep_plan_store
+    app.dependency_overrides[route_module.get_interview_launch_repository] = (
+        lambda: launch_repository
+    )
     route_module.get_report_job_store = lambda: job_store
-    return TestClient(app), store, llm, job_store
+    client = TestClient(app)
+    client.practice_plan_store = prep_plan_store
+    client.practice_launch_repository = launch_repository
+    return client, store, llm, job_store
 
 
 def teardown_function():
@@ -358,6 +370,7 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     completed = start_interview(client)
     failed = start_interview(client)
     processing = start_interview(client)
+    store.submit_answer(completed, "I designed the cache recovery path.")
     finish_session(store, completed)
     finish_session(store, failed)
     finish_session(store, processing)
@@ -385,6 +398,7 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     assert body["items"][1]["error"] == "llm timeout"
     assert body["items"][2]["overall_score"] == 81
     assert body["items"][2]["summary"] == "Completed summary."
+    assert body["items"][2]["answered_question_count"] == 1
     assert body["items"][2]["report_url"] == f"/api/interviews/{completed}/report"
     assert body["items"][2]["report_pdf_url"] == f"/api/interviews/{completed}/report.pdf"
 
@@ -429,6 +443,7 @@ def test_reports_endpoint_exposes_only_safe_joined_metadata(
     assert item["job_title"] == "Backend mock interview"
     assert item["job_tags"] == ["python", "redis"]
     assert item["question_count"] == 3
+    assert item["answered_question_count"] == 0
     assert item["started_at"] == state["started_at"]
     assert item["duration_seconds"] == 65
     assert item["report_path"] == public_path
@@ -552,6 +567,185 @@ def test_report_endpoint_returns_202_with_progress():
     assert body["status"] == "processing"
     assert body["progress"]["stage"] == "retrieving"
     assert body["progress"]["percent"] == 20
+
+
+def test_completed_report_endpoint_returns_authoritative_reliability_object():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    responses = answer_all_questions(client, session_id)
+    assert all(response.status_code == 200 for response in responses)
+    store.save_report(session_id, make_report_model(session_id))
+
+    response = client.get(f"/api/interviews/{session_id}/report")
+
+    assert response.status_code == 200
+    assert response.json()["reliability"] == {
+        "planned_question_count": 3,
+        "answered_question_count": 3,
+        "skipped_question_count": 0,
+        "unanswered_question_count": 0,
+        "reviewed_answer_count": 0,
+        "review_failed_answer_count": 0,
+        "evidence_bound_question_count": 0,
+        "degraded_question_count": 0,
+        "generation_path": "mixed",
+        "degraded_reasons": ["QUESTION_REVIEW_INCOMPLETE"],
+        "score_applicability": "insufficient",
+    }
+
+
+def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    responses = answer_all_questions(client, session_id)
+    assert all(response.status_code == 200 for response in responses)
+    report = make_report_model(session_id)
+    report = report.model_copy(
+        update={
+            "overall_dimension_scores": report.overall_dimension_scores.model_copy(
+                update={"engineering": 55}
+            )
+        }
+    )
+    store.save_report(session_id, report)
+    store.save_question_evaluations(
+        session_id,
+        [
+            question_evaluation_from_feedback(
+                session_id=session_id,
+                feedback=report.feedbacks[0],
+            )
+        ],
+    )
+    client.practice_launch_repository.create_pending(
+        plan_id="source-plan",
+        command_id="source-command",
+        consumed_plan_version=1,
+        session_id=session_id,
+        mappings=[
+            {
+                "plan_question_id": f"pq-source-{index}",
+                "session_question_id": f"q{index}",
+                "position": index,
+                "kind": "technical",
+            }
+            for index in range(1, 4)
+        ],
+    )
+
+    response = client.post(
+        f"/api/interviews/{session_id}/practice-plan",
+        json={
+            "focus_dimension": "engineering",
+            "session_question_ids": ["q1"],
+            "mode": "targeted",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["state"] == "editable"
+    assert body["plan_version"] == 1
+    assert len(body["questions"]) == 3
+    assert body["practice_provenance"] == {
+        "source_session_id": session_id,
+        "source_session_question_ids": ["q1"],
+        "source_plan_question_ids": ["pq-source-1"],
+        "source_report_id": session_id,
+        "focus_dimension": "engineering",
+    }
+
+
+def test_practice_plan_endpoint_rejects_unfinished_report_without_creating_plan():
+    client, _, _, _ = make_client()
+    session_id = start_interview(client)
+
+    response = client.post(
+        f"/api/interviews/{session_id}/practice-plan",
+        json={
+            "focus_dimension": "engineering",
+            "session_question_ids": ["q1"],
+            "mode": "targeted",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PRACTICE_INTERVIEW_NOT_FINISHED"
+    assert client.practice_plan_store._records == {}
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_code"),
+    [
+        (
+            {
+                "focus_dimension": "unsupported",
+                "session_question_ids": ["q1"],
+                "mode": "targeted",
+            },
+            "PRACTICE_INVALID_DIMENSION",
+        ),
+        (
+            {
+                "focus_dimension": "engineering",
+                "session_question_ids": [],
+                "mode": "targeted",
+            },
+            "PRACTICE_INVALID_QUESTION_IDS",
+        ),
+        (
+            {
+                "focus_dimension": "engineering",
+                "session_question_ids": ["q1", "q1"],
+                "mode": "targeted",
+            },
+            "PRACTICE_INVALID_QUESTION_IDS",
+        ),
+        (
+            {
+                "focus_dimension": "engineering",
+                "session_question_ids": ["q1", "q2", "q3", "q4"],
+                "mode": "targeted",
+            },
+            "PRACTICE_INVALID_QUESTION_IDS",
+        ),
+    ],
+)
+def test_practice_plan_endpoint_returns_stable_semantic_validation_errors(
+    payload,
+    expected_code,
+):
+    client, store, _, _ = make_client()
+    session_id = start_interview(client)
+    responses = answer_all_questions(client, session_id)
+    assert all(response.status_code == 200 for response in responses)
+    report = make_report_model(session_id)
+    report = report.model_copy(
+        update={
+            "overall_dimension_scores": report.overall_dimension_scores.model_copy(
+                update={"engineering": 55}
+            )
+        }
+    )
+    store.save_report(session_id, report)
+    store.save_question_evaluations(
+        session_id,
+        [
+            question_evaluation_from_feedback(
+                session_id=session_id,
+                feedback=report.feedbacks[0],
+            )
+        ],
+    )
+
+    response = client.post(
+        f"/api/interviews/{session_id}/practice-plan",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == expected_code
+    assert client.practice_plan_store._records == {}
 
 
 def test_report_pdf_endpoint_rejects_processing_report():

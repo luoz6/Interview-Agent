@@ -15,94 +15,80 @@ test("help route remains stable across viewports", async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: 900 });
     await page.goto("/help");
     await expectGeometry(page);
+    await expect(page.locator(".help-manual-section")).toHaveCount(5);
+    await expect(page.locator(".help-inspector, .help-status-bar")).toHaveCount(0);
   }
 });
 
-test("help route uses the shared app workbench and switches factual manual panes", async ({ page }) => {
+test("help route is a truthful single-column recovery manual", async ({ page }) => {
   await page.goto("/help");
 
   await expect(page.locator(".help-app.start-app-root")).toBeVisible();
   await expect(page.locator(".help-app-topbar.start-app-topbar")).toBeVisible();
   await expect(page.locator(".help-workspace.start-editor-workspace")).toBeVisible();
-  await expect(page.locator(".help-inspector.start-inspector")).toBeVisible();
-  await expect(page.locator(".help-status-bar.start-status-bar")).toBeVisible();
-  await expect(page.locator(".help-entry-grid")).toHaveCount(0);
-  await expect(page.locator(".button-primary:not(:disabled)")).toHaveCount(1);
-  await expect(page.locator(".help-app")).toHaveAttribute("data-help-view", "guide");
-  await expect(page.locator("#help-panel-guide")).toBeVisible();
+  await expect(page.locator(".help-inspector.start-inspector")).toHaveCount(0);
+  await expect(page.locator(".help-status-bar.start-status-bar")).toHaveCount(0);
+  await expect(page.locator(".start-runtime")).toHaveCount(0);
+  await expect(page.locator(".help-manual-toc a")).toHaveCount(5);
+  await expect(page.getByRole("heading", { name: "准备资料" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "进行面试" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "恢复会话" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "报告失败" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "草稿与数据" })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("帮助可用");
+  await expect(page.locator("body")).not.toContainText("手册就绪");
+  await expect(page.locator("#drafts-data")).toContainText("进程内临时保存");
+  await expect(page.locator("#drafts-data")).toContainText("持久保存");
 
-  const visualDetails = await page.locator("#help-panel-guide").evaluate((panel) => ({
-    titleSize: Number.parseFloat(getComputedStyle(panel.querySelector(".help-flow-list h3")).fontSize),
-    copySize: Number.parseFloat(getComputedStyle(panel.querySelector(".help-flow-list p")).fontSize),
-    actionHeight: panel.querySelector(".help-flow-list a").getBoundingClientRect().height,
-    paneAnimation: getComputedStyle(panel).animationName,
-    paneDuration: getComputedStyle(panel).animationDuration,
-  }));
-  expect(visualDetails.titleSize).toBeGreaterThanOrEqual(15);
-  expect(visualDetails.copySize).toBeGreaterThanOrEqual(14);
-  expect(visualDetails.actionHeight).toBeGreaterThanOrEqual(40);
-  expect(visualDetails.paneAnimation).toContain("help-pane-enter");
-  expect(visualDetails.paneDuration).toBe("0.2s");
-
-  const recoveryTab = page.getByRole("button", { name: "恢复" });
-  await expect(recoveryTab).toHaveAttribute("aria-controls", "help-panel-recovery");
-  await recoveryTab.click();
-  await expect(recoveryTab).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".help-app")).toHaveAttribute("data-help-view", "recovery");
-  await expect(page.locator("#help-panel-recovery")).toBeVisible();
-  await expect(page.locator("#help-panel-recovery .help-recovery-list article")).toHaveCount(4);
-  await expect(page.locator("#help-panel-guide")).toBeHidden();
-  const motionDetails = await page.locator("#help-panel-recovery").evaluate((panel) => {
-    const rows = [...panel.querySelectorAll(".help-motion-row")];
-    const danger = panel.querySelector('[data-tone="danger"]');
-    const normal = panel.querySelector('[data-tone="info"]');
+  const manual = await page.evaluate(() => {
+    const shell = document.querySelector(".help-app-shell");
+    const section = document.querySelector(".help-manual-section");
+    const title = section.querySelector("h2");
+    const copy = section.querySelector("p");
+    const tocLinks = [...document.querySelectorAll(".help-manual-toc a")];
     return {
-      rowNames: rows.map((row) => getComputedStyle(row).animationName),
-      rowDurations: rows.map((row) => getComputedStyle(row).animationDuration),
-      rowDelays: rows.map((row) => Number.parseFloat(getComputedStyle(row).animationDelay)),
-      dangerSurface: getComputedStyle(danger).backgroundColor,
-      normalSurface: getComputedStyle(normal).backgroundColor,
-      dangerIconSurface: getComputedStyle(danger.querySelector(".help-row-icon")).backgroundColor,
+      shellColumns: getComputedStyle(shell).gridTemplateColumns.split(" ").filter(Boolean).length,
+      sectionWidth: section.getBoundingClientRect().width,
+      titleSize: Number.parseFloat(getComputedStyle(title).fontSize),
+      copySize: Number.parseFloat(getComputedStyle(copy).fontSize),
+      touchTargets: tocLinks.every((link) => link.getBoundingClientRect().height >= 40),
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   });
-  expect(motionDetails.rowNames.every((name) => name.includes("help-row-enter"))).toBe(true);
-  expect(motionDetails.rowDurations.every((duration) => duration === "0.22s")).toBe(true);
-  expect(motionDetails.rowDelays).toEqual([0.032, 0.06, 0.088, 0.116]);
-  expect(motionDetails.dangerSurface).toBe(motionDetails.normalSurface);
-  expect(motionDetails.dangerIconSurface).not.toBe(motionDetails.dangerSurface);
-  const selectedMotion = await recoveryTab.locator("span").first().evaluate((element) => getComputedStyle(element).animationName);
-  expect(selectedMotion).toContain("help-icon-settle");
+  expect(manual.shellColumns).toBe(1);
+  expect(manual.sectionWidth).toBeGreaterThan(0);
+  expect(manual.titleSize).toBeGreaterThanOrEqual(18);
+  expect(manual.copySize).toBeGreaterThanOrEqual(13);
+  expect(manual.touchTargets).toBe(true);
+  expect(manual.horizontalOverflow).toBe(false);
 
-  const boundariesTab = page.getByRole("button", { name: "边界" });
-  await boundariesTab.click();
-  await expect(page.locator(".help-app")).toHaveAttribute("data-help-view", "boundaries");
-  await expect(page.locator("#help-panel-boundaries")).toBeVisible();
-  await expect(page.locator("#help-panel-boundaries")).toHaveAttribute("aria-labelledby", "help-tab-boundaries");
-  await expect(page.getByRole("link", { name: /开始新面试/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: /报告中心/ }).last()).toBeVisible();
+  const reportFailureLink = page.locator('.help-manual-toc a[href="#report-failure"]');
+  await reportFailureLink.click();
+  await expect(page.locator("#report-failure")).toBeInViewport();
 
-  const primaryAction = page.locator(".help-inspector-actions .button-primary");
-  await primaryAction.hover();
-  const iconTransform = await primaryAction.locator("svg").evaluate((element) => getComputedStyle(element).transform);
-  expect(iconTransform).not.toBe("none");
-  await primaryAction.focus();
-  await expect(primaryAction).toBeFocused();
-  const focusWidth = await primaryAction.evaluate((element) => Number.parseFloat(getComputedStyle(element).outlineWidth));
+  const reportCenter = page.getByRole("link", { name: "打开报告中心" });
+  await reportCenter.focus();
+  await expect(reportCenter).toBeFocused();
+  const focusWidth = await reportCenter.evaluate((element) => Number.parseFloat(getComputedStyle(element).outlineWidth));
   expect(focusWidth).toBeGreaterThanOrEqual(2);
 });
 
-test("help pane motion honors reduced motion", async ({ page }) => {
+test("help manual honors reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/help");
-  await page.getByRole("button", { name: "恢复" }).click();
-  const durations = await page.evaluate(() => [
-    document.querySelector("#help-panel-recovery"),
-    document.querySelector("#help-panel-recovery .help-motion-row"),
-    document.querySelector(".help-command-context"),
-    document.querySelector(".help-inspector-current"),
-    document.querySelector('.help-activity-rail button[aria-pressed="true"] > span'),
-  ].map((element) => Number.parseFloat(getComputedStyle(element).animationDuration)));
-  expect(durations.every((duration) => duration <= 0.001)).toBe(true);
-  const rowDelay = await page.locator("#help-panel-recovery .help-motion-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).animationDelay));
-  expect(rowDelay).toBe(0);
+  await expect(page.locator(".help-manual-toc a").first()).toBeVisible();
+  const motion = await page.evaluate(() => {
+    const root = document.querySelector(".help-app");
+    const sample = document.querySelector(".help-manual-toc a");
+    return {
+      scrollBehavior: getComputedStyle(document.querySelector(".help-manual")).scrollBehavior,
+      animationDuration: getComputedStyle(sample).animationDuration,
+      transitionDuration: getComputedStyle(sample).transitionDuration,
+      rootVisible: root.getBoundingClientRect().height > 0,
+    };
+  });
+  expect(motion.scrollBehavior).toBe("auto");
+  expect(Number.parseFloat(motion.animationDuration)).toBeLessThanOrEqual(0.001);
+  expect(Number.parseFloat(motion.transitionDuration)).toBeLessThanOrEqual(0.001);
+  expect(motion.rootVisible).toBe(true);
 });

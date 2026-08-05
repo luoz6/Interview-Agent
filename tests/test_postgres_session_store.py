@@ -914,7 +914,11 @@ def test_list_reports_survives_store_reinstantiation():
         resume_text="Built FastAPI services",
         job_tags=["python", "fastapi"],
     )
-    finish_session(store, completed.session_id)
+    store.submit_answer(
+        completed.session_id,
+        "I designed the cache recovery path.",
+    )
+    store.finish(completed.session_id)
     finish_session(store, processing.session_id)
 
     store.mark_report_processing(completed.session_id)
@@ -952,6 +956,7 @@ def test_list_reports_survives_store_reinstantiation():
         "job_title": completed_state["plan"].title,
         "job_tags": completed_state["job_tags"],
         "question_count": len(completed_state["plan"].questions),
+        "answered_question_count": 1,
         "started_at": completed_state["started_at"],
         "finished_at": completed_state["finished_at"],
     }

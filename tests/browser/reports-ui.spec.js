@@ -28,14 +28,12 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
   await expect(page.locator(".reports-app.start-app-root")).toBeVisible();
   await expect(page.locator(".reports-app-topbar.start-app-topbar")).toBeVisible();
   await expect(page.locator(".reports-workspace.start-editor-workspace")).toBeVisible();
-  await expect(page.locator(".reports-inspector.start-inspector")).toBeVisible();
-  await expect(page.locator(".reports-status-bar.start-status-bar")).toBeVisible();
+  await expect(page.locator(".reports-inspector.start-inspector")).toHaveCount(0);
+  await expect(page.locator(".reports-status-bar.start-status-bar")).toHaveCount(0);
+  await expect(page.locator(".reports-row-context").first()).toContainText("有效回答");
+  await expect(page.locator(".reports-report-ledger")).not.toContainText("生成路径");
 
   const hierarchy = await page.evaluate(() => {
-    const command = document.querySelector(".reports-commandbar");
-    const metrics = document.querySelector(".reports-status-strip");
-    const stripColor = getComputedStyle(metrics).backgroundColor;
-    const inspectorColor = getComputedStyle(document.querySelector(".reports-inspector")).backgroundColor;
     const ledgerBorderTop = getComputedStyle(document.querySelector(".reports-report-ledger")).borderTopWidth;
     const queryPanel = document.querySelector(".reports-query-panel");
     const workspaceChrome = document.querySelector(".reports-workspace-chrome");
@@ -52,9 +50,6 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
     const descriptionRange = document.createRange();
     descriptionRange.selectNodeContents(description);
     return {
-      commandPrecedesMetrics: Boolean(command.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING),
-      stripColor,
-      inspectorColor,
       ledgerBorderTop,
       chromeSurface: getComputedStyle(workspaceChrome).backgroundColor,
       chromeBorderBottom: getComputedStyle(workspaceChrome).borderBottomWidth,
@@ -71,10 +66,9 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
       paginationJustify: getComputedStyle(pagination).justifyContent,
       paginationBottomDelta: Math.abs(pagination.getBoundingClientRect().bottom - ledger.getBoundingClientRect().bottom),
       descriptionLines: descriptionRange.getClientRects().length,
+      shellColumns: getComputedStyle(document.querySelector(".reports-app-shell")).gridTemplateColumns.split(" ").filter(Boolean).length,
     };
   });
-  expect(hierarchy.commandPrecedesMetrics).toBe(true);
-  expect(hierarchy.stripColor).toBe(hierarchy.inspectorColor);
   expect(hierarchy.ledgerBorderTop).toBe("0px");
   expect(hierarchy.querySurface).toBe(hierarchy.chromeSurface);
   expect(hierarchy.chromeBorderBottom).toBe("1px");
@@ -90,6 +84,7 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
   expect(hierarchy.paginationJustify).toBe("flex-end");
   expect(hierarchy.paginationBottomDelta).toBeLessThan(1);
   expect(hierarchy.descriptionLines).toBe(1);
+  expect(hierarchy.shellColumns).toBe(2);
   await expect(page.locator(".button-primary:not(:disabled)")).toHaveCount(1);
 
   await page.locator('input[aria-label="搜索报告"]').focus();

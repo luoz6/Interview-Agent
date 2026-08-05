@@ -1,12 +1,49 @@
+from contextlib import contextmanager
+
 import pytest
 
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
 )
 from app.services.session import InterviewSessionStore
+
+
+class _CapturingCursor:
+    def __init__(self):
+        self.query = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, query, _params):
+        self.query = query
+
+    def fetchall(self):
+        return []
+
+
+class _CapturingConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+
+class _CapturingProvider:
+    def __init__(self):
+        self.cursor = _CapturingCursor()
+
+    @contextmanager
+    def connection(self):
+        yield _CapturingConnection(self.cursor)
 
 
 class FakeInterviewLLM:
@@ -47,6 +84,20 @@ def make_dimension_scores(score: int = 80) -> DimensionScores:
         engineering=score,
         communication=score,
     )
+
+
+def test_postgres_report_list_sql_binds_answer_message_table_without_database():
+    provider = _CapturingProvider()
+    store = object.__new__(PostgresInterviewSessionStore)
+    store._connection_provider = provider
+    store.reports_table = "contract_reports"
+    store.sessions_table = "contract_sessions"
+    store.messages_table = "contract_messages"
+
+    reports = store.list_reports(limit=10)
+
+    assert reports == []
+    assert "contract_messages" in repr(provider.cursor.query)
 
 
 def make_report(session_id: str) -> InterviewReport:
@@ -184,6 +235,13 @@ def test_list_reports_returns_completed_failed_and_processing_records():
     finish_session(store, first.session_id)
     finish_session(store, second.session_id)
     finish_session(store, third.session_id)
+    store.get(third.session_id)["messages"] = [
+        {
+            "role": "candidate",
+            "content": "I built a cache service.",
+            "question_id": "q1",
+        }
+    ]
 
     store.mark_report_processing(first.session_id)
     store.save_report(first.session_id, make_report(first.session_id))
@@ -208,6 +266,7 @@ def test_list_reports_returns_completed_failed_and_processing_records():
         "job_title": processing_state["plan"].title,
         "job_tags": processing_state["job_tags"],
         "question_count": len(processing_state["plan"].questions),
+        "answered_question_count": 1,
         "started_at": processing_state["started_at"],
         "finished_at": processing_state["finished_at"],
     }

@@ -107,6 +107,14 @@ def test_postgres_same_command_converges_to_one_session_under_concurrency(
             postgres_dsn,
             f"{prefix}_prep_plan_session_question_mappings",
         ) == 4
+        mappings = launches.mappings_for_session(next(iter(session_ids)))
+        assert [mapping["session_question_id"] for mapping in mappings] == [
+            "q1",
+            "q2",
+            "q3",
+            "q4",
+        ]
+        assert all(mapping["plan_question_id"].startswith("pq_") for mapping in mappings)
 
         with pytest.raises(PrepPlanError) as captured:
             coordinator.launch(

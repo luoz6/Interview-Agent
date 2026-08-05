@@ -32,7 +32,6 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
       const overview = document.querySelector(".report-detail-overview");
       const score = document.querySelector(".report-detail-score-mark");
       const title = document.querySelector("#report-detail-title");
-      const trace = document.querySelector("#runtime-trace");
       const referencePanel = document.querySelector(".report-detail-dimension-panel");
       const workspaceRect = workspace.getBoundingClientRect();
       const inspectorRect = inspector.getBoundingClientRect();
@@ -76,14 +75,14 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         dimensionAnimation: getComputedStyle(
           document.querySelector(".report-detail-dimension-track > span"),
         ).animationName,
-        traceBackground: getComputedStyle(trace).backgroundColor,
         referencePanelBackground: getComputedStyle(referencePanel).backgroundColor,
-        traceColor: getComputedStyle(trace).color,
         workspaceColor: getComputedStyle(workspace).color,
-        traceMarginInline: [
-          getComputedStyle(trace).marginLeft,
-          getComputedStyle(trace).marginRight,
-        ],
+        reliabilityVisible: Boolean(document.querySelector(".report-detail-reliability")),
+        practiceVisible: Boolean(document.querySelector("#practice")),
+        runtimeTraceCount: document.querySelectorAll("#runtime-trace").length,
+        evaluationLedgerCount: document.querySelectorAll(".report-detail-evaluation-ledger").length,
+        inspectorScoreCount: document.querySelectorAll(".report-detail-inspector-score").length,
+        statusBarCount: document.querySelectorAll(".report-detail-status-bar").length,
         legacyTraceIdCount: document.querySelectorAll("#trace").length,
         traceEmptyCount: document.querySelectorAll(
           '.report-detail-trace-empty[data-state="empty"]',
@@ -115,20 +114,25 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.scoreTrackAnimation).toBe("report-detail-score-fill");
     expect(detail.scoreOrbitCount).toBe(0);
     expect(detail.dimensionRows).toBe(5);
-    expect(detail.introRevealCount).toBe(3);
+    expect(detail.introRevealCount).toBe(4);
     expect(detail.horizontalOverflow).toBe(false);
     expect(detail.wrappedActionLabels).toBe(0);
     expect(detail.railIconCount).toBe(5);
-    expect(detail.sectionIconCount).toBe(6);
+    expect(detail.sectionIconCount).toBe(7);
     expect(detail.scoreAnimations).toContain("report-detail-score-enter");
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
-    expect(detail.traceBackground).toBe(detail.referencePanelBackground);
-    expect(detail.traceColor).toBe(detail.workspaceColor);
-    expect(detail.traceMarginInline).toEqual(["0px", "0px"]);
+    expect(detail.referencePanelBackground).not.toBe("");
+    expect(detail.workspaceColor).not.toBe("");
+    expect(detail.reliabilityVisible).toBe(true);
+    expect(detail.practiceVisible).toBe(true);
+    expect(detail.runtimeTraceCount).toBe(0);
+    expect(detail.evaluationLedgerCount).toBe(0);
+    expect(detail.inspectorScoreCount).toBe(0);
+    expect(detail.statusBarCount).toBe(0);
     expect(detail.legacyTraceIdCount).toBe(0);
-    expect(detail.traceEmptyCount).toBe(1);
+    expect(detail.traceEmptyCount).toBe(0);
     expect(detail.traceGridCount).toBe(0);
-    expect(detail.primaryCount).toBe(1);
+    expect(detail.primaryCount).toBeLessThanOrEqual(1);
     expect(detail.actionHeights.every((height) => height >= 44)).toBe(true);
     expect(detail.oldPosterScoreCount).toBe(0);
 
@@ -163,7 +167,7 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载完整报告" }).click();
   await downloadPromise;
-  await expect(page.locator(".report-detail-primary-action")).toContainText("下载已开始");
+  await expect(page.locator(".report-detail-download-action")).toContainText("下载已开始");
   await expect(firstFeedback).not.toHaveAttribute("open", "");
 });
 
@@ -195,29 +199,22 @@ test("report detail error state explains the failure and reloads in place", asyn
   expect(reportRequests).toBeGreaterThanOrEqual(3);
 });
 
-test("optional runtime diagnostics distinguish unavailable from genuinely empty", async ({
+test("product mode does not request or render runtime diagnostics", async ({
   page,
   request,
 }) => {
   const sessionId = await createCompletedReport(request);
-  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({
-    status: 503,
-    contentType: "application/json",
-    body: JSON.stringify({ detail: "Agent 诊断暂时不可用" }),
-  }));
-  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({
-    status: 503,
-    contentType: "application/json",
-    body: JSON.stringify({ detail: "事件诊断暂时不可用" }),
-  }));
+  let diagnosticRequests = 0;
+  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => { diagnosticRequests += 1; return route.abort(); });
+  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => { diagnosticRequests += 1; return route.abort(); });
+  await page.route(`**/api/interviews/${sessionId}/question-evaluations`, (route) => { diagnosticRequests += 1; return route.abort(); });
 
   await page.goto("/report-detail?session_id=" + sessionId);
   await expect(page.locator(".report-detail-score-mark")).toBeVisible();
-  const unavailable = page.locator('.report-detail-trace-empty[data-state="unavailable"]');
-  await expect(unavailable).toContainText("公开运行轨迹暂时不可用");
-  await expect(unavailable).toContainText("报告评分和反馈仍然有效");
-  await expect(page.getByRole("button", { name: "重新同步诊断" })).toBeEnabled();
-  await expect(page.locator(".report-detail-trace-grid")).toHaveCount(0);
+  expect(diagnosticRequests).toBe(0);
+  await expect(page.locator("#runtime-trace")).toHaveCount(0);
+  await expect(page.locator(".report-detail-evaluation-ledger")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("运行轨迹");
 });
 
 test("report detail motion and focus states remain accessible", async ({
