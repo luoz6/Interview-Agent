@@ -373,7 +373,8 @@ def test_reset_runtime_for_tests_shuts_down_cached_event_publisher(monkeypatch):
     assert closed == [False]
 
 
-def test_get_draft_store_caches_until_reset():
+def test_get_draft_store_caches_until_reset(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "memory")
     reset_runtime_for_tests()
     first = get_draft_store()
     second = get_draft_store()

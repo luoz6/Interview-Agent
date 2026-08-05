@@ -13,6 +13,7 @@ from app.services.postgres_runtime_migrations import (
 from app.services.postgres_schema import validate_relations
 from app.services.postgres_schema_contract import LATEST_RUNTIME_MIGRATION
 from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
+from app.services.postgres_schema_contract import required_columns_for_relation
 from app.services.embedding_providers import DisabledEmbeddingProvider
 from app.services.postgres_identifiers import runtime_schema_identifier
 from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
@@ -49,6 +50,12 @@ class FakeCursor:
 
     def fetchall(self):
         return self.connection.rows
+
+
+def test_v15_prep_plan_versions_uses_specific_contract_not_pgvector_suffix():
+    columns = required_columns_for_relation("interview_prep_plan_versions")
+    assert "public_snapshot_json" in columns
+    assert "embedding" not in columns
 
 
 class FakeConnection:
@@ -454,7 +461,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "principal_memory_ledger_watermark_v4"
+        assert first.migration_id == "frontend_product_experience_v15"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert local_rights_tables == {
@@ -529,7 +536,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "principal_memory_ledger_watermark_v4"
+        assert result.migration_id == "frontend_product_experience_v15"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -699,7 +706,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "principal_memory_ledger_watermark_v4"
+        assert result.migration_id == "frontend_product_experience_v15"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

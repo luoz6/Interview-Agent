@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from app.services.drafts import AnonymousDraftStore
 
@@ -20,6 +21,9 @@ def test_save_draft_creates_id_timestamps_and_tags():
     assert draft["title"] == "Backend prep"
     assert draft["created_at"]
     assert draft["updated_at"] == draft["created_at"]
+    assert draft["durability"] == "memory"
+    assert draft["expires_at"]
+    assert len(draft["draft_id"].removeprefix("draft_")) == 36
 
 
 def test_save_draft_updates_existing_id():
@@ -85,3 +89,29 @@ def test_clear_removes_all_drafts():
 
     with pytest.raises(ValueError, match="draft not found"):
         store.get(draft["draft_id"])
+
+
+def test_delete_and_fixed_expiry_make_draft_unavailable():
+    now = datetime(2026, 8, 5, tzinfo=timezone.utc)
+    clock = {"value": now}
+    store = AnonymousDraftStore(
+        ttl=timedelta(hours=1),
+        clock=lambda: clock["value"],
+    )
+    draft = store.save(
+        job_description="Backend role",
+        resume_text="Built APIs",
+    )
+    updated = store.save(
+        draft_id=draft["draft_id"],
+        job_description="Backend role updated",
+        resume_text="Built APIs",
+    )
+    assert updated["expires_at"] == draft["expires_at"]
+    clock["value"] = now + timedelta(hours=1, seconds=1)
+    with pytest.raises(ValueError, match="draft not found"):
+        store.get(draft["draft_id"])
+
+    second = store.save(job_description="Backend role", resume_text="Built APIs")
+    assert store.delete(second["draft_id"]) is True
+    assert store.delete(second["draft_id"]) is False

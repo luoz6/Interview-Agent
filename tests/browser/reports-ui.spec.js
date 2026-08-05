@@ -14,6 +14,7 @@ test("report center remains stable across viewports", async ({ page }) => {
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: 900 });
     await page.goto("/reports");
+    await expect(page.locator(".reports-report-ledger")).not.toHaveAttribute("aria-busy", "true");
     await expectGeometry(page);
     await expect(page.locator(".button-primary:not(:disabled)")).toHaveCount(1);
   }

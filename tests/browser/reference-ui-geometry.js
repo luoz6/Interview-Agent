@@ -48,6 +48,14 @@ async function seedReport(request, status, ageDays = 0) {
 
 async function expectGeometry(page) {
   await expect(page.locator(".start-app-root")).toBeVisible();
+  await page.waitForFunction(() => Boolean(document.querySelector([
+    ".start-editor-workspace",
+    ".interview-workspace",
+    ".processing-workspace",
+    ".report-detail-workspace",
+    ".reports-workspace",
+    ".help-workspace",
+  ].join(","))), null, { timeout: 10_000 });
   const metrics = await page.evaluate(() => {
     const visibleButtons = [...document.querySelectorAll("button")].filter((item) => {
       const rect = item.getBoundingClientRect();

@@ -38,10 +38,10 @@ def require_postgres_dsn() -> str:
 
 def make_runtime_table_prefix(scope: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "_", scope.lower()).strip("_")
-    # The longest runtime table suffix is 34 bytes. Reserve one underscore and
+    # The longest runtime table suffix is 36 bytes. Reserve one underscore and
     # the 12-byte uniqueness token so every table remains within PostgreSQL's
     # 63-byte identifier limit. Long indexes/constraints are separately hashed.
-    normalized = normalized[:11].rstrip("_") or "runtime"
+    normalized = normalized[:9].rstrip("_") or "runtime"
     prefix = f"test_{normalized}_{uuid4().hex[:12]}"
     assert_safe_test_prefix(prefix)
     return prefix
@@ -54,3 +54,25 @@ def assert_safe_test_prefix(prefix: str) -> None:
 
 def reset_postgres_availability_cache() -> None:
     _checked_postgres_dsn.cache_clear()
+
+
+def drop_runtime_tables(dsn: str, prefix: str) -> None:
+    """Remove only tables owned by one generated test prefix."""
+    assert_safe_test_prefix(prefix)
+    import psycopg2
+    from psycopg2 import sql
+
+    escaped_prefix = prefix.replace("_", r"\_") + r"\_%"
+    with psycopg2.connect(dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT tablename FROM pg_tables "
+                "WHERE schemaname = current_schema() AND tablename LIKE %s ESCAPE '\\'",
+                (escaped_prefix,),
+            )
+            for (table_name,) in cursor.fetchall():
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                        table=sql.Identifier(table_name)
+                    )
+                )

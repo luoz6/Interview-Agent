@@ -39,6 +39,14 @@ async function fillPrepSources(page) {
 }
 
 async function expectGeometry(page) {
+  await page.waitForFunction(() => Boolean(document.querySelector([
+    ".start-editor-workspace",
+    ".interview-workspace",
+    ".processing-workspace",
+    ".report-detail-workspace",
+    ".reports-workspace",
+    ".help-workspace",
+  ].join(","))), null, { timeout: 10_000 });
   const metrics = await page.evaluate(() => {
     const visibleButtons = [...document.querySelectorAll("button")].filter((item) => {
       const rect = item.getBoundingClientRect();
@@ -90,6 +98,7 @@ test("React preparation validates imports and renders real plan metrics", async 
 
 test("preparation details expose semantic icons, errors and focused recovery", async ({ page }) => {
   await page.goto("/prep");
+  await expect(page.locator(".start-editor-workspace")).toBeVisible();
   await expect(page.locator(".start-app-root")).toBeVisible();
 
   const namedButtons = page.locator("button:visible");

@@ -7,6 +7,7 @@ import app.api.routes as route_module
 from app.api.routes import get_session_store
 from app.main import app
 from app.services.drafts import AnonymousDraftStore
+from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.event_publisher import NoopRuntimeEventPublisher
 from app.services.prep import (
     InterviewPlan,
@@ -63,12 +64,16 @@ class FakeApiLLM:
 
 
 _api_draft_store = AnonymousDraftStore()
+_api_prep_plan_store = InMemoryPrepPlanStore()
 
 
 def make_client(control_store=None):
     store = InterviewSessionStore(llm=FakeApiLLM())
     app.dependency_overrides[get_session_store] = lambda: store
     app.dependency_overrides[get_draft_store] = lambda: _api_draft_store
+    app.dependency_overrides[route_module.get_prep_plan_store] = (
+        lambda: _api_prep_plan_store
+    )
     app.dependency_overrides.setdefault(
         route_module.get_event_publisher,
         lambda: NoopRuntimeEventPublisher(),
@@ -135,6 +140,7 @@ class FakeRuntimeControl:
 def teardown_function():
     app.dependency_overrides.clear()
     _api_draft_store.clear()
+    _api_prep_plan_store.clear()
 
 
 def test_health_endpoint():
@@ -441,6 +447,7 @@ def test_prepare_endpoint_hides_internal_knowledge_hashes_and_binding_snapshot(m
         ),
     )
     monkeypatch.setattr(route_module, "prepare_interview", lambda *_args, **_kwargs: plan)
+    app.dependency_overrides[route_module.get_prep_plan_store] = lambda: _api_prep_plan_store
     client = TestClient(app)
 
     response = client.post(
@@ -468,6 +475,7 @@ def test_prepare_endpoint_returns_job_tags_without_session_store(monkeypatch):
         raise RuntimeError("session store should not be used")
 
     app.dependency_overrides[get_session_store] = fail_session_store
+    app.dependency_overrides[route_module.get_prep_plan_store] = lambda: _api_prep_plan_store
     monkeypatch.setattr(
         route_module,
         "prepare_interview",
@@ -675,6 +683,7 @@ def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
         )
 
     app.dependency_overrides[get_session_store] = fail_session_store
+    app.dependency_overrides[route_module.get_prep_plan_store] = lambda: _api_prep_plan_store
     monkeypatch.setattr(route_module, "prepare_interview", fake_prepare_interview)
     client = TestClient(app)
 
@@ -768,6 +777,19 @@ def test_get_interview_draft_missing_returns_404():
 
     assert response.status_code == 404
     assert response.json()["detail"] == "draft not found"
+
+
+def test_delete_interview_draft_removes_server_record():
+    client = make_client()
+    created = client.post(
+        "/api/interview-drafts",
+        json={"job_description": "Backend role", "resume_text": "Built APIs"},
+    ).json()
+
+    response = client.delete(f"/api/interview-drafts/{created['draft_id']}")
+
+    assert response.status_code == 204
+    assert client.get(f"/api/interview-drafts/{created['draft_id']}").status_code == 404
 
 
 def test_create_interview_draft_rejects_blank_fields():

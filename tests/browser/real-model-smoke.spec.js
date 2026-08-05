@@ -146,6 +146,8 @@ test("fresh provider preserves Stage 42 evidence through report and PDF", async 
   expect(Object.values(interviewerCounts).some((count) => count > 1)).toBe(true);
 
   await page.locator("#finishInterviewButton").click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await page.getByRole("button", { name: "结束并生成报告" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 600_000 });
   await expect(page.locator("body")).toContainText(/\b[0-9]{1,3}\b/);
   await page.screenshot({ path: testInfo.outputPath("stage42-real-report.png"), fullPage: true });

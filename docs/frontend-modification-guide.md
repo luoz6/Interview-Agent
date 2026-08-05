@@ -60,12 +60,14 @@ npm.cmd run build:frontend
 
 | 路由 | React 页面 | 主要职责 |
 | --- | --- | --- |
-| `/`、`/prep` | `PrepPage.jsx` | JD/简历输入、文本导入、草稿恢复、生成计划、启动面试 |
+| `/`、`/prep` | `StartPage.jsx` | JD/简历输入、文本导入、草稿恢复、生成计划、启动面试 |
 | `/interview` | `InterviewPage.jsx` | 会话快照、题目导航、SSE 答题、跳题、结束、断线恢复 |
 | `/report-processing` | `ReportProcessingPage.jsx` | 报告进度轮询、阶段、事件、RAG 摘要、完成跳转 |
 | `/report-detail` | `ReportDetailPage.jsx` | 总分、五维评分、逐题反馈、证据、评估链路、PDF |
 | `/reports` | `ReportsPage.jsx` | 服务端搜索、筛选、分页、状态统计、重试与下载 |
 | `/help` | `HelpPage.jsx` | 工作流说明、草稿/SSE/报告失败恢复指南 |
+
+> 运行路径审计（2026-08-05）：`frontend/src/App.jsx` 的 `/` 与 `/prep` 只懒加载 `StartPage.jsx`。旧 `PrepPage.jsx` 和 `styles/start-page.css` 没有任何正式路由或 import；它们仅作为待 Phase 5 删除的历史文件保留，不能作为当前产品实现或设计来源。
 
 除准备页外，工作流页面通过 `session_id` 查询参数关联会话：
 
