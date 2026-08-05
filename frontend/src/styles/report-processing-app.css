@@ -81,11 +81,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.processing-runtime strong,
-.processing-head-step {
-  animation: processing-state-update var(--start-duration-state) var(--start-ease-out) both;
-}
-
 .processing-workspace {
   background: var(--start-color-surface);
 }
@@ -182,7 +177,6 @@
   font-size: clamp(var(--start-text-title), 2vw, 1.625rem);
   letter-spacing: -.02em;
   line-height: 1.2;
-  animation: processing-state-update var(--start-duration-state) var(--start-ease-out) both;
 }
 
 .processing-app .pipeline-hero .processing-progress-copy p {
@@ -192,7 +186,6 @@
   font-size: var(--start-text-sm);
   line-height: 1.6;
   overflow-wrap: anywhere;
-  animation: processing-state-update var(--start-duration-state) var(--start-ease-out) both;
 }
 
 .processing-app .pipeline-hero .processing-percent {
@@ -203,10 +196,9 @@
   font-weight: var(--start-font-weight-semibold);
   letter-spacing: -.055em;
   line-height: 1;
-  animation: processing-value-update var(--start-duration-state) var(--start-ease-out) both;
 }
 
-.processing-app .pipeline-hero .processing-percent span {
+.processing-app .pipeline-hero .processing-percent-unit {
   margin-left: var(--start-space-3xs);
   color: var(--start-color-action);
   font-size: var(--start-text-sm);
@@ -227,9 +219,8 @@
   inset: 0;
   border-radius: inherit;
   background: var(--start-color-action);
-  transform: scaleX(var(--processing-progress-scale));
+  transform: scaleX(0);
   transform-origin: left center;
-  transition: transform var(--start-duration-state) var(--start-ease-out);
 }
 
 .processing-sync-line {
@@ -246,7 +237,6 @@
   color: var(--start-color-text-muted);
   font-size: var(--start-text-ui-sm);
   line-height: 1.5;
-  animation: processing-state-update var(--start-duration-fast) var(--start-ease-out) both;
 }
 
 .processing-sync-line > button {
@@ -440,10 +430,6 @@
   white-space: nowrap;
 }
 
-.processing-stage-label svg {
-  animation: processing-status-icon var(--start-duration-state) var(--start-ease-out) both;
-}
-
 .processing-stage-list li[data-state="current"] .processing-stage-label {
   color: var(--start-color-action-hover);
 }
@@ -464,8 +450,6 @@
   padding: var(--start-space-sm) 0;
   border-bottom: var(--start-rule-thin) solid var(--start-color-rule);
   contain: layout paint style;
-  animation: processing-event-enter var(--start-duration-state) var(--start-ease-out) both;
-  animation-delay: calc(min(var(--processing-event-index), 5) * 24ms);
 }
 
 .processing-event-list li:last-child {
@@ -665,7 +649,6 @@
   border: var(--start-rule-thin) solid var(--start-color-rule);
   border-radius: var(--start-radius-control);
   box-shadow: none;
-  animation: processing-notice-enter var(--start-duration-state) var(--start-ease-out) both;
 }
 
 .processing-app .processing-notice .start-notice-icon {
@@ -729,7 +712,6 @@
   color: var(--start-color-text-muted);
   font-size: var(--start-text-xs);
   line-height: 1.45;
-  animation: processing-state-update var(--start-duration-state) var(--start-ease-out) both;
 }
 
 .processing-action-guidance svg {
@@ -759,16 +741,6 @@
   color: var(--start-button-disabled-text);
 }
 
-@keyframes processing-state-update {
-  from { opacity: .55; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes processing-value-update {
-  from { opacity: .5; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes processing-current-enter {
   from { opacity: .68; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -777,21 +749,6 @@
 @keyframes processing-stage-anchor {
   from { opacity: .35; transform: scaleY(.4); }
   to { opacity: 1; transform: scaleY(1); }
-}
-
-@keyframes processing-event-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes processing-notice-enter {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes processing-status-icon {
-  from { opacity: .48; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes processing-action-ready {

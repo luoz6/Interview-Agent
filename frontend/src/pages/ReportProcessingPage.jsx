@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   ArrowClockwise,
   ArrowLeft,
@@ -24,7 +25,10 @@ import {
 } from "@phosphor-icons/react";
 import { getJson, postJson } from "../api/client";
 import { usePageMeta } from "../hooks/usePageMeta";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useSessionId } from "../hooks/useSessionId";
+import { motionDistance, motionDuration, motionEase } from "../motion/config";
+import { gsap, useGSAP } from "../motion/gsap";
 import "../styles/report-processing-app.css";
 
 const stages = [
@@ -69,6 +73,10 @@ function nextPollDelay(startedAt) {
   if (elapsed < 20_000) return 1_000;
   if (elapsed < 60_000) return 2_000;
   return 5_000;
+}
+
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Number(value) || 0));
 }
 
 const stageStateLabels = {
@@ -117,7 +125,7 @@ function ProcessingRuntime({ state }) {
   return (
     <div className="start-runtime processing-runtime" data-state={dataState} role="status" aria-live="polite">
       <span className="start-runtime-icon" aria-hidden="true"><RuntimeIcon state={state} animated /></span>
-      <span>当前任务</span><strong key={state}>{statusLabels[state] || state}</strong>
+      <span>当前任务</span><strong>{statusLabels[state] || state}</strong>
     </div>
   );
 }
@@ -166,12 +174,26 @@ export function ReportProcessingPage() {
     bodyClass: "start-page-body",
   });
   const sessionId = useSessionId();
+  const reducedMotion = useReducedMotion();
   const [progress, setProgress] = useState(null);
   const [notice, setNotice] = useState(null);
   const [polling, setPolling] = useState(true);
   const [requeueing, setRequeueing] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
+  const [displaySnapshot, setDisplaySnapshot] = useState(null);
   const pollStartedAt = useRef(Date.now());
+  const pageRef = useRef(null);
+  const stageCopyRef = useRef(null);
+  const displayedPercentRef = useRef(null);
+  const progressFillRef = useRef(null);
+  const displaySnapshotRef = useRef(null);
+  const targetSnapshotRef = useRef(null);
+  const stageTimelineRef = useRef(null);
+  const percentTimelineRef = useRef(null);
+  const percentProxyRef = useRef({ value: 0 });
+  const percentAttemptRef = useRef(null);
+  const stagePhaseRef = useRef("idle");
+  const { contextSafe } = useGSAP({ scope: pageRef });
 
   const loadProgress = useCallback(async ({ signal } = {}) => {
     if (!sessionId) {
@@ -305,7 +327,7 @@ export function ReportProcessingPage() {
   }
 
   const currentIndex = stageIndex[progress?.stage] ?? 0;
-  const percent = Math.max(0, Math.min(100, Number(progress?.percent) || 0));
+  const apiPercent = clampPercent(progress?.percent);
   const events = progress?.events || [];
   const metadata = progress?.metadata || {};
   const rag = progress?.rag || {};
@@ -324,6 +346,8 @@ export function ReportProcessingPage() {
   const interrupted = ["stalled", "orphaned"].includes(viewState);
   const taskFailed = viewState === "failed" || viewState === "orphaned";
   const syncError = viewState === "error";
+  const percent = completed ? 100 : apiPercent;
+  const criticalVisualState = failed || interrupted || syncError;
   const canRequeue = Boolean(progress?.retryable) && ["failed", "orphaned"].includes(progress?.status) && !requeueing;
   const activeStageLabel = stageLabels[progress?.stage] || (progress?.stage ? progress.stage : "等待阶段信息");
   const currentStageNumber = Math.min(currentIndex + 1, stages.length);
@@ -360,9 +384,171 @@ export function ReportProcessingPage() {
     ["当前题目", progress?.current_question_id || "未提供"],
     ["Worker 心跳", progress?.heartbeat_at ? new Date(progress.heartbeat_at).toLocaleTimeString("zh-CN", { hour12: false }) : "未提供"],
   ], [progress, viewState]);
+  const attemptIdentity = progress
+    ? `${progress.report_job_id || sessionId || "session"}:${progress.attempt ?? 0}`
+    : "pending";
+  const semanticSnapshot = useMemo(() => ({
+    attemptIdentity,
+    status: viewState,
+    stage: progress?.stage || "queued",
+    stageNumber: currentStageNumber,
+    title: activeStageLabel,
+    message: progressMessage,
+    percent,
+  }), [
+    activeStageLabel,
+    attemptIdentity,
+    currentStageNumber,
+    percent,
+    progress?.stage,
+    progressMessage,
+    viewState,
+  ]);
+
+  useEffect(() => {
+    targetSnapshotRef.current = semanticSnapshot;
+    const stageNode = stageCopyRef.current;
+    const currentSnapshot = displaySnapshotRef.current;
+
+    const commitImmediately = () => {
+      stageTimelineRef.current?.kill();
+      stageTimelineRef.current = null;
+      stagePhaseRef.current = "idle";
+      displaySnapshotRef.current = semanticSnapshot;
+      setDisplaySnapshot(semanticSnapshot);
+      if (stageNode) {
+        stageNode.dataset.motionPhase = "idle";
+        gsap.set(stageNode, { autoAlpha: 1, y: 0 });
+      }
+    };
+
+    if (
+      !currentSnapshot
+      || reducedMotion
+      || criticalVisualState
+      || currentSnapshot.attemptIdentity !== semanticSnapshot.attemptIdentity
+    ) {
+      commitImmediately();
+      return undefined;
+    }
+
+    const copyChanged = currentSnapshot.title !== semanticSnapshot.title
+      || currentSnapshot.message !== semanticSnapshot.message;
+    if (!copyChanged || !stageNode) {
+      displaySnapshotRef.current = semanticSnapshot;
+      setDisplaySnapshot(semanticSnapshot);
+      return undefined;
+    }
+
+    const stageChanged = currentSnapshot.stage !== semanticSnapshot.stage;
+    const runTransition = contextSafe(() => {
+      stageTimelineRef.current?.kill();
+      stagePhaseRef.current = "exiting";
+      stageNode.dataset.motionPhase = "exiting";
+
+      const timeline = gsap.timeline({
+        defaults: { overwrite: "auto" },
+        onComplete: () => {
+          if (stageTimelineRef.current !== timeline) return;
+          stageTimelineRef.current = null;
+          stagePhaseRef.current = "idle";
+          stageNode.dataset.motionPhase = "idle";
+        },
+      });
+
+      timeline.to(stageNode, {
+        autoAlpha: 0,
+        y: stageChanged ? -motionDistance.state : 0,
+        duration: stageChanged ? 0.1 : 0.08,
+        ease: motionEase.exit,
+        onComplete: () => {
+          const nextSnapshot = targetSnapshotRef.current;
+          if (!nextSnapshot || stageTimelineRef.current !== timeline) return;
+
+          flushSync(() => {
+            displaySnapshotRef.current = nextSnapshot;
+            setDisplaySnapshot(nextSnapshot);
+          });
+          stagePhaseRef.current = "entering";
+          stageNode.dataset.motionPhase = "entering";
+          gsap.set(stageNode, {
+            autoAlpha: 0,
+            y: stageChanged ? motionDistance.state : 0,
+          });
+        },
+      });
+      timeline.to(stageNode, {
+        autoAlpha: 1,
+        y: 0,
+        duration: stageChanged ? motionDuration.fast : 0.12,
+        ease: motionEase.enter,
+      });
+      stageTimelineRef.current = timeline;
+    });
+
+    runTransition();
+    return () => {
+      stageTimelineRef.current?.kill();
+      stageTimelineRef.current = null;
+    };
+  }, [contextSafe, criticalVisualState, reducedMotion, semanticSnapshot]);
+
+  useEffect(() => {
+    const numberNode = displayedPercentRef.current;
+    const fillNode = progressFillRef.current;
+    if (!numberNode || !fillNode) return undefined;
+
+    const previousAttempt = percentAttemptRef.current;
+    const shouldCommitImmediately = reducedMotion
+      || criticalVisualState
+      || previousAttempt !== attemptIdentity;
+    percentAttemptRef.current = attemptIdentity;
+
+    const renderPercent = () => {
+      numberNode.textContent = String(Math.round(percentProxyRef.current.value));
+    };
+    const runPercentUpdate = contextSafe(() => {
+      percentTimelineRef.current?.kill();
+
+      if (shouldCommitImmediately) {
+        percentProxyRef.current.value = percent;
+        renderPercent();
+        gsap.set(fillNode, { scaleX: percent / 100, transformOrigin: "left center" });
+        return;
+      }
+
+      const timeline = gsap.timeline({
+        defaults: {
+          duration: motionDuration.state,
+          ease: motionEase.enter,
+          overwrite: "auto",
+        },
+        onComplete: () => {
+          if (percentTimelineRef.current === timeline) percentTimelineRef.current = null;
+        },
+      });
+      timeline.to(percentProxyRef.current, {
+        value: percent,
+        onUpdate: renderPercent,
+      }, 0);
+      timeline.to(fillNode, {
+        scaleX: percent / 100,
+        transformOrigin: "left center",
+      }, 0);
+      percentTimelineRef.current = timeline;
+    });
+
+    runPercentUpdate();
+    return () => {
+      percentTimelineRef.current?.kill();
+      percentTimelineRef.current = null;
+    };
+  }, [attemptIdentity, contextSafe, criticalVisualState, percent, reducedMotion]);
+
+  const visibleSnapshot = displaySnapshot || semanticSnapshot;
 
   return (
-    <div className="start-app-root processing-app" data-processing-state={viewState}>
+    <div ref={pageRef} className="start-app-root processing-app" data-processing-state={viewState}>
       <a className="start-skip-link" href="#main-content">跳到报告生成进度</a>
       <header className="app-topbar start-app-topbar processing-app-topbar">
         <a className="start-brand" href="/prep" aria-label="面试智能体开始页">
@@ -401,7 +587,7 @@ export function ReportProcessingPage() {
               <span className="start-workspace-mark" aria-hidden="true"><ListChecks size={18} weight="bold" /></span>
               <div><h1 id="processing-workspace-title">报告生成</h1><p>把等待变成一条透明流水线：进度来自后台权威状态，只有持久化后的阶段记录才会展示为运行事件。</p></div>
             </div>
-            <span className="processing-head-step" key={currentStageNumber} aria-label={`当前第 ${currentStageNumber} 个阶段，共 ${stages.length} 个阶段`}>
+            <span className="processing-head-step" aria-label={`当前第 ${currentStageNumber} 个阶段，共 ${stages.length} 个阶段`}>
               <span>{String(currentStageNumber).padStart(2, "0")}</span><strong>/ {String(stages.length).padStart(2, "0")} 阶段</strong>
             </span>
           </header>
@@ -411,17 +597,19 @@ export function ReportProcessingPage() {
               <div className="processing-progress-copy">
                 <div>
                   <span className="processing-eyebrow">当前执行进度</span>
-                  <h2 id="processing-progress-title" key={activeStageLabel}>{activeStageLabel}</h2>
-                  <p key={progressMessage}>{progressMessage}</p>
+                  <div ref={stageCopyRef} className="processing-stage-copy" data-motion-phase={stagePhaseRef.current}>
+                    <h2 id="processing-progress-title">{visibleSnapshot.title}</h2>
+                    <p>{visibleSnapshot.message}</p>
+                  </div>
                 </div>
-                <strong className="processing-percent" key={percent}>{percent}<span>%</span></strong>
+                <strong className="processing-percent" aria-hidden="true"><span ref={displayedPercentRef} className="processing-percent-value">0</span><span className="processing-percent-unit">%</span></strong>
               </div>
               <div className="processing-progress-track" role="progressbar" aria-label="报告生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow={percent} aria-valuetext={`${percent}% · ${activeStageLabel}`}>
-                <span style={{ "--processing-progress-scale": percent / 100 }} />
+                <span ref={progressFillRef} />
               </div>
               <div className="processing-sync-line" data-state={viewState}>
                 <span aria-hidden="true"><SyncStateIcon size={14} weight={retrying || failed || completed ? "fill" : "bold"} /></span>
-                <p key={syncMessage}>{syncMessage}</p>
+                <p>{syncMessage}</p>
                 {!completed && <button type="button" onClick={refreshProgress} aria-label="立即刷新报告进度"><ArrowClockwise size={14} weight="bold" aria-hidden="true" /><span>立即刷新</span></button>}
               </div>
             </section>
@@ -531,7 +719,7 @@ export function ReportProcessingPage() {
           </div>
 
           <footer className="start-inspector-actions processing-inspector-actions">
-            <p id="processing-action-guidance" className="processing-action-guidance" data-state={viewState} key={viewState}><ActionGuidanceIcon size={15} weight={completed || failed || interrupted ? "fill" : "bold"} aria-hidden="true" /><span>{actionGuidance}</span></p>
+            <p id="processing-action-guidance" className="processing-action-guidance" data-state={viewState}><ActionGuidanceIcon size={15} weight={completed || failed || interrupted ? "fill" : "bold"} aria-hidden="true" /><span>{actionGuidance}</span></p>
             <button className="button start-button start-inspector-secondary" type="button" onClick={() => window.location.assign("/reports")}><ArrowLeft className="processing-action-back" size={17} weight="bold" aria-hidden="true" /><span>返回报告中心</span></button>
             {canRequeue || requeueing ? <button
               className="button start-button button-primary processing-requeue-button"

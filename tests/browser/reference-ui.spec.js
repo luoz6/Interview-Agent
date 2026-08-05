@@ -90,6 +90,7 @@ test("React preparation validates imports and renders real plan metrics", async 
 
 test("preparation details expose semantic icons, errors and focused recovery", async ({ page }) => {
   await page.goto("/prep");
+  await expect(page.locator(".start-app-root")).toBeVisible();
 
   const namedButtons = page.locator("button:visible");
   expect(await namedButtons.count()).toBeGreaterThan(0);
@@ -371,9 +372,19 @@ test("all six React routes remain nonempty and bounded", async ({ page, request 
   const routes = ["/prep", `/interview?session_id=${active}`, `/report-processing?session_id=${processing.session_id}`, `/report-detail?session_id=${completed}`, "/reports", "/help"];
   for (const route of routes) {
     await page.goto(route);
+    await expect(page.locator(".start-app-root")).toBeVisible();
     await expect(page.locator("main")).toBeVisible();
     await expectGeometry(page);
   }
+});
+
+test("rejected lazy route modules expose a usable recovery view", async ({ page }) => {
+  await page.route("**/src/pages/HelpPage.jsx*", (route) => route.abort("failed"));
+  await page.goto("/help");
+
+  await expect(page.getByRole("heading", { name: "当前页面没有完整载入" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新载入" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "返回准备阶段" })).toBeVisible();
 });
 
 test("reduced motion disables animations", async ({ page }) => {

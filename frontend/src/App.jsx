@@ -1,10 +1,20 @@
-import { HelpPage } from "./pages/HelpPage";
-import { InterviewPage } from "./pages/InterviewPage";
-import { StartPage } from "./pages/StartPage";
-import { ReportDetailPage } from "./pages/ReportDetailPage";
-import { ReportProcessingPage } from "./pages/ReportProcessingPage";
-import { ReportsPage } from "./pages/ReportsPage";
+import { lazy, Suspense } from "react";
+import { RouteLoadBoundary, RouteLoadingFallback } from "./components/RouteLoadBoundary";
 import { NotFoundPage } from "./pages/NotFoundPage";
+
+function lazyNamedPage(loader, exportName) {
+  return lazy(() => loader().then((module) => ({ default: module[exportName] })));
+}
+
+const StartPage = lazyNamedPage(() => import("./pages/StartPage"), "StartPage");
+const InterviewPage = lazyNamedPage(() => import("./pages/InterviewPage"), "InterviewPage");
+const ReportProcessingPage = lazyNamedPage(
+  () => import("./pages/ReportProcessingPage"),
+  "ReportProcessingPage",
+);
+const ReportDetailPage = lazyNamedPage(() => import("./pages/ReportDetailPage"), "ReportDetailPage");
+const ReportsPage = lazyNamedPage(() => import("./pages/ReportsPage"), "ReportsPage");
+const HelpPage = lazyNamedPage(() => import("./pages/HelpPage"), "HelpPage");
 
 const routes = {
   "/": StartPage,
@@ -18,5 +28,11 @@ const routes = {
 
 export default function App() {
   const Page = routes[window.location.pathname] || NotFoundPage;
-  return <Page />;
+  return (
+    <RouteLoadBoundary>
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <Page />
+      </Suspense>
+    </RouteLoadBoundary>
+  );
 }

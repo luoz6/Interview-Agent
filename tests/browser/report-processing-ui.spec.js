@@ -9,6 +9,38 @@ const {
 test.beforeEach(async ({}, testInfo) => {
   test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
 });
+
+async function readProgressBaseline(request, sessionId) {
+  const response = await request.get(`/api/interviews/${sessionId}/report/progress`);
+  expect(response.ok()).toBe(true);
+  return response.json();
+}
+
+async function controlProgress(page, sessionId, initialSnapshot) {
+  let snapshot = initialSnapshot;
+  let requestCount = 0;
+  await page.route(`**/api/interviews/${sessionId}/report/progress`, async (route) => {
+    requestCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(snapshot),
+    });
+  });
+  return {
+    requests: () => requestCount,
+    update: (patch) => {
+      snapshot = { ...snapshot, ...patch };
+    },
+  };
+}
+
+async function refreshControlledProgress(page, controller) {
+  const previousRequestCount = controller.requests();
+  await page.getByRole("button", { name: "立即刷新报告进度" }).click();
+  await expect.poll(controller.requests).toBeGreaterThan(previousRequestCount);
+}
+
 test("report processing layout remains stable across viewports", async ({
   page,
   request,
@@ -18,8 +50,8 @@ test("report processing layout remains stable across viewports", async ({
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: 900 });
     await page.goto("/report-processing?session_id=" + report.session_id);
-    await expectGeometry(page);
     await expect(page.locator(".processing-app")).toBeVisible();
+    await expectGeometry(page);
     await expect(page.locator(".processing-stage-list [data-state=current]")).toHaveCount(1);
     await expect(page.locator(".processing-inspector")).toBeVisible();
     const pipeline = await page.locator(".pipeline-hero").evaluate((element) => {
@@ -213,4 +245,244 @@ test("report processing motion respects reduced-motion preferences", async ({
   expect(Math.max(...motion.durations)).toBeLessThanOrEqual(0.02);
   expect(motion.spinnerIterations).toBe("1");
   await request.delete("/test-support/reports/" + report.session_id);
+});
+
+test("progress retargets without remounting its visible value", async ({
+  page,
+  request,
+}) => {
+  const report = await seedReport(request, "processing");
+  const baseline = await readProgressBaseline(request, report.session_id);
+  const controller = await controlProgress(page, report.session_id, {
+    ...baseline,
+    report_job_id: baseline.report_job_id || "motion-job-1",
+    attempt: 1,
+    status: "processing",
+    stage: "retrieving",
+    percent: 20,
+    message: "正在检索相关知识",
+  });
+
+  await page.goto(`/report-processing?session_id=${report.session_id}`);
+  const visiblePercent = page.locator(".processing-percent-value");
+  const progressbar = page.getByRole("progressbar", { name: "报告生成进度" });
+  await expect(visiblePercent).toHaveText("20");
+  await visiblePercent.evaluate((node) => {
+    node.dataset.identityProbe = "stable-percent-node";
+    window.__observedReportPercents = [Number(node.textContent)];
+    const observer = new MutationObserver(() => {
+      window.__observedReportPercents.push(Number(node.textContent));
+    });
+    observer.observe(node, { childList: true, characterData: true, subtree: true });
+    window.__reportPercentObserver = observer;
+  });
+
+  await refreshControlledProgress(page, controller);
+  await expect(visiblePercent).toHaveAttribute("data-identity-probe", "stable-percent-node");
+
+  controller.update({ percent: 35, message: "正在检索岗位知识" });
+  await refreshControlledProgress(page, controller);
+  await expect(progressbar).toHaveAttribute("aria-valuenow", "35");
+  await page.waitForTimeout(40);
+
+  controller.update({ percent: 55, message: "正在整理检索结果" });
+  await refreshControlledProgress(page, controller);
+  await expect(progressbar).toHaveAttribute("aria-valuenow", "55");
+  await expect(visiblePercent).toHaveText("55");
+  await expect(visiblePercent).toHaveAttribute("data-identity-probe", "stable-percent-node");
+
+  const result = await page.evaluate(() => {
+    window.__reportPercentObserver?.disconnect();
+    const fill = document.querySelector(".processing-progress-track > span");
+    const scale = new DOMMatrixReadOnly(getComputedStyle(fill).transform).a;
+    return {
+      observed: window.__observedReportPercents,
+      scale,
+    };
+  });
+  expect(result.observed.at(-1)).toBe(55);
+  expect(Math.min(...result.observed)).toBeGreaterThanOrEqual(20);
+  expect(result.observed.every((value, index, values) => index === 0 || value >= values[index - 1])).toBe(true);
+  expect(result.scale).toBeCloseTo(0.55, 2);
+
+  await request.delete("/test-support/reports/" + report.session_id);
+});
+
+test("stage display state coalesces rapid updates and critical failures win immediately", async ({
+  page,
+  request,
+}) => {
+  const report = await seedReport(request, "processing");
+  const baseline = await readProgressBaseline(request, report.session_id);
+  const controller = await controlProgress(page, report.session_id, {
+    ...baseline,
+    report_job_id: baseline.report_job_id || "motion-job-stage",
+    attempt: 1,
+    status: "processing",
+    stage: "retrieving",
+    percent: 20,
+    message: "正在检索相关知识",
+  });
+
+  await page.goto(`/report-processing?session_id=${report.session_id}`);
+  const stageCopy = page.locator(".processing-stage-copy");
+  await expect(stageCopy.getByRole("heading", { name: "知识检索" })).toBeVisible();
+  await stageCopy.evaluate((node) => { node.dataset.identityProbe = "stable-stage-copy"; });
+
+  controller.update({ stage: "analyzing", percent: 35, message: "正在分析回答" });
+  await refreshControlledProgress(page, controller);
+  await page.waitForTimeout(40);
+  controller.update({ stage: "evaluating", percent: 50, message: "正在形成逐题评审" });
+  await refreshControlledProgress(page, controller);
+
+  await expect(stageCopy.getByRole("heading", { name: "逐题评审" })).toBeVisible();
+  await expect(stageCopy).toContainText("正在形成逐题评审");
+  await expect(stageCopy).toHaveAttribute("data-identity-probe", "stable-stage-copy");
+  await expect(stageCopy).toHaveAttribute("data-motion-phase", "idle");
+
+  controller.update({
+    status: "failed",
+    stage: "evaluating",
+    percent: 52,
+    message: "评审服务暂时不可用",
+    retryable: true,
+    error: { code: "knowledge_store_unavailable", message: "知识库暂时不可用" },
+  });
+  await refreshControlledProgress(page, controller);
+
+  await expect(page.locator(".processing-notice[role=alert]")).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新尝试" })).toBeEnabled();
+  await expect(stageCopy).toContainText("评审服务暂时不可用");
+  await expect(stageCopy).toHaveAttribute("data-motion-phase", "idle");
+  const criticalVisual = await stageCopy.evaluate((node) => ({
+    opacity: getComputedStyle(node).opacity,
+    transform: getComputedStyle(node).transform,
+  }));
+  expect(criticalVisual.opacity).toBe("1");
+  expect(criticalVisual.transform).toBe("matrix(1, 0, 0, 1, 0, 0)");
+
+  await request.delete("/test-support/reports/" + report.session_id);
+});
+
+test("a new report attempt resets lower progress immediately", async ({
+  page,
+  request,
+}) => {
+  const report = await seedReport(request, "processing");
+  const baseline = await readProgressBaseline(request, report.session_id);
+  const controller = await controlProgress(page, report.session_id, {
+    ...baseline,
+    report_job_id: "motion-attempt-1",
+    attempt: 1,
+    status: "processing",
+    stage: "evaluating",
+    percent: 60,
+    message: "正在形成逐题评审",
+  });
+
+  await page.goto(`/report-processing?session_id=${report.session_id}`);
+  const visiblePercent = page.locator(".processing-percent-value");
+  await expect(visiblePercent).toHaveText("60");
+  await visiblePercent.evaluate((node) => {
+    window.__attemptResetValues = [];
+    const observer = new MutationObserver(() => {
+      window.__attemptResetValues.push(Number(node.textContent));
+    });
+    observer.observe(node, { childList: true, characterData: true, subtree: true });
+    window.__attemptResetObserver = observer;
+  });
+
+  controller.update({
+    report_job_id: "motion-attempt-2",
+    attempt: 2,
+    stage: "queued",
+    percent: 10,
+    message: "新的报告任务正在排队",
+  });
+  await refreshControlledProgress(page, controller);
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "10");
+  await expect(visiblePercent).toHaveText("10");
+  const resetValues = await page.evaluate(() => {
+    window.__attemptResetObserver?.disconnect();
+    return window.__attemptResetValues;
+  });
+  expect(resetValues).toContain(10);
+  expect(resetValues.some((value) => value > 10 && value < 60)).toBe(false);
+
+  await request.delete("/test-support/reports/" + report.session_id);
+});
+
+test("reduced motion changes commit active progress immediately", async ({
+  page,
+  request,
+}) => {
+  const report = await seedReport(request, "processing");
+  const baseline = await readProgressBaseline(request, report.session_id);
+  const controller = await controlProgress(page, report.session_id, {
+    ...baseline,
+    report_job_id: baseline.report_job_id || "motion-job-reduced",
+    attempt: 1,
+    status: "processing",
+    stage: "retrieving",
+    percent: 20,
+    message: "正在检索相关知识",
+  });
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(`/report-processing?session_id=${report.session_id}`);
+  const visiblePercent = page.locator(".processing-percent-value");
+  await expect(visiblePercent).toHaveText("20");
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  controller.update({ percent: 80, message: "正在汇总检索证据" });
+  await refreshControlledProgress(page, controller);
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(visiblePercent).toHaveText("80", { timeout: 100 });
+  const scale = await page.locator(".processing-progress-track > span").evaluate(
+    (node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
+  );
+  expect(scale).toBeCloseTo(0.8, 2);
+
+  await request.delete("/test-support/reports/" + report.session_id);
+});
+
+test("active report motion is cleaned up after route unmount", async ({
+  page,
+  request,
+}) => {
+  const report = await seedReport(request, "processing");
+  const baseline = await readProgressBaseline(request, report.session_id);
+  const controller = await controlProgress(page, report.session_id, {
+    ...baseline,
+    report_job_id: baseline.report_job_id || "motion-job-unmount",
+    attempt: 1,
+    status: "processing",
+    stage: "retrieving",
+    percent: 20,
+    message: "正在检索相关知识",
+  });
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto(`/report-processing?session_id=${report.session_id}`);
+  await expect(page.locator(".processing-app")).toBeVisible();
+  controller.update({ stage: "analyzing", percent: 90, message: "正在分析回答" });
+  await refreshControlledProgress(page, controller);
+  await page.goto("/help");
+  await expect(page.locator(".help-app")).toBeVisible();
+  await page.waitForTimeout(400);
+  await expect(page.locator(".help-app")).toBeVisible();
+  expect(pageErrors).toEqual([]);
+
+  await request.delete("/test-support/reports/" + report.session_id);
+});
+
+test("non-motion routes do not request GSAP modules", async ({ page }) => {
+  for (const route of ["/prep", "/reports", "/help"]) {
+    await page.goto(route);
+    await expect(page.locator(".start-app-root")).toBeVisible();
+    const resources = await page.evaluate(() => performance.getEntriesByType("resource").map((entry) => entry.name));
+    expect(resources.filter((resource) => /(?:^|[/@])gsap(?:[/@.]|$)/i.test(resource))).toEqual([]);
+  }
 });

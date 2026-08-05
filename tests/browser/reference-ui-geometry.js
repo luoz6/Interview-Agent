@@ -47,6 +47,7 @@ async function seedReport(request, status, ageDays = 0) {
 }
 
 async function expectGeometry(page) {
+  await expect(page.locator(".start-app-root")).toBeVisible();
   const metrics = await page.evaluate(() => {
     const visibleButtons = [...document.querySelectorAll("button")].filter((item) => {
       const rect = item.getBoundingClientRect();
