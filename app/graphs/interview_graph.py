@@ -28,6 +28,14 @@ from app.services.context_budget import (
 from app.services.context_selection import build_interview_context
 from app.services.context_runtime import ContextRuntime, get_context_runtime
 from app.services.session_plan_binding import SessionPlanBinding
+from app.services.decision_store import InMemoryDecisionStore
+from app.services.followup_diagnostics import (
+    FollowupDiagnosticInput,
+    FollowupPolicySnapshot,
+)
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
 
@@ -40,6 +48,7 @@ class InterviewGraphRunner:
         knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
         execution_runner: AgentExecutionRunner | None = None,
         context_runtime: ContextRuntime | None = None,
+        decision_service=None,
     ) -> None:
         self._llm = llm
         self._examiner = examiner or ExaminerAgent(
@@ -56,6 +65,10 @@ class InterviewGraphRunner:
             llm,
             "context_runtime",
             None,
+        )
+        self._decision_service = decision_service or FollowupDecisionExecutionService(
+            store=InMemoryDecisionStore(),
+            provider=None,
         )
 
     def start(
@@ -93,6 +106,7 @@ class InterviewGraphRunner:
             knowledge_binding_resolver=self._knowledge_binding_resolver,
             context_runtime=self._context_runtime,
             command_id=command_id,
+            decision_service=self._decision_service,
         )
         return speaker_node(next_state)
 
@@ -112,6 +126,7 @@ class InterviewGraphRunner:
             context_runtime=self._context_runtime,
             generate_followup_text=False,
             command_id=command_id,
+            decision_service=self._decision_service,
         )
 
     def finalize_prepared_answer(
@@ -149,6 +164,7 @@ def brain_node(
     context_runtime: ContextRuntime | None = None,
     generate_followup_text: bool = True,
     command_id: str | None = None,
+    decision_service=None,
 ) -> InterviewState:
     question = get_current_question(state)
     if question is None:
@@ -159,25 +175,26 @@ def brain_node(
         }
         return state
 
-    answer_count = count_candidate_answers_for_question(state, question.id)
-    if answer_count >= 2:
-        next_index = state["current_index"] + 1
-        if next_index >= len(state["plan"].questions):
-            state["decision"] = {
-                "action": "finish",
-                "follow_up": None,
-                "reason": "all_questions_completed",
-            }
-        else:
-            state["decision"] = {
-                "action": "next_question",
-                "follow_up": None,
-                "reason": "question_completed",
-            }
-        return state
-
+    resolved_decision_service = decision_service or FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=None,
+    )
+    request = _build_followup_diagnostic_input(state, question)
+    effective_command_id = command_id or (
+        state.get("last_command_id")
+        or f"legacy-answer-{state['state_version']}-{question.id}-"
+        f"{len(request.candidate_answers)}"
+    )
+    result = resolved_decision_service.execute(
+        request,
+        source_command_id=effective_command_id,
+        worker_id="legacy-interview-worker",
+    )
+    if result.decision is None:
+        raise RuntimeError("legacy Decision execution did not complete")
+    contract = result.decision
     follow_up = None
-    if generate_followup_text:
+    if generate_followup_text and contract.action == "follow_up":
         resolved_examiner = examiner or ExaminerAgent(llm=llm)
         follow_up = _generate_examiner_followup(
             resolved_examiner,
@@ -194,10 +211,18 @@ def brain_node(
         )
 
     state["decision"] = {
-        "action": "follow_up",
+        "action": contract.action,
         "follow_up": follow_up,
-        "reason": "candidate_answer_needs_depth",
+        "reason": contract.reason_code,
     }
+    state["decision_id"] = result.decision_id
+    state["decision_action"] = contract.action
+    state["decision_reason_code"] = contract.reason_code
+    state["decision_gap_type"] = contract.gap_type
+    state["decision_gap_summary"] = contract.gap_summary
+    state["followup_policy_version"] = contract.policy_version
+    state["closed_gap_ids"] = list(contract.closed_gap_ids)
+    state["current_followup_count"] = len(request.asked_followups)
     return state
 
 
@@ -217,10 +242,13 @@ def speaker_node(state: InterviewState) -> InterviewState:
         state["messages"].append(
             {"role": "interviewer", "content": output, "question_id": question.id}
         )
+        state["current_followup_count"] += 1
         return state
 
     if action == "next_question":
         state["current_index"] += 1
+        state["current_followup_count"] = 0
+        state["closed_gap_ids"] = []
         next_question = get_current_question(state)
         if next_question is None:
             state["status"] = "finished"
@@ -274,6 +302,48 @@ def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewSta
         }
     )
     return next_state
+
+
+def _build_followup_diagnostic_input(
+    state: InterviewState,
+    question,
+) -> FollowupDiagnosticInput:
+    question_messages = [
+        message
+        for message in state["messages"]
+        if message.get("question_id") == question.id
+    ]
+    candidate_answers = [
+        message["content"]
+        for message in question_messages
+        if message["role"] == "candidate"
+    ]
+    interviewer_messages = [
+        message["content"]
+        for message in question_messages
+        if message["role"] == "interviewer"
+    ]
+    asked_followups = interviewer_messages[1:]
+    configuration = state.get("configuration_snapshot") or {}
+    policy_version = configuration.get("followup_policy_version", "fixed_v1")
+    return FollowupDiagnosticInput(
+        session_status=(
+            "finished" if state["status"] == "finished" else "active"
+        ),
+        session_id=state["session_id"],
+        question_id=question.id,
+        question_text=question.prompt,
+        focus=question.focus,
+        candidate_answers=candidate_answers,
+        asked_followups=asked_followups,
+        followup_count=len(asked_followups),
+        closed_gap_ids=list(state.get("closed_gap_ids") or []),
+        public_knowledge_summary="",
+        policy=FollowupPolicySnapshot(
+            policy_version=policy_version,
+            max_followups=1 if policy_version == "fixed_v1" else 2,
+        ),
+    )
 
 
 def _build_followup_context(

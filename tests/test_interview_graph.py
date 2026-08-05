@@ -168,7 +168,7 @@ def test_runner_submit_answer_generates_followup_decision():
     assert new_state["decision"] == {
         "action": "follow_up",
         "follow_up": "Please explain the cache invalidation strategy.",
-        "reason": "candidate_answer_needs_depth",
+        "reason": "fixed_policy_followup",
     }
     assert new_state["pending_output"] == "Please explain the cache invalidation strategy."
     assert new_state["messages"][-2] == {
@@ -468,7 +468,7 @@ def test_runner_prepare_answer_defers_followup_text_for_streaming():
     assert prepared["decision"] == {
         "action": "follow_up",
         "follow_up": None,
-        "reason": "candidate_answer_needs_depth",
+        "reason": "fixed_policy_followup",
     }
     assert prepared["messages"][-1]["role"] == "candidate"
 
@@ -516,5 +516,5 @@ def test_runner_finishes_after_last_question_followup_answer():
 
     assert state["status"] == "finished"
     assert state["current_index"] == 3
-    assert state["decision"]["action"] == "finish"
+    assert state["decision"]["action"] == "next_question"
     assert state["pending_output"] == "本次模拟面试已结束。"

@@ -32,6 +32,7 @@ DecisionReasonCode = Literal[
     "technical_error",
     "off_topic",
     "empty_answer_clarification",
+    "fixed_policy_followup",
     "followup_limit_reached",
     "question_closed",
     "skip_command",

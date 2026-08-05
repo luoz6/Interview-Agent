@@ -16,6 +16,10 @@ from app.services.interview_generation_store import (
     ChunkCoalescer,
     PostgresInterviewGenerationStore,
 )
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
+from app.services.postgres_decision_store import PostgresDecisionStore
 from app.services.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
@@ -112,6 +116,7 @@ class RecoveryCase:
     session_id: str
     session_store: PostgresInterviewSessionStore
     workflow_store: PostgresInterviewWorkflowStore
+    decision_store: PostgresDecisionStore
     generation_store: PostgresInterviewGenerationStore
     report_jobs: PostgresReportJobStore
     plan: object
@@ -142,6 +147,9 @@ class RecoveryCase:
             workflow_store=PostgresInterviewWorkflowStore(
                 dsn=dsn, table_prefix=prefix
             ),
+            decision_store=PostgresDecisionStore(
+                dsn=dsn, table_prefix=prefix
+            ),
             generation_store=PostgresInterviewGenerationStore(
                 dsn=dsn, table_prefix=prefix
             ),
@@ -170,6 +178,10 @@ class RecoveryCase:
         deps = DurableInterviewGraphDependencies(
             workflow_store=workflow_store or self.workflow_store,
             generation_store=generation_store or self.generation_store,
+            decision_service=FollowupDecisionExecutionService(
+                store=self.decision_store,
+                provider=None,
+            ),
             examiner=examiner or StableExaminer(),
             report_job_queue=report_jobs or self.report_jobs,
             coalescer_factory=lambda: ChunkCoalescer(

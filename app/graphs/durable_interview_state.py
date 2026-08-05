@@ -85,6 +85,15 @@ class DurableInterviewState(TypedDict):
     state_version: int
     last_command_id: str | None
     active_command_id: str | None
+    active_decision_id: str | None
+    decision_action: Literal["follow_up", "next_question"] | None
+    decision_reason_code: str | None
+    decision_gap_type: str | None
+    decision_gap_summary: str | None
+    followup_policy_version: Literal["fixed_v1", "adaptive_v1"]
+    current_followup_count: int
+    closed_gap_ids: list[str]
+    decision_outcome: Literal["pending", "completed"] | None
     generation_id: str | None
     generation_attempt: int
     expected_retry_attempt: int | None
@@ -139,6 +148,19 @@ def make_durable_initial_state(
         "state_version": 0,
         "last_command_id": None,
         "active_command_id": None,
+        "active_decision_id": None,
+        "decision_action": None,
+        "decision_reason_code": None,
+        "decision_gap_type": None,
+        "decision_gap_summary": None,
+        "followup_policy_version": (
+            (binding.configuration_snapshot or {}).get(
+                "followup_policy_version", "fixed_v1"
+            )
+        ),
+        "current_followup_count": 0,
+        "closed_gap_ids": [],
+        "decision_outcome": None,
         "generation_id": None,
         "generation_attempt": 1,
         "expected_retry_attempt": None,

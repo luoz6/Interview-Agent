@@ -20,6 +20,10 @@ from app.services.interview_generation_store import (
     ChunkCoalescer,
     PostgresInterviewGenerationStore,
 )
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
+from app.services.postgres_decision_store import PostgresDecisionStore
 from app.services.interview_workflow import InterviewWorkflowService
 from app.services.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
@@ -172,6 +176,13 @@ def _build_interview_service(
         DurableInterviewGraphDependencies(
             workflow_store=workflow_store,
             generation_store=generation_store,
+            decision_service=FollowupDecisionExecutionService(
+                store=PostgresDecisionStore(
+                    dsn=require_postgres_dsn(),
+                    table_prefix=generation_store.table_prefix,
+                ),
+                provider=None,
+            ),
             examiner=StableExaminer(),
             report_job_queue=report_queue,
             coalescer_factory=lambda: ChunkCoalescer(

@@ -5,6 +5,7 @@ import pytest
 
 from app.services.interview_generation_store import (
     ChunkCoalescer,
+    GenerationInputConflict,
     GenerationAlreadyCompleted,
     PostgresInterviewGenerationStore,
 )
@@ -55,6 +56,31 @@ def test_generation_is_idempotent_per_source_command(store):
     )
 
     assert first.generation_id == second.generation_id
+
+
+def test_generation_binds_one_source_decision_and_rejects_rebinding(store):
+    decision_id = str(uuid4())
+    first = store.prepare_generation(
+        session_id=store.session_id,
+        source_command_id="command-decision-link",
+        question_id="q1",
+        source_decision_id=decision_id,
+    )
+    replay = store.prepare_generation(
+        session_id=store.session_id,
+        source_command_id="command-decision-link",
+        question_id="q1",
+        source_decision_id=decision_id,
+    )
+
+    assert first.source_decision_id == replay.source_decision_id == decision_id
+    with pytest.raises(GenerationInputConflict):
+        store.prepare_generation(
+            session_id=store.session_id,
+            source_command_id="command-decision-link",
+            question_id="q1",
+            source_decision_id=str(uuid4()),
+        )
     assert first.active_attempt == 1
 
 

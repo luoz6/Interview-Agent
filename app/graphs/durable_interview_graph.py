@@ -14,6 +14,11 @@ from app.graphs.durable_interview_state import DurableInterviewState
 from app.services.agent_runtime import AgentExecutionContext
 from app.services.interview_generation_store import ChunkCoalescer
 from app.services.interview_generation_store import GenerationAlreadyCompleted
+from app.services.followup_diagnostics import (
+    FollowupDiagnosticInput,
+    FollowupPolicySnapshot,
+    diagnose_followup,
+)
 from app.services.knowledge_binding import resolve_evidence_by_ids
 from app.services.runtime_work import (
     RuntimeFailure,
@@ -106,6 +111,7 @@ class DurableInterviewGraphDependencies:
     workflow_store: Any
     project_state: Callable[[DurableInterviewState], dict] | None = None
     generation_store: Any | None = None
+    decision_service: Any | None = None
     examiner: Any | None = None
     knowledge_repository: Any | None = None
     report_job_queue: Any | None = None
@@ -146,6 +152,16 @@ def project_state_node(state, deps) -> dict:
     if state["command_outcome"] == "completed":
         updates["active_command_id"] = None
         updates["command_type"] = None
+        updates.update(
+            {
+                "active_decision_id": None,
+                "decision_action": None,
+                "decision_reason_code": None,
+                "decision_gap_type": None,
+                "decision_gap_summary": None,
+                "decision_outcome": None,
+            }
+        )
     if state.get("workflow_engine") == "langgraph-v2" and state.get(
         "active_context_artifact_ref"
     ):
@@ -223,6 +239,8 @@ def apply_skip(state) -> dict:
             ],
             "interview_status": "finished",
             "current_index": len(questions),
+            "current_followup_count": 0,
+            "closed_gap_ids": [],
             "command_outcome": "completed",
         }
     next_question = questions[next_index]
@@ -232,6 +250,8 @@ def apply_skip(state) -> dict:
             question["id"],
         ],
         "current_index": next_index,
+        "current_followup_count": 0,
+        "closed_gap_ids": [],
         "messages": [
             *state["messages"],
             {
@@ -252,16 +272,57 @@ def apply_finish(state) -> dict:
     }
 
 
-def decide_next_action(state) -> dict:
-    return {}
+def prepare_or_load_decision(state, deps) -> dict:
+    if deps.decision_service is None:
+        raise RuntimeError("durable interview Decision service is unavailable")
+    request = _build_followup_diagnostic_input(state)
+    diagnostics = diagnose_followup(request)
+    record = deps.decision_service.store.prepare(
+        session_id=state["session_id"],
+        source_command_id=state["active_command_id"],
+        input_sha256=diagnostics.input_sha256,
+    )
+    updates = {
+        "active_decision_id": record.decision_id,
+        "followup_policy_version": request.policy.policy_version,
+        "current_followup_count": request.followup_count,
+        "decision_outcome": "pending",
+    }
+    if record.status == "completed":
+        updates.update(_decision_state_updates(record.final_decision))
+    return updates
+
+
+def execute_decision_attempt(state, deps) -> dict:
+    if deps.decision_service is None:
+        raise RuntimeError("durable interview Decision service is unavailable")
+    request = _build_followup_diagnostic_input(state)
+    result = deps.decision_service.execute(
+        request,
+        source_command_id=state["active_command_id"],
+        worker_id=deps.worker_id,
+    )
+    if result.decision_id != state["active_decision_id"]:
+        raise RuntimeError("prepared Decision identity changed during execution")
+    if result.status != "completed" or result.decision is None:
+        # A concurrent worker still owns the durable Lease.  Propagating this
+        # condition lets the command delivery retry after Lease expiry without
+        # advancing the graph or creating a second Decision.
+        raise RuntimeError("durable interview Decision attempt is still leased")
+    return _decision_state_updates(result.decision)
 
 
 def prepare_generation(state, deps) -> dict:
+    if state.get("decision_action") != "follow_up" or not state.get(
+        "active_decision_id"
+    ):
+        raise RuntimeError("follow-up generation requires a completed Decision")
     question = _current_question(state)
     generation = deps.generation_store.prepare_generation(
         session_id=state["session_id"],
         source_command_id=state["active_command_id"],
         question_id=question["id"],
+        source_decision_id=state["active_decision_id"],
     )
     return {
         "generation_id": generation.generation_id,
@@ -589,6 +650,7 @@ def commit_interviewer_message(state) -> dict:
             },
         ],
         "generation_id": None,
+        "current_followup_count": state["current_followup_count"] + 1,
         "expected_retry_attempt": None,
         "next_retry_at": None,
         "command_outcome": "completed",
@@ -607,11 +669,15 @@ def commit_next_question(state) -> dict:
         return {
             "interview_status": "finished",
             "current_index": len(questions),
+            "current_followup_count": 0,
+            "closed_gap_ids": [],
             "command_outcome": "completed",
         }
     question = questions[next_index]
     return {
         "current_index": next_index,
+        "current_followup_count": 0,
+        "closed_gap_ids": [],
         "messages": [
             *state["messages"],
             {
@@ -649,16 +715,13 @@ def route_after_projection(state) -> str:
 
 
 def route_decision(state) -> str:
-    question_id = _current_question(state)["id"]
-    answers = sum(
-        1
-        for message in state["messages"]
-        if message["role"] == "candidate"
-        and message["question_id"] == question_id
-    )
-    if answers < 2:
+    if state.get("decision_outcome") != "completed":
+        raise RuntimeError("cannot route an incomplete durable Decision")
+    if state.get("decision_action") == "follow_up":
         return "prepare_generation"
-    return "commit_next_question"
+    if state.get("decision_action") == "next_question":
+        return "commit_next_question"
+    raise RuntimeError("persisted durable Decision has no valid action")
 
 
 def route_generation(state) -> str:
@@ -680,6 +743,62 @@ def route_validated_retry(state) -> str:
 
 def _current_question(state) -> dict:
     return state["plan_snapshot"]["questions"][state["current_index"]]
+
+
+def _build_followup_diagnostic_input(state) -> FollowupDiagnosticInput:
+    question = _current_question(state)
+    question_messages = [
+        message
+        for message in state["messages"]
+        if message.get("question_id") == question["id"]
+    ]
+    candidate_answers = [
+        message["content"]
+        for message in question_messages
+        if message["role"] == "candidate"
+    ]
+    interviewer_messages = [
+        message["content"]
+        for message in question_messages
+        if message["role"] == "interviewer"
+    ]
+    asked_followups = interviewer_messages[1:]
+    configuration = state.get("configuration_snapshot") or {}
+    policy_version = configuration.get("followup_policy_version", "fixed_v1")
+    max_followups = 1 if policy_version == "fixed_v1" else 2
+    policy = FollowupPolicySnapshot(
+        policy_version=policy_version,
+        max_followups=max_followups,
+    )
+    return FollowupDiagnosticInput(
+        session_status=state["interview_status"],
+        session_id=state["session_id"],
+        question_id=question["id"],
+        question_text=question["prompt"],
+        focus=question.get("focus", ""),
+        candidate_answers=candidate_answers,
+        asked_followups=asked_followups,
+        followup_count=len(asked_followups),
+        closed_gap_ids=list(state.get("closed_gap_ids") or []),
+        # Bound plan evidence may include resume or job-description material;
+        # do not relabel it as public knowledge for Decision input.
+        public_knowledge_summary="",
+        policy=policy,
+    )
+
+
+def _decision_state_updates(decision) -> dict:
+    if decision is None:
+        raise RuntimeError("completed Decision is missing its final payload")
+    return {
+        "decision_action": decision.action,
+        "decision_reason_code": decision.reason_code,
+        "decision_gap_type": decision.gap_type,
+        "decision_gap_summary": decision.gap_summary,
+        "followup_policy_version": decision.policy_version,
+        "closed_gap_ids": list(decision.closed_gap_ids),
+        "decision_outcome": "completed",
+    }
 
 
 def _recent_conversation_messages(
@@ -821,7 +940,14 @@ def build_durable_interview_graph_for_schema(
     )
     builder.add_node("apply_skip", apply_skip)
     builder.add_node("apply_finish", apply_finish)
-    builder.add_node("decide_next_action", decide_next_action)
+    builder.add_node(
+        "prepare_or_load_decision",
+        partial(prepare_or_load_decision, deps=deps),
+    )
+    builder.add_node(
+        "execute_decision_attempt",
+        partial(execute_decision_attempt, deps=deps),
+    )
     builder.add_node(
         "prepare_generation", partial(prepare_generation, deps=deps)
     )
@@ -847,8 +973,9 @@ def build_durable_interview_graph_for_schema(
     builder.add_conditional_edges(
         "validate_command", route_validated_command
     )
-    builder.add_edge("append_candidate_answer", "decide_next_action")
-    builder.add_conditional_edges("decide_next_action", route_decision)
+    builder.add_edge("append_candidate_answer", "prepare_or_load_decision")
+    builder.add_edge("prepare_or_load_decision", "execute_decision_attempt")
+    builder.add_conditional_edges("execute_decision_attempt", route_decision)
     builder.add_edge("prepare_generation", "project_state")
     builder.add_conditional_edges("generate_followup", route_generation)
     builder.add_edge(

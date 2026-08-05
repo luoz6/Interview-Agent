@@ -13,13 +13,20 @@ from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
     GenerationLeaseHeartbeat,
     build_durable_interview_graph,
+    execute_decision_attempt,
     generate_followup,
+    prepare_or_load_decision,
     project_state_node,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
+from app.services.decision_store import InMemoryDecisionStore
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
+from app.services.postgres_decision_store import PostgresDecisionStore
 from app.services.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
@@ -193,6 +200,144 @@ def test_conflicted_command_replay_is_idempotent():
 
     assert graph.get_state(config).next == ("wait_for_answer",)
     assert deps.workflow_store.marked_conflicts == []
+
+
+def test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash():
+    provider_calls = []
+
+    def provider(context):
+        provider_calls.append(context)
+        return {
+            "action": "next_question",
+            "answer_state": "complete",
+            "gap_type": "none",
+            "gap_summary": "",
+            "reason_code": "answer_complete",
+            "decision_confidence": "high",
+            "closed_gap_ids": [],
+            "policy_version": "adaptive_v1",
+        }
+
+    inner = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=provider,
+    )
+
+    class CrashAfterDecision:
+        def __init__(self, target):
+            self.target = target
+            self.crashed = False
+
+        @property
+        def store(self):
+            return self.target.store
+
+        def execute(self, *args, **kwargs):
+            result = self.target.execute(*args, **kwargs)
+            if not self.crashed:
+                self.crashed = True
+                raise RuntimeError("lost after durable decision completion")
+            return result
+
+    graph, config, deps = make_graph()
+    deps.decision_service = CrashAfterDecision(inner)
+    deps.workflow_store.seed_command("cmd-adaptive", status="pending")
+    initial = make_initial_input()
+    initial["configuration_snapshot"] = {"followup_policy_version": "adaptive_v1"}
+    initial["followup_policy_version"] = "adaptive_v1"
+    graph.invoke(initial, config=config)
+
+    with pytest.raises(RuntimeError, match="durable decision completion"):
+        graph.invoke(
+            Command(
+                resume={
+                    "kind": "answer_command",
+                    "command_id": "cmd-adaptive",
+                }
+            ),
+            config=config,
+        )
+
+    assert len(provider_calls) == 1
+    interrupted = graph.get_state(config)
+    assert interrupted.next == ("execute_decision_attempt",)
+    decision_id = interrupted.values["active_decision_id"]
+    stored = inner.store.get(decision_id)
+    assert stored.final_decision.action == "next_question"
+    assert stored.final_decision.reason_code == "answer_complete"
+
+    # Replace only the in-process wrapper; the same durable store remains.
+    deps.decision_service = inner
+    resumed = graph.invoke(None, config=config)
+
+    assert resumed["current_index"] == 1
+    assert len(provider_calls) == 1
+
+
+def test_graph_derived_two_followup_limit_makes_zero_decision_provider_calls():
+    state = make_initial_input()
+    question = state["plan_snapshot"]["questions"][0]
+    state.update(
+        {
+            "active_command_id": "cmd-limit",
+            "configuration_snapshot": {
+                "followup_policy_version": "adaptive_v1"
+            },
+            "followup_policy_version": "adaptive_v1",
+            "messages": [
+                {
+                    "role": "interviewer",
+                    "content": question["prompt"],
+                    "question_id": question["id"],
+                },
+                {
+                    "role": "candidate",
+                    "content": "first answer",
+                    "question_id": question["id"],
+                },
+                {
+                    "role": "interviewer",
+                    "content": "first follow-up",
+                    "question_id": question["id"],
+                },
+                {
+                    "role": "candidate",
+                    "content": "second answer",
+                    "question_id": question["id"],
+                },
+                {
+                    "role": "interviewer",
+                    "content": "second follow-up",
+                    "question_id": question["id"],
+                },
+                {
+                    "role": "candidate",
+                    "content": "third answer",
+                    "question_id": question["id"],
+                },
+            ],
+        }
+    )
+    service = FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=lambda context: (_ for _ in ()).throw(
+            AssertionError("Provider must not run at the graph follow-up limit")
+        ),
+    )
+    deps = DurableInterviewGraphDependencies(
+        workflow_store=FakeWorkflowStore(),
+        decision_service=service,
+    )
+
+    state.update(prepare_or_load_decision(state, deps))
+    state.update(execute_decision_attempt(state, deps))
+
+    assert state["current_followup_count"] == 2
+    assert state["decision_action"] == "next_question"
+    assert state["decision_reason_code"] == "followup_limit_reached"
+    assert service.store.list_attempts(state["active_decision_id"])[
+        0
+    ].provider_invocations == 0
 
 
 def test_generation_heartbeat_is_throttled_independently_of_chunk_flushes():
@@ -456,6 +601,9 @@ def make_postgres_graph(*, fail=False):
     workflow_store = PostgresInterviewWorkflowStore(
         dsn=require_dsn(), table_prefix=prefix
     )
+    decision_store = PostgresDecisionStore(
+        dsn=require_dsn(), table_prefix=prefix
+    )
     generation_store = PostgresInterviewGenerationStore(
         dsn=require_dsn(), table_prefix=prefix
     )
@@ -467,6 +615,10 @@ def make_postgres_graph(*, fail=False):
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
+        decision_service=FollowupDecisionExecutionService(
+            store=decision_store,
+            provider=None,
+        ),
         examiner=examiner,
         report_job_queue=report_jobs,
     )
@@ -529,10 +681,11 @@ def test_retry_interrupt_waits_for_due_event(durable_graph_table_cleanup):
     )
 
     snapshot = graph.get_state(config)
-    event = store.control.list_outbox(
+    events = store.control.list_outbox(
         session_id=session_id,
         status="pending",
-    )[-1]
+    )
+    event = next(item for item in events if item["event_type"] == "interview_retry_due")
     assert snapshot.next == ("wait_for_retry",)
     assert event["event_type"] == "interview_retry_due"
     assert event["available_at"] > event["created_at"]

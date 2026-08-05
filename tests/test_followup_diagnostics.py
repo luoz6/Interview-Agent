@@ -136,3 +136,24 @@ def test_diagnostics_input_cannot_accept_scores_or_report_fields():
 def test_policy_never_allows_more_than_two_followups():
     with pytest.raises(ValidationError):
         FollowupPolicySnapshot(policy_version="adaptive_v1", max_followups=3)
+
+
+def test_fixed_policy_preserves_exactly_one_deterministic_followup():
+    first = diagnose_followup(
+        request(policy={"policy_version": "fixed_v1", "max_followups": 1})
+    )
+    second = diagnose_followup(
+        request(
+            policy={"policy_version": "fixed_v1", "max_followups": 1},
+            candidate_answers=["first answer", "second answer"],
+            asked_followups=["one follow-up"],
+            followup_count=1,
+        )
+    )
+
+    assert first.provider_allowed is False
+    assert first.deterministic_decision.action == "follow_up"
+    assert first.deterministic_decision.reason_code == "fixed_policy_followup"
+    assert second.provider_allowed is False
+    assert second.deterministic_decision.action == "next_question"
+    assert second.deterministic_decision.reason_code == "followup_limit_reached"

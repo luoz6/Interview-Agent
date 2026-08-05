@@ -1004,6 +1004,9 @@ def build_interview_workflow_service():
         PostgresInterviewGenerationStore,
     )
     from app.services.interview_workflow import InterviewWorkflowService
+    from app.services.followup_decision_service import (
+        FollowupDecisionExecutionService,
+    )
     from app.services.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
     )
@@ -1037,6 +1040,12 @@ def build_interview_workflow_service():
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
+        decision_service=FollowupDecisionExecutionService(
+            store=get_decision_store(),
+            # fixed_v1 is fully deterministic.  The adaptive Provider adapter
+            # is installed with the separately versioned Decision prompt.
+            provider=None,
+        ),
         examiner=ExaminerAgent(
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),

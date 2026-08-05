@@ -118,6 +118,24 @@ def _deterministic_decision(
         "policy_version": request.policy.policy_version,
         "decision_confidence": "high",
     }
+    if request.policy.policy_version == "fixed_v1":
+        if request.followup_count >= min(1, request.policy.max_followups):
+            return DecisionContract(
+                action="next_question",
+                answer_state=_answer_state(signals),
+                gap_type="none",
+                gap_summary="",
+                reason_code="followup_limit_reached",
+                **common,
+            )
+        return DecisionContract(
+            action="follow_up",
+            answer_state=_answer_state(signals),
+            gap_type="clarification",
+            gap_summary="请补充一个与当前问题直接相关的关键细节。",
+            reason_code="fixed_policy_followup",
+            **common,
+        )
     if request.followup_count >= request.policy.max_followups:
         return DecisionContract(
             action="next_question",

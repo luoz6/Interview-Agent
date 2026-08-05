@@ -511,6 +511,39 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                 columns = {row[0] for row in cursor.fetchall()}
                 cursor.execute(
                     """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_generations",),
+                )
+                generation_columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
+                    SELECT pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid = to_regclass(%s)
+                    """,
+                    (f"public.{prefix}_generations",),
+                )
+                generation_constraints = "\n".join(
+                    row[0].casefold() for row in cursor.fetchall()
+                )
+                cursor.execute(
+                    """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE schemaname = current_schema()
+                      AND tablename = %s
+                    """,
+                    (f"{prefix}_generations",),
+                )
+                generation_indexes = "\n".join(
+                    row[0].casefold() for row in cursor.fetchall()
+                )
+                cursor.execute(
+                    """
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema = current_schema()
@@ -528,9 +561,15 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "followup_decision_attempt_observability_v2"
+        assert first.migration_id == "followup_decision_generation_link_v1"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
+        assert "source_decision_id" in generation_columns
+        assert "foreign key (source_decision_id)" in generation_constraints
+        assert f"{prefix}_followup_decisions" in generation_constraints
+        assert "unique index" in generation_indexes
+        assert "source_decision_id" in generation_indexes
+        assert "where (source_decision_id is not null)" in generation_indexes
         assert local_rights_tables == {
             f"{prefix}_principal_memory_controls",
             f"{prefix}_principal_memory_exports",
@@ -603,7 +642,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "followup_decision_attempt_observability_v2"
+        assert result.migration_id == "followup_decision_generation_link_v1"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -773,7 +812,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "followup_decision_attempt_observability_v2"
+        assert result.migration_id == "followup_decision_generation_link_v1"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",
