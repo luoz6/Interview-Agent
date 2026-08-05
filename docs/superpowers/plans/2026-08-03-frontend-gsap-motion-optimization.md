@@ -1,9 +1,9 @@
 # Frontend GSAP Motion Optimization Plan
 
-**Date:** 2026-08-03  
-**Status:** Proposed - analysis complete, implementation not started  
-**Scope:** `frontend/` only  
-**Design authority:** `DESIGN.md`  
+**Date:** 2026-08-03
+**Status:** Proposed - analysis complete, implementation not started
+**Scope:** `frontend/` only
+**Design authority:** `DESIGN.md`
 **Primary routes:** `/prep`, `/interview`, `/report-processing`, `/report-detail`, `/reports`, `/help`
 
 ## 1. Executive decision

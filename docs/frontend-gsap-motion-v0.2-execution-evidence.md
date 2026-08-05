@@ -1,9 +1,9 @@
 # Frontend GSAP Motion Optimization v0.2 — Execution Evidence
 
-**执行日期：** 2026-08-03 至 2026-08-04  
-**计划来源：** `C:\Users\admin\Downloads\2026-08-03-frontend-gsap-motion-optimization-v0.2-revised.md`  
-**实现范围：** `frontend/`、现有 `tests/browser/` 契约测试  
-**后端/API 变更：** 无  
+**执行日期：** 2026-08-03 至 2026-08-04
+**计划来源：** `C:\Users\admin\Downloads\2026-08-03-frontend-gsap-motion-optimization-v0.2-revised.md`
+**实现范围：** `frontend/`、现有 `tests/browser/` 契约测试
+**后端/API 变更：** 无
 **最终状态：** committed delivery 完成；条件 Task 5 按 Review Gate A 跳过
 
 ```text
