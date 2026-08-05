@@ -146,11 +146,13 @@ test("empty answer feedback explains the problem and returns focus to the editor
   await page.goto("/interview?session_id=" + sessionId);
   const answer = page.getByLabel("你的回答");
   await page.getByRole("button", { name: "提交回答" }).click();
-  await expect(page.locator(".interview-notice")).toContainText("请检查当前回答");
-  await expect(page.locator(".interview-notice")).toContainText("回答不能为空");
+  const fieldError = page.locator(".interview-field-error");
+  await expect(fieldError).toContainText("请先填写回答");
+  await expect(fieldError).toContainText("至少写下你的判断和依据");
   await expect(answer).toBeFocused();
   await expect(answer).toHaveAttribute("aria-invalid", "true");
+  await expect(answer).toHaveAttribute("aria-describedby", /answer-error/);
   await answer.fill("先说明判断，再补充方案取舍。");
-  await expect(page.locator(".interview-notice")).toHaveCount(0);
+  await expect(fieldError).toHaveCount(0);
   await expect(answer).not.toHaveAttribute("aria-invalid", "true");
 });
