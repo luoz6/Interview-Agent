@@ -81,6 +81,22 @@ def get_runtime_store() -> str:
     return os.getenv("INTERVIEW_RUNTIME_STORE", DEFAULT_RUNTIME_STORE).strip().lower() or DEFAULT_RUNTIME_STORE
 
 
+def get_interview_draft_ttl_seconds() -> int:
+    return _positive_int("INTERVIEW_DRAFT_TTL_SECONDS", 7 * 24 * 60 * 60)
+
+
+def get_prep_plan_ttl_seconds() -> int:
+    return _positive_int("PREP_PLAN_TTL_SECONDS", 24 * 60 * 60)
+
+
+def get_prep_plan_expired_grace_seconds() -> int:
+    return _positive_int("PREP_PLAN_EXPIRED_GRACE_SECONDS", 24 * 60 * 60)
+
+
+def get_prep_plan_consumed_retention_seconds() -> int:
+    return _positive_int("PREP_PLAN_CONSUMED_RETENTION_SECONDS", 7 * 24 * 60 * 60)
+
+
 def get_report_runtime_profile() -> ReportRuntimeProfile:
     runtime_store = get_runtime_store()
     explicit_name = os.getenv("REPORT_RUNTIME_PROFILE", "").strip().lower()

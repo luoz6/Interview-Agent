@@ -208,6 +208,55 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         state["projection_sha256"] = None
         self._insert_state(state)
 
+    def insert_session_in_transaction(
+        self,
+        cursor,
+        *,
+        session_id: str,
+        plan: InterviewPlan,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+        graph_version: str = "legacy",
+        memory_policy_version: str = "deterministic-v1",
+    ) -> InterviewState:
+        """Insert a complete session shell with a caller-owned cursor.
+
+        This method deliberately does not acquire a connection and never
+        commits or rolls back. It is the only session insertion entry used by
+        the cross-store launch coordinator.
+        """
+        if graph_version in {"langgraph-v1", "langgraph-v2"}:
+            from app.graphs.interview_state import build_initial_state
+
+            state = build_initial_state(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+            )
+            state["workflow_engine"] = graph_version
+            state["graph_schema_version"] = graph_version
+            state["messages"] = []
+            state["state_version"] = 0
+            state["checkpoint_version"] = 0
+            state["projection_sha256"] = None
+        elif graph_version == "legacy":
+            state = self._runner.start(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+            )
+        else:
+            raise ValueError("unsupported interview graph version")
+        self._insert_state_with_cursor(cursor, state)
+        return state
+
     def get(self, session_id: str) -> InterviewState:
         psycopg2, sql = self._import_psycopg2()
         with self._connection_provider.connection() as connection:
@@ -1105,86 +1154,82 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     )
 
     def _insert_state(self, state: InterviewState) -> None:
-        psycopg2, sql = self._import_psycopg2()
-        session_row = session_row_from_state(state)
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL(
-                        """
-                        INSERT INTO {sessions} (
-                            session_id, plan_json, current_index, status,
-                            phase, phase_status, review_status,
-                            job_description, resume_text, job_tags,
-                            decision_json, pending_output, skipped_question_ids,
-                            started_at, finished_at, state_version,
-                            checkpoint_version, last_checkpoint_at, last_command_id,
-                            workflow_engine, graph_schema_version,
-                            memory_policy_version, projection_sha256,
-                            deletion_status
-                        )
-                        VALUES (
-                            %s, %s::jsonb, %s, %s,
-                            %s, %s, %s,
-                            %s, %s, %s::jsonb,
-                            %s::jsonb, %s, %s::jsonb,
-                            %s, %s, %s,
-                            %s, %s, %s,
-                            %s, %s, %s, %s, %s
-                        )
-                        """
-                    ).format(sessions=sql.Identifier(self.sessions_table)),
-                    (
-                        session_row["session_id"],
-                        json.dumps(session_row["plan_json"], ensure_ascii=False),
-                        session_row["current_index"],
-                        session_row["status"],
-                        session_row["phase"],
-                        session_row["phase_status"],
-                        session_row["review_status"],
-                        session_row["job_description"],
-                        session_row["resume_text"],
-                        json.dumps(session_row["job_tags"], ensure_ascii=False),
-                        json.dumps(session_row["decision_json"], ensure_ascii=False)
-                        if session_row["decision_json"] is not None
-                        else None,
-                        session_row["pending_output"],
-                        json.dumps(
-                            session_row["skipped_question_ids"],
-                            ensure_ascii=False,
-                        ),
-                        session_row["started_at"],
-                        session_row["finished_at"],
-                        session_row["state_version"],
-                        session_row["checkpoint_version"],
-                        session_row["last_checkpoint_at"],
-                        session_row["last_command_id"],
-                        session_row["workflow_engine"],
-                        session_row["graph_schema_version"],
-                        session_row["memory_policy_version"],
-                        session_row["projection_sha256"],
-                        session_row["deletion_status"],
-                    ),
+                self._insert_state_with_cursor(cursor, state)
+
+    def _insert_state_with_cursor(self, cursor, state: InterviewState) -> None:
+        _, sql = self._import_psycopg2()
+        session_row = session_row_from_state(state)
+        cursor.execute(
+            sql.SQL(
+                """
+                INSERT INTO {sessions} (
+                    session_id, plan_json, current_index, status,
+                    phase, phase_status, review_status,
+                    job_description, resume_text, job_tags,
+                    decision_json, pending_output, skipped_question_ids,
+                    started_at, finished_at, state_version,
+                    checkpoint_version, last_checkpoint_at, last_command_id,
+                    workflow_engine, graph_schema_version,
+                    memory_policy_version, projection_sha256,
+                    deletion_status
                 )
-                for index, message in enumerate(state["messages"], start=1):
-                    message_row = message_to_row(state["session_id"], index, message)
-                    cursor.execute(
-                        sql.SQL(
-                            """
-                            INSERT INTO {messages} (
-                                session_id, sequence_no, role, content, question_id
-                            )
-                            VALUES (%s, %s, %s, %s, %s)
-                            """
-                        ).format(messages=sql.Identifier(self.messages_table)),
-                        (
-                            message_row["session_id"],
-                            message_row["sequence_no"],
-                            message_row["role"],
-                            message_row["content"],
-                            message_row["question_id"],
-                        ),
-                    )
+                VALUES (
+                    %s, %s::jsonb, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s::jsonb,
+                    %s::jsonb, %s, %s::jsonb,
+                    %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s, %s, %s
+                )
+                """
+            ).format(sessions=sql.Identifier(self.sessions_table)),
+            (
+                session_row["session_id"],
+                json.dumps(session_row["plan_json"], ensure_ascii=False),
+                session_row["current_index"],
+                session_row["status"],
+                session_row["phase"],
+                session_row["phase_status"],
+                session_row["review_status"],
+                session_row["job_description"],
+                session_row["resume_text"],
+                json.dumps(session_row["job_tags"], ensure_ascii=False),
+                json.dumps(session_row["decision_json"], ensure_ascii=False)
+                if session_row["decision_json"] is not None
+                else None,
+                session_row["pending_output"],
+                json.dumps(session_row["skipped_question_ids"], ensure_ascii=False),
+                session_row["started_at"],
+                session_row["finished_at"],
+                session_row["state_version"],
+                session_row["checkpoint_version"],
+                session_row["last_checkpoint_at"],
+                session_row["last_command_id"],
+                session_row["workflow_engine"],
+                session_row["graph_schema_version"],
+                session_row["memory_policy_version"],
+                session_row["projection_sha256"],
+                session_row["deletion_status"],
+            ),
+        )
+        for index, message in enumerate(state["messages"], start=1):
+            message_row = message_to_row(state["session_id"], index, message)
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO {messages} (session_id, sequence_no, role, content, question_id) "
+                    "VALUES (%s, %s, %s, %s, %s)"
+                ).format(messages=sql.Identifier(self.messages_table)),
+                (
+                    message_row["session_id"],
+                    message_row["sequence_no"],
+                    message_row["role"],
+                    message_row["content"],
+                    message_row["question_id"],
+                ),
+            )
 
     def _replace_state(
         self,

@@ -1,6 +1,7 @@
 import os
 import socket
 from dataclasses import dataclass
+from datetime import timedelta
 from threading import Lock, RLock
 from uuid import uuid4
 
@@ -19,6 +20,10 @@ from app.services.config import (
     get_interview_langgraph_runtime_enabled,
     get_interview_langgraph_version,
     get_interview_chunk_retention_hours,
+    get_interview_draft_ttl_seconds,
+    get_prep_plan_consumed_retention_seconds,
+    get_prep_plan_expired_grace_seconds,
+    get_prep_plan_ttl_seconds,
     get_langgraph_canary_signal_retention_hours,
     get_report_langgraph_runtime_enabled,
     get_report_langgraph_version,
@@ -38,7 +43,13 @@ from app.services.agent_recorders import (
 )
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.agent_trace import AgentTraceRecorder
-from app.services.drafts import AnonymousDraftStore
+from app.services.in_memory_draft_store import InMemoryDraftStore
+from app.services.postgres_draft_store import PostgresDraftStore
+from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
+from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
+from app.services.in_memory_interview_launch_repository import InMemoryInterviewLaunchRepository
+from app.services.postgres_interview_launch_repository import PostgresInterviewLaunchRepository
+from app.services.interview_launch import InterviewLaunchCoordinator
 from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
@@ -65,6 +76,9 @@ _session_store = None
 _report_job_store = None
 _report_executor = None
 _draft_store = None
+_prep_plan_store = None
+_interview_launch_repository = None
+_interview_launch_coordinator = None
 _event_publisher = None
 _runtime_control_store = None
 _runtime_outbox_service = None
@@ -648,7 +662,62 @@ def build_report_job_store():
 
 
 def build_draft_store():
-    return AnonymousDraftStore()
+    ttl = timedelta(seconds=get_interview_draft_ttl_seconds())
+    if get_runtime_store() == "memory":
+        return InMemoryDraftStore(ttl=ttl)
+    domains = get_postgres_connection_domains()
+    return PostgresDraftStore(
+        dsn=get_postgres_dsn(),
+        connection_provider=domains.business,
+        table_prefix=get_runtime_table_prefix(),
+        schema_mode="validate",
+        ttl=ttl,
+    )
+
+
+def build_prep_plan_store():
+    options = {
+        "ttl": timedelta(seconds=get_prep_plan_ttl_seconds()),
+        "expired_grace": timedelta(seconds=get_prep_plan_expired_grace_seconds()),
+        "consumed_retention": timedelta(
+            seconds=get_prep_plan_consumed_retention_seconds()
+        ),
+    }
+    if get_runtime_store() == "memory":
+        return InMemoryPrepPlanStore(**options)
+    domains = get_postgres_connection_domains()
+    return PostgresPrepPlanStore(
+        dsn=get_postgres_dsn(),
+        connection_provider=domains.business,
+        table_prefix=get_runtime_table_prefix(),
+        schema_mode="validate",
+        **options,
+    )
+
+
+def build_interview_launch_repository():
+    if get_runtime_store() == "memory":
+        return InMemoryInterviewLaunchRepository()
+    domains = get_postgres_connection_domains()
+    return PostgresInterviewLaunchRepository(
+        dsn=get_postgres_dsn(),
+        connection_provider=domains.business,
+        table_prefix=get_runtime_table_prefix(),
+        schema_mode="validate",
+    )
+
+
+def build_interview_launch_coordinator():
+    return InterviewLaunchCoordinator(
+        prep_plan_store=get_prep_plan_store(),
+        session_store=get_session_store(),
+        launch_repository=get_interview_launch_repository(),
+        workflow_service=(
+            get_interview_workflow_service()
+            if get_runtime_store() == "postgres"
+            else None
+        ),
+    )
 
 
 def build_event_publisher():
@@ -721,6 +790,27 @@ def get_draft_store():
     if _draft_store is None:
         _draft_store = build_draft_store()
     return _draft_store
+
+
+def get_prep_plan_store():
+    global _prep_plan_store
+    if _prep_plan_store is None:
+        _prep_plan_store = build_prep_plan_store()
+    return _prep_plan_store
+
+
+def get_interview_launch_repository():
+    global _interview_launch_repository
+    if _interview_launch_repository is None:
+        _interview_launch_repository = build_interview_launch_repository()
+    return _interview_launch_repository
+
+
+def get_interview_launch_coordinator():
+    global _interview_launch_coordinator
+    if _interview_launch_coordinator is None:
+        _interview_launch_coordinator = build_interview_launch_coordinator()
+    return _interview_launch_coordinator
 
 
 def get_event_publisher():
@@ -1515,6 +1605,8 @@ def shutdown_runtime(*, wait: bool = True) -> None:
 
 def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _session_store, _report_job_store, _report_executor, _draft_store
+    global _prep_plan_store, _interview_launch_repository
+    global _interview_launch_coordinator
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
@@ -1559,6 +1651,9 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _report_job_store = None
     _report_executor = None
     _draft_store = None
+    _prep_plan_store = None
+    _interview_launch_repository = None
+    _interview_launch_coordinator = None
     _event_publisher = None
     _runtime_control_store = None
     _runtime_outbox_service = None

@@ -47,6 +47,8 @@ from app.services.runtime import (
     get_runtime_control_store,
     get_session_store,
     get_interview_workflow_service,
+    get_prep_plan_store,
+    get_interview_launch_coordinator,
     get_session_deletion_service,
     get_session_deletion_worker,
     get_question_memory_index_store,
@@ -59,6 +61,8 @@ from app.services.runtime import (
     get_principal_memory_fact_store,
     get_principal_memory_safe_ref_store,
 )
+from app.services.prep_plans import PrepPlanError
+from app.services.interview_launch import InterviewLaunchCoordinator
 from app.services.session_errors import SessionVersionConflict
 from app.services.session import InterviewSessionStore
 from app.graphs.interview_state import is_durable_interview_version
@@ -155,6 +159,66 @@ def get_report_job_queue():
 class PrepRequest(BaseModel):
     job_description: str
     resume_text: str
+    draft_id: str | None = None
+
+
+class PrepPlanPatchRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+    operations: list[dict] = Field(min_length=1, max_length=20)
+
+
+class StartInterviewRequest(BaseModel):
+    plan_id: str | None = None
+    expected_plan_version: int | None = Field(default=None, ge=1)
+    command_id: str | None = None
+    # Temporary compatibility window for pre-V15 clients. New clients must
+    # send the authoritative plan tuple above.
+    job_description: str | None = None
+    resume_text: str | None = None
+
+
+def get_legacy_launch_session_store(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    if payload.plan_id is not None:
+        return None
+    override = request.app.dependency_overrides.get(get_session_store)
+    return override() if override is not None else get_session_store()
+
+
+def get_request_interview_launch_coordinator(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    """Honor request-app store overrides without weakening launch ownership.
+
+    Production requests reuse the runtime singleton. Test/support applications
+    may override individual FastAPI store dependencies; in that case the
+    coordinator must use those exact store instances so the session created by
+    launch is visible to subsequent session endpoints.
+    """
+    if payload.plan_id is None:
+        return None
+    coordinator = get_interview_launch_coordinator()
+    session_override = request.app.dependency_overrides.get(get_session_store)
+    plan_override = request.app.dependency_overrides.get(get_prep_plan_store)
+    if session_override is None and plan_override is None:
+        return coordinator
+    return InterviewLaunchCoordinator(
+        prep_plan_store=(
+            plan_override()
+            if plan_override is not None
+            else coordinator.prep_plan_store
+        ),
+        session_store=(
+            session_override()
+            if session_override is not None
+            else coordinator.session_store
+        ),
+        launch_repository=coordinator.launch_repository,
+        workflow_service=coordinator.workflow_service,
+    )
 
 
 class AnswerRequest(BaseModel):
@@ -731,7 +795,7 @@ def delete_principal_memory(request: Request):
 
 
 @router.post("/prep")
-def prep_interview(payload: PrepRequest):
+def prep_interview(payload: PrepRequest, plan_store=Depends(get_prep_plan_store)):
     try:
         plan = prepare_interview(
             payload.job_description,
@@ -740,9 +804,50 @@ def prep_interview(payload: PrepRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    response = public_interview_plan_payload(plan)
-    response["job_tags"] = extract_job_tags(payload.job_description)
-    return response
+    job_tags = extract_job_tags(payload.job_description)
+    try:
+        return plan_store.create(
+            plan=plan,
+            job_description=payload.job_description,
+            resume_text=payload.resume_text,
+            job_tags=job_tags,
+            source_draft_id=payload.draft_id,
+        )
+    except PrepPlanError as exc:
+        _raise_prep_plan_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PREP_PLAN_STORE_UNAVAILABLE",
+                "message": "计划暂时无法保存，请稍后重试。",
+                "retryable": True,
+            },
+        ) from exc
+
+
+@router.get("/prep-plans/{plan_id}")
+def get_prep_plan(plan_id: str, plan_store=Depends(get_prep_plan_store)):
+    try:
+        return plan_store.get(plan_id)
+    except PrepPlanError as exc:
+        _raise_prep_plan_error(exc)
+
+
+@router.patch("/prep-plans/{plan_id}")
+def patch_prep_plan(
+    plan_id: str,
+    payload: PrepPlanPatchRequest,
+    plan_store=Depends(get_prep_plan_store),
+):
+    try:
+        return plan_store.apply_operations(
+            plan_id,
+            expected_version=payload.expected_version,
+            operations=payload.operations,
+        )
+    except PrepPlanError as exc:
+        _raise_prep_plan_error(exc)
 
 
 @router.post("/interview-drafts")
@@ -767,6 +872,19 @@ def get_interview_draft(draft_id: str, draft_store=Depends(get_draft_store)):
         return draft_store.get(draft_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/interview-drafts/{draft_id}", status_code=204)
+def delete_interview_draft(
+    draft_id: str,
+    draft_store=Depends(get_draft_store),
+    plan_store=Depends(get_prep_plan_store),
+):
+    if not draft_store.delete(draft_id):
+        raise HTTPException(status_code=404, detail="draft not found")
+    if getattr(draft_store, "durability", None) != "postgres":
+        plan_store.delete_by_source_draft(draft_id)
+    return Response(status_code=204)
 
 
 @router.get("/reports")
@@ -816,9 +934,37 @@ def list_reports(
 
 @router.post("/interviews")
 def start_interview(
-    payload: PrepRequest,
-    store: InterviewSessionStore = Depends(get_session_store),
+    payload: StartInterviewRequest,
+    store: InterviewSessionStore | None = Depends(get_legacy_launch_session_store),
+    launch_coordinator: InterviewLaunchCoordinator | None = Depends(
+        get_request_interview_launch_coordinator
+    ),
 ):
+    if payload.plan_id is not None:
+        if payload.expected_plan_version is None or not payload.command_id:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_LAUNCH_REQUEST",
+                    "message": "缺少计划版本或安全启动标识。",
+                    "retryable": False,
+                },
+            )
+        if launch_coordinator is None:
+            raise HTTPException(status_code=503, detail="launch coordinator is unavailable")
+        try:
+            return launch_coordinator.launch(
+                plan_id=payload.plan_id,
+                expected_plan_version=payload.expected_plan_version,
+                command_id=payload.command_id,
+            )
+        except PrepPlanError as exc:
+            _raise_prep_plan_error(exc)
+
+    if not payload.job_description or not payload.resume_text:
+        raise HTTPException(status_code=422, detail="legacy launch input is incomplete")
+    if store is None:
+        raise HTTPException(status_code=503, detail="session store is unavailable")
     try:
         plan = prepare_interview(
             payload.job_description,
@@ -848,6 +994,10 @@ def start_interview(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
+
+
+def _raise_prep_plan_error(exc: PrepPlanError) -> None:
+    raise exc
 
 
 @router.get("/interviews/{session_id}")

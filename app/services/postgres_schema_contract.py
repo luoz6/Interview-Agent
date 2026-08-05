@@ -641,6 +641,99 @@ RUNTIME_SCHEMA_V14_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V14_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V15 adds the user-facing preparation boundary. V1-V14 manifests and
+# checksums above are immutable; this extension is intentionally append-only.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
+    {
+        "_interview_drafts": frozenset(
+            {
+                "draft_id",
+                "job_description",
+                "resume_text",
+                "source_sha256",
+                "durability",
+                "expires_at",
+                "deleted_at",
+                "created_at",
+                "updated_at",
+            }
+        ),
+        "_prep_plans": frozenset(
+            {
+                "plan_id",
+                "plan_version",
+                "state",
+                "plan_json",
+                "internal_context_json",
+                "source_sha256",
+                "source_draft_id",
+                "expires_at",
+                "consumed_session_id",
+                "consumed_command_id",
+                "consumed_plan_version",
+            }
+        ),
+        "_prep_plan_versions": frozenset(
+            {
+                "plan_id",
+                "version",
+                "public_snapshot_json",
+                "change_type",
+                "replaced_question_id",
+                "replacement_question_id",
+            }
+        ),
+        "_prep_plan_launch_commands": frozenset(
+            {
+                "plan_id",
+                "command_id",
+                "consumed_plan_version",
+                "session_id",
+                "bootstrap_status",
+                "bootstrap_attempt_count",
+                "last_bootstrap_attempt_at",
+                "next_retry_at",
+                "last_error_code",
+                "last_error_retryable",
+            }
+        ),
+        "_prep_plan_session_question_mappings": frozenset(
+            {
+                "session_id",
+                "plan_question_id",
+                "session_question_id",
+                "position",
+                "kind",
+            }
+        ),
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
+    {
+        "_interview_drafts": (frozenset({"expires_at"}),),
+        "_prep_plans": (frozenset({"state", "expires_at"}),),
+        "_prep_plan_launch_commands": (frozenset({"unique", "plan_id"}),),
+    }
+)
+RUNTIME_SCHEMA_V15_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V14_CHECKSUM,
+        "frontend_product_experience": {
+            "draft_store": "durable-expiring-v1",
+            "prep_plan": "immutable-versioned-authority-v1",
+            "launch": "single-plan-command-transaction-v1",
+            "bootstrap": "post-commit-recoverable-v1",
+            "question_mapping": "stable-plan-to-session-dual-id-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V15_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V15_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -712,12 +805,21 @@ RUNTIME_MIGRATIONS = (
         checksum=RUNTIME_SCHEMA_V14_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
+    PostgresMigrationSpec(
+        migration_id="frontend_product_experience_v15",
+        checksum=RUNTIME_SCHEMA_V15_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
 )
 LATEST_RUNTIME_MIGRATION = RUNTIME_MIGRATIONS[-1]
 
 
 def required_columns_for_relation(name: str) -> frozenset[str]:
-    for suffix, columns in RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.items():
+    for suffix, columns in sorted(
+        RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
         if name.endswith(suffix):
             return columns
     return frozenset()
@@ -726,7 +828,11 @@ def required_columns_for_relation(name: str) -> frozenset[str]:
 def required_index_tokens_for_relation(
     name: str,
 ) -> tuple[frozenset[str], ...]:
-    for suffix, requirements in RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.items():
+    for suffix, requirements in sorted(
+        RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
         if name.endswith(suffix):
             return requirements
     return ()
@@ -735,7 +841,11 @@ def required_index_tokens_for_relation(
 def required_check_tokens_for_relation(
     name: str,
 ) -> tuple[frozenset[str], ...]:
-    for suffix, requirements in RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX.items():
+    for suffix, requirements in sorted(
+        RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
         if name.endswith(suffix):
             return requirements
     return ()

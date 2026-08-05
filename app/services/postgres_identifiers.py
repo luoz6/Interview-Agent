@@ -58,6 +58,11 @@ _RUNTIME_TABLE_SUFFIXES = (
     "principal_memory_tombs",
     "principal_memory_refs",
     "principal_memory_ledger_watermark",
+    "interview_drafts",
+    "prep_plans",
+    "prep_plan_versions",
+    "prep_plan_launch_commands",
+    "prep_plan_session_question_mappings",
     "schema_migrations",
 )
 
@@ -96,6 +101,8 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "principal_memory_facts_session_idx",
     "principal_memory_facts_active_identity_uq",
     "principal_memory_tombs_principal_requested_idx",
+    "interview_drafts_expires_idx",
+    "prep_plans_state_expiry_idx",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (
