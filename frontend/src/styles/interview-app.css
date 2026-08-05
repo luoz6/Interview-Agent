@@ -102,6 +102,10 @@
   opacity: 1;
 }
 
+.interview-app .action-row.interview-actions.compact .button {
+  min-height: var(--interview-control-height);
+}
+
 .interview-app .interview-submit-button[aria-busy="true"]:disabled {
   border-color: var(--start-button-primary-bg);
   background: var(--start-button-primary-bg);
@@ -476,8 +480,8 @@
 .interview-app .interview-notice > button {
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
+  width: var(--interview-control-height);
+  height: var(--interview-control-height);
   padding: 0;
   border: 0;
   border-radius: var(--start-radius-control);
@@ -502,6 +506,15 @@
   background: var(--interview-surface);
   color: var(--interview-ink);
   box-shadow: var(--start-shadow-panel);
+}
+
+.interview-conversation-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .interview-app .console-head {
@@ -586,6 +599,19 @@
   padding: var(--start-space-sm);
   background: var(--interview-surface-subtle);
   scrollbar-color: var(--interview-rule-strong) var(--interview-surface-subtle);
+}
+
+.interview-jump-latest {
+  position: absolute !important;
+  z-index: var(--z-sticky);
+  right: var(--start-space-sm);
+  bottom: var(--start-space-sm);
+  min-height: var(--interview-control-height) !important;
+  border-color: var(--interview-action) !important;
+  background: var(--interview-surface) !important;
+  color: var(--interview-action-hover) !important;
+  box-shadow: var(--start-shadow-button) !important;
+  animation: interview-state-enter var(--interview-duration-content) var(--start-ease-out) both;
 }
 
 .interview-app .message {
@@ -804,6 +830,34 @@
   cursor: not-allowed;
 }
 
+.interview-field-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--start-space-2xs);
+  align-items: start;
+  padding: var(--start-space-2xs) var(--start-space-sm);
+  border-top: var(--start-rule-thin) solid var(--interview-danger);
+  background: var(--interview-danger-soft);
+  color: var(--interview-danger);
+}
+
+.interview-field-error > svg {
+  margin-top: var(--start-space-3xs);
+}
+
+.interview-field-error strong {
+  display: block;
+  font-size: var(--start-text-ui-sm);
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.interview-field-error p {
+  margin: var(--start-space-3xs) 0 0;
+  color: var(--interview-ink-soft);
+  font-size: var(--start-text-xs);
+  line-height: 1.55;
+}
+
 .interview-app .composer-foot {
   min-height: 3.5rem;
   border-top: var(--start-rule-thin) solid var(--interview-rule);
@@ -951,6 +1005,27 @@
   display: grid;
   gap: var(--start-space-2xs);
   margin: 0;
+}
+
+.interview-progress-facts > div:nth-child(-n + 3) dd {
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.interview-progress-facts > div:nth-child(1) dd {
+  color: var(--interview-success);
+}
+
+.interview-progress-facts > div:nth-child(2) dd {
+  color: var(--interview-warning);
+}
+
+.context-current-focus {
+  margin: var(--start-space-2xs) 0 0;
+  color: var(--interview-ink-soft);
+  font-size: var(--start-text-ui-sm);
+  font-weight: var(--start-font-weight-medium);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .interview-app .context-panel dl > div {
@@ -1260,16 +1335,18 @@
   }
 
   .interview-end-button {
-    grid-column: 1;
+    grid-column: 2;
+    grid-row: 2;
   }
 
   .interview-skip-button {
-    grid-column: 2;
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .interview-submit-button {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 1;
   }
 
   .interview-context.start-inspector {
@@ -1368,8 +1445,8 @@
   .interview-app *::before,
   .interview-app *::after {
     scroll-behavior: auto !important;
-    animation-duration: 1ms !important;
+    animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
+    transition-duration: .01ms !important;
   }
 }

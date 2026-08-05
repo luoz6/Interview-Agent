@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDown,
   ChatCircleDots,
   CheckCircle,
   Circle,
@@ -65,14 +66,36 @@ function draftKey(sessionId, questionId) {
   return `interview-agent:answer:${sessionId}:${questionId || "unknown"}`;
 }
 
+function runtimeLabel(status, operation) {
+  if (status === "submitting" && operation === "skip") return "正在跳过当前题";
+  if (status === "submitting" && operation === "recover") return "正在恢复回答流";
+  if (status === "submitting" && operation === "answer") return "正在提交回答";
+  return runtimeLabels[status] || "等待状态";
+}
+
+function streamFailure(data) {
+  const message = typeof data?.message === "string" && data.message.trim() ? data.message : null;
+  const detail = typeof data?.detail === "string" && data.detail.trim() ? data.detail : null;
+  const safeMessage = data?.code
+    ? message || detail || "服务暂时无法完成回答，请稍后重试。"
+    : "回答流暂时中断，请检查会话状态后重试。";
+  return new HttpError(safeMessage, {
+    status: Number(data?.status) || 500,
+    body: data || {},
+    code: data?.code || "STREAM_FAILED",
+    retryable: data?.retryable ?? true,
+  });
+}
+
 function QuestionNavigator({ snapshot }) {
-  const completed = snapshot?.completed_questions || 0;
+  const answered = snapshot?.answered_questions || 0;
+  const skipped = snapshot?.skipped_questions || 0;
   const total = snapshot?.total_questions || 0;
   return (
     <nav className="start-activity-rail question-rail interview-question-rail" aria-label="题目计划">
       <header className="interview-question-rail-head">
         <span aria-hidden="true"><ListNumbers size={17} weight="duotone" /></span>
-        <div><strong>题目计划</strong><small>{completed} / {total || "--"} 已完成</small></div>
+        <div><strong>题目计划</strong><small>已回答 {answered} · 已跳过 {skipped} / {total || "--"}</small></div>
       </header>
       <ol className="interview-question-list">
         {(snapshot?.questions || []).map((question, index) => {
@@ -99,14 +122,14 @@ function Message({ message, streaming = false }) {
     <article className={`message message-${candidate ? "candidate" : "agent"} ${streaming ? "is-streaming" : ""}`} data-role={candidate ? "candidate" : "agent"}>
       <span className="interview-message-avatar" aria-hidden="true">{candidate ? <FileText size={17} weight="bold" /> : <ChatCircleDots size={17} weight="duotone" />}</span>
       <div className="interview-message-body">
-        <div className="message-meta"><span>{candidate ? "你的回答" : "AI 面试官"}</span>{message.question_id && <code>{message.question_id}</code>}</div>
+        <div className="message-meta"><span>{candidate ? "你的回答" : "AI 面试官"}</span></div>
         <p>{message.content || (streaming ? "正在组织追问…" : "")}</p>
       </div>
     </article>
   );
 }
 
-function InterviewRuntime({ status }) {
+function InterviewRuntime({ status, operation }) {
   const state = runtimeStates[status] || "idle";
   const RuntimeIcon = status === "error" ? WarningCircle : status === "active" || status === "finished" ? CheckCircle : Circle;
   return (
@@ -114,7 +137,7 @@ function InterviewRuntime({ status }) {
       <span className="start-runtime-icon" aria-hidden="true">
         {state === "generating" ? <SpinnerGap className="start-spinner" size={15} weight="bold" /> : <RuntimeIcon size={15} weight={state === "ready" || state === "error" ? "fill" : "bold"} />}
       </span>
-      <span>当前会话</span><strong key={status}>{runtimeLabels[status] || "等待状态"}</strong>
+      <span>当前会话</span><strong key={`${status}-${operation || "idle"}`}>{runtimeLabel(status, operation)}</strong>
     </div>
   );
 }
@@ -155,13 +178,16 @@ export function InterviewPage() {
   const [streamingText, setStreamingText] = useState("");
   const [recoveredText, setRecoveredText] = useState("");
   const [status, setStatus] = useState("loading");
+  const [activeOperation, setActiveOperation] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [answerError, setAnswerError] = useState(null);
   const [focusMode, setFocusMode] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const [announceAssistanceNotice, setAnnounceAssistanceNotice] = useState(false);
   const [skipArmed, setSkipArmed] = useState(false);
   const [dialog, setDialog] = useState(null);
   const [liveMessage, setLiveMessage] = useState("");
+  const [showLatestButton, setShowLatestButton] = useState(false);
   const messageListRef = useRef(null);
   const followConversationRef = useRef(true);
   const programmaticScrollUntilRef = useRef(0);
@@ -186,6 +212,7 @@ export function InterviewPage() {
       setAnnounceAssistanceNotice(false);
     }
     setStatus(data.status === "finished" ? "finished" : "active");
+    setActiveOperation(null);
     if (data.status === "finished") {
       localStorage.setItem("interview-agent:last-report-session-id", sessionId);
       if (localStorage.getItem("interview-agent:last-active-session-id") === sessionId) {
@@ -200,17 +227,81 @@ export function InterviewPage() {
     return data;
   }, [sessionId]);
 
-  const followReconnect = useCallback(async function reconnect(commandId, lastEventId, handlers) {
+  const followReconnect = useCallback(async function reconnect(commandId, lastEventId, handlers, attempt = 0) {
+    if (attempt >= 3) {
+      throw new HttpError("回答流多次中断，当前草稿已保留。请稍后重试。", {
+        code: "STREAM_RECONNECT_EXHAUSTED",
+        retryable: true,
+      });
+    }
     const response = await fetch(apiUrl(`/api/interviews/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(commandId)}/stream`), {
       headers: lastEventId ? { "Last-Event-ID": lastEventId } : {},
     });
     const terminal = await readSse(response, handlers);
     if (terminal.type === "reconnect") {
       await new Promise((resolve) => setTimeout(resolve, terminal.data.retry_after_ms || 200));
-      return reconnect(commandId, terminal.data.last_event_id || lastEventId, handlers);
+      return reconnect(commandId, terminal.data.last_event_id || lastEventId, handlers, attempt + 1);
     }
     return terminal;
   }, [sessionId]);
+
+  const reconcileRequestFailure = useCallback(async (error, { questionId, answerText, operation } = {}) => {
+    const latest = await loadSnapshot().catch(() => null);
+    setActiveOperation(null);
+    if (!latest) {
+      setStatus("error");
+      setNotice({
+        tone: error?.status === 409 ? "warning" : "danger",
+        text: error?.status === 409
+          ? "会话状态已更新，但暂时无法读取最新题目。当前草稿已保留，请重新加载。"
+          : "连接中断，暂时无法确认服务端状态。当前草稿已保留，请稍后重试。",
+      });
+      return;
+    }
+
+    const serverQuestion = questionId
+      ? (latest.questions || []).find((item) => item.id === questionId)
+      : null;
+    const acceptedAnswer = operation === "answer" && Boolean(
+      (answerText && (latest.messages || []).some((message) => (
+        ["candidate", "user"].includes(message.role)
+        && message.question_id === questionId
+        && message.content === answerText
+      )))
+      || serverQuestion?.state === "answered"
+    );
+    const questionClosedElsewhere = Boolean(
+      questionId
+      && serverQuestion
+      && ["answered", "skipped"].includes(serverQuestion.state)
+    );
+    const acceptedSkip = operation === "skip" && serverQuestion?.state === "skipped";
+
+    if (acceptedAnswer || acceptedSkip || questionClosedElsewhere) {
+      if (sessionId && questionId) localStorage.removeItem(draftKey(sessionId, questionId));
+      setAnswer("");
+      setAnswerError(null);
+      const message = acceptedAnswer
+        ? "服务端已接受刚才的回答，当前题草稿已清理。"
+        : acceptedSkip
+          ? "服务端已接受跳过操作，当前题草稿已清理。"
+          : "当前题已在服务端关闭，旧草稿已清理。";
+      setNotice({ tone: "success", text: message });
+      setLiveMessage(message);
+      return;
+    }
+
+    if (error?.status === 409) {
+      setNotice({ tone: "warning", text: "会话状态已更新。当前草稿已保留，请检查最新题目后再提交。" });
+      return;
+    }
+    setNotice({
+      tone: "warning",
+      text: operation === "recover"
+        ? "回答流暂时中断，当前草稿已保留。页面已恢复最新会话状态，请稍后重试。"
+        : "连接暂时中断，当前草稿已保留。请检查会话状态后重试。",
+    });
+  }, [loadSnapshot, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -226,6 +317,8 @@ export function InterviewPage() {
 
   useEffect(() => {
     setSkipArmed(false);
+    setAnswerError(null);
+    setRecoveredText("");
   }, [snapshot?.current_question?.id]);
 
   useEffect(() => {
@@ -240,8 +333,10 @@ export function InterviewPage() {
     if (!streamUrl || !commandId || resumedCommandRef.current === commandId) return;
     resumedCommandRef.current = commandId;
     setStatus("submitting");
+    setActiveOperation("recover");
     setStreamingText("");
     let resumeBuffer = "";
+    let cancelled = false;
     const handlers = {
       generation_reset: () => {
         resumeBuffer = "";
@@ -264,18 +359,26 @@ export function InterviewPage() {
         }
       })
       .then(async (terminal) => {
+        if (cancelled) return;
         if (terminal.type === "reconnect") {
           await followReconnect(commandId, terminal.data.last_event_id, handlers);
         }
+        if (cancelled) return;
         setRecoveredText(resumeBuffer);
         setStreamingText("");
         await loadSnapshot();
       })
-      .catch((error) => {
-        setStatus("error");
-        setNotice({ tone: "warning", text: `流式回答恢复失败：${error.message}` });
+      .catch(async (error) => {
+        if (cancelled) return;
+        await reconcileRequestFailure(error, {
+          questionId: snapshot?.current_question?.id,
+          operation: "recover",
+        });
       });
-  }, [followReconnect, loadSnapshot, snapshot?.active_stream_url, snapshot?.active_command_id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [followReconnect, loadSnapshot, reconcileRequestFailure, snapshot?.active_stream_url, snapshot?.active_command_id, snapshot?.current_question?.id]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -321,7 +424,26 @@ export function InterviewPage() {
     const messageList = messageListRef.current;
     if (!messageList) return;
     const distanceFromBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
-    followConversationRef.current = distanceFromBottom <= 72;
+    const shouldFollow = distanceFromBottom <= 72;
+    followConversationRef.current = shouldFollow;
+    setShowLatestButton(!shouldFollow);
+  }
+
+  function handleManualConversationIntent() {
+    programmaticScrollUntilRef.current = 0;
+  }
+
+  function scrollToLatest() {
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    followConversationRef.current = true;
+    setShowLatestButton(false);
+    programmaticScrollUntilRef.current = Date.now() + (reducedMotion ? 0 : 700);
+    messageList.scrollTo({
+      top: messageList.scrollHeight,
+      behavior: reducedMotion ? "auto" : "smooth",
+    });
   }
 
   const commandPayload = (extra = {}) => ({
@@ -334,21 +456,32 @@ export function InterviewPage() {
     event.preventDefault();
     const trimmed = answer.trim();
     if (!trimmed) {
-      setNotice({ tone: "warning", text: "回答不能为空。请先写下你的判断，再提交本题。" });
+      setNotice(null);
+      setAnswerError({
+        title: "请先填写回答",
+        message: "至少写下你的判断和依据；需要分段时可使用 Shift+Enter。",
+      });
       answerRef.current?.focus();
       return;
     }
     const questionId = snapshot?.current_question?.id;
     const payload = commandPayload({ answer: trimmed });
     followConversationRef.current = true;
+    setShowLatestButton(false);
     setStatus("submitting");
+    setActiveOperation("answer");
     setNotice(null);
+    setAnswerError(null);
     setStreamingText("");
+    setRecoveredText("");
     const handlers = {
       generation_reset: () => setStreamingText(""),
       chunk: (data) => setStreamingText((current) => current + (data.delta || "")),
-      conflict: (data) => { throw new HttpError(data.detail || "面试状态已变化", { status: 409, body: data }); },
-      error: (data) => { throw new Error(data.detail || data.code || "提交失败"); },
+      conflict: (data) => {
+        const detail = typeof data?.detail === "string" && data.detail.trim() ? data.detail : "面试状态已变化";
+        throw new HttpError(detail, { status: 409, body: data });
+      },
+      error: (data) => { throw streamFailure(data); },
     };
     try {
       let terminal;
@@ -362,22 +495,25 @@ export function InterviewPage() {
         terminal = await followReconnect(payload.command_id, terminal.data.last_event_id, handlers);
       }
       if (terminal.type === "conflict") throw new HttpError("面试状态已更新，请重试。", { status: 409 });
-      if (terminal.type === "error") throw new Error(terminal.data.detail || terminal.data.code || "提交失败");
+      if (terminal.type === "error") throw streamFailure(terminal.data);
       localStorage.removeItem(draftKey(sessionId, questionId));
       setAnswer("");
       setStreamingText("");
       await loadSnapshot();
       setLiveMessage("回答已提交，面试已进入下一步。");
     } catch (error) {
-      setStatus("error");
-      setNotice({ tone: error.status === 409 ? "warning" : "danger", text: error.status === 409 ? "会话状态已刷新，请检查最新题目后继续。" : error.message });
-      await loadSnapshot().catch(() => undefined);
+      await reconcileRequestFailure(error, {
+        questionId,
+        answerText: trimmed,
+        operation: "answer",
+      });
     }
   }
 
   async function runCommand(type) {
     if (!sessionId) return;
     setStatus(type === "finish" ? "finishing" : "submitting");
+    setActiveOperation(type);
     setNotice(null);
     try {
       await postJson(`/api/interviews/${encodeURIComponent(sessionId)}/${type}`, commandPayload());
@@ -393,16 +529,17 @@ export function InterviewPage() {
         setLiveMessage("当前题已跳过，面试已进入下一题。");
       }
     } catch (error) {
-      setStatus("error");
-      setNotice({ tone: error.status === 409 ? "warning" : "danger", text: error.status === 409 ? "会话状态已刷新，请检查最新题目后继续。" : error.message });
-      await loadSnapshot().catch(() => undefined);
+      await reconcileRequestFailure(error, {
+        questionId: snapshot?.current_question?.id,
+        operation: type,
+      });
     }
   }
 
   function updateAnswer(value) {
     if (skipArmed) setSkipArmed(false);
     setAnswer(value);
-    if (value.trim() && notice?.text?.startsWith("回答不能为空")) setNotice(null);
+    if (value.trim() && answerError) setAnswerError(null);
     const questionId = snapshot?.current_question?.id;
     if (sessionId && questionId) localStorage.setItem(draftKey(sessionId, questionId), value);
   }
@@ -443,7 +580,6 @@ export function InterviewPage() {
   const tags = snapshot?.job_tags || [];
   const messages = snapshot?.messages || [];
   const recoveredAlreadyPersisted = recoveredText && messages.some((message) => message.content?.includes(recoveredText));
-  const progress = snapshot?.total_questions ? Math.round((snapshot.completed_questions / snapshot.total_questions) * 100) : 0;
   const disabled = ["loading", "submitting", "finishing"].includes(status);
   const shellClass = focusMode ? "interview-workspace is-focus-mode" : "interview-workspace";
   const question = snapshot?.current_question;
@@ -452,13 +588,15 @@ export function InterviewPage() {
     [snapshot?.questions, question?.id],
   );
   const totalQuestions = snapshot?.total_questions || snapshot?.questions?.length || 0;
-  const answeredQuestions = snapshot?.completed_questions || 0;
-  const skippedQuestions = (snapshot?.questions || []).filter((item) => item.state === "skipped").length;
-  const remainingQuestions = Math.max(0, totalQuestions - answeredQuestions - skippedQuestions);
-  const statusState = runtimeStates[status] || "idle";
+  const answeredQuestions = Math.max(0, Number(snapshot?.answered_questions) || 0);
+  const skippedQuestions = Math.max(0, Number(snapshot?.skipped_questions) || 0);
+  const remainingQuestions = Math.max(0, Number(snapshot?.unanswered_questions) || 0);
+  const completedQuestions = Math.max(0, Number(snapshot?.completed_questions) || answeredQuestions + skippedQuestions);
+  const progress = totalQuestions ? Math.round((completedQuestions / totalQuestions) * 100) : 0;
+  const waitingForAnswerStream = status === "submitting" && ["answer", "recover"].includes(activeOperation);
 
   return (
-    <AppShell className="interview-app" headerClassName="interview-app-topbar" data-focus-mode={focusMode} skipHref="#answerInput" skipLabel="跳到回答输入" brandSubtitle="实时面试工作台" status={<InterviewRuntime status={status} />} onNavigate={requestNavigation}>
+    <AppShell className="interview-app" headerClassName="interview-app-topbar" data-focus-mode={focusMode} skipHref="#answerInput" skipLabel="跳到回答输入" brandSubtitle="实时面试工作台" status={<InterviewRuntime status={status} operation={activeOperation} />} onNavigate={requestNavigation}>
       <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{liveMessage}</div>
 
       <main id="main-content" className={`start-app-shell interview-app-shell ${shellClass}`} tabIndex="-1">
@@ -469,8 +607,8 @@ export function InterviewPage() {
               <span className="start-workspace-mark" aria-hidden="true"><ChatCircleDots size={18} weight="bold" /></span>
               <div><h1 id="interview-workspace-title">模拟面试</h1><p>围绕当前问题完整说明判断、方案、取舍与验证。</p></div>
             </div>
-            <div className="start-readiness interview-progress-summary" data-ready={status === "active"} aria-label={`面试进度 ${progress}%`}>
-              <span className="interview-progress-value" key={`workspace-progress-${progress}`}>{progress}%</span><strong>{answeredQuestions} / {totalQuestions || "--"} 已完成</strong>
+            <div className="start-readiness interview-progress-summary" data-ready={status === "active"} aria-label={`面试进度 ${progress}%，已回答 ${answeredQuestions}，已跳过 ${skippedQuestions}`}>
+              <span className="interview-progress-value" key={`workspace-progress-${progress}`}>{progress}%</span><strong>已回答 {answeredQuestions} / {totalQuestions || "--"}</strong>
             </div>
           </header>
 
@@ -501,18 +639,38 @@ export function InterviewPage() {
             <section className="agent-console" aria-label="面试对话">
               <header className="console-head">
                 <div><span className="console-live"><ChatCircleDots size={16} weight="duotone" aria-hidden="true" />对话记录</span><small>已确认的回答与追问</small></div>
-                <span className="interview-live-state" data-state={statusState}>{status === "submitting" || status === "loading" || status === "finishing" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : status === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}<span key={`conversation-state-${status}`}>{runtimeLabels[status] || "等待状态"}</span></span>
+                {waitingForAnswerStream ? (
+                  <span className="interview-live-state" data-state="generating">
+                    <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" />
+                    <span>{activeOperation === "recover" ? "正在恢复回答流" : "正在生成追问"}</span>
+                  </span>
+                ) : null}
               </header>
-              <div ref={messageListRef} className="message-list" onScroll={handleMessageListScroll}>
-                {!messages.length && status === "loading" ? (
-                  <div className="console-loading" role="status"><SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" /><span>正在恢复会话快照…</span></div>
+              <div className="interview-conversation-body">
+                <div
+                  ref={messageListRef}
+                  className="message-list"
+                  onScroll={handleMessageListScroll}
+                  onPointerDown={handleManualConversationIntent}
+                  onTouchStart={handleManualConversationIntent}
+                  onWheel={handleManualConversationIntent}
+                >
+                  {!messages.length && status === "loading" ? (
+                    <div className="console-loading" role="status"><SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" /><span>正在恢复会话快照…</span></div>
+                  ) : null}
+                  {!messages.length && status !== "loading" ? (
+                    <div className="interview-empty-state"><span aria-hidden="true"><ChatCircleDots size={22} weight="duotone" /></span><div><strong>从当前问题开始作答</strong><p>提交后，已确认的回答和追问会按顺序保留在这里。</p></div></div>
+                  ) : null}
+                  {messages.map((message, index) => <Message key={`${message.question_id || "m"}-${index}`} message={message} />)}
+                  {recoveredText && !recoveredAlreadyPersisted && <Message message={{ role: "assistant", content: recoveredText }} />}
+                  {streamingText ? <Message streaming message={{ role: "assistant", content: streamingText }} /> : null}
+                </div>
+                {showLatestButton ? (
+                  <button className="button interview-jump-latest" type="button" onClick={scrollToLatest}>
+                    <ArrowDown size={15} weight="bold" aria-hidden="true" />
+                    <span>回到最新消息</span>
+                  </button>
                 ) : null}
-                {!messages.length && status !== "loading" ? (
-                  <div className="interview-empty-state"><span aria-hidden="true"><ChatCircleDots size={22} weight="duotone" /></span><div><strong>从当前问题开始作答</strong><p>提交后，已确认的回答和追问会按顺序保留在这里。</p></div></div>
-                ) : null}
-                {messages.map((message, index) => <Message key={`${message.question_id || "m"}-${index}`} message={message} />)}
-                {recoveredText && !recoveredAlreadyPersisted && <Message message={{ role: "assistant", content: recoveredText }} />}
-                {status === "submitting" && <Message streaming message={{ role: "assistant", content: streamingText }} />}
               </div>
             </section>
 
@@ -534,22 +692,28 @@ export function InterviewPage() {
                 }}
                 maxLength="5000"
                 disabled={disabled || !question}
-                aria-invalid={notice?.text?.startsWith("回答不能为空") || undefined}
-                aria-describedby="answer-draft-state"
+                aria-invalid={answerError ? "true" : undefined}
+                aria-describedby={answerError ? "answer-error answer-draft-state" : "answer-draft-state"}
                 placeholder="先说明你的判断，再展开方案、取舍、风险和验证方式……"
               />
+              {answerError ? (
+                <div id="answer-error" className="interview-field-error" role="alert">
+                  <WarningCircle size={17} weight="fill" aria-hidden="true" />
+                  <div><strong>{answerError.title}</strong><p>{answerError.message}</p></div>
+                </div>
+              ) : null}
               <div className="composer-foot">
-                <div id="answer-draft-state" className="composer-draft-state" data-ready={Boolean(answer)}><ShieldCheck size={14} weight={answer ? "fill" : "regular"} aria-hidden="true" /><span>{answer ? "草稿已保存在当前浏览器" : "输入内容会自动保存"}</span><strong>{answer.length} / 5000</strong></div>
+                <div id="answer-draft-state" className="composer-draft-state" data-ready={Boolean(answer)} title="草稿按当前会话与当前题目保存在本机浏览器"><ShieldCheck size={14} weight={answer ? "fill" : "regular"} aria-hidden="true" /><span>{answer ? "本机 · 当前题草稿已保存" : "按会话与当前题自动保存"}</span><strong>{answer.length} / 5000</strong></div>
                 <div className="action-row compact interview-actions">
-                  <button className="button interview-end-button" type="button" onClick={() => setDialog({ type: "finish" })} disabled={disabled}>
-                    <SignOut size={16} weight="bold" aria-hidden="true" /><span>结束面试</span>
+                  <button className="button button-primary interview-submit-button" type="submit" aria-busy={status === "submitting" && activeOperation === "answer" ? "true" : undefined} disabled={disabled || !question}>
+                    {status === "submitting" && activeOperation === "answer" ? <SpinnerGap className="start-spinner" size={17} weight="bold" aria-hidden="true" /> : <PaperPlaneTilt size={17} weight="fill" aria-hidden="true" />}
+                    <span>{status === "submitting" && activeOperation === "answer" ? "正在提交" : "提交回答"}</span>
                   </button>
                   <button className="button interview-skip-button" type="button" onClick={requestSkip} disabled={disabled || !question} data-state={skipArmed ? "confirm" : undefined}>
                     <SkipForward size={16} weight="bold" aria-hidden="true" /><span>{skipArmed ? "确认跳过" : "跳过此题"}</span>
                   </button>
-                  <button className="button button-primary interview-submit-button" type="submit" aria-busy={status === "submitting" || undefined} disabled={disabled || !question}>
-                    {status === "submitting" ? <SpinnerGap className="start-spinner" size={17} weight="bold" aria-hidden="true" /> : <PaperPlaneTilt size={17} weight="fill" aria-hidden="true" />}
-                    <span>{status === "submitting" ? "正在提交" : "提交回答"}</span>
+                  <button className="button interview-end-button" type="button" onClick={() => setDialog({ type: "finish" })} disabled={disabled}>
+                    <SignOut size={16} weight="bold" aria-hidden="true" /><span>结束面试</span>
                   </button>
                 </div>
               </div>
@@ -561,21 +725,27 @@ export function InterviewPage() {
           <aside className="start-inspector interview-context" aria-labelledby="interview-inspector-title">
             <header className="start-inspector-head interview-inspector-head">
               <div><span>工作面板</span><h2 id="interview-inspector-title">会话概览</h2></div>
-              <span className="start-inspector-state" data-state={statusState}>{status === "submitting" || status === "loading" || status === "finishing" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : status === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}<span>{runtimeLabels[status] || "等待状态"}</span></span>
             </header>
             <div className="start-inspector-content interview-inspector-content">
               <section className="context-panel context-progress">
                 <header><span>完成进度</span><strong className="interview-progress-value" key={`inspector-progress-${progress}`}>{progress}%</strong></header>
                 <div className="progress-line" role="progressbar" aria-label="面试进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><span style={{ "--progress-scale": progress / 100 }} /></div>
-                <dl><div><dt><Clock size={14} weight="regular" aria-hidden="true" />已用时</dt><dd>{formatDuration(snapshot?.elapsed_seconds)}</dd></div><div><dt><Clock size={14} weight="regular" aria-hidden="true" />预计剩余</dt><dd>{formatDuration(snapshot?.estimated_remaining_seconds)}</dd></div></dl>
+                <dl className="interview-progress-facts">
+                  <div><dt>已回答</dt><dd>{answeredQuestions}</dd></div>
+                  <div><dt>已跳过</dt><dd>{skippedQuestions}</dd></div>
+                  <div><dt>待完成</dt><dd>{remainingQuestions}</dd></div>
+                  <div><dt><Clock size={14} weight="regular" aria-hidden="true" />已用时</dt><dd>{formatDuration(snapshot?.elapsed_seconds)}</dd></div>
+                  <div><dt><Clock size={14} weight="regular" aria-hidden="true" />预计剩余</dt><dd>{formatDuration(snapshot?.estimated_remaining_seconds)}</dd></div>
+                </dl>
               </section>
               <section className="context-panel context-focus">
                 <header><span>当前考察</span><h3>能力关注点</h3></header>
-                {tags.length ? <div className="tag-row">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div> : <p className="context-empty">当前会话尚未返回岗位标签。</p>}
+                <p className="context-current-focus">{question?.focus || "当前题目尚未返回考察重点。"}</p>
+                {tags.length ? <div className="tag-row" aria-label="岗位标签">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
               </section>
               <section className="context-panel context-review">
-                <header><span>逐题评审</span><strong className="review-count" key={`review-${reviewCount}-${answeredQuestions}`}>{reviewCount} / {answeredQuestions}</strong></header>
-                <p>{answeredQuestions ? "题目关闭后异步评审，不阻塞下一轮作答。" : "完成第一题后开始记录评审状态。"}</p>
+                <header><span>已关闭题评审</span><strong className="review-count" key={`review-${reviewCount}-${completedQuestions}`}>{reviewCount} / {completedQuestions}</strong></header>
+                <p>{completedQuestions ? "回答或跳过后异步评审，不阻塞下一轮作答。" : "关闭第一题后开始记录评审状态。"}</p>
               </section>
               <section className="context-panel context-session">
                 <header><span>会话事实</span><h3>恢复依据</h3></header>
@@ -587,10 +757,9 @@ export function InterviewPage() {
       </main>
 
       <footer className="start-status-bar interview-status-bar" aria-label="面试状态">
-        <StatusBarItem icon={status === "error" ? WarningCircle : statusState === "generating" ? SpinnerGap : CheckCircle} label="会话" value={runtimeLabels[status] || "等待状态"} state={statusState} current />
-        <StatusBarItem icon={Target} label="当前题" value={question ? `${currentQuestionIndex + 1} / ${totalQuestions}` : "等待"} state={question ? "ready" : "idle"} />
+        <StatusBarItem icon={Target} label="当前题" value={question ? `${currentQuestionIndex + 1} / ${totalQuestions}` : "等待"} state={question ? "ready" : "idle"} current />
         <StatusBarItem icon={FileText} label="草稿" value={answer ? `${answer.length} 字` : "自动保存"} state={answer ? "ready" : "idle"} />
-        <StatusBarItem icon={CheckCircle} label="评审" value={`${reviewCount} / ${answeredQuestions}`} state={reviewCount && reviewCount >= answeredQuestions ? "ready" : answeredQuestions ? "generating" : "idle"} />
+        <StatusBarItem icon={CheckCircle} label="评审" value={`${reviewCount} / ${completedQuestions}`} state={completedQuestions && reviewCount >= completedQuestions ? "ready" : completedQuestions ? "generating" : "idle"} />
       </footer>
       <ConfirmDialog
         open={Boolean(dialog)}
