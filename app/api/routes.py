@@ -25,6 +25,27 @@ from app.services.prep import (
     public_interview_plan_payload,
     validate_launchable_interview_plan,
 )
+from app.services.interview_plan_editor import (
+    InterviewPlanEditor,
+    PlanEditRequest,
+    PlanOperation,
+    PlanOperationValidationError,
+)
+from app.services.interview_plan_revision import (
+    InterviewPlanV2,
+    canonical_sha256,
+    legacy_plan_to_v2,
+    v2_plan_to_legacy,
+)
+from app.services.interview_plan_regenerator import (
+    PlanRegenerationFailed,
+    ProviderPlanRegenerator,
+)
+from app.services.interview_plan_revision_store import (
+    PlanRevisionConflict,
+    PlanRevisionNotFound,
+    PlanSourceUnavailable,
+)
 from app.services.config import (
     get_report_runtime_profile,
     get_interview_langgraph_rollout_percent,
@@ -42,6 +63,7 @@ from app.services.runtime_events import (
 from app.services.runtime import (
     get_agent_execution_runner,
     get_draft_store,
+    get_plan_revision_store,
     get_event_publisher,
     get_report_job_store,
     get_runtime_control_store,
@@ -152,9 +174,33 @@ def get_report_job_queue():
         ) from exc
 
 
+def get_plan_regenerator() -> ProviderPlanRegenerator:
+    return ProviderPlanRegenerator(
+        lambda job_description, resume_text: prepare_interview(
+            job_description,
+            resume_text,
+            execution_runner=get_agent_execution_runner(),
+        )
+    )
+
+
 class PrepRequest(BaseModel):
-    job_description: str
-    resume_text: str
+    job_description: str | None = None
+    resume_text: str | None = None
+    plan_revision_id: str | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
+    plan_sha256: str | None = None
+
+
+class RegenerateQuestionRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    request_id: str = Field(min_length=1)
+
+
+class RegenerateAllRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    request_id: str = Field(min_length=1)
+    confirmed: Literal[True]
 
 
 class AnswerRequest(BaseModel):
@@ -731,7 +777,12 @@ def delete_principal_memory(request: Request):
 
 
 @router.post("/prep")
-def prep_interview(payload: PrepRequest):
+def prep_interview(
+    payload: PrepRequest,
+    revision_store=Depends(get_plan_revision_store),
+):
+    if not payload.job_description or not payload.resume_text:
+        raise HTTPException(status_code=422, detail="job_description and resume_text are required")
     try:
         plan = prepare_interview(
             payload.job_description,
@@ -742,7 +793,234 @@ def prep_interview(payload: PrepRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     response = public_interview_plan_payload(plan)
     response["job_tags"] = extract_job_tags(payload.job_description)
+    revision = revision_store.create_initial(
+        source_payload={
+            "job_description": payload.job_description,
+            "resume_text": payload.resume_text,
+            "job_tags": response["job_tags"],
+        },
+        plan=legacy_plan_to_v2(plan),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2",
+    )
+    response.update(_plan_revision_payload(revision))
     return response
+
+
+@router.patch("/interview-plans/{plan_family_id}")
+def edit_interview_plan(
+    plan_family_id: str,
+    payload: PlanEditRequest,
+    revision_store=Depends(get_plan_revision_store),
+):
+    provider_managed = {
+        operation.op
+        for operation in payload.operations
+        if operation.op in {"regenerate_question", "regenerate_all"}
+    }
+    if provider_managed:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "provider_managed_operation",
+                "message": "regeneration output must be created by the server Provider boundary",
+                "operations": sorted(provider_managed),
+            },
+        )
+    return _apply_plan_edit(plan_family_id, payload, revision_store)
+
+
+def _apply_plan_edit(
+    plan_family_id: str,
+    payload: PlanEditRequest,
+    revision_store,
+    *,
+    request_sha256: str | None = None,
+):
+    try:
+        revision = InterviewPlanEditor(revision_store).apply(
+            plan_family_id,
+            payload,
+            request_sha256=request_sha256,
+        )
+    except PlanRevisionConflict as exc:
+        current = None
+        try:
+            latest = revision_store.get_latest(plan_family_id)
+            current = {
+                "plan_revision_id": latest.plan_revision_id,
+                "revision": latest.revision,
+                "plan_sha256": latest.plan_sha256,
+            }
+        except PlanRevisionNotFound:
+            pass
+        return JSONResponse(
+            status_code=409,
+            content={"code": "plan_revision_conflict", "current_revision": current},
+        )
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PlanSourceUnavailable as exc:
+        raise HTTPException(status_code=422, detail={"code": "plan_source_unavailable"}) from exc
+    except PlanOperationValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail()) from exc
+    return _plan_revision_payload(revision)
+
+
+@router.post("/interview-plans/{plan_family_id}/questions/{question_id}/regenerate")
+def regenerate_interview_question(
+    plan_family_id: str,
+    question_id: str,
+    payload: RegenerateQuestionRequest,
+    revision_store=Depends(get_plan_revision_store),
+    regenerator: ProviderPlanRegenerator = Depends(get_plan_regenerator),
+):
+    request_sha256 = canonical_sha256(
+        {
+            "operation": "regenerate_question",
+            "plan_family_id": plan_family_id,
+            "question_id": question_id,
+            **payload.model_dump(mode="json"),
+        }
+    )
+    try:
+        current = revision_store.get_latest(plan_family_id)
+        if current.revision != payload.expected_revision:
+            raise PlanRevisionConflict(
+                "expected revision does not match latest revision",
+                current_revision=current.revision,
+            )
+        source = revision_store.get_source(current.source_id)
+        if source.protected_payload is None:
+            raise PlanSourceUnavailable("plan source payload is unavailable")
+        generated = regenerator.regenerate_question(
+            current=current,
+            source=source.protected_payload,
+            question_id=question_id,
+        )
+    except PlanRevisionConflict:
+        return _apply_plan_edit(
+            plan_family_id,
+            PlanEditRequest(
+                expected_revision=payload.expected_revision,
+                request_id=payload.request_id,
+                operations=[
+                    PlanOperation(
+                        op="edit_focus",
+                        question_id=question_id,
+                        focus="idempotency-replay-placeholder",
+                    )
+                ],
+            ),
+            revision_store,
+            request_sha256=request_sha256,
+        )
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PlanSourceUnavailable as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "plan_source_unavailable"}
+        ) from exc
+    except PlanRegenerationFailed as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    request = PlanEditRequest(
+        expected_revision=payload.expected_revision,
+        request_id=payload.request_id,
+        operations=[
+            PlanOperation(
+                op="regenerate_question",
+                question_id=question_id,
+                question_text=generated.question_text,
+                focus=generated.focus,
+                question_type=generated.question_type,
+                difficulty=generated.difficulty,
+                expected_minutes=generated.expected_minutes,
+                expected_followups=generated.expected_followups,
+                knowledge_binding=generated.knowledge_binding,
+            )
+        ],
+    )
+    return _apply_plan_edit(
+        plan_family_id,
+        request,
+        revision_store,
+        request_sha256=request_sha256,
+    )
+
+
+@router.post("/interview-plans/{plan_family_id}/regenerate")
+def regenerate_entire_interview_plan(
+    plan_family_id: str,
+    payload: RegenerateAllRequest,
+    revision_store=Depends(get_plan_revision_store),
+    regenerator: ProviderPlanRegenerator = Depends(get_plan_regenerator),
+):
+    try:
+        current = revision_store.get_latest(plan_family_id)
+        if current.revision != payload.expected_revision:
+            return _apply_plan_edit(
+                plan_family_id,
+                PlanEditRequest(
+                    expected_revision=payload.expected_revision,
+                    request_id=payload.request_id,
+                    operations=[
+                        PlanOperation(
+                            op="regenerate_all",
+                            regenerated_plan=current.plan,
+                        )
+                    ],
+                ),
+                revision_store,
+                request_sha256=canonical_sha256(
+                    {
+                        "operation": "regenerate_all",
+                        "plan_family_id": plan_family_id,
+                        **payload.model_dump(mode="json"),
+                    }
+                ),
+            )
+        source = revision_store.get_source(current.source_id)
+        if source.protected_payload is None:
+            raise PlanSourceUnavailable("plan source payload is unavailable")
+        regenerated_plan = regenerator.regenerate_all(
+            current=current,
+            source=source.protected_payload,
+        )
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PlanSourceUnavailable as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "plan_source_unavailable"}
+        ) from exc
+    except PlanRegenerationFailed as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    request_sha256 = canonical_sha256(
+        {
+            "operation": "regenerate_all",
+            "plan_family_id": plan_family_id,
+            **payload.model_dump(mode="json"),
+        }
+    )
+    request = PlanEditRequest(
+        expected_revision=payload.expected_revision,
+        request_id=payload.request_id,
+        operations=[
+            PlanOperation(op="regenerate_all", regenerated_plan=regenerated_plan)
+        ],
+    )
+    return _apply_plan_edit(
+        plan_family_id,
+        request,
+        revision_store,
+        request_sha256=request_sha256,
+    )
 
 
 @router.post("/interview-drafts")
@@ -820,34 +1098,74 @@ def start_interview(
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
-        plan = prepare_interview(
-            payload.job_description,
-            payload.resume_text,
-            llm=store.llm,
-            execution_runner=get_agent_execution_runner(),
-        )
+        if payload.plan_revision_id:
+            revision_store = get_plan_revision_store()
+            revision = revision_store.get_by_id(payload.plan_revision_id)
+            if payload.expected_revision != revision.revision:
+                raise HTTPException(status_code=409, detail="plan revision conflict")
+            if payload.plan_sha256 != revision.plan_sha256:
+                raise HTTPException(status_code=409, detail="plan hash conflict")
+            source = revision_store.get_source(revision.source_id)
+            if source.protected_payload is None:
+                raise HTTPException(status_code=422, detail="plan source unavailable")
+            plan = v2_plan_to_legacy(revision.plan)
+            source_payload = source.protected_payload
+            job_description = source_payload.job_description
+            resume_text = source_payload.resume_text
+            job_tags = list(source_payload.job_tags)
+        else:
+            # Legacy clients remain readable during additive migration. New clients
+            # must use a revision; this compatibility path is slated for removal
+            # after T12 and is intentionally not used by the revision contract tests.
+            if not payload.job_description or not payload.resume_text:
+                raise HTTPException(status_code=422, detail="plan_revision_id is required")
+            plan = prepare_interview(
+                payload.job_description,
+                payload.resume_text,
+                llm=store.llm,
+                execution_runner=get_agent_execution_runner(),
+            )
+            job_description = payload.job_description
+            resume_text = payload.resume_text
+            job_tags = extract_job_tags(payload.job_description)
         validate_launchable_interview_plan(plan)
-        job_tags = extract_job_tags(payload.job_description)
         if (
             get_runtime_store() == "postgres"
             and get_interview_langgraph_rollout_percent() > 0
         ):
             turn = get_interview_workflow_service().start(
                 plan,
-                job_description=payload.job_description,
-                resume_text=payload.resume_text,
+                job_description=job_description,
+                resume_text=resume_text,
                 job_tags=job_tags,
             )
         else:
             turn = store.start(
                 plan,
-                job_description=payload.job_description,
-                resume_text=payload.resume_text,
+                job_description=job_description,
+                resume_text=resume_text,
                 job_tags=job_tags,
             )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _turn_to_dict(turn)
+
+
+def _plan_revision_payload(revision) -> dict:
+    legacy = public_interview_plan_payload(v2_plan_to_legacy(revision.plan))
+    public_plan = revision.plan.model_dump(mode="json")
+    if "prep_context" in legacy:
+        public_plan["prep_context"] = legacy["prep_context"]
+    else:
+        public_plan.pop("prep_context", None)
+    return {
+        "plan_family_id": revision.plan_family_id,
+        "plan_revision_id": revision.plan_revision_id,
+        "revision": revision.revision,
+        "plan_sha256": revision.plan_sha256,
+        "plan": public_plan,
+        "legacy_plan": legacy,
+    }
 
 
 @router.get("/interviews/{session_id}")

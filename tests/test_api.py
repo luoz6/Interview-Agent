@@ -8,6 +8,9 @@ from app.api.routes import get_session_store
 from app.main import app
 from app.services.drafts import AnonymousDraftStore
 from app.services.event_publisher import NoopRuntimeEventPublisher
+from app.services.interview_plan_revision_store import (
+    InMemoryInterviewPlanRevisionStore,
+)
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -63,6 +66,14 @@ class FakeApiLLM:
 
 
 _api_draft_store = AnonymousDraftStore()
+
+
+@pytest.fixture(autouse=True)
+def isolate_plan_revision_store():
+    store = InMemoryInterviewPlanRevisionStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: store
+    yield store
+    app.dependency_overrides.pop(route_module.get_plan_revision_store, None)
 
 
 def make_client(control_store=None):
@@ -670,7 +681,19 @@ def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
                     kind="technical",
                     prompt="Explain caching.",
                     focus="cache",
-                )
+                ),
+                InterviewQuestion(
+                    id="q2",
+                    kind="technical",
+                    prompt="Explain cache invalidation.",
+                    focus="cache invalidation",
+                ),
+                InterviewQuestion(
+                    id="q3",
+                    kind="system-design",
+                    prompt="Design a resilient cache-backed API.",
+                    focus="resilience",
+                ),
             ],
         )
 

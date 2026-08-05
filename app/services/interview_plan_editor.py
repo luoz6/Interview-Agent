@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.services.interview_plan_revision import (
     InterviewPlanQuestionV2,
@@ -106,13 +106,17 @@ class InterviewPlanEditor:
         self.store = store
 
     def apply(
-        self, plan_family_id: str, request: PlanEditRequest
+        self,
+        plan_family_id: str,
+        request: PlanEditRequest,
+        *,
+        request_sha256: str | None = None,
     ) -> InterviewPlanRevision:
         current = self.store.get_latest(plan_family_id)
         # Let the Store remain the final concurrency authority; this early result only
         # provides a low-latency conflict on ordinary requests.
         if current.revision != request.expected_revision:
-            request_sha = self._request_sha(plan_family_id, request)
+            request_sha = request_sha256 or self._request_sha(plan_family_id, request)
             try:
                 return self.store.create_next_revision(
                     plan_family_id=plan_family_id,
@@ -140,6 +144,13 @@ class InterviewPlanEditor:
                 if exc.operation_index is None:
                     exc.operation_index = index
                 raise
+        try:
+            plan = InterviewPlanV2.model_validate(plan.model_dump(mode="json"))
+        except ValidationError as exc:
+            raise PlanOperationValidationError(
+                "invalid_plan",
+                "edited plan violates the interview-plan-v2 schema",
+            ) from exc
         self._validate_duplicate_questions(plan)
         source_kind = self._source_kind(request.operations)
         reason = request.operations[0].op if len(request.operations) == 1 else "batch_edit"
@@ -151,7 +162,7 @@ class InterviewPlanEditor:
             created_reason=reason,
             generator_version=current.generator_version,
             request_id=request.request_id,
-            request_sha256=self._request_sha(plan_family_id, request),
+            request_sha256=request_sha256 or self._request_sha(plan_family_id, request),
         )
 
     def _apply_one(

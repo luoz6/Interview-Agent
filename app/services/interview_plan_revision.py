@@ -6,7 +6,7 @@ import math
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -130,6 +130,7 @@ class InterviewPlanV2(ImmutableModel):
     title: str = Field(min_length=1)
     configuration_snapshot: PlanConfigurationSnapshot
     questions: tuple[InterviewPlanQuestionV2, ...]
+    prep_context: dict[str, Any] | None = None
 
     @field_validator("title", mode="before")
     @classmethod
@@ -299,3 +300,65 @@ def _uuid_text(value: str, field_name: str) -> str:
         return str(UUID(str(value)))
     except (TypeError, ValueError, AttributeError) as exc:
         raise ValueError(f"{field_name} must be a UUID") from exc
+
+
+def legacy_plan_to_v2(plan: Any, *, generator_version: str = "plan-generator-v2") -> InterviewPlanV2:
+    """Convert the legacy generated plan at the compatibility boundary.
+
+    The conversion allocates opaque IDs once; subsequent previews and starts
+    consume the stored V2 revision instead of calling the LLM.
+    """
+    config = PlanConfigurationSnapshot(
+        difficulty="intermediate",
+        target_duration_minutes=30,
+        focus_preset="balanced",
+        question_type_budget={
+            kind: sum(1 for item in plan.questions if item.kind == kind)
+            for kind in {item.kind for item in plan.questions}
+        },
+        expected_followup_budget=len(plan.questions),
+        generator_version=generator_version,
+        followup_policy_version="fixed_v1",
+    )
+    questions = tuple(
+        InterviewPlanQuestionV2(
+            question_id=str(uuid4()),
+            position=index,
+            question_text=item.prompt,
+            focus=item.focus,
+            question_type=item.kind,
+            difficulty="intermediate",
+            expected_minutes=max(1, 30 // max(1, len(plan.questions))),
+            expected_followups=0,
+            origin="generated",
+            knowledge_binding={},
+        )
+        for index, item in enumerate(plan.questions, start=1)
+    )
+    context = (
+        plan.prep_context.model_dump(mode="json")
+        if getattr(plan, "prep_context", None) is not None
+        else None
+    )
+    return InterviewPlanV2(
+        title=plan.title,
+        configuration_snapshot=config,
+        questions=questions,
+        prep_context=context,
+    )
+
+
+def v2_plan_to_legacy(plan: InterviewPlanV2) -> Any:
+    from app.services.prep import InterviewPlan, InterviewQuestion, PrepContext
+
+    questions = [
+        InterviewQuestion(
+            id=item.question_id,
+            kind=item.question_type,
+            prompt=item.question_text,
+            focus=item.focus,
+        )
+        for item in plan.questions
+    ]
+    context = PrepContext.model_validate(plan.prep_context) if plan.prep_context else None
+    return InterviewPlan(title=plan.title, questions=questions, prep_context=context)
