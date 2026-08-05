@@ -42,6 +42,57 @@ def test_missing_usage_is_explicit_and_does_not_fabricate_actuals():
     assert "secret" not in repr(metadata)
 
 
+def test_provider_model_is_retained_when_usage_is_missing():
+    reset_provider_context_metadata()
+    publish_provider_response(
+        SimpleNamespace(
+            content="secret",
+            response_metadata={"model_name": "deepseek-v4-pro"},
+        )
+    )
+
+    assert consume_provider_context_metadata() == {
+        "provider_model": "deepseek-v4-pro",
+        "provider_usage_available": False,
+    }
+
+
+def test_cached_input_tokens_and_provider_model_are_normalized():
+    reset_provider_context_metadata()
+    publish_provider_response(
+        SimpleNamespace(
+            usage_metadata={
+                "input_tokens": 120,
+                "output_tokens": 30,
+                "input_token_details": {"cache_read": 80},
+            },
+            response_metadata={"model": "deepseek-v4-pro"},
+        )
+    )
+
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_cached_input_tokens"] == 80
+    assert metadata["provider_model"] == "deepseek-v4-pro"
+    assert metadata["provider_total_tokens"] == 150
+
+
+def test_deepseek_cached_token_alias_is_normalized():
+    reset_provider_context_metadata()
+    publish_provider_response(
+        SimpleNamespace(
+            response_metadata={
+                "token_usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "prompt_cache_hit_tokens": 60,
+                }
+            }
+        )
+    )
+
+    assert consume_provider_context_metadata()["provider_cached_input_tokens"] == 60
+
+
 def test_provider_usage_records_bucket_and_normalized_estimator_error():
     reset_provider_context_metadata()
     publish_prompt_measurement(

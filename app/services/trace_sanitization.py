@@ -79,6 +79,7 @@ AGENT_SAFE_METADATA_STRING_KEYS = frozenset(
         "artifact_type",
         "estimator_path",
         "estimator_error_direction",
+        "provider_model",
         "report_path",
     }
 )
@@ -87,6 +88,7 @@ AGENT_CONTEXT_NUMERIC_METADATA_KEYS = frozenset(
         "estimated_input_tokens",
         "provider_input_tokens",
         "provider_output_tokens",
+        "provider_cached_input_tokens",
         "provider_total_tokens",
         "available_input_tokens",
         "context_window_tokens",
@@ -106,6 +108,7 @@ AGENT_CONTEXT_NUMERIC_METADATA_KEYS = frozenset(
         "source_segment_count",
         "target_output_tokens",
         "estimator_error_basis_points",
+        "first_item_latency_ms",
     }
 )
 AGENT_CONTEXT_BOOLEAN_METADATA_KEYS = frozenset(

@@ -50,6 +50,11 @@ def begin_provider_attempt() -> None:
 
 def publish_provider_response(response: Any) -> None:
     metadata = dict(_provider_context_metadata.get() or {})
+    response_metadata = getattr(response, "response_metadata", None)
+    if isinstance(response_metadata, Mapping):
+        model = response_metadata.get("model_name") or response_metadata.get("model")
+        if isinstance(model, str) and model:
+            metadata["provider_model"] = model
     usage = _extract_usage(response)
     if usage is None:
         metadata.setdefault("provider_usage_available", False)
@@ -115,6 +120,21 @@ def _normalize_usage(usage: Mapping[str, Any]) -> dict[str, int]:
             if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                 result[target] = value
                 break
+    cached_sources = (
+        (usage, ("cached_input_tokens", "prompt_cache_hit_tokens")),
+        (usage.get("input_token_details"), ("cache_read", "cached_tokens")),
+        (usage.get("prompt_tokens_details"), ("cached_tokens",)),
+    )
+    for container, sources in cached_sources:
+        if not isinstance(container, Mapping):
+            continue
+        for source in sources:
+            value = container.get(source)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                result["provider_cached_input_tokens"] = value
+                break
+        if "provider_cached_input_tokens" in result:
+            break
     if (
         "provider_total_tokens" not in result
         and "provider_input_tokens" in result

@@ -199,12 +199,18 @@ class AgentExecutionRunner:
         started_at = utc_now_iso()
         started = perf_counter()
         emitted = 0
+        first_item_latency_ms: float | None = None
         status: AgentRunStatus = "completed"
         fallback_reason = None
         error_code = None
         try:
             try:
                 for item in invoke():
+                    if first_item_latency_ms is None:
+                        first_item_latency_ms = round(
+                            (perf_counter() - started) * 1000,
+                            3,
+                        )
                     emitted += 1
                     yield item
             except Exception as exc:
@@ -235,7 +241,14 @@ class AgentExecutionRunner:
                 fallback_reason=fallback_reason,
                 error_code=error_code,
                 output_type="stream",
-                safe_metadata={"emitted_chunks": emitted},
+                safe_metadata={
+                    "emitted_chunks": emitted,
+                    **(
+                        {"first_item_latency_ms": first_item_latency_ms}
+                        if first_item_latency_ms is not None
+                        else {}
+                    ),
+                },
             )
 
     def _resolve_outcome(
