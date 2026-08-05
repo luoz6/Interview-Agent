@@ -58,6 +58,9 @@ _RUNTIME_TABLE_SUFFIXES = (
     "principal_memory_tombs",
     "principal_memory_refs",
     "principal_memory_ledger_watermark",
+    "plan_sources",
+    "plan_source_refs",
+    "plan_revisions",
     "schema_migrations",
 )
 
@@ -96,6 +99,10 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "principal_memory_facts_session_idx",
     "principal_memory_facts_active_identity_uq",
     "principal_memory_tombs_principal_requested_idx",
+    "plan_revisions_family_revision_idx",
+    "plan_source_refs_owner_idx",
+    "reject_plan_revision_update",
+    "plan_revisions_immutable_trigger",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (

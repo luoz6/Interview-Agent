@@ -641,6 +641,71 @@ RUNTIME_SCHEMA_V14_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V14_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
+    {
+        "_plan_sources": frozenset(
+            {
+                "source_id",
+                "plan_family_id",
+                "source_sha256",
+                "protected_payload",
+                "retention_policy",
+                "tombstoned_at",
+                "tombstone_reason",
+            }
+        ),
+        "_plan_source_refs": frozenset(
+            {"source_id", "owner_type", "owner_id", "created_at"}
+        ),
+        "_plan_revisions": frozenset(
+            {
+                "plan_revision_id",
+                "plan_family_id",
+                "revision",
+                "parent_revision_id",
+                "source_id",
+                "source_sha256",
+                "configuration_snapshot_json",
+                "plan_json",
+                "plan_sha256",
+                "generator_version",
+                "created_reason",
+            }
+        ),
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
+    {
+        "_plan_source_refs": (frozenset({"owner_type", "owner_id"}),),
+        "_plan_revisions": (
+            frozenset({"plan_family_id", "revision"}),
+            frozenset({"unique", "plan_family_id", "revision"}),
+        ),
+    }
+)
+RUNTIME_SCHEMA_V15_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V14_CHECKSUM,
+        "interview_plan_revision": {
+            "schema_version": "interview-plan-v2",
+            "relations": [
+                "_plan_sources",
+                "_plan_source_refs",
+                "_plan_revisions",
+            ],
+            "immutability": "database-update-trigger-v1",
+            "source_storage": "family-single-copy-with-tombstone-v1",
+            "concurrency": "family-row-lock-and-expected-revision-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V15_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V15_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -710,6 +775,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="principal_memory_ledger_watermark_v4",
         checksum=RUNTIME_SCHEMA_V14_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="interview_plan_revision_v2",
+        checksum=RUNTIME_SCHEMA_V15_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

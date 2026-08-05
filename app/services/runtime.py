@@ -65,6 +65,7 @@ _session_store = None
 _report_job_store = None
 _report_executor = None
 _draft_store = None
+_plan_revision_store = None
 _event_publisher = None
 _runtime_control_store = None
 _runtime_outbox_service = None
@@ -651,6 +652,27 @@ def build_draft_store():
     return AnonymousDraftStore()
 
 
+def build_plan_revision_store():
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_plan_revision_store import (
+            PostgresInterviewPlanRevisionStore,
+        )
+
+        return PostgresInterviewPlanRevisionStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=get_postgres_connection_domains().business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    if get_runtime_store() == "memory":
+        from app.services.interview_plan_revision_store import (
+            InMemoryInterviewPlanRevisionStore,
+        )
+
+        return InMemoryInterviewPlanRevisionStore()
+    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+
+
 def build_event_publisher():
     from app.services.event_publisher import (
         LocalRoundReviewEventPublisher,
@@ -721,6 +743,13 @@ def get_draft_store():
     if _draft_store is None:
         _draft_store = build_draft_store()
     return _draft_store
+
+
+def get_plan_revision_store():
+    global _plan_revision_store
+    if _plan_revision_store is None:
+        _plan_revision_store = build_plan_revision_store()
+    return _plan_revision_store
 
 
 def get_event_publisher():
@@ -1515,6 +1544,7 @@ def shutdown_runtime(*, wait: bool = True) -> None:
 
 def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _session_store, _report_job_store, _report_executor, _draft_store
+    global _plan_revision_store
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
@@ -1559,6 +1589,7 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _report_job_store = None
     _report_executor = None
     _draft_store = None
+    _plan_revision_store = None
     _event_publisher = None
     _runtime_control_store = None
     _runtime_outbox_service = None
