@@ -43,6 +43,9 @@ class DecisionProviderResult(BaseModel):
     decision: DecisionContract
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cached_input_tokens: int | None = Field(default=None, ge=0)
+    provider_model: str | None = None
+    provider_response_id: str | None = None
 
 
 class DecisionExecutionResult(BaseModel):
@@ -225,6 +228,11 @@ class FollowupDecisionExecutionService:
             raw = self.provider(dict(diagnostics.provider_context))
         except TimeoutError as exc:
             raise _DecisionProviderFailure("provider_timeout") from exc
+        except (ValidationError, ValueError, TypeError) as exc:
+            # Structured adapters may validate before returning to this
+            # service. Such responses are malformed Provider output, not a
+            # transport outage, and retain the stable invalid-output code.
+            raise _DecisionProviderFailure("provider_invalid_output") from exc
         except Exception as exc:
             raise _DecisionProviderFailure("provider_failed") from exc
         try:

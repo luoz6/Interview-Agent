@@ -1,4 +1,5 @@
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,8 @@ from app.services.followup_prompts import (
     FOLLOWUP_GENERATION_PROMPT_SHA256,
     FOLLOWUP_GENERATION_PROMPT_VERSION,
     StructuredFollowupDecisionProvider,
+    StructuredFollowupGenerationProvider,
+    StructuredFollowupOutputError,
     generation_context_for_decision,
     render_followup_decision_prompt,
     render_followup_generation_prompt,
@@ -101,9 +104,10 @@ def test_structured_decision_provider_uses_schema_and_bounded_output():
             self.schema = None
             self.method = None
 
-        def with_structured_output(self, schema, *, method):
+        def with_structured_output(self, schema, *, method, include_raw=False):
             self.schema = schema
             self.method = method
+            self.include_raw = include_raw
             return self.structured
 
     chat = ChatModel()
@@ -112,8 +116,115 @@ def test_structured_decision_provider_uses_schema_and_bounded_output():
 
     assert chat.schema is DecisionContract
     assert chat.method == "json_schema"
+    assert chat.include_raw is True
     assert chat.structured.bound == {"max_tokens": 321}
     assert "CURRENT_QUESTION_INPUT_JSON" in chat.structured.prompt
     assert result.decision == decision()
     assert result.input_tokens is None
     assert result.output_tokens is None
+
+
+def test_structured_provider_preserves_raw_usage_outside_decision_contract():
+    class StructuredModel:
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            return {
+                "raw": SimpleNamespace(
+                    usage_metadata={
+                        "input_tokens": 42,
+                        "output_tokens": 9,
+                        "input_token_details": {"cache_read": 7},
+                    },
+                    response_metadata={"model_name": "deepseek-chat"},
+                    id="response-1",
+                ),
+                "parsed": decision(),
+                "parsing_error": None,
+            }
+
+    class ChatModel:
+        def with_structured_output(self, *args, **kwargs):
+            return StructuredModel()
+
+    result = StructuredFollowupDecisionProvider(ChatModel())(
+        {"question": "q", "candidate_answers": ["a"]}
+    )
+
+    assert result.input_tokens == 42
+    assert result.output_tokens == 9
+    assert result.cached_input_tokens == 7
+    assert result.provider_model == "deepseek-chat"
+    assert result.provider_response_id == "response-1"
+    assert "input_tokens" not in result.decision.model_dump(mode="json")
+
+
+def test_structured_generation_provider_preserves_usage_and_binds_budget():
+    class Model:
+        def __init__(self):
+            self.bound = None
+
+        def bind(self, **kwargs):
+            self.bound = kwargs
+            return self
+
+        def invoke(self, prompt):
+            self.prompt = prompt
+            return SimpleNamespace(
+                content="  What failed during recovery?  ",
+                usage_metadata={"input_tokens": 30, "output_tokens": 6},
+                response_metadata={"model_name": "deepseek-chat"},
+                id="generation-1",
+            )
+
+    model = Model()
+    provider = StructuredFollowupGenerationProvider(model)
+    result = provider(
+        [
+            {
+                "role": "system",
+                "content": "[FOLLOWUP_DECISION_TARGET] failure mode",
+            },
+            {"role": "candidate", "content": "I retry."},
+        ]
+    )
+
+    assert model.bound == {"max_tokens": 120}
+    assert "FOLLOWUP_DECISION_TARGET" in model.prompt
+    assert result.text == "What failed during recovery?"
+    assert result.input_tokens == 30
+    assert result.output_tokens == 6
+    assert result.provider_model == "deepseek-chat"
+    assert result.provider_response_id == "generation-1"
+
+
+def test_structured_decision_parse_error_retains_metering_metadata():
+    class StructuredModel:
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            return {
+                "raw": SimpleNamespace(
+                    usage_metadata={"input_tokens": 40, "output_tokens": 8},
+                    response_metadata={"model_name": "deepseek-chat"},
+                    id="invalid-response",
+                ),
+                "parsed": None,
+                "parsing_error": ValueError("invalid JSON"),
+            }
+
+    class ChatModel:
+        def with_structured_output(self, *args, **kwargs):
+            return StructuredModel()
+
+    with pytest.raises(StructuredFollowupOutputError) as raised:
+        StructuredFollowupDecisionProvider(ChatModel())(
+            {"question": "q", "candidate_answers": ["a"]}
+        )
+
+    assert raised.value.input_tokens == 40
+    assert raised.value.output_tokens == 8
+    assert raised.value.provider_model == "deepseek-chat"
+    assert raised.value.provider_response_id == "invalid-response"

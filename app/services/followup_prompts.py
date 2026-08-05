@@ -4,6 +4,8 @@ import hashlib
 import json
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.services.decision_store import DecisionContract
 from app.services.provider_usage import (
     begin_provider_attempt,
@@ -43,6 +45,19 @@ def _sha256(value: str) -> str:
 
 FOLLOWUP_DECISION_PROMPT_SHA256 = _sha256(_DECISION_PROMPT_TEMPLATE)
 FOLLOWUP_GENERATION_PROMPT_SHA256 = _sha256(_GENERATION_PROMPT_TEMPLATE)
+
+
+class StructuredFollowupOutputError(ValueError):
+    """A Provider response arrived but did not satisfy DecisionContract."""
+
+    def __init__(self, message: str, *, response: object) -> None:
+        super().__init__(message)
+        usage = getattr(response, "usage_metadata", None) or {}
+        self.input_tokens = _usage_int(usage, "input_tokens")
+        self.output_tokens = _usage_int(usage, "output_tokens")
+        self.cached_input_tokens = _cached_input_tokens(usage)
+        self.provider_model = _provider_model(response)
+        self.provider_response_id = _provider_response_id(response)
 
 
 def render_followup_decision_prompt(context: dict[str, object]) -> str:
@@ -121,7 +136,7 @@ class StructuredFollowupDecisionProvider:
     prompt_version = FOLLOWUP_DECISION_PROMPT_VERSION
     prompt_sha256 = FOLLOWUP_DECISION_PROMPT_SHA256
 
-    def __init__(self, chat_model, *, max_tokens: int = 500) -> None:
+    def __init__(self, chat_model, *, max_tokens: int = 300) -> None:
         self.chat_model = chat_model
         self.max_tokens = max_tokens
 
@@ -129,25 +144,96 @@ class StructuredFollowupDecisionProvider:
         from app.services.followup_decision_service import DecisionProviderResult
 
         prompt = render_followup_decision_prompt(context)
-        structured = self.chat_model.with_structured_output(
-            DecisionContract,
-            method="json_schema",
-        )
+        try:
+            structured = self.chat_model.with_structured_output(
+                DecisionContract,
+                method="json_schema",
+                include_raw=True,
+            )
+        except TypeError:
+            # Lightweight test doubles and older LangChain adapters may not
+            # expose include_raw. Production uses it so Provider usage remains
+            # measurable without placing token fields in DecisionContract.
+            structured = self.chat_model.with_structured_output(
+                DecisionContract,
+                method="json_schema",
+            )
         if hasattr(structured, "bind"):
             structured = structured.bind(max_tokens=self.max_tokens)
         begin_provider_attempt()
         result = structured.invoke(prompt)
-        publish_provider_response(result)
-        decision = (
-            result
-            if isinstance(result, DecisionContract)
-            else DecisionContract.model_validate(result)
+        raw = result.get("raw") if isinstance(result, dict) else None
+        parsed = (
+            result.get("parsed")
+            if isinstance(result, dict) and "parsed" in result
+            else result
         )
-        usage = getattr(result, "usage_metadata", None) or {}
+        publish_provider_response(raw or result)
+        if isinstance(result, dict) and result.get("parsing_error") is not None:
+            raise StructuredFollowupOutputError(
+                "Provider Decision response failed structured parsing",
+                response=raw or result,
+            )
+        if parsed is None:
+            raise StructuredFollowupOutputError(
+                "Provider Decision response did not contain a parsed value",
+                response=raw or result,
+            )
+        decision = (
+            parsed
+            if isinstance(parsed, DecisionContract)
+            else DecisionContract.model_validate(parsed)
+        )
+        usage = getattr(raw or result, "usage_metadata", None) or {}
         return DecisionProviderResult(
             decision=decision,
             input_tokens=_usage_int(usage, "input_tokens"),
             output_tokens=_usage_int(usage, "output_tokens"),
+            cached_input_tokens=_cached_input_tokens(usage),
+            provider_model=_provider_model(raw or result),
+            provider_response_id=_provider_response_id(raw or result),
+        )
+
+
+class FollowupGenerationProviderResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    cached_input_tokens: int | None = Field(default=None, ge=0)
+    provider_model: str | None = None
+    provider_response_id: str | None = None
+
+
+class StructuredFollowupGenerationProvider:
+    prompt_version = FOLLOWUP_GENERATION_PROMPT_VERSION
+    prompt_sha256 = FOLLOWUP_GENERATION_PROMPT_SHA256
+
+    def __init__(self, chat_model, *, max_tokens: int = 120) -> None:
+        self.chat_model = chat_model
+        self.max_tokens = max_tokens
+
+    def __call__(
+        self,
+        context: list[dict[str, Any]],
+    ) -> FollowupGenerationProviderResult:
+        prompt = render_followup_generation_prompt(context)
+        model = self.chat_model
+        if hasattr(model, "bind"):
+            model = model.bind(max_tokens=self.max_tokens)
+        begin_provider_attempt()
+        response = model.invoke(prompt)
+        publish_provider_response(response)
+        usage = getattr(response, "usage_metadata", None) or {}
+        content = getattr(response, "content", response)
+        return FollowupGenerationProviderResult(
+            text=str(content or "").strip(),
+            input_tokens=_usage_int(usage, "input_tokens"),
+            output_tokens=_usage_int(usage, "output_tokens"),
+            cached_input_tokens=_cached_input_tokens(usage),
+            provider_model=_provider_model(response),
+            provider_response_id=_provider_response_id(response),
         )
 
 
@@ -158,3 +244,29 @@ def _usage_int(usage: object, key: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def _cached_input_tokens(usage: object) -> int | None:
+    if not isinstance(usage, dict):
+        return None
+    details = usage.get("input_token_details")
+    if not isinstance(details, dict):
+        return None
+    for key in ("cache_read", "cached_tokens"):
+        value = details.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+    return None
+
+
+def _provider_model(response: object) -> str | None:
+    metadata = getattr(response, "response_metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("model_name") or metadata.get("model")
+    return value if isinstance(value, str) and value else None
+
+
+def _provider_response_id(response: object) -> str | None:
+    value = getattr(response, "id", None)
+    return value if isinstance(value, str) and value else None
