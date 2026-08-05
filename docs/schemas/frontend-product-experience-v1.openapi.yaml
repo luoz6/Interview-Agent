@@ -1,0 +1,597 @@
+openapi: 3.1.0
+info:
+  title: Interview-Agent Frontend Product Experience Contract
+  version: 0.1.0-gate0b
+  description: >-
+    Gate 0B draft for PrepPlan, authoritative interview launch, draft durability,
+    report progress, and report reliability. This file is a design contract and
+    is not served as the application OpenAPI document until Phase 1 implements it.
+
+paths:
+  /api/prep:
+    post:
+      operationId: createPrepPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePrepPlanRequest'
+      responses:
+        '200':
+          description: A new editable authoritative plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepPlanPublic'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+
+  /api/prep-plans/{plan_id}:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+    get:
+      operationId: getPrepPlan
+      responses:
+        '200':
+          description: Current public plan snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepPlanPublic'
+        '404':
+          $ref: '#/components/responses/PlanNotFound'
+        '410':
+          $ref: '#/components/responses/PlanExpired'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+    patch:
+      operationId: patchPrepPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchPrepPlanRequest'
+      responses:
+        '200':
+          description: Updated plan with exactly one new version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepPlanPublic'
+        '409':
+          $ref: '#/components/responses/PlanConflict'
+        '404':
+          $ref: '#/components/responses/PlanNotFound'
+        '410':
+          $ref: '#/components/responses/PlanExpired'
+        '422':
+          description: The operation list violates a frozen plan invariant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+
+  /api/prep-plans/{plan_id}/questions/{question_id}/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/QuestionId'
+    post:
+      operationId: regeneratePrepPlanQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegenerateQuestionRequest'
+      responses:
+        '200':
+          description: New question identity and updated plan snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegenerateQuestionResponse'
+        '409':
+          $ref: '#/components/responses/PlanConflict'
+        '404':
+          $ref: '#/components/responses/PlanNotFound'
+        '410':
+          $ref: '#/components/responses/PlanExpired'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+
+  /api/interviews:
+    post:
+      operationId: launchInterviewFromPrepPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LaunchInterviewRequest'
+      responses:
+        '201':
+          description: First successful command; session is ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LaunchInterviewResponse'
+        '200':
+          description: Same command replay; returns the same ready session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LaunchInterviewResponse'
+        '409':
+          $ref: '#/components/responses/PlanConflict'
+        '404':
+          $ref: '#/components/responses/PlanNotFound'
+        '410':
+          $ref: '#/components/responses/PlanExpired'
+        '503':
+          description: Store unavailable or durable bootstrap pending.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicError'
+
+  /api/interview-drafts:
+    post:
+      operationId: saveInterviewDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDraftRequest'
+      responses:
+        '200':
+          description: Saved draft capability and expiry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftPublic'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+
+  /api/interview-drafts/{draft_id}:
+    parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 36
+    get:
+      operationId: getInterviewDraft
+      responses:
+        '200':
+          description: Restored draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftPublic'
+        '404':
+          $ref: '#/components/responses/DraftNotFound'
+        '410':
+          $ref: '#/components/responses/DraftExpired'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+    delete:
+      operationId: deleteInterviewDraft
+      responses:
+        '204':
+          description: Draft and unconsumed associated plans deleted.
+        '404':
+          $ref: '#/components/responses/DraftNotFound'
+        '503':
+          $ref: '#/components/responses/StoreUnavailable'
+
+components:
+  parameters:
+    PlanId:
+      name: plan_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^prep_[0-9a-fA-F-]{32,36}$'
+    QuestionId:
+      name: question_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^pq_[0-9a-fA-F-]{32,36}$'
+
+  responses:
+    PlanNotFound:
+      description: Plan was deleted, cleaned, or never existed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PublicError'
+    PlanExpired:
+      description: Plan fixed TTL expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PublicError'
+    PlanConflict:
+      description: Version conflict or a different command consumed the plan.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PublicError'
+    StoreUnavailable:
+      description: Authoritative store is temporarily unavailable; references must be retained.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PublicError'
+    DraftNotFound:
+      description: Draft does not exist or was deleted.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PublicError'
+    DraftExpired:
+      description: Draft expired and the browser credential may be cleared.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PublicError'
+
+  schemas:
+    QuestionKind:
+      type: string
+      enum: [project, technical, system-design, behavioral]
+
+    PrepQuestionPublic:
+      type: object
+      additionalProperties: false
+      required:
+        - question_id
+        - position
+        - kind
+        - prompt
+        - focus
+        - required
+        - enabled
+        - source_signals
+      properties:
+        question_id:
+          type: string
+          minLength: 35
+        position:
+          type: [integer, 'null']
+          minimum: 1
+        kind:
+          $ref: '#/components/schemas/QuestionKind'
+        prompt:
+          type: string
+          minLength: 1
+        focus:
+          type: string
+          minLength: 1
+        required:
+          type: boolean
+        enabled:
+          type: boolean
+        source_signals:
+          type: array
+          items:
+            type: string
+
+    PrepPlanPublic:
+      type: object
+      additionalProperties: false
+      required:
+        - plan_id
+        - plan_version
+        - state
+        - expires_at
+        - source_sha256
+        - title
+        - questions
+        - prep_context
+        - job_tags
+        - durability
+      properties:
+        plan_id:
+          type: string
+        plan_version:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [editable, consumed, expired]
+        expires_at:
+          type: string
+          format: date-time
+        source_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        title:
+          type: string
+          minLength: 1
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrepQuestionPublic'
+        prep_context:
+          type: object
+        job_tags:
+          type: array
+          items:
+            type: string
+        durability:
+          type: string
+          enum: [memory, postgres]
+        consumed_session_id:
+          type: [string, 'null']
+
+    CreatePrepPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [job_description, resume_text]
+      properties:
+        job_description:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        resume_text:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        draft_id:
+          type: [string, 'null']
+
+    PatchPrepPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, operations]
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
+        operations:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/SetEnabledOperation'
+              - $ref: '#/components/schemas/MoveOperation'
+              - $ref: '#/components/schemas/SetRequiredOperation'
+              - $ref: '#/components/schemas/SetFocusOperation'
+
+    SetEnabledOperation:
+      type: object
+      additionalProperties: false
+      required: [type, question_id, enabled]
+      properties:
+        type:
+          const: set_enabled
+        question_id:
+          type: string
+        enabled:
+          type: boolean
+
+    MoveOperation:
+      type: object
+      additionalProperties: false
+      required: [type, question_id, position]
+      properties:
+        type:
+          const: move
+        question_id:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+
+    SetRequiredOperation:
+      type: object
+      additionalProperties: false
+      required: [type, question_id, required]
+      properties:
+        type:
+          const: set_required
+        question_id:
+          type: string
+        required:
+          type: boolean
+
+    SetFocusOperation:
+      type: object
+      additionalProperties: false
+      required: [type, question_id, focus]
+      properties:
+        type:
+          const: set_focus
+        question_id:
+          type: string
+        focus:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    RegenerateQuestionRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version]
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
+
+    RegenerateQuestionResponse:
+      type: object
+      additionalProperties: false
+      required: [replaced_question_id, replacement_question_id, plan]
+      properties:
+        replaced_question_id:
+          type: string
+        replacement_question_id:
+          type: string
+        plan:
+          $ref: '#/components/schemas/PrepPlanPublic'
+
+    LaunchInterviewRequest:
+      type: object
+      additionalProperties: false
+      required: [plan_id, expected_plan_version, command_id]
+      properties:
+        plan_id:
+          type: string
+        expected_plan_version:
+          type: integer
+          minimum: 1
+        command_id:
+          type: string
+          minLength: 38
+
+    LaunchInterviewResponse:
+      type: object
+      additionalProperties: false
+      required: [session_id, command_id, bootstrap_status, session]
+      properties:
+        session_id:
+          type: string
+        command_id:
+          type: string
+        bootstrap_status:
+          type: string
+          const: ready
+        session:
+          type: object
+
+    SaveDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [job_description, resume_text]
+      properties:
+        draft_id:
+          type: [string, 'null']
+        job_description:
+          type: string
+          maxLength: 50000
+        resume_text:
+          type: string
+          maxLength: 50000
+
+    DraftPublic:
+      type: object
+      additionalProperties: false
+      required:
+        - draft_id
+        - job_description
+        - resume_text
+        - durability
+        - expires_at
+      properties:
+        draft_id:
+          type: string
+        job_description:
+          type: string
+        resume_text:
+          type: string
+        durability:
+          type: string
+          enum: [memory, postgres]
+        expires_at:
+          type: string
+          format: date-time
+
+    PublicError:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable]
+      properties:
+        code:
+          type: string
+          enum:
+            - PREP_PLAN_VERSION_CONFLICT
+            - PREP_PLAN_ALREADY_CONSUMED
+            - PREP_PLAN_EXPIRED
+            - PREP_PLAN_NOT_FOUND
+            - PREP_PLAN_DUPLICATE_OPERATION
+            - PREP_PLAN_QUESTION_LIMIT
+            - PREP_PLAN_REQUIRED_QUESTION_DISABLED
+            - PREP_PLAN_INVALID_OPERATION
+            - PREP_PLAN_STORE_UNAVAILABLE
+            - INTERVIEW_BOOTSTRAP_PENDING
+            - INTERVIEW_BOOTSTRAP_RECOVERY_FAILED
+            - DRAFT_NOT_FOUND
+            - DRAFT_EXPIRED
+            - DRAFT_STORE_UNAVAILABLE
+        message:
+          type: string
+        retryable:
+          type: boolean
+        request_id:
+          type: [string, 'null']
+        details:
+          type: object
+
+    ReportProgressPublic:
+      type: object
+      additionalProperties: true
+      required: [status, stage, percent, message, last_updated_at]
+      properties:
+        status:
+          type: string
+        stage:
+          type: string
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+        last_updated_at:
+          type: [string, 'null']
+          format: date-time
+
+    ReportReliability:
+      type: object
+      additionalProperties: false
+      required:
+        - planned_question_count
+        - answered_question_count
+        - skipped_question_count
+        - unanswered_question_count
+        - reviewed_answer_count
+        - review_failed_answer_count
+        - evidence_bound_question_count
+        - degraded_question_count
+        - generation_path
+        - degraded_reasons
+        - score_applicability
+      properties:
+        planned_question_count: {type: integer, minimum: 0}
+        answered_question_count: {type: integer, minimum: 0}
+        skipped_question_count: {type: integer, minimum: 0}
+        unanswered_question_count: {type: integer, minimum: 0}
+        reviewed_answer_count: {type: integer, minimum: 0}
+        review_failed_answer_count: {type: integer, minimum: 0}
+        evidence_bound_question_count: {type: integer, minimum: 0}
+        degraded_question_count: {type: integer, minimum: 0}
+        generation_path:
+          type: string
+          enum: [structured, mixed, fallback]
+        degraded_reasons:
+          type: array
+          items: {type: string}
+        score_applicability:
+          type: string
+          enum: [normal, limited, insufficient]

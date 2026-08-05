@@ -318,7 +318,7 @@ Interview Agent 是一个本地单用户技术面试助手，核心闭环为：
 |---|---|---|
 | `/`、`/prep` | `frontend/src/pages/StartPage.jsx` | 在应用工作台内编辑资料、恢复草稿、生成计划、检查知识证据并开始面试 |
 | `/interview` | `frontend/src/pages/InterviewPage.jsx` | 问题导航、实时对话、回答草稿、SSE 恢复、跳题、结束、轮次评审 |
-| `/report-processing` | `frontend/src/pages/ReportProcessingPage.jsx` | 报告进度、阶段时间线、运行事件、RAG 摘要、生成路径 |
+| `/report-processing` | `frontend/src/pages/ReportProcessingPage.jsx` | 报告当前进度快照、阶段、公开安全消息、RAG 摘要、生成路径；本轮不承诺事件历史 |
 | `/report-detail` | `frontend/src/pages/ReportDetailPage.jsx` | 总分、五维能力、逐题反馈、证据、优势改进、运行轨迹、PDF |
 | `/reports` | `frontend/src/pages/ReportsPage.jsx` | 报告统计、筛选、搜索、分页、查看或重新排队 |
 | `/help` | `frontend/src/pages/HelpPage.jsx` | 使用说明、恢复协议和常用入口 |
@@ -372,7 +372,7 @@ Interview Agent 是一个本地单用户技术面试助手，核心闭环为：
 - 深企业绿用于“系统正在执行”的主场景。
 - 珊瑚色仅标记当前步骤、提醒或回退原因。
 - 成功、警告、失败必须使用语义色、图形或文字共同表达。
-- 进度与事件历史要同时存在，不能只展示一个模糊 loading 动画。
+- 进度必须来自服务端当前权威快照，不能只展示一个模糊 loading 动画；本轮没有持久化事件历史能力，产品 UI 不得把固定空 `events` 数组包装成历史记录。
 
 ### 2.3 色彩比例
 
@@ -1340,7 +1340,7 @@ npm run dev:frontend
 |---|---|---|
 | 准备页 | `POST /api/prep`、草稿接口 | `job_tags`、计划题目、Knowledge Agent 路径、生成/保存/恢复错误 |
 | 面试页 | 会话快照、回答/跳题/结束接口、SSE | 当前题目、题目状态、`session_id`、断线恢复、待提交回答与终止事件 |
-| 报告生成页 | `report` 与 `report/progress` | `queued/retrieving/analyzing/evaluating/aggregating/coaching/completed/failed`、百分比、事件时间线、RAG 摘要 |
+| 报告生成页 | `report` 与 `report/progress` | `queued/retrieving/analyzing/evaluating/aggregating/coaching/completed/failed`、百分比、`last_updated_at`、公开安全消息、RAG 摘要；不包含虚构事件时间线 |
 | 报告详情页 | 完整报告、题目评审、Agent runs、PDF | 总分、五维分数、逐题反馈、证据、`full_session_fallback`、下载可用性 |
 | 报告中心 | `GET /api/reports` | `items`、`total`、`limit`、`offset`、`status_totals`、查询/日期/状态筛选 |
 
@@ -1416,3 +1416,45 @@ npm run test:browser
 - 当前字体以系统 fallback 为基础；若引入 Space Grotesk、Noto Sans SC 或 JetBrains Mono，应将授权允许的字体文件纳入本地静态资源。
 - 平板断点的细节仍需在实际浏览器验收中迭代。
 - 六个运行路由已迁移到独立 Vite/React 服务，并实现 Research Canvas、Agent Workspace 与 Pipeline Field。后续修改必须在 React 组件和 `frontend/src/styles/index.css` 中完成，不得恢复 FastAPI HTML 页面或扩展旧静态脚本。
+
+## 21. Product Experience Invariants — Gate 0B
+
+本节覆盖前文中仍带有“运行工作台”倾向的旧描述。出现冲突时，以本节和 `docs/frontend-product-experience-contract.md` 为准。
+
+### 21.1 Truth and authority
+
+- 服务端快照是 PrepPlan、面试会话、报告进度和报告内容的唯一权威来源；浏览器存储只保存恢复引用、待提交草稿和幂等命令，不得被当作业务事实。
+- 用户在 `/prep` 查看并确认的权威计划必须就是启动会话使用的计划。启动接口不得再次调用计划生成模型。
+- 所有题目、证据、分数、阶段、百分比、错误、重试能力和可靠性字段均来自真实接口；缺失时显示诚实空状态，不使用示例值补齐。
+- SSE 中断、版本冲突、重复 command、RAG 降级、报告失败和 bootstrap 未就绪不得伪装成成功。
+- 产品不承诺当前不存在的持久化报告事件历史。报告进度只展示 `stage`、`percent`、`last_updated_at` 和公开安全消息。
+
+### 21.2 Product and diagnostic information
+
+- 默认产品模式只显示用户完成任务所需的状态、结果、证据和下一步。
+- Worker、workflow engine、job ID、attempt、heartbeat、stalled/orphaned、Agent runs 和 runtime events 属于诊断信息，只能在显式构建能力 `VITE_SHOW_RUNTIME_DIAGNOSTICS=true` 时请求和渲染。
+- 普通产品请求不得为了隐藏后再展示而预取诊断资源。诊断资源失败不能阻断报告正文。
+- Provider 原始错误、提示词、堆栈、绝对路径、数据库信息、JD/简历正文、完整证据片段和恢复凭证不得进入产品错误、日志、事件或埋点。
+
+### 21.3 Single application shell
+
+- `frontend/src/components/AppShell.jsx` 是六个正式 React 路由唯一的应用壳层所有者；不得创建第二套 AppShell、平行顶栏或页面级全局导航。
+- AppShell 负责桌面导航、移动导航、跳到主要内容、页面状态槽位和恢复入口；页面只提供当前路由的主内容、局部导航和局部状态。
+- 移动端隐藏桌面导航时必须提供功能等价入口；360–900px 不得出现跨页导航断点。
+- 六页迁移期间允许 AppShell 暂时输出现有 `.start-app-*` / `.start-nav` DOM 和类名。迁移完成后必须删除无人使用的旧 `.app-*` 壳层规则。
+
+### 21.4 Safety and accessibility
+
+- 跳题和结束面试在确认前不得发送写请求。退出并稍后继续不得结束会话或生成报告。
+- 确认对话框必须使用语义 dialog、焦点圈定、Escape 关闭、取消后的焦点恢复和清晰的主次操作；结束面试不能依靠普通浏览器 `confirm()`。
+- 整个对话历史不得挂载 live region。只允许短状态消息使用专用 `aria-live`；流式 token 不逐 token 播报。
+- 键盘焦点始终可见但不使用突兀的默认蓝色矩形；焦点样式必须与 Calm Cobalt token 一致，并同时满足对比度。
+- 所有核心触控目标最小 44px；200% 缩放、reduced-motion 和跳过链接必须保持可用。
+
+### 21.5 Stable product state
+
+- 页面不得依据数组长度、英文文案或空对象推断业务状态。PrepPlan、Launch、Report reliability 和错误码使用冻结的稳定枚举。
+- `answered_question_count` 只表示权威会话快照中 `answer_state == "answered"` 的题数，不表达回答质量。
+- `last_updated_at` 是报告进度现有公开时间字段；不得在没有版本迁移的情况下平行引入 `updated_at`。
+- 前端不得使用 `Date.now()`、自增值、截短 UUID 或 `Math.random()` 生成公开恢复/命令 ID。
+- 任何视觉优化不得改变幂等键、版本比较、题目身份、会话映射、错误码、恢复凭证清理顺序或诊断能力边界。
