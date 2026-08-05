@@ -23,6 +23,16 @@ import { apiUrl, getJson, HttpError, postJson, postSse, readSse } from "../api/c
 import { AssistanceNotice } from "../components/UI";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
+import {
+  completionTurnState,
+  followupProgressLabel,
+  interviewTurnLabel,
+  interviewTurnStates,
+  normalizedFollowupCount,
+  reduceTurnState,
+  snapshotTurnState,
+  submissionTurnState,
+} from "../interviewTurnState";
 import "../styles/interview-app.css";
 
 const questionStateLabels = {
@@ -94,16 +104,54 @@ function QuestionNavigator({ snapshot }) {
   );
 }
 
-function Message({ message, streaming = false }) {
+function Message({ message, streaming = false, placeholder = "正在组织追问…" }) {
   const candidate = message.role === "candidate" || message.role === "user";
   return (
     <article className={`message message-${candidate ? "candidate" : "agent"} ${streaming ? "is-streaming" : ""}`} data-role={candidate ? "candidate" : "agent"}>
       <span className="interview-message-avatar" aria-hidden="true">{candidate ? <FileText size={17} weight="bold" /> : <ChatCircleDots size={17} weight="duotone" />}</span>
       <div className="interview-message-body">
         <div className="message-meta"><span>{candidate ? "你的回答" : "AI 面试官"}</span>{message.question_id && <code>{message.question_id}</code>}</div>
-        <p>{message.content || (streaming ? "正在组织追问…" : "")}</p>
+        <p>{message.content || (streaming ? placeholder : "")}</p>
       </div>
     </article>
+  );
+}
+
+export function InterviewTurnStatus({ state, followupCount }) {
+  const label = interviewTurnLabel(state);
+  const isBusy = [
+    interviewTurnStates.decisionPending,
+    interviewTurnStates.generationPending,
+    interviewTurnStates.generationStreaming,
+    interviewTurnStates.recovery,
+  ].includes(state);
+  const StateIcon = state === interviewTurnStates.degraded
+    ? WarningCircle
+    : state === interviewTurnStates.nextQuestion
+      ? CheckCircle
+      : isBusy
+        ? SpinnerGap
+        : Circle;
+  return (
+    <div
+      className={`interview-turn-status ${label ? "is-visible" : "is-idle"}`}
+      data-turn-state={state}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {label ? (
+        <>
+          <span className="interview-turn-status-icon" aria-hidden="true">
+            <StateIcon className={isBusy ? "start-spinner" : undefined} size={15} weight={isBusy ? "bold" : "fill"} />
+          </span>
+          <span className="interview-turn-status-copy">
+            <strong>{label}</strong>
+            <small>当前主问题 · 追问 {followupCount} / 2</small>
+          </span>
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -111,7 +159,7 @@ function InterviewRuntime({ status }) {
   const state = runtimeStates[status] || "idle";
   const RuntimeIcon = status === "error" ? WarningCircle : status === "active" || status === "finished" ? CheckCircle : Circle;
   return (
-    <div className="start-runtime interview-runtime" data-state={state} role="status" aria-live="polite">
+    <div className="start-runtime interview-runtime" data-state={state} aria-label={`当前会话：${runtimeLabels[status] || "等待状态"}`}>
       <span className="start-runtime-icon" aria-hidden="true">
         {state === "generating" ? <SpinnerGap className="start-spinner" size={15} weight="bold" /> : <RuntimeIcon size={15} weight={state === "ready" || state === "error" ? "fill" : "bold"} />}
       </span>
@@ -159,6 +207,7 @@ export function InterviewPage() {
   const [notice, setNotice] = useState(null);
   const [focusMode, setFocusMode] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
+  const [turnState, setTurnState] = useState(interviewTurnStates.idle);
   const [announceAssistanceNotice, setAnnounceAssistanceNotice] = useState(false);
   const messageListRef = useRef(null);
   const followConversationRef = useRef(true);
@@ -167,10 +216,11 @@ export function InterviewPage() {
   const resumedCommandRef = useRef(null);
   const assistanceNoticeAnnouncedRef = useRef(null);
 
-  async function loadSnapshot() {
+  async function loadSnapshot({ updateTurnState = true } = {}) {
     if (!sessionId) return;
     const data = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}`);
     setSnapshot(data);
+    if (updateTurnState) setTurnState(snapshotTurnState(data));
     if (data.user_notice_required && data.assistance_mode === "basic") {
       const acknowledgementKey = `interview-agent:assistance-notice:${sessionId}:${data.policy_version || "unknown"}:basic`;
       const acknowledged = localStorage.getItem(acknowledgementKey) === "1";
@@ -210,16 +260,22 @@ export function InterviewPage() {
     if (!streamUrl || !commandId || resumedCommandRef.current === commandId) return;
     resumedCommandRef.current = commandId;
     setStatus("submitting");
+    setTurnState(interviewTurnStates.recovery);
     setStreamingText("");
     let resumeBuffer = "";
     const handlers = {
+      status: () => {
+        setTurnState((current) => reduceTurnState(current, "status"));
+      },
       generation_reset: () => {
         resumeBuffer = "";
         setStreamingText("");
+        setTurnState((current) => reduceTurnState(current, "generation_reset"));
       },
       chunk: (data) => {
         resumeBuffer += data.delta || "";
         setStreamingText(resumeBuffer);
+        setTurnState((current) => reduceTurnState(current, "chunk"));
       },
     };
     fetch(apiUrl(streamUrl))
@@ -237,9 +293,11 @@ export function InterviewPage() {
         if (terminal.type === "reconnect") {
           await followReconnect(commandId, terminal.data.last_event_id, handlers);
         }
+        const previousQuestionId = snapshot?.current_question?.id;
         setRecoveredText(resumeBuffer);
         setStreamingText("");
-        await loadSnapshot();
+        const nextSnapshot = await loadSnapshot({ updateTurnState: false });
+        setTurnState(completionTurnState(previousQuestionId, nextSnapshot));
       })
       .catch((error) => {
         setStatus("error");
@@ -298,6 +356,7 @@ export function InterviewPage() {
   });
 
   async function followReconnect(commandId, lastEventId, handlers) {
+    setTurnState((current) => reduceTurnState(current, "reconnect"));
     const response = await fetch(apiUrl(`/api/interviews/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(commandId)}/stream`), {
       headers: lastEventId ? { "Last-Event-ID": lastEventId } : {},
     });
@@ -321,11 +380,20 @@ export function InterviewPage() {
     const payload = commandPayload({ answer: trimmed });
     followConversationRef.current = true;
     setStatus("submitting");
+    setTurnState(submissionTurnState(snapshot));
     setNotice(null);
     setStreamingText("");
+    setRecoveredText("");
     const handlers = {
-      generation_reset: () => setStreamingText(""),
-      chunk: (data) => setStreamingText((current) => current + (data.delta || "")),
+      status: () => setTurnState((current) => reduceTurnState(current, "status")),
+      generation_reset: () => {
+        setStreamingText("");
+        setTurnState((current) => reduceTurnState(current, "generation_reset"));
+      },
+      chunk: (data) => {
+        setStreamingText((current) => current + (data.delta || ""));
+        setTurnState((current) => reduceTurnState(current, "chunk"));
+      },
       conflict: (data) => { throw new HttpError(data.detail || "面试状态已变化", { status: 409, body: data }); },
       error: (data) => { throw new Error(data.detail || data.code || "提交失败"); },
     };
@@ -345,7 +413,8 @@ export function InterviewPage() {
       localStorage.removeItem(draftKey(sessionId, questionId));
       setAnswer("");
       setStreamingText("");
-      await loadSnapshot();
+      const nextSnapshot = await loadSnapshot({ updateTurnState: false });
+      setTurnState(completionTurnState(questionId, nextSnapshot));
     } catch (error) {
       setStatus("error");
       setNotice({ tone: error.status === 409 ? "warning" : "danger", text: error.status === 409 ? "会话状态已刷新，请检查最新题目后继续。" : error.message });
@@ -395,6 +464,15 @@ export function InterviewPage() {
   const totalQuestions = snapshot?.total_questions || snapshot?.questions?.length || 0;
   const answeredQuestions = snapshot?.completed_questions || 0;
   const statusState = runtimeStates[status] || "idle";
+  const followupCount = normalizedFollowupCount(snapshot);
+  const showStreamingMessage = status === "submitting" && [
+    interviewTurnStates.generationPending,
+    interviewTurnStates.generationStreaming,
+    interviewTurnStates.recovery,
+  ].includes(turnState);
+  const streamingPlaceholder = turnState === interviewTurnStates.recovery
+    ? "正在恢复上一条追问…"
+    : "正在组织追问…";
 
   return (
     <div className="start-app-root interview-app" data-focus-mode={focusMode}>
@@ -430,6 +508,7 @@ export function InterviewPage() {
               <Target size={16} weight="duotone" aria-hidden="true" />
               <span>当前题目</span>
               <strong>{question ? `${String(currentQuestionIndex + 1).padStart(2, "0")} / ${String(totalQuestions).padStart(2, "0")}` : "等待加载"}</strong>
+              <small className="interview-followup-progress" data-followup-count={followupCount}>{followupProgressLabel(snapshot)}</small>
             </div>
             <button className="button start-tool-button interview-focus-button" type="button" onClick={() => setFocusMode((value) => !value)} aria-pressed={focusMode}>
               {focusMode ? <CornersIn size={16} weight="bold" aria-hidden="true" /> : <CornersOut size={16} weight="bold" aria-hidden="true" />}
@@ -443,13 +522,15 @@ export function InterviewPage() {
               <div className="current-question-copy"><p><Crosshair size={14} weight="bold" aria-hidden="true" />{question?.focus || "正在确认考察点"}</p><h2 id="current-question-title">{question?.prompt || "正在加载当前问题"}</h2></div>
             </section>
 
+            <InterviewTurnStatus state={turnState} followupCount={followupCount} />
+
             {snapshot?.user_notice_required && snapshot?.assistance_mode === "basic" ? (
               <div className="interview-assistance"><AssistanceNotice announce={announceAssistanceNotice} /></div>
             ) : null}
 
             <InterviewNotice key={notice ? `${notice.tone}-${notice.text}` : "no-notice"} notice={notice} onDismiss={() => setNotice(null)} />
 
-            <section className="agent-console" aria-label="面试对话" aria-live="polite">
+            <section className="agent-console" aria-label="面试对话">
               <header className="console-head">
                 <div><span className="console-live"><ChatCircleDots size={16} weight="duotone" aria-hidden="true" />对话记录</span><small>已确认的回答与追问</small></div>
                 <span className="interview-live-state" data-state={statusState}>{status === "submitting" || status === "loading" || status === "finishing" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : status === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}<span key={`conversation-state-${status}`}>{runtimeLabels[status] || "等待状态"}</span></span>
@@ -463,7 +544,7 @@ export function InterviewPage() {
                 ) : null}
                 {messages.map((message, index) => <Message key={`${message.question_id || "m"}-${index}`} message={message} />)}
                 {recoveredText && !recoveredAlreadyPersisted && <Message message={{ role: "assistant", content: recoveredText }} />}
-                {status === "submitting" && <Message streaming message={{ role: "assistant", content: streamingText }} />}
+                {showStreamingMessage && <Message streaming placeholder={streamingPlaceholder} message={{ role: "assistant", content: streamingText }} />}
               </div>
             </section>
 

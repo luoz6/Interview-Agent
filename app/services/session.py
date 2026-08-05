@@ -221,6 +221,17 @@ class InterviewSessionStore:
             "last_command_id": state["last_command_id"],
             "workflow_engine": state.get("workflow_engine", "legacy"),
             "graph_schema_version": state.get("graph_schema_version"),
+            "followup_policy_version": state.get(
+                "followup_policy_version", "fixed_v1"
+            ),
+            "current_followup_count": max(
+                0, min(2, int(state.get("current_followup_count", 0)))
+            ),
+            "followup_ui_state": (
+                "degraded"
+                if state.get("termination_reason_code")
+                else "idle"
+            ),
             "memory_policy_version": state["memory_policy_version"],
             "deletion_status": state.get("deletion_status", "active"),
             "plan_origin": state["plan_origin"],

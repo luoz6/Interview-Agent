@@ -8,7 +8,16 @@ test.beforeEach(async ({}, testInfo) => {
 });
 
 async function createSession(request) {
-  const response = await request.post("/api/interviews", { data: { job_description: jobDescription, resume_text: resumeText } });
+  const prep = await request.post("/api/prep", { data: { job_description: jobDescription, resume_text: resumeText } });
+  expect(prep.status()).toBe(200);
+  const revision = await prep.json();
+  const response = await request.post("/api/interviews", {
+    data: {
+      plan_revision_id: revision.plan_revision_id,
+      expected_revision: revision.revision,
+      plan_sha256: revision.plan_sha256,
+    },
+  });
   expect(response.status()).toBe(200);
   return (await response.json()).session_id;
 }

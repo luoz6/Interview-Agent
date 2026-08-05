@@ -5,6 +5,7 @@ const path = require("path");
 
 const python = process.env.STAGE41_PYTHON || "python";
 const externalWebServer = process.env.PLAYWRIGHT_EXTERNAL_WEB_SERVER === "true";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4173";
 if (!process.env.AGENT_TRACE_DIR) {
   process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
     path.join(os.tmpdir(), "stage43-agent-traces-"),
@@ -19,7 +20,7 @@ module.exports = defineConfig({
   retries: 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     trace: "retain-on-failure",
     screenshot: "off",
     viewport: { width: 1440, height: 900 },

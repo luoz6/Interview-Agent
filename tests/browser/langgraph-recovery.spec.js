@@ -9,7 +9,23 @@ async function seed(request, mode) {
 test("refresh replays an active durable generation", async ({ page, request }) => {
   const { session_id: sessionId } = await seed(request, "refresh");
 
+  let releaseStream;
+  const streamReleased = new Promise((resolve) => {
+    releaseStream = resolve;
+  });
+  await page.route("**/commands/**/stream", async (route) => {
+    await streamReleased;
+    await route.continue();
+  });
+
   await page.goto(`/interview?session_id=${sessionId}`);
+  const turnStatus = page.locator('.interview-turn-status[role="status"]');
+  await expect(turnStatus).toHaveAttribute("data-turn-state", "recovery");
+  await expect(turnStatus).toContainText("正在恢复上一条追问");
+  await expect(page.locator('[role="status"]')).toHaveCount(1);
+  await expect(page.locator(".agent-console")).not.toHaveAttribute("aria-live", /.+/);
+  await expect(turnStatus).not.toContainText(/gap|confidence|reason|chain.of.thought/i);
+  releaseStream();
   await expect(page.locator(".agent-console")).toContainText("Recovered after refresh.");
 
   await page.reload();
@@ -62,6 +78,9 @@ test("replacement attempt resets abandoned partial text", async ({ page, request
   await expect(page.locator(".agent-console")).not.toContainText(
     "abandoned old partial",
   );
+  await expect(
+    page.locator('.message-agent', { hasText: "replacement complete" }),
+  ).toHaveCount(1);
 });
 
 test("duplicate command commits one candidate message", async ({ request }) => {

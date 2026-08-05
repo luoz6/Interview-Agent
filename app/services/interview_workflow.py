@@ -22,8 +22,21 @@ from app.services.workflow_thread_lock import (
 
 PENDING_ACTION_BY_NODE = {
     "wait_for_answer": "waiting_for_answer",
+    "validate_command": "validating_answer",
+    "append_candidate_answer": "accepting_answer",
+    "guard_after_answer": "analyzing_answer",
+    "prepare_or_load_decision": "analyzing_answer",
+    "execute_decision_attempt": "analyzing_answer",
+    "guard_after_decision": "analyzing_answer",
+    "guard_before_generation": "organizing_followup",
+    "prepare_generation": "organizing_followup",
     "generate_followup": "generating_followup",
     "wait_for_retry": "waiting_for_retry",
+    "validate_retry": "recovering_followup",
+    "prepare_retry": "recovering_followup",
+    "fallback_followup": "organizing_followup",
+    "terminate_followup_generation": "committing_state",
+    "commit_next_question": "committing_state",
     "project_state": "committing_state",
 }
 
@@ -334,7 +347,20 @@ class InterviewWorkflowService:
         snapshot["active_attempt_number"] = values.get(
             "generation_attempt"
         )
-        if active_command_id and generation_id:
+        policy_version = values.get(
+            "followup_policy_version",
+            snapshot.get("followup_policy_version", "fixed_v1"),
+        )
+        snapshot["followup_policy_version"] = policy_version
+        snapshot["current_followup_count"] = max(
+            0, min(2, int(values.get("current_followup_count") or 0))
+        )
+        snapshot["followup_ui_state"] = _followup_ui_state(
+            values,
+            next_node=next_node,
+            policy_version=policy_version,
+        )
+        if active_command_id:
             snapshot["active_stream_url"] = (
                 f"/api/interviews/{session_id}/commands/"
                 f"{active_command_id}/stream"
@@ -357,3 +383,27 @@ class InterviewWorkflowService:
                 session_id
             ),
         }
+
+
+def _followup_ui_state(values, *, next_node, policy_version: str) -> str:
+    """Return the bounded public UI state without Decision reasoning fields."""
+
+    if values.get("termination_reason_code"):
+        return "degraded"
+    if not values.get("active_command_id"):
+        return "idle"
+    pending = PENDING_ACTION_BY_NODE.get(next_node)
+    if values.get("generation_id") or pending in {
+        "organizing_followup",
+        "generating_followup",
+        "waiting_for_retry",
+        "recovering_followup",
+    }:
+        return "generation_pending"
+    if policy_version == "adaptive_v1" and pending in {
+        "validating_answer",
+        "accepting_answer",
+        "analyzing_answer",
+    }:
+        return "decision_pending"
+    return "generation_pending"

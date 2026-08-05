@@ -403,6 +403,30 @@ def test_session_snapshot_includes_progress_tags_questions_and_messages():
     assert snapshot["questions"][1]["state"] == "pending"
     assert snapshot["messages"][0]["role"] == "interviewer"
     assert snapshot["job_tags"] == ["python", "redis"]
+    assert snapshot["followup_policy_version"] == "fixed_v1"
+    assert snapshot["current_followup_count"] == 0
+    assert snapshot["followup_ui_state"] == "idle"
+    assert "gap_summary" not in snapshot
+    assert "decision_confidence" not in snapshot
+    assert "reason_code" not in snapshot
+
+
+def test_session_snapshot_bounds_followup_progress_and_exposes_only_degraded_semantics():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+    state = store.get(session.session_id)
+    state["current_followup_count"] = 99
+    state["termination_reason_code"] = "provider_unavailable"
+    state["gap_summary"] = "internal gap detail"
+    state["decision_confidence"] = "low"
+
+    snapshot = store.snapshot(session.session_id)
+
+    assert snapshot["current_followup_count"] == 2
+    assert snapshot["followup_ui_state"] == "degraded"
+    assert "termination_reason_code" not in snapshot
+    assert "gap_summary" not in snapshot
+    assert "decision_confidence" not in snapshot
 
 
 def test_session_snapshot_marks_completed_question_after_advance():
