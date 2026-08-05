@@ -103,6 +103,7 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "plan_source_refs_owner_idx",
     "reject_plan_revision_update",
     "plan_revisions_immutable_trigger",
+    "plan_revisions_request_uq",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (

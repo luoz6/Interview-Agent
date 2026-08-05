@@ -150,3 +150,49 @@ def test_database_trigger_rejects_in_place_revision_update(
                     ).format(table=sql.Identifier(store.revisions_table)),
                     (first.plan_revision_id,),
                 )
+
+
+def test_postgres_request_identity_is_idempotent_and_conflict_safe(
+    postgres_dsn, runtime_table_prefix
+):
+    store = make_store(postgres_dsn, runtime_table_prefix)
+    first = store.create_initial(
+        source_payload=source(),
+        plan=plan(),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    request_sha = "a" * 64
+    created = store.create_next_revision(
+        plan_family_id=first.plan_family_id,
+        expected_revision=1,
+        plan=first.plan.model_copy(update={"title": "idempotent"}),
+        source_kind="edited",
+        created_reason="edit_focus",
+        generator_version="plan-generator-v2-test",
+        request_id="request-1",
+        request_sha256=request_sha,
+    )
+    replay = store.create_next_revision(
+        plan_family_id=first.plan_family_id,
+        expected_revision=1,
+        plan=first.plan,
+        source_kind="edited",
+        created_reason="edit_focus",
+        generator_version="plan-generator-v2-test",
+        request_id="request-1",
+        request_sha256=request_sha,
+    )
+
+    assert replay.plan_revision_id == created.plan_revision_id
+    with pytest.raises(PlanRevisionConflict, match="payload conflicts"):
+        store.create_next_revision(
+            plan_family_id=first.plan_family_id,
+            expected_revision=1,
+            plan=first.plan,
+            source_kind="edited",
+            created_reason="edit_focus",
+            generator_version="plan-generator-v2-test",
+            request_id="request-1",
+            request_sha256="b" * 64,
+        )

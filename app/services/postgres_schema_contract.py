@@ -670,6 +670,8 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "plan_sha256",
                 "generator_version",
                 "created_reason",
+                "request_id",
+                "request_sha256",
             }
         ),
     }
@@ -680,6 +682,7 @@ RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
         "_plan_revisions": (
             frozenset({"plan_family_id", "revision"}),
             frozenset({"unique", "plan_family_id", "revision"}),
+            frozenset({"unique", "plan_family_id", "request_id", "where"}),
         ),
     }
 )

@@ -21,6 +21,7 @@ from app.services.interview_plan_revision_store import (
     PlanRevisionNotFound,
     PlanSourceInUse,
     PlanSourceUnavailable,
+    _validate_request_identity,
 )
 from app.services.postgres_connections import (
     ConnectionProvider,
@@ -157,7 +158,10 @@ class PostgresInterviewPlanRevisionStore:
         source_kind: PlanRevisionSourceKind,
         created_reason: PlanCreatedReason,
         generator_version: str,
+        request_id: str | None = None,
+        request_sha256: str | None = None,
     ) -> InterviewPlanRevision:
+        _validate_request_identity(request_id, request_sha256)
         _, sql, extras = self._imports()
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -171,6 +175,20 @@ class PostgresInterviewPlanRevisionStore:
                 if source_row is None:
                     raise PlanRevisionNotFound("plan family not found")
                 source = self._source_from_row(source_row)
+                if request_id is not None:
+                    cursor.execute(
+                        sql.SQL(self._select_revision_sql(
+                            "WHERE plan_family_id = %s::uuid AND request_id = %s"
+                        )).format(
+                            revisions=sql.Identifier(self.revisions_table)
+                        ),
+                        (plan_family_id, request_id),
+                    )
+                    request_row = cursor.fetchone()
+                    if request_row is not None:
+                        if request_row[14] != request_sha256:
+                            raise PlanRevisionConflict("request ID payload conflicts")
+                        return self._revision_from_row(request_row)
                 cursor.execute(
                     sql.SQL(self._select_latest_revision_sql("FOR UPDATE")).format(
                         revisions=sql.Identifier(self.revisions_table)
@@ -203,7 +221,13 @@ class PostgresInterviewPlanRevisionStore:
                     created_reason=created_reason,
                     created_at=utc_now(),
                 )
-                self._insert_revision(cursor, revision, extras=extras)
+                self._insert_revision(
+                    cursor,
+                    revision,
+                    extras=extras,
+                    request_id=request_id,
+                    request_sha256=request_sha256,
+                )
                 return revision
 
     def get_by_id(self, plan_revision_id: str) -> InterviewPlanRevision:
@@ -439,7 +463,16 @@ class PostgresInterviewPlanRevisionStore:
                             generator_version TEXT NOT NULL,
                             created_at TIMESTAMPTZ NOT NULL,
                             created_reason TEXT NOT NULL,
+                            request_id TEXT,
+                            request_sha256 TEXT CHECK (
+                                request_sha256 IS NULL OR
+                                request_sha256 ~ '^[0-9a-f]{{64}}$'
+                            ),
                             UNIQUE (plan_family_id, revision),
+                            CHECK (
+                                (request_id IS NULL AND request_sha256 IS NULL)
+                                OR (request_id IS NOT NULL AND request_sha256 IS NOT NULL)
+                            ),
                             CHECK (
                                 (revision = 1 AND parent_revision_id IS NULL)
                                 OR (revision > 1 AND parent_revision_id IS NOT NULL)
@@ -447,6 +480,12 @@ class PostgresInterviewPlanRevisionStore:
                         )
                         """
                     ).format(revisions=revisions, sources=sources)
+                )
+                cursor.execute(
+                    sql.SQL("ALTER TABLE {revisions} ADD COLUMN IF NOT EXISTS request_id TEXT").format(revisions=revisions)
+                )
+                cursor.execute(
+                    sql.SQL("ALTER TABLE {revisions} ADD COLUMN IF NOT EXISTS request_sha256 TEXT").format(revisions=revisions)
                 )
                 cursor.execute(
                     sql.SQL(
@@ -462,6 +501,17 @@ class PostgresInterviewPlanRevisionStore:
                         )
                         """
                     ).format(refs=refs, sources=sources)
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS {index} ON {revisions} "
+                        "(plan_family_id, request_id) WHERE request_id IS NOT NULL"
+                    ).format(
+                        index=sql.Identifier(runtime_schema_identifier(
+                            self.table_prefix, "plan_revisions_request_uq"
+                        )),
+                        revisions=revisions,
+                    )
                 )
                 cursor.execute(
                     sql.SQL(
@@ -528,7 +578,15 @@ class PostgresInterviewPlanRevisionStore:
                     )
                 )
 
-    def _insert_revision(self, cursor, revision: InterviewPlanRevision, *, extras) -> None:
+    def _insert_revision(
+        self,
+        cursor,
+        revision: InterviewPlanRevision,
+        *,
+        extras,
+        request_id: str | None = None,
+        request_sha256: str | None = None,
+    ) -> None:
         cursor.execute(
             self._sql(
                 """
@@ -536,10 +594,11 @@ class PostgresInterviewPlanRevisionStore:
                     plan_revision_id, plan_family_id, revision,
                     parent_revision_id, source_kind, source_id, source_sha256,
                     configuration_snapshot_json, plan_json, plan_sha256,
-                    generator_version, created_at, created_reason
+                    generator_version, created_at, created_reason,
+                    request_id, request_sha256
                 ) VALUES (
                     %s::uuid, %s::uuid, %s, %s::uuid, %s, %s::uuid, %s,
-                    %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """
             ),
@@ -557,6 +616,8 @@ class PostgresInterviewPlanRevisionStore:
                 revision.generator_version,
                 revision.created_at,
                 revision.created_reason,
+                request_id,
+                request_sha256,
             ),
         )
 
@@ -584,7 +645,8 @@ class PostgresInterviewPlanRevisionStore:
             "SELECT plan_revision_id::text, plan_family_id::text, revision, "
             "parent_revision_id::text, source_kind, source_id::text, "
             "source_sha256, configuration_snapshot_json, plan_json, "
-            "plan_sha256, generator_version, created_at, created_reason "
+            "plan_sha256, generator_version, created_at, created_reason, "
+            "request_id, request_sha256 "
             "FROM {revisions} " + suffix
         )
 

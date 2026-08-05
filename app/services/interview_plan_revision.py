@@ -30,6 +30,7 @@ PlanCreatedReason = Literal[
     "regenerate_question",
     "restore_revision",
     "regenerate_all",
+    "batch_edit",
 ]
 PlanSourceReferenceType = Literal["family", "draft", "session"]
 

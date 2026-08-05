@@ -63,6 +63,8 @@ class InterviewPlanRevisionStore(Protocol):
         source_kind: PlanRevisionSourceKind,
         created_reason: PlanCreatedReason,
         generator_version: str,
+        request_id: str | None = None,
+        request_sha256: str | None = None,
     ) -> InterviewPlanRevision: ...
 
     def get_by_id(self, plan_revision_id: str) -> InterviewPlanRevision: ...
@@ -80,6 +82,7 @@ class InMemoryInterviewPlanRevisionStore:
         self._source_refs: dict[tuple[str, str, str], PlanSourceReference] = {}
         self._revisions: dict[str, InterviewPlanRevision] = {}
         self._revision_ids_by_family: dict[str, list[str]] = {}
+        self._requests: dict[tuple[str, str], tuple[str, str]] = {}
 
     def create_initial(
         self,
@@ -138,8 +141,17 @@ class InMemoryInterviewPlanRevisionStore:
         source_kind: PlanRevisionSourceKind,
         created_reason: PlanCreatedReason,
         generator_version: str,
+        request_id: str | None = None,
+        request_sha256: str | None = None,
     ) -> InterviewPlanRevision:
+        _validate_request_identity(request_id, request_sha256)
         with self._lock:
+            if request_id is not None:
+                stored = self._requests.get((plan_family_id, request_id))
+                if stored is not None:
+                    if stored[0] != request_sha256:
+                        raise PlanRevisionConflict("request ID payload conflicts")
+                    return _copy(self._revisions[stored[1]])
             current = self._latest_unlocked(plan_family_id)
             if current.revision != expected_revision:
                 raise PlanRevisionConflict(
@@ -168,6 +180,11 @@ class InMemoryInterviewPlanRevisionStore:
             self._revision_ids_by_family[plan_family_id].append(
                 revision.plan_revision_id
             )
+            if request_id is not None:
+                self._requests[(plan_family_id, request_id)] = (
+                    request_sha256 or "",
+                    revision.plan_revision_id,
+                )
             return _copy(revision)
 
     def get_by_id(self, plan_revision_id: str) -> InterviewPlanRevision:
@@ -301,3 +318,17 @@ def _build_revision(
 
 def _copy(value):
     return value.model_copy(deep=True) if hasattr(value, "model_copy") else deepcopy(value)
+
+
+def _validate_request_identity(
+    request_id: str | None, request_sha256: str | None
+) -> None:
+    if (request_id is None) != (request_sha256 is None):
+        raise ValueError("request_id and request_sha256 must be supplied together")
+    if request_id is not None and not request_id.strip():
+        raise ValueError("request_id must not be blank")
+    if request_sha256 is not None and (
+        len(request_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in request_sha256)
+    ):
+        raise ValueError("request_sha256 must be lowercase SHA-256")
