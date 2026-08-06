@@ -107,6 +107,7 @@ class ReportPriorityActionV2(BaseModel):
     practice: str = Field(min_length=1, max_length=2000)
     completion_criteria: str = Field(min_length=1, max_length=2000)
     limitation: str | None = Field(default=None, max_length=2000)
+    question_refs: list[str] = Field(default_factory=list)
     observation_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(min_length=1)
 
@@ -286,13 +287,41 @@ class InterviewReport(BaseModel):
             if len(evidence_ids) != len(set(evidence_ids)):
                 raise ValueError("report evidence_ref_id values must be unique")
             available = set(evidence_ids)
+            observation_ids = {
+                item.observation_id
+                for item in self.technical_appendix.observations
+            }
+            question_ids = {item.question_id for item in self.feedbacks}
             claims = [*self.summary_observations, *self.strengths]
             for claim in claims:
                 if not set(claim.evidence_refs).issubset(available):
                     raise ValueError("report claim contains an unknown evidence ref")
+                if claim.observation_refs and not set(
+                    claim.observation_refs
+                ).issubset(observation_ids):
+                    raise ValueError("report claim contains an unknown observation ref")
             for action in self.priority_actions:
                 if not set(action.evidence_refs).issubset(available):
                     raise ValueError("priority action contains an unknown evidence ref")
+                if action.observation_refs and not set(
+                    action.observation_refs
+                ).issubset(observation_ids):
+                    raise ValueError(
+                        "priority action contains an unknown observation ref"
+                    )
+                if action.question_refs and not set(
+                    action.question_refs
+                ).issubset(question_ids):
+                    raise ValueError("priority action contains an unknown question ref")
+            for limitation in self.limitations:
+                if not set(limitation.evidence_refs).issubset(available):
+                    raise ValueError("report limitation contains an unknown evidence ref")
+                if limitation.observation_refs and not set(
+                    limitation.observation_refs
+                ).issubset(observation_ids):
+                    raise ValueError(
+                        "report limitation contains an unknown observation ref"
+                    )
         return self
 
 

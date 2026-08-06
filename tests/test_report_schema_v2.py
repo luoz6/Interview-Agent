@@ -67,7 +67,10 @@ def test_new_reports_publish_independent_v2_semantic_fields():
     assert report.summary_observations
     assert all(item.observation_refs for item in report.summary_observations)
     assert all(item.evidence_refs for item in report.summary_observations)
-    assert report.priority_actions == []
+    assert report.priority_actions
+    assert all(item.question_refs for item in report.priority_actions)
+    assert all(item.observation_refs for item in report.priority_actions)
+    assert all(item.evidence_refs for item in report.priority_actions)
     assert report.limitations == []
     assert {item.namespace for item in report.evidence_refs} == {
         "candidate",
@@ -77,10 +80,20 @@ def test_new_reports_publish_independent_v2_semantic_fields():
     assert report.technical_appendix.summary_prompt_version
     assert report.technical_appendix.summary_prompt_sha256
     assert report.technical_appendix.summary_generation_mode == "deterministic"
+    assert (
+        report.technical_appendix.metadata["action_planner_version"]
+        == "report-priority-action-planner-v1"
+    )
+    assert report.technical_appendix.metadata["priority_action_count"] == len(
+        report.priority_actions
+    )
 
 
 def test_v2_claims_and_actions_must_reference_published_evidence():
     payload = _report().model_dump(mode="json")
+    observation_id = payload["technical_appendix"]["observations"][0][
+        "observation_id"
+    ]
     payload["summary_observations"] = [
         {
             "claim_id": "summary-1",
@@ -102,6 +115,8 @@ def test_v2_claims_and_actions_must_reference_published_evidence():
             "why_it_matters": "The current answer stops at the happy path.",
             "practice": "Re-answer the same question with rollback and retry paths.",
             "completion_criteria": "Name the trigger, fallback, and verification metric.",
+            "question_refs": ["q1"],
+            "observation_refs": [observation_id],
             "evidence_refs": ["candidate:q1:answer"],
         }
     ]
@@ -112,6 +127,18 @@ def test_v2_claims_and_actions_must_reference_published_evidence():
 
     payload["priority_actions"][0]["evidence_refs"] = ["candidate:q9:missing"]
     with pytest.raises(ValidationError, match="unknown evidence ref"):
+        InterviewReport.model_validate(payload)
+
+    payload["priority_actions"][0]["evidence_refs"] = ["candidate:q1:answer"]
+    payload["priority_actions"][0]["observation_refs"] = [
+        "obs-0000000000000000"
+    ]
+    with pytest.raises(ValidationError, match="unknown observation ref"):
+        InterviewReport.model_validate(payload)
+
+    payload["priority_actions"][0]["observation_refs"] = [observation_id]
+    payload["priority_actions"][0]["question_refs"] = ["q9"]
+    with pytest.raises(ValidationError, match="unknown question ref"):
         InterviewReport.model_validate(payload)
 
 

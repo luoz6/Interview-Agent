@@ -24,6 +24,10 @@ from app.services.report_coverage import (
 )
 from app.services.report_contract import build_report_evidence_refs
 from app.services.report_observations import aggregate_report_observations
+from app.services.report_actions import (
+    REPORT_ACTION_PLANNER_VERSION,
+    plan_priority_actions,
+)
 from app.services.report_summary import (
     REPORT_SUMMARY_PROMPT_SHA256,
     REPORT_SUMMARY_PROMPT_VERSION,
@@ -141,6 +145,11 @@ def build_fallback_report(
         coverage=report_coverage,
         evidence_refs=report_evidence_refs,
     )
+    priority_actions = plan_priority_actions(
+        observations=observations,
+        coverage=report_coverage,
+        evidence_refs=report_evidence_refs,
+    )
     return InterviewReport(
         session_id=state["session_id"],
         report_schema_version=REPORT_SCHEMA_VERSION_V2,
@@ -160,6 +169,7 @@ def build_fallback_report(
         coverage=report_coverage,
         summary_observations=summary_result.summary_observations,
         strengths=summary_result.strengths,
+        priority_actions=priority_actions,
         limitations=summary_result.limitations,
         evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
@@ -172,7 +182,11 @@ def build_fallback_report(
             summary_prompt_version=REPORT_SUMMARY_PROMPT_VERSION,
             summary_prompt_sha256=REPORT_SUMMARY_PROMPT_SHA256,
             summary_generation_mode="deterministic_fallback",
-            metadata={"coverage_status": coverage.coverage_status},
+            metadata={
+                "coverage_status": coverage.coverage_status,
+                "action_planner_version": REPORT_ACTION_PLANNER_VERSION,
+                "priority_action_count": len(priority_actions),
+            },
         ),
         report_path="heuristic",
         scoring_rubric_version=REPORT_SCORING_RUBRIC_VERSION,

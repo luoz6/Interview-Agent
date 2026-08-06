@@ -24,6 +24,10 @@ from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_VERSION,
 )
 from app.services.report_observations import aggregate_report_observations
+from app.services.report_actions import (
+    REPORT_ACTION_PLANNER_VERSION,
+    plan_priority_actions,
+)
 from app.services.report_summary import build_cross_question_summary
 
 
@@ -104,6 +108,11 @@ def assemble_interview_report(
         evidence_refs=report_evidence_refs,
         provider=summary_provider,
     )
+    priority_actions = plan_priority_actions(
+        observations=observations,
+        coverage=report_coverage,
+        evidence_refs=report_evidence_refs,
+    )
 
     return InterviewReport(
         session_id=session_id,
@@ -128,6 +137,7 @@ def assemble_interview_report(
         coverage=report_coverage,
         summary_observations=summary_result.summary_observations,
         strengths=summary_result.strengths,
+        priority_actions=priority_actions,
         limitations=summary_result.limitations,
         evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
@@ -137,7 +147,11 @@ def assemble_interview_report(
             summary_prompt_version=summary_result.prompt_version,
             summary_prompt_sha256=summary_result.prompt_sha256,
             summary_generation_mode=summary_result.generation_mode,
-            metadata={"coverage_status": coverage.coverage_status},
+            metadata={
+                "coverage_status": coverage.coverage_status,
+                "action_planner_version": REPORT_ACTION_PLANNER_VERSION,
+                "priority_action_count": len(priority_actions),
+            },
         ),
         summary=summary_result.summary,
         highlights=highlights,
