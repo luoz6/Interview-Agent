@@ -151,11 +151,14 @@ describe("ReportDetailPage candidate information architecture", () => {
   it("keeps the active revision visible after a failed update", async () => {
     render(<ReportDetailPage />);
 
-    expect(await screen.findByText("新版本处理失败，当前版本仍可使用")).toBeInTheDocument();
+    expect(await screen.findByText("重评分失败，旧报告仍有效")).toBeInTheDocument();
+    expect(screen.getByText(/失败的重评分没有覆盖或使这份 active 报告失效/)).toBeInTheDocument();
     expect(screen.getAllByText("第 2 版").length).toBeGreaterThan(0);
     expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
     expect(screen.getAllByText("部分评分").length).toBeGreaterThan(0);
     expect(screen.getAllByText("部分覆盖").length).toBeGreaterThan(0);
+    expect(screen.getByText("数字结果只覆盖已评估题目；未评估题目和维度不会按 0 分处理。")).toBeInTheDocument();
+    expect(screen.queryByText("未评分")).not.toBeInTheDocument();
   });
 
   it("jumps from an action to its evidence question and opens it", async () => {
@@ -200,6 +203,7 @@ describe("ReportDetailPage candidate information architecture", () => {
     expect(screen.getByText("证据不足，未发布数字")).toBeInTheDocument();
     expect(screen.getAllByText("未评分").length).toBeGreaterThan(0);
     expect(screen.getAllByText("无有效覆盖").length).toBeGreaterThan(0);
+    expect(screen.queryByText("部分评分")).not.toBeInTheDocument();
   });
 
   it("downloads the active PDF by immutable report ID and revision", async () => {

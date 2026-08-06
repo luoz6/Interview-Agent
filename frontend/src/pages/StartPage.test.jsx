@@ -663,4 +663,87 @@ describe("StartPage editable plan workflow", () => {
     expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
     expect(screen.getByText("配置已同步")).toBeInTheDocument();
   });
+
+  it("confirms before a manual draft restore can replace the current canvas", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    const jdInput = screen.getByRole("textbox", { name: "岗位 JD" });
+    await user.type(jdInput, "New canvas content");
+    window.localStorage.setItem("interview-agent:draft-id", "draft-t58");
+    const restoreButton = screen.getByRole("button", { name: "恢复草稿" });
+    await user.click(restoreButton);
+
+    const dialog = screen.getByRole("dialog", { name: "用已保存草稿替换当前画布？" });
+    expect(dialog).toHaveTextContent("当前画布中的岗位 JD 和候选人经历会被替换");
+    expect(dialog).toHaveTextContent("已保存的匿名草稿不会被删除");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(jdInput).toHaveValue("New canvas content");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(restoreButton).toHaveFocus());
+
+    fetchMock.mockImplementationOnce(() => response({
+      draft_id: "draft-t58",
+      job_description: "Restored saved JD",
+      resume_text: "Restored saved resume",
+      job_tags: [],
+      plan_status: "stale",
+      plan_family_id: null,
+      latest_plan_revision_id: null,
+    }));
+    await user.click(restoreButton);
+    await user.click(screen.getByRole("button", { name: "确认恢复草稿" }));
+
+    await waitFor(() => expect(jdInput).toHaveValue("Restored saved JD"));
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/interview-drafts/draft-t58");
+  });
+
+  it("uses a dialog before clearing the canvas and keeps saved drafts recoverable", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    const jdInput = screen.getByRole("textbox", { name: "岗位 JD" });
+    await user.type(jdInput, "Do not clear without confirmation");
+    const clearButton = screen.getByRole("button", { name: "清空当前画布" });
+
+    await user.click(clearButton);
+    const dialog = screen.getByRole("dialog", { name: "清空当前画布？" });
+    expect(dialog).toHaveTextContent("只清空当前画布");
+    expect(dialog).toHaveTextContent("已保存的匿名草稿不会被删除，之后仍可恢复");
+    await user.keyboard("{Escape}");
+    expect(jdInput).toHaveValue("Do not clear without confirmation");
+    await waitFor(() => expect(clearButton).toHaveFocus());
+
+    await user.click(clearButton);
+    await user.click(screen.getByRole("button", { name: "确认清空画布" }));
+    expect(jdInput).toHaveValue("");
+    expect(screen.getByText("当前画布已清空；此前保存的匿名草稿仍可恢复。")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the current canvas and draft link when a confirmed restore fails mid-read", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    const jdInput = screen.getByRole("textbox", { name: "岗位 JD" });
+    await user.type(jdInput, "Keep this current canvas");
+    window.localStorage.setItem("interview-agent:draft-id", "draft-atomic");
+    fetchMock
+      .mockImplementationOnce(() => response({
+        draft_id: "draft-atomic",
+        job_description: "Do not apply this partial draft",
+        resume_text: "Do not apply this partial resume",
+        job_tags: ["Platform"],
+        plan_status: "active",
+        plan_family_id: familyId,
+        latest_plan_revision_id: "33333333-3333-4333-8333-333333333333",
+      }))
+      .mockImplementationOnce(() => response({ detail: "revision temporarily unavailable" }, 500));
+
+    await user.click(screen.getByRole("button", { name: "恢复草稿" }));
+    await user.click(screen.getByRole("button", { name: "确认恢复草稿" }));
+
+    expect(await screen.findByText("草稿恢复失败：revision temporarily unavailable")).toBeInTheDocument();
+    expect(jdInput).toHaveValue("Keep this current canvas");
+    expect(window.localStorage.getItem("interview-agent:draft-id")).toBe("draft-atomic");
+  });
 });

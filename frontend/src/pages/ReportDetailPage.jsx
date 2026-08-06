@@ -336,7 +336,7 @@ export function ReportDetailPage() {
       });
       setState(detail.report.is_fallback || detail.report.generation_status === "degraded" ? "fallback" : "completed");
       if (detail.updateFailed) {
-        setNotice({ tone: "warning", title: "新版本处理失败，当前版本仍可使用", text: `正在显示 ${reportRevisionLabel(detail.artifact)}；失败的更新没有覆盖这份 active 报告。` });
+        setNotice({ tone: "warning", title: "重评分失败，旧报告仍有效", text: `正在显示 ${reportRevisionLabel(detail.artifact)}；失败的重评分没有覆盖或使这份 active 报告失效。` });
       } else if (detail.updating) {
         setNotice({ tone: "info", title: "新版本正在生成", text: `当前继续显示 ${reportRevisionLabel(detail.artifact)}，新版本完成前不会遮挡本报告。` });
       }

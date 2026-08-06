@@ -69,7 +69,9 @@ def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states()
         "function RuntimeStatus",
         "function KnowledgeStatus",
         "function StatusBarItem",
-        'data-state={clearArmed ? "confirm" : undefined}',
+        'onClick={requestClearWorkspace}',
+        'title: "清空当前画布？"',
+        'idPrefix="plan-confirm"',
         'aria-controls="inspector-panel"',
         'role="tabpanel"',
     ):

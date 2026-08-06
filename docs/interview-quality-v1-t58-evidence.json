@@ -1,0 +1,118 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T58",
+  "generated_at": "2026-08-06T22:21:54+08:00",
+  "implementation_revision_base": "31d7cd9cfde921386f77e9adcb137e21128926f3",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "PASS_OFFLINE_UI_CONTRACT",
+  "overall_status": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "requirements": {
+    "finish_requires_confirmation": true,
+    "finish_dialog_shows_answered_count": true,
+    "finish_dialog_shows_skipped_count": true,
+    "finish_dialog_shows_unfinished_count": true,
+    "finish_dialog_explains_report_coverage": true,
+    "cancel_sends_no_interview_command": true,
+    "cancel_restores_trigger_focus": true,
+    "focus_mode_escape_restores_trigger_focus": true,
+    "full_regenerate_requires_confirmation": true,
+    "single_dirty_regenerate_requires_confirmation": true,
+    "revision_restore_requires_confirmation": true,
+    "manual_draft_restore_requires_confirmation_when_overwriting": true,
+    "clear_canvas_requires_confirmation": true,
+    "clear_canvas_preserves_saved_draft": true,
+    "fixed_v1_copy_is_fixed_cadence": true,
+    "adaptive_v1_copy_is_dynamic_only": true,
+    "skip_copy_states_no_question_score_and_lower_coverage": true,
+    "unscored_has_no_numeric_score": true,
+    "partial_excludes_unevaluated_items_from_zero": true,
+    "failed_is_not_score_status": true,
+    "failed_rescore_keeps_old_report_valid": true
+  },
+  "implementation": {
+    "shared_confirmation_component": "frontend/src/components/ConfirmationDialog.jsx",
+    "interview_page": "frontend/src/pages/InterviewPage.jsx",
+    "start_page": "frontend/src/pages/StartPage.jsx",
+    "report_detail_page": "frontend/src/pages/ReportDetailPage.jsx",
+    "browser_flow_updated": "tests/browser/local-v1.spec.js",
+    "static_contract_updated": "tests/test_react_frontend.py",
+    "restore_application_is_transactional": true,
+    "transient_restore_failure_preserves_current_canvas": true,
+    "transient_restore_failure_preserves_draft_id": true,
+    "missing_draft_404_or_410_clears_draft_id": true
+  },
+  "automatic_review_findings_closed": [
+    "Draft documents were initially applied before the associated revision finished loading; all restore data is now read and normalized before any canvas mutation.",
+    "Transient restore failures previously removed the saved draft link; only explicit 404/410 absence now clears it.",
+    "The historical React static contract required the obsolete clearArmed two-click pattern; it now requires the T58 confirmation-dialog path.",
+    "Deferred focus restoration could consume a later dialog trigger; close now captures and clears its own trigger before scheduling focus."
+  ],
+  "verification": {
+    "focused_frontend": {
+      "files_passed": 3,
+      "tests_passed": 35,
+      "tests_failed": 0
+    },
+    "full_frontend": {
+      "files_passed": 7,
+      "tests_passed": 64,
+      "tests_failed": 0
+    },
+    "adjacent_python": {
+      "tests_passed": 75,
+      "tests_failed": 0
+    },
+    "production_build": {
+      "status": "PASS",
+      "modules_transformed": 4596,
+      "javascript_chunk_kb": 539.61,
+      "javascript_gzip_kb": 146.61,
+      "chunk_warning_over_500kb": true
+    },
+    "eslint": "TOOLING_MISSING",
+    "eslint_detail": "eslint is not installed in the frontend dependency set",
+    "browser_preflight": {
+      "status": "PASS",
+      "node_version": "22.21.0",
+      "playwright_version": "1.61.1",
+      "chromium_version": "149.0.7827.55"
+    },
+    "full_browser_execution": "DEFERRED_TO_T59_NOT_CLAIMED",
+    "diff_check": "PASS",
+    "broad_regression": {
+      "passed": 2668,
+      "failed": 5,
+      "skipped": 218,
+      "warnings": 1,
+      "t58_related_failures": 0,
+      "initial_run_passed": 2667,
+      "initial_run_failed": 6,
+      "related_static_contract_failure_closed": true
+    }
+  },
+  "known_full_suite_failures": [
+    "tests/test_agent_runtime_hardening.py::test_stream_latency_clock_starts_at_first_next - old perf_counter mock ticks are exhausted",
+    "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer - old next_question expectation differs from current finish terminal action",
+    "tests/test_local_v1_hardening_publication_contract.py::test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged - historical publication allowlist rejects accumulated quality-branch changes",
+    "tests/test_postgres_session_deletion.py::test_latest_migration_contract_requires_deletion_lease_and_indexes - old latest migration expectation is followup_decision_v1",
+    "tests/test_reproducibility_preflight.py::test_dependency_source_generator_and_lock_metadata_are_bound - existing lock file hash differs from metadata"
+  ],
+  "phase_boundaries": {
+    "t57_engineering_complete": true,
+    "t57_provider_quality_complete": false,
+    "t58_complete": true,
+    "t59_complete": false,
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "Browser preflight proves tool availability only; it is not reported as full browser, mobile, screen-reader, or focus-trap acceptance.",
+    "The five full-suite failures, 218 skips, one warning, missing eslint tool, and production chunk warning remain visible.",
+    "No Provider request, token, cost, latency, model-quality result, or Provider PASS is claimed for T58.",
+    "T58 completion does not imply T57 Provider Quality, T59, or T72 completion; the goal remains active."
+  ]
+}

@@ -20,6 +20,10 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { apiUrl, getJson, HttpError, postJson, postSse, readSse } from "../api/client";
+import {
+  ConfirmationDialog,
+  useConfirmationDialog,
+} from "../components/ConfirmationDialog";
 import { AssistanceNotice } from "../components/UI";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
@@ -76,9 +80,36 @@ function draftKey(sessionId, questionId) {
   return `interview-agent:answer:${sessionId}:${questionId || "unknown"}`;
 }
 
-function QuestionNavigator({ snapshot }) {
+function snapshotQuestionCounts(snapshot) {
+  const questions = snapshot?.questions || [];
+  const countState = (state) => questions.filter((question) => question.state === state).length;
+  const total = Number.isInteger(snapshot?.total_questions)
+    ? snapshot.total_questions
+    : questions.length;
+  const skipped = Number.isInteger(snapshot?.skipped_questions)
+    ? snapshot.skipped_questions
+    : countState("skipped");
+  const answered = Number.isInteger(snapshot?.answered_questions)
+    ? snapshot.answered_questions
+    : questions.some((question) => question.state)
+      ? countState("answered")
+      : Math.max(0, Number(snapshot?.completed_questions || 0) - skipped);
+  const unfinished = Number.isInteger(snapshot?.unanswered_questions)
+    ? snapshot.unanswered_questions
+    : Math.max(0, total - answered - skipped);
+  return { total, answered, skipped, unfinished };
+}
+
+function snapshotFollowupPolicy(snapshot) {
+  return snapshot?.followup_policy_version
+    || snapshot?.configuration_snapshot?.followup_policy_version
+    || "fixed_v1";
+}
+
+export function QuestionNavigator({ snapshot }) {
   const completed = snapshot?.completed_questions || 0;
   const total = snapshot?.total_questions || 0;
+  const adaptive = snapshotFollowupPolicy(snapshot) === "adaptive_v1";
   return (
     <nav className="start-activity-rail question-rail interview-question-rail" aria-label="题目计划">
       <header className="interview-question-rail-head">
@@ -99,7 +130,7 @@ function QuestionNavigator({ snapshot }) {
           );
         })}
       </ol>
-      <div className="question-rail-note"><Crosshair size={16} weight="bold" aria-hidden="true" /><p><strong>动态路径</strong><span>回答会决定追问或下一题。</span></p></div>
+      <div className="question-rail-note"><Crosshair size={16} weight="bold" aria-hidden="true" /><p><strong>{adaptive ? "动态路径" : "固定节奏"}</strong><span>{adaptive ? "回答会决定追问或进入下一题。" : "每道主问题按固定追问策略推进，回答不会切换为动态决策路径。"}</span></p></div>
     </nav>
   );
 }
@@ -209,12 +240,14 @@ export function InterviewPage() {
   const [reviewCount, setReviewCount] = useState(0);
   const [turnState, setTurnState] = useState(interviewTurnStates.idle);
   const [announceAssistanceNotice, setAnnounceAssistanceNotice] = useState(false);
+  const { confirmation, openConfirmation, closeConfirmation } = useConfirmationDialog();
   const messageListRef = useRef(null);
   const followConversationRef = useRef(true);
   const programmaticScrollUntilRef = useRef(0);
   const answerRef = useRef(null);
   const resumedCommandRef = useRef(null);
   const assistanceNoticeAnnouncedRef = useRef(null);
+  const focusModeTriggerRef = useRef(null);
 
   async function loadSnapshot({ updateTurnState = true } = {}) {
     if (!sessionId) return;
@@ -307,11 +340,14 @@ export function InterviewPage() {
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key === "Escape" && focusMode) setFocusMode(false);
+      if (event.key === "Escape" && focusMode && !confirmation) {
+        event.preventDefault();
+        exitFocusMode();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [focusMode]);
+  }, [focusMode, confirmation]);
 
   useEffect(() => {
     document.body.dataset.interviewState = status;
@@ -443,6 +479,72 @@ export function InterviewPage() {
     }
   }
 
+  function restoreFocusModeTrigger() {
+    const restore = () => focusModeTriggerRef.current?.focus();
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(restore);
+    } else {
+      window.setTimeout(restore, 0);
+    }
+  }
+
+  function exitFocusMode() {
+    setFocusMode(false);
+    restoreFocusModeTrigger();
+  }
+
+  function toggleFocusMode(event) {
+    if (focusMode) {
+      exitFocusMode();
+      return;
+    }
+    focusModeTriggerRef.current = event.currentTarget;
+    setFocusMode(true);
+  }
+
+  function requestFinishConfirmation(event) {
+    const details = [
+      `已回答 ${questionCounts.answered} 道`,
+      `已跳过 ${questionCounts.skipped} 道`,
+      `仍未完成 ${questionCounts.unfinished} 道`,
+      "未回答和已跳过题不会产生对应题目的能力分，并会降低报告覆盖",
+    ];
+    if (answer.trim()) {
+      details.push("当前浏览器中的未提交草稿不会进入报告证据");
+    }
+    openConfirmation({
+      title: "结束面试并生成报告？",
+      description: "结束后将进入报告处理，不能继续回答剩余题目。",
+      details,
+      confirmLabel: "确认结束面试",
+      tone: "danger",
+      onConfirm: async () => {
+        closeConfirmation({ restoreFocus: false });
+        await runCommand("finish");
+      },
+    }, event.currentTarget);
+  }
+
+  function requestSkipConfirmation(event) {
+    const details = [
+      question ? `当前是第 ${currentQuestionIndex + 1} 题：${question.prompt}` : "当前题目尚未加载完整",
+      "跳过后不产生该题能力分并降低报告覆盖",
+    ];
+    if (answer.trim()) {
+      details.push("当前浏览器中的本题草稿会在跳过成功后清除，不会进入报告证据");
+    }
+    openConfirmation({
+      title: "跳过当前题？",
+      description: "该题会被记录为已跳过，而不是已回答或评分为 0 分。",
+      details,
+      confirmLabel: "确认跳过此题",
+      onConfirm: async () => {
+        closeConfirmation({ restoreFocus: false });
+        await runCommand("skip");
+      },
+    }, event.currentTarget);
+  }
+
   function updateAnswer(value) {
     setAnswer(value);
     if (value.trim() && notice?.text?.startsWith("回答不能为空")) setNotice(null);
@@ -452,8 +554,12 @@ export function InterviewPage() {
 
   const tags = snapshot?.job_tags || [];
   const messages = snapshot?.messages || [];
+  const questionCounts = snapshotQuestionCounts(snapshot);
+  const totalQuestions = questionCounts.total;
+  const answeredQuestions = questionCounts.answered;
+  const completedQuestions = questionCounts.answered + questionCounts.skipped;
   const recoveredAlreadyPersisted = recoveredText && messages.some((message) => message.content?.includes(recoveredText));
-  const progress = snapshot?.total_questions ? Math.round((snapshot.completed_questions / snapshot.total_questions) * 100) : 0;
+  const progress = totalQuestions ? Math.round((completedQuestions / totalQuestions) * 100) : 0;
   const disabled = ["loading", "submitting", "finishing"].includes(status);
   const shellClass = focusMode ? "interview-workspace is-focus-mode" : "interview-workspace";
   const question = snapshot?.current_question;
@@ -461,8 +567,6 @@ export function InterviewPage() {
     () => Math.max(0, (snapshot?.questions || []).findIndex((item) => item.id === question?.id)),
     [snapshot?.questions, question?.id],
   );
-  const totalQuestions = snapshot?.total_questions || snapshot?.questions?.length || 0;
-  const answeredQuestions = snapshot?.completed_questions || 0;
   const statusState = runtimeStates[status] || "idle";
   const followupCount = normalizedFollowupCount(snapshot);
   const showStreamingMessage = status === "submitting" && [
@@ -499,7 +603,7 @@ export function InterviewPage() {
               <div><h1 id="interview-workspace-title">模拟面试</h1><p>围绕当前问题完整说明判断、方案、取舍与验证。</p></div>
             </div>
             <div className="start-readiness interview-progress-summary" data-ready={status === "active"} aria-label={`面试进度 ${progress}%`}>
-              <span className="interview-progress-value" key={`workspace-progress-${progress}`}>{progress}%</span><strong>{answeredQuestions} / {totalQuestions || "--"} 已完成</strong>
+              <span className="interview-progress-value" key={`workspace-progress-${progress}`}>{progress}%</span><strong>{completedQuestions} / {totalQuestions || "--"} 已完成</strong>
             </div>
           </header>
 
@@ -510,7 +614,7 @@ export function InterviewPage() {
               <strong>{question ? `${String(currentQuestionIndex + 1).padStart(2, "0")} / ${String(totalQuestions).padStart(2, "0")}` : "等待加载"}</strong>
               <small className="interview-followup-progress" data-followup-count={followupCount}>{followupProgressLabel(snapshot)}</small>
             </div>
-            <button className="button start-tool-button interview-focus-button" type="button" onClick={() => setFocusMode((value) => !value)} aria-pressed={focusMode}>
+            <button className="button start-tool-button interview-focus-button" type="button" onClick={toggleFocusMode} aria-pressed={focusMode}>
               {focusMode ? <CornersIn size={16} weight="bold" aria-hidden="true" /> : <CornersOut size={16} weight="bold" aria-hidden="true" />}
               <span>{focusMode ? "退出专注" : "专注模式"}</span>
             </button>
@@ -573,10 +677,10 @@ export function InterviewPage() {
               <div className="composer-foot">
                 <div id="answer-draft-state" className="composer-draft-state" data-ready={Boolean(answer)} aria-live="polite"><ShieldCheck size={14} weight={answer ? "fill" : "regular"} aria-hidden="true" /><span>{answer ? "草稿已保存在当前浏览器" : "输入内容会自动保存"}</span><strong>{answer.length} / 5000</strong></div>
                 <div className="action-row compact interview-actions">
-                  <button className="button interview-end-button" type="button" onClick={() => runCommand("finish")} disabled={disabled}>
+                  <button className="button interview-end-button" type="button" onClick={requestFinishConfirmation} disabled={disabled}>
                     <SignOut size={16} weight="bold" aria-hidden="true" /><span>结束面试</span>
                   </button>
-                  <button className="button interview-skip-button" type="button" onClick={() => runCommand("skip")} disabled={disabled || !question}>
+                  <button className="button interview-skip-button" type="button" onClick={requestSkipConfirmation} disabled={disabled || !question}>
                     <SkipForward size={16} weight="bold" aria-hidden="true" /><span>跳过此题</span>
                   </button>
                   <button className="button button-primary interview-submit-button" type="submit" aria-busy={status === "submitting" || undefined} disabled={disabled || !question}>
@@ -624,6 +728,11 @@ export function InterviewPage() {
         <StatusBarItem icon={FileText} label="草稿" value={answer ? `${answer.length} 字` : "自动保存"} state={answer ? "ready" : "idle"} />
         <StatusBarItem icon={CheckCircle} label="评审" value={`${reviewCount} / ${answeredQuestions}`} state={reviewCount && reviewCount >= answeredQuestions ? "ready" : answeredQuestions ? "generating" : "idle"} />
       </footer>
+      <ConfirmationDialog
+        confirmation={confirmation}
+        onCancel={closeConfirmation}
+        idPrefix="interview-confirm"
+      />
     </div>
   );
 }

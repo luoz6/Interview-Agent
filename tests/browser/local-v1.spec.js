@@ -40,6 +40,7 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
   await expect(page.locator(".agent-console")).toContainText("cache-aside");
 
   await page.getByRole("button", { name: "结束面试" }).click();
+  await page.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   await expect(page.locator(".report-detail-score-mark")).toContainText(String(reportBody.overall_score));
@@ -75,6 +76,7 @@ test("degraded knowledge is explicit and report completes without fake reference
   await expect(page).toHaveURL(/\/interview\?session_id=/);
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   await page.getByRole("button", { name: "结束面试" }).click();
+  await page.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
   await expect(page.locator("#evidence")).toContainText("没有可公开的知识引用");
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();

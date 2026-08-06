@@ -52,6 +52,10 @@ import {
   QUESTION_MIX_PRESETS,
   updatePlanConfiguration,
 } from "../interviewPlanConfiguration";
+import {
+  ConfirmationDialog,
+  useConfirmationDialog,
+} from "../components/ConfirmationDialog";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
@@ -307,7 +311,7 @@ function PlanQuestion({
             <button
               className="start-plan-action"
               type="button"
-              onClick={() => onRegenerate(question.question_id)}
+              onClick={(event) => onRegenerate(question.question_id, event.currentTarget)}
               disabled={busy}
             >
               <ArrowsClockwise size={15} weight="bold" aria-hidden="true" />
@@ -316,7 +320,7 @@ function PlanQuestion({
             <button
               className="start-plan-action start-plan-action-danger"
               type="button"
-              onClick={() => onDelete(question.question_id, index)}
+              onClick={(event) => onDelete(question.question_id, index, event.currentTarget)}
               disabled={busy || total <= 1}
             >
               <Trash size={15} weight="bold" aria-hidden="true" />
@@ -347,56 +351,6 @@ function PlanQuestion({
         </footer>
       </form>
     </li>
-  );
-}
-
-function ConfirmationDialog({ confirmation, onCancel }) {
-  if (!confirmation) return null;
-  return (
-    <div className="start-dialog-backdrop" onMouseDown={onCancel}>
-      <section
-        className="start-confirm-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="plan-confirm-title"
-        aria-describedby="plan-confirm-description"
-        data-tone={confirmation.tone || "warning"}
-        onMouseDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onCancel();
-        }}
-      >
-        <header>
-          <span aria-hidden="true">
-            <WarningCircle size={22} weight="fill" />
-          </span>
-          <div>
-            <span>需要确认</span>
-            <h2 id="plan-confirm-title">{confirmation.title}</h2>
-          </div>
-        </header>
-        <p id="plan-confirm-description">{confirmation.description}</p>
-        {confirmation.details?.length ? (
-          <ul>
-            {confirmation.details.map((detail) => (
-              <li key={detail}>{detail}</li>
-            ))}
-          </ul>
-        ) : null}
-        <footer>
-          <button type="button" className="start-dialog-secondary" onClick={onCancel} autoFocus>
-            取消
-          </button>
-          <button
-            type="button"
-            className="start-dialog-primary"
-            onClick={confirmation.onConfirm}
-          >
-            {confirmation.confirmLabel || "确认"}
-          </button>
-        </footer>
-      </section>
-    </div>
   );
 }
 
@@ -658,8 +612,7 @@ export function StartPage() {
   const [activeDocument, setActiveDocument] = useState("jd");
   const [inspectorView, setInspectorView] = useState("plan");
   const [focusTarget, setFocusTarget] = useState("");
-  const [clearArmed, setClearArmed] = useState(false);
-  const [confirmation, setConfirmation] = useState(null);
+  const { confirmation, openConfirmation, closeConfirmation } = useConfirmationDialog();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [customQuestion, setCustomQuestion] = useState({
@@ -672,6 +625,14 @@ export function StartPage() {
   const plan = editor.serverPlan;
   const questions = editableQuestions(plan);
   const configurationSnapshot = plan?.plan?.configuration_snapshot || null;
+  const defaultConfigurationSnapshot = useMemo(
+    () => planConfigurationPayload(createPlanConfiguration()),
+    [],
+  );
+  const configurationIsDefault = configurationMatchesSnapshot(
+    configuration,
+    defaultConfigurationSnapshot,
+  );
   const configurationStale = Boolean(
     plan && !configurationMatchesSnapshot(configuration, configurationSnapshot),
   );
@@ -732,12 +693,6 @@ export function StartPage() {
     automaticRestoreStarted.current = true;
     restoreDraft();
   }, []);
-
-  useEffect(() => {
-    if (!clearArmed) return undefined;
-    const timeout = window.setTimeout(() => setClearArmed(false), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [clearArmed]);
 
   useEffect(() => {
     if (!focusTarget) return undefined;
@@ -868,18 +823,23 @@ export function StartPage() {
     setNotice({ tone: "info", text: "正在恢复当前浏览器保存的资料。" });
     try {
       const draft = await requestJson(`/api/interview-drafts/${encodeURIComponent(storedId)}`);
-      setDraftId(draft.draft_id);
-      setJobDescription(draft.job_description || "");
-      setResumeText(draft.resume_text || "");
+      let restoredPlan = null;
       if (draft.plan_status === "active" && draft.plan_family_id && draft.latest_plan_revision_id) {
         const revision = await requestJson(
           `/api/interview-plans/${encodeURIComponent(draft.plan_family_id)}/revisions/${encodeURIComponent(draft.latest_plan_revision_id)}`,
         );
+        restoredPlan = normalizePlanResponse(revision, {
+          job_tags: draft.job_tags || [],
+        });
+      }
+
+      setDraftId(draft.draft_id);
+      setJobDescription(draft.job_description || "");
+      setResumeText(draft.resume_text || "");
+      if (restoredPlan) {
         dispatchEditor({
           type: "LOAD_SERVER_PLAN",
-          plan: normalizePlanResponse(revision, {
-            job_tags: draft.job_tags || [],
-          }),
+          plan: restoredPlan,
         });
       } else {
         dispatchEditor({ type: "INVALIDATE_SOURCE" });
@@ -895,19 +855,60 @@ export function StartPage() {
           : { tone: "success", text: "草稿和对应的同一份计划修订已恢复。" },
       );
     } catch (error) {
-      clearStoredDraftId();
-      setDraftId("");
+      if ([404, 410].includes(error.status)) {
+        clearStoredDraftId();
+        setDraftId("");
+      }
       setStatus("error");
       setNotice({ tone: "error", text: `草稿恢复失败：${error.message}` });
     }
   }
 
-  function clearWorkspace() {
-    if (!clearArmed) {
-      setClearArmed(true);
-      setNotice({ tone: "warning", text: "再次点击“确认清空”将移除当前画布中的未保存内容；已保存的匿名草稿仍可恢复。" });
+  function requestRestoreDraft(event) {
+    const storedId = draftId || getStoredDraftId();
+    if (!storedId) {
+      restoreDraft();
       return;
     }
+    const dirtyQuestionCount = Object.keys(editor.localDrafts).length;
+    const hasWorkspaceContent = Boolean(
+      jobDescription.trim()
+      || resumeText.trim()
+      || plan
+      || dirtyQuestionCount
+      || !configurationIsDefault,
+    );
+    if (!hasWorkspaceContent) {
+      restoreDraft();
+      return;
+    }
+    const details = [];
+    if (jobDescription.trim() || resumeText.trim()) {
+      details.push("当前画布中的岗位 JD 和候选人经历会被替换");
+    }
+    if (plan) {
+      details.push(`当前 R${plan.revision} 计划画布会被草稿关联的修订替换`);
+    }
+    if (dirtyQuestionCount) {
+      details.push(`${dirtyQuestionCount} 道未保存的本地题目修改会被清除`);
+    }
+    if (!configurationIsDefault) {
+      details.push("若草稿关联有效计划修订，当前未保存的计划配置会被其替换");
+    }
+    details.push("已保存的匿名草稿不会被删除，恢复失败也不会清空当前画布");
+    openConfirmation({
+      title: "用已保存草稿替换当前画布？",
+      description: "恢复会读取当前浏览器关联的匿名草稿并替换当前资料；草稿关联有效计划修订时，也会替换配置和本地计划编辑。",
+      details,
+      confirmLabel: "确认恢复草稿",
+      onConfirm: async () => {
+        closeConfirmation({ restoreFocus: false });
+        await restoreDraft();
+      },
+    }, event.currentTarget);
+  }
+
+  function clearWorkspace() {
     setJobDescription("");
     setResumeText("");
     setConfiguration(createPlanConfiguration());
@@ -917,8 +918,30 @@ export function StartPage() {
     setStatus("idle");
     setActiveDocument("jd");
     setInspectorView("readiness");
-    setClearArmed(false);
     setNotice({ tone: "info", text: "当前画布已清空；此前保存的匿名草稿仍可恢复。" });
+  }
+
+  function requestClearWorkspace(event) {
+    const dirtyQuestionCount = Object.keys(editor.localDrafts).length;
+    const details = [
+      "岗位 JD、候选人经历和当前计划画布会被清空",
+      "计划配置会恢复为默认值",
+    ];
+    if (dirtyQuestionCount) {
+      details.push(`${dirtyQuestionCount} 道未保存的本地题目修改会被清除`);
+    }
+    details.push("已保存的匿名草稿不会被删除，之后仍可恢复");
+    openConfirmation({
+      title: "清空当前画布？",
+      description: "该操作只清空当前画布，不会删除浏览器已保存的匿名草稿。",
+      details,
+      confirmLabel: "确认清空画布",
+      tone: "danger",
+      onConfirm: () => {
+        closeConfirmation();
+        clearWorkspace();
+      },
+    }, event.currentTarget);
   }
 
   function changeConfiguration(field, value) {
@@ -1091,17 +1114,17 @@ export function StartPage() {
     });
   }
 
-  async function regenerateQuestion(questionId, confirmed = false) {
+  async function regenerateQuestion(questionId, trigger = null, confirmed = false) {
     if (editor.localDrafts[questionId] && !confirmed) {
-      setConfirmation({
+      openConfirmation({
         title: "放弃本地修改并替换这道题？",
         description: "当前题目还有未保存输入。换题成功后会使用服务端返回的新题目身份和内容。",
         confirmLabel: "放弃修改并换题",
         onConfirm: async () => {
-          setConfirmation(null);
-          await regenerateQuestion(questionId, true);
+          closeConfirmation({ restoreFocus: false });
+          await regenerateQuestion(questionId, null, true);
         },
-      });
+      }, trigger);
       return;
     }
     await performRevisionOperation({
@@ -1127,14 +1150,14 @@ export function StartPage() {
     });
   }
 
-  function confirmDeleteQuestion(questionId, index) {
-    setConfirmation({
+  function confirmDeleteQuestion(questionId, index, trigger) {
+    openConfirmation({
       title: "删除第 " + (index + 1) + " 题？",
       description: "删除会创建新的计划修订，其他题目的稳定 ID 和内容不会改变。",
       confirmLabel: "删除并保存",
       tone: "danger",
       onConfirm: async () => {
-        setConfirmation(null);
+        closeConfirmation({ restoreFocus: false });
         await performRevisionOperation({
           kind: "delete_question",
           questionId,
@@ -1147,7 +1170,7 @@ export function StartPage() {
           localDrafts: draftsWithout(questionId),
         });
       },
-    });
+    }, trigger);
   }
 
   async function addCustomQuestion(event) {
@@ -1185,7 +1208,7 @@ export function StartPage() {
     }
   }
 
-  function confirmRegenerateAll() {
+  function confirmRegenerateAll(event) {
     const adjusted = questions.filter((question) =>
       ["edited", "custom", "regenerated"].includes(question.origin),
     );
@@ -1205,13 +1228,13 @@ export function StartPage() {
       details.push("新 revision 将采用：" + configurationChanges.join("、"));
     }
     if (!details.length) details.push("当前整份计划将由服务端重新生成");
-    setConfirmation({
+    openConfirmation({
       title: configurationStale ? "使用新配置重新生成计划？" : "重新生成整份计划？",
       description: "成功后服务端会验证配置并返回唯一权威的新 revision；当前计划仍保留在历史版本中。",
       details,
       confirmLabel: configurationStale ? "确认采用新配置" : "确认重新生成",
       onConfirm: async () => {
-        setConfirmation(null);
+        closeConfirmation({ restoreFocus: false });
         await performRevisionOperation({
           kind: "regenerate_all",
           send: (operationRequestId) =>
@@ -1235,11 +1258,11 @@ export function StartPage() {
           localDrafts: {},
         });
       },
-    });
+    }, event?.currentTarget);
   }
 
-  function confirmRestoreRevision(revision) {
-    setConfirmation({
+  function confirmRestoreRevision(revision, trigger) {
+    openConfirmation({
       title: "恢复到 R" + revision.revision + "？",
       description: "恢复不会删除历史，而是以该版本内容创建一个新的最新 revision。",
       details: [
@@ -1248,7 +1271,7 @@ export function StartPage() {
       ],
       confirmLabel: "确认恢复",
       onConfirm: async () => {
-        setConfirmation(null);
+        closeConfirmation({ restoreFocus: false });
         await performRevisionOperation({
           kind: "restore_revision",
           send: (operationRequestId) =>
@@ -1265,7 +1288,7 @@ export function StartPage() {
           localDrafts: {},
         });
       },
-    });
+    }, trigger);
   }
 
   async function viewServerVersion() {
@@ -1491,8 +1514,8 @@ export function StartPage() {
             </div>
             <div className="start-editor-tools" aria-label="文档工具">
               <button className="button start-tool-button" type="button" onClick={saveDraft} disabled={busy} aria-busy={status === "saving" || undefined} data-state={status === "saving" ? "loading" : undefined}>{status === "saving" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <FloppyDisk size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "saving" ? "正在保存" : "保存草稿"}</span></button>
-              <button className="button start-tool-button" type="button" onClick={restoreDraft} disabled={busy} aria-busy={status === "restoring" || undefined} data-state={status === "restoring" ? "loading" : undefined}>{status === "restoring" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowCounterClockwise size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "restoring" ? "正在恢复" : "恢复草稿"}</span></button>
-              <button className="button start-tool-button start-tool-danger" type="button" onClick={clearWorkspace} disabled={busy || (!jobDescription && !resumeText)} data-state={clearArmed ? "confirm" : undefined} aria-label={clearArmed ? "确认清空当前画布" : "清空当前画布"}>{clearArmed ? <WarningCircle size={16} weight="fill" aria-hidden="true" focusable="false" /> : <Trash size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{clearArmed ? "确认清空" : "清空"}</span></button>
+              <button className="button start-tool-button" type="button" onClick={requestRestoreDraft} disabled={busy} aria-busy={status === "restoring" || undefined} data-state={status === "restoring" ? "loading" : undefined}>{status === "restoring" ? <SpinnerGap className="start-spinner" size={16} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowCounterClockwise size={16} weight="bold" aria-hidden="true" focusable="false" />}<span>{status === "restoring" ? "正在恢复" : "恢复草稿"}</span></button>
+              <button className="button start-tool-button start-tool-danger" type="button" onClick={requestClearWorkspace} disabled={busy || (!jobDescription && !resumeText && !plan && configurationIsDefault)} aria-label="清空当前画布"><Trash size={16} weight="bold" aria-hidden="true" focusable="false" /><span>清空</span></button>
             </div>
           </div>
 
@@ -1685,7 +1708,7 @@ export function StartPage() {
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => confirmRestoreRevision(revision)}
+                                  onClick={(event) => confirmRestoreRevision(revision, event.currentTarget)}
                                   disabled={busy || revision.is_latest}
                                 >
                                   {revision.is_latest ? "当前版本" : "恢复"}
@@ -1815,7 +1838,8 @@ export function StartPage() {
       </footer>
       <ConfirmationDialog
         confirmation={confirmation}
-        onCancel={() => setConfirmation(null)}
+        onCancel={closeConfirmation}
+        idPrefix="plan-confirm"
       />
     </div>
   );
