@@ -7,6 +7,7 @@ from app.services.llm import InterviewLLM
 
 if TYPE_CHECKING:
     from app.ports.runtime import KnowledgeRepository
+    from app.services.interview_plan_revision import PlanConfigurationSnapshot
 
 
 class RoleProfile(BaseModel):
@@ -121,10 +122,34 @@ class InterviewPlan(BaseModel):
 
 
 
-def validate_launchable_interview_plan(plan: InterviewPlan) -> InterviewPlan:
-    question_ids = [question.id for question in plan.questions]
-    if not 3 <= len(question_ids) <= 5:
-        raise ValueError("launchable interview plans require 3 to 5 questions")
+def validate_launchable_interview_plan(
+    plan: InterviewPlan,
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    validated_plan = InterviewPlan.model_validate(
+        plan.model_dump(mode="json", warnings=False)
+    )
+    question_ids = [question.id for question in validated_plan.questions]
+    if configuration is None:
+        minimum, maximum = 3, 5
+    else:
+        from app.services.interview_plan_budget import (
+            MAX_SAFE_MAIN_QUESTION_COUNT,
+            MIN_SAFE_MAIN_QUESTION_COUNT,
+        )
+        from app.services.interview_plan_revision import (
+            PlanConfigurationSnapshot,
+        )
+
+        PlanConfigurationSnapshot.model_validate(
+            configuration.model_dump(mode="json", warnings=False)
+        )
+        minimum = MIN_SAFE_MAIN_QUESTION_COUNT
+        maximum = MAX_SAFE_MAIN_QUESTION_COUNT
+    if not minimum <= len(question_ids) <= maximum:
+        raise ValueError(
+            f"launchable interview plans require {minimum} to {maximum} questions"
+        )
     if len(question_ids) != len(set(question_ids)):
         raise ValueError("launchable interview question ids must be unique")
     expected_ids = [f"q{index}" for index in range(1, len(question_ids) + 1)]
@@ -233,7 +258,18 @@ def prepare_interview(
     )
 
 
-def fallback_interview_plan() -> InterviewPlan:
+def fallback_interview_plan(
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    if configuration is not None:
+        from app.services.interview_plan_revision import (
+            PlanConfigurationSnapshot,
+        )
+
+        validated_configuration = PlanConfigurationSnapshot.model_validate(
+            configuration.model_dump(mode="json", warnings=False)
+        )
+        return _configured_fallback_interview_plan(validated_configuration)
     return InterviewPlan(
         title="基础模拟面试",
         questions=[
@@ -256,6 +292,117 @@ def fallback_interview_plan() -> InterviewPlan:
                 focus="系统设计",
             ),
         ],
+    )
+
+
+_CONFIGURED_FALLBACK_TEMPLATES = {
+    "project": (
+        (
+            "请选择一个最匹配岗位的真实项目，说明背景、你的职责、关键决策和结果。",
+            "项目职责与结果",
+        ),
+        (
+            "请复盘一个项目中的困难取舍，说明备选方案、选择依据和验证方式。",
+            "项目取舍",
+        ),
+        (
+            "请说明一次跨角色协作经历，以及你如何推动风险收敛和结果交付。",
+            "项目协作",
+        ),
+    ),
+    "technical": (
+        (
+            "请选择一个核心技术点，说明原理、边界、失败场景和兜底方案。",
+            "技术深度",
+        ),
+        (
+            "请分析一次性能或稳定性问题，说明证据、根因、修复和复测。",
+            "故障诊断",
+        ),
+        (
+            "请比较两个可行技术方案，并说明适用条件、代价和决策依据。",
+            "技术取舍",
+        ),
+    ),
+    "system-design": (
+        (
+            "请设计一个可扩展服务，说明容量、数据、故障隔离和演进路径。",
+            "系统设计",
+        ),
+        (
+            "如果流量扩大十倍，请说明瓶颈判断、扩容顺序和可观测性方案。",
+            "容量规划",
+        ),
+        (
+            "请设计跨区域故障恢复方案，并说明一致性、可用性和成本取舍。",
+            "可靠性设计",
+        ),
+    ),
+    "behavioral": (
+        (
+            "请说明一次你主动发现并推动解决工程风险的经历。",
+            "主动性",
+        ),
+        (
+            "请说明一次意见分歧，以及你如何用事实促成决策。",
+            "沟通协作",
+        ),
+        (
+            "请复盘一次未达到预期的结果，以及后续改进如何验证。",
+            "复盘成长",
+        ),
+    ),
+}
+
+_DIFFICULTY_PREFIX = {
+    "foundation": "请先清楚说明基础概念，再结合实际例子回答：",
+    "intermediate": "请结合真实约束和取舍回答：",
+    "advanced": "请在复杂约束、失败模式和演进成本下深入回答：",
+}
+
+
+def _configured_fallback_interview_plan(
+    configuration: "PlanConfigurationSnapshot",
+) -> InterviewPlan:
+    from app.services.interview_plan_budget import (
+        MAX_SAFE_MAIN_QUESTION_COUNT,
+        MIN_SAFE_MAIN_QUESTION_COUNT,
+        QUESTION_TYPE_ORDER,
+    )
+
+    question_count = sum(configuration.question_type_budget.values())
+    if not (
+        MIN_SAFE_MAIN_QUESTION_COUNT
+        <= question_count
+        <= MAX_SAFE_MAIN_QUESTION_COUNT
+    ):
+        raise ValueError("configured fallback question count must be 1 to 10")
+    questions: list[InterviewQuestion] = []
+    prefix = _DIFFICULTY_PREFIX[configuration.difficulty]
+    for question_type in QUESTION_TYPE_ORDER:
+        type_count = configuration.question_type_budget.get(question_type, 0)
+        templates = _CONFIGURED_FALLBACK_TEMPLATES[question_type]
+        for type_index in range(type_count):
+            prompt, focus = templates[type_index % len(templates)]
+            if type_index >= len(templates):
+                prompt = (
+                    f"{prompt} 请使用与前面不同的场景"
+                    f"（{type_index + 1}）。"
+                )
+            questions.append(
+                InterviewQuestion(
+                    id=f"q{len(questions) + 1}",
+                    kind=question_type,
+                    prompt=f"{prefix}{prompt}",
+                    focus=f"{focus} · {configuration.focus_preset}",
+                )
+            )
+    return InterviewPlan(
+        title=(
+            f"{configuration.target_duration_minutes} 分钟"
+            f"{configuration.difficulty} 模拟面试"
+        ),
+        questions=questions,
     )
 
 

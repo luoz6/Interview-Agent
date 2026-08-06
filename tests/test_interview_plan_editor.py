@@ -131,13 +131,39 @@ def test_duplicate_request_id_returns_same_revision_and_conflicting_payload_fail
 
 def test_minimum_maximum_duplicate_and_position_constraints_are_structured():
     _, editor, initial = setup_editor()
+    two_questions = editor.apply(
+        initial.plan_family_id,
+        request(
+            {
+                "op": "delete_question",
+                "question_id": initial.plan.questions[0].question_id,
+            }
+        ),
+    )
+    one_question = editor.apply(
+        initial.plan_family_id,
+        request(
+            {
+                "op": "delete_question",
+                "question_id": two_questions.plan.questions[0].question_id,
+            },
+            revision=2,
+        ),
+    )
     with pytest.raises(PlanOperationValidationError) as minimum:
         editor.apply(
             initial.plan_family_id,
-            request({"op": "delete_question", "question_id": initial.plan.questions[0].question_id}),
+            request(
+                {
+                    "op": "delete_question",
+                    "question_id": one_question.plan.questions[0].question_id,
+                },
+                revision=3,
+            ),
         )
     assert minimum.value.detail()["code"] == "minimum_question_count"
 
+    _, editor, initial = setup_editor()
     with pytest.raises(PlanOperationValidationError) as duplicate:
         editor.apply(
             initial.plan_family_id,
@@ -172,11 +198,31 @@ def test_add_custom_question_is_server_identified_and_respects_maximum():
         "expected_minutes": 6,
         "expected_followups": 1,
     }
-    fourth = editor.apply(initial.plan_family_id, request(add))
-    fifth = editor.apply(initial.plan_family_id, request(add | {"question_text": "请说明一次故障处置。"}, revision=2))
+    revisions = []
+    current_revision = 1
+    for question_number in range(4, 11):
+        created = editor.apply(
+            initial.plan_family_id,
+            request(
+                add
+                | {
+                    "question_text": f"请说明第 {question_number} 个不同场景。",
+                },
+                revision=current_revision,
+            ),
+        )
+        revisions.append(created)
+        current_revision += 1
     with pytest.raises(PlanOperationValidationError) as maximum:
-        editor.apply(initial.plan_family_id, request(add | {"question_text": "第六题"}, revision=3))
+        editor.apply(
+            initial.plan_family_id,
+            request(
+                add | {"question_text": "第十一题"},
+                revision=current_revision,
+            ),
+        )
 
-    assert fourth.plan.questions[-1].origin == "custom"
-    assert fifth.plan.questions[-1].question_id != fourth.plan.questions[-1].question_id
+    assert all(item.plan.questions[-1].origin == "custom" for item in revisions)
+    assert len({item.plan.questions[-1].question_id for item in revisions}) == 7
+    assert len(revisions[-1].plan.questions) == 10
     assert maximum.value.code == "maximum_question_count"

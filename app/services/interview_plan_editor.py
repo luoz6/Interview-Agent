@@ -5,6 +5,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from app.services.interview_plan_budget import (
+    MAX_SAFE_MAIN_QUESTION_COUNT,
+    MIN_SAFE_MAIN_QUESTION_COUNT,
+)
 from app.services.interview_plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanRevision,
@@ -213,15 +217,17 @@ class InterviewPlanEditor:
             item = questions.pop(index)
             questions.insert(target - 1, item)
         elif operation.op == "delete_question":
-            if len(questions) <= 3:
+            if len(questions) <= MIN_SAFE_MAIN_QUESTION_COUNT:
                 raise PlanOperationValidationError(
-                    "minimum_question_count", "a launchable plan requires at least 3 questions"
+                    "minimum_question_count",
+                    "a launchable plan requires at least one question",
                 )
             questions.pop(index)
         elif operation.op == "add_custom_question":
-            if len(questions) >= 5:
+            if len(questions) >= MAX_SAFE_MAIN_QUESTION_COUNT:
                 raise PlanOperationValidationError(
-                    "maximum_question_count", "a launchable plan permits at most 5 questions"
+                    "maximum_question_count",
+                    "a launchable plan permits at most 10 questions",
                 )
             questions.append(self._new_question(operation, origin="custom"))
         elif operation.op == "regenerate_question":

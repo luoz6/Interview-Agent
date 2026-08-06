@@ -10,6 +10,13 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.services.interview_plan_budget import (
+    MAX_SAFE_MAIN_QUESTION_COUNT,
+    MIN_SAFE_MAIN_QUESTION_COUNT,
+    allocate_expected_followups,
+    allocate_main_answer_minutes,
+)
+
 
 PlanDifficulty = Literal["foundation", "intermediate", "advanced"]
 PlanFocusPreset = Literal[
@@ -127,6 +134,18 @@ class InterviewPlanQuestionV2(ImmutableModel):
     replaces_question_id: str | None = None
     knowledge_binding: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator(
+        "position",
+        "expected_minutes",
+        "expected_followups",
+        mode="before",
+    )
+    @classmethod
+    def validate_integer_fields(cls, value: object, info) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{info.field_name} must be an integer")
+        return value
+
     @field_validator("question_id", "replaces_question_id")
     @classmethod
     def validate_uuid_fields(cls, value: str | None, info) -> str | None:
@@ -173,8 +192,14 @@ class InterviewPlanV2(ImmutableModel):
 
     @model_validator(mode="after")
     def validate_plan(self):
-        if not 3 <= len(self.questions) <= 5:
-            raise ValueError("interview-plan-v2 requires 3 to 5 questions")
+        if not (
+            MIN_SAFE_MAIN_QUESTION_COUNT
+            <= len(self.questions)
+            <= MAX_SAFE_MAIN_QUESTION_COUNT
+        ):
+            raise ValueError(
+                "interview-plan-v2 requires 1 to 10 questions"
+            )
         ids = [question.question_id for question in self.questions]
         if len(ids) != len(set(ids)):
             raise ValueError("question_id must be unique")
@@ -347,24 +372,49 @@ def _uuid_text(value: str, field_name: str) -> str:
 def legacy_plan_to_v2(
     plan: Any,
     *,
-    generator_version: str = "plan-generator-v2",
+    generator_version: str | None = None,
+    configuration_snapshot: PlanConfigurationSnapshot | None = None,
 ) -> InterviewPlanV2:
     """Convert the legacy generated plan at the compatibility boundary.
 
     The conversion allocates opaque IDs once; subsequent previews and starts
     consume the stored V2 revision instead of calling the LLM.
     """
-    config = PlanConfigurationSnapshot(
-        difficulty="intermediate",
-        target_duration_minutes=30,
-        focus_preset="balanced",
-        question_type_budget={
-            kind: sum(1 for item in plan.questions if item.kind == kind)
-            for kind in {item.kind for item in plan.questions}
-        },
-        expected_followup_budget=len(plan.questions),
-        generator_version=generator_version,
-        followup_policy_version="fixed_v1",
+    if configuration_snapshot is not None:
+        config = PlanConfigurationSnapshot.model_validate(
+            configuration_snapshot.model_dump(mode="json")
+        )
+        if (
+            generator_version is not None
+            and generator_version != config.generator_version
+        ):
+            raise ValueError(
+                "generator_version must match the supplied configuration"
+            )
+    else:
+        effective_generator_version = (
+            generator_version or "plan-generator-v2"
+        )
+        config = PlanConfigurationSnapshot(
+            difficulty="intermediate",
+            target_duration_minutes=30,
+            focus_preset="balanced",
+            question_type_budget={
+                kind: sum(1 for item in plan.questions if item.kind == kind)
+                for kind in {item.kind for item in plan.questions}
+            },
+            expected_followup_budget=len(plan.questions),
+            generator_version=effective_generator_version,
+            followup_policy_version="fixed_v1",
+        )
+    expected_followups = allocate_expected_followups(
+        expected_followup_budget=config.expected_followup_budget,
+        question_count=len(plan.questions),
+        max_followups_per_question=config.max_followups_per_question,
+    )
+    main_answer_minutes = allocate_main_answer_minutes(
+        target_duration_minutes=config.target_duration_minutes,
+        expected_followups=expected_followups,
     )
     questions = tuple(
         InterviewPlanQuestionV2(
@@ -374,8 +424,8 @@ def legacy_plan_to_v2(
             focus=item.focus,
             question_type=item.kind,
             difficulty="intermediate",
-            expected_minutes=max(1, 30 // max(1, len(plan.questions))),
-            expected_followups=0,
+            expected_minutes=main_answer_minutes[index - 1],
+            expected_followups=expected_followups[index - 1],
             origin="generated",
             knowledge_binding={},
         )

@@ -31,6 +31,7 @@ from app.services.interview_plan_editor import (
     PlanOperation,
     PlanOperationValidationError,
 )
+from app.services.interview_plan_budget import assess_interview_plan_budget
 from app.services.interview_plan_revision import (
     canonical_sha256,
     legacy_plan_to_v2,
@@ -1276,6 +1277,9 @@ def _plan_revision_payload(revision) -> dict:
         "plan_revision_id": revision.plan_revision_id,
         "revision": revision.revision,
         "plan_sha256": revision.plan_sha256,
+        "budget_assessment": assess_interview_plan_budget(
+            revision.plan
+        ).model_dump(mode="json"),
         "plan": public_plan,
         "legacy_plan": legacy,
     }

@@ -158,6 +158,76 @@ defaults remain intermediate difficulty, 30 minutes, balanced focus, fixed_v1,
 and a hard per-question follow-up ceiling of two. Parsing v1 creates the existing
 Schema v2 boundary object; it does not revive legacy IDs after the conversion.
 
+## Phase 5 T51 amendment: duration budget and launch safety
+
+- Amendment status: Accepted
+- Amendment date: 2026-08-06
+- Budget version: `interview-plan-duration-budget-v1`
+- Formula version: `main-answer-plus-followups-plus-transitions-v1`
+- Canonical policy SHA-256:
+  `4f7213f4dd010032c75c61fa6ee7adf9941868912dbbf35f0deb75e4b3ca3b8b`
+
+The target duration is an estimate, never an exact-time SLA. The frozen first
+version profiles are:
+
+| Target | Recommended main questions | Acceptable estimate |
+|---:|---:|---:|
+| 15 minutes | 3–4 | 12–20 minutes |
+| 30 minutes | 5–6 | 24–36 minutes |
+| 45 minutes | 7–8 | 36–54 minutes |
+| 60 minutes | 9–10 | 48–72 minutes |
+
+Each profile expects an average of zero to one follow-up per question. Runtime
+may adapt below that estimate, while the immutable hard ceiling remains two
+follow-ups per main question.
+
+### Estimate and allocation
+
+The service owns the only duration arithmetic source:
+
+```text
+estimated_minutes =
+  sum(question.expected_minutes)
+  + sum(question.expected_followups) * 2
+  + max(0, question_count - 1) * 1
+```
+
+The two-minute follow-up budget and one-minute between-question transition are
+part of the hashed budget policy. A policy/profile/formula change requires a new
+version and canonical hash. Revision API responses contain the full server-side
+`budget_assessment`, including formula inputs and result. Frontend code consumes
+that response and must not reproduce the formula.
+
+Generation allocates the aggregate expected-followup budget across questions
+without exceeding two per question, then allocates at least one main-answer
+minute per question. When feasible, deterministic allocation closes exactly to
+the configured target duration. The expected-followup budget remains an estimate,
+not a runtime quota.
+
+### Warning and blocking truth table
+
+| Condition | Result |
+|---|---|
+| Below or above the profile's recommended question range | warning; launch allowed |
+| Below or above the acceptable estimated-duration range | warning; launch allowed |
+| Manual question-type allocation differs from the generation snapshot | warning; launch allowed |
+| Manual expected-followup total differs from the generation snapshot | warning; launch allowed |
+| No valid main question remains | blocked |
+| More than ten main questions | blocked |
+
+Schema v2 and the editor therefore use the safe range 1–10. Deleting from the
+recommended range down to one is permitted and recalculates warnings after every
+revision; deleting the final question fails without creating a revision. Adding
+through ten is permitted; the eleventh fails without creating a revision. There
+is no unconditional 3–5 validator on configured Schema v2 plans. Legacy callers
+that do not supply a configuration retain their 3–5 compatibility boundary until
+they cross the configured V2 API.
+
+Configured deterministic fallback respects the exact question-type budget,
+difficulty, focus, and 1–10 safe range, including nine or ten questions for a
+60-minute plan. T52 remains responsible for applying the same budget to Provider
+prompts and enforcing Provider over/under-budget results.
+
 ## Rollback
 
 Disable V2 write/read routing and return to legacy reads. Do not drop V2 tables,

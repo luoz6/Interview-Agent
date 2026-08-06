@@ -214,20 +214,105 @@ def test_duplicate_request_and_structured_safety_error(api_plan):
     )
     first = client.patch(f"/api/interview-plans/{initial.plan_family_id}", json=payload)
     replay = client.patch(f"/api/interview-plans/{initial.plan_family_id}", json=payload)
-    minimum = client.patch(
+    two_questions = client.patch(
         f"/api/interview-plans/{initial.plan_family_id}",
         json=edit_payload(
             2,
-            "delete-too-far",
+            "delete-to-two",
             {"op": "delete_question", "question_id": initial.plan.questions[0].question_id},
+        ),
+    )
+    two_question_payload = two_questions.json()
+    one_questions = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            3,
+            "delete-to-one",
+            {
+                "op": "delete_question",
+                "question_id": two_question_payload["plan"]["questions"][0]["question_id"],
+            },
+        ),
+    )
+    one_question_payload = one_questions.json()
+    minimum = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            4,
+            "delete-last-question",
+            {
+                "op": "delete_question",
+                "question_id": one_question_payload["plan"]["questions"][0]["question_id"],
+            },
         ),
     )
 
     assert first.status_code == replay.status_code == 200
     assert first.json()["plan_revision_id"] == replay.json()["plan_revision_id"]
+    assert two_questions.status_code == one_questions.status_code == 200
+    assert len(two_question_payload["plan"]["questions"]) == 2
+    assert len(one_question_payload["plan"]["questions"]) == 1
+    for payload in (two_question_payload, one_question_payload):
+        assessment = payload["budget_assessment"]
+        assert assessment["launch_allowed"] is True
+        assert "below_recommended_question_count" in assessment["warning_codes"]
+    assert (
+        one_question_payload["budget_assessment"]["estimate"]["estimated_minutes"]
+        < two_question_payload["budget_assessment"]["estimate"]["estimated_minutes"]
+    )
     assert minimum.status_code == 422
     assert minimum.json()["detail"]["code"] == "minimum_question_count"
-    assert len(store.list_revisions(initial.plan_family_id)) == 2
+    assert len(store.list_revisions(initial.plan_family_id)) == 4
+
+
+def test_api_allows_ten_questions_and_rejects_the_eleventh(api_plan):
+    client, store, initial, _ = api_plan
+    latest_payload = None
+    for expected_revision in range(1, 8):
+        response = client.patch(
+            f"/api/interview-plans/{initial.plan_family_id}",
+            json=edit_payload(
+                expected_revision,
+                f"add-safe-{expected_revision}",
+                {
+                    "op": "add_custom_question",
+                    "question_text": f"Explain distinct scenario {expected_revision}.",
+                    "focus": "configured depth",
+                    "question_type": "technical",
+                    "difficulty": "intermediate",
+                    "expected_minutes": 4,
+                    "expected_followups": 1,
+                },
+            ),
+        )
+        assert response.status_code == 200
+        latest_payload = response.json()
+
+    assert latest_payload is not None
+    assert len(latest_payload["plan"]["questions"]) == 10
+    assert latest_payload["budget_assessment"]["launch_allowed"] is True
+    assert latest_payload["budget_assessment"]["question_count"] == 10
+
+    rejected = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            8,
+            "add-unsafe-eleventh",
+            {
+                "op": "add_custom_question",
+                "question_text": "Eleventh question",
+                "focus": "too many",
+                "question_type": "technical",
+                "difficulty": "intermediate",
+                "expected_minutes": 4,
+                "expected_followups": 1,
+            },
+        ),
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "maximum_question_count"
+    assert len(store.list_revisions(initial.plan_family_id)) == 8
 
 
 def test_blank_edit_is_rejected_without_advancing_latest_revision(api_plan):
