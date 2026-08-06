@@ -14,6 +14,21 @@ class FinishedSessionStore:
         return {"session_id": session_id, "status": "finished", "deletion_status": None}
 
 
+class TrackingArtifactStore(InMemoryReportArtifactStore):
+    def __init__(self):
+        super().__init__()
+        self.latest_job_calls = 0
+        self.list_job_calls = 0
+
+    def get_latest_job(self, session_id):
+        self.latest_job_calls += 1
+        return super().get_latest_job(session_id)
+
+    def list_jobs(self, session_id):
+        self.list_job_calls += 1
+        return super().list_jobs(session_id)
+
+
 def payload():
     return PublishReportArtifact(
         schema_version="report-artifact-v2",
@@ -80,6 +95,32 @@ def test_report_version_endpoints_keep_active_artifact_when_rescore_fails():
         versions = client.get("/api/interviews/session-1/reports").json()["items"]
         assert versions[0]["active"] is True
         assert client.get(f"/api/reports/{first.report_id}").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_active_report_get_does_not_materialize_job_history():
+    artifacts = TrackingArtifactStore()
+    initial = artifacts.enqueue_job(session_id="session-1", idempotency_key="initial")
+    initial = artifacts.claim_job(initial.job_id, worker_id="w1")
+    active = artifacts.publish(initial.job_id, payload(), worker_id="w1")
+    for index in range(19):
+        job = artifacts.enqueue_job(
+            session_id="session-1",
+            job_kind="rescore",
+            source_report_id=active.report_id,
+            idempotency_key=f"history-{index}",
+        )
+        artifacts.fail_job(job.job_id, error_code="synthetic_history")
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    try:
+        response = TestClient(app).get("/api/interviews/session-1/report")
+
+        assert response.status_code == 200
+        assert response.json()["latest_job"]["error_code"] == "synthetic_history"
+        assert artifacts.latest_job_calls == 1
+        assert artifacts.list_job_calls == 0
     finally:
         app.dependency_overrides.clear()
 

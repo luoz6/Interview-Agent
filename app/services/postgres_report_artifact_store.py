@@ -429,6 +429,23 @@ class PostgresReportArtifactStore:
                 )
                 return [self._job_from_row(row) for row in cursor.fetchall()]
 
+    def get_latest_job(self, session_id: str) -> ReportJobV2 | None:
+        _, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {fields} FROM {jobs} WHERE session_id=%s "
+                        "ORDER BY created_at DESC,job_id DESC LIMIT 1"
+                    ).format(
+                        fields=self._job_fields(sql),
+                        jobs=sql.Identifier(self.jobs_table),
+                    ),
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+                return self._job_from_row(row) if row is not None else None
+
     def migrate_legacy_reports(
         self,
         *,

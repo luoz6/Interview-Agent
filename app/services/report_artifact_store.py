@@ -32,6 +32,7 @@ class ReportArtifactStore:
     def get_artifact(self, report_id: str) -> ReportArtifact: ...
     def list_artifacts(self, session_id: str) -> list[ReportArtifact]: ...
     def get_head(self, session_id: str) -> ReportHead: ...
+    def get_latest_job(self, session_id: str) -> ReportJobV2 | None: ...
     def list_jobs(self, session_id: str) -> list[ReportJobV2]: ...
 
 
@@ -245,6 +246,16 @@ class InMemoryReportArtifactStore:
                 (deepcopy(job) for job in self._jobs.values() if job.session_id == session_id),
                 key=lambda item: item.created_at,
             )
+
+    def get_latest_job(self, session_id: str) -> ReportJobV2 | None:
+        with self._lock:
+            jobs = (job for job in self._jobs.values() if job.session_id == session_id)
+            latest = max(
+                jobs,
+                key=lambda item: (item.created_at, item.job_id),
+                default=None,
+            )
+            return deepcopy(latest)
 
     def _get_job(self, job_id: str) -> ReportJobV2:
         try:

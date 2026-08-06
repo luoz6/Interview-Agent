@@ -1895,8 +1895,11 @@ def _active_report_view(artifact_store, session_id: str):
         head = artifact_store.get_head(session_id)
     except ReportArtifactNotFound:
         head = None
-    jobs = artifact_store.list_jobs(session_id)
-    latest_job = jobs[-1] if jobs else None
+    if hasattr(artifact_store, "get_latest_job"):
+        latest_job = artifact_store.get_latest_job(session_id)
+    else:
+        jobs = artifact_store.list_jobs(session_id)
+        latest_job = jobs[-1] if jobs else None
     if head is None or head.active_report_id is None:
         return None, latest_job
     try:
