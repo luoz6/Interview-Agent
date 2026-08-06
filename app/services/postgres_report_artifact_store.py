@@ -276,6 +276,7 @@ class PostgresReportArtifactStore:
                 )
                 revision = int(cursor.fetchone()[0])
                 report_id = str(uuid4())
+                self.failure_injector("before_artifact")
                 cursor.execute(
                     sql.SQL(
                         "INSERT INTO {artifacts}(report_id,session_id,revision,schema_version,"

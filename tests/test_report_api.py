@@ -270,6 +270,7 @@ def start_interview(client: TestClient) -> str:
             "plan_revision_id": revision["plan_revision_id"],
             "expected_revision": revision["revision"],
             "plan_sha256": revision["plan_sha256"],
+            "request_id": "report-api-start",
         },
     )
     assert response.status_code == 200

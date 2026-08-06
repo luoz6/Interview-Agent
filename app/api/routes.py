@@ -6,7 +6,7 @@ from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
 from fastapi import (
     APIRouter,
@@ -51,6 +51,7 @@ from app.services.interview_plan_revision_store import (
     PlanSourceUnavailable,
 )
 from app.services.session_plan_binding import session_plan_binding_from_revision
+from app.services.session_plan_binding import session_plan_binding_from_state
 from app.services.config import (
     get_report_artifact_read_mode,
     get_report_runtime_profile,
@@ -102,6 +103,9 @@ from app.services.memory_config import (
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+
+_SESSION_START_REQUEST_NAMESPACE = UUID("d27df012-60f1-4df7-b8a0-c44f5209b06b")
+_SESSION_START_REQUEST_CONFLICT = "session_start_request_conflict"
 
 
 def _raise_if_deleting(state: dict) -> None:
@@ -217,6 +221,15 @@ class StartInterviewRequest(BaseModel):
     plan_revision_id: str = Field(min_length=1)
     expected_revision: int = Field(ge=1)
     plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    request_id: str = Field(min_length=1, max_length=200)
+
+    @field_validator("request_id")
+    @classmethod
+    def normalize_request_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("request_id must not be blank")
+        return normalized
 
 
 class RegenerateQuestionRequest(BaseModel):
@@ -1277,6 +1290,25 @@ def start_interview(
 ):
     try:
         revision = revision_store.get_by_id(payload.plan_revision_id)
+        plan_binding = session_plan_binding_from_revision(revision)
+        session_id = _session_id_for_start_request(
+            revision.plan_family_id,
+            payload.request_id,
+        )
+        turn = _load_session_start_replay(
+            store,
+            session_id,
+            plan_binding,
+            expected_revision=payload.expected_revision,
+            plan_sha256=payload.plan_sha256,
+        )
+        if turn is not None:
+            revision_store.add_source_reference(
+                revision.source_id,
+                owner_type="session",
+                owner_id=turn.session_id,
+            )
+            return _turn_to_dict(turn)
         latest = revision_store.get_latest(revision.plan_family_id)
         if latest.plan_revision_id != revision.plan_revision_id:
             return JSONResponse(
@@ -1302,36 +1334,97 @@ def start_interview(
         job_description = source_payload.job_description
         resume_text = source_payload.resume_text
         job_tags = list(source_payload.job_tags)
-        plan_binding = session_plan_binding_from_revision(revision)
-        if (
-            get_runtime_store() == "postgres"
-            and get_interview_langgraph_rollout_percent() > 0
-        ):
-            turn = get_interview_workflow_service().start(
-                plan,
-                job_description=job_description,
-                resume_text=resume_text,
-                job_tags=job_tags,
-                plan_binding=plan_binding,
+        try:
+            if (
+                get_runtime_store() == "postgres"
+                and get_interview_langgraph_rollout_percent() > 0
+            ):
+                turn = get_interview_workflow_service().start(
+                    plan,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    job_tags=job_tags,
+                    plan_binding=plan_binding,
+                    session_id=session_id,
+                )
+            else:
+                turn = store.start(
+                    plan,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    job_tags=job_tags,
+                    plan_binding=plan_binding,
+                    session_id=session_id,
+                )
+        except Exception as exc:
+            if not _is_unique_constraint_violation(exc):
+                raise
+            turn = _load_session_start_replay(
+                store,
+                session_id,
+                plan_binding,
+                expected_revision=payload.expected_revision,
+                plan_sha256=payload.plan_sha256,
             )
-        else:
-            turn = store.start(
-                plan,
-                job_description=job_description,
-                resume_text=resume_text,
-                job_tags=job_tags,
-                plan_binding=plan_binding,
-            )
+            if turn is None:
+                raise
         revision_store.add_source_reference(
             revision.source_id,
             owner_type="session",
             owner_id=turn.session_id,
+        )
+    except SessionStartRequestConflict:
+        return JSONResponse(
+            status_code=409,
+            content={"code": _SESSION_START_REQUEST_CONFLICT},
         )
     except PlanRevisionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _turn_to_dict(turn)
+
+
+class SessionStartRequestConflict(Exception):
+    pass
+
+
+def _session_id_for_start_request(plan_family_id: str, request_id: str) -> str:
+    identity = f"{plan_family_id}:{request_id}"
+    return str(uuid5(_SESSION_START_REQUEST_NAMESPACE, identity))
+
+
+def _load_session_start_replay(
+    store,
+    session_id: str,
+    plan_binding,
+    *,
+    expected_revision: int,
+    plan_sha256: str,
+):
+    try:
+        state = store.get(session_id)
+    except ValueError as exc:
+        if str(exc) == "session not found":
+            return None
+        raise
+    existing_binding = session_plan_binding_from_state(state)
+    if (
+        existing_binding != plan_binding
+        or existing_binding.revision != expected_revision
+        or existing_binding.plan_sha256 != plan_sha256
+    ):
+        raise SessionStartRequestConflict()
+    return store._to_turn(state, follow_up=None)
+
+
+def _is_unique_constraint_violation(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if getattr(current, "pgcode", None) == "23505":
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _plan_revision_payload(revision) -> dict:

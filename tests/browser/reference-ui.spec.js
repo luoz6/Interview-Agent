@@ -16,6 +16,7 @@ async function createSession(request) {
       plan_revision_id: revision.plan_revision_id,
       expected_revision: revision.revision,
       plan_sha256: revision.plan_sha256,
+      request_id: "reference-ui-start",
     },
   });
   expect(response.status()).toBe(200);

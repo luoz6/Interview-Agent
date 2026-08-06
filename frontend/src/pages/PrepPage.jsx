@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { getJson, postJson } from "../api/client";
+import {
+  clearStableRequestId,
+  getJson,
+  postJson,
+  stableRequestId,
+} from "../api/client";
 import { AppShell, PageHeading } from "../components/AppShell";
 import { WorkflowRail } from "../components/WorkflowRail";
 import { Badge, Button, EmptyState, Notice, SectionHeading } from "../components/UI";
@@ -142,10 +147,14 @@ export function PrepPage() {
     }
     setState("starting");
     try {
+      const requestScope = `session-start:${plan.plan_revision_id}`;
       const turn = await postJson("/api/interviews", {
-        job_description: jobDescription,
-        resume_text: resumeText,
+        plan_revision_id: plan.plan_revision_id,
+        expected_revision: plan.revision,
+        plan_sha256: plan.plan_sha256,
+        request_id: stableRequestId(requestScope),
       });
+      clearStableRequestId(requestScope);
       window.location.assign(`/interview?session_id=${encodeURIComponent(turn.session_id)}`);
     } catch (error) {
       setState("error");

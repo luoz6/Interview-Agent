@@ -74,7 +74,7 @@ POST /api/interview-plans/{plan_family_id}/questions/{question_id}/regenerate
   output: newly appended revision
 
 POST /api/interviews
-  input: plan_revision_id, expected_revision, plan_sha256
+  input: plan_revision_id, expected_revision, plan_sha256, request_id
   output/effect: verified immutable session snapshot
   Provider calls: exactly 0
 ```
@@ -82,7 +82,10 @@ POST /api/interviews
 Start locks and verifies the selected revision, revision number, and hash. It copies
 the full plan and configuration snapshot into the session in the same logical commit.
 It does not accept raw JD/resume as an alternative start path and never invokes plan
-generation.
+generation. `request_id` is a required idempotency identity scoped to the plan family:
+an identical replay returns the existing session, while reuse with a different plan
+revision, expected revision, or plan hash fails closed with
+`session_start_request_conflict`.
 
 ### Source retention and deletion
 

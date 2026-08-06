@@ -236,6 +236,7 @@ def start_saved_revision(configured_api, revision_payload):
         "plan_revision_id": revision_payload["plan_revision_id"],
         "expected_revision": revision_payload["revision"],
         "plan_sha256": revision_payload["plan_sha256"],
+        "request_id": "configured-e2e-start",
     }
     response = configured_api.client.post("/api/interviews", json=request_payload)
 

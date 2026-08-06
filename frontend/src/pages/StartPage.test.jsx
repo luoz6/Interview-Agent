@@ -125,6 +125,7 @@ describe("StartPage editable plan workflow", () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(navigator, "clipboard", {

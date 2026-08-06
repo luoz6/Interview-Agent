@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE
@@ -85,6 +87,26 @@ def test_start_session_returns_first_question():
     assert session.current_question is not None
     assert session.current_question.kind == "project"
     assert session.status == "active"
+
+
+def test_duplicate_server_session_identity_is_thread_safe():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+
+    def start_duplicate(_index):
+        return store.start(
+            make_plan(),
+            job_description="Backend role using Python and Redis.",
+            resume_text="Built a Python API with Redis.",
+            job_tags=["python", "redis"],
+            session_id="stable-session-start-id",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        turns = list(executor.map(start_duplicate, range(8)))
+
+    assert {turn.session_id for turn in turns} == {"stable-session-start-id"}
+    assert {turn.current_question.id for turn in turns} == {"q1"}
+    assert list(store._sessions) == ["stable-session-start-id"]
 
 
 def test_start_session_records_job_context_in_store():

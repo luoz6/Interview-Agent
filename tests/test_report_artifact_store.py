@@ -89,7 +89,10 @@ def test_failed_job_keeps_old_active_and_requeue_reuses_job():
     assert len(store.list_artifacts("session-1")) == 1
 
 
-@pytest.mark.parametrize("step", ["artifact", "head", "job", "review_run", "session"])
+@pytest.mark.parametrize(
+    "step",
+    ["before_artifact", "artifact", "head", "job", "review_run", "session"],
+)
 def test_publish_is_atomic_when_any_commit_step_fails(step):
     store = InMemoryReportArtifactStore()
     job = start_job(store)

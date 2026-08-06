@@ -202,6 +202,7 @@ class InMemoryReportArtifactStore:
             staged_by_source_job = dict(self._artifact_by_source_job)
             staged_heads = dict(self._heads)
             staged_jobs = dict(self._jobs)
+            self._fail_if("before_artifact")
             self._fail_if("artifact")
             staged_artifacts[artifact.report_id] = artifact
             staged_by_source_job[job_id] = artifact.report_id

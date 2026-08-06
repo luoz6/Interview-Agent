@@ -86,7 +86,103 @@ def test_postgres_artifact_history_active_pointer_and_failed_requeue():
     assert [item.revision for item in store.list_artifacts(session_id)] == [1]
 
 
-@pytest.mark.parametrize("step", ["artifact", "head", "job", "review_run", "session"])
+def test_postgres_publish_replays_after_response_loss_by_source_job_and_hash():
+    _, store, session_id = make_stores()
+    job = store.claim_job(
+        store.enqueue_job(
+            session_id=session_id,
+            idempotency_key="response-lost",
+        ).job_id,
+        worker_id="worker-1",
+    )
+    committed = store.publish(job.job_id, payload(), worker_id="worker-1")
+
+    recovered = PostgresReportArtifactStore(
+        dsn=require_postgres_dsn(),
+        table_prefix=store.table_prefix,
+        schema_mode="migrate",
+    )
+    replay = recovered.publish(job.job_id, payload(), worker_id="worker-1")
+
+    assert replay == committed
+    assert replay.source_job_id == job.job_id
+    assert replay.artifact_sha256 == committed.artifact_sha256
+    assert recovered.list_artifacts(session_id) == [committed]
+    assert recovered.list_jobs(session_id)[0].status == "completed"
+    with pytest.raises(ReportArtifactConflict, match="payload conflicts"):
+        recovered.publish(
+            job.job_id,
+            payload().model_copy(
+                update={"payload": {"overall_score": 12}}
+            ),
+            worker_id="worker-1",
+        )
+
+
+def test_postgres_multiple_rescores_keep_history_and_one_active_job():
+    _, store, session_id = make_stores()
+    initial_job = store.claim_job(
+        store.enqueue_job(
+            session_id=session_id,
+            idempotency_key="initial-history",
+        ).job_id,
+        worker_id="worker-1",
+    )
+    first = store.publish(initial_job.job_id, payload(), worker_id="worker-1")
+
+    rescore_one = store.enqueue_job(
+        session_id=session_id,
+        job_kind="rescore",
+        source_report_id=first.report_id,
+        idempotency_key="rescore-history-1",
+    )
+    with pytest.raises(
+        ReportArtifactConflict,
+        match="session already has an active report job",
+    ):
+        store.enqueue_job(
+            session_id=session_id,
+            job_kind="rescore",
+            source_report_id=first.report_id,
+            idempotency_key="rescore-history-overlap",
+        )
+    rescore_one = store.claim_job(rescore_one.job_id, worker_id="worker-1")
+    second = store.publish(
+        rescore_one.job_id,
+        payload(score_status="unscored"),
+        worker_id="worker-1",
+    )
+
+    rescore_two = store.claim_job(
+        store.enqueue_job(
+            session_id=session_id,
+            job_kind="rescore",
+            source_report_id=second.report_id,
+            idempotency_key="rescore-history-2",
+        ).job_id,
+        worker_id="worker-2",
+    )
+    third = store.publish(
+        rescore_two.job_id,
+        payload(),
+        worker_id="worker-2",
+    )
+
+    artifacts = store.list_artifacts(session_id)
+    assert [item.revision for item in artifacts] == [1, 2, 3]
+    assert [item.source_report_id for item in artifacts] == [
+        None,
+        first.report_id,
+        second.report_id,
+    ]
+    assert store.get_head(session_id).active_report_id == third.report_id
+    assert all(job.status == "completed" for job in store.list_jobs(session_id))
+
+
+@pytest.mark.parametrize(
+    "step",
+    ["before_artifact", "artifact", "head", "job", "review_run", "session"],
+)
 def test_postgres_artifact_publish_rolls_back_all_steps(step):
     def failure(current):
         if current == step:

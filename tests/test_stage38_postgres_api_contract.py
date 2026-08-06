@@ -96,8 +96,45 @@ def start_versioned_interview(client):
             "plan_revision_id": revision["plan_revision_id"],
             "expected_revision": revision["revision"],
             "plan_sha256": revision["plan_sha256"],
+            "request_id": "stage38-postgres-start",
         },
     ).json()
+
+
+def test_duplicate_start_replays_after_session_store_reinstantiation(
+    postgres_api_client,
+):
+    client, store, _job_store, _publisher = postgres_api_client
+    prepared = client.post(
+        "/api/prep",
+        json={
+            "job_description": "Backend role with PostgreSQL recovery.",
+            "resume_text": "Built durable idempotent services.",
+        },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    payload = {
+        "plan_revision_id": revision["plan_revision_id"],
+        "expected_revision": revision["revision"],
+        "plan_sha256": revision["plan_sha256"],
+        "request_id": "postgres-response-lost-start",
+    }
+
+    first = client.post("/api/interviews", json=payload)
+    recovered_store = PostgresInterviewSessionStore(
+        dsn=store.dsn,
+        table_prefix=store.table_prefix,
+        schema_mode="migrate",
+    )
+    app.dependency_overrides[route_module.get_session_store] = (
+        lambda: recovered_store
+    )
+    replay = client.post("/api/interviews", json=payload)
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json() == first.json()
+    assert len(recovered_store.list_messages(first.json()["session_id"])) == 1
 
 
 def test_stage38_postgres_api_versioned_stream_contract(postgres_api_client):

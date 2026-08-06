@@ -273,7 +273,23 @@ async function generatePlan() {
 }
 
 async function startInterview() {
-  const turn = await postJson("/api/interviews", validatePayload());
+  if (!latestPlan?.plan_revision_id || !latestPlan?.revision || !latestPlan?.plan_sha256) {
+    throw new Error("Please generate and verify an interview plan before starting.");
+  }
+  const storageKey = `interviewStartRequest:${latestPlan.plan_revision_id}`;
+  let requestId = sessionStorage.getItem(storageKey);
+  if (!requestId) {
+    requestId = globalThis.crypto?.randomUUID?.()
+      || `start-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(storageKey, requestId);
+  }
+  const turn = await postJson("/api/interviews", {
+    plan_revision_id: latestPlan.plan_revision_id,
+    expected_revision: latestPlan.revision,
+    plan_sha256: latestPlan.plan_sha256,
+    request_id: requestId,
+  });
+  sessionStorage.removeItem(storageKey);
   window.location.href = `/interview?session_id=${encodeURIComponent(turn.session_id)}`;
 }
 

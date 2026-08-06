@@ -196,6 +196,7 @@ def start_test_interview(
             "plan_revision_id": revision.plan_revision_id,
             "expected_revision": revision.revision,
             "plan_sha256": revision.plan_sha256,
+            "request_id": "test-api-start",
         },
     )
 

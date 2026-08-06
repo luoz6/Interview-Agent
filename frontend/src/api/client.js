@@ -1,4 +1,5 @@
 const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const volatileRequestIds = new Map();
 
 export class HttpError extends Error {
   constructor(message, { status = 0, body = {} } = {}) {
@@ -12,6 +13,37 @@ export class HttpError extends Error {
 export function apiUrl(path) {
   if (/^https?:\/\//.test(path)) return path;
   return `${configuredBase}${path}`;
+}
+
+export function stableRequestId(scope) {
+  const storageKey = `interview-agent:request-id:${scope}`;
+  const volatile = volatileRequestIds.get(storageKey);
+  if (volatile) return volatile;
+  try {
+    const existing = globalThis.sessionStorage?.getItem(storageKey);
+    if (existing) return existing;
+  } catch {
+    // Storage may be unavailable in privacy-restricted browser contexts.
+  }
+  const generated = globalThis.crypto?.randomUUID?.()
+    || `request-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  volatileRequestIds.set(storageKey, generated);
+  try {
+    globalThis.sessionStorage?.setItem(storageKey, generated);
+  } catch {
+    // The module-local value still makes retries within this page lifetime safe.
+  }
+  return generated;
+}
+
+export function clearStableRequestId(scope) {
+  const storageKey = `interview-agent:request-id:${scope}`;
+  volatileRequestIds.delete(storageKey);
+  try {
+    globalThis.sessionStorage?.removeItem(storageKey);
+  } catch {
+    // A completed request no longer needs browser-backed replay state.
+  }
 }
 
 async function safeJson(response) {

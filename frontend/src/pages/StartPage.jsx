@@ -56,6 +56,7 @@ import {
   ConfirmationDialog,
   useConfirmationDialog,
 } from "../components/ConfirmationDialog";
+import { clearStableRequestId, stableRequestId } from "../api/client";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
@@ -1380,17 +1381,28 @@ export function StartPage() {
     setStatus("starting");
     setNotice({ tone: "info", text: "正在创建可恢复的面试会话。" });
     try {
+      const requestScope = `session-start:${plan.plan_revision_id}`;
       const session = await requestJson("/api/interviews", {
         method: "POST",
         body: JSON.stringify({
           plan_revision_id: plan.plan_revision_id,
           expected_revision: plan.revision,
           plan_sha256: plan.plan_sha256,
+          request_id: stableRequestId(requestScope),
         }),
       });
+      clearStableRequestId(requestScope);
       window.location.assign(`/interview?session_id=${encodeURIComponent(session.session_id)}`);
     } catch (error) {
-      if (error.status === 409) {
+      if (
+        error.status === 409
+        && error.payload?.code === "session_start_request_conflict"
+      ) {
+        setNotice({
+          tone: "error",
+          text: "This start request ID is already bound to a different plan revision. Refresh and retry.",
+        });
+      } else if (error.status === 409) {
         dispatchEditor({
           type: "OPERATION_CONFLICT",
           currentRevision: error.payload?.current_revision || null,

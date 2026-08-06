@@ -550,6 +550,7 @@ def test_start_uses_verified_revision_snapshot_with_zero_provider_calls(api_plan
         "plan_revision_id": initial.plan_revision_id,
         "expected_revision": initial.revision,
         "plan_sha256": initial.plan_sha256,
+        "request_id": "start-verified-revision",
     }
 
     started = client.post("/api/interviews", json=payload)
@@ -573,6 +574,114 @@ def test_start_uses_verified_revision_snapshot_with_zero_provider_calls(api_plan
     )
 
 
+def test_duplicate_session_start_request_replays_one_business_session(api_plan):
+    client, revision_store, initial, _ = api_plan
+    provider = ProviderSpy()
+    session_store = InterviewSessionStore(llm=provider)
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "duplicate-session-start",
+    }
+
+    first = client.post("/api/interviews", json=payload)
+    replay = client.post("/api/interviews", json=payload)
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json() == first.json()
+    assert provider.calls == 0
+    assert list(session_store._sessions) == [first.json()["session_id"]]
+    session_refs = [
+        ref
+        for ref in revision_store.list_source_references(initial.source_id)
+        if ref.owner_type == "session"
+    ]
+    assert len(session_refs) == 1
+
+
+def test_session_start_request_id_reuse_with_new_revision_is_conflict(api_plan):
+    client, _, initial, _ = api_plan
+    session_store = InterviewSessionStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    request_id = "session-start-conflict"
+    first = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": initial.plan_revision_id,
+            "expected_revision": initial.revision,
+            "plan_sha256": initial.plan_sha256,
+            "request_id": request_id,
+        },
+    )
+    edited = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            1,
+            "edit-after-idempotent-start",
+            {
+                "op": "edit_focus",
+                "question_id": initial.plan.questions[0].question_id,
+                "focus": "new revision with reused start identity",
+            },
+        ),
+    )
+    replay_with_changed_input = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": edited.json()["plan_revision_id"],
+            "expected_revision": edited.json()["revision"],
+            "plan_sha256": edited.json()["plan_sha256"],
+            "request_id": request_id,
+        },
+    )
+
+    assert first.status_code == edited.status_code == 200
+    assert replay_with_changed_input.status_code == 409
+    assert replay_with_changed_input.json() == {
+        "code": "session_start_request_conflict"
+    }
+    assert list(session_store._sessions) == [first.json()["session_id"]]
+
+
+@pytest.mark.parametrize(
+    ("field", "changed_value"),
+    [
+        ("expected_revision", 2),
+        ("plan_sha256", "0" * 64),
+    ],
+)
+def test_session_start_request_id_reuse_with_changed_contract_is_conflict(
+    api_plan,
+    field,
+    changed_value,
+):
+    client, _, initial, _ = api_plan
+    session_store = InterviewSessionStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "session-start-contract-conflict",
+    }
+
+    first = client.post("/api/interviews", json=payload)
+    changed_payload = {**payload, field: changed_value}
+    replay_with_changed_contract = client.post(
+        "/api/interviews",
+        json=changed_payload,
+    )
+
+    assert first.status_code == 200
+    assert replay_with_changed_contract.status_code == 409
+    assert replay_with_changed_contract.json() == {
+        "code": "session_start_request_conflict"
+    }
+    assert list(session_store._sessions) == [first.json()["session_id"]]
+
+
 def test_started_session_does_not_follow_later_plan_edits(api_plan):
     client, revision_store, initial, _ = api_plan
     session_store = InterviewSessionStore()
@@ -583,6 +692,7 @@ def test_started_session_does_not_follow_later_plan_edits(api_plan):
             "plan_revision_id": initial.plan_revision_id,
             "expected_revision": 1,
             "plan_sha256": initial.plan_sha256,
+            "request_id": "start-before-edit",
         },
     ).json()
     original_snapshot = session_store.get(started["session_id"])["plan_snapshot"]
@@ -628,6 +738,7 @@ def test_start_rejects_a_historical_revision_and_returns_latest_winner(api_plan)
             "plan_revision_id": initial.plan_revision_id,
             "expected_revision": initial.revision,
             "plan_sha256": initial.plan_sha256,
+            "request_id": "start-historical-revision",
         },
     )
 
@@ -657,6 +768,7 @@ def test_start_rejects_raw_inputs_mismatch_and_missing_revision(api_plan):
             "plan_revision_id": initial.plan_revision_id,
             "expected_revision": 99,
             "plan_sha256": initial.plan_sha256,
+            "request_id": "start-revision-mismatch",
         },
     )
     hash_mismatch = client.post(
@@ -665,6 +777,7 @@ def test_start_rejects_raw_inputs_mismatch_and_missing_revision(api_plan):
             "plan_revision_id": initial.plan_revision_id,
             "expected_revision": 1,
             "plan_sha256": "0" * 64,
+            "request_id": "start-hash-mismatch",
         },
     )
     missing = client.post(
@@ -673,6 +786,7 @@ def test_start_rejects_raw_inputs_mismatch_and_missing_revision(api_plan):
             "plan_revision_id": "00000000-0000-0000-0000-000000000000",
             "expected_revision": 1,
             "plan_sha256": "0" * 64,
+            "request_id": "start-missing-revision",
         },
     )
 

@@ -80,8 +80,9 @@ class InterviewWorkflowService:
         resume_text: str,
         job_tags: list[str],
         plan_binding=None,
+        session_id: str | None = None,
     ):
-        session_id = str(uuid4())
+        session_id = session_id or str(uuid4())
         engine = choose_workflow_engine(
             session_id,
             runtime_store=self.runtime_store,
