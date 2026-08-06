@@ -321,13 +321,22 @@
 .plan-question {
   display: grid;
   grid-template-columns: 3rem minmax(0, 1fr) 8.25rem;
+  gap: var(--space-3);
   min-width: 0;
   overflow: clip;
+  padding: var(--space-5) 0;
   border: var(--start-rule-thin) solid var(--start-color-rule);
   border-radius: var(--start-radius-panel);
   background: var(--start-color-surface);
   box-shadow: 0 1px 0 var(--start-primitive-shadow-soft);
   transition: border-color var(--start-duration-state), box-shadow var(--start-duration-state), opacity var(--start-duration-state), transform var(--start-duration-state);
+}
+
+.plan-evidence-content strong {
+  display: block;
+  color: var(--ink-strong);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .plan-question[data-required="true"] {

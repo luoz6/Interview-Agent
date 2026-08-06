@@ -27,15 +27,22 @@ export function ConfirmDialog({
   const dialogRef = useRef(null);
   const confirmRef = useRef(null);
   const returnFocusRef = useRef(null);
+  const busyRef = useRef(busy);
+  const onCancelRef = useRef(onCancel);
+
+  useEffect(() => {
+    busyRef.current = busy;
+    onCancelRef.current = onCancel;
+  }, [busy, onCancel]);
 
   useEffect(() => {
     if (!open) return undefined;
     returnFocusRef.current = document.activeElement;
     const frame = window.requestAnimationFrame(() => confirmRef.current?.focus());
     const onKeyDown = (event) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !busyRef.current) {
         event.preventDefault();
-        onCancel?.();
+        onCancelRef.current?.();
         return;
       }
       if (event.key !== "Tab") return;
@@ -57,7 +64,7 @@ export function ConfirmDialog({
       document.removeEventListener("keydown", onKeyDown);
       returnFocusRef.current?.focus?.();
     };
-  }, [busy, onCancel, open]);
+  }, [open]);
 
   if (!open) return null;
   return (

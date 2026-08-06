@@ -1,0 +1,276 @@
+/* Global document primitives. Product shell and route visuals live in their
+ * component/page layers so retired pages cannot leak styles into initial CSS. */
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  overflow-x: clip;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  overflow-x: clip;
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  white-space: nowrap;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: inherit;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+::selection {
+  background: var(--blue-200);
+  color: var(--ink-strong);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+textarea[aria-invalid="true"],
+input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  box-shadow: inset 0 0 0 1px var(--color-danger);
+}
+
+h1,
+h2,
+h3,
+h4,
+.page-heading,
+.page-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page-main {
+  width: min(100%, 1240px);
+  min-width: 0;
+  margin: 0 auto;
+  padding: var(--space-16) var(--space-6) var(--space-24);
+}
+
+.page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-10);
+  margin-bottom: var(--space-10);
+}
+
+.page-heading > div:first-child {
+  max-width: 760px;
+}
+
+.page-kicker,
+.mono-label {
+  margin: 0 0 var(--space-2);
+  color: var(--blue-700);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.page-heading h1 {
+  max-width: 19ch;
+  margin: 0;
+  color: var(--ink-strong);
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4vw, 40px);
+  font-weight: 500;
+  letter-spacing: -.015em;
+  line-height: 1.12;
+}
+
+.page-description {
+  max-width: 65ch;
+  margin: var(--space-5) 0 0;
+  color: var(--stone-700);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.page-heading-aside {
+  flex: 0 0 auto;
+}
+
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-default);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--button-secondary-border);
+  border-radius: var(--radius-control);
+  background: var(--button-secondary-bg);
+  color: var(--stone-700);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.button-primary {
+  padding-inline: var(--space-5);
+  border-color: var(--button-primary-bg);
+  border-radius: var(--button-primary-radius);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.button-loader {
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2-5);
+}
+
+.action-row.compact .button {
+  min-height: 38px;
+  padding-inline: var(--space-4);
+}
+
+.centered-main {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - 64px);
+}
+
+.centered-main .empty-state,
+.centered-main .page-heading {
+  width: min(100%, 620px);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .button:hover:not(:disabled) {
+    border-color: var(--stone-600);
+    color: var(--ink-strong);
+  }
+
+  .button-primary:hover:not(:disabled) {
+    border-color: var(--button-primary-hover);
+    background: var(--button-primary-hover);
+    color: var(--button-primary-text);
+  }
+}
+
+@media (max-width: 900px) {
+  .page-main {
+    padding: var(--space-10) var(--space-6) var(--space-24);
+  }
+
+  .page-heading {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 767px) {
+  .page-main {
+    padding: var(--space-8) var(--space-3) var(--space-20);
+  }
+
+  .page-heading {
+    display: grid;
+    gap: var(--space-6);
+    margin-bottom: var(--space-8);
+  }
+
+  .page-heading h1 {
+    max-width: none;
+    font-size: 30px;
+  }
+
+  .page-description {
+    font-size: 16px;
+  }
+
+  .action-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .button {
+    min-height: var(--control-height-touch);
+  }
+
+  .action-row .button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

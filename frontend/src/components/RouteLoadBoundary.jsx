@@ -1,16 +1,19 @@
 import { Component } from "react";
 import { AppShell } from "./AppShell";
+import { AsyncState } from "./AsyncState";
 import { Button, EmptyState } from "./UI";
 
 export function RouteLoadingFallback() {
   return (
     <AppShell statusLabel="正在载入工作区" statusTone="idle">
       <main id="main-content" className="page-main centered-main" tabIndex="-1">
-        <div className="empty-state" role="status" aria-live="polite">
-          <span className="mono-label">LOADING / WORKSPACE</span>
-          <h3>正在载入当前工作区</h3>
-          <p>页面资源正在准备中，请稍候。</p>
-        </div>
+        <AsyncState
+          role="status"
+          live="polite"
+          eyebrow="LOADING / WORKSPACE"
+          title="正在载入当前工作区"
+          description="页面资源正在准备中，请稍候。"
+        />
       </main>
     </AppShell>
   );

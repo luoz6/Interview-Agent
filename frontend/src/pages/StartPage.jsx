@@ -24,8 +24,9 @@ import {
 import { deleteJson, getJson, patchJson, postJson } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { PlanEditor } from "../components/PlanEditor";
+import { StatusNotice } from "../components/StatusNotice";
 import { createCommandId } from "../utils/ids";
-import "../styles/prep-workbench.css";
+import "../styles/pages/prep.css";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -144,24 +145,6 @@ function SourceEditor({
         <span>{feedbackText}</span>
       </p>
     </section>
-  );
-}
-
-function StatusNotice({ notice }) {
-  if (!notice) return null;
-  const NoticeIcon = notice.tone === "error" || notice.tone === "warning" ? WarningCircle : notice.tone === "success" ? CheckCircle : Info;
-  return (
-    <div
-      className={`start-notice start-notice-${notice.tone}`}
-      role={notice.tone === "error" ? "alert" : "status"}
-      aria-live={notice.tone === "error" ? "assertive" : "polite"}
-      aria-atomic="true"
-    >
-      <span className="start-notice-icon" aria-hidden="true">
-        <NoticeIcon size={18} weight={notice.tone === "info" ? "bold" : "fill"} focusable="false" />
-      </span>
-      <p>{notice.text}</p>
-    </div>
   );
 }
 

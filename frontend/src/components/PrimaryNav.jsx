@@ -9,7 +9,7 @@ function navClickHandler(item, onNavigate) {
 
 export function PrimaryNav({ pathname = window.location.pathname, onNavigate }) {
   return (
-    <nav className="app-nav start-nav" aria-label="主导航">
+    <nav className="start-nav" aria-label="主导航">
       {PRODUCT_NAVIGATION.map((item) => (
         <a
           key={item.href}

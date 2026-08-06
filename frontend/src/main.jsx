@@ -1,10 +1,11 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import "./styles/index.css";
-import "./styles/editorial-workbench.css";
-import "./styles/start-page.tokens.css";
-import "./styles/start-app.css";
+import "./styles/base.css";
+import "./styles/components/app-shell.css";
+import "./styles/components/navigation.css";
+import "./styles/components/dialog.css";
+import "./styles/components/async-state.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

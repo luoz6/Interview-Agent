@@ -13,7 +13,6 @@ import {
   FileText,
   Files,
   HourglassMedium,
-  Info,
   Lightbulb,
   ListChecks,
   LockSimple,
@@ -24,12 +23,14 @@ import {
 } from "@phosphor-icons/react";
 import { getJson, postJson } from "../api/client";
 import { AppShell } from "../components/AppShell";
+import { StatusNotice } from "../components/StatusNotice";
+import { TechnicalDetails } from "../components/TechnicalDetails";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useSessionId } from "../hooks/useSessionId";
 import { motionDistance, motionDuration, motionEase } from "../motion/config";
 import { gsap, useGSAP } from "../motion/gsap";
-import "../styles/report-processing-app.css";
+import "../styles/pages/report-processing.css";
 
 const stages = [
   { name: "queued", title: "任务排队", description: "等待报告 Worker 领取任务", icon: HourglassMedium },
@@ -68,11 +69,10 @@ const errorGuidance = {
   report_retry_exhausted: "多次尝试后仍未完成，请稍后重试或返回报告中心。",
 };
 
-function nextPollDelay(startedAt) {
+function nextPollDelay(startedAt, visibilityState = document.visibilityState) {
   const elapsed = Date.now() - startedAt;
-  if (elapsed < 20_000) return 1_000;
-  if (elapsed < 60_000) return 2_000;
-  return 5_000;
+  const visibleDelay = elapsed < 20_000 ? 1_000 : elapsed < 60_000 ? 2_000 : 5_000;
+  return visibilityState === "hidden" ? Math.max(15_000, visibleDelay) : visibleDelay;
 }
 
 function clampPercent(value) {
@@ -132,23 +132,6 @@ function ProcessingRuntime({ state }) {
     <div className="start-runtime processing-runtime" data-state={dataState} role="status" aria-live="polite">
       <span className="start-runtime-icon" aria-hidden="true"><RuntimeIcon state={state} animated /></span>
       <span>当前任务</span><strong>{statusLabels[state] || state}</strong>
-    </div>
-  );
-}
-
-function ProcessingNotice({ tone, title, children }) {
-  if (!children) return null;
-  const normalized = tone === "danger" ? "error" : tone || "info";
-  const NoticeIcon = normalized === "error" || normalized === "warning" ? WarningCircle : normalized === "success" ? CheckCircle : Info;
-  return (
-    <div
-      className={`start-notice start-notice-${normalized} processing-notice`}
-      role={normalized === "error" ? "alert" : "status"}
-      aria-live={normalized === "error" ? "assertive" : "polite"}
-      aria-atomic="true"
-    >
-      <span className="start-notice-icon" aria-hidden="true"><NoticeIcon size={18} weight={normalized === "info" ? "bold" : "fill"} /></span>
-      <div className="processing-notice-copy">{title && <strong>{title}</strong>}<p>{children}</p></div>
     </div>
   );
 }
@@ -246,7 +229,7 @@ export function ReportProcessingPage() {
 
     const scheduleNext = (immediate = false) => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(runPoll, immediate ? 0 : nextPollDelay(pollStartedAt.current));
+      timer = window.setTimeout(runPoll, immediate ? 0 : nextPollDelay(pollStartedAt.current, document.visibilityState));
     };
 
     const runPoll = async () => {
@@ -272,16 +255,16 @@ export function ReportProcessingPage() {
       }
     };
 
-    const syncWhenVisible = () => {
-      if (document.visibilityState === "visible") scheduleNext(true);
+    const syncForVisibility = () => {
+      scheduleNext(document.visibilityState === "visible");
     };
-    document.addEventListener("visibilitychange", syncWhenVisible);
+    document.addEventListener("visibilitychange", syncForVisibility);
     runPoll();
     return () => {
       cancelled = true;
       controller.abort();
       window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", syncWhenVisible);
+      document.removeEventListener("visibilitychange", syncForVisibility);
     };
   }, [loadProgress, pollGeneration]);
 
@@ -655,8 +638,7 @@ export function ReportProcessingPage() {
               <div><h3 id="processing-away-title">不必停留在此页</h3><p>关闭或离开页面不会取消任务。报告会继续生成，完成后可从报告中心打开。</p></div>
             </section>
 
-            {showRuntimeDiagnostics && <details className="processing-diagnostics">
-              <summary><ListChecks size={16} weight="duotone" aria-hidden="true" />运行诊断</summary>
+            {showRuntimeDiagnostics && <TechnicalDetails className="processing-diagnostics" summary="运行诊断">
               <dl className="processing-facts">
                 <div className="is-technical"><dt>任务 ID</dt><dd><code>{progress?.report_job_id || "未提供"}</code></dd></div>
                 <div><dt>执行尝试</dt><dd>{progress?.attempt ?? 0} / {progress?.max_attempts || "—"}</dd></div>
@@ -665,10 +647,10 @@ export function ReportProcessingPage() {
                 <div><dt>知识片段</dt><dd>{rag.matched_chunks ?? "未提供"}</dd></div>
                 <div><dt>最近心跳</dt><dd>{formatTimestamp(progress?.heartbeat_at) || "未提供"}</dd></div>
               </dl>
-            </details>}
+            </TechnicalDetails>}
 
-            {metadata.full_session_fallback && <ProcessingNotice tone="warning" title="使用降级生成路径">本次报告使用全会话降级路径生成；报告仍然有效，但逐题证据复用链路未完全可用。</ProcessingNotice>}
-            <ProcessingNotice tone={notice?.tone} title={notice?.title}>{notice?.text}</ProcessingNotice>
+            {metadata.full_session_fallback && <StatusNotice className="processing-notice" copyClassName="processing-notice-copy" tone="warning" title="使用降级生成路径">本次报告使用全会话降级路径生成；报告仍然有效，但逐题证据复用链路未完全可用。</StatusNotice>}
+            <StatusNotice className="processing-notice" copyClassName="processing-notice-copy" notice={notice} />
           </div>
 
           <footer className="start-inspector-actions processing-inspector-actions">

@@ -24,9 +24,11 @@ import {
 } from "@phosphor-icons/react";
 import { downloadFile, getJson, postJson } from "../api/client";
 import { AppShell } from "../components/AppShell";
+import { ReliabilitySummary } from "../components/ReliabilitySummary";
+import { StatusNotice } from "../components/StatusNotice";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
-import "../styles/report-detail-app.css";
+import "../styles/pages/report-detail.css";
 
 const dimensionLabels = {
   breadth: "知识广度",
@@ -121,19 +123,6 @@ function ReportRuntime({ state }) {
         {state === "loading" ? <SpinnerGap className="start-spinner" size={15} weight="bold" /> : <RuntimeIcon size={15} weight="fill" />}
       </span>
       <span>当前报告</span><strong key={state}>{stateLabels[state] || state}</strong>
-    </div>
-  );
-}
-
-function ReportNotice({ notice, onDismiss }) {
-  if (!notice) return null;
-  const tone = notice.tone === "danger" ? "error" : notice.tone || "info";
-  const NoticeIcon = tone === "error" || tone === "warning" ? WarningCircle : tone === "success" ? CheckCircle : Info;
-  return (
-    <div className={`start-notice start-notice-${tone} report-detail-notice`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
-      <span className="start-notice-icon" aria-hidden="true"><NoticeIcon size={18} weight={tone === "info" ? "bold" : "fill"} /></span>
-      <div><strong>{notice.title}</strong><p>{notice.text}</p></div>
-      {onDismiss && <button type="button" onClick={onDismiss} aria-label="关闭提示"><X size={15} weight="bold" aria-hidden="true" /></button>}
     </div>
   );
 }
@@ -500,7 +489,7 @@ export function ReportDetailPage() {
           </div>
 
           <div ref={workspaceScrollRef} className="report-detail-workspace-scroll">
-            {state !== "error" && <ReportNotice notice={notice} onDismiss={reportReady && notice ? () => { setNotice(null); if (!downloading) setDownloadState("idle"); } : undefined} />}
+            {state !== "error" && <StatusNotice className="report-detail-notice" notice={notice} onDismiss={reportReady && notice ? () => { setNotice(null); if (!downloading) setDownloadState("idle"); } : undefined} />}
             {state === "loading" && <ReportSkeleton />}
             {state === "error" && (
               <section className="report-detail-error" role="alert">
@@ -515,7 +504,7 @@ export function ReportDetailPage() {
             )}
 
             {reportReady && <>
-              {state === "fallback" && <ReportNotice notice={{ tone: "warning", title: "使用降级生成路径", text: "这份报告使用全会话降级路径完成。分数和反馈仍来自真实会话，但逐题证据复用链路未完全可用。" }} />}
+              {state === "fallback" && <StatusNotice className="report-detail-notice" notice={{ tone: "warning", title: "使用降级生成路径", text: "这份报告使用全会话降级路径完成。分数和反馈仍来自真实会话，但逐题证据复用链路未完全可用。" }} />}
 
               <section id="overview" className="report-detail-section report-detail-overview" aria-labelledby="report-overview-title" data-report-reveal data-score-applicability={applicability} style={{ "--reveal-order": 0 }}>
                 <div className="report-detail-overview-copy">
@@ -535,20 +524,7 @@ export function ReportDetailPage() {
                  </div>
                </section>
 
-              <section className="report-detail-panel report-detail-reliability" aria-labelledby="report-reliability-title" data-tone={reliabilitySummary.tone} data-report-reveal style={{ "--reveal-order": 1 }}>
-                <ReportSectionHeading icon={ShieldCheck} title="报告可靠性" titleId="report-reliability-title" meta={reliabilitySummary.description} />
-                <span className="report-detail-reliability-state"><ShieldCheck size={15} weight="duotone" aria-hidden="true" />{reliabilitySummary.title}</span>
-                {reliability ? <>
-                  <dl className="report-detail-reliability-metrics">
-                    <div><dt>计划题数</dt><dd>{reliability.planned_question_count}</dd></div>
-                    <div><dt>有效回答</dt><dd>{reliability.answered_question_count}</dd></div>
-                    <div><dt>完成评审</dt><dd>{reliability.reviewed_answer_count}</dd></div>
-                    <div><dt>绑定证据</dt><dd>{reliability.evidence_bound_question_count}</dd></div>
-                    <div><dt>降级影响</dt><dd>{reliability.degraded_question_count}</dd></div>
-                  </dl>
-                  {reliability.degraded_reasons?.length > 0 && <ul className="report-detail-reliability-reasons">{reliability.degraded_reasons.map((reason) => <li key={reason}>{degradedReasonLabels[reason] || "部分报告依据受限"}</li>)}</ul>}
-                </> : <p className="report-detail-compatibility-note"><Info size={17} weight="bold" aria-hidden="true" />这份旧报告没有可靠性字段。逐题内容仍可阅读，但总分不应被视为精确结论。</p>}
-              </section>
+              <ReliabilitySummary reliability={reliability} summary={reliabilitySummary} reasonLabels={degradedReasonLabels} />
 
               <section className="report-detail-panel report-detail-insight-panel" aria-labelledby="report-insights-title" data-report-reveal style={{ "--reveal-order": 2 }}>
                 <ReportSectionHeading icon={Target} title="下一轮应该关注什么" titleId="report-insights-title" meta="把评分转成一个明确动作和两个辅助判断。" />

@@ -239,3 +239,160 @@
   --pipeline-elevated: var(--color-pipeline-elevated);
   --accent: var(--color-accent);
 }
+
+/* Calm Cobalt product tokens used by the shared application shell and routes. */
+:root {
+  color-scheme: light;
+
+  /* Primitives */
+  --start-primitive-mist: oklch(96.5% 0.012 255);
+  --start-primitive-canvas: oklch(98.2% 0.008 255);
+  --start-primitive-white: oklch(99.4% 0.004 255);
+  --start-primitive-navy: oklch(22% 0.035 258);
+  --start-primitive-navy-soft: oklch(34% 0.03 258);
+  --start-primitive-muted: oklch(46% 0.026 255);
+  --start-primitive-muted-light: oklch(63% 0.022 255);
+  --start-primitive-rule: oklch(88% 0.018 255);
+  --start-primitive-rule-strong: oklch(78% 0.026 255);
+  --start-primitive-cobalt: oklch(54% 0.19 255);
+  --start-primitive-cobalt-hover: oklch(47% 0.18 255);
+  --start-primitive-cobalt-active: oklch(43% 0.17 255);
+  --start-primitive-cobalt-soft: oklch(95% 0.035 255);
+  --start-primitive-cobalt-ink: oklch(99% 0.004 255);
+  --start-primitive-green: oklch(46% 0.12 154);
+  --start-primitive-green-soft: oklch(96% 0.035 154);
+  --start-primitive-amber: oklch(47% 0.11 78);
+  --start-primitive-amber-soft: oklch(96% 0.04 82);
+  --start-primitive-red: oklch(48% 0.18 28);
+  --start-primitive-red-hover: oklch(42% 0.17 28);
+  --start-primitive-red-soft: oklch(96% 0.035 28);
+  --start-primitive-disabled: oklch(93% 0.012 255);
+  --start-primitive-shadow: oklch(25% 0.045 255 / 10%);
+  --start-primitive-shadow-soft: oklch(25% 0.045 255 / 6%);
+  --start-primitive-veil: oklch(99% 0.003 255 / 82%);
+  --start-primitive-on-navy-rule: oklch(99% 0.003 255 / 14%);
+  --start-primitive-on-navy-muted: oklch(86% 0.018 255);
+
+  /* Typography primitives */
+  --start-font-display: "Aptos Display", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --start-font-body: "Aptos", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --start-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --start-font-weight-regular: 400;
+  --start-font-weight-medium: 500;
+  --start-font-weight-semibold: 600;
+  --start-font-weight-bold: 700;
+  --start-text-micro: 0.6875rem;
+  --start-text-xs: 0.75rem;
+  --start-text-ui-sm: 0.8125rem;
+  --start-text-sm: 0.875rem;
+  --start-text-editor: 0.9375rem;
+  --start-text-body: 1rem;
+  --start-text-title-sm: 1.0625rem;
+  --start-text-title: 1.1875rem;
+  --start-text-lg: 1.25rem;
+
+  /* 4-point spacing primitives */
+  --start-space-0: 0;
+  --start-space-3xs: 0.25rem;
+  --start-space-2xs: 0.5rem;
+  --start-space-xs: 0.75rem;
+  --start-space-sm: 1rem;
+  --start-space-md: 1.5rem;
+  --start-space-lg: 2rem;
+  --start-space-xl: 3rem;
+  --start-space-2xl: 4.5rem;
+  --start-space-3xl: 7rem;
+
+  /* Shape, elevation, sizing and motion primitives */
+  --start-rule-thin: 1px;
+  --start-rule-focus: 2px;
+  --start-rule-strong: 3px;
+  --start-radius-none: 0;
+  --start-radius-small: 0.375rem;
+  --start-radius-control: 0.625rem;
+  --start-radius-panel: 0.875rem;
+  --start-radius-round: 9999px;
+  --start-shadow-command: 0 0.75rem 2.5rem var(--start-primitive-shadow);
+  --start-shadow-panel: 0 0.25rem 1.25rem var(--start-primitive-shadow-soft);
+  --start-shadow-button: 0 0.25rem 0.75rem var(--start-primitive-shadow-soft);
+  --start-control-height: 3rem;
+  --start-control-height-touch: 3rem;
+  --start-page-width: 100rem;
+  --start-app-topbar-height: 4rem;
+  --start-app-status-height: 2rem;
+  --start-app-rail-width: 4.75rem;
+  --start-app-inspector-width: 22.5rem;
+  --start-icon-sm: 1rem;
+  --start-icon-md: 1.125rem;
+  --start-icon-lg: 1.25rem;
+  --start-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --start-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --start-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --start-duration-press: 120ms;
+  --start-duration-fast: 160ms;
+  --start-duration-state: 200ms;
+  --start-duration-normal: 240ms;
+  --start-duration-enter: 320ms;
+  --start-duration-spinner: 1000ms;
+
+  /* Semantic roles */
+  --start-color-page: var(--start-primitive-mist);
+  --start-color-canvas: var(--start-primitive-canvas);
+  --start-color-surface: var(--start-primitive-white);
+  --start-color-surface-secondary: var(--start-primitive-cobalt-soft);
+  --start-color-ink: var(--start-primitive-navy);
+  --start-color-ink-soft: var(--start-primitive-navy-soft);
+  --start-color-text-muted: var(--start-primitive-muted);
+  --start-color-text-disabled: var(--start-primitive-muted-light);
+  --start-color-rule: var(--start-primitive-rule);
+  --start-color-rule-strong: var(--start-primitive-rule-strong);
+  --start-color-action: var(--start-primitive-cobalt);
+  --start-color-action-hover: var(--start-primitive-cobalt-hover);
+  --start-color-action-active: var(--start-primitive-cobalt-active);
+  --start-color-action-ink: var(--start-primitive-cobalt-ink);
+  --start-color-success: var(--start-primitive-green);
+  --start-color-success-soft: var(--start-primitive-green-soft);
+  --start-color-warning: var(--start-primitive-amber);
+  --start-color-warning-soft: var(--start-primitive-amber-soft);
+  --start-color-danger: var(--start-primitive-red);
+  --start-color-danger-hover: var(--start-primitive-red-hover);
+  --start-color-danger-soft: var(--start-primitive-red-soft);
+  --start-color-disabled: var(--start-primitive-disabled);
+  --start-color-info: var(--start-primitive-cobalt);
+  --start-color-info-soft: var(--start-primitive-cobalt-soft);
+  --start-color-on-ink: var(--start-primitive-white);
+  --start-color-on-ink-muted: var(--start-primitive-on-navy-muted);
+  --start-color-on-ink-rule: var(--start-primitive-on-navy-rule);
+  --start-color-focus: var(--start-primitive-cobalt-hover);
+  --start-color-overlay: var(--start-primitive-veil);
+
+  /* Component roles */
+  --start-button-primary-bg: var(--start-color-action);
+  --start-button-primary-bg-hover: var(--start-color-action-hover);
+  --start-button-primary-bg-active: var(--start-color-action-active);
+  --start-button-primary-text: var(--start-color-action-ink);
+  --start-button-primary-focus-ring: var(--start-color-ink);
+  --start-button-secondary-bg: var(--start-color-surface);
+  --start-button-secondary-bg-hover: var(--start-color-canvas);
+  --start-button-secondary-border: var(--start-color-rule);
+  --start-button-secondary-border-hover: var(--start-color-rule-strong);
+  --start-button-secondary-text: var(--start-color-ink-soft);
+  --start-button-danger-text: var(--start-color-danger);
+  --start-button-danger-text-hover: var(--start-color-danger-hover);
+  --start-button-disabled-bg: var(--start-color-disabled);
+  --start-button-disabled-border: var(--start-color-rule);
+  --start-button-disabled-text: var(--start-color-text-disabled);
+  --start-tab-active-bg: var(--start-color-surface-secondary);
+  --start-tab-active-text: var(--start-color-action-hover);
+  --start-control-focus-ring: var(--start-color-focus);
+  --start-input-error-bg: var(--start-color-danger-soft);
+  --start-input-error-border: var(--start-color-danger);
+  --start-notice-info-bg: var(--start-color-info-soft);
+  --start-notice-info-icon: var(--start-color-info);
+  --start-notice-success-bg: var(--start-color-success-soft);
+  --start-notice-success-icon: var(--start-color-success);
+  --start-notice-warning-bg: var(--start-color-warning-soft);
+  --start-notice-warning-icon: var(--start-color-warning);
+  --start-notice-error-bg: var(--start-color-danger-soft);
+  --start-notice-error-icon: var(--start-color-danger);
+}

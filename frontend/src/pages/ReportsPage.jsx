@@ -18,8 +18,10 @@ import {
 } from "@phosphor-icons/react";
 import { downloadFile, getJson, postJson } from "../api/client";
 import { AppShell } from "../components/AppShell";
+import { AsyncState } from "../components/AsyncState";
+import { StatusNotice } from "../components/StatusNotice";
 import { usePageMeta } from "../hooks/usePageMeta";
-import "../styles/reports-app.css";
+import "../styles/pages/reports.css";
 
 const PAGE_SIZE = 10;
 const statusLabels = { all: "全部", completed: "已完成", processing: "生成中", failed: "生成失败" };
@@ -65,19 +67,6 @@ function ReportRuntime({ state, total }) {
           : <RuntimeIcon size={15} weight={state === "ready" || state === "error" ? "fill" : "bold"} focusable="false" />}
       </span>
       <span>当前任务</span><strong className="reports-runtime-value" key={label}>{label}</strong>
-    </div>
-  );
-}
-
-function ReportNotice({ notice, onDismiss }) {
-  if (!notice) return null;
-  const tone = notice.tone === "danger" ? "error" : notice.tone || "info";
-  const NoticeIcon = tone === "error" || tone === "warning" ? WarningCircle : tone === "success" ? CheckCircle : Info;
-  return (
-    <div className={`start-notice start-notice-${tone} reports-notice`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
-      <span className="start-notice-icon" aria-hidden="true"><NoticeIcon size={18} weight={tone === "info" ? "bold" : "fill"} focusable="false" /></span>
-      <p>{notice.text}</p>
-      <button className="reports-notice-close" type="button" onClick={onDismiss} aria-label="关闭提示"><X size={15} weight="bold" aria-hidden="true" /></button>
     </div>
   );
 }
@@ -292,7 +281,7 @@ export function ReportsPage() {
             </section>
           </div>
 
-          <ReportNotice notice={state === "error" ? null : notice} onDismiss={() => setNotice(null)} />
+          <StatusNotice className="reports-notice" closeClassName="reports-notice-close" notice={state === "error" ? null : notice} onDismiss={() => setNotice(null)} />
 
           <div className="reports-canvas">
             <section className="reports-ledger" aria-labelledby="ledger-title">
@@ -308,22 +297,27 @@ export function ReportsPage() {
               <div className="reports-report-ledger" aria-busy={state === "loading"}>
                 {state === "loading" && <ReportSkeleton />}
                 {state === "error" && (
-                  <div className="reports-empty" data-tone="error" role="alert" aria-live="assertive" aria-atomic="true">
-                    <WarningCircle className="reports-state-illustration" size={24} weight="fill" aria-hidden="true" />
-                    <h3>报告列表加载失败</h3>
-                    <p>报告服务没有返回列表{notice?.text ? `：${notice.text}` : ""}。确认后端服务已启动后重新加载；当前筛选条件会保留。</p>
-                    <button className="button start-tool-button reports-empty-action" type="button" onClick={loadReports}><ArrowClockwise size={16} weight="bold" aria-hidden="true" /><span>重新加载</span></button>
-                  </div>
+                  <AsyncState
+                    className="reports-empty"
+                    tone="error"
+                    role="alert"
+                    live="assertive"
+                    icon={<WarningCircle className="reports-state-illustration" size={24} weight="fill" aria-hidden="true" />}
+                    title="报告列表加载失败"
+                    description={`报告服务没有返回列表${notice?.text ? `：${notice.text}` : ""}。确认后端服务已启动后重新加载；当前筛选条件会保留。`}
+                    action={<button className="button start-tool-button reports-empty-action" type="button" onClick={loadReports}><ArrowClockwise size={16} weight="bold" aria-hidden="true" /><span>重新加载</span></button>}
+                  />
                 )}
                 {state === "empty" && (
-                  <div className="reports-empty">
-                    <FileText className="reports-state-illustration" size={24} weight="bold" aria-hidden="true" />
-                    <h3>{hasActiveFilters ? "当前条件下没有报告" : "完成第一场面试后，从这里查看报告"}</h3>
-                    <p>{hasActiveFilters ? "调整搜索、日期或状态筛选后再试。" : "报告生成后会自动进入列表，并显示评分、下载和处理状态。"}</p>
-                    <button className="button start-tool-button reports-empty-action" type="button" onClick={hasActiveFilters ? clearFilters : () => window.location.assign("/prep")}>
+                  <AsyncState
+                    className="reports-empty"
+                    icon={<FileText className="reports-state-illustration" size={24} weight="bold" aria-hidden="true" />}
+                    title={hasActiveFilters ? "当前条件下没有报告" : "完成第一场面试后，从这里查看报告"}
+                    description={hasActiveFilters ? "调整搜索、日期或状态筛选后再试。" : "报告生成后会自动进入列表，并显示评分、下载和处理状态。"}
+                    action={<button className="button start-tool-button reports-empty-action" type="button" onClick={hasActiveFilters ? clearFilters : () => window.location.assign("/prep")}>
                       {hasActiveFilters ? <X size={16} weight="bold" aria-hidden="true" /> : <Plus size={16} weight="bold" aria-hidden="true" />}<span>{hasActiveFilters ? "清除筛选" : "开始面试"}</span>
-                    </button>
-                  </div>
+                    </button>}
+                  />
                 )}
                 {state === "ready" && payload.items.map((item, index) => {
                   const RowStatusIcon = statusIcons[item.status] || Info;

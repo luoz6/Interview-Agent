@@ -12,7 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import { AppShell } from "../components/AppShell";
 import { usePageMeta } from "../hooks/usePageMeta";
-import "../styles/help-app.css";
+import "../styles/pages/help.css";
 
 const sections = [
   { id: "prepare", label: "准备资料", icon: FileText },

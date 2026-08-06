@@ -66,138 +66,6 @@
   border: 0 !important;
 }
 
-.mobile-nav {
-  display: none;
-}
-
-.confirm-dialog-backdrop {
-  position: fixed;
-  z-index: 900;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: var(--start-space-md);
-  background: color-mix(in srgb, var(--start-color-ink) 32%, transparent);
-  backdrop-filter: blur(4px);
-  animation: confirm-backdrop-in var(--start-duration-fast) var(--start-ease-out) both;
-}
-
-.confirm-dialog {
-  width: min(100%, 30rem);
-  overflow: hidden;
-  border: var(--start-rule-thin) solid var(--start-color-rule-strong);
-  border-radius: var(--start-radius-panel);
-  background: var(--start-color-surface);
-  box-shadow: 0 1.25rem 4rem color-mix(in srgb, var(--start-color-ink) 22%, transparent);
-  animation: confirm-dialog-in var(--start-duration-normal) var(--start-ease-out) both;
-}
-
-.confirm-dialog-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--start-space-sm);
-  align-items: start;
-  padding: var(--start-space-md);
-  border-bottom: var(--start-rule-thin) solid var(--start-color-rule);
-}
-
-.confirm-dialog-icon {
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: var(--start-radius-control);
-  background: var(--start-color-warning-soft);
-  color: var(--start-color-warning);
-}
-
-.confirm-dialog[data-tone="danger"] .confirm-dialog-icon {
-  background: var(--start-color-danger-soft);
-  color: var(--start-color-danger);
-}
-
-.confirm-dialog h2 {
-  margin: 0;
-  color: var(--start-color-ink);
-  font-family: var(--start-font-display);
-  font-size: var(--start-text-lg);
-  line-height: 1.25;
-}
-
-.confirm-dialog-head p,
-.confirm-dialog-body p {
-  margin: var(--start-space-2xs) 0 0;
-  color: var(--start-color-text-muted);
-  font-size: var(--start-text-sm);
-  line-height: 1.65;
-}
-
-.confirm-dialog-close {
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0;
-  border: 0;
-  border-radius: var(--start-radius-control);
-  background: transparent;
-  color: var(--start-color-text-muted);
-  cursor: pointer;
-}
-
-.confirm-dialog-close:hover {
-  background: var(--start-color-canvas);
-  color: var(--start-color-ink);
-}
-
-.confirm-dialog-body {
-  padding: 0 var(--start-space-md) var(--start-space-md);
-}
-
-.confirm-dialog-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--start-space-xs);
-  margin: var(--start-space-sm) 0 0;
-}
-
-.confirm-dialog-metrics > div {
-  display: grid;
-  gap: var(--start-space-3xs);
-  padding: var(--start-space-sm);
-  border: var(--start-rule-thin) solid var(--start-color-rule);
-  border-radius: var(--start-radius-control);
-  background: var(--start-color-canvas);
-}
-
-.confirm-dialog-metrics strong {
-  color: var(--start-color-ink);
-  font-family: var(--start-font-mono);
-  font-size: var(--start-text-lg);
-}
-
-.confirm-dialog-metrics span {
-  color: var(--start-color-text-muted);
-  font-size: var(--start-text-xs);
-}
-
-.confirm-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--start-space-xs);
-  padding: var(--start-space-sm) var(--start-space-md);
-  border-top: var(--start-rule-thin) solid var(--start-color-rule);
-  background: var(--start-color-canvas);
-}
-
-@keyframes confirm-backdrop-in {
-  from { opacity: 0; }
-}
-
-@keyframes confirm-dialog-in {
-  from { opacity: 0; transform: translateY(.5rem) scale(.985); }
-}
-
 .start-skip-link {
   position: fixed;
   z-index: 1000;
@@ -278,46 +146,37 @@
   font-size: var(--start-text-micro);
 }
 
-.start-app-topbar .start-nav {
+.start-app-topbar-status {
+  justify-self: end;
   display: inline-flex;
   align-items: center;
-  gap: 0;
-  padding: var(--start-space-3xs);
-  border: var(--start-rule-thin) solid var(--start-color-rule);
-  border-radius: var(--start-radius-control);
-  background: var(--start-color-canvas);
-}
-
-.start-app-topbar .start-nav a {
-  position: relative;
-  min-width: 4.5rem;
-  padding: var(--start-space-2xs) var(--start-space-sm);
-  border-radius: var(--start-radius-small);
+  gap: var(--start-space-2xs);
   color: var(--start-color-text-muted);
-  font-size: var(--start-text-ui-sm);
-  font-weight: 650;
-  text-align: center;
-  text-decoration: none;
-  transition: background-color var(--start-duration-fast) var(--start-ease-out), color var(--start-duration-fast) var(--start-ease-out);
+  font-size: var(--start-text-xs);
+  font-weight: var(--start-font-weight-semibold);
 }
 
-.start-app-topbar .start-nav a + a {
-  border-left: 0;
+.start-app-topbar-status .status-dot {
+  width: .5rem;
+  height: .5rem;
+  border-radius: var(--start-radius-round);
+  background: var(--start-color-success);
+  box-shadow: 0 0 0 .1875rem var(--start-color-success-soft);
 }
 
-.start-app-topbar .start-nav a:active {
-  background: var(--start-tab-active-bg);
-  color: var(--start-tab-active-text);
+.start-app-topbar-status.status-idle .status-dot {
+  background: var(--start-color-action);
+  box-shadow: 0 0 0 .1875rem var(--start-color-info-soft);
 }
 
-.start-app-topbar .start-nav a[aria-current="page"] {
-  background: var(--start-color-surface);
-  color: var(--start-color-action-hover);
-  box-shadow: var(--start-shadow-panel);
+.start-app-topbar-status.status-warning .status-dot {
+  background: var(--start-color-warning);
+  box-shadow: 0 0 0 .1875rem var(--start-color-warning-soft);
 }
 
-.start-app-topbar .start-nav a[aria-current="page"]::after {
-  display: none;
+.start-app-topbar-status.status-error .status-dot {
+  background: var(--start-color-danger);
+  box-shadow: 0 0 0 .1875rem var(--start-color-danger-soft);
 }
 
 .start-runtime {
@@ -1641,16 +1500,6 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .start-app-topbar .start-nav a:hover {
-    background: var(--start-color-surface);
-    color: var(--start-color-action-hover);
-  }
-
-  .start-app-topbar .start-nav a[aria-current="page"]:hover {
-    background: var(--start-color-surface-secondary);
-    color: var(--start-color-action-hover);
-  }
-
   .start-activity-rail button:hover:not([aria-pressed="true"]),
   .start-document-tabs button:hover,
   .start-inspector-tabs button:hover {
@@ -1733,63 +1582,6 @@
 
   .start-app-topbar {
     grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .start-app-topbar .start-nav {
-    display: none;
-  }
-
-  .mobile-nav {
-    position: fixed;
-    z-index: 80;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    display: block;
-    min-height: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom));
-    padding: var(--start-space-2xs) var(--start-space-sm) env(safe-area-inset-bottom);
-    border-top: var(--start-rule-thin) solid var(--start-color-rule-strong);
-    background: color-mix(in srgb, var(--start-color-surface) 94%, transparent);
-    box-shadow: 0 -.5rem 1.5rem color-mix(in srgb, var(--start-color-ink) 8%, transparent);
-    backdrop-filter: blur(14px);
-  }
-
-  .mobile-nav-inner {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: min(100%, 28rem);
-    height: 3.5rem;
-    margin: 0 auto;
-  }
-
-  .mobile-nav a {
-    position: relative;
-    display: grid;
-    grid-template-rows: 1.25rem auto;
-    place-items: center;
-    gap: var(--start-space-3xs);
-    min-width: 0;
-    padding: var(--start-space-2xs);
-    border-radius: var(--start-radius-control);
-    color: var(--start-color-text-muted);
-    font-size: var(--start-text-micro);
-    font-weight: 650;
-    text-decoration: none;
-  }
-
-  .mobile-nav a[aria-current="page"] {
-    background: var(--start-tab-active-bg);
-    color: var(--start-color-action-hover);
-  }
-
-  .mobile-nav a[aria-current="page"]::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    width: 1.5rem;
-    height: .125rem;
-    border-radius: 999px;
-    background: var(--start-color-action);
   }
 
   .start-workspace-title p {
@@ -2038,13 +1830,6 @@
     margin-left: 0;
     border-right-color: var(--start-color-rule-strong);
     box-shadow: .5rem 0 .75rem var(--start-color-surface);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .confirm-dialog-backdrop,
-  .confirm-dialog {
-    animation: none;
   }
 }
 

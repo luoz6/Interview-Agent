@@ -21,7 +21,7 @@ export const AppShell = forwardRef(function AppShell({
   return (
     <div ref={ref} className={`start-app-root ${className}`.trim()} {...rootProps}>
       <a className="start-skip-link" href={skipHref}>{skipLabel}</a>
-      <header className={`app-topbar start-app-topbar ${headerClassName}`.trim()}>
+      <header className={`start-app-topbar ${headerClassName}`.trim()}>
         <a
           className="start-brand"
           href="/prep"
@@ -38,7 +38,7 @@ export const AppShell = forwardRef(function AppShell({
         </a>
         <PrimaryNav pathname={pathname} onNavigate={navigate} />
         {status || (
-          <div className={`app-topbar-status status-${statusTone}`}>
+          <div className={`start-app-topbar-status status-${statusTone}`}>
             <span className="status-dot" aria-hidden="true" />
             <span>{statusLabel}</span>
           </div>
@@ -49,16 +49,3 @@ export const AppShell = forwardRef(function AppShell({
     </div>
   );
 });
-
-export function PageHeading({ kicker, title, description, aside }) {
-  return (
-    <header className="page-heading">
-      <div>
-        {kicker && <p className="page-kicker">{kicker}</p>}
-        <h1>{title}</h1>
-        {description && <p className="page-description">{description}</p>}
-      </div>
-      {aside && <div className="page-heading-aside">{aside}</div>}
-    </header>
-  );
-}

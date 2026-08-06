@@ -23,11 +23,12 @@ import {
 import { apiUrl, getJson, HttpError, postJson, postSse, readSse } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { StatusNotice } from "../components/StatusNotice";
 import { AssistanceNotice } from "../components/UI";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
 import { createCommandId } from "../utils/ids";
-import "../styles/interview-app.css";
+import "../styles/pages/interview.css";
 
 const questionStateLabels = {
   answered: "已回答",
@@ -138,20 +139,6 @@ function InterviewRuntime({ status, operation }) {
         {state === "generating" ? <SpinnerGap className="start-spinner" size={15} weight="bold" /> : <RuntimeIcon size={15} weight={state === "ready" || state === "error" ? "fill" : "bold"} />}
       </span>
       <span>当前会话</span><strong key={`${status}-${operation || "idle"}`}>{runtimeLabel(status, operation)}</strong>
-    </div>
-  );
-}
-
-function InterviewNotice({ notice, onDismiss }) {
-  if (!notice) return null;
-  const tone = notice.tone === "danger" ? "error" : notice.tone || "info";
-  const NoticeIcon = tone === "error" || tone === "warning" ? WarningCircle : tone === "success" ? CheckCircle : Info;
-  const heading = tone === "error" ? "操作未完成" : tone === "warning" ? "请检查当前回答" : tone === "success" ? "操作已完成" : "会话提示";
-  return (
-    <div className={`start-notice start-notice-${tone} interview-notice`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} aria-atomic="true">
-      <span className="start-notice-icon" aria-hidden="true"><NoticeIcon size={18} weight={tone === "info" ? "bold" : "fill"} /></span>
-      <div><strong>{heading}</strong><p>{notice.text}</p></div>
-      <button type="button" onClick={onDismiss} aria-label="关闭提示"><X size={15} weight="bold" aria-hidden="true" /></button>
     </div>
   );
 }
@@ -634,7 +621,13 @@ export function InterviewPage() {
               <div className="interview-assistance"><AssistanceNotice announce={announceAssistanceNotice} /></div>
             ) : null}
 
-            <InterviewNotice key={notice ? `${notice.tone}-${notice.text}` : "no-notice"} notice={notice} onDismiss={() => setNotice(null)} />
+            <StatusNotice
+              key={notice ? `${notice.tone}-${notice.text}` : "no-notice"}
+              className="interview-notice"
+              title={notice?.tone === "error" || notice?.tone === "danger" ? "操作未完成" : notice?.tone === "warning" ? "请检查当前回答" : notice?.tone === "success" ? "操作已完成" : "会话提示"}
+              notice={notice}
+              onDismiss={() => setNotice(null)}
+            />
 
             <section className="agent-console" aria-label="面试对话">
               <header className="console-head">
