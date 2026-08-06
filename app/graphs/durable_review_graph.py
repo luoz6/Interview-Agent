@@ -178,7 +178,19 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
 
 
 def validate_report_quality(state: DurableReviewState, deps: DurableReviewGraphDependencies) -> dict:
-    result = deps.validate_report(state)
+    try:
+        result = deps.validate_report(state)
+    except Exception:
+        result = (
+            "failed",
+            [
+                {
+                    "code": "report_validation_failed",
+                    "description": "runtime report validation did not complete",
+                    "question_id": None,
+                }
+            ],
+        )
     _inject_fault(deps, "after_quality_validation", state)
     if isinstance(result, tuple):
         outcome, issues = result

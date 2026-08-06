@@ -1372,13 +1372,49 @@ def build_review_workflow_service():
         }
 
     def validate_report(graph_state):
-        report = InterviewReport.model_validate(
-            workflow_store.load_effect_payload(
-                graph_state["report_ref"].removeprefix("review-effect:")
-            )
+        raw_payload = workflow_store.load_effect_payload(
+            graph_state["report_ref"].removeprefix("review-effect:")
         )
-        expected = len(graph_state["review_input_manifest"]["questions"])
-        result = evaluate_runtime_report_quality(report, expected_question_count=expected)
+        try:
+            report = InterviewReport.model_validate(raw_payload)
+        except Exception:
+            return (
+                "failed",
+                [
+                    {
+                        "code": "report_schema_invalid",
+                        "description": (
+                            "report payload failed deterministic schema validation"
+                        ),
+                        "question_id": None,
+                    }
+                ],
+            )
+        manifest = graph_state["review_input_manifest"]
+        expected_questions = list(manifest["questions"])
+        session_state = store.get(graph_state["session_id"])
+        expected_candidate_answers = {
+            question["question_id"]: " ".join(
+                message["content"].strip()
+                for message in session_state.get("messages", [])
+                if message.get("role") == "candidate"
+                and message.get("question_id") == question["question_id"]
+                and message.get("content", "").strip()
+            )
+            for question in expected_questions
+            if question.get("answer_state") == "answered"
+        }
+        result = evaluate_runtime_report_quality(
+            report,
+            expected_question_count=len(expected_questions),
+            expected_questions=expected_questions,
+            expected_session_id=graph_state["session_id"],
+            expected_report_sha256=graph_state["report_sha256"],
+            artifact_schema_version="report-artifact-v2",
+            raw_payload=raw_payload,
+            review_input_manifest=manifest,
+            expected_candidate_answers=expected_candidate_answers,
+        )
         return (
             "passed" if not result.blocking_issues else "failed",
             [asdict(item) for item in result.structured_blocking_issues],

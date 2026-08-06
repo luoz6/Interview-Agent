@@ -1,0 +1,36 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T44",
+  "implementation_revision_base": "4561ad3880fbe7e68a40798d98bc825fbdc80191",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "provider_calls": 0,
+  "gate_behavior": {
+    "blocking_issue_count_for_valid_fixture": 0,
+    "warning_pass_allowed": false,
+    "commit_called_on_failure": false,
+    "active_pointer_changed_on_failure": false,
+    "artifact_created_on_failure": false,
+    "terminal_error_code": "report_quality_failed"
+  },
+  "deterministic_domains": [
+    "raw_payload_schema_and_forbidden_fields",
+    "question_rule_score_recalculation",
+    "overall_and_dimension_aggregation",
+    "unscored_null_invariants",
+    "frozen_question_and_answer_identity",
+    "candidate_and_reference_namespace",
+    "claim_action_guidance_reference_closure",
+    "principal_memory_field_exclusion",
+    "empty_and_numeric_placeholder_rules",
+    "artifact_schema_version_hash_lineage"
+  ],
+  "verification": {
+    "focused_passed": 27,
+    "durable_runtime_passed": 155,
+    "report_regression_passed": 376,
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS"
+  }
+}
