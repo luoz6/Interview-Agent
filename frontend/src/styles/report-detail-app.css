@@ -1480,8 +1480,9 @@
 }
 
 .report-detail-revision-list li {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(7rem, .7fr) minmax(10rem, 1fr) auto;
+  align-items: center;
   gap: var(--start-space-sm);
   padding: var(--start-space-xs) var(--start-space-sm);
   color: var(--start-color-ink-soft);
@@ -1494,6 +1495,25 @@
 
 .report-detail-revision-list time {
   color: var(--start-color-text-muted);
+}
+
+.report-detail-revision-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--start-space-3xs);
+  padding: var(--start-space-3xs) var(--start-space-2xs);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-small);
+  background: var(--start-color-surface);
+  color: var(--start-color-action);
+  font: inherit;
+  font-weight: var(--start-font-weight-bold);
+  cursor: pointer;
+}
+
+.report-detail-revision-list button:disabled {
+  cursor: wait;
+  opacity: .55;
 }
 
 .report-detail-code-list {
@@ -2388,7 +2408,12 @@
 
   .report-detail-revision-list li {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--start-space-3xs);
+  }
+
+  .report-detail-revision-list button {
+    justify-self: start;
   }
 }
 

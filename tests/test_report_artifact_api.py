@@ -4,6 +4,7 @@ import app.api.routes as routes
 from app.main import app
 from app.services.report_artifact import PublishReportArtifact
 from app.services.report_artifact_store import InMemoryReportArtifactStore
+from tests.test_report_pdf import make_report
 
 
 class FinishedSessionStore:
@@ -30,6 +31,23 @@ def payload():
             "total_eligible_count": 1,
             "evidence_count": 1,
         },
+    )
+
+
+def renderable_payload(summary: str) -> PublishReportArtifact:
+    report = make_report().model_copy(
+        update={"session_id": "session-1", "summary": summary}
+    )
+    return PublishReportArtifact(
+        schema_version="report-artifact-v2",
+        scoring_rubric_version=report.scoring_rubric_version,
+        generation_status=report.generation_status,
+        generation_reason_code=report.generation_reason_code,
+        score_status=report.score_status,
+        score_reason_code=report.score_reason_code,
+        coverage_status=report.coverage_status,
+        report_path=report.report_path,
+        payload=report.model_dump(mode="json"),
     )
 
 
@@ -102,5 +120,88 @@ def test_failed_initial_job_without_active_report_is_visible_and_requeueable():
         assert processing.status_code == 202
         assert processing.json()["active_artifact"] is None
         assert processing.json()["latest_job"]["status"] == "queued"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves(
+    monkeypatch,
+):
+    artifacts = InMemoryReportArtifactStore()
+    initial = artifacts.enqueue_job(session_id="session-1", idempotency_key="pdf-v1")
+    initial = artifacts.claim_job(initial.job_id, worker_id="w1")
+    first = artifacts.publish(
+        initial.job_id,
+        renderable_payload("immutable summary version one"),
+        worker_id="w1",
+    )
+    rescore = artifacts.enqueue_job(
+        session_id="session-1",
+        job_kind="rescore",
+        source_report_id=first.report_id,
+        idempotency_key="pdf-v2",
+    )
+    rescore = artifacts.claim_job(rescore.job_id, worker_id="w2")
+    second = artifacts.publish(
+        rescore.job_id,
+        renderable_payload("active summary version two"),
+        worker_id="w2",
+    )
+    captures = []
+
+    def capture_pdf(report, **identity):
+        captures.append((report.summary, identity))
+        return b"%PDF-version-bound"
+
+    monkeypatch.setattr(routes, "build_report_pdf", capture_pdf)
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    try:
+        client = TestClient(app)
+        historical = client.get(f"/api/reports/{first.report_id}.pdf")
+        active = client.get("/api/interviews/session-1/report.pdf")
+
+        assert artifacts.get_head("session-1").active_report_id == second.report_id
+        assert historical.status_code == 200
+        assert f"r1-{first.report_id[:8]}" in historical.headers["content-disposition"]
+        assert captures[0][0] == "immutable summary version one"
+        assert captures[0][1]["report_id"] == first.report_id
+        assert captures[0][1]["revision"] == 1
+        assert active.status_code == 200
+        assert f"r2-{second.report_id[:8]}" in active.headers["content-disposition"]
+        assert captures[1][0] == "active summary version two"
+        assert captures[1][1]["report_id"] == second.report_id
+        assert captures[1][1]["revision"] == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pdf_export_failure_does_not_mutate_artifact_or_active_pointer(monkeypatch):
+    artifacts = InMemoryReportArtifactStore()
+    initial = artifacts.enqueue_job(session_id="session-1", idempotency_key="pdf-fail")
+    initial = artifacts.claim_job(initial.job_id, worker_id="w1")
+    published = artifacts.publish(
+        initial.job_id,
+        renderable_payload("immutable before export failure"),
+        worker_id="w1",
+    )
+    before_artifact = artifacts.get_artifact(published.report_id)
+    before_head = artifacts.get_head("session-1")
+    before_jobs = artifacts.list_jobs("session-1")
+
+    def fail_export(*args, **kwargs):
+        raise RuntimeError("synthetic PDF renderer failure")
+
+    monkeypatch.setattr(routes, "build_report_pdf", fail_export)
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get(f"/api/reports/{published.report_id}.pdf")
+
+        assert response.status_code == 500
+        assert artifacts.get_artifact(published.report_id) == before_artifact
+        assert artifacts.get_head("session-1") == before_head
+        assert artifacts.list_jobs("session-1") == before_jobs
     finally:
         app.dependency_overrides.clear()

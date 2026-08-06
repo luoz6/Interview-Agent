@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getJson } from "../api/client";
+import { downloadFile, getJson } from "../api/client";
 import { ReportDetailPage } from "./ReportDetailPage";
 
 vi.mock("../api/client", () => ({
@@ -103,6 +103,7 @@ const reportResponse = {
 
 beforeEach(() => {
   window.history.replaceState({}, "", "/report-detail?session_id=session-1");
+  downloadFile.mockResolvedValue(undefined);
   getJson.mockImplementation((path) => {
     if (path.endsWith("/report")) return Promise.resolve(reportResponse);
     if (path.endsWith("/reports")) {
@@ -199,5 +200,28 @@ describe("ReportDetailPage candidate information architecture", () => {
     expect(screen.getByText("证据不足，未发布数字")).toBeInTheDocument();
     expect(screen.getAllByText("未评分").length).toBeGreaterThan(0);
     expect(screen.getAllByText("无有效覆盖").length).toBeGreaterThan(0);
+  });
+
+  it("downloads the active PDF by immutable report ID and revision", async () => {
+    render(<ReportDetailPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "下载完整报告" }));
+
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledWith(
+      "/api/reports/report-2.pdf",
+      "interview-report-r2-report-2.pdf",
+    ));
+  });
+
+  it("downloads a historical revision without following the active pointer", async () => {
+    render(<ReportDetailPage />);
+
+    fireEvent.click(await screen.findByText("技术附录"));
+    fireEvent.click(screen.getByRole("button", { name: "下载第 1 版" }));
+
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledWith(
+      "/api/reports/report-1.pdf",
+      "interview-report-r1-report-1.pdf",
+    ));
   });
 });

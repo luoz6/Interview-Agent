@@ -1777,6 +1777,7 @@ def _report_job_v2_to_dict(job) -> dict | None:
 @router.get("/interviews/{session_id}/report.pdf")
 def download_interview_report_pdf(
     session_id: str,
+    request: Request,
     store: InterviewSessionStore = Depends(get_session_store),
 ):
     try:
@@ -1787,6 +1788,15 @@ def download_interview_report_pdf(
 
     if state["status"] != "finished":
         raise HTTPException(status_code=409, detail="interview is not finished")
+
+    artifact_store = _optional_report_artifact_store(request)
+    if (
+        artifact_store is not None
+        and get_report_artifact_read_mode() == "artifact_first"
+    ):
+        active_artifact, _ = _active_report_view(artifact_store, session_id)
+        if active_artifact is not None:
+            return _report_artifact_pdf_response(active_artifact)
 
     record = store.get_report_record(session_id)
     if record is None or record.status == "processing":
@@ -1851,6 +1861,10 @@ def download_report_artifact_pdf(
         artifact = artifact_store.get_artifact(report_id)
     except ReportArtifactNotFound as exc:
         raise HTTPException(status_code=404, detail="report artifact not found") from exc
+    return _report_artifact_pdf_response(artifact)
+
+
+def _report_artifact_pdf_response(artifact):
     from app.services.report import InterviewReport
 
     try:
@@ -1860,7 +1874,16 @@ def download_report_artifact_pdf(
             status_code=409,
             detail="report artifact is not renderable as the legacy PDF schema",
         ) from exc
-    pdf_bytes = build_report_pdf(report)
+    pdf_bytes = build_report_pdf(
+        report,
+        report_id=artifact.report_id,
+        revision=artifact.revision,
+        created_at=(
+            artifact.created_at.isoformat()
+            if artifact.created_at is not None
+            else None
+        ),
+    )
     filename = f"interview-report-r{artifact.revision}-{artifact.report_id[:8]}.pdf"
     return Response(
         content=pdf_bytes,

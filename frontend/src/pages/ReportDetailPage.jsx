@@ -451,18 +451,29 @@ export function ReportDetailPage() {
     target.querySelector("summary")?.focus({ preventScroll: true });
   }
 
-  async function download() {
+  async function downloadVersion(targetArtifact = artifact) {
     if (!sessionId || downloadState === "loading") return;
     setDownloadState("loading");
     setNotice(null);
     try {
-      await downloadFile(`/api/interviews/${encodeURIComponent(sessionId)}/report.pdf`, `interview-report-${sessionId}.pdf`);
+      const versioned = Boolean(targetArtifact?.report_id);
+      const path = versioned
+        ? `/api/reports/${encodeURIComponent(targetArtifact.report_id)}.pdf`
+        : `/api/interviews/${encodeURIComponent(sessionId)}/report.pdf`;
+      const filename = versioned
+        ? `interview-report-r${targetArtifact.revision || "legacy"}-${targetArtifact.report_id.slice(0, 8)}.pdf`
+        : `interview-report-${sessionId}.pdf`;
+      await downloadFile(path, filename);
       setDownloadState("success");
-      setNotice({ tone: "success", title: "下载已开始", text: "PDF 正在保存到浏览器的默认下载位置。" });
+      setNotice({ tone: "success", title: "下载已开始", text: `${reportRevisionLabel(targetArtifact)} PDF 正在保存；文件内容绑定该 immutable report ID。` });
     } catch (error) {
       setDownloadState("error");
       setNotice({ tone: "danger", title: "PDF 下载失败", text: error.message });
     }
+  }
+
+  function download() {
+    return downloadVersion(artifact);
   }
 
   function retryReport() {
@@ -599,7 +610,7 @@ export function ReportDetailPage() {
                   <section aria-labelledby="report-revision-history-title">
                     <header className="report-detail-subsection-head"><h3 id="report-revision-history-title"><ArrowClockwise size={17} weight="duotone" aria-hidden="true" />报告版本</h3><span>{revisionsUnavailable ? "暂时不可用" : `${revisionHistory.length || (artifact ? 1 : 0)} 版`}</span></header>
                     <dl className="report-detail-technical-facts"><div><dt>当前版本</dt><dd>{reportRevisionLabel(artifact)} · {reportCreatedAtLabel(artifact?.created_at)}</dd></div><div><dt>Report Artifact</dt><dd><code>{artifact?.report_id || "legacy"}</code></dd></div><div><dt>来源 job</dt><dd><code>{artifact?.source_job_id || latestJob?.job_id || "未记录"}</code></dd></div><div><dt>Schema / Rubric</dt><dd>{report.report_schema_version || artifact?.schema_version || "legacy"} · {report.scoring_rubric_version || "未记录"}</dd></div></dl>
-                    {!revisionsUnavailable && revisionHistory.length > 1 && <ol className="report-detail-revision-list">{[...revisionHistory].sort((left, right) => (right.revision || 0) - (left.revision || 0)).map((item) => <li key={item.report_id}><span>{reportRevisionLabel(item)}{item.active ? " · active" : ""}</span><time dateTime={item.created_at || undefined}>{reportCreatedAtLabel(item.created_at)}</time></li>)}</ol>}
+                    {!revisionsUnavailable && revisionHistory.length > 1 && <ol className="report-detail-revision-list">{[...revisionHistory].sort((left, right) => (right.revision || 0) - (left.revision || 0)).map((item) => <li key={item.report_id}><span>{reportRevisionLabel(item)}{item.active ? " · active" : ""}</span><time dateTime={item.created_at || undefined}>{reportCreatedAtLabel(item.created_at)}</time><button type="button" onClick={() => downloadVersion(item)} disabled={downloading} aria-label={`下载${reportRevisionLabel(item)}`}><FilePdf size={14} weight="bold" aria-hidden="true" />下载</button></li>)}</ol>}
                   </section>
 
                   <section aria-labelledby="report-reason-codes-title">
