@@ -1,0 +1,57 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T46",
+  "implementation_revision_base": "5c9576ee12946307c282ac31e1671d486175b363",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "provider_calls": 0,
+  "degraded_template": {
+    "version": "report-degraded-safe-template-v1",
+    "provider_analysis_completed": false,
+    "deterministic_fallback": true,
+    "score_state_preserved": true,
+    "public_generation_reason_code": "summary_generation_failed",
+    "frozen_artifact_enum_changed": false
+  },
+  "truth_table": {
+    "text_failure_with_valid_scores": "degraded + scored/partial",
+    "insufficient_evidence": "degraded + unscored; all numeric scores remain null",
+    "schema_reference_fact_failure": "job failed; no artifact committed",
+    "degraded_builder_failure": "job failed; no artifact committed",
+    "old_active_on_failure": "preserved",
+    "no_active_on_failure": "failed state visible and retry supported"
+  },
+  "durable_effect": {
+    "effect_type": "report_degraded_fallback",
+    "operation_key": "report-degraded:{job_id}:{input_sha256}:{provider_attempt}",
+    "provider_call": false,
+    "manifest_order_closed": true,
+    "missing_extra_duplicate_feedback_rejected": true
+  },
+  "automatic_review_fixes": [
+    "closed completed question feedbacks against frozen manifest order and identity",
+    "kept component detail out of the frozen public Artifact reason-code enum",
+    "kept degraded builder and schema/reference/fact failures terminal",
+    "added failed-without-active and requeue API regression coverage"
+  ],
+  "verification": {
+    "focused_and_store_passed": 111,
+    "report_regression_passed": 404,
+    "report_regression_skipped": 0,
+    "durable_review_passed": 57,
+    "durable_review_skipped": 0,
+    "final_focused_passed": 45,
+    "frontend_vitest_passed": 20,
+    "frontend_build": "PASS",
+    "postgresql": "16.14",
+    "pgvector": "0.8.6",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS"
+  },
+  "truthfulness_limits": [
+    "No Provider was called by T46.",
+    "T46 Engineering PASS does not establish the T45 independent human review result.",
+    "No v2-over-v1 preference, fabrication observed_count, or later Quality Gate PASS is claimed."
+  ]
+}

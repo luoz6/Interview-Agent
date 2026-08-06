@@ -1230,6 +1230,10 @@ def build_review_workflow_service():
     )
     from app.services.agent_runtime import AgentExecutionContext, correlation_id_from_plan
     from app.services.report_microbatch import build_report_coach_items_from_question_evaluations
+    from app.services.report_degraded import (
+        build_degraded_report_from_feedbacks,
+        completed_feedbacks_in_manifest_order,
+    )
     from app.services.question_evaluations import QuestionEvaluationRecord
     from app.services.report import InterviewReport
     from app.services.report_runtime_quality import evaluate_runtime_report_quality
@@ -1371,6 +1375,47 @@ def build_review_workflow_service():
             "report_sha256": effect["output_sha256"],
         }
 
+    def generate_degraded_report(graph_state, source_failure_code):
+        operation_key = (
+            f"report-degraded:{graph_state['job_id']}:"
+            f"{graph_state['review_input_manifest']['input_sha256']}:"
+            f"{graph_state['provider_attempt']}"
+        )
+
+        def build_safe_report(effect_ownership):
+            effect_ownership.ensure_owned()
+            state = store.get(graph_state["session_id"])
+            records = store.list_question_evaluations(state["session_id"])
+            expected_ids = [
+                question["question_id"]
+                for question in graph_state["review_input_manifest"]["questions"]
+            ]
+            feedbacks = completed_feedbacks_in_manifest_order(
+                records,
+                expected_question_ids=expected_ids,
+            )
+            report = build_degraded_report_from_feedbacks(
+                session_id=state["session_id"],
+                feedbacks=feedbacks,
+                failed_components=["summary"],
+                source_failure_code=source_failure_code,
+                report_path="microbatch",
+            )
+            return report.model_dump(mode="json")
+
+        effect = workflow_store.run_effect(
+            operation_key=operation_key,
+            job_id=graph_state["job_id"],
+            effect_type="report_degraded_fallback",
+            graph_schema_version=graph_state["review_graph_schema_version"],
+            input_sha256=graph_state["review_input_manifest"]["input_sha256"],
+            provider=build_safe_report,
+        )
+        return {
+            "report_ref": f"review-effect:{operation_key}",
+            "report_sha256": effect["output_sha256"],
+        }
+
     def validate_report(graph_state):
         raw_payload = workflow_store.load_effect_payload(
             graph_state["report_ref"].removeprefix("review-effect:")
@@ -1478,6 +1523,7 @@ def build_review_workflow_service():
         workflow_store=workflow_store,
         review_question=review_question,
         generate_report=generate_report,
+        generate_degraded_report=generate_degraded_report,
         repair_report=repair_report,
         validate_report=validate_report,
         commit_report=commit_report,

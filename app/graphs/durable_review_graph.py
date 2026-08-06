@@ -18,6 +18,7 @@ class DurableReviewGraphDependencies:
     generate_report: object
     validate_report: object
     commit_report: object
+    generate_degraded_report: object | None = None
     max_provider_attempts: int = 3
     max_quality_repairs: int = 2
     repair_report: object | None = None
@@ -159,11 +160,29 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
         )
     except Exception as exc:
         failure = deps.failure_classifier(exc)
+        retryable = (
+            failure.retryable
+            and state["provider_attempt"] < deps.max_provider_attempts
+        )
+        if not retryable and _can_publish_degraded_report(failure.code, deps):
+            try:
+                artifact = deps.generate_degraded_report(state, failure.code)
+            except Exception as degraded_exc:
+                degraded_failure = deps.failure_classifier(degraded_exc)
+                return {
+                    "generation_outcome": "terminal",
+                    "error_code": degraded_failure.code,
+                }
+            return {
+                "report_ref": artifact["report_ref"],
+                "report_sha256": artifact["report_sha256"],
+                "generation_outcome": "completed",
+                "error_code": None,
+            }
         return {
             "generation_outcome": (
                 "retryable"
-                if failure.retryable
-                and state["provider_attempt"] < deps.max_provider_attempts
+                if retryable
                 else "terminal"
             ),
             "error_code": failure.code,
@@ -174,6 +193,18 @@ def generate_coach_report(state: DurableReviewState, deps: DurableReviewGraphDep
         "report_sha256": artifact["report_sha256"],
         "generation_outcome": "completed",
         "error_code": None,
+    }
+
+
+def _can_publish_degraded_report(
+    failure_code: str,
+    deps: DurableReviewGraphDependencies,
+) -> bool:
+    return deps.generate_degraded_report is not None and failure_code in {
+        "provider_timeout",
+        "provider_unavailable",
+        "provider_auth_failed",
+        "invalid_provider_output",
     }
 
 

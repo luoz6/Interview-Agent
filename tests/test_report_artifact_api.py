@@ -64,3 +64,43 @@ def test_report_version_endpoints_keep_active_artifact_when_rescore_fails():
         assert client.get(f"/api/reports/{first.report_id}").status_code == 200
     finally:
         app.dependency_overrides.clear()
+
+
+def test_failed_initial_job_without_active_report_is_visible_and_requeueable():
+    artifacts = InMemoryReportArtifactStore()
+    initial = artifacts.enqueue_job(
+        session_id="session-1",
+        idempotency_key="initial-failed",
+    )
+    claimed = artifacts.claim_job(initial.job_id, worker_id="w1")
+    artifacts.fail_job(
+        claimed.job_id,
+        error_code="provider_timeout",
+    )
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    app.dependency_overrides[routes.get_report_job_queue] = lambda: object()
+    try:
+        client = TestClient(app)
+        failed = client.get("/api/interviews/session-1/report")
+
+        assert failed.status_code == 500
+        assert failed.json()["active_artifact"] is None
+        assert failed.json()["latest_job"]["status"] == "failed"
+        assert failed.json()["latest_job"]["error_code"] == "provider_timeout"
+
+        requeued = client.post(
+            "/api/interviews/session-1/report/requeue",
+            json={},
+        )
+        assert requeued.status_code == 202
+        assert requeued.json()["report_job_id"] == initial.job_id
+        assert requeued.json()["status"] == "queued"
+        assert requeued.json()["active_report_id"] is None
+
+        processing = client.get("/api/interviews/session-1/report")
+        assert processing.status_code == 202
+        assert processing.json()["active_artifact"] is None
+        assert processing.json()["latest_job"]["status"] == "queued"
+    finally:
+        app.dependency_overrides.clear()

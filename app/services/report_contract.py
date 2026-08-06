@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -88,10 +88,29 @@ def assemble_interview_report(
         for result in question_results
     ]
 
-    feedbacks = populate_feedback_dimension_evaluations(feedbacks)
+    return assemble_interview_report_from_feedbacks(
+        session_id=session_id,
+        feedbacks=feedbacks,
+        summary_provider=summary_provider,
+    )
+
+
+def assemble_interview_report_from_feedbacks(
+    *,
+    session_id: str,
+    feedbacks: list[InterviewFeedback],
+    summary_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    report_path: Literal["microbatch", "full_session", "heuristic"] = (
+        "full_session"
+    ),
+) -> InterviewReport:
+    """Assemble report semantics from already validated question feedback."""
+    if not feedbacks:
+        raise ValueError("feedbacks must not be empty")
+    feedbacks = populate_feedback_dimension_evaluations(list(feedbacks))
     coverage = aggregate_report_coverage(feedbacks)
 
-    highlights = _build_highlights(question_results)
+    highlights = _build_highlights(feedbacks)
     report_dimension_evaluations = dimension_evaluations(coverage)
     report_evidence_refs = build_report_evidence_refs(feedbacks)
     observations = aggregate_report_observations(
@@ -151,14 +170,27 @@ def assemble_interview_report(
         limitations=summary_result.limitations,
         evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
-            reason_codes=[coverage.score_reason_code],
-            report_path="full_session",
+            reason_codes=list(
+                dict.fromkeys(
+                    [
+                        coverage.score_reason_code,
+                        *(
+                            [summary_result.reason_code]
+                            if summary_result.reason_code != "normal"
+                            else []
+                        ),
+                    ]
+                )
+            ),
+            report_path=report_path,
             observations=observations,
             summary_prompt_version=summary_result.prompt_version,
             summary_prompt_sha256=summary_result.prompt_sha256,
             summary_generation_mode=summary_result.generation_mode,
             metadata={
                 "coverage_status": coverage.coverage_status,
+                "summary_provider_attempted": summary_result.provider_attempted,
+                "summary_degraded": summary_result.degraded,
                 "action_planner_version": REPORT_ACTION_PLANNER_VERSION,
                 "priority_action_count": len(priority_actions),
                 "answer_guidance_version": REPORT_ANSWER_GUIDANCE_VERSION,
@@ -170,6 +202,7 @@ def assemble_interview_report(
                 ),
             },
         ),
+        report_path=report_path,
         summary=summary_result.summary,
         highlights=highlights,
         feedbacks=feedbacks,
@@ -211,7 +244,9 @@ def build_report_evidence_refs(
     return refs
 
 
-def _build_highlights(question_results: list[CanonicalQuestionResult]) -> list[str]:
+def _build_highlights(
+    question_results: list[CanonicalQuestionResult | InterviewFeedback],
+) -> list[str]:
     highlights: list[str] = []
     for result in question_results:
         for highlight in result.highlights:

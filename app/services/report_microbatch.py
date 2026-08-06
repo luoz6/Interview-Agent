@@ -12,8 +12,15 @@ from app.services.agent_runtime import (
 )
 from app.services.evaluator import build_evaluation_chunks
 from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import InterviewReport, ReportProgress
+from app.services.report import (
+    InterviewReport,
+    ReportGenerationFailed,
+    ReportGenerationTimeout,
+    ReportOutputFormatError,
+    ReportProgress,
+)
 from app.services.report_coverage import apply_report_coverage
+from app.services.report_degraded import build_degraded_report_from_feedbacks
 from app.services.round_review_runner import run_round_review_event_from_state
 from app.services.runtime_domain_events import RoundClosedEvent
 
@@ -125,37 +132,54 @@ def generate_microbatch_report(
         if record.feedback is not None
         for reference in record.feedback.references
     ]
-    coach_report = ReportCoachAgent(
-        llm=llm,
-        execution_runner=execution_runner,
-    ).generate_report(
-        plan=state["plan"],
-        evaluation_items=build_report_coach_items_from_question_evaluations(
-            records,
-            chunks_by_question_id=chunks_by_question_id,
-        ),
-        session_id=state["session_id"],
-        execution_context=AgentExecutionContext(
-            correlation_id=correlation_id_from_plan(
-                state["plan"],
-                session_id=state["session_id"],
+    try:
+        coach_report = ReportCoachAgent(
+            llm=llm,
+            execution_runner=execution_runner,
+        ).generate_report(
+            plan=state["plan"],
+            evaluation_items=build_report_coach_items_from_question_evaluations(
+                records,
+                chunks_by_question_id=chunks_by_question_id,
             ),
-            causation_id=command_id,
-            agent="report_coach",
-            operation="generate_microbatch_report",
-            phase="review",
             session_id=state["session_id"],
-            state_version=state["state_version"],
-            command_id=command_id,
-            evidence_ids=evidence_ids,
-            attempt_number=attempt_number,
-        ),
-        trace_metadata={
-            "question_count": len(records),
-            "report_path": "microbatch",
-        },
-    )
-    report = finalize_report_with_microbatch_feedback(coach_report, records)
+            execution_context=AgentExecutionContext(
+                correlation_id=correlation_id_from_plan(
+                    state["plan"],
+                    session_id=state["session_id"],
+                ),
+                causation_id=command_id,
+                agent="report_coach",
+                operation="generate_microbatch_report",
+                phase="review",
+                session_id=state["session_id"],
+                state_version=state["state_version"],
+                command_id=command_id,
+                evidence_ids=evidence_ids,
+                attempt_number=attempt_number,
+            ),
+            trace_metadata={
+                "question_count": len(records),
+                "report_path": "microbatch",
+            },
+        )
+        report = finalize_report_with_microbatch_feedback(coach_report, records)
+    except (ReportGenerationFailed, ReportOutputFormatError) as exc:
+        logger.warning(
+            "Report Coach text generation failed; publishing safe degraded report",
+            extra={
+                "session_id": state["session_id"],
+                "error_code": _report_text_failure_code(exc),
+                "question_count": len(records),
+            },
+        )
+        report = build_degraded_report_from_feedbacks(
+            session_id=state["session_id"],
+            feedbacks=[record.feedback for record in records if record.feedback],
+            failed_components=["summary"],
+            source_failure_code=_report_text_failure_code(exc),
+            report_path="microbatch",
+        )
 
     if on_progress is not None:
         on_progress(
@@ -174,6 +198,14 @@ def generate_microbatch_report(
         )
 
     return report
+
+
+def _report_text_failure_code(exc: Exception) -> str:
+    if isinstance(exc, ReportGenerationTimeout):
+        return "provider_timeout"
+    if isinstance(exc, ReportOutputFormatError):
+        return "invalid_provider_output"
+    return "provider_unavailable"
 
 
 def ensure_completed_question_evaluations_for_report(

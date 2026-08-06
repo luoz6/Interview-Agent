@@ -11,6 +11,7 @@ from app.graphs.durable_review_state import make_durable_review_initial_state
 from app.services.report import InterviewReport, ReportEvidenceRefV2
 from app.services.report_artifact_store import InMemoryReportArtifactStore
 from app.services.report_contract import assemble_interview_report
+from app.services.report_degraded import build_degraded_report_from_feedbacks
 from app.services.report_provider_adapter import normalize_provider_payload
 from app.services.report_runtime_quality import evaluate_runtime_report_quality
 from tests.test_durable_review_graph import FakeStore
@@ -121,6 +122,27 @@ def _evaluate(report: InterviewReport, *, raw_payload=None, digest=None, manifes
 
 def _codes(result) -> set[str]:
     return {item.code for item in result.structured_blocking_issues}
+
+
+def test_safe_degraded_summary_preserves_scores_and_passes_runtime_gate():
+    base = _report()
+    degraded = build_degraded_report_from_feedbacks(
+        session_id=base.session_id,
+        feedbacks=base.feedbacks,
+        failed_components=["summary"],
+        source_failure_code="provider_timeout",
+        report_path="microbatch",
+    )
+
+    result = _evaluate(degraded)
+
+    assert result.blocking_issues == []
+    assert degraded.generation_status == "degraded"
+    assert degraded.score_status == "scored"
+    assert degraded.overall_score == base.overall_score
+    assert degraded.technical_appendix.summary_generation_mode == (
+        "deterministic_fallback"
+    )
 
 
 def test_runtime_gate_accepts_canonical_v2_report_and_complete_lineage():
