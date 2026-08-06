@@ -410,7 +410,6 @@ class OpenAIInterviewLLM:
                     ],
                     "rationale": "Explain the evidence in Simplified Chinese.",
                     "critique": "State the biggest missing point in Simplified Chinese.",
-                    "better_answer": "Give a concise improved answer in Simplified Chinese.",
                     "reference_chunk_ids": ["redis-1", "redis-2"],
                     "highlights": ["Mentioned cache-aside tradeoffs."],
                 }
@@ -428,6 +427,7 @@ class OpenAIInterviewLLM:
             "The backend computes all numeric scores from evidence.\n"
             "Do not return score or dimension_scores for any question.\n"
             "Do not return overall_score, overall_dimension_scores, summary, or reference objects.\n"
+            "Do not return better_answer or any rewritten candidate experience; the backend derives bounded answer guidance.\n"
             "For each question, return exactly one dimension_evidence item for every applicable dimension listed in the evaluation item context.\n"
             "If an applicable dimension has no support, return observed as an empty list and explain the missing evidence in missing.\n"
             "Do not merge evidence for several dimensions into one dimension item.\n"

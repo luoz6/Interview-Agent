@@ -175,6 +175,8 @@ def test_generate_report_prompt_requests_evidence_not_scores():
     assert "Do not merge evidence for several dimensions" in prompt
     assert "short continuous excerpt copied from the candidate answer" in prompt
     assert "Do not put evaluator judgments" in prompt
+    assert "Do not return better_answer" in prompt
+    assert '"better_answer":' not in prompt
 
 
 class FailingStructuredModel:
@@ -645,10 +647,9 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
     assert report.feedbacks[0].dimension_scores.engineering is None
     assert report.feedbacks[0].critique == "模型输出未提供明确问题点。"
-    assert (
-        report.feedbacks[0].better_answer
-        == "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."
-    )
+    assert "当前事实不足" in report.feedbacks[0].better_answer
+    assert report.feedbacks[0].example_rewrite is None
+    assert "binlog-driven invalidation" not in report.feedbacks[0].better_answer
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",
@@ -674,10 +675,9 @@ def test_generate_report_normalizes_sparse_deepseek_raw_json():
     assert report.feedbacks[0].evaluation_status == "insufficient_evidence"
     assert "cache-aside pattern" in report.feedbacks[0].rationale
     assert report.feedbacks[0].critique == "No cache invalidation race-window mitigation."
-    assert (
-        report.feedbacks[0].better_answer
-        == "Explain delete-after-write ordering and delayed double delete."
-    )
+    assert "当前事实不足" in report.feedbacks[0].better_answer
+    assert report.feedbacks[0].example_rewrite is None
+    assert "delayed double delete" not in report.feedbacks[0].better_answer
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",

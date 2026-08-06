@@ -3,6 +3,7 @@ from uuid import uuid4
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.llm import InterviewLLM
 from app.services.report import InterviewReport
+from app.services.report_answer_guidance import apply_report_answer_guidance
 
 
 class ReportCoachAgent:
@@ -32,7 +33,7 @@ class ReportCoachAgent:
             phase="review",
             session_id=session_id,
         )
-        return self._execution_runner.run(
+        report = self._execution_runner.run(
             context,
             lambda: llm.generate_report(
                 plan=plan,
@@ -44,6 +45,7 @@ class ReportCoachAgent:
                 **dict(trace_metadata or {}),
             },
         )
+        return apply_report_answer_guidance(report)
 
     def generate_report_attempt(
         self,
@@ -55,7 +57,7 @@ class ReportCoachAgent:
         trace_metadata: dict | None = None,
     ) -> InterviewReport:
         llm = self.llm or self._default_llm()
-        return self._execution_runner.run(
+        report = self._execution_runner.run(
             execution_context,
             lambda: llm.generate_report(
                 plan=plan,
@@ -68,6 +70,7 @@ class ReportCoachAgent:
                 **dict(trace_metadata or {}),
             },
         )
+        return apply_report_answer_guidance(report)
 
     def repair_report_attempt(
         self,

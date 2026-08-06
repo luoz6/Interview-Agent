@@ -28,6 +28,10 @@ from app.services.report_actions import (
     REPORT_ACTION_PLANNER_VERSION,
     plan_priority_actions,
 )
+from app.services.report_answer_guidance import (
+    REPORT_ANSWER_GUIDANCE_VERSION,
+    apply_safe_answer_guidance,
+)
 from app.services.report_summary import build_cross_question_summary
 
 
@@ -95,6 +99,12 @@ def assemble_interview_report(
         dimension_evaluations=report_dimension_evaluations,
         evidence_refs=report_evidence_refs,
     )
+    guidance_result = apply_safe_answer_guidance(
+        feedbacks=feedbacks,
+        observations=observations,
+        evidence_refs=report_evidence_refs,
+    )
+    feedbacks = guidance_result.feedbacks
     report_coverage = ReportCoverageV2(
         status=coverage.coverage_status,
         evaluated_count=coverage.evaluated_count,
@@ -151,6 +161,13 @@ def assemble_interview_report(
                 "coverage_status": coverage.coverage_status,
                 "action_planner_version": REPORT_ACTION_PLANNER_VERSION,
                 "priority_action_count": len(priority_actions),
+                "answer_guidance_version": REPORT_ANSWER_GUIDANCE_VERSION,
+                "example_rewrite_published_count": (
+                    guidance_result.example_rewrite_published_count
+                ),
+                "unsafe_rewrite_omitted_count": (
+                    guidance_result.unsafe_rewrite_omitted_count
+                ),
             },
         ),
         summary=summary_result.summary,

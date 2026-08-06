@@ -87,6 +87,16 @@ def test_new_reports_publish_independent_v2_semantic_fields():
     assert report.technical_appendix.metadata["priority_action_count"] == len(
         report.priority_actions
     )
+    feedback = report.feedbacks[0]
+    assert feedback.answer_structure_suggestion
+    assert feedback.missing_technical_points
+    assert feedback.example_rewrite is None
+    assert feedback.example_rewrite_evidence_refs == []
+    assert "当前事实不足" in feedback.better_answer
+    assert (
+        report.technical_appendix.metadata["answer_guidance_version"]
+        == "report-answer-guidance-v1"
+    )
 
 
 def test_v2_claims_and_actions_must_reference_published_evidence():
@@ -154,6 +164,20 @@ def test_text_generation_failure_does_not_change_determined_score_state():
     assert report.generation_status == "degraded"
     assert report.overall_score == original_score
     assert report.score_status == original_score_status
+
+
+def test_example_rewrite_requires_same_question_candidate_answer_evidence():
+    payload = _report().model_dump(mode="json")
+    payload["feedbacks"][0]["example_rewrite"] = "Unsupported rewrite."
+    payload["feedbacks"][0]["example_rewrite_evidence_refs"] = [
+        "reference:reference-1"
+    ]
+
+    with pytest.raises(
+        ValidationError,
+        match="same-question candidate evidence",
+    ):
+        InterviewReport.model_validate(payload)
 
 
 def test_schema_presentation_and_rubric_versions_are_not_coupled():

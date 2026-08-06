@@ -269,6 +269,11 @@ def report_snapshot(report: InterviewReport) -> dict:
                 "evaluation_status",
                 "evaluation_reason_code",
                 "evidence_count",
+                "highlights",
+                "answer_structure_suggestion",
+                "missing_technical_points",
+                "example_rewrite",
+                "example_rewrite_evidence_refs",
             }
         ),
         "reference_ids": [reference.chunk_id for reference in feedback.references],

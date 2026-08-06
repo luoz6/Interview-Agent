@@ -232,13 +232,19 @@ def brain_node(
             ),
         )
 
+    effective_action = contract.action
+    if (
+        contract.action == "next_question"
+        and state["current_index"] + 1 >= len(state["plan"].questions)
+    ):
+        effective_action = "finish"
     state["decision"] = {
-        "action": contract.action,
+        "action": effective_action,
         "follow_up": follow_up,
         "reason": contract.reason_code,
     }
     state["decision_id"] = result.decision_id
-    state["decision_action"] = contract.action
+    state["decision_action"] = effective_action
     state["decision_reason_code"] = contract.reason_code
     state["decision_gap_type"] = contract.gap_type
     state["decision_gap_summary"] = contract.gap_summary
@@ -246,7 +252,7 @@ def brain_node(
     state["closed_gap_ids"] = list(contract.closed_gap_ids)
     state["active_gap_id"] = (
         stable_followup_fingerprint(contract.gap_summary)
-        if contract.action == "follow_up"
+        if effective_action == "follow_up"
         else None
     )
     state["current_followup_count"] = len(request.asked_followups)
@@ -300,7 +306,9 @@ def speaker_node(state: InterviewState) -> InterviewState:
                     "question_id": question.id,
                 }
             )
-            state["current_followup_count"] += 1
+            state["current_followup_count"] = (
+                state.get("current_followup_count", 0) + 1
+            )
             return state
 
     if action == "next_question":

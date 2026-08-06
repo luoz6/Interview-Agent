@@ -120,6 +120,14 @@ class ReportLimitationV2(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list)
 
 
+class ReportMissingTechnicalPointV2(BaseModel):
+    point_id: str = Field(min_length=1, max_length=160)
+    topic: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=2000)
+    observation_refs: list[str] = Field(min_length=1)
+    evidence_refs: list[str] = Field(min_length=1)
+
+
 class ReportObservationV2(BaseModel):
     observation_id: str = Field(pattern=r"^obs-[0-9a-f]{16}$")
     type: Literal["strength", "gap", "risk", "limitation"]
@@ -196,6 +204,15 @@ class InterviewFeedback(BaseModel):
     rationale: str = Field(description="Why the score was assigned")
     critique: str = Field(description="Main flaw or critique")
     better_answer: str = Field(description="Improved answer to practice")
+    answer_structure_suggestion: str | None = Field(
+        default=None,
+        max_length=2000,
+    )
+    missing_technical_points: list[ReportMissingTechnicalPointV2] = Field(
+        default_factory=list,
+    )
+    example_rewrite: str | None = Field(default=None, max_length=4000)
+    example_rewrite_evidence_refs: list[str] = Field(default_factory=list)
     references: list[FeedbackReference]
 
     @model_validator(mode="after")
@@ -206,6 +223,10 @@ class InterviewFeedback(BaseModel):
         if self.evaluation_status != "evaluated":
             if self.score is not None or any(value is not None for value in values):
                 raise ValueError("non-evaluated feedback cannot contain numeric scores")
+        if self.example_rewrite and not self.example_rewrite_evidence_refs:
+            raise ValueError("example rewrite requires candidate evidence refs")
+        if not self.example_rewrite and self.example_rewrite_evidence_refs:
+            raise ValueError("example rewrite refs require example rewrite text")
         return self
 
 
@@ -321,6 +342,31 @@ class InterviewReport(BaseModel):
                 ).issubset(observation_ids):
                     raise ValueError(
                         "report limitation contains an unknown observation ref"
+                    )
+            for feedback in self.feedbacks:
+                for point in feedback.missing_technical_points:
+                    if not set(point.evidence_refs).issubset(available):
+                        raise ValueError(
+                            "technical point contains an unknown evidence ref"
+                        )
+                    if not set(point.observation_refs).issubset(
+                        observation_ids
+                    ):
+                        raise ValueError(
+                            "technical point contains an unknown observation ref"
+                        )
+                if not set(
+                    feedback.example_rewrite_evidence_refs
+                ).issubset(available):
+                    raise ValueError(
+                        "example rewrite contains an unknown evidence ref"
+                    )
+                if any(
+                    ref != f"candidate:{feedback.question_id}:answer"
+                    for ref in feedback.example_rewrite_evidence_refs
+                ):
+                    raise ValueError(
+                        "example rewrite requires same-question candidate evidence"
                     )
         return self
 

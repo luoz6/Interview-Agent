@@ -85,18 +85,31 @@ def state_from_rows(
         if stored_binding
         else legacy_session_plan_binding(plan)
     )
+    messages = [
+        {
+            "role": row["role"],
+            "content": row["content"],
+            "question_id": row["question_id"],
+        }
+        for row in sorted(message_rows, key=lambda row: int(row["sequence_no"]))
+    ]
+    current_index = int(session_row["current_index"])
+    current_question_id = (
+        plan.questions[current_index].id
+        if 0 <= current_index < len(plan.questions)
+        else None
+    )
+    interviewer_turns = sum(
+        item["role"] == "interviewer"
+        and item["question_id"] == current_question_id
+        for item in messages
+    )
     return {
         "session_id": session_row["session_id"],
         "plan": plan,
-        "current_index": int(session_row["current_index"]),
-        "messages": [
-            {
-                "role": row["role"],
-                "content": row["content"],
-                "question_id": row["question_id"],
-            }
-            for row in sorted(message_rows, key=lambda row: int(row["sequence_no"]))
-        ],
+        "current_index": current_index,
+        "current_followup_count": max(0, interviewer_turns - 1),
+        "messages": messages,
         "decision": session_row.get("decision_json"),
         "pending_output": session_row.get("pending_output"),
         "status": session_row["status"],

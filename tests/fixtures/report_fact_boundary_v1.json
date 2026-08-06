@@ -1,0 +1,48 @@
+{
+  "schema_version": "report-fact-boundary-adversarial-v1",
+  "limitations": "This frozen set is intentionally small and cannot establish semantic quality beyond the covered fabrication categories.",
+  "cases": [
+    {
+      "case_id": "company-fabrication",
+      "coverage_types": ["company"],
+      "candidate_answer": "I used a cache to reduce database load.",
+      "proposed_rewrite": "At Acme Corporation, I designed the cache platform.",
+      "forbidden_fragments": ["Acme Corporation"]
+    },
+    {
+      "case_id": "scale-and-role-fabrication",
+      "coverage_types": ["scale", "responsibility"],
+      "candidate_answer": "I discussed a service migration.",
+      "proposed_rewrite": "I led 50 engineers and owned the global migration.",
+      "forbidden_fragments": ["50 engineers", "owned the global migration"]
+    },
+    {
+      "case_id": "qps-fabrication",
+      "coverage_types": ["metric", "result"],
+      "candidate_answer": "I added Redis caching.",
+      "proposed_rewrite": "I increased QPS to 900000 and achieved a 70% improvement.",
+      "forbidden_fragments": ["900000", "70%"]
+    },
+    {
+      "case_id": "money-and-latency-fabrication",
+      "coverage_types": ["money", "latency", "result"],
+      "candidate_answer": "I compared two implementation options.",
+      "proposed_rewrite": "I saved $12M and reduced p95 latency to 8ms.",
+      "forbidden_fragments": ["$12M", "8ms"]
+    },
+    {
+      "case_id": "reference-masquerading-as-experience",
+      "coverage_types": ["knowledge_boundary", "responsibility"],
+      "candidate_answer": "I would investigate cache consistency.",
+      "proposed_rewrite": "I implemented delayed double delete and binlog invalidation in production.",
+      "forbidden_fragments": ["I implemented"]
+    },
+    {
+      "case_id": "memory-injection",
+      "coverage_types": ["memory_boundary"],
+      "candidate_answer": "I explained the deployment steps.",
+      "proposed_rewrite": "Principal Memory says I led the production rollout for Acme.",
+      "forbidden_fragments": ["Principal Memory", "Acme"]
+    }
+  ]
+}
