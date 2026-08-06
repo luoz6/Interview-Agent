@@ -429,20 +429,43 @@ class PostgresReportArtifactStore:
                 )
                 return [self._job_from_row(row) for row in cursor.fetchall()]
 
-    def migrate_legacy_reports(self, *, session_id: str | None = None) -> int:
+    def migrate_legacy_reports(
+        self,
+        *,
+        session_id: str | None = None,
+        limit: int | None = None,
+    ) -> int:
         """Idempotently promote completed legacy reports to revision-one artifacts."""
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit < 1
+        ):
+            raise ValueError("legacy report migration limit must be positive")
         _, sql = self._import_psycopg2()
         migrated = 0
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
+                params: list[object] = []
+                if session_id is not None:
+                    params.append(session_id)
+                if limit is not None:
+                    params.append(limit)
                 cursor.execute(
                     sql.SQL(
-                        "SELECT session_id,report_json FROM {reports} "
-                        "WHERE status='completed' AND report_json IS NOT NULL "
-                        + ("AND session_id=%s " if session_id else "")
-                        + "ORDER BY session_id"
-                    ).format(reports=sql.Identifier(f"{self.table_prefix}_reports")),
-                    (session_id,) if session_id else (),
+                        "SELECT legacy.session_id,legacy.report_json "
+                        "FROM {reports} AS legacy "
+                        "WHERE legacy.status='completed' "
+                        "AND legacy.report_json IS NOT NULL "
+                        "AND NOT EXISTS (SELECT 1 FROM {artifacts} AS artifact "
+                        "WHERE artifact.session_id=legacy.session_id) "
+                        + ("AND legacy.session_id=%s " if session_id is not None else "")
+                        + "ORDER BY legacy.session_id"
+                        + (" LIMIT %s" if limit is not None else "")
+                        + " FOR UPDATE OF legacy SKIP LOCKED"
+                    ).format(
+                        reports=sql.Identifier(f"{self.table_prefix}_reports"),
+                        artifacts=sql.Identifier(self.artifacts_table),
+                    ),
+                    tuple(params),
                 )
                 rows = cursor.fetchall()
                 for legacy_session_id, report_json in rows:
