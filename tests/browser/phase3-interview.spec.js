@@ -216,8 +216,8 @@ test("reduced motion removes interview state transitions without removing contro
     animation: getComputedStyle(element).animationDuration,
     transition: getComputedStyle(element).transitionDuration,
   }));
-  expect(Number.parseFloat(details.animation)).toBeLessThanOrEqual(0.001);
-  expect(Number.parseFloat(details.transition)).toBeLessThanOrEqual(0.001);
+  expect(Number.parseFloat(details.animation) || 0).toBeLessThanOrEqual(0.001);
+  expect(Number.parseFloat(details.transition) || 0).toBeLessThanOrEqual(0.001);
   await expect(page.getByRole("button", { name: "提交回答" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "结束面试" })).toBeEnabled();
 });

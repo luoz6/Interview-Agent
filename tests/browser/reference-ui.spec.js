@@ -32,7 +32,11 @@ async function seedReport(request, status, ageDays = 0) {
 }
 
 async function fillPrepSources(page, jd = jobDescription, resume = resumeText) {
+  const jdTab = page.getByRole("tab", { name: /岗位 JD/ });
+  if (await jdTab.isVisible()) await jdTab.click();
   await page.getByLabel("岗位 JD").fill(jd);
+  const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
+  if (await resumeTab.isVisible()) await resumeTab.click();
   await page.getByLabel("简历内容").fill(resume);
 }
 
@@ -76,16 +80,16 @@ test("React preparation validates imports and renders the authoritative plan", a
   });
   await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  await expect(page.locator(".plan-question")).toHaveCount(5);
-  await expect(page.locator(".prep-launch-bar")).toContainText("20–30 分钟");
-  const evidence = page.locator(".plan-question-evidence").first();
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
+  await expect(page.locator(".start-prep-launch-bar")).toContainText("20–30 分钟");
+  const evidence = page.locator(".start-plan-question-evidence").first();
   await evidence.click();
   await expect(evidence.locator("code")).toContainText("redis_consistency");
 });
 
 test("preparation validation focuses the missing document and uses restrained feedback", async ({ page }) => {
   await page.goto("/prep");
-  await expect(page.locator(".prep-stepper svg")).toHaveCount(0);
+  await expect(page.locator(".prep-stepper")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "保存草稿", exact: true }).locator("svg")).toHaveCount(1);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
   await expect(page.getByRole("alert")).toContainText("岗位 JD");
@@ -110,7 +114,7 @@ test("primary preparation action preserves its hierarchy while generating", asyn
     await new Promise((resolve) => setTimeout(resolve, 500));
     await route.continue();
   });
-  const action = page.locator(".prep-generate-action");
+  const action = page.locator(".start-prep-primary-action");
   await action.click();
   await expect(action).toHaveAttribute("aria-busy", "true");
   const state = await action.evaluate((element) => ({
@@ -121,7 +125,7 @@ test("primary preparation action preserves its hierarchy while generating", asyn
   expect(state.height).toBeGreaterThanOrEqual(48);
   expect(state.opacity).toBeGreaterThanOrEqual(.85);
   expect(state.iconCount).toBe(1);
-  await expect(page.locator(".plan-question")).toHaveCount(5);
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
 });
 
 test("draft actions save, restore and guard destructive clearing", async ({ page }) => {
@@ -129,7 +133,7 @@ test("draft actions save, restore and guard destructive clearing", async ({ page
   await fillPrepSources(page);
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("interview-agent:draft-id"))).not.toBeNull();
-  await expect(page.locator(".prep-draft-state")).toContainText(/持久保存|进程内临时保存/);
+  await expect(page.locator(".start-prep-draft-state")).toContainText(/持久保存|进程内临时保存/);
 
   await page.getByRole("button", { name: "清空当前画布" }).click();
   await expect(page.locator(".start-notice-warning")).toContainText("再次点击");
@@ -147,7 +151,7 @@ test("degraded knowledge stays honest without blocking launch", async ({ page })
   await page.goto("/prep");
   await fillPrepSources(page, `${jobDescription} simulate degraded`);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  const evidence = page.locator(".plan-question-evidence").first();
+  const evidence = page.locator(".start-plan-question-evidence").first();
   await evidence.click();
   await expect(evidence).toContainText("知识证据不可用");
   await expect(evidence.locator("code")).toHaveCount(0);
@@ -222,6 +226,6 @@ test("rejected lazy route modules expose a usable recovery view", async ({ page 
 test("reduced motion disables preparation animations", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/prep");
-  const duration = await page.locator(".prep-stage").evaluate((element) => getComputedStyle(element).animationDuration);
+  const duration = await page.locator(".start-editor-workspace").evaluate((element) => getComputedStyle(element).animationDuration);
   expect(["0s", "1e-05s"]).toContain(duration);
 });

@@ -24,6 +24,9 @@ def test_phase5_shared_component_boundaries_are_explicit_and_consumed():
         "ReliabilitySummary",
         "PlanEditor",
         "PlanQuestionCard",
+        "PrepActivityRail",
+        "PrepInspector",
+        "PrepStatusBar",
     ):
         path = SRC / "components" / f"{component}.jsx"
         assert path.exists()

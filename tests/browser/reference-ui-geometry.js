@@ -49,7 +49,7 @@ async function seedReport(request, status, ageDays = 0) {
 async function expectGeometry(page) {
   await expect(page.locator(".start-app-root")).toBeVisible();
   await page.waitForFunction(() => Boolean(document.querySelector([
-    ".prep-flow",
+    ".start-prep-app-shell",
     ".start-editor-workspace",
     ".interview-workspace",
     ".processing-workspace",

@@ -16,8 +16,8 @@ async function startInterview(page) {
   await page.goto("/prep");
   await fillPrepSources(page);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  await expect(page.locator(".plan-question")).toHaveCount(5);
-  const evidence = page.locator(".plan-question-evidence").first();
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
+  const evidence = page.locator(".start-plan-question-evidence").first();
   await evidence.click();
   await expect(evidence.locator("code")).toContainText("redis_consistency");
   const prepEvidenceIds = ["redis_consistency", "system_design_backend"];
@@ -59,7 +59,7 @@ test("React preparation evidence is visible and bounded on mobile", async ({ pag
   await page.goto("/prep");
   await fillPrepSources(page);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  const evidence = page.locator(".plan-question-evidence").first();
+  const evidence = page.locator(".start-plan-question-evidence").first();
   await evidence.click();
   await expect(evidence.locator("code")).toContainText("redis_consistency");
   const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
@@ -71,7 +71,7 @@ test("degraded knowledge is explicit and report completes without fake reference
   await page.goto("/prep");
   await fillPrepSources(page, "Backend Redis role simulate degraded", "Built Redis APIs");
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  const evidence = page.locator(".plan-question-evidence").first();
+  const evidence = page.locator(".start-plan-question-evidence").first();
   await evidence.click();
   await expect(evidence).toContainText("知识证据不可用");
   await expect(evidence.locator("code")).toHaveCount(0);

@@ -21,7 +21,7 @@ async function openInterview(page, request) {
 
 async function preparePlan(page) {
   await page.goto("/prep");
-  await expect(page.locator(".prep-stage")).toBeVisible();
+  await expect(page.locator(".start-editor-workspace")).toBeVisible();
   const jdTab = page.getByRole("tab", { name: /岗位 JD/ });
   if (await jdTab.isVisible()) await jdTab.click();
   await page.getByLabel("岗位 JD").fill(jobDescription);
@@ -29,7 +29,7 @@ async function preparePlan(page) {
   if (await resumeTab.isVisible()) await resumeTab.click();
   await page.getByLabel("简历内容").fill(resumeText);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  await expect(page.locator(".plan-question")).toHaveCount(5);
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
 }
 
 test("mobile navigation remains reachable from 360 through 900 pixels", async ({ page }) => {
