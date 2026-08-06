@@ -26,14 +26,21 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     await expectGeometry(page);
 
     const detail = await page.evaluate(() => {
-      const shell = document.querySelector(".report-detail-shell");
-      const workspace = document.querySelector(".report-detail-workspace");
-      const inspector = document.querySelector(".report-detail-inspector");
-      const overview = document.querySelector(".report-detail-overview");
-      const score = document.querySelector(".report-detail-score-mark");
-      const title = document.querySelector("#report-detail-title");
-      const trace = document.querySelector("#runtime-trace");
-      const referencePanel = document.querySelector(".report-detail-dimension-panel");
+      const required = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing required report element: ${selector}`);
+        return element;
+      };
+      const shell = required(".report-detail-shell");
+      const workspace = required(".report-detail-workspace");
+      const inspector = required(".report-detail-inspector");
+      const overview = required(".report-detail-overview");
+      const score = required(".report-detail-score-mark");
+      const title = required("#report-detail-title");
+      const trace = required(".report-detail-technical-appendix");
+      const referencePanel = required(".report-detail-coverage-panel");
+      const scoreTrack = document.querySelector(".report-detail-score-track > span");
+      const dimensionTrack = document.querySelector(".report-detail-dimension-track > span");
       const workspaceRect = workspace.getBoundingClientRect();
       const inspectorRect = inspector.getBoundingClientRect();
       return {
@@ -46,9 +53,9 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         overviewBackground: getComputedStyle(overview).backgroundColor,
         scoreBackground: getComputedStyle(score).backgroundImage,
         scoreWidth: score.getBoundingClientRect().width,
-        scoreTrackAnimation: getComputedStyle(
-          document.querySelector(".report-detail-score-track > span"),
-        ).animationName,
+        scoreLabel: score.getAttribute("aria-label"),
+        scoreTrackCount: document.querySelectorAll(".report-detail-score-track > span").length,
+        scoreTrackAnimation: scoreTrack ? getComputedStyle(scoreTrack).animationName : "none",
         scoreOrbitCount: document.querySelectorAll(
           ".report-detail-score-orbit, .report-detail-head-score",
         ).length,
@@ -73,9 +80,11 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           ".report-detail-section-icon svg",
         ).length,
         scoreAnimations: getComputedStyle(score).animationName,
-        dimensionAnimation: getComputedStyle(
-          document.querySelector(".report-detail-dimension-track > span"),
-        ).animationName,
+        dimensionTrackCount: document.querySelectorAll(".report-detail-dimension-track > span").length,
+        dimensionProgressCount: document.querySelectorAll(
+          '.report-detail-dimension-track[role="progressbar"]',
+        ).length,
+        dimensionAnimation: dimensionTrack ? getComputedStyle(dimensionTrack).animationName : "none",
         traceBackground: getComputedStyle(trace).backgroundColor,
         referencePanelBackground: getComputedStyle(referencePanel).backgroundColor,
         traceColor: getComputedStyle(trace).color,
@@ -98,7 +107,7 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           ".report-detail-inspector-actions button",
         )].map((button) => button.getBoundingClientRect().height),
         workspaceOverflow: getComputedStyle(
-          document.querySelector(".report-detail-workspace-scroll"),
+          required(".report-detail-workspace-scroll"),
         ).overflowY,
         oldPosterScoreCount: document.querySelectorAll(
           ".overall-score, .score-overview, .highlight-field",
@@ -112,19 +121,24 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.scoreBackground).toBe("none");
     expect(detail.scoreWidth).toBeGreaterThanOrEqual(180);
     expect(detail.scoreWidth).toBeLessThanOrEqual(320);
-    expect(detail.scoreTrackAnimation).toBe("report-detail-score-fill");
+    expect(detail.scoreLabel).toContain("综合评分未发布");
+    expect(detail.scoreTrackCount).toBe(0);
+    expect(detail.scoreTrackAnimation).toBe("none");
     expect(detail.scoreOrbitCount).toBe(0);
     expect(detail.dimensionRows).toBe(5);
-    expect(detail.introRevealCount).toBe(3);
+    expect(detail.introRevealCount).toBe(6);
     expect(detail.horizontalOverflow).toBe(false);
     expect(detail.wrappedActionLabels).toBe(0);
-    expect(detail.railIconCount).toBe(5);
-    expect(detail.sectionIconCount).toBe(6);
+    expect(detail.railIconCount).toBe(6);
+    expect(detail.sectionIconCount).toBe(5);
     expect(detail.scoreAnimations).toContain("report-detail-score-enter");
+    expect(detail.dimensionTrackCount).toBe(5);
+    expect(detail.dimensionProgressCount).toBe(0);
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
     expect(detail.traceBackground).toBe(detail.referencePanelBackground);
     expect(detail.traceColor).toBe(detail.workspaceColor);
-    expect(detail.traceMarginInline).toEqual(["0px", "0px"]);
+    const appendixMargin = viewport.width <= 767 ? "12px" : "32px";
+    expect(detail.traceMarginInline).toEqual([appendixMargin, appendixMargin]);
     expect(detail.legacyTraceIdCount).toBe(0);
     expect(detail.traceEmptyCount).toBe(1);
     expect(detail.traceGridCount).toBe(0);
@@ -200,24 +214,37 @@ test("optional runtime diagnostics distinguish unavailable from genuinely empty"
   request,
 }) => {
   const sessionId = await createCompletedReport(request);
-  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({
-    status: 503,
+  let diagnosticsAvailable = false;
+  const diagnosticRoute = (detail) => (route) => route.fulfill({
+    status: diagnosticsAvailable ? 200 : 503,
     contentType: "application/json",
-    body: JSON.stringify({ detail: "Agent 诊断暂时不可用" }),
-  }));
-  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({
-    status: 503,
-    contentType: "application/json",
-    body: JSON.stringify({ detail: "事件诊断暂时不可用" }),
-  }));
+    body: JSON.stringify(diagnosticsAvailable ? { items: [] } : { detail }),
+  });
+  await page.route(
+    `**/api/interviews/${sessionId}/agent-runs?limit=100`,
+    diagnosticRoute("Agent 诊断暂时不可用"),
+  );
+  await page.route(
+    `**/api/interviews/${sessionId}/runtime-events?limit=100`,
+    diagnosticRoute("事件诊断暂时不可用"),
+  );
 
   await page.goto("/report-detail?session_id=" + sessionId);
   await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  await page.locator(".report-detail-technical-appendix > summary").click();
   const unavailable = page.locator('.report-detail-trace-empty[data-state="unavailable"]');
   await expect(unavailable).toContainText("公开运行轨迹暂时不可用");
   await expect(unavailable).toContainText("报告评分和反馈仍然有效");
-  await expect(page.getByRole("button", { name: "重新同步诊断" })).toBeEnabled();
+  const retry = page.getByRole("button", { name: "重新同步诊断" });
+  await expect(retry).toBeEnabled();
   await expect(page.locator(".report-detail-trace-grid")).toHaveCount(0);
+
+  diagnosticsAvailable = true;
+  await retry.click();
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  await expect(page.locator('.report-detail-trace-empty[data-state="empty"]')).toContainText(
+    "本次运行没有可公开轨迹",
+  );
 });
 
 test("report detail motion and focus states remain accessible", async ({

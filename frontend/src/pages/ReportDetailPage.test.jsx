@@ -157,8 +157,49 @@ describe("ReportDetailPage candidate information architecture", () => {
     expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
     expect(screen.getAllByText("部分评分").length).toBeGreaterThan(0);
     expect(screen.getAllByText("部分覆盖").length).toBeGreaterThan(0);
+    const statePair = screen.getByLabelText("评分和覆盖状态");
+    expect(statePair).toHaveTextContent("部分评分");
+    expect(statePair).toHaveTextContent("部分覆盖");
+    expect(screen.getByLabelText("知识广度 证据不足")).toBeInTheDocument();
+    expect(screen.getByLabelText("系统设计 未评估")).toBeInTheDocument();
     expect(screen.getByText("数字结果只覆盖已评估题目；未评估题目和维度不会按 0 分处理。")).toBeInTheDocument();
     expect(screen.queryByText("未评分")).not.toBeInTheDocument();
+  });
+
+  it("retries optional diagnostics without hiding the active report", async () => {
+    let agentRunRequests = 0;
+    let runtimeEventRequests = 0;
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) return Promise.resolve(reportResponse);
+      if (path.endsWith("/reports")) return Promise.resolve({ items: [reportResponse.active_artifact] });
+      if (path.includes("question-evaluations")) return Promise.resolve({ items: [] });
+      if (path.includes("agent-runs")) {
+        agentRunRequests += 1;
+        return agentRunRequests === 1
+          ? Promise.reject(new Error("agent diagnostics unavailable"))
+          : Promise.resolve({ items: [] });
+      }
+      if (path.includes("runtime-events")) {
+        runtimeEventRequests += 1;
+        return runtimeEventRequests === 1
+          ? Promise.reject(new Error("runtime diagnostics unavailable"))
+          : Promise.resolve({ items: [] });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<ReportDetailPage />);
+
+    expect(await screen.findByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("技术附录"));
+    const retry = await screen.findByRole("button", { name: "重新同步诊断" });
+    fireEvent.click(retry);
+
+    expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("本次运行没有可公开轨迹")).toBeInTheDocument());
+    expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    expect(agentRunRequests).toBe(2);
+    expect(runtimeEventRequests).toBe(2);
   });
 
   it("jumps from an action to its evidence question and opens it", async () => {
@@ -200,6 +241,7 @@ describe("ReportDetailPage candidate information architecture", () => {
     render(<ReportDetailPage />);
 
     expect((await screen.findAllByLabelText(/综合评分未发布/)).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("评分和覆盖状态")).toHaveTextContent("未评分");
     expect(screen.getByText("证据不足，未发布数字")).toBeInTheDocument();
     expect(screen.getAllByText("未评分").length).toBeGreaterThan(0);
     expect(screen.getAllByText("无有效覆盖").length).toBeGreaterThan(0);

@@ -18,13 +18,18 @@ test("interview layout contracts remain stable across viewports", async ({
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: 900 });
     await page.goto("/interview?session_id=" + sessionId);
+    await expect(page.getByLabel("当前会话：面试进行中")).toBeVisible();
+    await expect(page.locator(".interview-question-list li")).toHaveCount(3);
     await expectGeometry(page);
     const interview = await page.evaluate(() => {
-      const workspace = document.querySelector(".interview-workspace");
-      const main = document.querySelector(".interview-main").getBoundingClientRect();
-      const context = document
-        .querySelector(".interview-context")
-        .getBoundingClientRect();
+      const required = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing required interview element: ${selector}`);
+        return element;
+      };
+      const workspace = required(".interview-workspace");
+      const main = required(".interview-main").getBoundingClientRect();
+      const context = required(".interview-context").getBoundingClientRect();
       return {
         display: getComputedStyle(workspace).display,
         viewportWidth: window.innerWidth,
@@ -35,27 +40,27 @@ test("interview layout contracts remain stable across viewports", async ({
           .filter(Boolean).length,
         contextBelowMain: context.top >= main.bottom - 1,
         agentBackground: getComputedStyle(
-          document.querySelector(".agent-console"),
+          required(".agent-console"),
         ).backgroundColor,
         composerBackground: getComputedStyle(
-          document.querySelector(".answer-composer"),
+          required(".answer-composer"),
         ).backgroundColor,
         questionBorderTop: getComputedStyle(
-          document.querySelector(".current-question"),
+          required(".current-question"),
         ).borderTopWidth,
         primaryCount: document.querySelectorAll(
           ".button-primary:not(:disabled)",
         ).length,
         statusBarVisible:
-          document.querySelector(".interview-status-bar").getBoundingClientRect().height > 0,
+          required(".interview-status-bar").getBoundingClientRect().height > 0,
         appStyled: document.querySelector(".interview-app") !== null,
         composerButtons: [...document.querySelectorAll(".interview-actions button")]
           .map((button) => button.getBoundingClientRect().height),
         currentQuestionFontSize: Number.parseFloat(getComputedStyle(
-          document.querySelector(".current-question h2"),
+          required(".current-question h2"),
         ).fontSize),
         questionCursor: getComputedStyle(
-          document.querySelector(".interview-question-list li"),
+          required(".interview-question-list li"),
         ).cursor,
         submitIconCount: document.querySelectorAll(
           ".interview-submit-button svg",

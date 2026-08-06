@@ -90,7 +90,9 @@ test("React preparation validates imports and renders real plan metrics", async 
   await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
   await page.getByRole("button", { name: "生成面试计划" }).click();
   await expect(page.locator(".start-plan-question")).toHaveCount(3);
-  await expect(page.locator(".start-plan-metrics")).toContainText("12–18 分钟");
+  await expect(page.locator(".start-plan-metrics")).toContainText("问题3");
+  await expect(page.locator(".start-plan-metrics")).toContainText("时长18 分钟");
+  await expect(page.locator(".start-plan-metrics")).toContainText("证据2");
   await page.getByRole("tab", { name: "证据", exact: true }).click();
   await expect(page.locator(".start-knowledge-state")).toHaveAttribute("data-state", "completed");
   await expect(page.locator(".start-knowledge-state")).toContainText("检索完成");
@@ -272,17 +274,24 @@ test("secondary draft action stays identifiable while saving", async ({ page }) 
   await expect(page.locator(".start-notice")).toContainText("草稿已保存在本机浏览器中");
 });
 
-test("destructive canvas clearing requires an explicit second action", async ({ page }) => {
+test("destructive canvas clearing requires an explicit confirmation dialog", async ({ page }) => {
   await page.goto("/prep");
   await fillPrepSources(page);
 
-  await page.getByRole("button", { name: "清空当前画布" }).click();
-  await expect(page.locator(".start-notice-warning")).toContainText("再次点击");
+  const clear = page.getByRole("button", { name: "清空当前画布" });
+  await clear.click();
+  const dialog = page.getByRole("dialog", { name: "清空当前画布？" });
+  await expect(dialog).toContainText("已保存的匿名草稿不会被删除");
   await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(clear).toBeFocused();
   await openPrepDocument(page, "岗位 JD");
   await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
 
-  await page.getByRole("button", { name: "确认清空当前画布" }).click();
+  await clear.click();
+  await page.getByRole("dialog", { name: "清空当前画布？" })
+    .getByRole("button", { name: "确认清空画布" })
+    .click();
   await expect(page.getByLabel("岗位 JD")).toHaveValue("");
   await openPrepDocument(page, "候选人经历");
   await expect(page.getByLabel("简历内容")).toHaveValue("");
@@ -312,8 +321,12 @@ test("application workbench saves and restores the anonymous draft", async ({ pa
   await expect.poll(() => page.evaluate(() => localStorage.getItem("interview-agent:draft-id"))).not.toBeNull();
 
   await page.reload();
-  await expect(page.getByLabel("岗位 JD")).toHaveValue("");
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await page.getByLabel("岗位 JD").fill("Unsaved replacement content");
   await page.getByRole("button", { name: "恢复草稿" }).click();
+  const dialog = page.getByRole("dialog", { name: "用已保存草稿替换当前画布？" });
+  await expect(dialog).toContainText("当前画布中的岗位 JD 和候选人经历会被替换");
+  await dialog.getByRole("button", { name: "确认恢复草稿" }).click();
   await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
   await openPrepDocument(page, "候选人经历");
   await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);

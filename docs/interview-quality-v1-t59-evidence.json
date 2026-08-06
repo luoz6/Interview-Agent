@@ -1,0 +1,141 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T59",
+  "generated_at": "2026-08-06T23:13:04+08:00",
+  "implementation_revision_base": "1759d846d4ebcc9c86d4df1bcac5b017a5de8121",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "PASS_OFFLINE_BROWSER_ACCESSIBILITY_CONTRACT",
+  "overall_status": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "screenshots": 0,
+  "playwright_trace": "off",
+  "open_findings": 0,
+  "acceptance": {
+    "keyboard_plan_text_edit": true,
+    "keyboard_plan_focus_edit": true,
+    "keyboard_save_and_reorder": true,
+    "revision_conflict_recovery": true,
+    "modal_tab_wrap": true,
+    "modal_shift_tab_wrap": true,
+    "modal_external_focus_recovery": true,
+    "modal_escape_close": true,
+    "modal_trigger_focus_restore": true,
+    "revision_status_semantics": true,
+    "conflict_alert_semantics": true,
+    "partial_status_semantics": true,
+    "unscored_status_semantics": true,
+    "unevaluated_dimension_semantics": true,
+    "single_decision_generation_recovery_live_region": true,
+    "reduced_motion_contract": true,
+    "mobile_long_question_no_horizontal_overflow": true,
+    "mobile_touch_targets_at_least_44px": true,
+    "refresh_restore": true,
+    "offline_input_preserved": true,
+    "http_409_input_preserved": true,
+    "http_422_input_preserved": true,
+    "http_500_input_preserved": true,
+    "pdf_core_semantics_consistent": true
+  },
+  "viewport_matrix": [320, 375, 414, 768, 1024, 1280, 1440],
+  "implementation": {
+    "confirmation_dialog": "frontend/src/components/ConfirmationDialog.jsx",
+    "report_diagnostic_refresh": "frontend/src/pages/ReportDetailPage.jsx",
+    "mobile_touch_styles": "frontend/src/styles/start-app.css",
+    "browser_support_contract": "tests/browser_support_app.py",
+    "t59_browser_suite": "tests/browser/t59-accessibility.spec.js",
+    "reference_geometry_matrix": "tests/browser/reference-ui-geometry.js"
+  },
+  "automatic_review_findings_closed": [
+    "The browser support app used a pre-T56 prepare_browser_interview signature and returned HTTP 500; it now follows the production configuration and revision-binding contract.",
+    "The shared confirmation dialog lacked a complete focus trap; forward and reverse wrapping plus external-focus recovery are now enforced.",
+    "Mobile reorder and dialog buttons could be shorter than 44 pixels; touch height now uses the shared touch-control token.",
+    "Optional report diagnostic retry cleared or covered an otherwise valid active report; diagnostic refresh now has independent state and preserves report visibility.",
+    "Browser tests retained obsolete selectors, clear behavior, draft flow, and plan metrics; required selectors and current user contracts are now explicit.",
+    "The zero-answer report layout test required a numeric score track; it now proves unscored reports expose no fake overall score or dimension progressbar.",
+    "Technical appendix spacing was treated as fixed; the browser contract now verifies the actual mobile and desktop responsive values."
+  ],
+  "verification": {
+    "focused_frontend": {
+      "files_passed": 3,
+      "tests_passed": 37,
+      "tests_failed": 0
+    },
+    "full_frontend": {
+      "files_passed": 7,
+      "tests_passed": 66,
+      "tests_failed": 0
+    },
+    "browser_preflight": {
+      "status": "PASS",
+      "node_version": "22.21.0",
+      "npm_version": "10.9.4",
+      "playwright_version": "1.61.1",
+      "chromium_version": "149.0.7827.55"
+    },
+    "full_browser": {
+      "tests_passed": 41,
+      "tests_failed": 0,
+      "trace": "off",
+      "screenshots": 0
+    },
+    "t59_browser": {
+      "tests_passed": 5,
+      "tests_failed": 0
+    },
+    "pdf_semantics": {
+      "tests_passed": 23,
+      "tests_failed": 0
+    },
+    "adjacent_python": {
+      "tests_passed": 300,
+      "tests_failed": 0,
+      "warnings": 1,
+      "warning_detail": "Starlette TestClient/httpx deprecation"
+    },
+    "production_build": {
+      "status": "PASS",
+      "modules_transformed": 4596,
+      "javascript_chunk_kb": 541.44,
+      "javascript_gzip_kb": 147.09,
+      "chunk_warning_over_500kb": true
+    },
+    "eslint": {
+      "status": "TOOLING_MISSING",
+      "detail": "npm run check cannot find a project-installed eslint executable"
+    },
+    "axe_scan": "NOT_RUN_TOOL_NOT_INSTALLED",
+    "hardware_screen_reader_session": "NOT_RUN",
+    "diff_check": "PASS",
+    "broad_regression": {
+      "passed": 2668,
+      "failed": 5,
+      "skipped": 218,
+      "warnings": 1,
+      "t59_related_failures": 0
+    }
+  },
+  "known_full_suite_failures": [
+    "tests/test_agent_runtime_hardening.py::test_stream_latency_clock_starts_at_first_next - old perf_counter mock ticks are exhausted",
+    "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer - old next_question expectation differs from the current finish terminal action",
+    "tests/test_local_v1_hardening_publication_contract.py::test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged - historical publication allowlist rejects accumulated quality-branch changes",
+    "tests/test_postgres_session_deletion.py::test_latest_migration_contract_requires_deletion_lease_and_indexes - old latest migration expectation is followup_decision_v1",
+    "tests/test_reproducibility_preflight.py::test_dependency_source_generator_and_lock_metadata_are_bound - existing lock hash differs from metadata"
+  ],
+  "phase_boundaries": {
+    "t59_complete": true,
+    "gate_5_engineering_ready": true,
+    "t57_provider_quality_complete": false,
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "Accessibility acceptance is based on keyboard, DOM ARIA, Playwright role/name, focus, live-region, responsive, and recovery contracts.",
+    "No axe dependency was installed and no axe scan is claimed.",
+    "No real hardware screen-reader session or pixel-level PDF visual review is claimed.",
+    "The five full-suite failures, 218 skips, one warning, missing eslint tool, and production chunk warning remain visible.",
+    "No Provider request, token, cost, latency, model-quality result, or Provider PASS is claimed for T59."
+  ]
+}

@@ -2397,10 +2397,12 @@
   }
 
   .start-plan-commandbar button,
+  .start-plan-order-actions button,
   .start-plan-question-actions button,
   .start-plan-state-panel button,
   .start-custom-question button,
-  .start-plan-history button {
+  .start-plan-history button,
+  .start-confirm-dialog button {
     min-height: var(--start-control-height-touch);
   }
 

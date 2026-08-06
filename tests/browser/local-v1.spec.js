@@ -22,9 +22,7 @@ async function startInterview(page) {
   ));
   await page.getByRole("button", { name: "开始本次面试" }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
-  await expect(
-    page.getByRole("status").filter({ hasText: "当前会话" }),
-  ).toContainText("面试进行中");
+  await expect(page.getByLabel("当前会话：面试进行中")).toBeVisible();
   return { sessionId: new URL(page.url()).searchParams.get("session_id"), prepEvidenceIds };
 }
 
@@ -44,6 +42,7 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   await expect(page.locator(".report-detail-score-mark")).toContainText(String(reportBody.overall_score));
+  await page.locator(".report-detail-technical-appendix > summary").click();
   await expect(page.locator('[data-evidence-id="redis_consistency"]')).toBeVisible();
 
   expect(reportBody.feedbacks[0].references.map((item) => item.chunk_id)).toEqual(["redis_consistency"]);
@@ -78,7 +77,9 @@ test("degraded knowledge is explicit and report completes without fake reference
   await page.getByRole("button", { name: "结束面试" }).click();
   await page.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
-  await expect(page.locator("#evidence")).toContainText("没有可公开的知识引用");
+  await page.locator(".report-detail-technical-appendix > summary").click();
+  const evidenceInventory = page.getByRole("region", { name: "公开知识引用清单" });
+  await expect(evidenceInventory).toContainText("没有可公开的知识引用");
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   expect(reportBody.feedbacks[0].references).toEqual([]);
 });

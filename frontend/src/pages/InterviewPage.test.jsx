@@ -157,6 +157,33 @@ describe("InterviewPage destructive command confirmations", () => {
     expect(postJson.mock.calls[0][0]).toBe("/api/interviews/session-t58/skip");
   });
 
+  it("traps modal focus, closes with Escape, and returns to the trigger", async () => {
+    const user = userEvent.setup();
+    render(<InterviewPage />);
+
+    await screen.findByRole("heading", { name: "如何设计幂等写入？" });
+    const finishButton = screen.getByRole("button", { name: "结束面试" });
+    await user.click(finishButton);
+    const dialog = screen.getByRole("dialog", { name: "结束面试并生成报告？" });
+    const cancel = within(dialog).getByRole("button", { name: "取消" });
+    const confirm = within(dialog).getByRole("button", { name: "确认结束面试" });
+    expect(cancel).toHaveFocus();
+
+    await user.tab();
+    expect(confirm).toHaveFocus();
+    await user.tab();
+    expect(cancel).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(confirm).toHaveFocus();
+
+    finishButton.focus();
+    expect(cancel).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(dialog).not.toBeInTheDocument();
+    await waitFor(() => expect(finishButton).toHaveFocus());
+    expect(postJson).not.toHaveBeenCalled();
+  });
+
   it("returns focus to the focus-mode trigger when Escape exits", async () => {
     const user = userEvent.setup();
     render(<InterviewPage />);

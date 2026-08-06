@@ -10,6 +10,7 @@ const viewports = [
   { width: 768, prepColumns: 2, inspectorBelow: true, interviewColumns: 2 },
   { width: 1024, prepColumns: 2, inspectorBelow: true, interviewColumns: 3 },
   { width: 1280, prepColumns: 3, inspectorBelow: false, interviewColumns: 3 },
+  { width: 1440, prepColumns: 3, inspectorBelow: false, interviewColumns: 3 },
 ];
 
 async function createSession(request) {

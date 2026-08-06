@@ -254,7 +254,7 @@ function RuntimeList({ items, type, unavailable = false }) {
   );
 }
 
-function TraceEmptyState({ unavailable = false, onRetry }) {
+function TraceEmptyState({ unavailable = false, onRetry, retrying = false }) {
   const EmptyIcon = unavailable ? WarningCircle : Pulse;
   return (
     <div className="report-detail-trace-empty" data-state={unavailable ? "unavailable" : "empty"} role={unavailable ? "status" : undefined}>
@@ -263,7 +263,7 @@ function TraceEmptyState({ unavailable = false, onRetry }) {
         <span>{unavailable ? "诊断同步中断" : "诊断状态"}</span>
         <h3>{unavailable ? "公开运行轨迹暂时不可用" : "本次运行没有可公开轨迹"}</h3>
         <p>{unavailable ? "报告评分和反馈仍然有效；这里只影响可选的公开诊断信息。" : "当前环境没有写入稳定公开字段，不会用合成事件填充此区域。"}</p>
-        {unavailable && <button className="button start-tool-button report-detail-trace-retry" type="button" onClick={onRetry}><ArrowClockwise size={16} weight="bold" aria-hidden="true" /><span>重新同步诊断</span></button>}
+        {unavailable && <button className="button start-tool-button report-detail-trace-retry" type="button" onClick={onRetry} disabled={retrying} aria-busy={retrying || undefined}><ArrowClockwise className={retrying ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{retrying ? "正在同步诊断" : "重新同步诊断"}</span></button>}
       </div>
       <dl className="report-detail-trace-empty-metrics" aria-label="公开诊断记录数量"><div><dt>Agent 执行</dt><dd>{unavailable ? "—" : "0"}</dd></div><div><dt>运行事件</dt><dd>{unavailable ? "—" : "0"}</dd></div></dl>
     </div>
@@ -293,6 +293,8 @@ export function ReportDetailPage() {
   const [currentSection, setCurrentSection] = useState("overview");
   const [downloadState, setDownloadState] = useState("idle");
   const [reloadGeneration, setReloadGeneration] = useState(0);
+  const [diagnosticsReloadGeneration, setDiagnosticsReloadGeneration] = useState(0);
+  const [diagnosticsRefreshing, setDiagnosticsRefreshing] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -347,6 +349,29 @@ export function ReportDetailPage() {
     });
     return () => controller.abort();
   }, [reloadGeneration, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || diagnosticsReloadGeneration === 0) return undefined;
+    const controller = new AbortController();
+    Promise.all([
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/agent-runs?limit=100`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [], __unavailable: true }; }),
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/runtime-events?limit=100`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [], __unavailable: true }; }),
+    ]).then(([runPayload, eventPayload]) => {
+      setAgentRuns(runPayload.items || []);
+      setRuntimeEvents(eventPayload.items || []);
+      setAuxiliaryStatus((current) => ({
+        ...current,
+        agentRuns: runPayload.__unavailable ? "unavailable" : "ready",
+        runtimeEvents: eventPayload.__unavailable ? "unavailable" : "ready",
+      }));
+    }).catch((error) => {
+      if (error.name === "AbortError") return;
+      setAuxiliaryStatus((current) => ({ ...current, agentRuns: "unavailable", runtimeEvents: "unavailable" }));
+    }).finally(() => {
+      if (!controller.signal.aborted) setDiagnosticsRefreshing(false);
+    });
+    return () => controller.abort();
+  }, [diagnosticsReloadGeneration, sessionId]);
 
   useEffect(() => {
     document.body.dataset.reportState = state;
@@ -479,6 +504,12 @@ export function ReportDetailPage() {
   function retryReport() {
     if (!sessionId) return;
     setReloadGeneration((generation) => generation + 1);
+  }
+
+  function retryDiagnostics() {
+    if (!sessionId || diagnosticsRefreshing) return;
+    setDiagnosticsRefreshing(true);
+    setDiagnosticsReloadGeneration((generation) => generation + 1);
   }
 
   const reportReady = Boolean(report);
@@ -626,7 +657,7 @@ export function ReportDetailPage() {
                   <section className="report-detail-trace-section" aria-labelledby="report-trace-title">
                     <header className="report-detail-subsection-head"><h3 id="report-trace-title"><Pulse size={17} weight="duotone" aria-hidden="true" />Agent 执行与运行事件</h3><span>{tracePartiallyUnavailable ? "部分不可用" : `${agentRuns.length + runtimeEvents.length} 条`}</span></header>
                     <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
-                    {allTraceUnavailable || allTraceEmpty ? <TraceEmptyState unavailable={allTraceUnavailable} onRetry={retryReport} /> : <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRunsUnavailable ? "—" : agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" unavailable={agentRunsUnavailable} /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEventsUnavailable ? "—" : runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" unavailable={runtimeEventsUnavailable} /></article></div>}
+                    {allTraceUnavailable || allTraceEmpty ? <TraceEmptyState unavailable={allTraceUnavailable} onRetry={retryDiagnostics} retrying={diagnosticsRefreshing} /> : <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRunsUnavailable ? "—" : agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" unavailable={agentRunsUnavailable} /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEventsUnavailable ? "—" : runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" unavailable={runtimeEventsUnavailable} /></article></div>}
                   </section>
 
                   <section aria-labelledby="report-evidence-inventory-title">

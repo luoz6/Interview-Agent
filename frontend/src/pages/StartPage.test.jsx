@@ -142,6 +142,9 @@ describe("StartPage editable plan workflow", () => {
     const user = userEvent.setup();
     render(<StartPage />);
     await generatePlan(user, fetchMock);
+    const revisionState = screen.getByText("已保存").closest('[role="status"]');
+    expect(revisionState).toHaveAttribute("aria-live", "polite");
+    expect(revisionState).toHaveTextContent("R1");
 
     const start = screen.getByRole("button", { name: "开始本次面试" });
     expect(start).toBeEnabled();
@@ -215,7 +218,9 @@ describe("StartPage editable plan workflow", () => {
     );
     await user.click(screen.getAllByRole("button", { name: "保存修改" })[0]);
 
-    await screen.findByText("计划版本冲突");
+    const conflictAlert = await screen.findByRole("alert");
+    expect(conflictAlert).toHaveTextContent("计划版本冲突");
+    expect(screen.getByText("版本冲突").closest('[role="status"]')).toHaveAttribute("aria-live", "polite");
     expect(input).toHaveValue("My conflicting question");
     expect(screen.getByRole("button", { name: "查看服务端版本" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "复制我的内容" }));
