@@ -3,7 +3,10 @@ import {
   confirmedRequest,
   dimensionDisplay,
   mergeRevisionConflict,
+  reportCreatedAtLabel,
+  reportDetailData,
   reportPageState,
+  reportRevisionLabel,
   scoreDisplay,
   weakestDimensions,
 } from "./reportContract";
@@ -56,6 +59,42 @@ describe("report five-axis contract", () => {
     expect(state.kind).toBe("ready");
     expect(state.updateFailed).toBe(true);
     expect(state.activeArtifact.report_id).toBe("report-1");
+  });
+
+  it("projects immutable artifact metadata over its report payload", () => {
+    const view = reportDetailData({
+      active_artifact: {
+        report_id: "report-7",
+        revision: 7,
+        created_at: "2026-08-06T07:30:00Z",
+        score_status: "partial",
+        coverage_status: "partial",
+        overall_score: 76,
+        evaluated_count: 2,
+        total_eligible_count: 3,
+        payload: {
+          summary: "本轮总结",
+          score_status: "scored",
+          overall_score: 99,
+        },
+      },
+      latest_job: { status: "failed", error_code: "provider_timeout" },
+    });
+
+    expect(view.report.summary).toBe("本轮总结");
+    expect(view.report.score_status).toBe("partial");
+    expect(view.report.overall_score).toBe(76);
+    expect(view.updateFailed).toBe(true);
+    expect(reportRevisionLabel(view.artifact)).toBe("第 7 版");
+    expect(reportCreatedAtLabel(view.artifact.created_at)).toMatch(/2026/);
+  });
+
+  it("keeps legacy report payloads readable without inventing a revision", () => {
+    const view = reportDetailData(legacyReport);
+
+    expect(view.report.overall_score).toBe(60);
+    expect(reportRevisionLabel(view.artifact)).toBe("历史兼容报告");
+    expect(reportCreatedAtLabel()).toBe("时间未记录");
   });
 });
 

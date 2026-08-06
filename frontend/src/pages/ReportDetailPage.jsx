@@ -25,6 +25,11 @@ import {
 import { downloadFile, getJson } from "../api/client";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";
+import {
+  reportCreatedAtLabel,
+  reportDetailData,
+  reportRevisionLabel,
+} from "../reportContract";
 import "../styles/report-detail-app.css";
 
 const dimensionLabels = {
@@ -36,11 +41,12 @@ const dimensionLabels = {
 };
 
 const reportSections = [
-  { id: "overview", label: "总览", icon: ChartBar },
+  { id: "overview", label: "结论", icon: ChartBar },
+  { id: "coverage", label: "覆盖", icon: Gauge },
+  { id: "strengths", label: "优势", icon: ShieldCheck },
+  { id: "actions", label: "行动", icon: Target },
   { id: "questions", label: "逐题", icon: ChatCircleDots },
-  { id: "actions", label: "改进", icon: Target },
-  { id: "evidence", label: "证据", icon: Database },
-  { id: "runtime-trace", label: "轨迹", icon: Pulse },
+  { id: "limitations", label: "限制", icon: WarningCircle },
 ];
 
 const stateLabels = {
@@ -56,6 +62,22 @@ function scoreBand(score) {
   if (score >= 70) return { label: "基础扎实", tone: "good" };
   if (score >= 60) return { label: "仍有提升空间", tone: "warning" };
   return { label: "建议重点练习", tone: "attention" };
+}
+
+function questionAnchor(questionId, index = 0) {
+  return `question-${encodeURIComponent(questionId || `item-${index + 1}`)}`;
+}
+
+function coverageLabel(status) {
+  if (status === "complete") return "完整覆盖";
+  if (status === "partial") return "部分覆盖";
+  return "无有效覆盖";
+}
+
+function scoreStatusLabel(status) {
+  if (status === "scored") return "已评分";
+  if (status === "partial") return "部分评分";
+  return "未评分";
 }
 
 function usePrefersReducedMotion() {
@@ -78,7 +100,7 @@ function AnimatedScore({ score, reducedMotion }) {
       node.textContent = "未评分";
       return undefined;
     }
-    if (reducedMotion) {
+    if (reducedMotion || typeof window.requestAnimationFrame !== "function") {
       node.textContent = String(score);
       return undefined;
     }
@@ -176,7 +198,7 @@ function DimensionBars({ values = {}, evaluations = {} }) {
   );
 }
 
-function FeedbackItem({ feedback, index }) {
+function FeedbackItem({ feedback, index, anchorId }) {
   const references = feedback.references || [];
   const dimensionEvidence = feedback.dimension_evidence || [];
   const score = Number.isFinite(feedback.score) ? feedback.score : null;
@@ -184,7 +206,7 @@ function FeedbackItem({ feedback, index }) {
   const skipped = ["skipped", "unanswered"].includes(feedback.answer_state);
   const [open, setOpen] = useState(index === 0);
   return (
-    <details className="report-detail-feedback" open={open} onToggle={(event) => setOpen(event.currentTarget.open)} style={{ "--feedback-index": index }}>
+    <details id={anchorId} className="report-detail-feedback" open={open} onToggle={(event) => setOpen(event.currentTarget.open)} style={{ "--feedback-index": index }}>
       <summary>
         <span className="report-detail-feedback-index">{String(index + 1).padStart(2, "0")}</span>
         <div className="report-detail-feedback-title">
@@ -251,7 +273,7 @@ function TraceEmptyState({ unavailable = false, onRetry }) {
 export function ReportDetailPage() {
   usePageMeta({
     title: "结构化面评报告",
-    description: "查看五维评分、逐题反馈、知识证据和 Agent 运行轨迹。",
+    description: "查看本轮结论、覆盖限制、主要优势、改进动作和逐题证据。",
     theme: "research",
     bodyClass: "start-page-body",
   });
@@ -259,10 +281,13 @@ export function ReportDetailPage() {
   const workspaceScrollRef = useRef(null);
   const reducedMotion = usePrefersReducedMotion();
   const [report, setReport] = useState(null);
+  const [artifact, setArtifact] = useState(null);
+  const [latestJob, setLatestJob] = useState(null);
+  const [revisionHistory, setRevisionHistory] = useState([]);
   const [evaluations, setEvaluations] = useState([]);
   const [agentRuns, setAgentRuns] = useState([]);
   const [runtimeEvents, setRuntimeEvents] = useState([]);
-  const [auxiliaryStatus, setAuxiliaryStatus] = useState({ evaluations: "loading", agentRuns: "loading", runtimeEvents: "loading" });
+  const [auxiliaryStatus, setAuxiliaryStatus] = useState({ evaluations: "loading", agentRuns: "loading", runtimeEvents: "loading", revisions: "loading" });
   const [state, setState] = useState("loading");
   const [notice, setNotice] = useState(null);
   const [currentSection, setCurrentSection] = useState("overview");
@@ -279,18 +304,27 @@ export function ReportDetailPage() {
     setState("loading");
     setNotice(null);
     setReport(null);
-    setAuxiliaryStatus({ evaluations: "loading", agentRuns: "loading", runtimeEvents: "loading" });
+    setArtifact(null);
+    setLatestJob(null);
+    setRevisionHistory([]);
+    setAuxiliaryStatus({ evaluations: "loading", agentRuns: "loading", runtimeEvents: "loading", revisions: "loading" });
     Promise.all([
       getJson(`/api/interviews/${encodeURIComponent(sessionId)}/report`, { cache: "no-store", signal: controller.signal }),
       getJson(`/api/interviews/${encodeURIComponent(sessionId)}/question-evaluations`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [], __unavailable: true }; }),
       getJson(`/api/interviews/${encodeURIComponent(sessionId)}/agent-runs?limit=100`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [], __unavailable: true }; }),
       getJson(`/api/interviews/${encodeURIComponent(sessionId)}/runtime-events?limit=100`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [], __unavailable: true }; }),
-    ]).then(([reportPayload, evaluationPayload, runPayload, eventPayload]) => {
-      if (reportPayload.status === "processing") {
+      getJson(`/api/interviews/${encodeURIComponent(sessionId)}/reports`, { cache: "no-store", signal: controller.signal }).catch((error) => { if (error.name === "AbortError") throw error; return { items: [], __unavailable: true }; }),
+    ]).then(([reportPayload, evaluationPayload, runPayload, eventPayload, revisionPayload]) => {
+      const detail = reportDetailData(reportPayload);
+      if (reportPayload.status === "processing" || (!detail.report && detail.updating)) {
         window.location.replace(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
         return;
       }
-      setReport(reportPayload);
+      if (!detail.report) throw new Error("当前没有可读取的 active 报告版本。");
+      setReport(detail.report);
+      setArtifact(detail.artifact);
+      setLatestJob(detail.latestJob);
+      setRevisionHistory(revisionPayload.items || []);
       setEvaluations(evaluationPayload.items || []);
       setAgentRuns(runPayload.items || []);
       setRuntimeEvents(eventPayload.items || []);
@@ -298,8 +332,14 @@ export function ReportDetailPage() {
         evaluations: evaluationPayload.__unavailable ? "unavailable" : "ready",
         agentRuns: runPayload.__unavailable ? "unavailable" : "ready",
         runtimeEvents: eventPayload.__unavailable ? "unavailable" : "ready",
+        revisions: revisionPayload.__unavailable ? "unavailable" : "ready",
       });
-      setState(reportPayload.is_fallback ? "fallback" : "completed");
+      setState(detail.report.is_fallback || detail.report.generation_status === "degraded" ? "fallback" : "completed");
+      if (detail.updateFailed) {
+        setNotice({ tone: "warning", title: "新版本处理失败，当前版本仍可使用", text: `正在显示 ${reportRevisionLabel(detail.artifact)}；失败的更新没有覆盖这份 active 报告。` });
+      } else if (detail.updating) {
+        setNotice({ tone: "info", title: "新版本正在生成", text: `当前继续显示 ${reportRevisionLabel(detail.artifact)}，新版本完成前不会遮挡本报告。` });
+      }
     }).catch((error) => {
       if (error.name === "AbortError") return;
       setState("error");
@@ -314,7 +354,7 @@ export function ReportDetailPage() {
   }, [state]);
 
   useEffect(() => {
-    if (!report || !workspaceScrollRef.current) return undefined;
+    if (!report || !workspaceScrollRef.current || typeof IntersectionObserver === "undefined") return undefined;
     const sections = reportSections.map(({ id }) => document.getElementById(id)).filter(Boolean);
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting).sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
@@ -357,10 +397,26 @@ export function ReportDetailPage() {
   const score = Number.isFinite(report?.overall_score) ? report.overall_score : null;
   const band = scoreBand(score);
   const scoreStatus = report?.score_status || (Number.isFinite(score) ? "scored" : "unscored");
+  const coverageStatus = report?.coverage_status || "none";
   const dimensionEvaluations = report?.dimension_evaluations || {};
   const answeredCount = feedbacks.filter((item) => item.answer_state === "answered").length;
   const improvements = [...new Set(feedbacks.map((item) => item.critique).filter(Boolean))];
   const observations = [...new Set((report?.highlights || []).filter(Boolean))];
+  const strengths = (report?.strengths || []).length
+    ? report.strengths
+    : observations.map((text, index) => ({ claim_id: `legacy-strength-${index}`, text, evidence_refs: [] }));
+  const priorityActions = (report?.priority_actions || []).length
+    ? report.priority_actions.slice(0, 3)
+    : improvements.slice(0, 3).map((text, index) => ({
+      action_id: `legacy-action-${index}`,
+      title: text,
+      why_it_matters: "这是本轮反馈中最直接的改进机会。",
+      practice: "结合对应题目的评分依据和改进答案进行一次重答。",
+      completion_criteria: "能够在下一次回答中清楚补足该缺口。",
+      question_refs: feedbacks[index]?.question_id ? [feedbacks[index].question_id] : [],
+      evidence_refs: [],
+    }));
+  const limitations = report?.limitations || [];
   const rankedDimensions = Object.entries(dimensionLabels)
     .filter(([key]) => Number.isFinite(dimensions[key]))
     .map(([key, label]) => ({ key, label, value: dimensions[key] }))
@@ -373,6 +429,27 @@ export function ReportDetailPage() {
     feedbacks.flatMap((item) => item.references || []).forEach((item, index) => map.set(item.chunk_id || `${item.title || "evidence"}-${index}`, item));
     return [...map.values()];
   }, [feedbacks]);
+  const evidenceQuestionByRef = useMemo(() => new Map(
+    (report?.evidence_refs || [])
+      .filter((item) => item.question_id)
+      .map((item) => [item.evidence_ref_id, item.question_id]),
+  ), [report]);
+  const reasonCodes = [...new Set([
+    report?.generation_reason_code,
+    report?.score_reason_code,
+    ...(report?.technical_appendix?.reason_codes || []),
+    ...limitations.map((item) => item.reason_code),
+  ].filter(Boolean))];
+
+  function jumpToQuestion(questionId, event) {
+    if (!questionId) return;
+    event?.preventDefault();
+    const target = document.getElementById(questionAnchor(questionId));
+    if (!target) return;
+    target.open = true;
+    target.scrollIntoView?.({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    target.querySelector("summary")?.focus({ preventScroll: true });
+  }
 
   async function download() {
     if (!sessionId || downloadState === "loading") return;
@@ -394,13 +471,14 @@ export function ReportDetailPage() {
   }
 
   const reportReady = Boolean(report);
-  const activeSectionLabel = reportSections.find(({ id }) => id === currentSection)?.label || "总览";
+  const activeSectionLabel = reportSections.find(({ id }) => id === currentSection)?.label || "结论";
   const evaluationUnavailable = auxiliaryStatus.evaluations === "unavailable";
   const agentRunsUnavailable = auxiliaryStatus.agentRuns === "unavailable";
   const runtimeEventsUnavailable = auxiliaryStatus.runtimeEvents === "unavailable";
   const allTraceUnavailable = agentRunsUnavailable && runtimeEventsUnavailable;
   const allTraceEmpty = !agentRunsUnavailable && !runtimeEventsUnavailable && !agentRuns.length && !runtimeEvents.length;
   const tracePartiallyUnavailable = agentRunsUnavailable || runtimeEventsUnavailable;
+  const revisionsUnavailable = auxiliaryStatus.revisions === "unavailable";
   const downloading = downloadState === "loading";
   const DownloadStateIcon = downloading ? SpinnerGap : downloadState === "success" ? CheckCircle : downloadState === "error" ? WarningCircle : FilePdf;
   const downloadLabel = downloading ? "正在准备 PDF" : downloadState === "success" ? "下载已开始" : downloadState === "error" ? "重试下载" : "下载 PDF";
@@ -437,7 +515,7 @@ export function ReportDetailPage() {
           </header>
 
           <div className="start-editor-commandbar report-detail-commandbar">
-            <div className="report-detail-command-context"><FileText size={16} weight="duotone" aria-hidden="true" /><span>报告编号</span><code>{sessionId ? sessionId.slice(0, 8) : "未提供"}</code></div>
+            <div className="report-detail-command-context"><FileText size={16} weight="duotone" aria-hidden="true" /><span>{reportRevisionLabel(artifact)}</span><strong>{reportCreatedAtLabel(artifact?.created_at)}</strong></div>
             <button className="button start-tool-button report-detail-download-tool" type="button" disabled={!reportReady || downloading} aria-busy={downloading || undefined} data-state={downloadState} onClick={download}>
               <DownloadStateIcon className={downloading ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{downloadLabel}</span>
             </button>
@@ -463,13 +541,13 @@ export function ReportDetailPage() {
 
               <section id="overview" className="report-detail-section report-detail-overview" aria-labelledby="report-overview-title" data-report-reveal style={{ "--reveal-order": 0 }}>
                 <div className="report-detail-overview-copy">
-                  <span className="report-detail-eyebrow">本轮结论</span>
-                  <h2 id="report-overview-title">{band.label}</h2>
+                  <span className="report-detail-eyebrow">01 · 本轮结论与评分状态</span>
+                  <h2 id="report-overview-title" aria-label="01 · 本轮结论与评分状态">{band.label}</h2>
                   <p>{report.summary || "当前报告没有返回总结，请继续查看逐题评分依据。"}</p>
                   <dl className="report-detail-overview-facts">
-                    <div><dt>完成回答</dt><dd>{answeredCount} / {feedbacks.length || "—"}</dd></div>
-                    <div><dt>评分覆盖</dt><dd>{report.evaluated_count ?? 0} / {report.total_eligible_count ?? answeredCount}</dd></div>
-                    <div><dt>生成路径</dt><dd>{state === "fallback" ? "全会话降级" : "结构化评审"}</dd></div>
+                    <div><dt>评分状态</dt><dd>{scoreStatusLabel(scoreStatus)}</dd></div>
+                    <div><dt>覆盖状态</dt><dd>{coverageLabel(coverageStatus)}</dd></div>
+                    <div><dt>有效回答</dt><dd>{answeredCount} / {feedbacks.length || "—"}</dd></div>
                   </dl>
                 </div>
                 <div className="report-detail-score-mark" data-tone={band.tone} aria-label={Number.isFinite(score) ? `综合评分 ${score} 分，${band.label}` : `综合评分未发布，${band.label}`}>
@@ -480,56 +558,79 @@ export function ReportDetailPage() {
                 </div>
               </section>
 
-              <section className="report-detail-panel report-detail-dimension-panel" aria-labelledby="report-dimensions-title" data-report-reveal style={{ "--reveal-order": 1 }}>
-                <ReportSectionHeading icon={ChartBar} title="五维评分" titleId="report-dimensions-title" meta="对照五个能力维度，定位最需要补强的部分。" />
-                <DimensionBars values={dimensions} evaluations={dimensionEvaluations} />
-              </section>
-
-              <section className="report-detail-panel report-detail-insight-panel" aria-labelledby="report-insights-title" data-report-reveal style={{ "--reveal-order": 2 }}>
-                <ReportSectionHeading icon={Target} title="下一轮应该关注什么" titleId="report-insights-title" meta="把评分转成一个明确动作和两个辅助判断。" />
-                <dl className="report-detail-insights">
-                  <div data-priority="primary"><dt><Lightbulb size={17} weight="duotone" aria-hidden="true" />首要动作</dt><dd>{improvements[0] || "当前报告未返回明确改进项。"}</dd></div>
-                  <div><dt><ChartBar size={16} weight="duotone" aria-hidden="true" />相对优势</dt><dd>{strongestDimension ? `${strongestDimension.label} · ${strongestDimension.value}` : "暂无有效评分信号"}</dd></div>
-                  <div><dt><Target size={16} weight="duotone" aria-hidden="true" />优先补强</dt><dd>{weakestDimension ? `${weakestDimension.label} · ${weakestDimension.value}` : "先完成可评估回答"}</dd></div>
-                </dl>
-              </section>
-
-              <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title">
-                <ReportSectionHeading icon={ChatCircleDots} title="逐题反馈" titleId="report-questions-title" meta={`${feedbacks.length} 道题；展开后查看依据、缺口和改进答案。`} />
-                <p className="report-detail-section-intro">展开每道题，依次查看评分依据、主要不足、改进答案和证据绑定。</p>
-                {feedbacks.length ? <div className="report-detail-feedback-list">{feedbacks.map((feedback, index) => <FeedbackItem key={feedback.question_id || index} feedback={feedback} index={index} />)}</div> : <div className="report-detail-empty-inline"><ChatCircleDots size={18} weight="duotone" aria-hidden="true" /><p><strong>暂无逐题反馈</strong><span>当前报告没有返回可展示的题目记录。</span></p></div>}
-
-                <section className="report-detail-evaluation-ledger" aria-labelledby="report-evaluation-ledger-title">
-                  <header className="report-detail-subsection-head"><h3 id="report-evaluation-ledger-title"><ListChecks size={17} weight="duotone" aria-hidden="true" />逐题评审链路</h3><span>{evaluationUnavailable ? "暂时不可用" : `${evaluations.length} 条`}</span></header>
-                  {evaluationUnavailable ? <div className="report-detail-empty-inline" data-tone="warning"><WarningCircle size={17} weight="fill" aria-hidden="true" /><p><strong>逐题评审链路暂时不可用</strong><span>主报告已经完成，当前只缺少可选的评审账本。</span></p></div> : evaluations.length ? <ol>{evaluations.map((item, index) => { const degraded = item.retrieval_path === "degraded" || Boolean(item.degraded_reason); return <li key={item.question_id || index}><span className="report-detail-evaluation-index">{String(index + 1).padStart(2, "0")}</span><div><header><strong>{item.question_id || "未提供题目 ID"}</strong><span data-state={item.status} data-degraded={degraded}>{degraded ? "降级评审" : item.status || "已记录"}</span></header><p>{item.feedback?.rationale || "评审记录已保存。"}</p><small>{item.retrieval_path || "未提供检索路径"}{item.degraded_reason ? ` · ${item.degraded_reason}` : ""}</small></div></li>; })}</ol> : <div className="report-detail-empty-inline"><Info size={17} weight="bold" aria-hidden="true" /><p><strong>暂无逐题评审链路</strong><span>报告可能由全会话路径生成，或当前运行存储未提供评审账本。</span></p></div>}
-                </section>
-              </section>
-
-              <section id="actions" className="report-detail-section report-detail-panel" aria-labelledby="report-actions-title">
-                <ReportSectionHeading icon={Lightbulb} title="观察与改进" titleId="report-actions-title" meta="将本轮观察整理成下一轮模拟的练习输入。" />
-                <div className="report-detail-action-grid">
-                  <article><header><span><Info size={17} weight="duotone" aria-hidden="true" /></span><div><strong>{observations.length}</strong><h3>关键观察</h3></div></header>{observations.length ? <ul>{observations.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="report-detail-muted">当前没有可展示的关键观察。</p>}</article>
-                  <article data-tone="focus"><header><span><Target size={17} weight="duotone" aria-hidden="true" /></span><div><strong>{improvements.length}</strong><h3>优先改进项</h3></div></header>{improvements.length ? <ol>{improvements.slice(0, 6).map((item, index) => <li key={item}><span>{String(index + 1).padStart(2, "0")}</span><p>{item}</p></li>)}</ol> : <p className="report-detail-muted">当前报告未返回明确改进项。</p>}</article>
+              <section id="coverage" className="report-detail-section report-detail-panel report-detail-coverage-panel" aria-labelledby="report-coverage-title" data-report-reveal style={{ "--reveal-order": 1 }}>
+                <ReportSectionHeading icon={Gauge} title="02 · 覆盖度和限制" titleId="report-coverage-title" meta="评分状态与覆盖状态相邻展示；未评估维度不会补零。" />
+                <div className="report-detail-state-pair" aria-label="评分和覆盖状态">
+                  <article><span>评分状态</span><strong>{scoreStatusLabel(scoreStatus)}</strong><p>{Number.isFinite(score) ? `${score} / 100` : "没有发布数字分"}</p></article>
+                  <article><span>覆盖状态</span><strong>{coverageLabel(coverageStatus)}</strong><p>{report.evaluated_count ?? 0} / {report.total_eligible_count ?? answeredCount} 道题进入评分</p></article>
                 </div>
+                <DimensionBars values={dimensions} evaluations={dimensionEvaluations} />
+                <p className="report-detail-coverage-note"><Info size={17} weight="duotone" aria-hidden="true" /><span>{coverageStatus === "complete" ? "五个维度仍只代表本轮已回答题目的证据，不等同于长期能力定论。" : coverageStatus === "partial" ? "数字结果只覆盖已评估题目；未评估题目和维度不会按 0 分处理。" : "当前证据不足，报告只保留可验证观察，不显示任何假分。"}</span></p>
               </section>
 
-              <section id="evidence" className="report-detail-section report-detail-panel" aria-labelledby="report-evidence-title">
-                <ReportSectionHeading icon={Database} title="知识证据" titleId="report-evidence-title" meta={`${evidence.length} 个可公开来源；只展示稳定引用字段。`} />
-                {evidence.length ? <div className="report-detail-evidence-grid">{evidence.map((item, index) => <article key={item.chunk_id || index} data-evidence-id={item.chunk_id}><header><span>{item.source_type || "知识片段"}</span><code>{item.chunk_id || "未提供 ID"}</code></header><h3>{item.title || "未命名知识来源"}</h3><p>{item.excerpt || "未提供公开摘要。"}</p></article>)}</div> : <div className="report-detail-empty-inline"><Database size={18} weight="duotone" aria-hidden="true" /><p><strong>没有可公开的知识引用</strong><span>这不等于报告失败；部分回答可以只根据候选人原始内容完成评审。</span></p></div>}
+              <section id="strengths" className="report-detail-section report-detail-panel" aria-labelledby="report-strengths-title" data-report-reveal style={{ "--reveal-order": 2 }}>
+                <ReportSectionHeading icon={ShieldCheck} title="03 · 主要优势" titleId="report-strengths-title" meta="只展示本轮回答中有证据支持的正向信号。" />
+                {strengths.length ? <div className="report-detail-strength-grid">{strengths.slice(0, 3).map((claim, index) => <article key={claim.claim_id || index}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{claim.text}</h3><p>{claim.evidence_refs?.length ? `${claim.evidence_refs.length} 条证据支持` : "来自本轮已验证逐题反馈"}</p></div></article>)}</div> : <div className="report-detail-empty-inline"><Info size={17} weight="bold" aria-hidden="true" /><p><strong>暂未形成主要优势</strong><span>这表示当前证据不足以发布稳定优势，不代表该能力为零。</span></p></div>}
               </section>
 
-              <section id="runtime-trace" className="report-detail-section report-detail-panel report-detail-trace-section" aria-labelledby="report-trace-title">
-                <ReportSectionHeading icon={Pulse} title="运行轨迹" titleId="report-trace-title" meta={tracePartiallyUnavailable ? "部分公开诊断暂时不可用。" : "仅展示稳定、可公开的运行字段。"} />
-                <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
-                {allTraceUnavailable || allTraceEmpty ? <TraceEmptyState unavailable={allTraceUnavailable} onRetry={retryReport} /> : <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRunsUnavailable ? "—" : agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" unavailable={agentRunsUnavailable} /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEventsUnavailable ? "—" : runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" unavailable={runtimeEventsUnavailable} /></article></div>}
+              <section id="actions" className="report-detail-section report-detail-panel" aria-labelledby="report-actions-title" data-report-reveal style={{ "--reveal-order": 3 }}>
+                <ReportSectionHeading icon={Target} title="04 · Top 1–3 改进动作" titleId="report-actions-title" meta="每个动作都给出练习方式、完成标准，并可跳到对应题目。" />
+                {priorityActions.length ? <div className="report-detail-priority-actions">{priorityActions.map((action, index) => {
+                  const questionId = action.question_refs?.[0] || action.evidence_refs?.map((ref) => evidenceQuestionByRef.get(ref)).find(Boolean);
+                  return <article key={action.action_id || index} data-priority={index + 1}><header><span>优先级 {index + 1}</span><h3>{action.title}</h3></header><dl><div><dt>为什么重要</dt><dd>{action.why_it_matters}</dd></div><div><dt>怎么练</dt><dd>{action.practice}</dd></div><div><dt>完成标准</dt><dd>{action.completion_criteria}</dd></div></dl>{questionId ? <a href={`#${questionAnchor(questionId)}`} onClick={(event) => jumpToQuestion(questionId, event)}><ChatCircleDots size={16} weight="bold" aria-hidden="true" />查看对应题目</a> : <a href="#questions"><ChatCircleDots size={16} weight="bold" aria-hidden="true" />查看逐题证据</a>}</article>;
+                })}</div> : <div className="report-detail-empty-inline"><Target size={18} weight="duotone" aria-hidden="true" /><p><strong>暂无可执行动作</strong><span>当前报告没有足够证据生成可靠的改进动作。</span></p></div>}
               </section>
+
+              <section id="questions" className="report-detail-section report-detail-panel" aria-labelledby="report-questions-title" data-report-reveal style={{ "--reveal-order": 4 }}>
+                <ReportSectionHeading icon={ChatCircleDots} title="05 · 逐题证据与回答建议" titleId="report-questions-title" meta={`${feedbacks.length} 道题；展开后查看依据、缺口、证据和安全回答建议。`} />
+                <p className="report-detail-section-intro">每道题同时呈现候选人证据、知识引用、评分依据和回答建议；没有引用不等于自动失分。</p>
+                {feedbacks.length ? <div className="report-detail-feedback-list">{feedbacks.map((feedback, index) => <FeedbackItem key={feedback.question_id || index} feedback={feedback} index={index} anchorId={questionAnchor(feedback.question_id, index)} />)}</div> : <div className="report-detail-empty-inline"><ChatCircleDots size={18} weight="duotone" aria-hidden="true" /><p><strong>暂无逐题反馈</strong><span>当前报告没有返回可展示的题目记录。</span></p></div>}
+              </section>
+
+              <section id="limitations" className="report-detail-section report-detail-panel report-detail-limitations-panel" aria-labelledby="report-limitations-title" data-report-reveal style={{ "--reveal-order": 5 }}>
+                <ReportSectionHeading icon={WarningCircle} title="06 · 评估限制" titleId="report-limitations-title" meta="先理解边界，再把本轮结果用于下一次练习。" />
+                <div className="report-detail-limitation-lead"><WarningCircle size={19} weight="duotone" aria-hidden="true" /><p>{coverageStatus === "complete" ? "本报告只评价本轮题目和回答，不能替代长期、跨场景的能力判断。" : coverageStatus === "partial" ? "本报告只对已有有效证据的题目和维度负责，未覆盖部分不参与能力分。" : "证据不足时不发布数字结论；以下内容仅帮助理解本次评估为何受限。"}</p></div>
+                {limitations.length ? <ol className="report-detail-limitation-list">{limitations.map((item, index) => <li key={item.limitation_id || index}><span>{String(index + 1).padStart(2, "0")}</span><p>{item.text}</p></li>)}</ol> : <p className="report-detail-muted">除本轮样本范围外，没有记录额外的评估限制。</p>}
+              </section>
+
+              <details className="report-detail-technical-appendix">
+                <summary><span><Pulse size={18} weight="duotone" aria-hidden="true" /></span><div><strong>技术附录</strong><small>Agent 执行、检索路径、版本、reason codes 与公开运行事件</small></div><CaretDown size={17} weight="bold" aria-hidden="true" /></summary>
+                <div className="report-detail-technical-body">
+                  <section aria-labelledby="report-revision-history-title">
+                    <header className="report-detail-subsection-head"><h3 id="report-revision-history-title"><ArrowClockwise size={17} weight="duotone" aria-hidden="true" />报告版本</h3><span>{revisionsUnavailable ? "暂时不可用" : `${revisionHistory.length || (artifact ? 1 : 0)} 版`}</span></header>
+                    <dl className="report-detail-technical-facts"><div><dt>当前版本</dt><dd>{reportRevisionLabel(artifact)} · {reportCreatedAtLabel(artifact?.created_at)}</dd></div><div><dt>Report Artifact</dt><dd><code>{artifact?.report_id || "legacy"}</code></dd></div><div><dt>来源 job</dt><dd><code>{artifact?.source_job_id || latestJob?.job_id || "未记录"}</code></dd></div><div><dt>Schema / Rubric</dt><dd>{report.report_schema_version || artifact?.schema_version || "legacy"} · {report.scoring_rubric_version || "未记录"}</dd></div></dl>
+                    {!revisionsUnavailable && revisionHistory.length > 1 && <ol className="report-detail-revision-list">{[...revisionHistory].sort((left, right) => (right.revision || 0) - (left.revision || 0)).map((item) => <li key={item.report_id}><span>{reportRevisionLabel(item)}{item.active ? " · active" : ""}</span><time dateTime={item.created_at || undefined}>{reportCreatedAtLabel(item.created_at)}</time></li>)}</ol>}
+                  </section>
+
+                  <section aria-labelledby="report-reason-codes-title">
+                    <header className="report-detail-subsection-head"><h3 id="report-reason-codes-title"><Info size={17} weight="duotone" aria-hidden="true" />生成与评分诊断</h3><span>{reasonCodes.length} 个 code</span></header>
+                    <div className="report-detail-code-list">{reasonCodes.length ? reasonCodes.map((code) => <code key={code}>{code}</code>) : <span>无额外 reason code</span>}</div>
+                  </section>
+
+                  <section className="report-detail-evaluation-ledger" aria-labelledby="report-evaluation-ledger-title">
+                    <header className="report-detail-subsection-head"><h3 id="report-evaluation-ledger-title"><ListChecks size={17} weight="duotone" aria-hidden="true" />逐题评审与检索路径</h3><span>{evaluationUnavailable ? "暂时不可用" : `${evaluations.length} 条`}</span></header>
+                    {evaluationUnavailable ? <div className="report-detail-empty-inline" data-tone="warning"><WarningCircle size={17} weight="fill" aria-hidden="true" /><p><strong>逐题评审链路暂时不可用</strong><span>候选人报告不受影响，当前只缺少可选诊断账本。</span></p></div> : evaluations.length ? <ol>{evaluations.map((item, index) => { const degraded = item.retrieval_path === "degraded" || Boolean(item.degraded_reason); return <li key={item.question_id || index}><span className="report-detail-evaluation-index">{String(index + 1).padStart(2, "0")}</span><div><header><strong>{item.question_id || "未提供题目 ID"}</strong><span data-state={item.status} data-degraded={degraded}>{degraded ? "降级评审" : item.status || "已记录"}</span></header><p>{item.feedback?.rationale || "评审记录已保存。"}</p><small>{item.retrieval_path || "未提供检索路径"}{item.degraded_reason ? ` · ${item.degraded_reason}` : ""}</small></div></li>; })}</ol> : <div className="report-detail-empty-inline"><Info size={17} weight="bold" aria-hidden="true" /><p><strong>暂无逐题评审链路</strong><span>当前运行存储没有提供可公开诊断记录。</span></p></div>}
+                  </section>
+
+                  <section className="report-detail-trace-section" aria-labelledby="report-trace-title">
+                    <header className="report-detail-subsection-head"><h3 id="report-trace-title"><Pulse size={17} weight="duotone" aria-hidden="true" />Agent 执行与运行事件</h3><span>{tracePartiallyUnavailable ? "部分不可用" : `${agentRuns.length + runtimeEvents.length} 条`}</span></header>
+                    <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
+                    {allTraceUnavailable || allTraceEmpty ? <TraceEmptyState unavailable={allTraceUnavailable} onRetry={retryReport} /> : <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRunsUnavailable ? "—" : agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" unavailable={agentRunsUnavailable} /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEventsUnavailable ? "—" : runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" unavailable={runtimeEventsUnavailable} /></article></div>}
+                  </section>
+
+                  <section aria-labelledby="report-evidence-inventory-title">
+                    <header className="report-detail-subsection-head"><h3 id="report-evidence-inventory-title"><Database size={17} weight="duotone" aria-hidden="true" />公开知识引用清单</h3><span>{evidence.length} 个</span></header>
+                    {evidence.length ? <div className="report-detail-evidence-grid">{evidence.map((item, index) => <article key={item.chunk_id || index} data-evidence-id={item.chunk_id}><header><span>{item.source_type || "知识片段"}</span><code>{item.chunk_id || "未提供 ID"}</code></header><h3>{item.title || "未命名知识来源"}</h3><p>{item.excerpt || "未提供公开摘要。"}</p></article>)}</div> : <p className="report-detail-muted">没有可公开的知识引用；部分回答仍可只根据候选人原始内容评审。</p>}
+                  </section>
+                </div>
+              </details>
             </>}
           </div>
         </section>
 
         <aside className="start-inspector report-detail-inspector" aria-labelledby="report-detail-inspector-title">
           <header className="start-inspector-head">
-            <div><span>工作面板</span><h2 id="report-detail-inspector-title">报告检查器</h2></div>
+            <div><span>练习面板</span><h2 id="report-detail-inspector-title">本轮摘要</h2></div>
             <span className="start-inspector-state" data-state={state === "error" ? "error" : reportReady ? "ready" : "generating"}>{state === "loading" ? <SpinnerGap className="start-spinner" size={13} weight="bold" aria-hidden="true" /> : state === "error" ? <WarningCircle size={13} weight="fill" aria-hidden="true" /> : <CheckCircle size={13} weight="fill" aria-hidden="true" />}<span>{stateLabels[state] || state}</span></span>
           </header>
 
@@ -542,8 +643,8 @@ export function ReportDetailPage() {
               </section>
 
               <section className="report-detail-inspector-section" aria-labelledby="report-detail-facts-title">
-                <header><h3 id="report-detail-facts-title"><FileText size={17} weight="duotone" aria-hidden="true" />报告事实</h3></header>
-                <dl className="report-detail-facts"><div><dt>报告编号</dt><dd><code>{sessionId?.slice(0, 8) || "未提供"}</code></dd></div><div><dt>逐题反馈</dt><dd>{feedbacks.length} 道</dd></div><div><dt>评审记录</dt><dd>{evaluationUnavailable ? "暂时不可用" : `${evaluations.length} 条`}</dd></div><div><dt>知识来源</dt><dd>{evidence.length} 个</dd></div><div><dt>生成路径</dt><dd>{state === "fallback" ? "全会话降级" : "结构化评审"}</dd></div></dl>
+                <header><h3 id="report-detail-facts-title"><FileText size={17} weight="duotone" aria-hidden="true" />评估状态</h3></header>
+                <dl className="report-detail-facts"><div><dt>评分</dt><dd>{scoreStatusLabel(scoreStatus)}</dd></div><div><dt>覆盖</dt><dd>{coverageLabel(coverageStatus)}</dd></div><div><dt>有效回答</dt><dd>{answeredCount} / {feedbacks.length || "—"}</dd></div><div><dt>可执行动作</dt><dd>{priorityActions.length} 个</dd></div><div><dt>评估限制</dt><dd>{limitations.length} 条</dd></div></dl>
               </section>
 
               <section className="report-detail-inspector-section" aria-labelledby="report-detail-priority-title">
@@ -568,7 +669,7 @@ export function ReportDetailPage() {
         <StatusBarItem icon={ChartBar} label="总分" value={reportReady ? (Number.isFinite(score) ? `${score} / 100` : "未评分") : "读取中"} state={reportReady ? (Number.isFinite(score) ? "ready" : "warning") : "idle"} />
         <StatusBarItem icon={ChatCircleDots} label="回答" value={`${answeredCount} / ${feedbacks.length || "—"}`} />
         <StatusBarItem icon={Database} label="证据" value={evidence.length} />
-        <StatusBarItem icon={evaluationUnavailable ? WarningCircle : ListChecks} label="评审" value={evaluationUnavailable ? "不可用" : evaluations.length} state={evaluationUnavailable ? "warning" : "idle"} />
+        <StatusBarItem icon={Gauge} label="覆盖" value={coverageLabel(coverageStatus)} state={coverageStatus === "complete" ? "ready" : "warning"} />
         <StatusBarItem icon={state === "error" ? WarningCircle : reportReady ? CheckCircle : Circle} label="当前" value={activeSectionLabel} state={state === "error" ? "error" : reportReady ? "ready" : "generating"} current />
       </footer>
     </div>

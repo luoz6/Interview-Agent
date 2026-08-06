@@ -18,6 +18,78 @@ export function unwrapReportResponse(response) {
   };
 }
 
+const artifactProjectionFields = [
+  "report_id",
+  "session_id",
+  "revision",
+  "created_at",
+  "active",
+  "schema_version",
+  "report_schema_version",
+  "presentation_version",
+  "scoring_rubric_version",
+  "generation_status",
+  "generation_reason_code",
+  "score_status",
+  "score_reason_code",
+  "coverage_status",
+  "report_path",
+  "overall_score",
+  "overall_dimension_scores",
+  "evaluated_count",
+  "total_eligible_count",
+  "evidence_count",
+  "dimension_evaluations",
+  "question_evaluations",
+];
+
+export function reportDetailData(response) {
+  const { activeArtifact, latestJob: responseLatestJob } = unwrapReportResponse(response);
+  if (!activeArtifact) {
+    return {
+      report: null,
+      artifact: null,
+      latestJob: responseLatestJob,
+      updateFailed: false,
+      updating: false,
+    };
+  }
+  const payload = activeArtifact.payload && typeof activeArtifact.payload === "object"
+    ? activeArtifact.payload
+    : {};
+  const report = { ...payload };
+  artifactProjectionFields.forEach((field) => {
+    if (activeArtifact[field] !== undefined) report[field] = activeArtifact[field];
+  });
+  const latestJob = responseLatestJob || activeArtifact.latest_job || null;
+  return {
+    report,
+    artifact: activeArtifact,
+    latestJob,
+    updateFailed: latestJob?.status === "failed",
+    updating: ["queued", "running"].includes(latestJob?.status),
+  };
+}
+
+export function reportRevisionLabel(artifact) {
+  if (!Number.isInteger(artifact?.revision)) return "历史兼容报告";
+  return `第 ${artifact.revision} 版`;
+}
+
+export function reportCreatedAtLabel(value) {
+  if (!value) return "时间未记录";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未记录";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export function numericDimensionEntries(view) {
   const values = view?.overall_dimension_scores || view?.payload?.overall_dimension_scores || {};
   return Object.entries(values).filter(([, value]) => Number.isFinite(value));
