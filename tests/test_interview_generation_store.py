@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -208,6 +207,14 @@ def test_cleanup_removes_only_old_completed_generation_chunks(store):
         lease_token=completed_attempt.lease_token,
         fencing_version=completed_attempt.fencing_version,
     )
+    with store._connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                store._sql(
+                    "UPDATE {generations} SET completed_at = NOW() - INTERVAL '2 hours' WHERE generation_id = %s"
+                ),
+                (completed.generation_id,),
+            )
     active = store.prepare_generation(
         session_id=store.session_id,
         source_command_id="cmd-active",
@@ -223,9 +230,7 @@ def test_cleanup_removes_only_old_completed_generation_chunks(store):
         fencing_version=active_attempt.fencing_version,
     )
 
-    deleted = store.cleanup_completed_chunks(
-        older_than=datetime.now(timezone.utc) + timedelta(seconds=1)
-    )
+    deleted = store.cleanup_completed_chunks_older_than(hours=1)
 
     assert deleted == 1
     assert store.list_events(completed.generation_id) == []

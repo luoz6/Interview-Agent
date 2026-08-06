@@ -1,6 +1,6 @@
 import pytest
 
-from app.graphs.interview_graph import InterviewGraphRunner
+from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE, InterviewGraphRunner
 from app.graphs.interview_state import (
     InterviewDecision,
     InterviewMessage,
@@ -558,5 +558,11 @@ def test_runner_finishes_after_last_question_followup_answer():
 
     assert state["status"] == "finished"
     assert state["current_index"] == 3
-    assert state["decision"]["action"] == "next_question"
+    assert state["decision"]["action"] == "finish"
+    assert state["pending_output"] == INTERVIEW_FINISHED_MESSAGE
+    assert state["messages"][-1] == {
+        "role": "interviewer",
+        "content": INTERVIEW_FINISHED_MESSAGE,
+        "question_id": None,
+    }
     assert state["pending_output"] == "本次模拟面试已结束。"

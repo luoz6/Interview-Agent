@@ -1,0 +1,142 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T60",
+  "generated_at": "2026-08-06T23:52:43+08:00",
+  "implementation_revision_base": "dd485137f5b8b8fde5e31ff471c727f5dbd597dd",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED_DETERMINISTIC_ENGINEERING",
+  "overall_status": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "screenshots": 0,
+  "open_findings": 0,
+  "matrix": {
+    "path": "tests/golden/interview_quality_v1/t60-combination-matrix-v1.json",
+    "schema_version": "interview-quality-v1-t60-combination-matrix-v1",
+    "canonical_sha256": "d9bbafdfa70e49c183d29f0be1d6496ecfbc1aef3c032d598ef49c75f27759a0",
+    "file_sha256": "230bab4168d370979ca6683207d240125e95f1e6ce7ad63915f2be7ad726f565",
+    "file_bytes": 69515,
+    "builder": "scripts/build_t60_combination_matrix.py",
+    "runner": "scripts/run_t60_combination_matrix.py",
+    "scenario_count": 30,
+    "manual_p0_scenario_count": 4,
+    "risk_pair_family_count": 6,
+    "required_risk_pair_count": 111,
+    "covered_risk_pair_count": 111,
+    "unique_test_node_count": 44,
+    "collected_test_count": 47,
+    "full_cartesian_product_required": false,
+    "generation_is_deterministic": true
+  },
+  "axes": {
+    "interview_graph": ["legacy", "durable_v1", "durable_v2"],
+    "followup_policy": ["fixed_v1", "adaptive_v1"],
+    "plan_state": ["legacy_snapshot", "revision_v2", "edited", "stale", "conflict"],
+    "report_job_state": ["queued", "running", "completed", "failed"],
+    "report_artifact": ["scored", "partial", "unscored", "degraded", "legacy"],
+    "report_version_state": ["single", "active_history", "rescore_success", "rescore_fail"],
+    "knowledge_retrieval": ["normal", "empty", "degraded"],
+    "answer_type": ["strong", "partial", "incorrect", "off_topic", "empty", "skipped"],
+    "provider_behavior": ["normal", "timeout", "invalid_json", "retry", "exhausted"],
+    "runtime_exception": ["sse_interrupt", "checkpoint_recovery", "lease_expired", "stale_worker"],
+    "memory_mode": ["disabled"]
+  },
+  "risk_pair_families": [
+    ["interview_graph", "followup_policy"],
+    ["plan_state", "report_job_state"],
+    ["report_artifact", "report_version_state"],
+    ["answer_type", "report_artifact"],
+    ["provider_behavior", "runtime_exception"],
+    ["knowledge_retrieval", "provider_behavior"]
+  ],
+  "manual_p0_scenarios": [
+    "p0-01-durable-v2-checkpoint-report-commit",
+    "p0-02-edited-plan-lease-reclaim-rescore",
+    "p0-03-conflict-stale-worker-failed-rescore",
+    "p0-04-stale-plan-sse-skip-unscored"
+  ],
+  "automatic_review_findings_closed": [
+    "The initial runner allowed six PostgreSQL-dependent skips to return exit zero; official execution now requires a reachable PostgreSQL preflight and fails closed on any skip.",
+    "The legacy terminal regression still expected next_question after the last question; it now verifies the normalized finish decision and single terminal message and is the matrix legacy representative.",
+    "Generation chunk cleanup mixed Python and PostgreSQL clocks; the test now ages completed rows with database time and exercises the production database-relative retention path."
+  ],
+  "verification": {
+    "matrix_contract": {
+      "tests_passed": 5,
+      "tests_failed": 0
+    },
+    "initial_missing_postgres_run": {
+      "tests_passed": 41,
+      "tests_skipped": 6,
+      "tests_failed": 0,
+      "accepted_as_pass": false,
+      "review_finding_closed": true
+    },
+    "postgres_fail_closed_preflight": {
+      "missing_dsn_status": "BLOCKED_POSTGRES_UNAVAILABLE",
+      "missing_dsn_exit_code": 3,
+      "reachable_status": "PASS",
+      "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+      "pgvector_version": "0.8.6"
+    },
+    "official_matrix": {
+      "tests_collected": 47,
+      "tests_passed": 47,
+      "tests_failed": 0,
+      "tests_skipped": 0,
+      "warnings": 1,
+      "warning_detail": "Starlette TestClient/httpx deprecation",
+      "exit_code": 0
+    },
+    "expanded_adjacent_regression": {
+      "tests_passed": 175,
+      "tests_failed": 0,
+      "warnings": 1
+    },
+    "legacy_terminal_isolated": {
+      "tests_passed": 1,
+      "tests_failed": 0
+    },
+    "generation_cleanup_isolated": {
+      "tests_passed": 1,
+      "tests_failed": 0
+    },
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "full_pytest_offline": {
+      "tests_passed": 2674,
+      "tests_failed": 4,
+      "tests_skipped": 218,
+      "warnings": 1,
+      "duration_seconds": 63.51,
+      "t60_related_failures": 0
+    },
+    "full_pytest_with_postgres": {
+      "status": "TOOL_TIMEOUT_NOT_CLAIMED",
+      "timeout_seconds": 240,
+      "orphaned_pytest_process_terminated": true,
+      "unrelated_processes_terminated": 0
+    }
+  },
+  "known_full_suite_failures": [
+    "tests/test_agent_runtime_hardening.py::test_stream_latency_clock_starts_at_first_next - old perf_counter mock ticks are exhausted",
+    "tests/test_local_v1_hardening_publication_contract.py::test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged - historical publication allowlist rejects accumulated quality-branch changes",
+    "tests/test_postgres_session_deletion.py::test_latest_migration_contract_requires_deletion_lease_and_indexes - old latest migration expectation is followup_decision_v1",
+    "tests/test_reproducibility_preflight.py::test_dependency_source_generator_and_lock_metadata_are_bound - existing lock hash differs from metadata"
+  ],
+  "phase_boundaries": {
+    "gate_2_through_gate_5_engineering_pass": true,
+    "t60_complete": true,
+    "next_task": "T61",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "Provider behavior is covered by deterministic fakes, saved responses, and injected failures; no real Provider call is claimed.",
+    "The official T60 PostgreSQL matrix has zero skips; the earlier six-skip diagnostic is explicitly rejected as acceptance evidence.",
+    "The four remaining full-suite failures, 218 offline skips, one warning, and the timed-out all-PostgreSQL full suite remain visible.",
+    "T60 Engineering PASS does not establish any blocked Gate 2-5 Quality status or T72 completion."
+  ]
+}
