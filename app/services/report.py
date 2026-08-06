@@ -117,9 +117,45 @@ class ReportLimitationV2(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list)
 
 
+class ReportObservationV2(BaseModel):
+    observation_id: str = Field(pattern=r"^obs-[0-9a-f]{16}$")
+    type: Literal["strength", "gap", "risk", "limitation"]
+    dimension: Literal[
+        "breadth",
+        "depth",
+        "architecture",
+        "engineering",
+        "communication",
+    ]
+    normalized_topic: str = Field(min_length=1, max_length=160)
+    severity: Literal["low", "medium", "high", "critical"]
+    frequency: int = Field(ge=1)
+    role_relevance: Literal["low", "medium", "high"]
+    evidence_strength: Literal["low", "medium", "high"]
+    question_refs: list[str] = Field(default_factory=list)
+    answer_evidence_refs: list[str] = Field(default_factory=list)
+    knowledge_refs: list[str] = Field(default_factory=list)
+    confidence_band: Literal["low", "medium", "high"]
+
+    @model_validator(mode="after")
+    def validate_observation_evidence(self) -> "ReportObservationV2":
+        if not (
+            self.question_refs
+            or self.answer_evidence_refs
+            or self.knowledge_refs
+        ):
+            raise ValueError("observation requires evidence or question refs")
+        if self.type != "limitation" and not self.answer_evidence_refs:
+            raise ValueError(
+                "strength, gap, and risk observations require answer evidence"
+            )
+        return self
+
+
 class ReportTechnicalAppendixV2(BaseModel):
     reason_codes: list[str] = Field(default_factory=list)
     report_path: str | None = None
+    observations: list[ReportObservationV2] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -143,6 +179,7 @@ class InterviewFeedback(BaseModel):
     dimension_evaluations: dict[str, ScoreEvaluation] = Field(default_factory=dict)
     applicable_dimensions: list[str] = Field(default_factory=list)
     dimension_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
     rationale: str = Field(description="Why the score was assigned")
     critique: str = Field(description="Main flaw or critique")
     better_answer: str = Field(description="Improved answer to practice")

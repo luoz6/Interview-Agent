@@ -23,6 +23,7 @@ from app.services.report_coverage import (
     question_evaluations,
 )
 from app.services.report_contract import build_report_evidence_refs
+from app.services.report_observations import aggregate_report_observations
 from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_SHA256,
     REPORT_SCORING_RUBRIC_VERSION,
@@ -117,6 +118,12 @@ def build_fallback_report(
     feedbacks = populate_feedback_dimension_evaluations(feedbacks)
     coverage = aggregate_report_coverage(feedbacks)
     report_dimension_evaluations = dimension_evaluations(coverage)
+    report_evidence_refs = build_report_evidence_refs(feedbacks)
+    observations = aggregate_report_observations(
+        feedbacks=feedbacks,
+        dimension_evaluations=report_dimension_evaluations,
+        evidence_refs=report_evidence_refs,
+    )
     return InterviewReport(
         session_id=state["session_id"],
         report_schema_version=REPORT_SCHEMA_VERSION_V2,
@@ -140,13 +147,14 @@ def build_fallback_report(
             evidence_count=coverage.evidence_count,
             per_dimension=report_dimension_evaluations,
         ),
-        evidence_refs=build_report_evidence_refs(feedbacks),
+        evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
             reason_codes=[
                 "invalid_provider_output",
                 coverage.score_reason_code,
             ],
             report_path="heuristic",
+            observations=observations,
             metadata={"coverage_status": coverage.coverage_status},
         ),
         report_path="heuristic",

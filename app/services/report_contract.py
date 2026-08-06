@@ -21,6 +21,7 @@ from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_SHA256,
     REPORT_SCORING_RUBRIC_VERSION,
 )
+from app.services.report_observations import aggregate_report_observations
 
 
 class CanonicalQuestionResult(BaseModel):
@@ -62,6 +63,7 @@ def assemble_interview_report(
             evidence_count=result.evidence_count,
             applicable_dimensions=result.applicable_dimensions,
             dimension_evidence=result.dimension_evidence,
+            highlights=result.highlights,
             rationale=result.rationale,
             critique=result.critique,
             better_answer=result.better_answer,
@@ -80,6 +82,12 @@ def assemble_interview_report(
     highlights = _build_highlights(question_results)
     summary = _build_summary(question_results, highlights)
     report_dimension_evaluations = dimension_evaluations(coverage)
+    report_evidence_refs = build_report_evidence_refs(feedbacks)
+    observations = aggregate_report_observations(
+        feedbacks=feedbacks,
+        dimension_evaluations=report_dimension_evaluations,
+        evidence_refs=report_evidence_refs,
+    )
 
     return InterviewReport(
         session_id=session_id,
@@ -104,10 +112,11 @@ def assemble_interview_report(
             evidence_count=coverage.evidence_count,
             per_dimension=report_dimension_evaluations,
         ),
-        evidence_refs=build_report_evidence_refs(feedbacks),
+        evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
             reason_codes=[coverage.score_reason_code],
             report_path="full_session",
+            observations=observations,
             metadata={"coverage_status": coverage.coverage_status},
         ),
         summary=summary,

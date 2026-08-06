@@ -12,6 +12,7 @@ from app.services.report import (
     ReportCoverageV2,
     ScoreEvaluation,
 )
+from app.services.report_observations import aggregate_report_observations
 
 
 DIMENSION_NAMES = (
@@ -237,6 +238,7 @@ def apply_report_coverage(
         list(report.feedbacks if feedbacks is None else feedbacks)
     )
     coverage = aggregate_report_coverage(resolved_feedbacks)
+    report_dimension_evaluations = dimension_evaluations(coverage)
     updates = {
         "feedbacks": resolved_feedbacks,
         "overall_score": coverage.overall_score,
@@ -247,7 +249,7 @@ def apply_report_coverage(
         "evaluated_count": coverage.evaluated_count,
         "total_eligible_count": coverage.total_eligible_count,
         "evidence_count": coverage.evidence_count,
-        "dimension_evaluations": dimension_evaluations(coverage),
+        "dimension_evaluations": report_dimension_evaluations,
         "question_evaluations": question_evaluations(resolved_feedbacks),
     }
     if report.report_schema_version == REPORT_SCHEMA_VERSION_V2:
@@ -256,7 +258,16 @@ def apply_report_coverage(
             evaluated_count=coverage.evaluated_count,
             total_eligible_count=coverage.total_eligible_count,
             evidence_count=coverage.evidence_count,
-            per_dimension=dimension_evaluations(coverage),
+            per_dimension=report_dimension_evaluations,
+        )
+        updates["technical_appendix"] = report.technical_appendix.model_copy(
+            update={
+                "observations": aggregate_report_observations(
+                    feedbacks=resolved_feedbacks,
+                    dimension_evaluations=report_dimension_evaluations,
+                    evidence_refs=report.evidence_refs,
+                )
+            }
         )
     if report_path is not None:
         updates["report_path"] = report_path
