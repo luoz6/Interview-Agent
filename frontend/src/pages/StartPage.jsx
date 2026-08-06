@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import {
+  ArrowDown,
   ArrowCounterClockwise,
   ArrowRight,
+  ArrowUp,
+  ArrowsClockwise,
   Books,
   Briefcase,
   CheckCircle,
@@ -9,18 +12,34 @@ import {
   Clock,
   ClipboardText,
   Columns,
+  Copy,
+  Eye,
   FileText,
   Files,
   FloppyDisk,
   IdentificationCard,
   Info,
   ListChecks,
+  PencilSimple,
+  Plus,
   ShieldCheck,
   SpinnerGap,
   Trash,
   UploadSimple,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
+import {
+  copyableLocalDraft,
+  createPlanEditorState,
+  editableQuestions,
+  hasLocalChanges,
+  interviewPlanReducer,
+  isLatestValidPlan,
+  normalizePlanResponse,
+  planEditorStatus,
+  questionDraft,
+} from "../interviewPlanState";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -61,6 +80,8 @@ function errorMessage(payload, fallback) {
   if (Array.isArray(payload?.detail)) {
     return payload.detail.map((item) => item?.msg).filter(Boolean).join("；") || fallback;
   }
+  if (typeof payload?.detail?.message === "string") return payload.detail.message;
+  if (typeof payload?.message === "string") return payload.message;
   return fallback;
 }
 
@@ -77,7 +98,12 @@ async function requestJson(url, options = {}) {
     throw new Error("无法连接后端服务。请确认服务已启动并稍后重试。");
   }
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(errorMessage(payload, `请求失败（${response.status}）`));
+  if (!response.ok) {
+    const error = new Error(errorMessage(payload, "请求失败（" + response.status + "）"));
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
   return payload;
 }
 
@@ -158,19 +184,229 @@ function SourceEditor({
   );
 }
 
-function PlanQuestion({ question, index }) {
-  const kind = QUESTION_KIND_LABELS[question.kind] || question.kind || "综合考察";
+function PlanQuestion({
+  question,
+  index,
+  total,
+  draft,
+  dirty,
+  busy,
+  onDraft,
+  onSave,
+  onDiscard,
+  onMove,
+  onRegenerate,
+  onDelete,
+}) {
+  const kind =
+    QUESTION_KIND_LABELS[question.question_type] ||
+    question.question_type ||
+    "综合考察";
+  const bindingStatus = question.knowledge_binding?.status || "unbound";
+  const bindingLabel = {
+    valid: "证据有效",
+    invalidated: "证据待重建",
+    unbound: "未绑定证据",
+  }[bindingStatus] || bindingStatus;
+  const textId = "plan-question-" + question.question_id;
+  const focusId = textId + "-focus";
+  const saveDisabled =
+    busy || !dirty || !draft.question_text.trim() || !draft.focus.trim();
   return (
-    <li className="start-plan-question">
-      <span className="start-plan-index">{String(index + 1).padStart(2, "0")}</span>
-      <div className="start-plan-copy">
-        <div className="start-plan-meta">
-          <span>{kind}</span>
-          <span>{question.focus || "综合考察"}</span>
+    <li className="start-plan-question" data-dirty={dirty || undefined}>
+      <form
+        className="start-plan-question-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave(question.question_id);
+        }}
+      >
+        <header className="start-plan-question-head">
+          <span className="start-plan-index">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+          <div className="start-plan-question-identity">
+            <strong>{kind}</strong>
+            <span data-binding={bindingStatus}>{bindingLabel}</span>
+          </div>
+          <div className="start-plan-order-actions" aria-label={"调整第 " + (index + 1) + " 题顺序"}>
+            <button
+              type="button"
+              onClick={() => onMove(question.question_id, index)}
+              disabled={busy || index === 0}
+              aria-label={"将第 " + (index + 1) + " 题上移"}
+            >
+              <ArrowUp size={15} weight="bold" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove(question.question_id, index + 2)}
+              disabled={busy || index === total - 1}
+              aria-label={"将第 " + (index + 1) + " 题下移"}
+            >
+              <ArrowDown size={15} weight="bold" aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <label className="start-plan-edit-label" htmlFor={textId}>
+          问题内容
+        </label>
+        <textarea
+          id={textId}
+          value={draft.question_text}
+          onChange={(event) =>
+            onDraft(question.question_id, "question_text", event.target.value)
+          }
+          disabled={busy}
+          rows={4}
+          aria-describedby={textId + "-hint"}
+        />
+        <div className="start-plan-question-hint" id={textId + "-hint"}>
+          <span>
+            {draft.question_text.length.toLocaleString()} 字 · 建议包含一个清晰任务和可追问边界
+          </span>
+          {question.origin === "custom" ? <strong>自定义题</strong> : null}
+          {question.origin === "regenerated" ? <strong>已换题</strong> : null}
         </div>
-        <strong>{question.prompt}</strong>
-      </div>
+        <label className="start-plan-edit-label" htmlFor={focusId}>
+          考察重点
+        </label>
+        <input
+          id={focusId}
+          type="text"
+          value={draft.focus}
+          onChange={(event) =>
+            onDraft(question.question_id, "focus", event.target.value)
+          }
+          disabled={busy}
+        />
+        <footer className="start-plan-question-actions">
+          <div>
+            <button
+              className="start-plan-action"
+              type="button"
+              onClick={() => onRegenerate(question.question_id)}
+              disabled={busy}
+            >
+              <ArrowsClockwise size={15} weight="bold" aria-hidden="true" />
+              换题
+            </button>
+            <button
+              className="start-plan-action start-plan-action-danger"
+              type="button"
+              onClick={() => onDelete(question.question_id, index)}
+              disabled={busy || total <= 1}
+            >
+              <Trash size={15} weight="bold" aria-hidden="true" />
+              删除
+            </button>
+          </div>
+          <div>
+            {dirty ? (
+              <button
+                className="start-plan-action"
+                type="button"
+                onClick={() => onDiscard(question.question_id)}
+                disabled={busy}
+              >
+                <X size={15} weight="bold" aria-hidden="true" />
+                撤销
+              </button>
+            ) : null}
+            <button
+              className="start-plan-action start-plan-action-primary"
+              type="submit"
+              disabled={saveDisabled}
+            >
+              <FloppyDisk size={15} weight="bold" aria-hidden="true" />
+              保存修改
+            </button>
+          </div>
+        </footer>
+      </form>
     </li>
+  );
+}
+
+function ConfirmationDialog({ confirmation, onCancel }) {
+  if (!confirmation) return null;
+  return (
+    <div className="start-dialog-backdrop" onMouseDown={onCancel}>
+      <section
+        className="start-confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plan-confirm-title"
+        aria-describedby="plan-confirm-description"
+        data-tone={confirmation.tone || "warning"}
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+        }}
+      >
+        <header>
+          <span aria-hidden="true">
+            <WarningCircle size={22} weight="fill" />
+          </span>
+          <div>
+            <span>需要确认</span>
+            <h2 id="plan-confirm-title">{confirmation.title}</h2>
+          </div>
+        </header>
+        <p id="plan-confirm-description">{confirmation.description}</p>
+        {confirmation.details?.length ? (
+          <ul>
+            {confirmation.details.map((detail) => (
+              <li key={detail}>{detail}</li>
+            ))}
+          </ul>
+        ) : null}
+        <footer>
+          <button type="button" className="start-dialog-secondary" onClick={onCancel} autoFocus>
+            取消
+          </button>
+          <button
+            type="button"
+            className="start-dialog-primary"
+            onClick={confirmation.onConfirm}
+          >
+            {confirmation.confirmLabel || "确认"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function RevisionState({ editor }) {
+  const state = planEditorStatus(editor);
+  const label = {
+    empty: "等待计划",
+    saved: "已保存",
+    draft: "有本地修改",
+    saving: "保存中",
+    conflict: "版本冲突",
+    failed: "保存失败",
+  }[state];
+  const Icon =
+    state === "saved"
+      ? CheckCircle
+      : state === "conflict" || state === "failed"
+        ? WarningCircle
+        : state === "saving"
+          ? SpinnerGap
+          : PencilSimple;
+  return (
+    <span className="start-revision-state" data-state={state} role="status" aria-live="polite">
+      <Icon
+        className={state === "saving" ? "start-spinner" : undefined}
+        size={14}
+        weight={state === "saved" || state === "conflict" || state === "failed" ? "fill" : "bold"}
+        aria-hidden="true"
+      />
+      <strong>{label}</strong>
+      {editor.serverPlan ? <span>R{editor.serverPlan.revision}</span> : null}
+    </span>
   );
 }
 
@@ -273,7 +509,11 @@ function StatusBarItem({ ready = false, state = "idle", label, value, current = 
 export function StartPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [resumeText, setResumeText] = useState("");
-  const [plan, setPlan] = useState(null);
+  const [editor, dispatchEditor] = useReducer(
+    interviewPlanReducer,
+    undefined,
+    () => createPlanEditorState(),
+  );
   const [status, setStatus] = useState("idle");
   const [notice, setNotice] = useState(null);
   const [draftId, setDraftId] = useState(() => getStoredDraftId());
@@ -283,17 +523,34 @@ export function StartPage() {
   const [inspectorView, setInspectorView] = useState("plan");
   const [focusTarget, setFocusTarget] = useState("");
   const [clearArmed, setClearArmed] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customQuestion, setCustomQuestion] = useState({
+    question_text: "",
+    focus: "",
+  });
 
-  const questions = plan?.questions || [];
+  const plan = editor.serverPlan;
+  const questions = editableQuestions(plan);
   const prepContext = plan?.prep_context || {};
   const topics = prepContext.topics || [];
   const evidence = prepContext.evidence_refs || [];
   const jobTags = plan?.job_tags || [];
-  const busy = ["generating", "saving", "restoring", "starting"].includes(status);
+  const busy =
+    ["generating", "saving", "restoring", "starting"].includes(status) ||
+    Boolean(editor.pendingOperation);
   const sourcesReady = Number(Boolean(jobDescription.trim())) + Number(Boolean(resumeText.trim()));
   const estimatedMinutes = useMemo(
-    () => questions.length ? `${questions.length * 4}–${questions.length * 6} 分钟` : "待生成",
-    [questions.length],
+    () => {
+      if (!questions.length) return "待生成";
+      const total = questions.reduce(
+        (sum, question) => sum + (question.expected_minutes || 0),
+        0,
+      );
+      return total ? total + " 分钟" : questions.length * 5 + " 分钟";
+    },
+    [questions],
   );
 
   useEffect(() => {
@@ -382,7 +639,8 @@ export function StartPage() {
       setInvalid((value) => ({ ...value, resume: false }));
     }
     setFileNames((value) => ({ ...value, [target]: file.name }));
-    setPlan(null);
+    dispatchEditor({ type: "INVALIDATE_SOURCE" });
+    setStatus("idle");
     setNotice({ tone: truncated ? "info" : "success", text: truncated ? `${file.name} 已导入，并按上限保留前 50,000 字。` : `${file.name} 已导入。生成计划前仍可继续编辑。` });
     input.value = "";
   }
@@ -396,7 +654,10 @@ export function StartPage() {
         method: "POST",
         body: JSON.stringify({ job_description: jobDescription, resume_text: resumeText }),
       });
-      setPlan(nextPlan);
+      dispatchEditor({
+        type: "LOAD_SERVER_PLAN",
+        plan: normalizePlanResponse(nextPlan),
+      });
       setStatus("ready");
       setInspectorView("plan");
       setNotice({ tone: "success", text: "面试蓝图已生成。请先检查题目与证据路径，再开始面试。" });
@@ -450,17 +711,14 @@ export function StartPage() {
         const revision = await requestJson(
           `/api/interview-plans/${encodeURIComponent(draft.plan_family_id)}/revisions/${encodeURIComponent(draft.latest_plan_revision_id)}`,
         );
-        setPlan({
-          ...revision.legacy_plan,
-          job_tags: draft.job_tags || [],
-          plan_family_id: revision.plan_family_id,
-          plan_revision_id: revision.plan_revision_id,
-          revision: revision.revision,
-          plan_sha256: revision.plan_sha256,
-          plan: revision.plan,
+        dispatchEditor({
+          type: "LOAD_SERVER_PLAN",
+          plan: normalizePlanResponse(revision, {
+            job_tags: draft.job_tags || [],
+          }),
         });
       } else {
-        setPlan(null);
+        dispatchEditor({ type: "INVALIDATE_SOURCE" });
       }
       setInvalid({ jd: false, resume: false });
       setFileNames({ jd: "来自匿名草稿", resume: "来自匿名草稿" });
@@ -488,7 +746,7 @@ export function StartPage() {
     }
     setJobDescription("");
     setResumeText("");
-    setPlan(null);
+    dispatchEditor({ type: "INVALIDATE_SOURCE" });
     setInvalid({ jd: false, resume: false });
     setFileNames({ jd: "未导入文件", resume: "未导入文件" });
     setStatus("idle");
@@ -498,10 +756,401 @@ export function StartPage() {
     setNotice({ tone: "info", text: "当前画布已清空；此前保存的匿名草稿仍可恢复。" });
   }
 
+  function requestId(prefix) {
+    const generated = window.crypto?.randomUUID?.();
+    return generated || prefix + "-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  }
+
+  function draftsWithout(questionId) {
+    const next = { ...editor.localDrafts };
+    delete next[questionId];
+    return next;
+  }
+
+  async function loadHistoryFor(targetPlan = plan) {
+    if (!targetPlan?.plan_family_id) return [];
+    dispatchEditor({ type: "HISTORY_LOADING" });
+    try {
+      const payload = await requestJson(
+        "/api/interview-plans/" +
+          encodeURIComponent(targetPlan.plan_family_id) +
+          "/revisions",
+      );
+      const history = payload.revisions || [];
+      dispatchEditor({ type: "HISTORY_SUCCESS", history });
+      return history;
+    } catch (error) {
+      dispatchEditor({ type: "HISTORY_FAILURE", message: error.message });
+      return [];
+    }
+  }
+
+  async function performRevisionOperation({
+    kind,
+    questionId = null,
+    send,
+    successText,
+    localDrafts = editor.localDrafts,
+  }) {
+    const operationRequestId = requestId(kind);
+    dispatchEditor({
+      type: "OPERATION_PENDING",
+      kind,
+      questionId,
+      requestId: operationRequestId,
+    });
+    try {
+      const response = await send(operationRequestId);
+      const nextPlan = normalizePlanResponse(response, plan);
+      dispatchEditor({
+        type: "OPERATION_SUCCESS",
+        plan: nextPlan,
+        localDrafts,
+      });
+      setStatus("ready");
+      setNotice({ tone: "success", text: successText });
+      if (historyOpen) await loadHistoryFor(nextPlan);
+      return true;
+    } catch (error) {
+      const conflict =
+        error.status === 409 ||
+        error.payload?.code === "plan_revision_conflict";
+      if (conflict) {
+        dispatchEditor({
+          type: "OPERATION_CONFLICT",
+          currentRevision: error.payload?.current_revision || null,
+          message: "服务端已经保存了更新版本。你的本地输入仍保留。",
+        });
+        setNotice({
+          tone: "warning",
+          text: "检测到版本冲突。请先查看服务端版本或复制本地内容，不会自动覆盖。",
+        });
+        setStatus("error");
+      } else {
+        dispatchEditor({
+          type: "OPERATION_FAILURE",
+          message: error.message,
+          status: error.status,
+          code: error.payload?.detail?.code || error.payload?.code,
+        });
+        setNotice({
+          tone: "error",
+          text: "计划操作失败，本地输入已保留：" + error.message,
+        });
+        setStatus("error");
+      }
+      return false;
+    }
+  }
+
+  function patchPlan(operations, operationRequestId) {
+    return requestJson(
+      "/api/interview-plans/" + encodeURIComponent(plan.plan_family_id),
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          expected_revision: plan.revision,
+          request_id: operationRequestId,
+          operations,
+        }),
+      },
+    );
+  }
+
+  async function saveQuestion(questionId) {
+    const question = questions.find((item) => item.question_id === questionId);
+    if (!question) return;
+    const draft = questionDraft(editor, question);
+    const operations = [];
+    if (draft.question_text !== question.question_text) {
+      operations.push({
+        op: "edit_question_text",
+        question_id: questionId,
+        question_text: draft.question_text,
+      });
+    }
+    if (draft.focus !== question.focus) {
+      operations.push({
+        op: "edit_focus",
+        question_id: questionId,
+        focus: draft.focus,
+      });
+    }
+    if (!operations.length) {
+      dispatchEditor({ type: "DISCARD_LOCAL_QUESTION", questionId });
+      return;
+    }
+    await performRevisionOperation({
+      kind: "edit_question",
+      questionId,
+      send: (operationRequestId) => patchPlan(operations, operationRequestId),
+      successText: "题目修改已保存为新的计划修订。",
+      localDrafts: draftsWithout(questionId),
+    });
+  }
+
+  async function moveQuestion(questionId, toPosition) {
+    await performRevisionOperation({
+      kind: "move_question",
+      questionId,
+      send: (operationRequestId) =>
+        patchPlan(
+          [{ op: "move_question", question_id: questionId, to_position: toPosition }],
+          operationRequestId,
+        ),
+      successText: "题目顺序已保存。",
+    });
+  }
+
+  async function regenerateQuestion(questionId, confirmed = false) {
+    if (editor.localDrafts[questionId] && !confirmed) {
+      setConfirmation({
+        title: "放弃本地修改并替换这道题？",
+        description: "当前题目还有未保存输入。换题成功后会使用服务端返回的新题目身份和内容。",
+        confirmLabel: "放弃修改并换题",
+        onConfirm: async () => {
+          setConfirmation(null);
+          await regenerateQuestion(questionId, true);
+        },
+      });
+      return;
+    }
+    await performRevisionOperation({
+      kind: "regenerate_question",
+      questionId,
+      send: (operationRequestId) =>
+        requestJson(
+          "/api/interview-plans/" +
+            encodeURIComponent(plan.plan_family_id) +
+            "/questions/" +
+            encodeURIComponent(questionId) +
+            "/regenerate",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              expected_revision: plan.revision,
+              request_id: operationRequestId,
+            }),
+          },
+        ),
+      successText: "替换题目已由服务端生成并保存。",
+      localDrafts: draftsWithout(questionId),
+    });
+  }
+
+  function confirmDeleteQuestion(questionId, index) {
+    setConfirmation({
+      title: "删除第 " + (index + 1) + " 题？",
+      description: "删除会创建新的计划修订，其他题目的稳定 ID 和内容不会改变。",
+      confirmLabel: "删除并保存",
+      tone: "danger",
+      onConfirm: async () => {
+        setConfirmation(null);
+        await performRevisionOperation({
+          kind: "delete_question",
+          questionId,
+          send: (operationRequestId) =>
+            patchPlan(
+              [{ op: "delete_question", question_id: questionId }],
+              operationRequestId,
+            ),
+          successText: "题目已删除，其他题目身份保持不变。",
+          localDrafts: draftsWithout(questionId),
+        });
+      },
+    });
+  }
+
+  async function addCustomQuestion(event) {
+    event.preventDefault();
+    const questionText = customQuestion.question_text.trim();
+    const focus = customQuestion.focus.trim();
+    if (!questionText || !focus) {
+      setNotice({ tone: "error", text: "自定义题需要同时填写问题内容和考察重点。" });
+      return;
+    }
+    const difficulty =
+      plan?.plan?.configuration_snapshot?.difficulty || "intermediate";
+    const succeeded = await performRevisionOperation({
+      kind: "add_custom_question",
+      send: (operationRequestId) =>
+        patchPlan(
+          [
+            {
+              op: "add_custom_question",
+              question_text: questionText,
+              focus,
+              question_type: "technical",
+              difficulty,
+              expected_minutes: 6,
+              expected_followups: 0,
+            },
+          ],
+          operationRequestId,
+        ),
+      successText: "自定义题已保存；它明确标记为未绑定知识证据。",
+    });
+    if (succeeded) {
+      setCustomQuestion({ question_text: "", focus: "" });
+      setCustomOpen(false);
+    }
+  }
+
+  function confirmRegenerateAll() {
+    const adjusted = questions.filter((question) =>
+      ["edited", "custom", "regenerated"].includes(question.origin),
+    );
+    const dirtyCount = Object.keys(editor.localDrafts).length;
+    const details = [];
+    if (adjusted.length) {
+      details.push(adjusted.length + " 道已手工调整或换过的题将被替换");
+    }
+    if (dirtyCount) {
+      details.push(dirtyCount + " 道尚未保存的本地输入将被清除");
+    }
+    if (!details.length) details.push("当前整份计划将由服务端重新生成");
+    setConfirmation({
+      title: "重新生成整份计划？",
+      description: "成功后服务端返回的新 revision 是唯一权威，当前计划仍保留在历史版本中。",
+      details,
+      confirmLabel: "确认重新生成",
+      onConfirm: async () => {
+        setConfirmation(null);
+        await performRevisionOperation({
+          kind: "regenerate_all",
+          send: (operationRequestId) =>
+            requestJson(
+              "/api/interview-plans/" +
+                encodeURIComponent(plan.plan_family_id) +
+                "/regenerate",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  expected_revision: plan.revision,
+                  request_id: operationRequestId,
+                  confirmed: true,
+                }),
+              },
+            ),
+          successText: "整份计划已重新生成并保存。",
+          localDrafts: {},
+        });
+      },
+    });
+  }
+
+  function confirmRestoreRevision(revision) {
+    setConfirmation({
+      title: "恢复到 R" + revision.revision + "？",
+      description: "恢复不会删除历史，而是以该版本内容创建一个新的最新 revision。",
+      details: [
+        revision.question_count + " 道题",
+        "创建原因：" + revision.created_reason,
+      ],
+      confirmLabel: "确认恢复",
+      onConfirm: async () => {
+        setConfirmation(null);
+        await performRevisionOperation({
+          kind: "restore_revision",
+          send: (operationRequestId) =>
+            patchPlan(
+              [
+                {
+                  op: "restore_revision",
+                  target_revision_id: revision.plan_revision_id,
+                },
+              ],
+              operationRequestId,
+            ),
+          successText: "历史内容已恢复为新的最新修订。",
+          localDrafts: {},
+        });
+      },
+    });
+  }
+
+  async function viewServerVersion() {
+    let revisionId = editor.conflict?.currentRevision?.plan_revision_id;
+    if (!revisionId) {
+      const history = await loadHistoryFor();
+      revisionId = history[0]?.plan_revision_id;
+    }
+    if (!revisionId) {
+      setNotice({ tone: "error", text: "无法定位服务端最新 revision。" });
+      return;
+    }
+    try {
+      const response = await requestJson(
+        "/api/interview-plans/" +
+          encodeURIComponent(plan.plan_family_id) +
+          "/revisions/" +
+          encodeURIComponent(revisionId),
+      );
+      dispatchEditor({
+        type: "SERVER_PREVIEW_LOADED",
+        plan: normalizePlanResponse(response, plan),
+      });
+    } catch (error) {
+      setNotice({ tone: "error", text: "服务端版本读取失败：" + error.message });
+    }
+  }
+
+  async function copyLocalInput() {
+    const text = copyableLocalDraft(editor);
+    if (!text) {
+      setNotice({ tone: "info", text: "当前没有可复制的本地题目文本。" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice({ tone: "success", text: "本地题目内容已复制，可安全粘贴到其他位置。" });
+    } catch {
+      setNotice({ tone: "error", text: "浏览器拒绝剪贴板访问，请手动复制题目输入。" });
+    }
+  }
+
+  function adoptServerPreview() {
+    if (!editor.serverPreview) return;
+    dispatchEditor({
+      type: "LOAD_SERVER_PLAN",
+      plan: editor.serverPreview,
+      keepHistory: true,
+    });
+    setStatus("ready");
+    setNotice({ tone: "success", text: "已切换到服务端最新版本，本地冲突状态已清除。" });
+  }
+
+  async function refreshServerRevision() {
+    const history = await loadHistoryFor();
+    const latest = history[0];
+    if (!latest) return;
+    try {
+      const response = await requestJson(
+        "/api/interview-plans/" +
+          encodeURIComponent(plan.plan_family_id) +
+          "/revisions/" +
+          encodeURIComponent(latest.plan_revision_id),
+      );
+      dispatchEditor({
+        type: "OPERATION_SUCCESS",
+        plan: normalizePlanResponse(response, plan),
+        localDrafts: editor.localDrafts,
+        history: editor.history,
+      });
+      setStatus("ready");
+      setNotice({ tone: "success", text: "已重新载入服务端最新 revision。" });
+    } catch (error) {
+      setNotice({ tone: "error", text: "重新载入失败：" + error.message });
+    }
+  }
+
   async function startInterview() {
     if (!plan || !validateSources()) return;
-    if (!plan.plan_revision_id || !plan.revision || !plan.plan_sha256) {
-      setNotice({ tone: "error", text: "当前计划缺少可验证的修订信息。请重新生成计划后再开始。" });
+    if (!isLatestValidPlan(editor)) {
+      setNotice({
+        tone: "error",
+        text: "只有已保存且无冲突的最新有效 revision 可以开始。请先保存或处理当前计划状态。",
+      });
       return;
     }
     setStatus("starting");
@@ -517,11 +1166,24 @@ export function StartPage() {
       });
       window.location.assign(`/interview?session_id=${encodeURIComponent(session.session_id)}`);
     } catch (error) {
+      if (error.status === 409) {
+        dispatchEditor({
+          type: "OPERATION_CONFLICT",
+          currentRevision: error.payload?.current_revision || null,
+          message: "启动前服务端 revision 已变化。当前页面不会自动覆盖。",
+        });
+        setNotice({
+          tone: "warning",
+          text: "计划已不是服务端最新版本。请查看服务端版本后再开始。",
+        });
+      } else {
+        setNotice({ tone: "error", text: error.message });
+      }
       setStatus("error");
-      setNotice({ tone: "error", text: error.message });
     }
   }
 
+  const runtimeStatus = editor.pendingOperation ? "saving" : status;
   const statusLabel = {
     idle: sourcesReady === 2 ? "可以生成计划" : "等待资料",
     generating: "正在建模",
@@ -530,7 +1192,7 @@ export function StartPage() {
     restoring: "恢复草稿",
     starting: "创建会话",
     error: "需要处理",
-  }[status];
+  }[runtimeStatus];
   const knowledgeStatus = prepContext.knowledge_status || (plan ? "unknown" : "pending");
   const knowledgeStatusLabel = KNOWLEDGE_STATUS_LABELS[knowledgeStatus] || knowledgeStatus.replaceAll("_", " ");
 
@@ -548,7 +1210,8 @@ export function StartPage() {
         setJobDescription(value);
         if (plan) setNotice({ tone: "info", text: "岗位 JD 已修改。原面试计划已失效，请重新生成。" });
         else if (invalid.jd) setNotice(invalid.resume ? { tone: "error", text: "岗位 JD 已补充；候选人经历仍未填写。" } : null);
-        setPlan(null);
+        dispatchEditor({ type: "INVALIDATE_SOURCE" });
+        setStatus("idle");
         setInvalid((state) => ({ ...state, jd: false }));
       },
       onFile: (file, input) => importFile(file, "jd", input),
@@ -567,7 +1230,8 @@ export function StartPage() {
         setResumeText(value);
         if (plan) setNotice({ tone: "info", text: "候选人经历已修改。原面试计划已失效，请重新生成。" });
         else if (invalid.resume) setNotice(invalid.jd ? { tone: "error", text: "候选人经历已补充；岗位 JD 仍未填写。" } : null);
-        setPlan(null);
+        dispatchEditor({ type: "INVALIDATE_SOURCE" });
+        setStatus("idle");
         setInvalid((state) => ({ ...state, resume: false }));
       },
       onFile: (file, input) => importFile(file, "resume", input),
@@ -593,7 +1257,7 @@ export function StartPage() {
           <a href="/reports">报告</a>
           <a href="/help">帮助</a>
         </nav>
-        <RuntimeStatus status={status} label={statusLabel} />
+        <RuntimeStatus status={runtimeStatus} label={statusLabel} />
       </header>
 
       <main id="main-content" className="start-app-shell" tabIndex="-1">
@@ -646,7 +1310,7 @@ export function StartPage() {
         <aside className="start-inspector" aria-labelledby="inspector-title">
           <header className="start-inspector-head">
             <div><span>工作面板</span><h2 id="inspector-title">{inspectorView === "evidence" ? "知识证据" : inspectorView === "readiness" ? "准备状态" : "面试计划"}</h2></div>
-            <InspectorStatus status={status} label={statusLabel} />
+            <InspectorStatus status={runtimeStatus} label={statusLabel} />
           </header>
           <div className="start-inspector-tabs" role="tablist" aria-label="工作面板视图">
             <button id="inspector-tab-plan" type="button" role="tab" aria-selected={inspectorView === "plan"} aria-controls="inspector-panel" onClick={() => setInspectorView("plan")}><ListChecks size={16} weight="bold" aria-hidden="true" focusable="false" />计划</button>
@@ -660,7 +1324,10 @@ export function StartPage() {
                 {plan ? (
                   <>
                     <header className="start-plan-summary">
-                      <div><span>计划已生成</span><h3>{plan.title}</h3></div>
+                      <div className="start-plan-summary-line">
+                        <div><span>计划已生成</span><h3>{plan.title}</h3></div>
+                        <RevisionState editor={editor} />
+                      </div>
                       {jobTags.length ? <div className="start-job-tags" aria-label="岗位标签">{jobTags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
                     </header>
                     <dl className="start-plan-metrics">
@@ -668,7 +1335,205 @@ export function StartPage() {
                       <div><dt><Clock size={14} weight="bold" aria-hidden="true" focusable="false" />时长</dt><dd>{estimatedMinutes}</dd></div>
                       <div><dt><Books size={14} weight="bold" aria-hidden="true" focusable="false" />证据</dt><dd>{evidence.length}</dd></div>
                     </dl>
-                    {questions.length ? <ol className="start-plan-list">{questions.map((question, index) => <PlanQuestion key={question.id || index} question={question} index={index} />)}</ol> : <InspectorEmpty icon={ClipboardText} title="计划没有返回可用题目。">请重新生成计划；系统不会使用示例题填充空列表。</InspectorEmpty>}
+                    <div className="start-plan-commandbar" aria-label="计划操作">
+                      <button
+                        type="button"
+                        onClick={() => setCustomOpen((value) => !value)}
+                        disabled={busy || questions.length >= 10}
+                        aria-expanded={customOpen}
+                      >
+                        <Plus size={15} weight="bold" aria-hidden="true" />
+                        添加题目
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !historyOpen;
+                          setHistoryOpen(next);
+                          if (next) loadHistoryFor();
+                        }}
+                        disabled={busy}
+                        aria-expanded={historyOpen}
+                      >
+                        <ArrowCounterClockwise size={15} weight="bold" aria-hidden="true" />
+                        历史版本
+                      </button>
+                      <button
+                        type="button"
+                        onClick={confirmRegenerateAll}
+                        disabled={busy}
+                      >
+                        <ArrowsClockwise size={15} weight="bold" aria-hidden="true" />
+                        全部换题
+                      </button>
+                    </div>
+
+                    {editor.conflict ? (
+                      <section className="start-plan-state-panel" data-state="conflict" role="alert">
+                        <header>
+                          <WarningCircle size={18} weight="fill" aria-hidden="true" />
+                          <div>
+                            <strong>计划版本冲突</strong>
+                            <span>
+                              {editor.conflict.currentRevision
+                                ? "服务端当前为 R" + editor.conflict.currentRevision.revision
+                                : "服务端存在更新版本"}
+                            </span>
+                          </div>
+                        </header>
+                        <p>{editor.conflict.message}</p>
+                        <div>
+                          <button type="button" onClick={viewServerVersion}>
+                            <Eye size={15} weight="bold" aria-hidden="true" />
+                            查看服务端版本
+                          </button>
+                          <button type="button" onClick={copyLocalInput}>
+                            <Copy size={15} weight="bold" aria-hidden="true" />
+                            复制我的内容
+                          </button>
+                        </div>
+                        {editor.serverPreview ? (
+                          <article className="start-server-preview">
+                            <span>服务端预览 · R{editor.serverPreview.revision}</span>
+                            <strong>{editor.serverPreview.title}</strong>
+                            <p>{editableQuestions(editor.serverPreview).length} 道题；采用前请先复制需要保留的本地内容。</p>
+                            <button type="button" onClick={adoptServerPreview}>
+                              使用服务端版本
+                            </button>
+                          </article>
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    {editor.failure ? (
+                      <section className="start-plan-state-panel" data-state="failed" role="alert">
+                        <header>
+                          <WarningCircle size={18} weight="fill" aria-hidden="true" />
+                          <div><strong>计划操作失败</strong><span>本地输入没有丢失</span></div>
+                        </header>
+                        <p>{editor.failure.message}</p>
+                        <button type="button" onClick={refreshServerRevision}>
+                          重新载入服务端版本
+                        </button>
+                      </section>
+                    ) : null}
+
+                    {customOpen ? (
+                      <form className="start-custom-question" onSubmit={addCustomQuestion}>
+                        <header>
+                          <div><span>自定义题</span><strong>添加明确的考察任务</strong></div>
+                          <button type="button" onClick={() => setCustomOpen(false)} aria-label="关闭自定义题表单">
+                            <X size={16} weight="bold" aria-hidden="true" />
+                          </button>
+                        </header>
+                        <label htmlFor="custom-question-text">问题内容</label>
+                        <textarea
+                          id="custom-question-text"
+                          rows={3}
+                          value={customQuestion.question_text}
+                          onChange={(event) =>
+                            setCustomQuestion((value) => ({
+                              ...value,
+                              question_text: event.target.value,
+                            }))
+                          }
+                          disabled={busy}
+                        />
+                        <span>{customQuestion.question_text.length.toLocaleString()} 字 · 不会伪造知识 grounding</span>
+                        <label htmlFor="custom-question-focus">考察重点</label>
+                        <input
+                          id="custom-question-focus"
+                          type="text"
+                          value={customQuestion.focus}
+                          onChange={(event) =>
+                            setCustomQuestion((value) => ({
+                              ...value,
+                              focus: event.target.value,
+                            }))
+                          }
+                          disabled={busy}
+                        />
+                        <button type="submit" disabled={busy}>
+                          <Plus size={15} weight="bold" aria-hidden="true" />
+                          添加并保存
+                        </button>
+                      </form>
+                    ) : null}
+
+                    {historyOpen ? (
+                      <section className="start-plan-history" aria-label="计划历史版本">
+                        <header><span>历史版本</span><strong>恢复会创建新的 revision</strong></header>
+                        {editor.historyStatus === "loading" ? (
+                          <p role="status"><SpinnerGap className="start-spinner" size={15} weight="bold" aria-hidden="true" />正在读取历史版本</p>
+                        ) : null}
+                        {editor.historyError ? <p role="alert">{editor.historyError}</p> : null}
+                        {editor.history.length ? (
+                          <ol>
+                            {editor.history.map((revision) => (
+                              <li key={revision.plan_revision_id}>
+                                <div>
+                                  <strong>R{revision.revision}</strong>
+                                  <span>{revision.title}</span>
+                                  <small>{revision.question_count} 题 · {revision.created_reason}</small>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => confirmRestoreRevision(revision)}
+                                  disabled={busy || revision.is_latest}
+                                >
+                                  {revision.is_latest ? "当前版本" : "恢复"}
+                                </button>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    {hasLocalChanges(editor) ? (
+                      <p className="start-plan-draft-note" role="status">
+                        <PencilSimple size={15} weight="bold" aria-hidden="true" />
+                        本地修改尚未全部保存；开始按钮会保持禁用。
+                      </p>
+                    ) : null}
+
+                    {questions.length ? (
+                      <ol className="start-plan-list">
+                        {questions.map((question, index) => (
+                          <PlanQuestion
+                            key={question.question_id}
+                            question={question}
+                            index={index}
+                            total={questions.length}
+                            draft={questionDraft(editor, question)}
+                            dirty={Boolean(editor.localDrafts[question.question_id])}
+                            busy={busy}
+                            onDraft={(questionId, field, value) =>
+                              dispatchEditor({
+                                type: "EDIT_LOCAL_QUESTION",
+                                questionId,
+                                field,
+                                value,
+                              })
+                            }
+                            onSave={saveQuestion}
+                            onDiscard={(questionId) =>
+                              dispatchEditor({
+                                type: "DISCARD_LOCAL_QUESTION",
+                                questionId,
+                              })
+                            }
+                            onMove={moveQuestion}
+                            onRegenerate={regenerateQuestion}
+                            onDelete={confirmDeleteQuestion}
+                          />
+                        ))}
+                      </ol>
+                    ) : (
+                      <InspectorEmpty icon={ClipboardText} title="计划没有返回可用题目。">
+                        请重新生成计划；系统不会使用示例题填充空列表。
+                      </InspectorEmpty>
+                    )}
                   </>
                 ) : (
                   <InspectorEmpty icon={ClipboardText} title="这里不会预填示例题。">补齐岗位 JD 与候选人经历后生成计划，真实题目会按顺序出现在这里。</InspectorEmpty>
@@ -722,11 +1587,11 @@ export function StartPage() {
           </div>
 
           <footer className="start-inspector-actions">
-            <button className={plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"} type="button" onClick={generatePlan} disabled={busy} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
+            <button className={plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"} type="button" onClick={plan ? confirmRegenerateAll : generatePlan} disabled={busy} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
               {status === "generating" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ListChecks size={18} weight="bold" aria-hidden="true" focusable="false" />}
               <span>{status === "generating" ? "正在生成面试计划" : plan ? "重新生成计划" : "生成面试计划"}</span>
             </button>
-            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!plan || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined}>
+            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!isLatestValidPlan(editor) || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined} title={!isLatestValidPlan(editor) && plan ? "请先保存修改或处理冲突" : undefined}>
               {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" focusable="false" />}
               <span>{status === "starting" ? "正在创建面试" : "开始本次面试"}</span>
             </button>
@@ -739,8 +1604,12 @@ export function StartPage() {
         <StatusBarItem ready={Boolean(jobDescription.trim())} label="JD" value={jobDescription.trim() ? "已填写" : "待填写"} />
         <StatusBarItem ready={Boolean(resumeText.trim())} label="经历" value={resumeText.trim() ? "已填写" : "待填写"} />
         <StatusBarItem ready={knowledgeStatus === "completed"} state={knowledgeStatus === "degraded" ? "warning" : knowledgeStatus === "empty" ? "info" : "idle"} label="知识" value={knowledgeStatusLabel} />
-        <StatusBarItem ready={status === "ready"} state={status} label="请求" value={statusLabel} current />
+        <StatusBarItem ready={runtimeStatus === "ready"} state={runtimeStatus} label="请求" value={statusLabel} current />
       </footer>
+      <ConfirmationDialog
+        confirmation={confirmation}
+        onCancel={() => setConfirmation(null)}
+      />
     </div>
   );
 }

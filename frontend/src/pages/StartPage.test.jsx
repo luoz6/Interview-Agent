@@ -1,0 +1,506 @@
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StartPage } from "./StartPage";
+
+const familyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const questionOne = "11111111-1111-4111-8111-111111111111";
+const questionTwo = "22222222-2222-4222-8222-222222222222";
+
+function revisionResponse(revision = 1, overrides = {}) {
+  const questions = overrides.questions || [
+    {
+      question_id: questionOne,
+      position: 1,
+      question_text:
+        revision === 1
+          ? "How do you prevent a cache stampede?"
+          : "How do you safely prevent a cache stampede?",
+      focus: "cache resilience",
+      question_type: "technical",
+      difficulty: "intermediate",
+      expected_minutes: 6,
+      expected_followups: 1,
+      origin: revision === 1 ? "generated" : "edited",
+      replaces_question_id: null,
+      knowledge_binding: {
+        schema_version: "plan-question-knowledge-binding-v1",
+        status: "unbound",
+        evidence_ids: [],
+        reason_code: "no_grounded_evidence",
+      },
+    },
+    {
+      question_id: questionTwo,
+      position: 2,
+      question_text: "Design an idempotent payment workflow.",
+      focus: "idempotency",
+      question_type: "system-design",
+      difficulty: "intermediate",
+      expected_minutes: 8,
+      expected_followups: 1,
+      origin: "generated",
+      replaces_question_id: null,
+      knowledge_binding: {
+        schema_version: "plan-question-knowledge-binding-v1",
+        status: "unbound",
+        evidence_ids: [],
+        reason_code: "no_grounded_evidence",
+      },
+    },
+  ];
+  const legacyQuestions = questions.map((question) => ({
+    id: question.question_id,
+    prompt: question.question_text,
+    focus: question.focus,
+    kind: question.question_type,
+  }));
+  const legacy = {
+    title: "Backend interview plan",
+    questions: legacyQuestions,
+    prep_context: {
+      knowledge_status: "empty",
+      topics: [],
+      evidence_refs: [],
+    },
+  };
+  return {
+    ...legacy,
+    legacy_plan: legacy,
+    job_tags: ["Redis"],
+    plan_family_id: familyId,
+    plan_revision_id:
+      revision === 1
+        ? "33333333-3333-4333-8333-333333333333"
+        : revision === 2
+          ? "44444444-4444-4444-8444-444444444444"
+          : "55555555-5555-4555-8555-555555555555",
+    revision,
+    plan_sha256: String(revision).repeat(64),
+    plan: {
+      schema_version: "interview-plan-v2",
+      title: "Backend interview plan",
+      configuration_snapshot: {
+        duration_minutes: 30,
+        difficulty: "intermediate",
+        focus: "balanced",
+      },
+      questions,
+    },
+    ...overrides,
+  };
+}
+
+function response(payload, status = 200) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    json: async () => payload,
+  });
+}
+
+async function generatePlan(user, fetchMock) {
+  fetchMock.mockImplementationOnce(() => response(revisionResponse(1)));
+  await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
+  await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+  await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Backend resume");
+  await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+  await screen.findByText("R1");
+}
+
+describe("StartPage editable plan workflow", () => {
+  let fetchMock;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps start disabled for a local draft and adopts the successful server revision", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+
+    const start = screen.getByRole("button", { name: "开始本次面试" });
+    expect(start).toBeEnabled();
+    const questionInputs = screen.getAllByRole("textbox", { name: "问题内容" });
+    await user.clear(questionInputs[0]);
+    await user.type(questionInputs[0], "My safer cache stampede question");
+    expect(start).toBeDisabled();
+    expect(screen.getByText(/本地修改尚未全部保存/)).toBeInTheDocument();
+
+    fetchMock.mockImplementationOnce(() => response(revisionResponse(2)));
+    await user.click(screen.getAllByRole("button", { name: "保存修改" })[0]);
+
+    await screen.findByText("R2");
+    expect(start).toBeEnabled();
+    const patch = fetchMock.mock.calls.at(-1);
+    expect(patch[0]).toBe("/api/interview-plans/" + familyId);
+    expect(patch[1].method).toBe("PATCH");
+    const body = JSON.parse(patch[1].body);
+    expect(body.expected_revision).toBe(1);
+    expect(body.operations).toEqual([
+      {
+        op: "edit_question_text",
+        question_id: questionOne,
+        question_text: "My safer cache stampede question",
+      },
+    ]);
+  });
+
+  it("preserves local input when save fails", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    const input = screen.getAllByRole("textbox", { name: "问题内容" })[0];
+    await user.clear(input);
+    await user.type(input, "Keep this local wording");
+
+    fetchMock.mockImplementationOnce(() =>
+      response({ detail: { code: "provider_timeout", message: "Timed out" } }, 503),
+    );
+    await user.click(screen.getAllByRole("button", { name: "保存修改" })[0]);
+
+    await screen.findByText("计划操作失败");
+    expect(input).toHaveValue("Keep this local wording");
+    expect(screen.getByText(/本地输入没有丢失/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+  });
+
+  it("shows conflict actions without overwriting local input", async () => {
+    const user = userEvent.setup();
+    const clipboardWrite = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    const input = screen.getAllByRole("textbox", { name: "问题内容" })[0];
+    await user.clear(input);
+    await user.type(input, "My conflicting question");
+
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        {
+          code: "plan_revision_conflict",
+          current_revision: {
+            plan_revision_id: "44444444-4444-4444-8444-444444444444",
+            revision: 2,
+            plan_sha256: "2".repeat(64),
+          },
+        },
+        409,
+      ),
+    );
+    await user.click(screen.getAllByRole("button", { name: "保存修改" })[0]);
+
+    await screen.findByText("计划版本冲突");
+    expect(input).toHaveValue("My conflicting question");
+    expect(screen.getByRole("button", { name: "查看服务端版本" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "复制我的内容" }));
+    expect(clipboardWrite).toHaveBeenCalledWith(
+      expect.stringContaining("My conflicting question"),
+    );
+  });
+
+  it("uses keyboard-operable move controls and sends the requested position", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        revisionResponse(2, {
+          questions: [
+            revisionResponse(1).plan.questions[1],
+            revisionResponse(1).plan.questions[0],
+          ].map((question, index) => ({ ...question, position: index + 1 })),
+        }),
+      ),
+    );
+
+    const moveDown = screen.getByRole("button", { name: "将第 1 题下移" });
+    moveDown.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.operations[0]).toEqual({
+      op: "move_question",
+      question_id: questionOne,
+      to_position: 2,
+    });
+  });
+
+  it("requires explicit confirmation before delete", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+
+    await user.click(screen.getAllByRole("button", { name: "删除" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "删除第 1 题？" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getAllByRole("button", { name: "删除" })[0]);
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        revisionResponse(2, {
+          questions: [
+            { ...revisionResponse(1).plan.questions[1], position: 1 },
+          ],
+        }),
+      ),
+    );
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "删除并保存",
+      }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).operations[0].op).toBe(
+      "delete_question",
+    );
+  });
+
+  it("loads history and restores only after confirmation", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    fetchMock.mockImplementationOnce(() =>
+      response({
+        plan_family_id: familyId,
+        latest_revision: 2,
+        revisions: [
+          {
+            plan_revision_id: "44444444-4444-4444-8444-444444444444",
+            revision: 2,
+            title: "Backend interview plan",
+            question_count: 2,
+            created_reason: "edit_question_text",
+            is_latest: true,
+          },
+          {
+            plan_revision_id: "33333333-3333-4333-8333-333333333333",
+            revision: 1,
+            title: "Backend interview plan",
+            question_count: 2,
+            created_reason: "initial_generation",
+            is_latest: false,
+          },
+        ],
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "历史版本" }));
+    await screen.findByText(/initial_generation/);
+
+    await user.click(screen.getByRole("button", { name: "恢复" }));
+    expect(screen.getByRole("dialog", { name: "恢复到 R1？" })).toBeInTheDocument();
+    fetchMock.mockImplementationOnce(() => response(revisionResponse(3)));
+    await user.click(screen.getByRole("button", { name: "确认恢复" }));
+
+    await screen.findByText("R3");
+    const body = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(body.operations[0]).toEqual({
+      op: "restore_revision",
+      target_revision_id: "33333333-3333-4333-8333-333333333333",
+    });
+  });
+
+  it("adds a custom question with safe ungrounded defaults", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    await user.click(screen.getByRole("button", { name: "添加题目" }));
+    const customForm = screen
+      .getByRole("button", { name: "添加并保存" })
+      .closest("form");
+    await user.type(
+      within(customForm).getByRole("textbox", { name: "问题内容" }),
+      "Describe a production incident review.",
+    );
+    await user.type(
+      within(customForm).getByRole("textbox", { name: "考察重点" }),
+      "incident learning",
+    );
+    const custom = {
+      question_id: "66666666-6666-4666-8666-666666666666",
+      position: 3,
+      question_text: "Describe a production incident review.",
+      focus: "incident learning",
+      question_type: "technical",
+      difficulty: "intermediate",
+      expected_minutes: 6,
+      expected_followups: 0,
+      origin: "custom",
+      replaces_question_id: null,
+      knowledge_binding: {
+        schema_version: "plan-question-knowledge-binding-v1",
+        status: "unbound",
+        evidence_ids: [],
+        reason_code: "custom_question",
+      },
+    };
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        revisionResponse(2, {
+          questions: [...revisionResponse(1).plan.questions, custom],
+        }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "添加并保存" }));
+
+    await screen.findByText("自定义题");
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.operations[0]).toEqual({
+      op: "add_custom_question",
+      question_text: "Describe a production incident review.",
+      focus: "incident learning",
+      question_type: "technical",
+      difficulty: "intermediate",
+      expected_minutes: 6,
+      expected_followups: 0,
+    });
+    expect(body.operations[0]).not.toHaveProperty("knowledge_binding");
+  });
+
+  it("regenerates one question through the server provider endpoint", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    const replacement = {
+      ...revisionResponse(1).plan.questions[0],
+      question_id: "77777777-7777-4777-8777-777777777777",
+      question_text: "Explain a resilient cache refresh strategy.",
+      origin: "regenerated",
+      replaces_question_id: questionOne,
+    };
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        revisionResponse(2, {
+          questions: [replacement, revisionResponse(1).plan.questions[1]],
+        }),
+      ),
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "换题" })[0]);
+
+    await screen.findByDisplayValue("Explain a resilient cache refresh strategy.");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/interview-plans/" +
+        familyId +
+        "/questions/" +
+        questionOne +
+        "/regenerate",
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).expected_revision).toBe(1);
+  });
+
+  it("confirms before replacing a question that has unsaved local text", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    const input = screen.getAllByRole("textbox", { name: "问题内容" })[0];
+    await user.clear(input);
+    await user.type(input, "Unsaved wording");
+
+    await user.click(screen.getAllByRole("button", { name: "换题" })[0]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const dialog = screen.getByRole("dialog", {
+      name: "放弃本地修改并替换这道题？",
+    });
+    expect(input).toHaveValue("Unsaved wording");
+    await user.keyboard("{Escape}");
+    expect(dialog).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not regenerate the whole plan until the confirmation is accepted", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    await user.click(screen.getByRole("button", { name: "全部换题" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const dialog = screen.getByRole("dialog", { name: "重新生成整份计划？" });
+    fetchMock.mockImplementationOnce(() => response(revisionResponse(2)));
+    await user.click(
+      within(dialog).getByRole("button", { name: "确认重新生成" }),
+    );
+
+    await screen.findByText("R2");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/interview-plans/" + familyId + "/regenerate",
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).confirmed).toBe(true);
+  });
+
+  it("turns a start-time 409 into a visible conflict and disables start", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    fetchMock.mockImplementationOnce(() =>
+      response({ detail: "plan revision conflict" }, 409),
+    );
+
+    await user.click(screen.getByRole("button", { name: "开始本次面试" }));
+
+    await screen.findByText("计划版本冲突");
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+    expect(screen.getByText(/启动前服务端 revision 已变化/)).toBeInTheDocument();
+  });
+
+  it("preserves a local question draft while refreshing after failure", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    const input = screen.getAllByRole("textbox", { name: "问题内容" })[0];
+    await user.clear(input);
+    await user.type(input, "Keep this draft across refresh");
+    fetchMock.mockImplementationOnce(() =>
+      response({ detail: "temporary failure" }, 503),
+    );
+    await user.click(screen.getAllByRole("button", { name: "保存修改" })[0]);
+    await screen.findByText("计划操作失败");
+
+    fetchMock
+      .mockImplementationOnce(() =>
+        response({
+          plan_family_id: familyId,
+          latest_revision: 2,
+          revisions: [
+            {
+              plan_revision_id: "44444444-4444-4444-8444-444444444444",
+              revision: 2,
+              title: "Backend interview plan",
+              question_count: 2,
+              created_reason: "edit_question_text",
+              is_latest: true,
+            },
+          ],
+        }),
+      )
+      .mockImplementationOnce(() => response(revisionResponse(2)));
+
+    await user.click(
+      screen.getByRole("button", { name: "重新载入服务端版本" }),
+    );
+
+    await screen.findByText("R2");
+    expect(screen.getAllByRole("textbox", { name: "问题内容" })[0]).toHaveValue(
+      "Keep this draft across refresh",
+    );
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+  });
+});

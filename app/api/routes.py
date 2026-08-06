@@ -882,6 +882,37 @@ def edit_interview_plan(
     return _apply_plan_edit(plan_family_id, payload, revision_store)
 
 
+@router.get("/interview-plans/{plan_family_id}/revisions")
+def list_interview_plan_revisions(
+    plan_family_id: str,
+    revision_store=Depends(get_plan_revision_store),
+):
+    try:
+        revisions = revision_store.list_revisions(plan_family_id)
+    except PlanRevisionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    latest_revision = revisions[-1].revision
+    return {
+        "plan_family_id": plan_family_id,
+        "latest_revision": latest_revision,
+        "revisions": [
+            {
+                "plan_revision_id": revision.plan_revision_id,
+                "revision": revision.revision,
+                "parent_revision_id": revision.parent_revision_id,
+                "plan_sha256": revision.plan_sha256,
+                "created_at": revision.created_at.isoformat(),
+                "created_reason": revision.created_reason,
+                "source_kind": revision.source_kind,
+                "title": revision.plan.title,
+                "question_count": len(revision.plan.questions),
+                "is_latest": revision.revision == latest_revision,
+            }
+            for revision in reversed(revisions)
+        ],
+    }
+
+
 @router.get("/interview-plans/{plan_family_id}/revisions/{plan_revision_id}")
 def get_interview_plan_revision(
     plan_family_id: str,

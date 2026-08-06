@@ -153,6 +153,62 @@ def test_edit_move_delete_restore_api_appends_monotonic_revisions(api_plan):
     )
 
 
+def test_revision_history_api_returns_safe_newest_first_summaries(api_plan):
+    client, _, initial, _ = api_plan
+    edited = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            1,
+            "history-edit-1",
+            {
+                "op": "edit_question_text",
+                "question_id": initial.plan.questions[0].question_id,
+                "question_text": "Explain safe cache invalidation.",
+            },
+        ),
+    )
+    assert edited.status_code == 200
+
+    response = client.get(
+        f"/api/interview-plans/{initial.plan_family_id}/revisions"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["plan_family_id"] == initial.plan_family_id
+    assert payload["latest_revision"] == 2
+    assert [item["revision"] for item in payload["revisions"]] == [2, 1]
+    assert payload["revisions"][0]["is_latest"] is True
+    assert payload["revisions"][1]["is_latest"] is False
+    assert payload["revisions"][0]["question_count"] == 3
+    assert set(payload["revisions"][0]) == {
+        "plan_revision_id",
+        "revision",
+        "parent_revision_id",
+        "plan_sha256",
+        "created_at",
+        "created_reason",
+        "source_kind",
+        "title",
+        "question_count",
+        "is_latest",
+    }
+    serialized = response.text
+    assert "Explain safe cache invalidation." not in serialized
+    assert "job_description" not in serialized
+    assert "resume_text" not in serialized
+
+
+def test_revision_history_api_rejects_unknown_family(api_plan):
+    client, _, _, _ = api_plan
+
+    response = client.get(
+        "/api/interview-plans/00000000-0000-0000-0000-000000000000/revisions"
+    )
+
+    assert response.status_code == 404
+
+
 def test_provider_question_regeneration_replaces_identity_and_is_idempotent(api_plan):
     client, store, initial, regenerator = api_plan
     old = initial.plan.questions[1]
