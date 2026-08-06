@@ -77,7 +77,7 @@ async function expectGeometry(page) {
         height: item.getBoundingClientRect().height,
       })),
       controlsStaySingleLine: [
-        ...document.querySelectorAll("button, .app-nav a, .report-rail nav a, .report-detail-activity-rail a"),
+        ...document.querySelectorAll("button, .start-nav a, .mobile-nav a, .report-rail nav a, .report-detail-activity-rail a"),
       ]
         .filter((item) => {
           const rect = item.getBoundingClientRect();

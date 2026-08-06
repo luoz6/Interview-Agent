@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node ./scripts/analyze-bundle.mjs",
     "preview": "vite preview",
-    "check": "eslint . --max-warnings 0"
+    "check": "eslint . --max-warnings 0",
+    "analyze:bundle": "node ./scripts/analyze-bundle.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

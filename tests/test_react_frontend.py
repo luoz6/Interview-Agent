@@ -27,11 +27,12 @@ def test_frontend_is_an_independent_vite_react_service():
 
 def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states():
     prep = read(SRC / "pages" / "StartPage.jsx")
-    tokens = read(SRC / "styles" / "start-page.tokens.css")
-    css = read(SRC / "styles" / "start-app.css")
+    tokens = read(SRC / "styles" / "tokens.css")
+    css = read(SRC / "styles" / "components" / "app-shell.css")
+    notice = read(SRC / "components" / "StatusNotice.jsx")
 
     assert 'from "@phosphor-icons/react"' in prep
-    assert 'aria-live={notice.tone === "error" ? "assertive" : "polite"}' in prep
+    assert 'aria-live={normalizedTone === "error" ? "assertive" : "polite"}' in notice
     assert 'target.focus()' in prep
     assert 'className="start-spinner"' in prep
     for token in (
@@ -67,11 +68,11 @@ def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states()
         assert state in css
     for behavior in (
         "function RuntimeStatus",
-        "function KnowledgeStatus",
-        "function StatusBarItem",
+        "function DraftSaveState",
+        "function PrepStepper",
         'data-state={clearArmed ? "confirm" : undefined}',
-        'aria-controls="inspector-panel"',
-        'role="tabpanel"',
+        'role="tablist"',
+        'data-document="jd"',
     ):
         assert behavior in prep
     for leaked_class in (
@@ -152,11 +153,14 @@ def test_design_system_implements_three_environments_and_accessibility_contracts
     css = "\n".join(
         (
             read(SRC / "styles" / "tokens.css"),
-            read(SRC / "styles" / "index.css"),
+            read(SRC / "styles" / "base.css"),
+            read(SRC / "styles" / "pages" / "interview.css"),
+            read(SRC / "styles" / "pages" / "report-processing.css"),
+            read(SRC / "styles" / "pages" / "report-detail.css"),
         )
     )
     shell = read(SRC / "components" / "AppShell.jsx")
-    workflow = read(SRC / "components" / "WorkflowRail.jsx")
+    navigation = read(SRC / "components" / "PrimaryNav.jsx")
 
     for token in (
         "--primitive-navy-900: #071829",
@@ -171,14 +175,13 @@ def test_design_system_implements_three_environments_and_accessibility_contracts
         "--pipeline-field-bg: var(--color-pipeline)",
         ".agent-console",
         ".pipeline-hero",
-        ".report-layout",
+        ".report-detail-workspace",
         "@media (max-width: 767px)",
         "@media (prefers-reduced-motion: reduce)",
     ):
         assert token in css
-    assert 'className="skip-link"' in shell
-    assert 'aria-label="主导航"' in shell
-    assert 'aria-current={state === "current" ? "step" : undefined}' in workflow
+    assert 'className="start-skip-link"' in shell
+    assert 'aria-label="主导航"' in navigation
 
 
 def test_react_async_pages_publish_stable_state_attributes():
@@ -200,7 +203,11 @@ def test_react_async_pages_publish_stable_state_attributes():
 def test_interview_assistance_notice_is_bounded_accessible_and_acknowledged():
     interview = read(SRC / "pages" / "InterviewPage.jsx")
     ui = read(SRC / "components" / "UI.jsx")
-    css = read(SRC / "styles" / "index.css")
+    css = "\n".join((
+        read(SRC / "styles" / "tokens.css"),
+        read(SRC / "styles" / "base.css"),
+        read(SRC / "styles" / "components" / "async-state.css"),
+    ))
 
     assert "user_notice_required" in interview
     assert 'assistance_mode === "basic"' in interview
@@ -213,23 +220,28 @@ def test_interview_assistance_notice_is_bounded_accessible_and_acknowledged():
 
 
 def test_design_document_layout_typography_and_mobile_contracts_are_explicit():
-    css = read(SRC / "styles" / "index.css")
+    css = "\n".join((
+        read(SRC / "styles" / "tokens.css"),
+        read(SRC / "styles" / "base.css"),
+        read(SRC / "styles" / "components" / "app-shell.css"),
+        read(SRC / "styles" / "components" / "navigation.css"),
+        read(SRC / "styles" / "pages" / "interview.css"),
+        read(SRC / "styles" / "pages" / "report-detail.css"),
+    ))
 
     for contract in (
-        "min-height: 64px",
-        "grid-template-columns: 232px minmax(0, 1fr)",
-        "grid-template-columns: 248px minmax(540px, 1fr) 280px",
-        "grid-template-columns: 220px minmax(0, 1fr)",
-        "font-size: clamp(44px, 6vw, 56px)",
-        ".app-nav { display: none; }",
-        "min-height: 44px",
-        ".report-actions { flex-direction: column; }",
+        "height: var(--start-app-topbar-height)",
+        "grid-template-columns: var(--start-app-rail-width) minmax(0, 1fr) minmax(20.5rem, var(--start-app-inspector-width))",
+        ".start-app-topbar .start-nav",
+        ".mobile-nav",
+        "--start-control-height-touch: 3rem",
+        "min-height: var(--start-control-height-touch)",
+        ".report-detail-inspector-actions {\n    grid-template-columns: minmax(0, 1fr);\n  }",
         "textarea[aria-invalid=\"true\"]",
-        "[hidden] { display: none !important; }",
+        "[hidden] {\n  display: none !important;\n}",
     ):
         assert contract in css
 
-    assert "backdrop-filter" not in css
     assert "font-size: 8px" not in css
     assert "font-size: 9px" not in css
     assert "font-size: 10px" not in css
@@ -241,24 +253,23 @@ def test_design_document_state_evidence_and_single_action_contracts_are_implemen
     detail = read(SRC / "pages" / "ReportDetailPage.jsx")
     reports = read(SRC / "pages" / "ReportsPage.jsx")
     interview = read(SRC / "pages" / "InterviewPage.jsx")
-    workflow = read(SRC / "components" / "WorkflowRail.jsx")
 
-    assert 'plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"' in prep
-    assert 'plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"' in prep
+    assert 'workspaceView === "sources"' in prep
+    assert 'setWorkspaceView("plan")' in prep
     assert 'aria-invalid={invalid || undefined}' in prep
     assert 'data-prep-state' not in prep
     assert 'dataset.prepState' in prep
-    assert 'className="start-app-shell"' in prep
-    assert 'className="start-activity-rail"' in prep
-    assert 'className="start-editor-workspace"' in prep
-    assert 'className="start-inspector"' in prep
-    assert 'className="start-status-bar"' in prep
+    assert 'className="prep-flow"' in prep
+    assert 'className="prep-stage prep-source-stage"' in prep
+    assert 'className="prep-stage prep-plan-stage"' in prep
+    assert 'className="prep-launch-bar"' in prep
     assert 'className="start-hero"' not in prep
 
     for stage in ("queued", "retrieving", "analyzing", "evaluating", "aggregating", "coaching", "completed"):
         assert f'name: "{stage}"' in processing
     assert "同步暂时失败，稍后会自动重试" in processing
-    assert 'label="同步" value={polling ? "自适应" : "已停止"}' in processing
+    assert 'visibilityState === "hidden" ? Math.max(15_000, visibleDelay) : visibleDelay' in processing
+    assert 'document.addEventListener("visibilitychange", syncForVisibility)' in processing
     assert "metadata.full_session_fallback" in processing
     assert 'aria-label="报告生成进度"' in processing
 
@@ -278,4 +289,3 @@ def test_design_document_state_evidence_and_single_action_contracts_are_implemen
     assert "AI 面试官" in interview
     assert "你的回答" in interview
     assert 'unanswered: "未回答"' in interview
-    assert "stateLabel" in workflow

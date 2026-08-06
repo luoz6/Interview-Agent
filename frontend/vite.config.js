@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => {
       outDir: "dist",
       emptyOutDir: true,
       sourcemap: true,
+      manifest: true,
     },
   };
 });

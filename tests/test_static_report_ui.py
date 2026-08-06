@@ -20,7 +20,7 @@ def test_production_visual_tokens_and_motion_contracts_remain_declared():
     css = "\n".join(
         (
             read_frontend_file("src/styles/tokens.css"),
-            read_frontend_file("src/styles/index.css"),
+            read_frontend_file("src/styles/base.css"),
         )
     )
 

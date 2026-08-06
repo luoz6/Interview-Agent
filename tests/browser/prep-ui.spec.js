@@ -5,7 +5,7 @@ test.beforeEach(async ({}, testInfo) => {
   test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
 });
 
-test("preparation workbench remains bounded across legacy viewport coverage", async ({ page }) => {
+test("preparation workbench remains bounded across the supported viewport matrix", async ({ page }) => {
   test.setTimeout(60_000);
   for (const viewport of [
     { width: 320, height: 900 },
@@ -22,7 +22,7 @@ test("preparation workbench remains bounded across legacy viewport coverage", as
     await expect(page.locator(".prep-source-grid")).toBeVisible();
 
     const prep = await page.evaluate(() => {
-      const topbar = document.querySelector(".app-topbar").getBoundingClientRect();
+      const topbar = document.querySelector(".start-app-topbar").getBoundingClientRect();
       const visibleDocuments = [...document.querySelectorAll(".prep-source-grid > div")]
         .filter((element) => getComputedStyle(element).display !== "none").length;
       const controls = [...document.querySelectorAll(".prep-flow button")]

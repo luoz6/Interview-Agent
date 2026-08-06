@@ -5,7 +5,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 RUNTIME_TEXT_FILES = (
     "frontend/src/components/AppShell.jsx",
-    "frontend/src/pages/PrepPage.jsx",
+    "frontend/src/components/PrimaryNav.jsx",
+    "frontend/src/components/navigation.js",
+    "frontend/src/pages/StartPage.jsx",
     "frontend/src/pages/InterviewPage.jsx",
     "frontend/src/pages/ReportProcessingPage.jsx",
     "frontend/src/pages/ReportDetailPage.jsx",
@@ -41,16 +43,20 @@ FORBIDDEN_MOJIBAKE_FRAGMENTS = (
 EXPECTED_PHRASES = {
     "frontend/src/components/AppShell.jsx": (
         "面试智能体",
+    ),
+    "frontend/src/components/PrimaryNav.jsx": (
         "主导航",
-        "开始面试",
-        "报告中心",
+    ),
+    "frontend/src/components/navigation.js": (
+        "准备",
+        "报告",
         "帮助",
     ),
-    "frontend/src/pages/PrepPage.jsx": (
-        "开始一次模拟面试",
+    "frontend/src/pages/StartPage.jsx": (
+        "建立本轮面试边界",
         "岗位 JD",
         "候选人经历",
-        "生成面试计划",
+        "生成并检查面试计划",
     ),
     "frontend/src/pages/InterviewPage.jsx": (
         "围绕当前问题完整说明判断、方案、取舍与验证",
@@ -59,9 +65,9 @@ EXPECTED_PHRASES = {
         "专注模式",
     ),
     "frontend/src/pages/ReportProcessingPage.jsx": (
-        "把等待变成一条透明流水线",
+        "正在整理本轮报告",
         "生成阶段",
-        "运行事件",
+        "运行诊断",
     ),
     "frontend/src/pages/ReportDetailPage.jsx": (
         "结构化面评报告",
@@ -75,9 +81,9 @@ EXPECTED_PHRASES = {
         "重新排队",
     ),
     "frontend/src/pages/HelpPage.jsx": (
-        "理解真实流程、数据边界，以及任务中断后可以采取的动作",
+        "按实际任务查找操作，不需要理解内部运行架构",
         "恢复手册",
-        "报告任务生成失败",
+        "报告失败",
     ),
     "app/static/shared-ui.js": (
         "知识广度",
