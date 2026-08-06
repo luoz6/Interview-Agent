@@ -62,12 +62,12 @@ npm.cmd run build:frontend
 | --- | --- | --- |
 | `/`、`/prep` | `StartPage.jsx` | JD/简历输入、文本导入、草稿恢复、生成计划、启动面试 |
 | `/interview` | `InterviewPage.jsx` | 会话快照、题目导航、SSE 答题、跳题、结束、断线恢复 |
-| `/report-processing` | `ReportProcessingPage.jsx` | 报告进度轮询、阶段、事件、RAG 摘要、完成跳转 |
+| `/report-processing` | `ReportProcessingPage.jsx` | 权威进度快照、阶段、公开消息、失败恢复与完成跳转；诊断构建可按需显示 RAG/运行字段，不展示事件历史 |
 | `/report-detail` | `ReportDetailPage.jsx` | 总分、五维评分、逐题反馈、证据、评估链路、PDF |
 | `/reports` | `ReportsPage.jsx` | 服务端搜索、筛选、分页、状态统计、重试与下载 |
 | `/help` | `HelpPage.jsx` | 工作流说明、草稿/SSE/报告失败恢复指南 |
 
-> 运行路径审计（2026-08-05）：`frontend/src/App.jsx` 的 `/` 与 `/prep` 只懒加载 `StartPage.jsx`。旧 `PrepPage.jsx` 和 `styles/start-page.css` 没有任何正式路由或 import；它们仅作为待 Phase 5 删除的历史文件保留，不能作为当前产品实现或设计来源。
+> Phase 5 运行路径审计（2026-08-05）：`frontend/src/App.jsx` 的 `/` 与 `/prep` 只懒加载 `StartPage.jsx`。旧 `PrepPage.jsx` 和 `styles/start-page.css` 已在证明无正式路由、import 或有效测试依赖后删除。
 
 除准备页外，工作流页面通过 `session_id` 查询参数关联会话：
 
@@ -82,7 +82,7 @@ npm.cmd run build:frontend
 
 ## 4. DESIGN.md 视觉契约
 
-所有视觉和交互实现以仓库根目录的 `DESIGN.md` 为准。当前 CSS 位于 `frontend/src/styles/index.css`，使用统一变量、组件状态和响应式规则实现三种环境。
+所有视觉和交互实现以仓库根目录的 `DESIGN.md` 为准。CSS 分为唯一的 `tokens.css`、`base.css`、`styles/components/` 共享层和 `styles/pages/` 路由层；共享层中的 `app-shell.css`、`navigation.css`、`dialog.css` 与 `async-state.css` 由主入口加载，页面 CSS 由对应懒加载页面导入，不得重新放回主入口。
 
 ### 4.1 Research Canvas
 
@@ -129,9 +129,10 @@ npm.cmd run build:frontend
 
 ### 6.1 准备页
 
-- `POST /api/prep` 生成题目计划、岗位标签、知识主题和证据。
-- `POST /api/interview-drafts` 保存匿名草稿；对应 GET 接口恢复草稿。
-- `POST /api/interviews` 创建会话并进入面试页。
+- `POST /api/prep` 创建带固定 TTL、稳定题目 ID 与版本号的权威 `PrepPlan`。
+- `GET/PATCH /api/prep-plans/{plan_id}` 读取或修改当前计划；单题重生成使用计划版本冲突保护。
+- `POST /api/interview-drafts` 保存匿名草稿；响应中的 `durability` 与 `expires_at` 决定页面如何描述持久性，删除操作使用真实 DELETE 接口。
+- `POST /api/interviews` 携带 `plan_id`、`expected_plan_version` 与稳定 `command_id` 创建会话；相同命令重放返回同一会话。
 - 文件导入仅支持 `.txt` 与 `.md`，单文件不超过 1 MiB。
 - 证据标识以 `data-evidence-id` 保留，便于后续验证连续性。
 
@@ -147,12 +148,13 @@ npm.cmd run build:frontend
 
 ### 6.3 报告生成与详情
 
-- 生成页每 3 秒轮询 `/report/progress`，展示服务端阶段、百分比、事件和元数据。
+- 生成页自适应轮询 `/report/progress`；页面隐藏时降到至少 15 秒一次，恢复可见时立即同步，离开页面不会停止后端任务。
 - 报告完成后进入详情页；失败时保留错误与历史阶段，不清空上下文。
-- 详情页只展示稳定、允许公开的 Agent/运行字段，不直接输出内部任意元数据。
+- 详情页默认只展示产品信息和服务端可靠性摘要；仅当 `VITE_SHOW_RUNTIME_DIAGNOSTICS=true` 时请求并展示允许公开的诊断资源。
 - 五维评分固定为知识广度、技术深度、系统设计、工程实践、表达沟通。
 - 不生成后端没有提供的百分位、排名、Worker 名称或演示统计。
 - PDF 通过 blob 下载；下载失败只显示局部错误，不移除已渲染报告。
+- 针对性练习通过 `POST /api/interviews/{session_id}/practice-plan` 创建新的可编辑 PrepPlan，并保留报告与会话题目的双 ID 来源。
 
 ### 6.4 报告中心
 
@@ -175,6 +177,7 @@ npm.cmd run build:frontend
 
 ```powershell
 npm.cmd run build:frontend
+npm.cmd run analyze:bundle
 & 'F:\python3.11\python.exe' -m pytest -q
 $env:STAGE41_PYTHON='F:\python3.11\python.exe'
 npm.cmd run test:browser
@@ -189,6 +192,7 @@ npm.cmd run test:browser
 - 桌面和移动端边界、键盘可用性、减少动态效果；
 - UTF-8 中文文案不出现乱码；
 - 构建产物不依赖六个旧 HTML 文件。
+- `dist/bundle-summary.json` 存在、六个路由仍是动态入口、初始 JS/CSS 未超过 66/20 KiB gzip 预算。
 
 浏览器测试禁止以截图作为常规产物。Playwright 仅在失败时保留 trace，用于诊断而不是作为设计依据。
 
@@ -215,7 +219,9 @@ frontend/src/pages/
 frontend/src/components/
 frontend/src/api/
 frontend/src/hooks/
-frontend/src/styles/index.css
+frontend/src/styles/base.css
+frontend/src/styles/components/
+frontend/src/styles/pages/
 ```
 
 除非任务明确要求清理历史兼容资产，否则不要把 `app/test*.html` 或 `app/static/*.js` 重新接回运行路径，也不要据此还原页面设计。

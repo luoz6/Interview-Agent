@@ -924,3 +924,12 @@ Hosted V2 is not the next automatic task. If it is reconsidered, begin with a
 new baseline and a newly approved or formally reopened Productization ADR and
 data-use specification. Local facts, Consent records and tombstones must not be
 automatically migrated into a hosted identity boundary.
+
+## Phase 5 前端恢复与诊断操作
+
+- `/prep` 的 `PrepPlan` 由服务端保存固定 TTL 与版本。页面提示过期时应重新生成，不能从浏览器缓存恢复成新的权威计划。
+- 草稿响应的 `durability=process_memory` 表示服务重启后失效；`durability=persistent` 表示可跨进程恢复，并应同时展示服务端 `expires_at`。浏览器只保存高熵恢复标识。
+- 浏览器保存的“上次活跃会话”引用只是恢复入口。继续面试前必须读取服务端权威快照；404/410 且确认不可恢复时才清除，网络错误、超时或 503 时保留。
+- 报告生成属于后台任务。关闭生成页不会取消任务；重新进入时从 `/report/progress` 同步，失败记录从报告中心按 API 的 `retryable` 能力恢复。
+- 默认产品构建不请求或显示任务 ID、workflow、attempt、heartbeat、Agent runs 或 runtime events。仅在受控本地诊断时设置 `VITE_SHOW_RUNTIME_DIAGNOSTICS=true` 并重新构建前端。
+- 前端构建会自动执行 66 KiB JS / 20 KiB CSS gzip 预算及动态路由隔离检查；机器可读结果位于未提交的 `frontend/dist/bundle-summary.json`。

@@ -13,13 +13,13 @@
 | `app/services/session.py`、`app/graphs/interview_graph.py` | 会话状态、答题流转、追问和结束规则 |
 | `app/services/report.py`、`app/services/report_contract.py` | 报告、评分、证据引用和进度模型 |
 | `app/services/report_jobs.py`、`app/services/runtime.py` | 报告任务队列与运行时存储设计 |
-| `frontend/src/pages/PrepPage.jsx` | 面试准备页，承载 JD/简历输入、草稿、标签、计划预览和开始面试 |
+| `frontend/src/pages/StartPage.jsx` | 面试准备页，承载 JD/简历输入、持久性草稿、权威计划编辑和开始面试 |
 | `frontend/src/pages/InterviewPage.jsx` | 模拟面试页，承载对话、SSE 追问、命令恢复、跳题、结束、题目导航和会话快照 |
-| `frontend/src/pages/ReportProcessingPage.jsx` | 报告生成页，承载报告进度、事件时间线、RAG 摘要和报告轮询 |
+| `frontend/src/pages/ReportProcessingPage.jsx` | 报告生成页，承载权威进度快照、阶段、公开消息、自适应轮询和失败恢复；不把当前快照包装成事件历史 |
 | `frontend/src/pages/ReportDetailPage.jsx` | 结构化面评报告页，承载报告详情、维度分、逐题反馈、证据和 PDF 下载 |
 | `frontend/src/pages/ReportsPage.jsx` | 报告中心页，承载真实状态统计、搜索、日期筛选、分页、回看与失败任务重新排队 |
 | `frontend/src/pages/HelpPage.jsx` | 帮助页，承载流程说明、草稿恢复、流中断恢复和失败报告处理入口 |
-| `frontend/src/components/*.jsx`、`frontend/src/styles/index.css` | 六页共享 React 组件与本地设计系统；运行时不依赖 FastAPI HTML 模板 |
+| `frontend/src/components/*.jsx`、`frontend/src/styles/base.css`、`styles/components/`、`styles/pages/` | 六页共享 React 组件与分层设计系统；运行时不依赖 FastAPI HTML 模板 |
 
 当前后端已实现核心闭环：生成面试计划、创建面试会话、查询会话快照、提交回答、流式追问、跳题、主动结束面试、面试结束后生成报告、查询报告进度与结果、下载 PDF 报告，并已提供匿名草稿保存与恢复、报告中心列表与报告回看接口。
 
@@ -70,7 +70,7 @@ LLM 调用策略为 structured output 优先；当 DeepSeek 兼容接口拒绝 `
 
 | 服务 | 路径 | 用途 | 来源 |
 | --- | --- | --- | --- |
-| Vite | `/` 或 `/prep` | 面试准备页 | `PrepPage.jsx` |
+| Vite | `/` 或 `/prep` | 面试准备页 | `StartPage.jsx` |
 | Vite | `/interview?session_id=...` | 模拟面试页，从查询参数读取会话 ID | `InterviewPage.jsx` |
 | Vite | `/report-processing?session_id=...` | 报告生成页并轮询进度 | `ReportProcessingPage.jsx` |
 | Vite | `/report-detail?session_id=...` | 结构化报告详情页 | `ReportDetailPage.jsx` |
@@ -83,9 +83,9 @@ LLM 调用策略为 structured output 优先；当 DeepSeek 兼容接口拒绝 `
 
 | 流程步骤 | 页面原型 | 当前可用接口 | 需要展示的数据 |
 | --- | --- | --- | --- |
-| 1. 面试准备 | `PrepPage.jsx` | `POST /api/prep`、`POST /api/interview-drafts`、`GET /api/interview-drafts/{draft_id}`、`POST /api/interviews` | JD、简历、自动标签、计划标题、题目数量、题目列表、考察点 |
+| 1. 面试准备 | `StartPage.jsx` | `POST /api/prep`、PrepPlan 读取/修改、草稿 CRUD、`POST /api/interviews` | JD、简历、持久性声明、稳定题目 ID、计划版本、来源证据、练习来源 |
 | 2. 模拟面试 | `InterviewPage.jsx` | `GET /api/interviews/{session_id}`、`POST /api/interviews/{session_id}/answer/stream`、`POST /api/interviews/{session_id}/skip`、`POST /api/interviews/{session_id}/finish` | 当前题目、消息列表、SSE 追问、命令版本、题号进度、题目状态、识别标签 |
-| 3. 报告生成 | `ReportProcessingPage.jsx` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report/progress` | processing 状态、阶段、百分比、当前题目、生成提示、任务 ID、事件时间线、RAG 摘要 |
+| 3. 报告生成 | `ReportProcessingPage.jsx` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report/progress` | processing 状态、阶段、百分比、公开提示、更新时间和恢复动作；任务 ID、生成路径与 RAG 摘要仅在诊断构建显示 |
 | 4. 面试复盘 | `ReportDetailPage.jsx` | `GET /api/interviews/{session_id}/report`、`GET /api/interviews/{session_id}/report.pdf` | 总分、五维能力分、亮点、逐题反馈、RAG 证据、兜底状态、PDF 下载 |
 | 5. 报告归档 | `ReportsPage.jsx` | `GET /api/reports`、`POST /api/interviews/{session_id}/report/requeue` | 同条件状态统计、记录列表、搜索、日期筛选、分页、回看或重新排队 |
 | 6. 帮助与恢复 | `HelpPage.jsx` | 客户端导航与现有恢复接口 | 草稿恢复、流式中断恢复、后台报告处理和失败任务恢复说明 |
@@ -98,7 +98,7 @@ LLM 调用策略为 structured output 优先；当 DeepSeek 兼容接口拒绝 `
 | 准备页显示自动识别岗位标签 | `POST /api/prep` 已在响应 wrapper 顶层返回 `job_tags`；`GET /api/interviews/{session_id}` 也返回 `job_tags` | 前端从响应顶层读取 `job_tags`，不要把它当作 `InterviewPlan` 模型字段 |
 | 面试页显示题号、已完成题数、题目导航 | 已通过 `GET /api/interviews/{session_id}` 返回会话快照 | 前端刷新或答题后调用会话详情接口 |
 | 面试页有“下一题”按钮 | 已通过 `POST /api/interviews/{session_id}/skip` 支持显式跳题 | 已结束会话跳题保持幂等 |
-| 报告生成页显示 queued、retrieving、analyzing、aggregating、completed 时间线 | 已通过 `GET /api/interviews/{session_id}/report/progress` 返回响应层阶段、事件和 RAG 摘要 | `queued` 仅作为进度端点响应层阶段，不写入 `ReportProgress` 模型 |
+| 报告生成页显示 queued、retrieving、analyzing、evaluating、aggregating、coaching、completed 当前路径 | 已通过 `GET /api/interviews/{session_id}/report/progress` 返回当前阶段、百分比、更新时间、公开消息和可选诊断摘要 | `queued` 仅作为进度端点响应层阶段，不写入 `ReportProgress` 模型；`events` 不作为持久化历史展示 |
 | 报告页显示百分位、报告标签、完成时间、PDF 下载 | 当前 `InterviewReport` 不包含百分位和报告标签；PDF 下载已通过 `/api/interviews/{session_id}/report.pdf` 实现 | 前端隐藏后端未提供字段，不伪造百分位或完成时间 |
 
 ## 4. 数据模型
@@ -524,8 +524,8 @@ data: {"session_id":"uuid","current_question":null,"follow_up":"本次模拟面�
 
 | 项目 | 建议 |
 | --- | --- |
-| 轮询间隔 | 当前静态页为 3 秒 |
-| 终止条件 | 收到 `200`、`500` 或用户离开页面 |
+| 轮询间隔 | 页面可见时按等待时长使用 1 秒、2 秒、5 秒；页面隐藏时至少 15 秒，恢复可见后立即同步一次 |
+| 终止条件 | `completed`、`failed`、`orphaned` 或不可恢复的客户端错误；路由卸载只取消前端请求与定时器，不取消后端报告任务 |
 | 生成中 UI | 使用 `progress.percent` 更新进度条，使用 `progress.message` 显示状态 |
 
 失败文案映射：
@@ -720,7 +720,7 @@ data: {"session_id":"uuid","current_question":null,"follow_up":"本次模拟面�
 | `completed` | 报告已完成 |
 | `failed` | 报告生成失败 |
 
-注意：`queued` 不进入 `ReportProgress` 模型。`/report` 的 202 响应仍只返回 `ReportProgress|null`，更完整的任务 ID、事件和 RAG 摘要由 `/report/progress` 提供。
+注意：`queued` 不进入 `ReportProgress` 模型。`/report` 的 202 响应仍只返回 `ReportProgress|null`；`/report/progress` 提供当前任务 ID、阶段、更新时间和 RAG 等诊断摘要，但当前 `events` 投影不是持久化事件历史，产品 UI 不得据此渲染事件时间线。
 
 错误响应：
 
@@ -1087,9 +1087,9 @@ Vite/React 六页前端验收：
 
 | 编号 | 标准 |
 | --- | --- |
-| B1 | `PrepPage.jsx` 可完成 JD/简历输入、草稿保存与恢复、计划生成、岗位标签展示和开始面试 |
+| B1 | `StartPage.jsx` 可完成 JD/简历输入、草稿保存/恢复/删除、权威计划生成与编辑、岗位标签展示和幂等开始面试 |
 | B2 | `InterviewPage.jsx` 可完成会话快照加载、题目导航、SSE 答题与恢复、跳题、主动结束和跳转报告生成页 |
-| B3 | `ReportProcessingPage.jsx` 可展示报告阶段、百分比、事件时间线、RAG 摘要，并在报告完成后进入详情页 |
+| B3 | `ReportProcessingPage.jsx` 可展示权威阶段、百分比、更新时间、公开消息与恢复动作，受控诊断可显示 RAG 摘要；页面不承诺事件历史，并在报告完成后进入详情页 |
 | B4 | `ReportDetailPage.jsx` 可展示完整报告、五维能力分、逐题反馈、证据引用和 PDF 下载 |
 | B5 | `ReportsPage.jsx` 可完成真实统计、搜索、日期筛选、分页、回看、下载和失败任务重新排队 |
 | B6 | `HelpPage.jsx` 可说明草稿、SSE、报告后台处理和失败任务恢复方式 |

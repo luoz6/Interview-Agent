@@ -187,7 +187,7 @@ components:
 - 页面只允许一个可用主操作：无计划时为“生成面试计划”，有计划后为“开始本次面试”。重新生成、草稿和清空始终保持次级层级。
 - 保留 `/api/prep`、`/api/interview-drafts`、`/api/interviews`、匿名草稿 ID、文本导入、真实错误、`data-prep-state` 和现有可访问名称。不得伪造连接速度、模型名、延迟、Worker、候选人评分或运行指标。
 - 320、375、414px 必须无横向滚动；移动端点击目标最小 44px，可点击文本保持单行，并保留减少动态偏好。
-- 新页面继续由独立的 `StartPage.jsx` 与 `/prep` 专属 Token/样式文件实现；旧 `PrepPage.jsx` 和被否决的 `start-page.css` 保留但不得作为运行页面或设计来源。
+- 准备页由独立的 `StartPage.jsx`、`styles/pages/prep.css` 与共享 Calm Cobalt Token 实现；旧 `PrepPage.jsx` 和被否决的 `start-page.css` 已在 Phase 5 删除，不得恢复为运行页面、测试夹具或设计来源。
 - `/prep` 的图标只使用随前端打包的 Phosphor 图标体系：工具与标签 16px、主操作与提示 18px、活动轨 20px。图标与文字并列时只承担辅助识别并对辅助技术隐藏，不允许用单字、Emoji 或混合图标库代替。
 - 排版层级固定为：应用标题 14–15px、工作区主标题 19px、Inspector 标题 17px、文档标题 16px、题目 14px、编辑正文 15px / 1.75、主操作 14px / 48px、元信息 11–13px。标题保持正体，正文、标题和等宽状态最多使用三套字体栈；`/prep` 的等宽字体只用于品牌缩写和真实证据 ID，其余状态与数字使用正文体配合 tabular numerals，避免技术标签过量。
 - 所有交互控件必须具备默认、悬停、键盘焦点、按下、禁用和加载状态。主按钮使用钴蓝实色；次按钮使用近白表面和冷灰边界；禁用不能只降低透明度，还必须切换背景、边界、文字和光标。
@@ -263,7 +263,7 @@ Interview Agent 不是“聊天机器人套壳”，而是一套把岗位资料�
 #### `/report-processing` — Observable Pipeline
 
 - `/report-processing` 与 `/prep`、`/interview`、`/reports`、`/help` 共用 Calm Cobalt 应用框架，不再使用企业绿整页背景、米色工作流侧栏、珊瑚状态线或深色任务卡。
-- 白色主进度工作区必须直接显示真实百分比、当前阶段、后端消息、三秒同步状态和钴蓝进度轨道；百分比保持紧凑应用层级，不能膨胀为营销数字。
+- 白色主进度工作区必须直接显示真实百分比、当前阶段、后端消息、自适应同步状态和钴蓝进度轨道；前台轮询按已等待时间从 1 秒放缓到 2 秒、5 秒，页面隐藏时至少 15 秒一次，恢复可见后立即同步。百分比保持紧凑应用层级，不能膨胀为营销数字。
 - 左侧四阶段轨道表达“准备 / 面试 / 生成 / 报告”产品生命周期；中央区域只展示当前阶段、已完成阶段、真实进度、公开消息与恢复动作。默认产品模式不展示事件历史，也不保留重复技术指标 Inspector。
 - 不得用无限 Spinner 或抽象插画代替后端状态；Spinner 只作为真实轮询/处理中状态的辅助符号，失败、重试、降级和轮询停止必须同时用图标、文字和语义色说明。
 
@@ -318,7 +318,7 @@ Interview Agent 是一个本地单用户技术面试助手，核心闭环为：
 |---|---|---|
 | `/`、`/prep` | `frontend/src/pages/StartPage.jsx` | 在应用工作台内编辑资料、恢复草稿、生成计划、检查知识证据并开始面试 |
 | `/interview` | `frontend/src/pages/InterviewPage.jsx` | 问题导航、实时对话、回答草稿、SSE 恢复、跳题、结束、轮次评审 |
-| `/report-processing` | `frontend/src/pages/ReportProcessingPage.jsx` | 报告当前进度快照、阶段、公开安全消息、RAG 摘要、生成路径；本轮不承诺事件历史 |
+| `/report-processing` | `frontend/src/pages/ReportProcessingPage.jsx` | 报告当前进度快照、阶段、公开安全消息与恢复动作；RAG 摘要和生成路径仅进入受控诊断，本轮不承诺事件历史 |
 | `/report-detail` | `frontend/src/pages/ReportDetailPage.jsx` | 总分、五维能力、逐题反馈、证据、优势改进、运行轨迹、PDF |
 | `/reports` | `frontend/src/pages/ReportsPage.jsx` | 报告统计、筛选、搜索、分页、查看或重新排队 |
 | `/help` | `frontend/src/pages/HelpPage.jsx` | 使用说明、恢复协议和常用入口 |
@@ -1304,7 +1304,7 @@ Q01 · 系统设计                         82/100
 - 页面组件：`frontend/src/pages/*.jsx`。
 - 共享组件：`frontend/src/components/*.jsx`。
 - API 客户端：`frontend/src/api/client.js`；开发时由 Vite 代理 `/api` 到 FastAPI。
-- 设计系统 CSS：`frontend/src/styles/index.css`。
+- 设计系统 CSS：`frontend/src/styles/tokens.css`、`styles/base.css`、`styles/components/` 与按路由懒加载的 `styles/pages/`。
 - 构建输出：`frontend/dist/`；构建产物带 hash，不直接编辑。
 - FastAPI 是 API-only 服务，不再提供 `/prep`、`/interview`、`/reports` 等页面路由。
 - 旧 `app/test*.html` 与 `app/static/*.js` 仅为迁移前遗留材料，不属于当前运行契约，也不得作为新组件模板继续扩展。
@@ -1415,7 +1415,7 @@ npm run test:browser
 - 当前报告图表以原生进度条和数值为主；如未来增加复杂图表，依赖必须本地化并补充无障碍表格替代。
 - 当前字体以系统 fallback 为基础；若引入 Space Grotesk、Noto Sans SC 或 JetBrains Mono，应将授权允许的字体文件纳入本地静态资源。
 - 平板断点的细节仍需在实际浏览器验收中迭代。
-- 六个运行路由已迁移到独立 Vite/React 服务，并实现 Research Canvas、Agent Workspace 与 Pipeline Field。后续修改必须在 React 组件和 `frontend/src/styles/index.css` 中完成，不得恢复 FastAPI HTML 页面或扩展旧静态脚本。
+- 六个运行路由已迁移到独立 Vite/React 服务，并统一到 Calm Cobalt 应用工作台。后续修改必须在 React 组件、`frontend/src/styles/base.css`、`styles/components/` 和对应 `styles/pages/` 文件中完成，不得恢复 FastAPI HTML 页面或扩展旧静态脚本。
 
 ## 21. Product Experience Invariants — Gate 0B
 
