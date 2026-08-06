@@ -5,6 +5,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from app.services.interview_plan_audit import (
+    PlanAuditFieldDiff,
+    PlanAuditOperation,
+    PlanRevisionAudit,
+)
 from app.services.interview_plan_budget import (
     MAX_SAFE_MAIN_QUESTION_COUNT,
     MIN_SAFE_MAIN_QUESTION_COUNT,
@@ -15,6 +20,14 @@ from app.services.interview_plan_revision import (
     InterviewPlanV2,
     PlanQuestionType,
     canonical_sha256,
+    plan_payload_sha256,
+    synchronize_plan_knowledge_context,
+)
+from app.services.interview_plan_knowledge import (
+    invalidated_question_knowledge,
+    parse_question_knowledge_binding,
+    unbound_question_knowledge,
+    valid_question_knowledge,
 )
 from app.services.interview_plan_revision_store import (
     InterviewPlanRevisionStore,
@@ -46,7 +59,7 @@ class PlanOperation(BaseModel):
     difficulty: Literal["foundation", "intermediate", "advanced"] | None = None
     expected_minutes: int | None = Field(default=None, ge=1, le=60)
     expected_followups: int | None = Field(default=None, ge=0, le=2)
-    knowledge_binding: dict = Field(default_factory=dict)
+    knowledge_binding: dict | None = None
     target_revision_id: str | None = None
     regenerated_plan: InterviewPlanV2 | None = None
 
@@ -80,6 +93,8 @@ class PlanOperation(BaseModel):
         missing = [name for name in required[self.op] if getattr(self, name) is None]
         if missing:
             raise ValueError(f"{self.op} requires {', '.join(missing)}")
+        if self.op == "add_custom_question" and self.knowledge_binding is not None:
+            raise ValueError("custom questions cannot claim knowledge grounding")
         return self
 
 
@@ -141,9 +156,14 @@ class InterviewPlanEditor:
                 )
 
         plan = current.plan
+        operation_audits: list[PlanAuditOperation] = []
         for index, operation in enumerate(request.operations):
             try:
+                before = plan
                 plan = self._apply_one(plan_family_id, plan, operation)
+                operation_audits.append(
+                    self._audit_operation(operation, before, plan)
+                )
             except PlanOperationValidationError as exc:
                 if exc.operation_index is None:
                     exc.operation_index = index
@@ -158,6 +178,14 @@ class InterviewPlanEditor:
         self._validate_duplicate_questions(plan)
         source_kind = self._source_kind(request.operations)
         reason = request.operations[0].op if len(request.operations) == 1 else "batch_edit"
+        audit = PlanRevisionAudit(
+            created_reason=reason,
+            source_sha256=current.source_sha256,
+            parent_plan_sha256=current.plan_sha256,
+            result_plan_sha256=plan_payload_sha256(plan),
+            configuration_diff=self._configuration_diff(current.plan, plan),
+            operations=tuple(operation_audits),
+        )
         return self.store.create_next_revision(
             plan_family_id=plan_family_id,
             expected_revision=request.expected_revision,
@@ -167,6 +195,7 @@ class InterviewPlanEditor:
             generator_version=current.generator_version,
             request_id=request.request_id,
             request_sha256=request_sha256 or self._request_sha(plan_family_id, request),
+            audit=audit,
         )
 
     def _apply_one(
@@ -178,7 +207,7 @@ class InterviewPlanEditor:
                 raise PlanOperationValidationError(
                     "restore_cross_family", "target revision belongs to another family"
                 )
-            return target.plan
+            return synchronize_plan_knowledge_context(target.plan)
         if operation.op == "regenerate_all":
             assert operation.regenerated_plan is not None
             if operation.regenerated_plan.configuration_snapshot != plan.configuration_snapshot:
@@ -186,7 +215,7 @@ class InterviewPlanEditor:
                     "configuration_mismatch",
                     "regenerated plan must preserve the frozen configuration snapshot",
                 )
-            return operation.regenerated_plan
+            return synchronize_plan_knowledge_context(operation.regenerated_plan)
 
         questions = list(plan.questions)
         if operation.op in {
@@ -202,11 +231,23 @@ class InterviewPlanEditor:
 
         if operation.op == "edit_question_text":
             questions[index] = questions[index].model_copy(
-                update={"question_text": operation.question_text, "origin": "edited"}
+                update={
+                    "question_text": operation.question_text,
+                    "origin": "edited",
+                    "knowledge_binding": invalidated_question_knowledge(
+                        "question_content_changed"
+                    ).model_dump(mode="json"),
+                }
             )
         elif operation.op == "edit_focus":
             questions[index] = questions[index].model_copy(
-                update={"focus": operation.focus, "origin": "edited"}
+                update={
+                    "focus": operation.focus,
+                    "origin": "edited",
+                    "knowledge_binding": invalidated_question_knowledge(
+                        "question_content_changed"
+                    ).model_dump(mode="json"),
+                }
             )
         elif operation.op == "move_question":
             target = operation.to_position or 0
@@ -244,7 +285,9 @@ class InterviewPlanEditor:
             question.model_copy(update={"position": position})
             for position, question in enumerate(questions, start=1)
         ]
-        return plan.model_copy(update={"questions": tuple(questions)})
+        return synchronize_plan_knowledge_context(
+            plan.model_copy(update={"questions": tuple(questions)})
+        )
 
     @staticmethod
     def _question_index(
@@ -264,6 +307,19 @@ class InterviewPlanEditor:
         origin: Literal["custom", "regenerated"],
         replaces_question_id: str | None = None,
     ) -> InterviewPlanQuestionV2:
+        if origin == "custom":
+            binding = unbound_question_knowledge("custom_question")
+        else:
+            binding = parse_question_knowledge_binding(operation.knowledge_binding)
+            if binding.status == "valid":
+                binding = valid_question_knowledge(
+                    evidence_ids=binding.evidence_ids,
+                    evidence_content_sha256=binding.evidence_content_sha256,
+                    corpus_manifest_sha256=binding.corpus_manifest_sha256 or "",
+                    reason_code="provider_regenerated",
+                )
+            elif binding.reason_code == "legacy_no_binding":
+                binding = unbound_question_knowledge("no_grounded_evidence")
         return InterviewPlanQuestionV2(
             question_id=str(uuid4()),
             position=1,
@@ -275,8 +331,174 @@ class InterviewPlanEditor:
             expected_followups=operation.expected_followups or 0,
             origin=origin,
             replaces_question_id=replaces_question_id,
-            knowledge_binding=operation.knowledge_binding,
+            knowledge_binding=binding.model_dump(mode="json"),
         )
+
+    @staticmethod
+    def _audit_operation(
+        operation: PlanOperation,
+        before: InterviewPlanV2,
+        after: InterviewPlanV2,
+    ) -> PlanAuditOperation:
+        source_question = next(
+            (
+                item
+                for item in before.questions
+                if item.question_id == operation.question_id
+            ),
+            None,
+        )
+        result_question = None
+        if operation.op in {"edit_question_text", "edit_focus", "move_question"}:
+            result_question = next(
+                item
+                for item in after.questions
+                if item.question_id == operation.question_id
+            )
+        elif operation.op == "add_custom_question":
+            before_ids = {item.question_id for item in before.questions}
+            result_question = next(
+                item for item in after.questions if item.question_id not in before_ids
+            )
+        elif operation.op == "regenerate_question":
+            result_question = next(
+                item
+                for item in after.questions
+                if item.replaces_question_id == operation.question_id
+            )
+
+        values: dict[str, tuple[object | None, object | None]] = {}
+        if operation.op == "edit_question_text":
+            values = {
+                "question_text": (
+                    source_question.question_text if source_question else None,
+                    result_question.question_text if result_question else None,
+                ),
+                "origin": (
+                    source_question.origin if source_question else None,
+                    result_question.origin if result_question else None,
+                ),
+                "knowledge_binding": (
+                    source_question.knowledge_binding if source_question else None,
+                    result_question.knowledge_binding if result_question else None,
+                ),
+            }
+        elif operation.op == "edit_focus":
+            values = {
+                "focus": (
+                    source_question.focus if source_question else None,
+                    result_question.focus if result_question else None,
+                ),
+                "origin": (
+                    source_question.origin if source_question else None,
+                    result_question.origin if result_question else None,
+                ),
+                "knowledge_binding": (
+                    source_question.knowledge_binding if source_question else None,
+                    result_question.knowledge_binding if result_question else None,
+                ),
+            }
+        elif operation.op == "move_question":
+            values = {
+                "position": (
+                    source_question.position if source_question else None,
+                    result_question.position if result_question else None,
+                )
+            }
+        elif operation.op in {"delete_question", "add_custom_question", "regenerate_question"}:
+            values = {
+                "question": (
+                    source_question.model_dump(mode="json")
+                    if source_question
+                    else None,
+                    result_question.model_dump(mode="json")
+                    if result_question
+                    else None,
+                )
+            }
+        else:
+            values = {
+                "plan": (
+                    before.model_dump(mode="json"),
+                    after.model_dump(mode="json"),
+                )
+            }
+        field_diffs = {
+            field: PlanAuditFieldDiff(
+                before_sha256=(
+                    canonical_sha256(before_value)
+                    if before_value is not None
+                    else None
+                ),
+                after_sha256=(
+                    canonical_sha256(after_value)
+                    if after_value is not None
+                    else None
+                ),
+            )
+            for field, (before_value, after_value) in values.items()
+            if before_value != after_value
+        }
+        actor = (
+            "provider"
+            if operation.op in {"regenerate_question", "regenerate_all"}
+            else "user"
+        )
+        binding_action = {
+            "edit_question_text": "invalidate",
+            "edit_focus": "invalidate",
+            "move_question": "preserve",
+            "delete_question": "remove",
+            "add_custom_question": "unbound",
+            "regenerate_question": "rebuild",
+            "restore_revision": "restore",
+            "regenerate_all": "rebuild_all",
+        }[operation.op]
+        binding_question = result_question or (
+            source_question if operation.op == "delete_question" else None
+        )
+        binding_result = (
+            parse_question_knowledge_binding(binding_question.knowledge_binding)
+            if binding_question is not None
+            else None
+        )
+        return PlanAuditOperation(
+            operation=operation.op,
+            actor=actor,
+            source_question_id=(
+                source_question.question_id if source_question else None
+            ),
+            result_question_id=(
+                result_question.question_id if result_question else None
+            ),
+            target_revision_id=operation.target_revision_id,
+            reason_code=f"{operation.op}_applied",
+            changed_fields=tuple(field_diffs),
+            field_diffs=field_diffs,
+            knowledge_binding_action=binding_action,
+            knowledge_binding_status=(
+                binding_result.status if binding_result is not None else None
+            ),
+            knowledge_binding_reason_code=(
+                binding_result.reason_code if binding_result is not None else None
+            ),
+        )
+
+    @staticmethod
+    def _configuration_diff(
+        before: InterviewPlanV2,
+        after: InterviewPlanV2,
+    ) -> dict[str, PlanAuditFieldDiff]:
+        before_payload = before.configuration_snapshot.model_dump(mode="json")
+        after_payload = after.configuration_snapshot.model_dump(mode="json")
+        return {
+            field: PlanAuditFieldDiff(
+                before_sha256=canonical_sha256(before_payload.get(field)),
+                after_sha256=canonical_sha256(after_payload.get(field)),
+            )
+            for field in sorted(set(before_payload) | set(after_payload))
+            if before_payload.get(field) != after_payload.get(field)
+        }
 
     @staticmethod
     def _validate_duplicate_questions(plan: InterviewPlanV2) -> None:

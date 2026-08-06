@@ -5,6 +5,11 @@ from threading import RLock
 from typing import Protocol
 from uuid import uuid4
 
+from app.services.interview_plan_audit import (
+    PlanAuditFieldDiff,
+    PlanAuditOperation,
+    PlanRevisionAudit,
+)
 from app.services.interview_plan_revision import (
     InterviewPlanRevision,
     InterviewPlanV2,
@@ -65,6 +70,7 @@ class InterviewPlanRevisionStore(Protocol):
         generator_version: str,
         request_id: str | None = None,
         request_sha256: str | None = None,
+        audit: PlanRevisionAudit | None = None,
     ) -> InterviewPlanRevision: ...
 
     def get_by_id(self, plan_revision_id: str) -> InterviewPlanRevision: ...
@@ -143,6 +149,7 @@ class InMemoryInterviewPlanRevisionStore:
         generator_version: str,
         request_id: str | None = None,
         request_sha256: str | None = None,
+        audit: PlanRevisionAudit | None = None,
     ) -> InterviewPlanRevision:
         _validate_request_identity(request_id, request_sha256)
         with self._lock:
@@ -164,6 +171,8 @@ class InMemoryInterviewPlanRevisionStore:
                 "regenerate_all",
             }:
                 raise PlanSourceUnavailable("plan source payload is unavailable")
+            if audit is not None and audit.parent_plan_sha256 != current.plan_sha256:
+                raise ValueError("revision audit parent hash does not match current revision")
             revision = _build_revision(
                 plan_revision_id=str(uuid4()),
                 plan_family_id=plan_family_id,
@@ -175,6 +184,15 @@ class InMemoryInterviewPlanRevisionStore:
                 generator_version=generator_version,
                 created_reason=created_reason,
                 created_at=utc_now(),
+                audit=(
+                    audit
+                    or _default_revision_audit(
+                        created_reason=created_reason,
+                        source_sha256=source.source_sha256,
+                        parent_plan_sha256=current.plan_sha256,
+                        result_plan_sha256=plan_payload_sha256(plan),
+                    )
+                ),
             )
             self._revisions[revision.plan_revision_id] = revision
             self._revision_ids_by_family[plan_family_id].append(
@@ -298,7 +316,15 @@ def _build_revision(
     generator_version: str,
     created_reason: PlanCreatedReason,
     created_at,
+    audit: PlanRevisionAudit | None = None,
 ) -> InterviewPlanRevision:
+    result_plan_sha256 = plan_payload_sha256(plan)
+    effective_audit = audit or _default_revision_audit(
+        created_reason=created_reason,
+        source_sha256=source.source_sha256,
+        parent_plan_sha256=None if revision == 1 else None,
+        result_plan_sha256=result_plan_sha256,
+    )
     return InterviewPlanRevision(
         plan_revision_id=plan_revision_id,
         plan_family_id=plan_family_id,
@@ -309,10 +335,68 @@ def _build_revision(
         source_sha256=source.source_sha256,
         configuration_snapshot=plan.configuration_snapshot,
         plan=plan,
-        plan_sha256=plan_payload_sha256(plan),
+        plan_sha256=result_plan_sha256,
         generator_version=generator_version,
         created_at=created_at,
         created_reason=created_reason,
+        audit=effective_audit,
+    )
+
+
+def _default_revision_audit(
+    *,
+    created_reason: PlanCreatedReason,
+    source_sha256: str,
+    parent_plan_sha256: str | None,
+    result_plan_sha256: str,
+) -> PlanRevisionAudit:
+    changed = parent_plan_sha256 != result_plan_sha256
+    actor = (
+        "provider"
+        if created_reason in {"regenerate_question", "regenerate_all"}
+        else "system"
+    )
+    return PlanRevisionAudit(
+        created_reason=created_reason,
+        source_sha256=source_sha256,
+        parent_plan_sha256=parent_plan_sha256,
+        result_plan_sha256=result_plan_sha256,
+        configuration_diff={},
+        operations=(
+            PlanAuditOperation(
+                operation=created_reason,
+                actor=actor,
+                reason_code=(
+                    "initial_generation"
+                    if created_reason == "initial_generation"
+                    else "direct_store_write"
+                ),
+                changed_fields=("plan",) if changed else (),
+                field_diffs=(
+                    {
+                        "plan": PlanAuditFieldDiff(
+                            before_sha256=parent_plan_sha256,
+                            after_sha256=result_plan_sha256,
+                        )
+                    }
+                    if changed
+                    else {}
+                ),
+                knowledge_binding_action=(
+                    "build"
+                    if created_reason == "initial_generation"
+                    else (
+                        "rebuild"
+                        if created_reason == "regenerate_question"
+                        else (
+                            "rebuild_all"
+                            if created_reason == "regenerate_all"
+                            else "none"
+                        )
+                    )
+                ),
+            ),
+        ),
     )
 
 

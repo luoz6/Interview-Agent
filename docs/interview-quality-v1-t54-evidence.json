@@ -1,0 +1,145 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T54",
+  "generated_at": "2026-08-06T19:50:00+08:00",
+  "implementation_revision_base": "a3208e22b89b904a38114693155fd3332dc67fbf",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "provider_calls": 0,
+  "audit_contract": {
+    "schema_version": "plan-revision-audit-v1",
+    "revision_fields": [
+      "created_reason",
+      "source_sha256",
+      "parent_plan_sha256",
+      "result_plan_sha256",
+      "configuration_diff",
+      "operations"
+    ],
+    "field_diffs_are_hash_only": true,
+    "raw_job_description_stored": false,
+    "raw_resume_stored": false,
+    "raw_question_or_focus_stored": false,
+    "raw_provider_output_stored": false,
+    "credentials_stored": false,
+    "memory_store_round_trip": true,
+    "postgres_store_round_trip": true
+  },
+  "knowledge_binding_contract": {
+    "schema_version": "plan-question-knowledge-binding-v1",
+    "states": ["valid", "unbound", "invalidated"],
+    "grounded_generation": "build_and_validate",
+    "ungrounded_generation": "unbound",
+    "edit_question_or_focus": "invalidate",
+    "move": "preserve",
+    "delete": "remove_deleted_only",
+    "custom_question": "force_unbound",
+    "regenerate_question": "rebuild_and_revalidate",
+    "restore_revision": "restore_and_revalidate",
+    "regenerate_all": "rebuild_all_and_revalidate",
+    "custom_binding_claim_rejected": true,
+    "evidence_hash_mismatch_invalidates": true
+  },
+  "identity_fixes": {
+    "provider_temporary_ids": "q1..qN",
+    "persisted_question_ids": "UUID",
+    "prep_hints_remapped_to_persisted_uuid": true,
+    "prepared_identity_mismatch_rejected": true,
+    "bound_regeneration_uses_boundary_projection": true,
+    "bound_regeneration_reassigns_persisted_ids": false,
+    "second_question_id_generator_added": false
+  },
+  "privacy_projection": {
+    "public_helper": "public_interview_plan_v2_payload",
+    "public_binding_fields": [
+      "schema_version",
+      "status",
+      "evidence_ids",
+      "reason_code"
+    ],
+    "public_evidence_content_sha256": false,
+    "public_corpus_manifest_sha256": false,
+    "public_binding_snapshot": false,
+    "public_question_bindings": false,
+    "public_resume_signals": false,
+    "internal_complete_binding_preserved": true
+  },
+  "shared_authority": {
+    "editor": "InterviewPlanEditor",
+    "regenerator": "ProviderPlanRegenerator",
+    "revision_store": "InterviewPlanRevisionStore",
+    "second_revision_creation_service_added": false,
+    "second_start_implementation_added": false
+  },
+  "acceptance": {
+    "question_identity_and_position_semantics": "PASS",
+    "delete_preserves_other_question_ids": "PASS",
+    "failed_regenerate_creates_no_revision": "PASS",
+    "historical_revision_readable": "PASS",
+    "session_snapshot_immutable_after_later_edits": "PASS",
+    "custom_question_cannot_claim_grounding": "PASS",
+    "edit_and_regenerate_revalidate_binding": "PASS",
+    "audit_contains_no_sensitive_raw_values": "PASS"
+  },
+  "automatic_review_findings": [
+    "Provider q1..qN hint IDs were not remapped to V2 UUIDs, preventing runtime binding resolution; conversion now assigns and propagates one UUID identity.",
+    "Already-bound regeneration conflicted with Provider boundary ID enforcement; it now uses a temporary positional projection without mutating persisted V2 IDs.",
+    "Internal evidence and corpus hashes were exposed through public plan snapshots; the public V2 projection now removes those hashes while preserving complete internal snapshots."
+  ],
+  "verification": {
+    "t54_dedicated_test_count": 9,
+    "t54_dedicated_plus_api_passed": 21,
+    "t54_dedicated_plus_api_failed": 0,
+    "adjacent_regression_passed": 345,
+    "adjacent_regression_failed": 0,
+    "adjacent_regression_skipped": 0,
+    "postgres_dsn": "postgresql://postgres@127.0.0.1:55432/interview",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "ruff": "TOOLING_MISSING_MODULE_NOT_INSTALLED",
+    "frontend_vitest_passed": 28,
+    "frontend_build": "PASS",
+    "frontend_eslint": "TOOLING_MISSING_ESLINT_COMMAND_NOT_INSTALLED",
+    "provider_calls": 0,
+    "broad_regression": {
+      "passed": 2703,
+      "failed": 9,
+      "skipped": 3,
+      "t53_passed": 2696,
+      "t53_failed": 7,
+      "t53_skipped": 3,
+      "new_t54_test_count": 9,
+      "new_t54_related_failures": 0,
+      "postgres_clock_sensitive_failures": 4,
+      "newly_manifested_clock_sensitive_failures_vs_t53": 2,
+      "measured_postgres_ahead_of_python_seconds": 3.203104,
+      "used_as_t54_acceptance_gate": false
+    }
+  },
+  "provider_quality_state": {
+    "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "provider": "DeepSeek",
+    "model": "deepseek-chat",
+    "fallback_prohibited": true,
+    "status": "BLOCKED_MODEL_VERSION_DRIFT",
+    "provider_called": false,
+    "first_data_request_sent": false,
+    "blocks_unrelated_engineering": false
+  },
+  "phase_boundaries": {
+    "t54_edit_audit_and_knowledge_binding_complete": true,
+    "t55_editable_plan_ui_complete": false,
+    "t56_configuration_ui_complete": false,
+    "t57_real_provider_quality_benchmark_complete": false,
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "No real Provider was called by T54; all Provider boundaries use deterministic test doubles.",
+    "T54 Engineering PASS does not claim real Provider question quality, cost, token usage, or a Provider Quality PASS.",
+    "The nine full-suite failures, three skips, missing ruff module, and missing ESLint executable are reported and are not relabeled as PASS.",
+    "The two additional full-suite failures versus T53 are clock-sensitive PostgreSQL cleanup tests in an unmodified module, not T54 functional regressions.",
+    "T54 does not claim T55-T57 or T72 is complete."
+  ]
+}

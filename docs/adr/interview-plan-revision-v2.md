@@ -312,6 +312,62 @@ metadata is admitted only when it is lowercase 64-character hexadecimal; source
 text, prompts, resumes, Provider responses, credentials, and raw content remain
 blocked by trace sanitization.
 
+## Phase 5 T54 amendment: revision audit and Knowledge Binding lifecycle
+
+- Amendment status: Accepted
+- Amendment date: 2026-08-06
+- Audit schema: `plan-revision-audit-v1`
+- Question binding schema: `plan-question-knowledge-binding-v1`
+
+Every new revision persists one immutable audit object in the same revision row.
+It records `created_reason`, `source_sha256`, parent/result plan hashes,
+configuration field diffs, and one operation record per applied operation. An
+operation records a bounded actor (`system|user|provider`), source/result question
+UUIDs, optional target revision UUID, stable reason code, changed field names,
+before/after field hashes, and the Knowledge Binding action/result. It never
+stores source text, resume text, question text, focus text, Provider output, or a
+raw field value. IDs are UUID-validated, hashes are canonical lowercase SHA-256,
+and field/reason names use a restricted metadata alphabet.
+
+`configuration_diff` is present even when empty. The current editor freezes the
+configuration snapshot, so edit, move, delete, custom insertion, restore, and
+regeneration produce an empty configuration diff. A future operation that is
+authorized to change configuration must record per-field before/after hashes; it
+must not place the raw configuration value in the audit.
+
+Each V2 question carries a structured binding with status
+`valid|unbound|invalidated`, evidence IDs, one content hash per evidence ID, an
+optional corpus manifest hash, and a stable reason code. Valid bindings require
+all IDs/hashes and a manifest. Unbound/invalidated bindings cannot claim any
+evidence. The lifecycle is frozen as follows:
+
+| Operation | Binding action |
+|---|---|
+| Initial grounded generation | Build and validate against hint/reference hashes and corpus manifest |
+| Initial generation without grounded evidence | Explicit `unbound/no_grounded_evidence` |
+| Edit question text or focus | Invalidate old evidence as `question_content_changed` |
+| Move question | Preserve the exact binding and stable question ID |
+| Delete question | Remove only that question/hint; preserve all remaining IDs and bindings |
+| Add custom question | Force `unbound/custom_question`; client-supplied grounding is rejected |
+| Regenerate one question | Allocate a replacement UUID, record lineage, rebuild and revalidate Provider binding |
+| Restore revision | Restore and revalidate the target revision's complete binding snapshot |
+| Regenerate all | Revalidate every question binding and preserve the frozen configuration |
+
+Generation converts Provider `q1..qN` identities to opaque UUIDs once and remaps
+the corresponding prep hints at the same boundary. The legacy runtime projection
+receives a question-binding map keyed by those UUIDs, so runtime resolution no
+longer searches for obsolete Provider IDs. An already-bound regeneration result
+is rechecked through a temporary positional `q1..qN` projection, then reuses the
+existing V2 IDs/hash instead of allocating another set.
+
+Internal revisions and session snapshots retain evidence content hashes and the
+corpus manifest needed for deterministic revalidation. Public prep, revision, and
+session projections remove `evidence_content_sha256`,
+`corpus_manifest_sha256`, `binding_snapshot`, and the internal binding map while
+retaining safe binding status/reason/evidence IDs. The revision audit is safe to
+return because it contains only validated IDs, hashes, reason codes, and field
+names.
+
 ## Rollback
 
 Disable V2 write/read routing and return to legacy reads. Do not drop V2 tables,

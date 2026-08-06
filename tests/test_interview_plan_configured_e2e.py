@@ -19,7 +19,12 @@ from app.services.interview_plan_revision import (
 from app.services.interview_plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
-from app.services.prep import InterviewPlan, InterviewQuestion, prepare_interview
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    prepare_interview,
+    public_interview_plan_v2_payload,
+)
 from app.services.session import InterviewSessionStore
 
 
@@ -260,7 +265,7 @@ def start_saved_revision(configured_api, revision_payload):
         saved.configuration_snapshot.model_dump(mode="json")
     )
     assert snapshot["plan_snapshot"]["questions"] == (
-        saved.plan.model_dump(mode="json")["questions"]
+        public_interview_plan_v2_payload(saved.plan)["questions"]
     )
     public_prep_context = snapshot["plan_snapshot"].get("prep_context")
     if public_prep_context is not None:

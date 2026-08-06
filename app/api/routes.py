@@ -26,6 +26,7 @@ from app.services.prep import (
     prepare_interview,
     prepared_plan_revision,
     public_interview_plan_payload,
+    public_interview_plan_v2_payload,
 )
 from app.services.interview_plan_editor import (
     InterviewPlanEditor,
@@ -1282,7 +1283,7 @@ def start_interview(
 
 def _plan_revision_payload(revision) -> dict:
     legacy = public_interview_plan_payload(v2_plan_to_legacy(revision.plan))
-    public_plan = revision.plan.model_dump(mode="json")
+    public_plan = public_interview_plan_v2_payload(revision.plan)
     if "prep_context" in legacy:
         public_plan["prep_context"] = legacy["prep_context"]
     else:
@@ -1292,6 +1293,7 @@ def _plan_revision_payload(revision) -> dict:
         "plan_revision_id": revision.plan_revision_id,
         "revision": revision.revision,
         "plan_sha256": revision.plan_sha256,
+        "audit": revision.audit.model_dump(mode="json"),
         "budget_assessment": assess_interview_plan_budget(
             revision.plan
         ).model_dump(mode="json"),

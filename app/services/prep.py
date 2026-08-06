@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
+from app.services.interview_plan_knowledge import PlanQuestionKnowledgeBinding
 from app.services.llm import InterviewLLM
 
 if TYPE_CHECKING:
@@ -91,6 +92,9 @@ class PrepContext(BaseModel):
     role_profile: RoleProfile | None = None
     evidence_refs: list[KnowledgeEvidenceRef] = Field(default_factory=list)
     binding_snapshot: KnowledgeBindingSnapshot | None = None
+    question_bindings: dict[str, PlanQuestionKnowledgeBinding] = Field(
+        default_factory=dict
+    )
 
 
 class InterviewQuestion(BaseModel):
@@ -249,7 +253,10 @@ def bind_prepared_plan_revision(
     configuration: "PlanConfigurationSnapshot | None" = None,
 ) -> InterviewPlan:
     from app.services.interview_plan_budget import assess_interview_plan_budget
-    from app.services.interview_plan_revision import legacy_plan_to_v2
+    from app.services.interview_plan_revision import (
+        legacy_plan_to_v2,
+        v2_plan_to_legacy,
+    )
 
     revision_plan = legacy_plan_to_v2(
         plan,
@@ -261,6 +268,9 @@ def bind_prepared_plan_revision(
             "generated_plan_not_launchable",
             "generated plan violates the launch safety boundary",
         )
+    bound_legacy = v2_plan_to_legacy(revision_plan)
+    plan.questions = bound_legacy.questions
+    plan.prep_context = bound_legacy.prep_context
     plan._revision_plan = revision_plan
     return plan
 
@@ -284,8 +294,14 @@ def prepared_plan_revision(
     current_legacy = InterviewPlan.model_validate(
         plan.model_dump(mode="json", warnings=False)
     )
-    validate_launchable_interview_plan(current_legacy, configuration)
     round_tripped_legacy = v2_plan_to_legacy(validated)
+    if [item.id for item in current_legacy.questions] != [
+        item.question_id for item in validated.questions
+    ]:
+        raise PlanGenerationValidationError(
+            "prepared_plan_identity_mismatch",
+            "prepared legacy plan identity changed after its V2 revision was bound",
+        )
     if _legacy_plan_semantics(current_legacy) != _legacy_plan_semantics(
         round_tripped_legacy
     ):
@@ -363,9 +379,33 @@ def validate_launchable_interview_plan(
 
 def public_interview_plan_payload(plan: InterviewPlan) -> dict:
     payload = plan.model_dump(mode="json", exclude_none=True)
-    context = payload.get("prep_context")
+    _sanitize_public_prep_context(payload.get("prep_context"))
+    return payload
+
+
+def public_interview_plan_v2_payload(plan) -> dict:
+    payload = plan.model_dump(mode="json", exclude_none=True)
+    _sanitize_public_prep_context(payload.get("prep_context"))
+    for question in payload.get("questions", []):
+        binding = question.get("knowledge_binding")
+        if not isinstance(binding, dict):
+            continue
+        question["knowledge_binding"] = {
+            key: binding[key]
+            for key in (
+                "schema_version",
+                "status",
+                "evidence_ids",
+                "reason_code",
+            )
+            if key in binding
+        }
+    return payload
+
+
+def _sanitize_public_prep_context(context: object) -> None:
     if not isinstance(context, dict):
-        return payload
+        return
 
     public_evidence = []
     for evidence in context.get("evidence_refs", []):
@@ -384,11 +424,11 @@ def public_interview_plan_payload(plan: InterviewPlan) -> dict:
         )
     context["evidence_refs"] = public_evidence
     context.pop("binding_snapshot", None)
+    context.pop("question_bindings", None)
 
     role_profile = context.get("role_profile")
     if isinstance(role_profile, dict):
         role_profile.pop("resume_signals", None)
-    return payload
 
 
 def prepare_interview(

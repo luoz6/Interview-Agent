@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from app.services.interview_plan_audit import PlanRevisionAudit
 from app.services.interview_plan_revision import (
     InterviewPlanRevision,
     InterviewPlanV2,
@@ -21,6 +22,7 @@ from app.services.interview_plan_revision_store import (
     PlanRevisionNotFound,
     PlanSourceInUse,
     PlanSourceUnavailable,
+    _default_revision_audit,
     _validate_request_identity,
 )
 from app.services.postgres_connections import (
@@ -160,6 +162,7 @@ class PostgresInterviewPlanRevisionStore:
         generator_version: str,
         request_id: str | None = None,
         request_sha256: str | None = None,
+        audit: PlanRevisionAudit | None = None,
     ) -> InterviewPlanRevision:
         _validate_request_identity(request_id, request_sha256)
         _, sql, extras = self._imports()
@@ -186,7 +189,7 @@ class PostgresInterviewPlanRevisionStore:
                     )
                     request_row = cursor.fetchone()
                     if request_row is not None:
-                        if request_row[14] != request_sha256:
+                        if request_row[15] != request_sha256:
                             raise PlanRevisionConflict("request ID payload conflicts")
                         return self._revision_from_row(request_row)
                 cursor.execute(
@@ -209,6 +212,13 @@ class PostgresInterviewPlanRevisionStore:
                     "regenerate_all",
                 }:
                     raise PlanSourceUnavailable("plan source payload is unavailable")
+                if (
+                    audit is not None
+                    and audit.parent_plan_sha256 != current.plan_sha256
+                ):
+                    raise ValueError(
+                        "revision audit parent hash does not match current revision"
+                    )
                 revision = self._make_revision(
                     plan_revision_id=str(uuid4()),
                     plan_family_id=plan_family_id,
@@ -220,6 +230,15 @@ class PostgresInterviewPlanRevisionStore:
                     generator_version=generator_version,
                     created_reason=created_reason,
                     created_at=utc_now(),
+                    audit=(
+                        audit
+                        or _default_revision_audit(
+                            created_reason=created_reason,
+                            source_sha256=source.source_sha256,
+                            parent_plan_sha256=current.plan_sha256,
+                            result_plan_sha256=plan_payload_sha256(plan),
+                        )
+                    ),
                 )
                 self._insert_revision(
                     cursor,
@@ -463,6 +482,7 @@ class PostgresInterviewPlanRevisionStore:
                             generator_version TEXT NOT NULL,
                             created_at TIMESTAMPTZ NOT NULL,
                             created_reason TEXT NOT NULL,
+                            audit_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                             request_id TEXT,
                             request_sha256 TEXT CHECK (
                                 request_sha256 IS NULL OR
@@ -480,6 +500,12 @@ class PostgresInterviewPlanRevisionStore:
                         )
                         """
                     ).format(revisions=revisions, sources=sources)
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {revisions} ADD COLUMN IF NOT EXISTS "
+                        "audit_json JSONB NOT NULL DEFAULT '{{}}'::jsonb"
+                    ).format(revisions=revisions)
                 )
                 cursor.execute(
                     sql.SQL("ALTER TABLE {revisions} ADD COLUMN IF NOT EXISTS request_id TEXT").format(revisions=revisions)
@@ -595,10 +621,10 @@ class PostgresInterviewPlanRevisionStore:
                     parent_revision_id, source_kind, source_id, source_sha256,
                     configuration_snapshot_json, plan_json, plan_sha256,
                     generator_version, created_at, created_reason,
-                    request_id, request_sha256
+                    audit_json, request_id, request_sha256
                 ) VALUES (
                     %s::uuid, %s::uuid, %s, %s::uuid, %s, %s::uuid, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """
             ),
@@ -616,6 +642,7 @@ class PostgresInterviewPlanRevisionStore:
                 revision.generator_version,
                 revision.created_at,
                 revision.created_reason,
+                extras.Json(revision.audit.model_dump(mode="json")),
                 request_id,
                 request_sha256,
             ),
@@ -624,6 +651,13 @@ class PostgresInterviewPlanRevisionStore:
     def _make_revision(self, **kwargs) -> InterviewPlanRevision:
         plan = kwargs["plan"]
         source = kwargs["source"]
+        result_plan_sha256 = plan_payload_sha256(plan)
+        audit = kwargs.get("audit") or _default_revision_audit(
+            created_reason=kwargs["created_reason"],
+            source_sha256=source.source_sha256,
+            parent_plan_sha256=None,
+            result_plan_sha256=result_plan_sha256,
+        )
         return InterviewPlanRevision(
             plan_revision_id=kwargs["plan_revision_id"],
             plan_family_id=kwargs["plan_family_id"],
@@ -634,10 +668,11 @@ class PostgresInterviewPlanRevisionStore:
             source_sha256=source.source_sha256,
             configuration_snapshot=plan.configuration_snapshot,
             plan=plan,
-            plan_sha256=plan_payload_sha256(plan),
+            plan_sha256=result_plan_sha256,
             generator_version=kwargs["generator_version"],
             created_at=kwargs["created_at"],
             created_reason=kwargs["created_reason"],
+            audit=audit,
         )
 
     def _select_revision_sql(self, suffix: str) -> str:
@@ -646,7 +681,7 @@ class PostgresInterviewPlanRevisionStore:
             "parent_revision_id::text, source_kind, source_id::text, "
             "source_sha256, configuration_snapshot_json, plan_json, "
             "plan_sha256, generator_version, created_at, created_reason, "
-            "request_id, request_sha256 "
+            "audit_json, request_id, request_sha256 "
             "FROM {revisions} " + suffix
         )
 
@@ -676,6 +711,14 @@ class PostgresInterviewPlanRevisionStore:
 
     @staticmethod
     def _revision_from_row(row) -> InterviewPlanRevision:
+        audit = row[13]
+        if not audit:
+            audit = _default_revision_audit(
+                created_reason=row[12],
+                source_sha256=row[6],
+                parent_plan_sha256=None,
+                result_plan_sha256=row[9],
+            )
         return InterviewPlanRevision(
             plan_revision_id=row[0],
             plan_family_id=row[1],
@@ -690,6 +733,7 @@ class PostgresInterviewPlanRevisionStore:
             generator_version=row[10],
             created_at=row[11],
             created_reason=row[12],
+            audit=audit,
         )
 
     @staticmethod

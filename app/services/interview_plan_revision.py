@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import unicodedata
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -15,6 +16,13 @@ from app.services.interview_plan_budget import (
     MIN_SAFE_MAIN_QUESTION_COUNT,
     allocate_expected_followups,
     allocate_main_answer_minutes,
+)
+from app.services.interview_plan_audit import PlanRevisionAudit
+from app.services.interview_plan_knowledge import (
+    binding_from_prep_context,
+    parse_question_knowledge_binding,
+    revalidate_question_knowledge,
+    unbound_question_knowledge,
 )
 
 
@@ -151,7 +159,11 @@ class InterviewPlanQuestionV2(ImmutableModel):
     expected_followups: int = Field(ge=0, le=2)
     origin: PlanQuestionOrigin
     replaces_question_id: str | None = None
-    knowledge_binding: dict[str, Any] = Field(default_factory=dict)
+    knowledge_binding: dict[str, Any] = Field(
+        default_factory=lambda: unbound_question_knowledge(
+            "legacy_no_binding"
+        ).model_dump(mode="json")
+    )
 
     @field_validator(
         "position",
@@ -178,6 +190,11 @@ class InterviewPlanQuestionV2(ImmutableModel):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("question text and focus must not be blank")
         return _normalize_string(value).strip()
+
+    @field_validator("knowledge_binding", mode="before")
+    @classmethod
+    def validate_knowledge_binding(cls, value: object) -> dict[str, Any]:
+        return parse_question_knowledge_binding(value).model_dump(mode="json")
 
     @model_validator(mode="after")
     def validate_origin(self):
@@ -287,6 +304,7 @@ class InterviewPlanRevision(ImmutableModel):
     generator_version: str = Field(min_length=1)
     created_at: datetime
     created_reason: PlanCreatedReason
+    audit: PlanRevisionAudit
 
     @field_validator(
         "plan_revision_id", "plan_family_id", "parent_revision_id", "source_id"
@@ -311,6 +329,12 @@ class InterviewPlanRevision(ImmutableModel):
             )
         if plan_payload_sha256(self.plan) != self.plan_sha256:
             raise ValueError("plan_sha256 does not match plan")
+        if self.audit.created_reason != self.created_reason:
+            raise ValueError("revision audit created_reason does not match revision")
+        if self.audit.source_sha256 != self.source_sha256:
+            raise ValueError("revision audit source hash does not match revision")
+        if self.audit.result_plan_sha256 != self.plan_sha256:
+            raise ValueError("revision audit result hash does not match revision")
         return self
 
 
@@ -426,6 +450,11 @@ def legacy_plan_to_v2(
             generator_version=effective_generator_version,
             followup_policy_version="fixed_v1",
         )
+    context = (
+        deepcopy(plan.prep_context.model_dump(mode="json"))
+        if getattr(plan, "prep_context", None) is not None
+        else None
+    )
     expected_followups = allocate_expected_followups(
         expected_followup_budget=config.expected_followup_budget,
         question_count=len(plan.questions),
@@ -435,37 +464,46 @@ def legacy_plan_to_v2(
         target_duration_minutes=config.target_duration_minutes,
         expected_followups=expected_followups,
     )
-    questions = tuple(
-        InterviewPlanQuestionV2(
-            question_id=str(uuid4()),
-            position=index,
-            question_text=item.prompt,
-            focus=item.focus,
-            question_type=item.kind,
-            difficulty=config.difficulty,
-            expected_minutes=main_answer_minutes[index - 1],
-            expected_followups=expected_followups[index - 1],
-            origin="generated",
-            knowledge_binding={},
+    questions: list[InterviewPlanQuestionV2] = []
+    identity_map: dict[str, str] = {}
+    for index, item in enumerate(plan.questions, start=1):
+        question_id = str(uuid4())
+        identity_map[item.id] = question_id
+        questions.append(
+            InterviewPlanQuestionV2(
+                question_id=question_id,
+                position=index,
+                question_text=item.prompt,
+                focus=item.focus,
+                question_type=item.kind,
+                difficulty=config.difficulty,
+                expected_minutes=main_answer_minutes[index - 1],
+                expected_followups=expected_followups[index - 1],
+                origin="generated",
+                knowledge_binding=binding_from_prep_context(
+                    context,
+                    item.id,
+                ).model_dump(mode="json"),
+            )
         )
-        for index, item in enumerate(plan.questions, start=1)
-    )
-    context = (
-        plan.prep_context.model_dump(mode="json")
-        if getattr(plan, "prep_context", None) is not None
-        else None
-    )
-    return InterviewPlanV2(
+    if context is not None:
+        for hint in context.get("question_hints", []):
+            temporary_id = hint.get("question_id")
+            if temporary_id in identity_map:
+                hint["question_id"] = identity_map[temporary_id]
+        context.pop("question_bindings", None)
+    return synchronize_plan_knowledge_context(InterviewPlanV2(
         title=plan.title,
         configuration_snapshot=config,
-        questions=questions,
+        questions=tuple(questions),
         prep_context=context,
-    )
+    ))
 
 
 def v2_plan_to_legacy(plan: InterviewPlanV2) -> Any:
     from app.services.prep import InterviewPlan, InterviewQuestion, PrepContext
 
+    plan = synchronize_plan_knowledge_context(plan)
     questions = [
         InterviewQuestion(
             id=item.question_id,
@@ -475,5 +513,89 @@ def v2_plan_to_legacy(plan: InterviewPlanV2) -> Any:
         )
         for item in plan.questions
     ]
-    context = PrepContext.model_validate(plan.prep_context) if plan.prep_context else None
+    context_payload = deepcopy(plan.prep_context)
+    if context_payload is not None:
+        context_payload["question_bindings"] = {
+            item.question_id: item.knowledge_binding
+            for item in plan.questions
+        }
+    context = (
+        PrepContext.model_validate(context_payload)
+        if context_payload
+        else None
+    )
     return InterviewPlan(title=plan.title, questions=questions, prep_context=context)
+
+
+def synchronize_plan_knowledge_context(plan: InterviewPlanV2) -> InterviewPlanV2:
+    context = deepcopy(plan.prep_context)
+    normalized_questions: list[InterviewPlanQuestionV2] = []
+    for question in plan.questions:
+        binding = revalidate_question_knowledge(
+            question.knowledge_binding,
+            context,
+        )
+        if question.origin == "custom" and not (
+            binding.status == "unbound"
+            and binding.reason_code == "custom_question"
+        ):
+            raise ValueError("custom questions cannot claim knowledge grounding")
+        normalized_questions.append(
+            question.model_copy(
+                update={"knowledge_binding": binding.model_dump(mode="json")}
+            )
+        )
+    if context is None:
+        return plan.model_copy(update={"questions": tuple(normalized_questions)})
+
+    existing_hints = {
+        item.get("question_id"): item
+        for item in context.get("question_hints", [])
+        if isinstance(item, dict) and item.get("question_id")
+    }
+    evidence_titles = {
+        item.get("evidence_id"): item.get("title", "")
+        for item in context.get("evidence_refs", [])
+        if isinstance(item, dict) and item.get("evidence_id")
+    }
+    synchronized_hints: list[dict[str, Any]] = []
+    for question in normalized_questions:
+        binding = parse_question_knowledge_binding(question.knowledge_binding)
+        hint = deepcopy(existing_hints.get(question.question_id, {}))
+        hint["question_id"] = question.question_id
+        if binding.status == "valid":
+            hint["evidence_ids"] = list(binding.evidence_ids)
+            hint["evidence_titles"] = [
+                evidence_titles[evidence_id]
+                for evidence_id in binding.evidence_ids
+                if evidence_titles.get(evidence_id)
+            ]
+            hint.setdefault("topic_ids", [])
+            hint.setdefault("follow_up_hints", [])
+        elif (
+            binding.status == "unbound"
+            and binding.reason_code == "no_grounded_evidence"
+            and hint
+        ):
+            hint["evidence_titles"] = []
+            hint["evidence_ids"] = []
+            hint.setdefault("topic_ids", [])
+            hint.setdefault("follow_up_hints", [])
+        else:
+            hint.update(
+                {
+                    "topic_ids": [],
+                    "follow_up_hints": [],
+                    "evidence_titles": [],
+                    "evidence_ids": [],
+                }
+            )
+        synchronized_hints.append(hint)
+    context["question_hints"] = synchronized_hints
+    context.pop("question_bindings", None)
+    return plan.model_copy(
+        update={
+            "questions": tuple(normalized_questions),
+            "prep_context": context,
+        }
+    )

@@ -686,6 +686,7 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "plan_sha256",
                 "generator_version",
                 "created_reason",
+                "audit_json",
                 "request_id",
                 "request_sha256",
             }

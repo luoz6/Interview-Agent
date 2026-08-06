@@ -29,9 +29,9 @@ from app.services.knowledge_binding import KnowledgeBindingResolver
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
-    public_interview_plan_payload,
+    public_interview_plan_v2_payload,
 )
-from app.services.interview_plan_revision import InterviewPlanV2, v2_plan_to_legacy
+from app.services.interview_plan_revision import InterviewPlanV2
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
@@ -789,9 +789,4 @@ def _public_session_plan_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     if public_snapshot.get("schema_version") != "interview-plan-v2":
         return public_snapshot
     plan = InterviewPlanV2.model_validate(public_snapshot)
-    public_legacy = public_interview_plan_payload(v2_plan_to_legacy(plan))
-    if "prep_context" in public_legacy:
-        public_snapshot["prep_context"] = public_legacy["prep_context"]
-    else:
-        public_snapshot.pop("prep_context", None)
-    return public_snapshot
+    return public_interview_plan_v2_payload(plan)

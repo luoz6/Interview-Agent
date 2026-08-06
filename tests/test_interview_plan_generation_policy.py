@@ -3,6 +3,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from app.services.interview_plan_audit import (
+    PlanAuditFieldDiff,
+    PlanAuditOperation,
+    PlanRevisionAudit,
+)
+
 from app.services.interview_plan_generation_policy import (
     EXPECTED_CONFIGURATION_FIELDS,
     EXPECTED_DIFFICULTIES,
@@ -208,6 +214,25 @@ def test_revision_generator_version_must_match_the_hashed_snapshot():
         "generator_version": "different-generator-version",
         "created_at": "2026-08-06T00:00:00Z",
         "created_reason": "initial_generation",
+        "audit": PlanRevisionAudit(
+            created_reason="initial_generation",
+            source_sha256="a" * 64,
+            result_plan_sha256=plan_payload_sha256(current_plan),
+            operations=(
+                PlanAuditOperation(
+                    operation="initial_generation",
+                    actor="system",
+                    reason_code="initial_generation",
+                    changed_fields=("plan",),
+                    field_diffs={
+                        "plan": PlanAuditFieldDiff(
+                            after_sha256=plan_payload_sha256(current_plan)
+                        )
+                    },
+                    knowledge_binding_action="build",
+                ),
+            ),
+        ),
     }
 
     with pytest.raises(

@@ -85,13 +85,20 @@ class ProviderPlanRegenerator:
                 configuration,
             )
             if isinstance(generated, InterviewPlanV2):
-                legacy = v2_plan_to_legacy(generated)
-                enforced = enforce_generated_interview_plan(
-                    legacy,
+                enforce_generated_interview_plan(
+                    _provider_boundary_projection(generated),
                     configuration,
                 )
+                revision_plan = InterviewPlanV2.model_validate(
+                    generated.model_dump(mode="json")
+                )
+            elif getattr(generated, "_revision_plan", None) is not None:
                 revision_plan = prepared_plan_revision(
-                    enforced,
+                    generated,
+                    configuration,
+                )
+                enforce_generated_interview_plan(
+                    _provider_boundary_projection(revision_plan),
                     configuration,
                 )
             else:
@@ -99,11 +106,7 @@ class ProviderPlanRegenerator:
                     generated,
                     configuration,
                 )
-                revision_plan = (
-                    prepared_plan_revision(generated, configuration)
-                    if getattr(generated, "_revision_plan", None) is not None
-                    else prepared_plan_revision(enforced, configuration)
-                )
+                revision_plan = prepared_plan_revision(enforced, configuration)
             if revision_plan.configuration_snapshot != configuration:
                 raise ValueError(
                     "Provider regeneration changed the configuration snapshot"
@@ -121,3 +124,12 @@ class ProviderPlanRegenerator:
             raise PlanRegenerationFailed(
                 "provider_invalid_response", "Provider returned an invalid plan"
             ) from exc
+
+
+def _provider_boundary_projection(plan: InterviewPlanV2):
+    legacy = v2_plan_to_legacy(plan)
+    legacy.questions = [
+        question.model_copy(update={"id": f"q{index}"})
+        for index, question in enumerate(legacy.questions, start=1)
+    ]
+    return legacy

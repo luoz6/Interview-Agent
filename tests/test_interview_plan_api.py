@@ -134,6 +134,20 @@ def test_edit_move_delete_restore_api_appends_monotonic_revisions(api_plan):
     assert len(deleted.json()["plan"]["questions"]) == 3
     assert restored.json()["revision"] == 6
     assert restored.json()["plan_sha256"] == initial.plan_sha256
+    assert edited.json()["audit"]["created_reason"] == "edit_question_text"
+    assert edited.json()["audit"]["operations"][0]["actor"] == "user"
+    assert edited.json()["audit"]["operations"][0][
+        "knowledge_binding_action"
+    ] == "invalidate"
+    assert moved.json()["audit"]["operations"][0][
+        "knowledge_binding_action"
+    ] == "preserve"
+    assert added.json()["audit"]["operations"][0][
+        "knowledge_binding_action"
+    ] == "unbound"
+    assert restored.json()["audit"]["operations"][0][
+        "knowledge_binding_action"
+    ] == "restore"
     assert [item.revision for item in store.list_revisions(initial.plan_family_id)] == list(
         range(1, 7)
     )
