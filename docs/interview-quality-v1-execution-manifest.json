@@ -1,9 +1,12 @@
 {
-  "schema_version": "interview-quality-v1-execution-manifest-v0.2.1",
+  "schema_version": "interview-quality-v1-execution-manifest-v0.2.2",
   "plan": {
-    "version": "v0.2.1",
-    "sha256": "3E513EA0BDA3F2116A956FB191ABBAA094F2DA0B38F6208CF3F00F887C1600FE",
-    "bytes": 138547,
+    "version": "v0.2.2",
+    "sha256": "3CC4C8E573521018D361F8F8FC09D28E3D3C4195ACBFACCCE5AC72EF0773370C",
+    "bytes": 140251,
+    "previous_version": "v0.2.1",
+    "previous_sha256": "3E513EA0BDA3F2116A956FB191ABBAA094F2DA0B38F6208CF3F00F887C1600FE",
+    "revision_kind": "GATE_2_ENGINEERING_QUALITY_CLASSIFICATION_CORRECTION",
     "status": "IN_EXECUTION",
     "execution_authorized": true
   },
@@ -40,8 +43,8 @@
     "gate_0_quality": "NOT_REQUIRED",
     "gate_1_engineering": "PASS",
     "gate_1_quality": "NOT_REQUIRED",
-    "gate_2_engineering": "BLOCKED",
-    "gate_2_quality": "NOT_RUN",
+    "gate_2_engineering": "PASS",
+    "gate_2_quality": "BLOCKED",
     "gate_3_engineering": "PASS",
     "gate_3_quality": "BLOCKED",
     "gate_4_engineering": "PASS",
@@ -90,9 +93,9 @@
     "T22": "PASS",
     "T23": "PASS",
     "T24": "PASS",
-    "T25": "BLOCKED",
-    "T26": "BLOCKED",
-    "T27": "NOT_RUN",
+    "T25": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "T26": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "T27": "QUALITY_NOT_RUN",
     "T28": "PASS",
     "T29": "PASS",
     "T30": "PASS",
@@ -125,7 +128,7 @@
     "T57": "ENGINEERING_PASS_QUALITY_BLOCKED",
     "T58": "PASS",
     "T59": "PASS",
-    "T60": "BLOCKED_DEPENDENCY_GATE_2_ENGINEERING"
+    "T60": "NOT_STARTED_DEPENDENCIES_SATISFIED"
   },
   "gate_0": {
     "review_status": "PASS",
@@ -145,6 +148,27 @@
     "blocking_test_skips": 0,
     "provider_calls": 0,
     "open_findings": 0
+  },
+  "gate_2_reassessment": {
+    "review_status": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "review_kind": "primary_agent_append_only_classification_reassessment",
+    "reviewed_at": "2026-08-06T23:22:36+08:00",
+    "implementation_revision": "e4c798343e8e281e610a4d08b8bd9043f50264ea",
+    "evidence": "docs/interview-quality-v1-gate-2-reassessment-20260806-evidence.json",
+    "review": "docs/interview-quality-v1-gate-2-reassessment-20260806-review.md",
+    "historical_evidence": "docs/interview-quality-v1-gate-2-evidence.json",
+    "historical_evidence_sha256": "de471e6e62ce606bd1da61ebe158fd602d49cad0071ee78b693f8d7673f0100d",
+    "historical_status_preserved": true,
+    "engineering_status": "PASS",
+    "quality_status": "BLOCKED",
+    "quality_reasons": [
+      "PENDING_INDEPENDENT_REVIEW",
+      "BLIND_TEST_NOT_RUN",
+      "T27_NOT_RUN",
+      "MODEL_VERSION_DRIFT"
+    ],
+    "provider_calls": 0,
+    "open_engineering_findings": 0
   },
   "t36": {
     "review_status": "PASS_ENGINEERING_BLOCKED_QUALITY",
@@ -205,15 +229,17 @@
     "open_engineering_findings": 0
   },
   "phase_continuation": {
-    "candidate_next_phase": "Phase 6",
-    "candidate_next_task": "T60",
+    "next_phase": "Phase 6",
+    "next_task": "T60",
     "user_checkpoint_required": false,
     "provider_budget_checkpoint_required": false,
-    "t60_dependencies_satisfied": false,
-    "blocking_dependency": "Gate 2 Engineering PASS",
-    "gate_2_engineering_status": "BLOCKED",
-    "gate_2_blocker": "T25 independent technical review is pending; T26 blind evaluation remains closed and T27 has not run",
-    "provider_unlimited_authorization_resolves_gate_2_blocker": false,
+    "t60_dependencies_satisfied": true,
+    "gate_2_engineering_status": "PASS",
+    "gate_3_engineering_status": "PASS",
+    "gate_4_engineering_status": "PASS",
+    "gate_5_engineering_status": "PASS",
+    "quality_blockers_deferred_not_waived": true,
+    "engineering_may_continue": true,
     "goal_status": "active"
   }
 }
