@@ -97,6 +97,67 @@ readable. Regeneration fails closed with `plan_source_unavailable`; it must not 
 or reconstruct missing source. In-memory and PostgreSQL stores expose the same
 conflict, retention, tombstone, and replay behavior.
 
+## Phase 5 T50 amendment: generation configuration strategy
+
+- Amendment status: Accepted
+- Amendment date: 2026-08-06
+- Policy manifest: config/interview_plan_generation_policy_v1.json
+- Policy version: interview-plan-config-strategy-v1
+
+This amendment does not add a schema, field, editor, revision path, or start path.
+It freezes how the existing eight PlanConfigurationSnapshot fields are interpreted
+and hashed.
+
+### Allowed configuration
+
+    difficulty                  foundation|intermediate|advanced
+    target_duration_minutes     15|30|45|60
+    focus_preset                technical_depth|system_design|project_review|balanced
+    question_type_budget        exact generated main-question target by type
+    expected_followup_budget    aggregate estimate, not a runtime quota
+    max_followups_per_question  hard runtime ceiling 2
+    generator_version           stable lowercase version identifier
+    followup_policy_version     fixed_v1|adaptive_v1
+
+question_type_budget is sparse: an omitted question type means zero. Counts must
+be actual non-negative integers, Boolean/string coercion is prohibited, and the
+total must be at least one. It records the generation target; later manual edits
+may diverge and receive duration/budget warnings without rewriting history.
+
+expected_followup_budget is the aggregate expected count used by the duration
+estimate and generation hint. Adaptive runtime may use fewer. It is not a hard
+quota. The only runtime hard limit remains two follow-ups per main question.
+
+### Effect separation
+
+- Difficulty changes requested depth/complexity, not passing thresholds.
+- Target duration selects the T51 question-budget profile and duration estimate;
+  it is not an exact-time SLA.
+- Focus changes question-type allocation and prompt emphasis, not the rubric.
+- Generator version identifies the prompt and deterministic budget-enforcement
+  implementation.
+- Follow-up policy selects runtime decision behavior from the immutable session
+  snapshot.
+- Every field appears in the configuration snapshot and canonical plan hash.
+- Revision-level generator_version must equal the snapshot value.
+- Configuration may never select a scoring rubric or change scoring strictness.
+
+T50 freezes the four duration values and strategy semantics only. T51 owns the
+question ranges and estimate formula; T52 owns Provider over/under-budget handling
+and launch validation; T54 owns final user-facing warning interaction. The
+existing 3–5 validation is intentionally not changed by T50.
+
+### Hash and parser behavior
+
+Configuration and plan hash helpers always serialize and revalidate a model
+instance before hashing. A caller cannot use Pydantic model_copy to smuggle an
+invalid policy or configuration value into a trusted hash.
+
+The v1 parser remains available and does not call a Provider. Its compatibility
+defaults remain intermediate difficulty, 30 minutes, balanced focus, fixed_v1,
+and a hard per-question follow-up ceiling of two. Parsing v1 creates the existing
+Schema v2 boundary object; it does not revive legacy IDs after the conversion.
+
 ## Rollback
 
 Disable V2 write/read routing and return to legacy reads. Do not drop V2 tables,

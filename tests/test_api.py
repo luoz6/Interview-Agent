@@ -182,7 +182,10 @@ def start_test_interview(
             "resume_text": resume_text,
             "job_tags": route_module.extract_job_tags(job_description),
         },
-        plan=legacy_plan_to_v2(generated_plan),
+        plan=legacy_plan_to_v2(
+            generated_plan,
+            generator_version="plan-generator-v2-test",
+        ),
         retention_policy="test-v1",
         generator_version="plan-generator-v2-test",
     )

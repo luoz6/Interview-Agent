@@ -17,6 +17,7 @@ PlanFocusPreset = Literal[
 ]
 PlanQuestionType = Literal["project", "technical", "system-design", "behavioral"]
 PlanQuestionOrigin = Literal["generated", "edited", "regenerated", "custom"]
+PlanFollowupPolicyVersion = Literal["fixed_v1", "adaptive_v1"]
 PlanRevisionSourceKind = Literal[
     "generated", "edited", "regenerated_question", "customized"
 ]
@@ -72,21 +73,45 @@ class PlanConfigurationSnapshot(ImmutableModel):
     difficulty: PlanDifficulty
     target_duration_minutes: Literal[15, 30, 45, 60]
     focus_preset: PlanFocusPreset
-    question_type_budget: dict[str, int] = Field(default_factory=dict)
+    question_type_budget: dict[PlanQuestionType, int] = Field(
+        default_factory=dict
+    )
     expected_followup_budget: int = Field(ge=0)
     max_followups_per_question: Literal[2] = 2
-    generator_version: str = Field(min_length=1)
-    followup_policy_version: str = Field(min_length=1)
+    generator_version: str = Field(
+        min_length=1,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    followup_policy_version: PlanFollowupPolicyVersion
 
-    @field_validator("question_type_budget")
+    @field_validator("question_type_budget", mode="before")
     @classmethod
-    def validate_question_type_budget(cls, value: dict[str, int]) -> dict[str, int]:
+    def validate_question_type_budget(
+        cls,
+        value: object,
+    ) -> dict[PlanQuestionType, int]:
+        if not isinstance(value, dict):
+            raise ValueError("question_type_budget must be an object")
         allowed = {"project", "technical", "system-design", "behavioral"}
         if any(key not in allowed for key in value):
             raise ValueError("question_type_budget contains an unsupported type")
-        if any(isinstance(count, bool) or count < 0 for count in value.values()):
+        if any(
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or count < 0
+            for count in value.values()
+        ):
             raise ValueError("question_type_budget counts must be non-negative integers")
+        if sum(value.values()) < 1:
+            raise ValueError("question_type_budget must request at least one question")
         return dict(sorted(value.items()))
+
+    @field_validator("expected_followup_budget", mode="before")
+    @classmethod
+    def validate_expected_followup_budget(cls, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("expected_followup_budget must be an integer")
+        return value
 
 
 class InterviewPlanQuestionV2(ImmutableModel):
@@ -236,6 +261,10 @@ class InterviewPlanRevision(ImmutableModel):
             raise ValueError("non-initial revision requires a parent")
         if self.configuration_snapshot != self.plan.configuration_snapshot:
             raise ValueError("revision configuration must match plan snapshot")
+        if self.generator_version != self.configuration_snapshot.generator_version:
+            raise ValueError(
+                "revision generator_version must match configuration snapshot"
+            )
         if plan_payload_sha256(self.plan) != self.plan_sha256:
             raise ValueError("plan_sha256 does not match plan")
         return self
@@ -265,8 +294,21 @@ def source_payload_sha256(payload: PlanSourcePayload | dict[str, Any]) -> str:
     return canonical_sha256(model.model_dump(mode="json"))
 
 
+def plan_configuration_sha256(
+    configuration: PlanConfigurationSnapshot | dict[str, Any],
+) -> str:
+    payload = (
+        configuration.model_dump(mode="json")
+        if isinstance(configuration, PlanConfigurationSnapshot)
+        else configuration
+    )
+    model = PlanConfigurationSnapshot.model_validate(payload)
+    return canonical_sha256(model.model_dump(mode="json"))
+
+
 def plan_payload_sha256(plan: InterviewPlanV2 | dict[str, Any]) -> str:
-    model = plan if isinstance(plan, InterviewPlanV2) else InterviewPlanV2.model_validate(plan)
+    payload = plan.model_dump(mode="json") if isinstance(plan, InterviewPlanV2) else plan
+    model = InterviewPlanV2.model_validate(payload)
     return canonical_sha256(model.model_dump(mode="json"))
 
 
@@ -302,7 +344,11 @@ def _uuid_text(value: str, field_name: str) -> str:
         raise ValueError(f"{field_name} must be a UUID") from exc
 
 
-def legacy_plan_to_v2(plan: Any, *, generator_version: str = "plan-generator-v2") -> InterviewPlanV2:
+def legacy_plan_to_v2(
+    plan: Any,
+    *,
+    generator_version: str = "plan-generator-v2",
+) -> InterviewPlanV2:
     """Convert the legacy generated plan at the compatibility boundary.
 
     The conversion allocates opaque IDs once; subsequent previews and starts
