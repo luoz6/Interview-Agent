@@ -17,6 +17,7 @@ class StubRegenerator:
     def __init__(self) -> None:
         self.question_calls = 0
         self.all_calls = 0
+        self.all_configurations = []
 
     def regenerate_question(self, *, current, source, question_id):
         self.question_calls += 1
@@ -32,9 +33,21 @@ class StubRegenerator:
             origin="generated",
         )
 
-    def regenerate_all(self, *, current, source):
+    def regenerate_all(self, *, current, source, configuration=None):
         self.all_calls += 1
-        return current.plan.model_copy(update={"title": "Provider regenerated plan"})
+        selected = configuration or current.configuration_snapshot
+        self.all_configurations.append(selected)
+        questions = tuple(
+            question.model_copy(update={"difficulty": selected.difficulty})
+            for question in current.plan.questions
+        )
+        return current.plan.model_copy(
+            update={
+                "title": "Provider regenerated plan",
+                "configuration_snapshot": selected,
+                "questions": questions,
+            }
+        )
 
 
 class FailingRegenerator:
@@ -445,6 +458,80 @@ def test_client_cannot_supply_provider_output_and_full_regeneration_requires_con
     assert len(store.list_revisions(initial.plan_family_id)) == 2
 
 
+def test_confirmed_regeneration_can_freeze_a_new_valid_configuration(api_plan):
+    client, store, initial, regenerator = api_plan
+    configuration = initial.configuration_snapshot.model_copy(
+        update={
+            "difficulty": "advanced",
+            "focus_preset": "technical_depth",
+        }
+    )
+
+    request_payload = {
+        "expected_revision": 1,
+        "request_id": "configured-regenerate-1",
+        "confirmed": True,
+        "configuration": configuration.model_dump(mode="json"),
+    }
+    response = client.post(
+        f"/api/interview-plans/{initial.plan_family_id}/regenerate",
+        json=request_payload,
+    )
+    replay = client.post(
+        f"/api/interview-plans/{initial.plan_family_id}/regenerate",
+        json=request_payload,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["revision"] == 2
+    assert replay.status_code == 200
+    assert replay.json()["plan_revision_id"] == payload["plan_revision_id"]
+    assert payload["plan"]["configuration_snapshot"] == configuration.model_dump(
+        mode="json"
+    )
+    assert payload["audit"]["configuration_diff"].keys() == {
+        "difficulty",
+        "focus_preset",
+    }
+    assert regenerator.all_configurations == [configuration]
+    assert store.get_latest(initial.plan_family_id).configuration_snapshot == configuration
+    assert len(store.list_revisions(initial.plan_family_id)) == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("target_duration_minutes", 25),
+        ("max_followups_per_question", 3),
+        ("difficulty", "expert"),
+        ("focus_preset", "freeform"),
+    ],
+)
+def test_regeneration_rejects_configuration_outside_backend_contract(
+    api_plan,
+    field,
+    invalid_value,
+):
+    client, store, initial, regenerator = api_plan
+    configuration = initial.configuration_snapshot.model_dump(mode="json")
+    configuration[field] = invalid_value
+
+    response = client.post(
+        f"/api/interview-plans/{initial.plan_family_id}/regenerate",
+        json={
+            "expected_revision": 1,
+            "request_id": "invalid-configured-regenerate",
+            "confirmed": True,
+            "configuration": configuration,
+        },
+    )
+
+    assert response.status_code == 422
+    assert regenerator.all_calls == 0
+    assert store.get_latest(initial.plan_family_id).revision == 1
+
+
 class ProviderSpy:
     def __init__(self) -> None:
         self.calls = 0
@@ -516,6 +603,45 @@ def test_started_session_does_not_follow_later_plan_edits(api_plan):
     assert revision_store.get_latest(initial.plan_family_id).revision == 2
     assert session_store.get(started["session_id"])["plan_snapshot"] == original_snapshot
     assert original_snapshot == initial.plan.model_dump(mode="json")
+
+
+def test_start_rejects_a_historical_revision_and_returns_latest_winner(api_plan):
+    client, _, initial, _ = api_plan
+    session_store = InterviewSessionStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    edited = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            1,
+            "advance-before-start",
+            {
+                "op": "edit_focus",
+                "question_id": initial.plan.questions[0].question_id,
+                "focus": "latest server focus",
+            },
+        ),
+    )
+
+    started = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": initial.plan_revision_id,
+            "expected_revision": initial.revision,
+            "plan_sha256": initial.plan_sha256,
+        },
+    )
+
+    assert edited.status_code == 200
+    assert started.status_code == 409
+    assert started.json() == {
+        "code": "plan_revision_conflict",
+        "current_revision": {
+            "plan_revision_id": edited.json()["plan_revision_id"],
+            "revision": 2,
+            "plan_sha256": edited.json()["plan_sha256"],
+        },
+    }
+    assert session_store._sessions == {}
 
 
 def test_start_rejects_raw_inputs_mismatch_and_missing_revision(api_plan):

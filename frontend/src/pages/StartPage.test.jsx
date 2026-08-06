@@ -6,6 +6,21 @@ import { StartPage } from "./StartPage";
 const familyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const questionOne = "11111111-1111-4111-8111-111111111111";
 const questionTwo = "22222222-2222-4222-8222-222222222222";
+const defaultConfiguration = {
+  difficulty: "intermediate",
+  target_duration_minutes: 30,
+  focus_preset: "balanced",
+  question_type_budget: {
+    project: 1,
+    technical: 2,
+    "system-design": 1,
+    behavioral: 1,
+  },
+  expected_followup_budget: 5,
+  max_followups_per_question: 2,
+  generator_version: "plan-generator-v2",
+  followup_policy_version: "fixed_v1",
+};
 
 function revisionResponse(revision = 1, overrides = {}) {
   const questions = overrides.questions || [
@@ -80,11 +95,7 @@ function revisionResponse(revision = 1, overrides = {}) {
     plan: {
       schema_version: "interview-plan-v2",
       title: "Backend interview plan",
-      configuration_snapshot: {
-        duration_minutes: 30,
-        difficulty: "intermediate",
-        focus: "balanced",
-      },
+      configuration_snapshot: defaultConfiguration,
       questions,
     },
     ...overrides,
@@ -502,5 +513,154 @@ describe("StartPage editable plan workflow", () => {
       "Keep this draft across refresh",
     );
     expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+  });
+
+  it("sends a complete safe configuration for initial generation", async () => {
+    const user = userEvent.setup();
+    const requestedConfiguration = {
+      ...defaultConfiguration,
+      difficulty: "advanced",
+      target_duration_minutes: 45,
+      focus_preset: "system_design",
+      question_type_budget: {
+        project: 1,
+        technical: 2,
+        "system-design": 3,
+        behavioral: 1,
+      },
+      expected_followup_budget: 7,
+    };
+    const baseResponse = revisionResponse(1);
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        revisionResponse(1, {
+          plan: {
+            ...baseResponse.plan,
+            configuration_snapshot: requestedConfiguration,
+          },
+        }),
+      ),
+    );
+    render(<StartPage />);
+
+    await user.click(screen.getByRole("radio", { name: /高级/ }));
+    await user.click(screen.getByRole("radio", { name: "45 分钟" }));
+    await user.click(screen.getByRole("radio", { name: /系统设计 架构/ }));
+    await user.click(screen.getByRole("radio", { name: /架构优先/ }));
+    expect(screen.getByText("7 道")).toBeInTheDocument();
+    expect(screen.getByText(/实际进度取决于回答长度、追问和操作节奏/)).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Platform role");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Platform resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.configuration).toEqual(requestedConfiguration);
+    expect(body.configuration).not.toHaveProperty("question_mix_preset");
+    expect(body.configuration.max_followups_per_question).toBe(2);
+  });
+
+  it("marks the current revision stale until configured regeneration succeeds", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+
+    await user.click(screen.getByRole("radio", { name: /高级/ }));
+    expect(screen.getByText("待重新生成")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+
+    await user.click(screen.getByRole("radio", { name: /中级/ }));
+    expect(screen.getByText("配置已同步")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
+    await user.click(screen.getByRole("radio", { name: /高级/ }));
+
+    await user.click(screen.getByRole("button", { name: "应用配置并重新生成" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "使用新配置重新生成计划？",
+    });
+    expect(within(dialog).getByText(/新 revision 将采用：难度/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const configured = { ...defaultConfiguration, difficulty: "advanced" };
+    const baseResponse = revisionResponse(2);
+    fetchMock.mockImplementationOnce(() =>
+      response(
+        revisionResponse(2, {
+          plan: {
+            ...baseResponse.plan,
+            configuration_snapshot: configured,
+          },
+        }),
+      ),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "确认采用新配置" }),
+    );
+
+    await screen.findByText("R2");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled(),
+    );
+    const requestBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(requestBody.confirmed).toBe(true);
+    expect(requestBody.configuration).toEqual(configured);
+  });
+
+  it("automatically restores the saved revision and its configuration after refresh", async () => {
+    const user = userEvent.setup();
+    const configured = {
+      ...defaultConfiguration,
+      difficulty: "advanced",
+      target_duration_minutes: 60,
+      focus_preset: "project_review",
+      question_type_budget: {
+        project: 4,
+        technical: 2,
+        "system-design": 1,
+        behavioral: 2,
+      },
+      expected_followup_budget: 9,
+    };
+    const baseResponse = revisionResponse(1);
+    window.localStorage.setItem("interview-agent:draft-id", "draft_refresh");
+    window.localStorage.setItem(
+      "interview-agent:plan-configuration-v1",
+      JSON.stringify(configured),
+    );
+    fetchMock
+      .mockImplementationOnce(() =>
+        response({
+          draft_id: "draft_refresh",
+          job_description: "Restored platform role",
+          resume_text: "Restored platform resume",
+          job_tags: ["Platform"],
+          plan_status: "active",
+          plan_family_id: familyId,
+          latest_plan_revision_id: baseResponse.plan_revision_id,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        response(
+          revisionResponse(1, {
+            plan: {
+              ...baseResponse.plan,
+              configuration_snapshot: configured,
+            },
+          }),
+        ),
+      );
+
+    render(<StartPage />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("tab", { name: "计划" }));
+    await screen.findByText("R1");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/interview-drafts/draft_refresh");
+    expect(screen.getByRole("radio", { name: /高级/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "60 分钟" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
+    expect(screen.getByText("配置已同步")).toBeInTheDocument();
   });
 });

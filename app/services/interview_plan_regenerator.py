@@ -70,8 +70,12 @@ class ProviderPlanRegenerator:
         *,
         current: InterviewPlanRevision,
         source: PlanSourcePayload,
+        configuration: PlanConfigurationSnapshot | None = None,
     ) -> InterviewPlanV2:
-        return self._generate(source, current.configuration_snapshot)
+        return self._generate(
+            source,
+            configuration or current.configuration_snapshot,
+        )
 
     def _generate(
         self,

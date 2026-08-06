@@ -225,9 +225,12 @@ class RegenerateQuestionRequest(BaseModel):
 
 
 class RegenerateAllRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     expected_revision: int = Field(ge=1)
     request_id: str = Field(min_length=1)
     confirmed: Literal[True]
+    configuration: PlanConfigurationSnapshot | None = None
 
 
 class AnswerRequest(BaseModel):
@@ -934,12 +937,14 @@ def _apply_plan_edit(
     revision_store,
     *,
     request_sha256: str | None = None,
+    allow_configuration_change: bool = False,
 ):
     try:
         revision = InterviewPlanEditor(revision_store).apply(
             plan_family_id,
             payload,
             request_sha256=request_sha256,
+            allow_configuration_change=allow_configuration_change,
         )
     except PlanRevisionConflict as exc:
         current = None
@@ -1083,10 +1088,13 @@ def regenerate_entire_interview_plan(
         source = revision_store.get_source(current.source_id)
         if source.protected_payload is None:
             raise PlanSourceUnavailable("plan source payload is unavailable")
-        regenerated_plan = regenerator.regenerate_all(
-            current=current,
-            source=source.protected_payload,
-        )
+        regeneration_arguments = {
+            "current": current,
+            "source": source.protected_payload,
+        }
+        if payload.configuration is not None:
+            regeneration_arguments["configuration"] = payload.configuration
+        regenerated_plan = regenerator.regenerate_all(**regeneration_arguments)
     except PlanRevisionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PlanSourceUnavailable as exc:
@@ -1118,6 +1126,7 @@ def regenerate_entire_interview_plan(
         request,
         revision_store,
         request_sha256=request_sha256,
+        allow_configuration_change=payload.configuration is not None,
     )
 
 
@@ -1268,6 +1277,19 @@ def start_interview(
 ):
     try:
         revision = revision_store.get_by_id(payload.plan_revision_id)
+        latest = revision_store.get_latest(revision.plan_family_id)
+        if latest.plan_revision_id != revision.plan_revision_id:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": "plan_revision_conflict",
+                    "current_revision": {
+                        "plan_revision_id": latest.plan_revision_id,
+                        "revision": latest.revision,
+                        "plan_sha256": latest.plan_sha256,
+                    },
+                },
+            )
         if payload.expected_revision != revision.revision:
             raise HTTPException(status_code=409, detail="plan revision conflict")
         if payload.plan_sha256 != revision.plan_sha256:

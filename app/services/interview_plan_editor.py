@@ -130,6 +130,7 @@ class InterviewPlanEditor:
         request: PlanEditRequest,
         *,
         request_sha256: str | None = None,
+        allow_configuration_change: bool = False,
     ) -> InterviewPlanRevision:
         current = self.store.get_latest(plan_family_id)
         # Let the Store remain the final concurrency authority; this early result only
@@ -160,7 +161,12 @@ class InterviewPlanEditor:
         for index, operation in enumerate(request.operations):
             try:
                 before = plan
-                plan = self._apply_one(plan_family_id, plan, operation)
+                plan = self._apply_one(
+                    plan_family_id,
+                    plan,
+                    operation,
+                    allow_configuration_change=allow_configuration_change,
+                )
                 operation_audits.append(
                     self._audit_operation(operation, before, plan)
                 )
@@ -199,7 +205,12 @@ class InterviewPlanEditor:
         )
 
     def _apply_one(
-        self, plan_family_id: str, plan: InterviewPlanV2, operation: PlanOperation
+        self,
+        plan_family_id: str,
+        plan: InterviewPlanV2,
+        operation: PlanOperation,
+        *,
+        allow_configuration_change: bool,
     ) -> InterviewPlanV2:
         if operation.op == "restore_revision":
             target = self.store.get_by_id(operation.target_revision_id or "")
@@ -210,10 +221,14 @@ class InterviewPlanEditor:
             return synchronize_plan_knowledge_context(target.plan)
         if operation.op == "regenerate_all":
             assert operation.regenerated_plan is not None
-            if operation.regenerated_plan.configuration_snapshot != plan.configuration_snapshot:
+            if (
+                operation.regenerated_plan.configuration_snapshot
+                != plan.configuration_snapshot
+                and not allow_configuration_change
+            ):
                 raise PlanOperationValidationError(
                     "configuration_mismatch",
-                    "regenerated plan must preserve the frozen configuration snapshot",
+                    "configuration changes require the server-owned regeneration route",
                 )
             return synchronize_plan_knowledge_context(operation.regenerated_plan)
 

@@ -68,6 +68,24 @@ FOCUS_TYPE_ORDER = {
         "behavioral",
     ),
 }
+QUESTION_MIX_TYPE_ORDER = {
+    "balanced": (
+        "project", "technical", "system-design", "behavioral", "technical",
+        "project", "system-design", "behavioral", "technical",
+    ),
+    "technical": (
+        "technical", "project", "system-design", "technical", "behavioral",
+        "technical", "project", "system-design", "technical",
+    ),
+    "architecture": (
+        "system-design", "technical", "project", "system-design", "behavioral",
+        "technical", "system-design", "project", "system-design",
+    ),
+    "project": (
+        "project", "technical", "behavioral", "project", "system-design",
+        "technical", "project", "behavioral", "project",
+    ),
+}
 
 
 def configured_snapshot(
@@ -77,11 +95,15 @@ def configured_snapshot(
     focus: str = "balanced",
     question_count: int | None = None,
     expected_followups: int | None = None,
+    question_mix: str | None = None,
 ) -> PlanConfigurationSnapshot:
     count = question_count or PROFILE_QUESTION_COUNTS[duration]
-    ordered_types = list(
-        islice(cycle(FOCUS_TYPE_ORDER[focus]), count)
+    order = (
+        QUESTION_MIX_TYPE_ORDER[question_mix]
+        if question_mix is not None
+        else FOCUS_TYPE_ORDER[focus]
     )
+    ordered_types = list(islice(cycle(order), count))
     type_budget = dict(Counter(ordered_types))
     return PlanConfigurationSnapshot(
         difficulty=difficulty,
@@ -171,15 +193,21 @@ class CapturingRecorder:
     "focus",
     ("technical_depth", "system_design", "project_review", "balanced"),
 )
+@pytest.mark.parametrize(
+    "question_mix",
+    ("balanced", "technical", "architecture", "project"),
+)
 def test_configuration_matrix_changes_generation_and_preserves_snapshot(
     duration,
     difficulty,
     focus,
+    question_mix,
 ):
     configuration = configured_snapshot(
         duration=duration,
         difficulty=difficulty,
         focus=focus,
+        question_mix=question_mix,
     )
     llm = ConfigAwarePlanLLM()
 
@@ -709,6 +737,44 @@ def test_regeneration_reuses_frozen_configuration_and_exact_budget():
             source=store.get_source(current.source_id).protected_payload,
         )
     assert error.value.code == "provider_question_count_under_budget"
+
+
+def test_regeneration_accepts_an_explicit_backend_validated_configuration():
+    initial_configuration = configured_snapshot(duration=30)
+    requested_configuration = configured_snapshot(
+        duration=45,
+        difficulty="advanced",
+        focus="system_design",
+    )
+    initial_legacy = bind_prepared_plan_revision(
+        plan_for_configuration(initial_configuration),
+        initial_configuration,
+    )
+    store = InMemoryInterviewPlanRevisionStore()
+    current = store.create_initial(
+        source_payload=PlanSourcePayload(
+            job_description="Platform role",
+            resume_text="Platform resume",
+        ),
+        plan=prepared_plan_revision(initial_legacy, initial_configuration),
+        retention_policy="test-v1",
+        generator_version=initial_configuration.generator_version,
+    )
+    observed = []
+
+    regenerated = ProviderPlanRegenerator(
+        lambda _job, _resume, configuration: (
+            observed.append(configuration) or plan_for_configuration(configuration)
+        )
+    ).regenerate_all(
+        current=current,
+        source=store.get_source(current.source_id).protected_payload,
+        configuration=requested_configuration,
+    )
+
+    assert observed == [requested_configuration]
+    assert regenerated.configuration_snapshot == requested_configuration
+    assert len(regenerated.questions) == 7
 
 
 def test_new_prep_default_is_the_30_minute_five_question_configuration():

@@ -1,0 +1,189 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T56",
+  "generated_at": "2026-08-06T21:07:34+08:00",
+  "implementation_revision_base": "27e52baaf4fb9a457e2859acb3ffce958a8f4f0e",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "provider_calls": 0,
+  "configuration_contract": {
+    "difficulties": [
+      "foundation",
+      "intermediate",
+      "advanced"
+    ],
+    "target_duration_minutes": [
+      15,
+      30,
+      45,
+      60
+    ],
+    "focus_presets": [
+      "technical_depth",
+      "system_design",
+      "project_review",
+      "balanced"
+    ],
+    "question_mix_presets": [
+      "balanced",
+      "technical",
+      "architecture",
+      "project"
+    ],
+    "duration_to_main_question_count": {
+      "15": 3,
+      "30": 5,
+      "45": 7,
+      "60": 9
+    },
+    "max_followups_per_question": 2,
+    "max_followups_user_adjustable": false,
+    "arbitrary_percentage_input": false,
+    "question_mix_preset_sent_to_backend": false,
+    "configuration_snapshot_frozen_in_revision": true,
+    "configuration_in_plan_hash": true,
+    "configuration_may_change_rubric": false,
+    "scoring_rubric_changed": false
+  },
+  "ui_contract": {
+    "difficulty_radio_group": true,
+    "duration_radio_group": true,
+    "focus_radio_group": true,
+    "question_mix_safe_preset_radio_group": true,
+    "estimated_main_questions_visible": true,
+    "target_minutes_visible": true,
+    "estimated_followups_visible": true,
+    "actual_duration_disclaimer_visible": true,
+    "rubric_isolation_disclaimer_visible": true,
+    "configuration_sync_state_visible": true,
+    "configuration_change_marks_plan_stale": true,
+    "stale_plan_start_disabled": true,
+    "explicit_regenerate_confirmation": true,
+    "regenerate_confirmation_lists_changed_fields": true,
+    "regenerate_failure_preserves_local_configuration": true,
+    "return_to_snapshot_clears_stale": true,
+    "refresh_restores_draft_revision_and_configuration": true,
+    "local_storage_key": "interview-agent:plan-configuration-v1",
+    "local_storage_rebuilt_through_allowlist": true,
+    "non_ui_historical_snapshot_preserved_exactly": true
+  },
+  "server_contract": {
+    "regenerate_request_extra_fields_forbidden": true,
+    "regenerate_requires_confirmed_true": true,
+    "regenerate_requires_expected_revision": true,
+    "regenerate_requires_request_id": true,
+    "explicit_configuration_optional_for_backward_compatibility": true,
+    "same_regenerator": "ProviderPlanRegenerator",
+    "same_editor": "InterviewPlanEditor",
+    "same_revision_store": "InterviewPlanRevisionStore",
+    "second_revision_creation_path_added": false,
+    "configuration_diff_contains_hashes_only": true,
+    "idempotent_replay_returns_same_revision": true,
+    "idempotent_replay_repeats_provider_call": false,
+    "editor_configuration_change_default_allowed": false,
+    "editor_configuration_change_requires_server_capability": true,
+    "public_patch_provider_output_allowed": false
+  },
+  "start_gate": {
+    "route": "app.api.routes.start_interview",
+    "requires_family_latest_revision": true,
+    "historical_revision_status": 409,
+    "historical_revision_code": "plan_revision_conflict",
+    "historical_revision_creates_session": false,
+    "existing_session_snapshot_remains_immutable": true
+  },
+  "automatic_review_findings": [
+    "A broad removal of the editor configuration-mismatch check would have let domain callers inject a changed configuration by default; configuration change now requires an explicit server-owned capability and remains denied by default.",
+    "The unique interview start route validated the supplied revision but did not prove it was still the family latest; it now returns plan_revision_conflict and creates no session for a historical revision.",
+    "A valid historical snapshot outside the four current UI presets was originally inferred as balanced and could create false stale state; exact safe counts and follow-up budget are now preserved until the user chooses a current preset."
+  ],
+  "acceptance": {
+    "difficulty_presets": "PASS",
+    "duration_presets": "PASS",
+    "focus_presets": "PASS",
+    "safe_question_mix_presets": "PASS",
+    "all_combinations_backend_validated": "PASS",
+    "stale_requires_explicit_regeneration": "PASS",
+    "non_exact_duration_copy": "PASS",
+    "followup_hard_cap_two": "PASS",
+    "configuration_in_revision_snapshot": "PASS",
+    "configuration_and_revision_refresh_restore": "PASS",
+    "configuration_does_not_change_rubric": "PASS",
+    "latest_revision_start_gate": "PASS"
+  },
+  "verification": {
+    "t56_configuration_frontend_tests_passed": 6,
+    "t56_new_frontend_tests_passed": 9,
+    "frontend_vitest_passed": 57,
+    "frontend_vitest_failed": 0,
+    "frontend_vitest_skipped": 0,
+    "configuration_matrix_combinations_passed": 192,
+    "configured_generation_file_passed": 207,
+    "scoring_isolation_policy_passed": 17,
+    "adjacent_regression_passed": 388,
+    "adjacent_regression_failed": 0,
+    "adjacent_regression_skipped": 6,
+    "adjacent_regression_warnings": 1,
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "risk_pattern_scan": "PASS",
+    "frontend_build": "PASS_WITH_NON_BLOCKING_CHUNK_WARNING",
+    "frontend_css_kb": 291.61,
+    "frontend_css_gzip_kb": 38.42,
+    "frontend_javascript_kb": 535.57,
+    "frontend_javascript_gzip_kb": 145.27,
+    "frontend_chunk_warning_threshold_kb": 500,
+    "frontend_eslint": "TOOLING_MISSING_ESLINT_COMMAND_NOT_INSTALLED",
+    "provider_calls": 0,
+    "broad_regression": {
+      "passed": 2857,
+      "failed": 9,
+      "skipped": 3,
+      "warnings": 1,
+      "t55_passed": 2705,
+      "t55_failed": 9,
+      "t55_skipped": 3,
+      "new_t56_python_test_count": 152,
+      "new_t56_related_failures": 0,
+      "measured_postgres_ahead_of_python_seconds": 3.319487,
+      "used_as_t56_acceptance_gate": true
+    }
+  },
+  "known_full_suite_failures": [
+    "agent runtime hardening old perf_counter mock ticks exhausted",
+    "context artifact failed cleanup cross-clock behavior",
+    "context artifact concurrent cleanup cross-clock behavior",
+    "completed generation chunk cleanup cross-clock behavior",
+    "interview graph old next_question expectation differs from current finish terminal state",
+    "applied workflow command payload cleanup cross-clock behavior",
+    "historical publication allowlist differs from the quality branch",
+    "PostgreSQL session deletion old latest migration expects followup_decision_v1",
+    "existing dependency lock hash drift"
+  ],
+  "provider_quality_state": {
+    "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "provider": "DeepSeek",
+    "model": "deepseek-chat",
+    "limits": "unlimited",
+    "fallback_prohibited": true,
+    "status": "BLOCKED_MODEL_VERSION_DRIFT",
+    "provider_called": false,
+    "first_data_request_sent": false,
+    "blocks_unrelated_engineering": false
+  },
+  "phase_boundaries": {
+    "t55_editable_plan_ui_complete": true,
+    "t56_configuration_ui_complete": true,
+    "t57_real_provider_quality_benchmark_complete": false,
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "No real Provider was called by T56; Provider-facing tests use deterministic test doubles.",
+    "T56 Engineering PASS does not claim real Provider question quality, cost, token usage, or a Provider Quality PASS.",
+    "The nine full-suite failures, three skips, one warning, six adjacent skips, missing ESLint executable, and JavaScript chunk-size warning are reported and are not relabeled as PASS.",
+    "The formal full-suite result uses the configured PostgreSQL DSN; a lower-coverage diagnostic run without that DSN is not used as evidence.",
+    "T56 does not claim T57 or T72 is complete, and the goal remains active."
+  ]
+}

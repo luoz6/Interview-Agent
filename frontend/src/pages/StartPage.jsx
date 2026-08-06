@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowCounterClockwise,
@@ -40,8 +40,21 @@ import {
   planEditorStatus,
   questionDraft,
 } from "../interviewPlanState";
+import {
+  configurationMatchesSnapshot,
+  createPlanConfiguration,
+  describeConfigurationChanges,
+  PLAN_DIFFICULTIES,
+  PLAN_DURATIONS,
+  PLAN_FOCUS_PRESETS,
+  planConfigurationEstimate,
+  planConfigurationPayload,
+  QUESTION_MIX_PRESETS,
+  updatePlanConfiguration,
+} from "../interviewPlanConfiguration";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
+const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TEXT_LENGTH = 50000;
 
@@ -73,6 +86,15 @@ function storeDraftId(value) {
 
 function clearStoredDraftId() {
   DRAFT_KEYS.forEach((key) => window.localStorage.removeItem(key));
+}
+
+function getStoredConfiguration() {
+  try {
+    const value = window.localStorage.getItem(CONFIGURATION_KEY);
+    return createPlanConfiguration(value ? JSON.parse(value) : null);
+  } catch {
+    return createPlanConfiguration();
+  }
 }
 
 function errorMessage(payload, fallback) {
@@ -428,6 +450,120 @@ function StatusNotice({ notice }) {
   );
 }
 
+function ConfigurationChoice({ legend, name, options, value, onChange, disabled }) {
+  return (
+    <fieldset className="start-configuration-field" disabled={disabled}>
+      <legend>{legend}</legend>
+      <div className="start-configuration-options">
+        {options.map((option) => {
+          const optionValue = option.value ?? option;
+          const label = option.label ?? `${option} 分钟`;
+          return (
+            <label key={optionValue} data-selected={value === optionValue || undefined}>
+              <input
+                type="radio"
+                name={name}
+                value={optionValue}
+                checked={value === optionValue}
+                onChange={() => onChange(optionValue)}
+              />
+              <span>
+                <strong>{label}</strong>
+                {option.description ? <small>{option.description}</small> : null}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function PlanConfigurationPanel({ configuration, stale, disabled, onChange }) {
+  const estimate = planConfigurationEstimate(configuration);
+  const questionMixOptions = configuration.question_mix_preset === "saved"
+    ? [
+        {
+          value: "saved",
+          label: "当前 revision",
+          description: "保留历史版本的精确计数；选择其他项后使用安全预设",
+        },
+        ...QUESTION_MIX_PRESETS,
+      ]
+    : QUESTION_MIX_PRESETS;
+  const typeLabels = {
+    project: "项目",
+    technical: "技术",
+    "system-design": "系统设计",
+    behavioral: "行为",
+  };
+  return (
+    <section className="start-configuration-panel" aria-labelledby="plan-configuration-title">
+      <header>
+        <div>
+          <span>生成设置</span>
+          <h3 id="plan-configuration-title">面试范围与节奏</h3>
+        </div>
+        <span className="start-configuration-state" data-stale={stale || undefined} role="status">
+          {stale ? "待重新生成" : "配置已同步"}
+        </span>
+      </header>
+      <ConfigurationChoice
+        legend="难度"
+        name="plan-difficulty"
+        options={PLAN_DIFFICULTIES}
+        value={configuration.difficulty}
+        onChange={(value) => onChange("difficulty", value)}
+        disabled={disabled}
+      />
+      <ConfigurationChoice
+        legend="目标时长"
+        name="plan-duration"
+        options={PLAN_DURATIONS}
+        value={configuration.target_duration_minutes}
+        onChange={(value) => onChange("target_duration_minutes", value)}
+        disabled={disabled}
+      />
+      <ConfigurationChoice
+        legend="考察重点"
+        name="plan-focus"
+        options={PLAN_FOCUS_PRESETS}
+        value={configuration.focus_preset}
+        onChange={(value) => onChange("focus_preset", value)}
+        disabled={disabled}
+      />
+      <ConfigurationChoice
+        legend="题型安全预设"
+        name="plan-question-mix"
+        options={questionMixOptions}
+        value={configuration.question_mix_preset}
+        onChange={(value) => onChange("question_mix_preset", value)}
+        disabled={disabled}
+      />
+      <div className="start-configuration-budget" aria-label="计划预算估算">
+        <div><span>预计主问题</span><strong>{estimate.questionCount} 道</strong></div>
+        <div><span>目标时长</span><strong>约 {estimate.targetMinutes} 分钟</strong></div>
+        <div><span>预计追问</span><strong>{estimate.expectedFollowups} 次</strong></div>
+        <div><span>单题硬上限</span><strong>最多 2 次</strong></div>
+      </div>
+      <div className="start-configuration-mix" aria-label="题型数量">
+        {Object.entries(configuration.question_type_budget).map(([type, count]) => (
+          <span key={type}><strong>{typeLabels[type]}</strong>{count}</span>
+        ))}
+      </div>
+      <p className="start-configuration-disclaimer">
+        预计时长不是精确结束承诺；实际进度取决于回答长度、追问和操作节奏。配置只影响出题，
+        不改变评分 rubric。
+      </p>
+      {stale ? (
+        <p className="start-configuration-stale" role="status">
+          当前 revision 仍保留旧配置。开始按钮已禁用，请明确确认重新生成后采用新配置。
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function RuntimeStatus({ status, label }) {
   const loading = ["generating", "saving", "restoring", "starting"].includes(status);
   const StateIcon = status === "ready" ? CheckCircle : status === "error" ? WarningCircle : Circle;
@@ -530,9 +666,15 @@ export function StartPage() {
     question_text: "",
     focus: "",
   });
+  const [configuration, setConfiguration] = useState(getStoredConfiguration);
+  const automaticRestoreStarted = useRef(false);
 
   const plan = editor.serverPlan;
   const questions = editableQuestions(plan);
+  const configurationSnapshot = plan?.plan?.configuration_snapshot || null;
+  const configurationStale = Boolean(
+    plan && !configurationMatchesSnapshot(configuration, configurationSnapshot),
+  );
   const prepContext = plan?.prep_context || {};
   const topics = prepContext.topics || [];
   const evidence = prepContext.evidence_refs || [];
@@ -572,6 +714,24 @@ export function StartPage() {
   useEffect(() => {
     document.body.dataset.prepState = status;
   }, [status]);
+
+  useEffect(() => {
+    if (!configurationSnapshot) return;
+    setConfiguration(createPlanConfiguration(configurationSnapshot));
+  }, [plan?.plan_revision_id]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      CONFIGURATION_KEY,
+      JSON.stringify(planConfigurationPayload(configuration)),
+    );
+  }, [configuration]);
+
+  useEffect(() => {
+    if (automaticRestoreStarted.current || !draftId) return;
+    automaticRestoreStarted.current = true;
+    restoreDraft();
+  }, []);
 
   useEffect(() => {
     if (!clearArmed) return undefined;
@@ -652,7 +812,11 @@ export function StartPage() {
     try {
       const nextPlan = await requestJson("/api/prep", {
         method: "POST",
-        body: JSON.stringify({ job_description: jobDescription, resume_text: resumeText }),
+        body: JSON.stringify({
+          job_description: jobDescription,
+          resume_text: resumeText,
+          configuration: planConfigurationPayload(configuration),
+        }),
       });
       dispatchEditor({
         type: "LOAD_SERVER_PLAN",
@@ -746,6 +910,7 @@ export function StartPage() {
     }
     setJobDescription("");
     setResumeText("");
+    setConfiguration(createPlanConfiguration());
     dispatchEditor({ type: "INVALIDATE_SOURCE" });
     setInvalid({ jd: false, resume: false });
     setFileNames({ jd: "未导入文件", resume: "未导入文件" });
@@ -754,6 +919,30 @@ export function StartPage() {
     setInspectorView("readiness");
     setClearArmed(false);
     setNotice({ tone: "info", text: "当前画布已清空；此前保存的匿名草稿仍可恢复。" });
+  }
+
+  function changeConfiguration(field, value) {
+    const next = updatePlanConfiguration(configuration, field, value);
+    setConfiguration(next);
+    if (plan) {
+      const matches = configurationMatchesSnapshot(next, configurationSnapshot);
+      setNotice(
+        matches
+          ? {
+              tone: "success",
+              text: "配置已恢复为当前 revision 的已保存值，可以继续开始面试。",
+            }
+          : {
+              tone: "warning",
+              text: "生成配置已修改。当前 revision 保留旧配置；请明确重新生成后再开始。",
+            },
+      );
+    } else {
+      setNotice({
+        tone: "info",
+        text: "生成配置已更新，将在生成计划时由后端验证并冻结到 revision。",
+      });
+    }
   }
 
   function requestId(prefix) {
@@ -1008,12 +1197,19 @@ export function StartPage() {
     if (dirtyCount) {
       details.push(dirtyCount + " 道尚未保存的本地输入将被清除");
     }
+    const configurationChanges = describeConfigurationChanges(
+      configuration,
+      configurationSnapshot,
+    );
+    if (configurationChanges.length) {
+      details.push("新 revision 将采用：" + configurationChanges.join("、"));
+    }
     if (!details.length) details.push("当前整份计划将由服务端重新生成");
     setConfirmation({
-      title: "重新生成整份计划？",
-      description: "成功后服务端返回的新 revision 是唯一权威，当前计划仍保留在历史版本中。",
+      title: configurationStale ? "使用新配置重新生成计划？" : "重新生成整份计划？",
+      description: "成功后服务端会验证配置并返回唯一权威的新 revision；当前计划仍保留在历史版本中。",
       details,
-      confirmLabel: "确认重新生成",
+      confirmLabel: configurationStale ? "确认采用新配置" : "确认重新生成",
       onConfirm: async () => {
         setConfirmation(null);
         await performRevisionOperation({
@@ -1029,10 +1225,13 @@ export function StartPage() {
                   expected_revision: plan.revision,
                   request_id: operationRequestId,
                   confirmed: true,
+                  configuration: planConfigurationPayload(configuration),
                 }),
               },
             ),
-          successText: "整份计划已重新生成并保存。",
+          successText: configurationStale
+            ? "新配置已由服务端验证并冻结到最新 revision。"
+            : "整份计划已重新生成并保存。",
           localDrafts: {},
         });
       },
@@ -1146,10 +1345,12 @@ export function StartPage() {
 
   async function startInterview() {
     if (!plan || !validateSources()) return;
-    if (!isLatestValidPlan(editor)) {
+    if (!isLatestValidPlan(editor) || configurationStale) {
       setNotice({
         tone: "error",
-        text: "只有已保存且无冲突的最新有效 revision 可以开始。请先保存或处理当前计划状态。",
+        text: configurationStale
+          ? "配置已修改但尚未进入 revision。请先明确重新生成计划。"
+          : "只有已保存且无冲突的最新有效 revision 可以开始。请先保存或处理当前计划状态。",
       });
       return;
     }
@@ -1321,6 +1522,12 @@ export function StartPage() {
           <div id="inspector-panel" className="start-inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${inspectorView}`}>
             {inspectorView === "plan" ? (
               <section className="start-plan-panel" aria-label="面试计划">
+                <PlanConfigurationPanel
+                  configuration={configuration}
+                  stale={configurationStale}
+                  disabled={busy}
+                  onChange={changeConfiguration}
+                />
                 {plan ? (
                   <>
                     <header className="start-plan-summary">
@@ -1589,9 +1796,9 @@ export function StartPage() {
           <footer className="start-inspector-actions">
             <button className={plan ? "button start-button start-inspector-secondary" : "button start-button button-primary"} type="button" onClick={plan ? confirmRegenerateAll : generatePlan} disabled={busy} aria-busy={status === "generating" || undefined} data-state={status === "generating" ? "loading" : undefined}>
               {status === "generating" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ListChecks size={18} weight="bold" aria-hidden="true" focusable="false" />}
-              <span>{status === "generating" ? "正在生成面试计划" : plan ? "重新生成计划" : "生成面试计划"}</span>
+              <span>{status === "generating" ? "正在生成面试计划" : configurationStale ? "应用配置并重新生成" : plan ? "重新生成计划" : "生成面试计划"}</span>
             </button>
-            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!isLatestValidPlan(editor) || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined} title={!isLatestValidPlan(editor) && plan ? "请先保存修改或处理冲突" : undefined}>
+            <button className={plan ? "button start-button button-primary" : "button start-button start-inspector-secondary"} type="button" disabled={!isLatestValidPlan(editor) || configurationStale || busy} onClick={startInterview} aria-busy={status === "starting" || undefined} data-state={status === "starting" ? "loading" : undefined} title={configurationStale ? "配置已变更，请先重新生成计划" : !isLatestValidPlan(editor) && plan ? "请先保存修改或处理冲突" : undefined}>
               {status === "starting" ? <SpinnerGap className="start-spinner" size={18} weight="bold" aria-hidden="true" focusable="false" /> : <ArrowRight size={18} weight="bold" aria-hidden="true" focusable="false" />}
               <span>{status === "starting" ? "正在创建面试" : "开始本次面试"}</span>
             </button>

@@ -106,6 +106,33 @@ def test_restore_appends_a_new_monotonic_revision_instead_of_moving_pointer():
     assert len(store.list_revisions(initial.plan_family_id)) == 3
 
 
+def test_configuration_change_requires_explicit_server_owned_capability():
+    store, editor, initial = setup_editor()
+    configuration = initial.configuration_snapshot.model_copy(
+        update={"difficulty": "advanced"}
+    )
+    regenerated_plan = initial.plan.model_copy(
+        update={"configuration_snapshot": configuration}
+    )
+    configured_request = request(
+        {"op": "regenerate_all", "regenerated_plan": regenerated_plan}
+    )
+
+    with pytest.raises(PlanOperationValidationError) as rejected:
+        editor.apply(initial.plan_family_id, configured_request)
+
+    assert rejected.value.code == "configuration_mismatch"
+    assert store.get_latest(initial.plan_family_id).revision == 1
+
+    accepted = editor.apply(
+        initial.plan_family_id,
+        configured_request,
+        allow_configuration_change=True,
+    )
+    assert accepted.configuration_snapshot == configuration
+    assert set(accepted.audit.configuration_diff) == {"difficulty"}
+
+
 def test_duplicate_request_id_returns_same_revision_and_conflicting_payload_fails():
     _, editor, initial = setup_editor()
     operation = {
