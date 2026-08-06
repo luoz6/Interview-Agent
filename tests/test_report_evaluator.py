@@ -211,6 +211,9 @@ def test_evaluator_returns_fallback_completed_report_when_structured_output_fail
     assert report.overall_dimension_scores.depth is None
     assert report.score_status == "unscored"
     assert report.generation_status == "degraded"
+    assert report.report_schema_version == "report-schema-v2"
+    assert report.presentation_version == "report-presentation-v2"
+    assert report.coverage is not None
     assert (
         report.summary
         == "AI 评估未能生成完整报告，请结合原始回答继续复盘。"

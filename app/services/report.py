@@ -4,6 +4,19 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+REPORT_SCHEMA_VERSION_V1 = "report-schema-v1"
+REPORT_SCHEMA_VERSION_V2 = "report-schema-v2"
+REPORT_PRESENTATION_VERSION_V1 = "report-presentation-v1"
+REPORT_PRESENTATION_VERSION_V2 = "report-presentation-v2"
+REPORT_DIMENSIONS = (
+    "breadth",
+    "depth",
+    "architecture",
+    "engineering",
+    "communication",
+)
+
+
 class ReportGenerationFailed(RuntimeError):
     """Raised when report generation should be marked as failed."""
 
@@ -47,6 +60,69 @@ class ScoreEvaluation(BaseModel):
         return self
 
 
+class ReportCoverageV2(BaseModel):
+    status: Literal["complete", "partial", "none"]
+    evaluated_count: int = Field(ge=0)
+    total_eligible_count: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+    per_dimension: dict[str, ScoreEvaluation]
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> "ReportCoverageV2":
+        if self.evaluated_count > self.total_eligible_count:
+            raise ValueError("evaluated_count cannot exceed total_eligible_count")
+        if set(self.per_dimension) != set(REPORT_DIMENSIONS):
+            raise ValueError("coverage requires all five report dimensions")
+        return self
+
+
+class ReportEvidenceRefV2(BaseModel):
+    evidence_ref_id: str = Field(min_length=1, max_length=240)
+    namespace: Literal["candidate", "reference"]
+    question_id: str | None = Field(default=None, min_length=1)
+    source_id: str | None = Field(default=None, min_length=1)
+    excerpt: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_namespace(self) -> "ReportEvidenceRefV2":
+        if self.namespace == "candidate" and self.question_id is None:
+            raise ValueError("candidate evidence requires question_id")
+        if self.namespace == "reference" and self.source_id is None:
+            raise ValueError("reference evidence requires source_id")
+        return self
+
+
+class ReportClaimV2(BaseModel):
+    claim_id: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=2000)
+    observation_refs: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(min_length=1)
+
+
+class ReportPriorityActionV2(BaseModel):
+    action_id: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=500)
+    why_it_matters: str = Field(min_length=1, max_length=2000)
+    practice: str = Field(min_length=1, max_length=2000)
+    completion_criteria: str = Field(min_length=1, max_length=2000)
+    limitation: str | None = Field(default=None, max_length=2000)
+    observation_refs: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(min_length=1)
+
+
+class ReportLimitationV2(BaseModel):
+    limitation_id: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=2000)
+    reason_code: str = Field(min_length=1, max_length=160)
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class ReportTechnicalAppendixV2(BaseModel):
+    reason_codes: list[str] = Field(default_factory=list)
+    report_path: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class FeedbackReference(BaseModel):
     chunk_id: str
     title: str
@@ -85,6 +161,13 @@ class InterviewFeedback(BaseModel):
 
 class InterviewReport(BaseModel):
     session_id: str
+    report_schema_version: Literal["report-schema-v1", "report-schema-v2"] = (
+        REPORT_SCHEMA_VERSION_V1
+    )
+    presentation_version: str = Field(
+        default=REPORT_PRESENTATION_VERSION_V1,
+        min_length=1,
+    )
     overall_score: int | None = Field(default=None, ge=0, le=100)
     overall_dimension_scores: DimensionScores
     generation_status: Literal["complete", "degraded"] = "complete"
@@ -97,6 +180,18 @@ class InterviewReport(BaseModel):
     evidence_count: int | None = Field(default=None, ge=0)
     dimension_evaluations: dict[str, ScoreEvaluation] = Field(default_factory=dict)
     question_evaluations: dict[str, ScoreEvaluation] = Field(default_factory=dict)
+    coverage: ReportCoverageV2 | None = None
+    summary_observations: list[ReportClaimV2] = Field(default_factory=list)
+    strengths: list[ReportClaimV2] = Field(default_factory=list)
+    priority_actions: list[ReportPriorityActionV2] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    limitations: list[ReportLimitationV2] = Field(default_factory=list)
+    evidence_refs: list[ReportEvidenceRefV2] = Field(default_factory=list)
+    technical_appendix: ReportTechnicalAppendixV2 = Field(
+        default_factory=ReportTechnicalAppendixV2
+    )
     report_path: Literal["microbatch", "full_session", "heuristic", "legacy"] = "full_session"
     scoring_rubric_version: str = "interview-quality-rubric-v3.3-candidate"
     scoring_rubric_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -123,6 +218,32 @@ class InterviewReport(BaseModel):
                 raise ValueError("evaluated_count cannot exceed total_eligible_count")
         if self.score_status == "scored" and self.overall_score is None:
             raise ValueError("scored reports require overall_score")
+        if self.report_schema_version == REPORT_SCHEMA_VERSION_V2:
+            if self.coverage is None:
+                raise ValueError("report schema v2 requires structured coverage")
+            if self.coverage.status != self.coverage_status:
+                raise ValueError("structured coverage status does not match report")
+            if self.coverage.evaluated_count != (self.evaluated_count or 0):
+                raise ValueError("structured coverage evaluated_count does not match report")
+            if self.coverage.total_eligible_count != (
+                self.total_eligible_count or 0
+            ):
+                raise ValueError("structured coverage denominator does not match report")
+            if self.coverage.evidence_count != (self.evidence_count or 0):
+                raise ValueError("structured coverage evidence_count does not match report")
+            if self.coverage.per_dimension != self.dimension_evaluations:
+                raise ValueError("structured dimension coverage does not match report")
+            evidence_ids = [item.evidence_ref_id for item in self.evidence_refs]
+            if len(evidence_ids) != len(set(evidence_ids)):
+                raise ValueError("report evidence_ref_id values must be unique")
+            available = set(evidence_ids)
+            claims = [*self.summary_observations, *self.strengths]
+            for claim in claims:
+                if not set(claim.evidence_refs).issubset(available):
+                    raise ValueError("report claim contains an unknown evidence ref")
+            for action in self.priority_actions:
+                if not set(action.evidence_refs).issubset(available):
+                    raise ValueError("priority action contains an unknown evidence ref")
         return self
 
 

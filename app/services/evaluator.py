@@ -7,14 +7,22 @@ from app.services.report import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
+    REPORT_PRESENTATION_VERSION_V2,
+    REPORT_SCHEMA_VERSION_V2,
+    ReportCoverageV2,
     ReportGenerationFailed,
     ReportGenerationTimeout,
     ReportOutputFormatError,
+    ReportTechnicalAppendixV2,
 )
 from app.services.report_coverage import (
     aggregate_report_coverage,
     apply_report_coverage,
+    dimension_evaluations,
+    populate_feedback_dimension_evaluations,
+    question_evaluations,
 )
+from app.services.report_contract import build_report_evidence_refs
 from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_SHA256,
     REPORT_SCORING_RUBRIC_VERSION,
@@ -77,8 +85,42 @@ def build_fallback_report(
     chunks: list[EvaluationChunk] | None = None,
 ) -> InterviewReport:
     chunks = chunks if chunks is not None else build_evaluation_chunks(state)
+    feedbacks = [
+        InterviewFeedback(
+            question_id=chunk.question_id,
+            question_text=chunk.question_text,
+            user_answer=_summarize_candidate_answers(chunk),
+            answer_state=chunk.answer_state,
+            score=None,
+            dimension_scores=_null_dimension_scores(),
+            evaluation_status=(
+                "insufficient_evidence"
+                if chunk.answer_state == "answered"
+                else "not_evaluated"
+            ),
+            evaluation_reason_code=(
+                "scoring_generation_failed"
+                if chunk.answer_state == "answered"
+                else chunk.answer_state
+            ),
+            rationale=(
+                "兜底报告：本题未能生成稳定的结构化专家评估。"
+            ),
+            critique="AI 评估未能解析出稳定的逐题反馈。",
+            better_answer=(
+                "请按背景、动作、取舍、结果四段式重构回答，并补充可量化指标。"
+            ),
+            references=[],
+        )
+        for chunk in chunks
+    ]
+    feedbacks = populate_feedback_dimension_evaluations(feedbacks)
+    coverage = aggregate_report_coverage(feedbacks)
+    report_dimension_evaluations = dimension_evaluations(coverage)
     return InterviewReport(
         session_id=state["session_id"],
+        report_schema_version=REPORT_SCHEMA_VERSION_V2,
+        presentation_version=REPORT_PRESENTATION_VERSION_V2,
         overall_score=None,
         overall_dimension_scores=_null_dimension_scores(),
         generation_status="degraded",
@@ -89,6 +131,24 @@ def build_fallback_report(
         evaluated_count=0,
         total_eligible_count=sum(chunk.answer_state == "answered" for chunk in chunks),
         evidence_count=0,
+        dimension_evaluations=report_dimension_evaluations,
+        question_evaluations=question_evaluations(feedbacks),
+        coverage=ReportCoverageV2(
+            status=coverage.coverage_status,
+            evaluated_count=coverage.evaluated_count,
+            total_eligible_count=coverage.total_eligible_count,
+            evidence_count=coverage.evidence_count,
+            per_dimension=report_dimension_evaluations,
+        ),
+        evidence_refs=build_report_evidence_refs(feedbacks),
+        technical_appendix=ReportTechnicalAppendixV2(
+            reason_codes=[
+                "invalid_provider_output",
+                coverage.score_reason_code,
+            ],
+            report_path="heuristic",
+            metadata={"coverage_status": coverage.coverage_status},
+        ),
         report_path="heuristic",
         scoring_rubric_version=REPORT_SCORING_RUBRIC_VERSION,
         scoring_rubric_sha256=REPORT_SCORING_RUBRIC_SHA256,
@@ -97,35 +157,7 @@ def build_fallback_report(
         ),
         highlights=["已完成本次模拟面试"],
         is_fallback=True,
-        feedbacks=[
-            InterviewFeedback(
-                question_id=chunk.question_id,
-                question_text=chunk.question_text,
-                user_answer=_summarize_candidate_answers(chunk),
-                answer_state=chunk.answer_state,
-                score=None,
-                dimension_scores=_null_dimension_scores(),
-                evaluation_status=(
-                    "insufficient_evidence"
-                    if chunk.answer_state == "answered"
-                    else "not_evaluated"
-                ),
-                evaluation_reason_code=(
-                    "scoring_generation_failed"
-                    if chunk.answer_state == "answered"
-                    else chunk.answer_state
-                ),
-                rationale=(
-                    "兜底报告：本题未能生成稳定的结构化专家评估。"
-                ),
-                critique="AI 评估未能解析出稳定的逐题反馈。",
-                better_answer=(
-                    "请按背景、动作、取舍、结果四段式重构回答，并补充可量化指标。"
-                ),
-                references=[],
-            )
-            for chunk in chunks
-        ],
+        feedbacks=feedbacks,
     )
 
 

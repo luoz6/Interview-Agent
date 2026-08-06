@@ -8,6 +8,8 @@ from app.services.report import (
     DimensionScores,
     InterviewFeedback,
     InterviewReport,
+    REPORT_SCHEMA_VERSION_V2,
+    ReportCoverageV2,
     ScoreEvaluation,
 )
 
@@ -248,6 +250,14 @@ def apply_report_coverage(
         "dimension_evaluations": dimension_evaluations(coverage),
         "question_evaluations": question_evaluations(resolved_feedbacks),
     }
+    if report.report_schema_version == REPORT_SCHEMA_VERSION_V2:
+        updates["coverage"] = ReportCoverageV2(
+            status=coverage.coverage_status,
+            evaluated_count=coverage.evaluated_count,
+            total_eligible_count=coverage.total_eligible_count,
+            evidence_count=coverage.evidence_count,
+            per_dimension=dimension_evaluations(coverage),
+        )
     if report_path is not None:
         updates["report_path"] = report_path
     return report.model_copy(update=updates)

@@ -78,6 +78,27 @@ def test_legacy_payload_does_not_fabricate_coverage_for_missing_score():
     assert view.score_status == "unscored"
     assert view.coverage_status == "none"
     assert view.overall_score is None
+    assert view.report_schema_version == "report-schema-v1"
+    assert view.presentation_version == "report-presentation-v1"
+
+
+def test_v2_payload_versions_are_projected_independently_from_artifact_envelope():
+    view = compose_report_view(
+        artifact(
+            payload={
+                "report_schema_version": "report-schema-v2",
+                "presentation_version": "report-presentation-v9",
+                "scoring_rubric_version": "rubric-v11",
+                "overall_score": 84,
+                "overall_dimension_scores": {"depth": 84},
+            }
+        )
+    )
+
+    assert view.schema_version == "report-artifact-v2"
+    assert view.report_schema_version == "report-schema-v2"
+    assert view.presentation_version == "report-presentation-v9"
+    assert view.scoring_rubric_version == "rubric-v11"
 
 
 def test_not_evaluated_dimension_cannot_use_zero_as_a_placeholder():

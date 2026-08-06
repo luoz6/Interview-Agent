@@ -6,6 +6,10 @@ from typing import Any, Callable, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.services.report_artifact import ReportArtifact, ReportJobV2
+from app.services.report import (
+    REPORT_PRESENTATION_VERSION_V1,
+    REPORT_SCHEMA_VERSION_V1,
+)
 
 
 class ReportViewError(ValueError):
@@ -15,15 +19,22 @@ class ReportViewError(ValueError):
 class EvaluationView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    status: Literal["evaluated", "partial", "not_evaluated"]
+    status: Literal[
+        "evaluated",
+        "partial",
+        "not_evaluated",
+        "insufficient_evidence",
+    ]
     score: int | None = Field(default=None, ge=0, le=100)
     evidence_count: int = Field(default=0, ge=0)
     reason_code: str | None = None
 
     @model_validator(mode="after")
     def validate_evaluation(self) -> "EvaluationView":
-        if self.status == "not_evaluated" and self.score is not None:
-            raise ReportViewError("not_evaluated entries cannot contain a numeric score")
+        if self.status in {"not_evaluated", "insufficient_evidence"} and self.score is not None:
+            raise ReportViewError(
+                f"{self.status} entries cannot contain a numeric score"
+            )
         if self.status == "evaluated" and self.score is None:
             raise ReportViewError("evaluated entries require a numeric score")
         return self
@@ -44,6 +55,9 @@ class ReportViewModel(BaseModel):
     created_at: str | None = None
     active: bool
     schema_version: str
+    report_schema_version: str = REPORT_SCHEMA_VERSION_V1
+    presentation_version: str = REPORT_PRESENTATION_VERSION_V1
+    scoring_rubric_version: str = "legacy-unknown"
     generation_status: str
     generation_reason_code: str
     score_status: str
@@ -107,6 +121,14 @@ def _identity_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return dict(payload)
 
 
+def _report_artifact_v2_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Read the v2 Artifact envelope without upgrading a legacy report payload."""
+    result = dict(payload)
+    result.setdefault("report_schema_version", REPORT_SCHEMA_VERSION_V1)
+    result.setdefault("presentation_version", REPORT_PRESENTATION_VERSION_V1)
+    return result
+
+
 def _legacy_v1_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Read legacy JSON without inventing coverage or score values."""
     result = dict(payload)
@@ -124,11 +146,13 @@ def _legacy_v1_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     result.setdefault("generation_reason_code", "normal")
     result.setdefault("score_reason_code", "legacy_unknown")
     result.setdefault("report_path", "legacy")
+    result.setdefault("report_schema_version", REPORT_SCHEMA_VERSION_V1)
+    result.setdefault("presentation_version", REPORT_PRESENTATION_VERSION_V1)
     return result
 
 
 DEFAULT_REPORT_PAYLOAD_PARSERS = ReportPayloadParser()
-DEFAULT_REPORT_PAYLOAD_PARSERS.register("report-artifact-v2", _identity_payload)
+DEFAULT_REPORT_PAYLOAD_PARSERS.register("report-artifact-v2", _report_artifact_v2_payload)
 DEFAULT_REPORT_PAYLOAD_PARSERS.register("legacy-v1", _legacy_v1_payload)
 
 
@@ -151,6 +175,15 @@ def compose_report_view(
         created_at=artifact.created_at.isoformat() if artifact.created_at else None,
         active=active,
         schema_version=artifact.schema_version,
+        report_schema_version=payload.get(
+            "report_schema_version", REPORT_SCHEMA_VERSION_V1
+        ),
+        presentation_version=payload.get(
+            "presentation_version", REPORT_PRESENTATION_VERSION_V1
+        ),
+        scoring_rubric_version=payload.get(
+            "scoring_rubric_version", artifact.scoring_rubric_version
+        ),
         generation_status=payload.get("generation_status", artifact.generation_status),
         generation_reason_code=payload.get(
             "generation_reason_code", artifact.generation_reason_code

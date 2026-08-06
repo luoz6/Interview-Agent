@@ -5,6 +5,11 @@ from app.services.report import (
     FeedbackReference,
     InterviewFeedback,
     InterviewReport,
+    REPORT_PRESENTATION_VERSION_V2,
+    REPORT_SCHEMA_VERSION_V2,
+    ReportCoverageV2,
+    ReportEvidenceRefV2,
+    ReportTechnicalAppendixV2,
 )
 from app.services.report_coverage import (
     aggregate_report_coverage,
@@ -74,9 +79,12 @@ def assemble_interview_report(
 
     highlights = _build_highlights(question_results)
     summary = _build_summary(question_results, highlights)
+    report_dimension_evaluations = dimension_evaluations(coverage)
 
     return InterviewReport(
         session_id=session_id,
+        report_schema_version=REPORT_SCHEMA_VERSION_V2,
+        presentation_version=REPORT_PRESENTATION_VERSION_V2,
         overall_score=coverage.overall_score,
         overall_dimension_scores=coverage.overall_dimension_scores,
         score_status=coverage.score_status,
@@ -87,12 +95,60 @@ def assemble_interview_report(
         evidence_count=coverage.evidence_count,
         scoring_rubric_version=REPORT_SCORING_RUBRIC_VERSION,
         scoring_rubric_sha256=REPORT_SCORING_RUBRIC_SHA256,
-        dimension_evaluations=dimension_evaluations(coverage),
+        dimension_evaluations=report_dimension_evaluations,
         question_evaluations=question_evaluations(feedbacks),
+        coverage=ReportCoverageV2(
+            status=coverage.coverage_status,
+            evaluated_count=coverage.evaluated_count,
+            total_eligible_count=coverage.total_eligible_count,
+            evidence_count=coverage.evidence_count,
+            per_dimension=report_dimension_evaluations,
+        ),
+        evidence_refs=build_report_evidence_refs(feedbacks),
+        technical_appendix=ReportTechnicalAppendixV2(
+            reason_codes=[coverage.score_reason_code],
+            report_path="full_session",
+            metadata={"coverage_status": coverage.coverage_status},
+        ),
         summary=summary,
         highlights=highlights,
         feedbacks=feedbacks,
     )
+
+
+def build_report_evidence_refs(
+    feedbacks: list[InterviewFeedback],
+) -> list[ReportEvidenceRefV2]:
+    refs: list[ReportEvidenceRefV2] = []
+    seen: set[str] = set()
+    for feedback in feedbacks:
+        if feedback.answer_state == "answered" and feedback.user_answer.strip():
+            evidence_ref_id = f"candidate:{feedback.question_id}:answer"
+            if evidence_ref_id not in seen:
+                refs.append(
+                    ReportEvidenceRefV2(
+                        evidence_ref_id=evidence_ref_id,
+                        namespace="candidate",
+                        question_id=feedback.question_id,
+                        excerpt=feedback.user_answer.strip(),
+                    )
+                )
+                seen.add(evidence_ref_id)
+        for reference in feedback.references:
+            evidence_ref_id = f"reference:{reference.chunk_id}"
+            if evidence_ref_id in seen:
+                continue
+            refs.append(
+                ReportEvidenceRefV2(
+                    evidence_ref_id=evidence_ref_id,
+                    namespace="reference",
+                    question_id=feedback.question_id,
+                    source_id=reference.chunk_id,
+                    excerpt=reference.excerpt,
+                )
+            )
+            seen.add(evidence_ref_id)
+    return refs
 
 
 def _build_highlights(question_results: list[CanonicalQuestionResult]) -> list[str]:
