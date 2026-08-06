@@ -46,25 +46,25 @@ export function PlanQuestionCard({
 
   return (
     <li
-      className="plan-question"
+      className="start-plan-question"
       data-enabled={question.enabled}
       data-required={question.required}
       aria-label={question.enabled ? `第 ${position} 题，共 ${enabledCount} 题` : "已排除题目"}
     >
-      <div className="plan-question-index" aria-hidden="true">
+      <div className="start-plan-question-index" aria-hidden="true">
         {question.enabled ? String(position).padStart(2, "0") : "—"}
       </div>
 
-      <div className="plan-question-body">
-        <div className="plan-question-meta">
-          <span className="plan-kind">{KIND_LABELS[question.kind] || question.kind}</span>
-          {question.required && <span className="plan-required-label"><LockSimple size={13} weight="bold" aria-hidden="true" />必考</span>}
-          {!question.enabled && <span className="plan-excluded-label">已排除</span>}
+      <div className="start-plan-question-body">
+        <div className="start-plan-question-meta">
+          <span className="start-plan-kind">{KIND_LABELS[question.kind] || question.kind}</span>
+          {question.required && <span className="start-plan-required-label"><LockSimple size={13} weight="bold" aria-hidden="true" />必考</span>}
+          {!question.enabled && <span className="start-plan-excluded-label">已排除</span>}
         </div>
 
         <h3>{question.prompt}</h3>
 
-        <div className="plan-focus-editor">
+        <div className="start-plan-focus-editor">
           <label htmlFor={focusId}><Target size={16} weight="bold" aria-hidden="true" />考察重点</label>
           <div>
             <input
@@ -76,7 +76,7 @@ export function PlanQuestionCard({
             />
             <button
               type="button"
-              className="plan-compact-action"
+              className="start-plan-compact-action"
               disabled={busy || !question.enabled || !focusChanged || !focusValue.trim()}
               onClick={() => onPatch(
                 [{ type: "set_focus", question_id: question.question_id, focus: focusValue.trim() }],
@@ -89,10 +89,10 @@ export function PlanQuestionCard({
           </div>
         </div>
 
-        <details className="plan-question-evidence">
+        <details className="start-plan-question-evidence">
           <summary><BookOpenText size={16} weight="bold" aria-hidden="true" />来源与证据</summary>
-          <div className="plan-evidence-content">
-            <div className="plan-source-signals" aria-label="题目来源">
+          <div className="start-plan-evidence-content">
+            <div className="start-plan-source-signals" aria-label="题目来源">
               {sourceSignals.map((source) => <span key={source}>{SOURCE_LABELS[source] || source}</span>)}
             </div>
             {topicLabels.length > 0 && <p><strong>覆盖主题：</strong>{topicLabels.join("、")}</p>}
@@ -101,7 +101,7 @@ export function PlanQuestionCard({
                 {evidenceIds.map((evidenceId) => <li key={evidenceId}><code>{evidenceId}</code></li>)}
               </ul>
             ) : (
-              <p className="plan-evidence-fallback">
+              <p className="start-plan-evidence-fallback">
                 {plan.prep_context?.knowledge_status === "degraded"
                   ? "知识证据不可用，但可继续使用岗位 JD 与候选人经历生成题目。"
                   : "本题基于岗位 JD 与候选人经历生成，没有绑定额外知识证据。"}
@@ -111,7 +111,7 @@ export function PlanQuestionCard({
         </details>
       </div>
 
-      <div className="plan-question-actions" aria-label="题目操作">
+      <div className="start-plan-question-actions" aria-label="题目操作">
         {question.enabled ? (
           <>
             <button
@@ -152,7 +152,7 @@ export function PlanQuestionCard({
             </button>
             <button
               type="button"
-              className="plan-exclude-action"
+              className="start-plan-exclude-action"
               disabled={busy || question.required || enabledCount <= 3}
               aria-describedby={question.required ? requiredHelpId : undefined}
               onClick={() => onPatch(
@@ -166,7 +166,7 @@ export function PlanQuestionCard({
         ) : (
           <button
             type="button"
-            className="plan-enable-action"
+            className="start-plan-enable-action"
             disabled={busy || enabledCount >= 5}
             onClick={() => onPatch(
               [{ type: "set_enabled", question_id: question.question_id, enabled: true }],

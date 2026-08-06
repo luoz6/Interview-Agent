@@ -1,5 +1,16 @@
 [
   {
+    "date": "2026-08-06",
+    "scope": "whole-page workbench reconstruction",
+    "route": "/prep",
+    "macrostructure": "Calm Cobalt Preparation Workbench",
+    "theme": "custom Calm Cobalt",
+    "theme_axes": "cool mist / white document canvas / cobalt actions with localized semantic states",
+    "variation_knobs": "three-state activity rail / dominant single-document editor with desktop-only split / independently tabbed Inspector / five-field request-first status bar / public four-state Knowledge mapping / page-owned retry whitelist / delayed stable pending feedback",
+    "enrichment": "none",
+    "brief": "Execute the v1.2 implementation-ready plan and reconstruct /prep as an app-native Workbench while preserving all preparation, draft, plan CAS, evidence and launch contracts"
+  },
+  {
     "date": "2026-08-03",
     "scope": "whole-page archive refinement",
     "route": "/reports",

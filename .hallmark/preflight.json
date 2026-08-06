@@ -1,27 +1,28 @@
 {
-  "date": "2026-07-30",
-  "scope": "existing-page-detail-refinement",
+  "date": "2026-08-06",
+  "scope": "existing-page-workbench-reconstruction",
   "route": "/prep",
   "design_system": "DESIGN.md with locked /prep Calm Cobalt Workbench override",
   "framework": "React 19 + Vite 6",
   "font_source": "local Aptos Display / Aptos / Cascadia Code stacks with Chinese system fallbacks",
   "icons": "bundled @phosphor-icons/react only",
-  "motion": "CSS only; no motion library installed; transform and opacity primitives",
+  "motion": "CSS transform and opacity primitives only; no GSAP or new animation dependency usage",
   "spacing": "4-point named token scale",
   "preserve": [
-    "real API data",
-    "draft save and restore",
-    "file import",
-    "knowledge evidence",
-    "session launch",
-    "ARIA and keyboard behavior"
+    "real API payloads and public Knowledge states",
+    "draft save, auto-save, restore and deletion",
+    "file import and source validation focus",
+    "plan CAS editing and single-question regeneration",
+    "launch command idempotency and recovery",
+    "ARIA, keyboard behavior and reduced motion"
   ],
   "refine": [
-    "module-by-module status semantics",
-    "persistent editor feedback",
-    "guarded destructive actions",
-    "human-readable knowledge states",
-    "mobile status visibility",
-    "typographic and motion restraint"
+    "three-pane Workbench state model",
+    "single dominant document editor with conditional split",
+    "independent Inspector tabs and data actions",
+    "five-field request-first status bar",
+    "retry whitelist and honest errors",
+    "delayed minimum-visible pending feedback",
+    "navigation-aware responsive geometry"
   ]
 }
