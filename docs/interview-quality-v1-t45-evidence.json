@@ -1,0 +1,97 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T45",
+  "implementation_revision_base": "7f0b764da0460b6adbe1a963352638358c1e0520",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED_INDEPENDENT_HUMAN_REVIEW_NOT_RUN",
+  "human_review_status": "NOT_RUN",
+  "provider_calls": 0,
+  "offline_judge": {
+    "enabled": false,
+    "provider_calls": 0,
+    "online_runtime_prohibited": true,
+    "production_import_matches": 0
+  },
+  "protocol": {
+    "version": "report-semantic-blind-review-v1",
+    "hash_algorithm": "sha256-canonical-json-v1",
+    "randomization": "sha256(seed + NUL + pair_id)",
+    "source_version_visible_to_reviewer": false,
+    "assignment_key_separate": true,
+    "minimum_independent_reviewers_per_case": 1,
+    "minimum_independent_reviewers_per_critical_case": 2,
+    "judge_can_replace_human_forbidden_item_confirmation": false
+  },
+  "frozen_engineering_fixture": {
+    "path": "tests/fixtures/report_semantic_review_pairs_v1.json",
+    "sample_size": 6,
+    "critical_case_count": 6,
+    "source_classification": "synthetic",
+    "contains_real_candidate_data": false,
+    "contains_principal_memory": false,
+    "raw_dataset_sha256": "929fa505c42a6985f591c123f6539965f96880ac635fa18d301794ada38963e3",
+    "canonical_dataset_sha256": "84da7a1c36d1f631eb9ca788d082f386d2f03e02435759c378472a892faffb9b",
+    "frozen_seed_packet_sha256": "7a458e27b4e36253e47244a63d505f3d818d9a2e45f358e50d1b1237a346ef59",
+    "coverage_types": [
+      "company",
+      "knowledge_boundary",
+      "latency",
+      "memory_boundary",
+      "metric",
+      "money",
+      "responsibility",
+      "result",
+      "scale"
+    ],
+    "limitations": "This six-case fixture validates the protocol and selected fact boundaries only. It does not establish population-wide semantic quality or a zero probability of fabrication."
+  },
+  "human_results": {
+    "completed_judgment_count": 0,
+    "independent_reviewer_count": 0,
+    "v2_fabrication_observed_count": null,
+    "v2_fabrication_uncertain_count": null,
+    "false_positive_count": null,
+    "false_negative_count": null,
+    "v2_preferred_count": null,
+    "v1_preferred_count": null,
+    "tie_count": null,
+    "v2_technical_correctness_pass_rate": null,
+    "v2_answer_support_pass_rate": null,
+    "v2_summary_coverage_pass_rate": null,
+    "v2_actionability_pass_rate": null,
+    "v2_tone_calibration_pass_rate": null,
+    "v2_helpfulness_noninferiority_rate": null
+  },
+  "semantic_thresholds": {
+    "passing_rating": ">=4 of 5",
+    "v2_technical_correctness_pass_rate": ">=0.90",
+    "v2_answer_support_pass_rate": ">=0.90",
+    "v2_summary_coverage_pass_rate": ">=0.90",
+    "v2_actionability_pass_rate": ">=0.90"
+  },
+  "automatic_review_fixes": [
+    "added explicit v2 semantic threshold calculation",
+    "closed packet and assignment mapping against the frozen source dataset",
+    "rejected duplicate reviewer/pair judgments",
+    "made all human-derived counts null while human review is NOT_RUN"
+  ],
+  "verification": {
+    "semantic_review_focused_passed": 17,
+    "focused_and_adjacent_passed": 41,
+    "report_regression_passed": 393,
+    "report_regression_skipped": 0,
+    "postgresql": "16.14",
+    "pgvector": "0.8.6",
+    "compileall": "PASS",
+    "online_judge_import_scan": "PASS_ZERO_MATCHES",
+    "diff_check": "PASS",
+    "secret_scan": "PASS"
+  },
+  "truthfulness_limits": [
+    "No independent technical reviewer has completed the protocol.",
+    "No human fabrication observed_count is published.",
+    "No v2-over-v1 preference or non-inferiority claim is made.",
+    "The optional offline Judge was not called and cannot replace human confirmation."
+  ]
+}
