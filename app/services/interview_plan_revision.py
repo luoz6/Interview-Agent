@@ -25,6 +25,7 @@ PlanFocusPreset = Literal[
 PlanQuestionType = Literal["project", "technical", "system-design", "behavioral"]
 PlanQuestionOrigin = Literal["generated", "edited", "regenerated", "custom"]
 PlanFollowupPolicyVersion = Literal["fixed_v1", "adaptive_v1"]
+DEFAULT_PLAN_GENERATOR_VERSION = "plan-generator-v2"
 PlanRevisionSourceKind = Literal[
     "generated", "edited", "regenerated_question", "customized"
 ]
@@ -119,6 +120,24 @@ class PlanConfigurationSnapshot(ImmutableModel):
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError("expected_followup_budget must be an integer")
         return value
+
+
+def default_plan_configuration() -> PlanConfigurationSnapshot:
+    """Return the configured V2 default for new prep requests."""
+    return PlanConfigurationSnapshot(
+        difficulty="intermediate",
+        target_duration_minutes=30,
+        focus_preset="balanced",
+        question_type_budget={
+            "project": 1,
+            "technical": 2,
+            "system-design": 1,
+            "behavioral": 1,
+        },
+        expected_followup_budget=5,
+        generator_version=DEFAULT_PLAN_GENERATOR_VERSION,
+        followup_policy_version="fixed_v1",
+    )
 
 
 class InterviewPlanQuestionV2(ImmutableModel):
@@ -423,7 +442,7 @@ def legacy_plan_to_v2(
             question_text=item.prompt,
             focus=item.focus,
             question_type=item.kind,
-            difficulty="intermediate",
+            difficulty=config.difficulty,
             expected_minutes=main_answer_minutes[index - 1],
             expected_followups=expected_followups[index - 1],
             origin="generated",

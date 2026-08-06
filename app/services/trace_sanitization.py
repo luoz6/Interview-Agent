@@ -53,6 +53,10 @@ AGENT_SAFE_METADATA_BLOCKED_KEY_PARTS = tuple(
 )
 _SAFE_METADATA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _SAFE_METADATA_STRING = re.compile(r"^[A-Za-z0-9_.:@+\-/]{1,128}$")
+_SAFE_METADATA_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_METADATA_SHA256_KEYS = frozenset(
+    {"configuration_sha256", "plan_sha256"}
+)
 _WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 _SENSITIVE_METADATA_VALUE = re.compile(
     r"(?:^[Bb]earer(?:[ .:]|$)|^sk-[A-Za-z0-9_-]{8,}|://|"
@@ -76,6 +80,11 @@ AGENT_SAFE_METADATA_STRING_KEYS = frozenset(
         "rerun_question_ids",
         "failed_question_ids",
         "context_policy_version",
+        "configuration_sha256",
+        "plan_sha256",
+        "generator_version",
+        "budget_version",
+        "generation_enforcement_action",
         "artifact_type",
         "estimator_path",
         "estimator_error_direction",
@@ -147,6 +156,11 @@ def sanitize_agent_safe_metadata(value: Any) -> SanitizedAgentMetadata:
         if isinstance(item, float):
             return item if math.isfinite(item) else reject("non_finite_number")
         if isinstance(item, str):
+            if (
+                field_name in _SAFE_METADATA_SHA256_KEYS
+                and _SAFE_METADATA_SHA256.fullmatch(item) is None
+            ):
+                return reject("invalid_sha256")
             if (
                 _WINDOWS_ABSOLUTE_PATH.match(item)
                 or item.startswith("/")

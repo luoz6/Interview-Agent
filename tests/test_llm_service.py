@@ -176,7 +176,7 @@ def test_openai_interview_llm_generate_plan_has_no_unreachable_legacy_prompt():
     assert "return structured_model.invoke(prompt)" not in source
     assert "structured_model = self.chat_model.with_structured_output" not in source
     assert "self._invoke_structured_plan(prompt, InterviewPlan)" in source
-    assert "self._invoke_raw_json_plan(prompt)" in source
+    assert "self._invoke_raw_json_plan(" in source
 
 
 def test_openai_interview_llm_falls_back_to_json_for_plan_when_structured_output_fails():

@@ -1,0 +1,150 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T52",
+  "generated_at": "2026-08-06T18:30:20+08:00",
+  "implementation_revision_base": "1af69c1b737e737631b079b6556d1f775f3fab0d",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "provider_calls": 0,
+  "new_prep_default": {
+    "difficulty": "intermediate",
+    "target_duration_minutes": 30,
+    "focus_preset": "balanced",
+    "question_type_budget": {
+      "project": 1,
+      "technical": 2,
+      "system-design": 1,
+      "behavioral": 1
+    },
+    "expected_followup_budget": 5,
+    "max_followups_per_question": 2,
+    "generator_version": "plan-generator-v2",
+    "followup_policy_version": "fixed_v1"
+  },
+  "configuration_matrix": {
+    "durations": [15, 30, 45, 60],
+    "difficulties": ["foundation", "intermediate", "advanced"],
+    "focus_presets": [
+      "technical_depth",
+      "system_design",
+      "project_review",
+      "balanced"
+    ],
+    "combination_count": 48,
+    "all_passed": true
+  },
+  "prompt_contract": {
+    "exact_question_count": true,
+    "exact_question_type_budget": true,
+    "shape_expands_through_qn": true,
+    "target_duration_included": true,
+    "difficulty_guidance_included": true,
+    "focus_guidance_included": true,
+    "expected_followup_budget_included": true,
+    "max_followups_per_question_included": true,
+    "configuration_changes_scoring_rubric": false
+  },
+  "generation_preflight": {
+    "safe_question_count_min": 1,
+    "safe_question_count_max": 10,
+    "followup_budget_max_formula": "question_count * 2",
+    "supported_generator_version": "plan-generator-v2",
+    "invalid_configuration_calls_provider": false
+  },
+  "provider_enforcement": {
+    "under_budget": "reject_provider_question_count_under_budget",
+    "above_safe_maximum": "reject_provider_question_count_above_safe_maximum",
+    "over_target_up_to_ten": "trim_consecutive_prefix_only_when_exact_type_budget_matches",
+    "type_mismatch": "reject_provider_question_type_budget_mismatch",
+    "invalid_id_sequence": "reject_provider_question_sequence_invalid",
+    "duplicate_question": "reject_provider_duplicate_question",
+    "reorders_provider_questions": false,
+    "synthesizes_missing_questions": false,
+    "structured_budget_failure_retries_raw_provider": false
+  },
+  "fallback_and_regeneration": {
+    "initial_prep_configured_fallback": true,
+    "initial_fallback_marks_degraded": true,
+    "initial_fallback_preserves_specific_reason": true,
+    "regeneration_fallback_enabled": false,
+    "regeneration_preserves_old_active_on_failure": true,
+    "regeneration_reuses_frozen_configuration": true,
+    "regeneration_reuses_bound_plan_hash": true
+  },
+  "identity_and_trace": {
+    "provider_ids_are_temporary_q_sequence": true,
+    "v2_ids_are_opaque_uuid": true,
+    "v2_positions_are_contiguous": true,
+    "v2_conversion_count_per_generation": 1,
+    "top_level_preview_uses_revision_ids": true,
+    "nested_legacy_plan_uses_revision_ids": true,
+    "trace_configuration_sha256_exact": true,
+    "trace_plan_sha256_equals_persisted_revision": true,
+    "hash_metadata_requires_lowercase_hex_sha256": true,
+    "bound_legacy_mutation_rejected": true
+  },
+  "context_safety": {
+    "plan_input_selection_always_enabled": true,
+    "rendered_structured_prompt_enforcement_always_enabled": true,
+    "rendered_raw_prompt_enforcement_always_enabled": true,
+    "fixed_instruction_reserve_percent": 20,
+    "sixty_minute_ten_question_case_passed": true,
+    "large_chinese_english_inputs_covered": true,
+    "large_grounding_candidates_trimmed": true,
+    "input_cap_increases_with_question_count": false
+  },
+  "automatic_review_fixes": [
+    "bound Schema v2 before Agent metadata so trace and persistence share one plan hash",
+    "reused an already-bound V2 during regeneration instead of reallocating UUIDs",
+    "projected top-level and legacy API previews from the saved revision",
+    "rejected post-binding legacy semantic mutation",
+    "made plan input selection and rendered-prompt enforcement unconditional",
+    "rejected unsupported client-supplied generator versions before Provider use",
+    "prevented budget failures from amplifying into raw-JSON Provider retries",
+    "allowed only canonical SHA-256 values in trace hash fields",
+    "preserved precise generation validation codes through fallback and regeneration"
+  ],
+  "verification": {
+    "t52_dedicated_tests": 62,
+    "configuration_matrix_cases": 48,
+    "adjacent_regression_passed": 338,
+    "adjacent_regression_skipped": 0,
+    "postgres_dsn": "postgresql://postgres@127.0.0.1:55432/interview",
+    "frontend_vitest_passed": 28,
+    "frontend_build": "PASS",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "import_and_default_config_preflight": "PASS",
+    "secret_scan": "PASS_ZERO_CREDENTIAL_LITERALS",
+    "provider_calls": 0,
+    "broad_regression": {
+      "passed": 2639,
+      "failed": 9,
+      "skipped": 3,
+      "t51_baseline_passed": 2577,
+      "t51_baseline_failed": 9,
+      "t51_baseline_skipped": 3,
+      "new_t52_failures": 0,
+      "postgres_cleanup_clock_skew_failures": 4,
+      "measured_postgres_ahead_of_python_seconds_approx": 4.85,
+      "persistent_preexisting_non_t52_failures": 5,
+      "used_as_t52_acceptance_gate": false
+    }
+  },
+  "phase_boundaries": {
+    "t52_configured_generation_complete": true,
+    "t52_provider_result_enforcement_complete": true,
+    "t52_context_safety_complete": true,
+    "t53_configured_start_e2e_matrix_complete": false,
+    "t54_final_configuration_ui_complete": false,
+    "t57_real_provider_quality_benchmark_complete": false
+  },
+  "truthfulness_limits": [
+    "No real Provider was called by T52.",
+    "The 48-case matrix proves engineering behavior, not real Provider quality.",
+    "The broad-suite failures and skips are reported and are not relabeled as PASS.",
+    "T52 does not claim T53 end-to-end start consistency or T54 user experience is complete.",
+    "Engineering PASS does not change any Provider or human Quality status."
+  ]
+}

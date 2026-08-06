@@ -37,6 +37,7 @@ from app.services.principal_memory_sink_policy import (
 )
 
 if TYPE_CHECKING:
+    from app.services.interview_plan_revision import PlanConfigurationSnapshot
     from app.services.report import InterviewReport
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class InterviewLLM(Protocol):
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict] | None = None,
+        configuration: "PlanConfigurationSnapshot | None" = None,
     ):
         """Generate the interview plan from JD and resume."""
 
@@ -170,38 +172,60 @@ class OpenAIInterviewLLM:
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict] | None = None,
+        configuration: "PlanConfigurationSnapshot | None" = None,
     ):
-        from app.services.prep import InterviewPlan
+        from app.services.prep import (
+            enforce_generated_interview_plan,
+            InterviewPlan,
+            validate_generation_configuration,
+        )
+
+        configuration = (
+            validate_generation_configuration(configuration)
+            if configuration is not None
+            else None
+        )
 
         assert_principal_memory_sink(
             operation="plan_generation",
             payload={"knowledge_context": knowledge_context},
         )
-        if context_enforcement_enabled(PLAN_CONTEXT_POLICY.operation):
-            job_description, resume_text, knowledge_context = self._fit_plan_inputs(
-                job_description=job_description,
-                resume_text=resume_text,
-                knowledge_context=knowledge_context,
-            )
-        prompt = self._build_plan_prompt(
+        job_description, resume_text, knowledge_context = self._fit_plan_inputs(
             job_description=job_description,
             resume_text=resume_text,
             knowledge_context=knowledge_context,
         )
-        self._guard_prompt(prompt, PLAN_CONTEXT_POLICY)
+        prompt = self._build_plan_prompt(
+            job_description=job_description,
+            resume_text=resume_text,
+            knowledge_context=knowledge_context,
+            configuration=configuration,
+        )
+        self._guard_prompt(
+            prompt,
+            PLAN_CONTEXT_POLICY,
+            force_enforcement=True,
+        )
         try:
-            return self._invoke_structured_plan(prompt, InterviewPlan)
+            generated = self._invoke_structured_plan(prompt, InterviewPlan)
         except Exception as exc:
             logger.warning(
                 "Structured interview plan output failed, trying raw JSON path",
                 extra={"reason": str(exc)},
             )
-
-        payload = self._invoke_raw_json_plan(prompt)
-        try:
-            return InterviewPlan.model_validate(payload)
-        except ValidationError as exc:
-            raise ValueError(f"raw interview plan JSON schema validation failed: {exc}") from exc
+            payload = self._invoke_raw_json_plan(
+                prompt,
+                force_context_enforcement=True,
+            )
+            try:
+                generated = InterviewPlan.model_validate(payload)
+            except ValidationError as exc:
+                raise ValueError(
+                    f"raw interview plan JSON schema validation failed: {exc}"
+                ) from exc
+        if configuration is None:
+            return generated
+        return enforce_generated_interview_plan(generated, configuration)
 
     def _build_plan_prompt(
         self,
@@ -209,28 +233,82 @@ class OpenAIInterviewLLM:
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict] | None = None,
+        configuration: "PlanConfigurationSnapshot | None" = None,
     ) -> str:
+        from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
+
+        if configuration is None:
+            question_kinds = ["project", "technical", "system-design"]
+            count_instruction = "Return exactly 3 to 5 questions."
+            id_instruction = (
+                "Use unique consecutive ids q1, q2, q3, and continue in order "
+                "if more questions are returned."
+            )
+            configuration_section = ""
+        else:
+            question_kinds = [
+                question_type
+                for question_type in QUESTION_TYPE_ORDER
+                for _ in range(
+                    configuration.question_type_budget.get(question_type, 0)
+                )
+            ]
+            target_count = len(question_kinds)
+            difficulty_guidance = {
+                "foundation": (
+                    "Prefer clear fundamentals and concrete examples; avoid hidden "
+                    "advanced prerequisites."
+                ),
+                "intermediate": (
+                    "Require real constraints, implementation choices, and trade-offs."
+                ),
+                "advanced": (
+                    "Probe complex constraints, failure modes, scale, and evolution cost."
+                ),
+            }[configuration.difficulty]
+            focus_guidance = {
+                "technical_depth": (
+                    "Emphasize implementation depth, boundaries, diagnostics, and failure modes."
+                ),
+                "system_design": (
+                    "Emphasize architecture, capacity, reliability, and system trade-offs."
+                ),
+                "project_review": (
+                    "Emphasize ownership, decisions, evidence, delivery, and outcomes."
+                ),
+                "balanced": (
+                    "Balance project evidence, technical depth, design, and collaboration."
+                ),
+            }[configuration.focus_preset]
+            count_instruction = (
+                f"Return exactly {target_count} questions with this exact kind budget: "
+                f"{json.dumps(configuration.question_type_budget, sort_keys=True)}."
+            )
+            id_instruction = (
+                f"Use unique consecutive ids q1 through q{target_count} in order."
+            )
+            configuration_section = (
+                "\nConfigured generation contract:\n"
+                f"- target_duration_minutes: {configuration.target_duration_minutes}\n"
+                f"- difficulty: {configuration.difficulty}\n"
+                f"- focus_preset: {configuration.focus_preset}\n"
+                f"- expected_followup_budget: {configuration.expected_followup_budget}\n"
+                f"- max_followups_per_question: {configuration.max_followups_per_question}\n"
+                f"- difficulty guidance: {difficulty_guidance}\n"
+                f"- focus guidance: {focus_guidance}\n"
+                "The duration is an estimate, not an exact-time promise. The service "
+                "assigns per-question minute and follow-up estimates locally.\n"
+            )
         expected_shape = {
             "title": "Backend interview plan",
             "questions": [
                 {
-                    "id": "q1",
-                    "kind": "project",
+                    "id": f"q{index}",
+                    "kind": kind,
                     "prompt": "Ask one concrete interview question.",
                     "focus": "What this question evaluates.",
-                },
-                {
-                    "id": "q2",
-                    "kind": "technical",
-                    "prompt": "Ask one concrete interview question.",
-                    "focus": "What this question evaluates.",
-                },
-                {
-                    "id": "q3",
-                    "kind": "system-design",
-                    "prompt": "Ask one concrete interview question.",
-                    "focus": "What this question evaluates.",
-                },
+                }
+                for index, kind in enumerate(question_kinds, start=1)
             ],
         }
         knowledge_section = ""
@@ -244,12 +322,13 @@ class OpenAIInterviewLLM:
         return (
             "You are a senior technical interviewer.\n"
             "Create a focused mock interview plan from the job description and resume.\n"
-            "Return exactly 3 to 5 questions.\n"
+            f"{count_instruction}\n"
             "Each question kind must be one of: project, technical, system-design, behavioral.\n"
-            "Use stable ids q1, q2, q3, and continue in order if more questions are needed.\n"
+            f"{id_instruction}\n"
             "Questions should be specific to the candidate's resume and the target job.\n"
             "Do not generate prep_context; the service enriches the plan with Knowledge Agent metadata locally.\n"
             "Return valid JSON only. Do not return markdown.\n"
+            f"{configuration_section}"
             "Use this JSON shape exactly:\n"
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
             f"Job description:\n{job_description}\n\n"
@@ -273,13 +352,22 @@ class OpenAIInterviewLLM:
             return result
         return schema.model_validate(result)
 
-    def _invoke_raw_json_plan(self, prompt: str) -> dict[str, Any]:
+    def _invoke_raw_json_plan(
+        self,
+        prompt: str,
+        *,
+        force_context_enforcement: bool = False,
+    ) -> dict[str, Any]:
         fallback_prompt = (
             f"{prompt}\n\n"
             "Return valid JSON only. Use the JSON shape exactly. "
             "Do not wrap the JSON in markdown code fences."
         )
-        self._guard_prompt(fallback_prompt, PLAN_CONTEXT_POLICY)
+        self._guard_prompt(
+            fallback_prompt,
+            PLAN_CONTEXT_POLICY,
+            force_enforcement=force_context_enforcement,
+        )
         message = self._invoke_chat(fallback_prompt, PLAN_CONTEXT_POLICY)
         content = str(getattr(message, "content", message)).strip()
         return self._parse_raw_json_payload(content)
@@ -586,6 +674,8 @@ class OpenAIInterviewLLM:
         self,
         prompt: str,
         policy: OperationContextPolicy,
+        *,
+        force_enforcement: bool = False,
     ):
         budget = self._budget_resolver.resolve(
             profile=self.model_profile,
@@ -603,7 +693,7 @@ class OpenAIInterviewLLM:
         # Publish the privacy-safe measurement before enforcement. Calling
         # validate() directly would raise before rejected requests can be
         # observed by Agent telemetry and Context Canary.
-        if context_enforcement_enabled(policy.operation):
+        if force_enforcement or context_enforcement_enabled(policy.operation):
             self._prompt_guard.enforce(measurement, budget=budget)
         return measurement
 

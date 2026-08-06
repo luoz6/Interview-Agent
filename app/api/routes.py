@@ -22,7 +22,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.job_tags import extract_job_tags
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import (
+    PlanGenerationValidationError,
     prepare_interview,
+    prepared_plan_revision,
     public_interview_plan_payload,
 )
 from app.services.interview_plan_editor import (
@@ -34,7 +36,8 @@ from app.services.interview_plan_editor import (
 from app.services.interview_plan_budget import assess_interview_plan_budget
 from app.services.interview_plan_revision import (
     canonical_sha256,
-    legacy_plan_to_v2,
+    default_plan_configuration,
+    PlanConfigurationSnapshot,
     v2_plan_to_legacy,
 )
 from app.services.interview_plan_regenerator import (
@@ -182,10 +185,12 @@ def get_report_job_queue():
 
 def get_plan_regenerator() -> ProviderPlanRegenerator:
     return ProviderPlanRegenerator(
-        lambda job_description, resume_text: prepare_interview(
+        lambda job_description, resume_text, configuration: prepare_interview(
             job_description,
             resume_text,
             execution_runner=get_agent_execution_runner(),
+            configuration=configuration,
+            allow_fallback=False,
         )
     )
 
@@ -195,6 +200,7 @@ class PrepRequest(BaseModel):
 
     job_description: str = Field(min_length=1)
     resume_text: str = Field(min_length=1)
+    configuration: PlanConfigurationSnapshot | None = None
 
     @field_validator("job_description", "resume_text")
     @classmethod
@@ -819,26 +825,35 @@ def prep_interview(
     payload: PrepRequest,
     revision_store=Depends(get_plan_revision_store),
 ):
+    configuration = payload.configuration or default_plan_configuration()
     try:
         plan = prepare_interview(
             payload.job_description,
             payload.resume_text,
             execution_runner=get_agent_execution_runner(),
+            configuration=configuration,
         )
+        revision_plan = prepared_plan_revision(plan, configuration)
+    except PlanGenerationValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    response = public_interview_plan_payload(plan)
-    response["job_tags"] = extract_job_tags(payload.job_description)
+    job_tags = extract_job_tags(payload.job_description)
     revision = revision_store.create_initial(
         source_payload={
             "job_description": payload.job_description,
             "resume_text": payload.resume_text,
-            "job_tags": response["job_tags"],
+            "job_tags": job_tags,
         },
-        plan=legacy_plan_to_v2(plan),
+        plan=revision_plan,
         retention_policy="local-v1",
-        generator_version="plan-generator-v2",
+        generator_version=configuration.generator_version,
     )
+    response = public_interview_plan_payload(v2_plan_to_legacy(revision.plan))
+    response["job_tags"] = job_tags
     response.update(_plan_revision_payload(revision))
     return response
 

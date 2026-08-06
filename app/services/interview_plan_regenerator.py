@@ -7,8 +7,14 @@ from app.services.interview_plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanRevision,
     InterviewPlanV2,
+    PlanConfigurationSnapshot,
     PlanSourcePayload,
-    legacy_plan_to_v2,
+    v2_plan_to_legacy,
+)
+from app.services.prep import (
+    enforce_generated_interview_plan,
+    PlanGenerationValidationError,
+    prepared_plan_revision,
 )
 
 
@@ -26,7 +32,10 @@ class ProviderPlanRegenerator:
     immutable revision.
     """
 
-    def __init__(self, planner: Callable[[str, str], Any]) -> None:
+    def __init__(
+        self,
+        planner: Callable[[str, str, PlanConfigurationSnapshot], Any],
+    ) -> None:
         self._planner = planner
 
     def regenerate_question(
@@ -48,7 +57,7 @@ class ProviderPlanRegenerator:
                 "question ID does not exist in the current revision",
             ) from exc
 
-        regenerated = self._generate(source)
+        regenerated = self._generate(source, current.configuration_snapshot)
         if position > len(regenerated.questions):
             raise PlanRegenerationFailed(
                 "provider_invalid_response",
@@ -62,17 +71,48 @@ class ProviderPlanRegenerator:
         current: InterviewPlanRevision,
         source: PlanSourcePayload,
     ) -> InterviewPlanV2:
-        regenerated = self._generate(source)
-        return regenerated.model_copy(
-            update={"configuration_snapshot": current.configuration_snapshot}
-        )
+        return self._generate(source, current.configuration_snapshot)
 
-    def _generate(self, source: PlanSourcePayload) -> InterviewPlanV2:
+    def _generate(
+        self,
+        source: PlanSourcePayload,
+        configuration: PlanConfigurationSnapshot,
+    ) -> InterviewPlanV2:
         try:
-            generated = self._planner(source.job_description, source.resume_text)
-            return legacy_plan_to_v2(generated)
+            generated = self._planner(
+                source.job_description,
+                source.resume_text,
+                configuration,
+            )
+            if isinstance(generated, InterviewPlanV2):
+                legacy = v2_plan_to_legacy(generated)
+                enforced = enforce_generated_interview_plan(
+                    legacy,
+                    configuration,
+                )
+                revision_plan = prepared_plan_revision(
+                    enforced,
+                    configuration,
+                )
+            else:
+                enforced = enforce_generated_interview_plan(
+                    generated,
+                    configuration,
+                )
+                revision_plan = (
+                    prepared_plan_revision(generated, configuration)
+                    if getattr(generated, "_revision_plan", None) is not None
+                    else prepared_plan_revision(enforced, configuration)
+                )
+            if revision_plan.configuration_snapshot != configuration:
+                raise ValueError(
+                    "Provider regeneration changed the configuration snapshot"
+                )
+            return revision_plan
         except PlanRegenerationFailed:
             raise
+        except PlanGenerationValidationError as exc:
+            raise PlanRegenerationFailed(exc.code, str(exc)) from exc
         except TimeoutError as exc:
             raise PlanRegenerationFailed(
                 "provider_timeout", "Provider regeneration timed out"

@@ -228,6 +228,90 @@ difficulty, focus, and 1–10 safe range, including nine or ten questions for a
 60-minute plan. T52 remains responsible for applying the same budget to Provider
 prompts and enforcing Provider over/under-budget results.
 
+## Phase 5 T52 amendment: configured generation enforcement
+
+- Amendment status: Accepted
+- Amendment date: 2026-08-06
+- Generator version: `plan-generator-v2`
+
+New `/api/prep` requests accept one nested `configuration` snapshot. When it is
+omitted, the server supplies a 30-minute, intermediate, balanced, fixed-v1
+configuration with five main questions: one project, two technical, one system
+design, and one behavioral. The old three-question values remain parser defaults
+for already-existing v1 plans only; they are not the default for new generation.
+
+The client may choose an allowed duration, difficulty, focus, type budget,
+expected-followup estimate, and follow-up policy. It may not claim a generator
+implementation that is not deployed. A generator version other than
+`plan-generator-v2`, a 0/>10 generation target, or an aggregate follow-up budget
+above `question_count * 2` fails before any Provider call.
+
+### Prompt and context contract
+
+The Provider prompt contains the exact main-question count and per-type budget,
+target duration, difficulty guidance, focus guidance, expected follow-up budget,
+and the hard limit of two follow-ups. Its example JSON expands through the exact
+requested `qN`; a ten-question configuration includes `q1..q10`. Difficulty and
+focus affect requested content, never scoring strictness.
+
+JD, resume, and safe grounding candidates continue through the shared plan
+context selector. The selector reserves 20% of available input for fixed
+instructions/schema/framing, then bounds JD, resume, and grounding independently.
+The final rendered-prompt guard remains authoritative. A 60-minute ten-question
+prompt must fit the same `knowledge.generate_plan` context policy; increasing the
+question count does not increase the operation's input cap or bypass output-token,
+timeout, retry, or concurrency safeguards. Starting with T52, plan generation
+always runs both selection and final enforcement even when the staged context
+rollout flag is disabled; flags for interview/review/report operations are
+unchanged.
+
+### Provider result enforcement
+
+Provider output is untrusted and is revalidated at both the LLM and KnowledgeAgent
+boundaries. The frozen rules are:
+
+1. IDs must be unique, consecutive, and ordered `q1..qN`; focus and question text
+   must be nonblank; retained question text must not duplicate after whitespace
+   and case normalization.
+2. Fewer questions than the configured exact target are rejected with
+   `provider_question_count_under_budget`.
+3. More than ten questions are rejected with
+   `provider_question_count_above_safe_maximum`.
+4. If `target < N <= 10`, only the consecutive first `target` questions may be
+   retained. This deterministic prefix is accepted only when its type counts
+   exactly equal `question_type_budget`; otherwise the response is rejected with
+   `provider_question_type_budget_mismatch`.
+5. Enforcement never reorders Provider questions, invents missing questions, or
+   rewrites a mismatched type into another type.
+6. A budget-validation failure after a successful structured response does not
+   trigger a second raw-JSON Provider request.
+
+Initial prep may publish the complete configured deterministic fallback and mark
+the Agent run degraded with the precise enforcement code. Regeneration does not
+use fallback: timeout or invalid/under/over-budget Provider output creates no new
+revision and returns a structured failure code while the prior active revision
+remains authoritative.
+
+### Single revision and trace identity
+
+After generation/grounding, the shared prepare service converts the accepted
+legacy Provider boundary object to Schema v2 exactly once. It assigns opaque UUID
+question identities, contiguous positions, configured difficulty, deterministic
+minute/follow-up allocations, and the immutable configuration snapshot. The API
+stores that already-bound object; it does not allocate a second set of IDs. Both
+the top-level compatibility preview and nested `legacy_plan` are projected from
+the saved revision, so neither exposes the Provider's temporary `q1..qN` IDs.
+Regeneration revalidates the legacy projection but reuses an already-bound V2
+result from the shared prepare service; it must not allocate new UUIDs after the
+Agent trace hash has been emitted.
+
+Agent safe metadata contains `configuration_sha256` and the exact `plan_sha256`
+later persisted by the revision store, plus generator/budget versions, target
+duration, Provider question count, retained count, and enforcement action. Hash
+metadata is admitted only when it is lowercase 64-character hexadecimal; source
+text, prompts, resumes, Provider responses, credentials, and raw content remain
+blocked by trace sanitization.
+
 ## Rollback
 
 Disable V2 write/read routing and return to legacy reads. Do not drop V2 tables,
