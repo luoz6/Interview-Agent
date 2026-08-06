@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DatasetId = Literal[
     "initial-question-quality-v1",
+    "initial-question-quality-v2",
     "followup-decision-quality-v1",
     "followup-decision-quality-v2",
     "report-score-quality-v2",
@@ -18,11 +19,48 @@ DatasetId = Literal[
 
 DATASET_CASE_TYPES = {
     "initial-question-quality-v1": "initial_question",
+    "initial-question-quality-v2": "initial_question",
     "followup-decision-quality-v1": "followup_decision",
     "followup-decision-quality-v2": "followup_decision",
     "report-score-quality-v2": "report_score",
     "report-semantic-quality-v1": "report_semantic",
 }
+
+
+class InitialQuestionCaseInput(BaseModel):
+    """Frozen, Provider-safe input contract for T57 plan-generation cases."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_domain: Literal[
+        "backend",
+        "frontend",
+        "data",
+        "platform",
+        "general_project",
+        "system_design",
+    ]
+    job_description: str = Field(min_length=40)
+    resume_summary: str = Field(min_length=40)
+    configuration: dict[str, Any]
+    runs_per_case: int = Field(ge=2, le=5)
+    role_keywords: list[str] = Field(min_length=2)
+    focus_evidence: list[str] = Field(min_length=1)
+    forbidden_leak_markers: list[str] = Field(min_length=1)
+    knowledge_context: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_lists(self):
+        for name in (
+            "role_keywords",
+            "focus_evidence",
+            "forbidden_leak_markers",
+        ):
+            values = getattr(self, name)
+            normalized = [value.strip() for value in values if value.strip()]
+            if len(normalized) != len(values) or len(set(normalized)) != len(values):
+                raise ValueError(f"{name} must contain unique non-blank values")
+        return self
 
 
 class SourceBoundary(BaseModel):
@@ -161,9 +199,72 @@ class InterviewQualityDataset(BaseModel):
             raise ValueError(f"{self.dataset_id} cases require expected action")
         if self.dataset_id == "followup-decision-quality-v2":
             self._validate_followup_v2()
+        if self.dataset_id == "initial-question-quality-v2":
+            self._validate_initial_question_v2()
         if self.fixture_only and any(case.gate_eligible for case in self.cases):
             raise ValueError("contract-only fixtures cannot be gate eligible")
         return self
+
+    def _validate_initial_question_v2(self) -> None:
+        from app.services.interview_plan_revision import PlanConfigurationSnapshot
+
+        if len(self.cases) < 12:
+            raise ValueError("initial-question v2 requires at least 12 cases")
+        if self.fixture_only:
+            raise ValueError("initial-question v2 is an evaluation dataset, not a fixture")
+        domains: set[str] = set()
+        difficulties: set[str] = set()
+        focuses: set[str] = set()
+        durations: set[int] = set()
+        partitions: set[str] = set()
+        languages: set[str] = set()
+        for case in self.cases:
+            item = InitialQuestionCaseInput.model_validate(case.input)
+            configuration = PlanConfigurationSnapshot.model_validate(
+                item.configuration
+            )
+            if configuration.difficulty != case.difficulty:
+                raise ValueError(
+                    "initial-question case difficulty must match configuration"
+                )
+            if case.question_type != "mixed":
+                raise ValueError("initial-question plan cases must use question_type=mixed")
+            if case.quality_label != "strong":
+                raise ValueError("initial-question source cases must be strong inputs")
+            if not case.provider_allowed:
+                raise ValueError("initial-question cases must be Provider-eligible")
+            domains.add(item.scenario_domain)
+            difficulties.add(configuration.difficulty)
+            focuses.add(configuration.focus_preset)
+            durations.add(configuration.target_duration_minutes)
+            partitions.add(case.partition)
+            languages.add(case.language)
+        if domains != {
+            "backend",
+            "frontend",
+            "data",
+            "platform",
+            "general_project",
+            "system_design",
+        }:
+            raise ValueError("initial-question domain coverage is incomplete")
+        if difficulties != {"foundation", "intermediate", "advanced"}:
+            raise ValueError("initial-question difficulty coverage is incomplete")
+        if focuses != {
+            "technical_depth",
+            "system_design",
+            "project_review",
+            "balanced",
+        }:
+            raise ValueError("initial-question focus coverage is incomplete")
+        if durations != {15, 30, 45, 60}:
+            raise ValueError("initial-question duration coverage is incomplete")
+        if partitions != {"train", "dev", "blind-test"}:
+            raise ValueError("initial-question partition coverage is incomplete")
+        if "zh-Hans" not in languages or "en" not in languages:
+            raise ValueError("initial-question dataset requires Chinese and English")
+        if sum(case.language == "zh-Hans" for case in self.cases) <= len(self.cases) / 2:
+            raise ValueError("initial-question dataset must be Chinese-majority")
 
     def _validate_followup_v2(self) -> None:
         if not 80 <= len(self.cases) <= 120:

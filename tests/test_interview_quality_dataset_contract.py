@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.services.interview_quality_dataset import (
+    InitialQuestionCaseInput,
     InterviewQualityDataset,
     load_interview_quality_dataset,
 )
@@ -13,6 +14,7 @@ from app.services.interview_quality_dataset import (
 DATASET_DIR = Path("tests/golden/interview_quality_v1")
 DATASET_FILES = {
     "initial-question-quality-v1": DATASET_DIR / "initial-question-quality-v1.json",
+    "initial-question-quality-v2": DATASET_DIR / "initial-question-quality-v2.json",
     "followup-decision-quality-v1": DATASET_DIR / "followup-decision-quality-v1.json",
     "followup-decision-quality-v2": DATASET_DIR / "followup-decision-quality-v2.json",
     "report-score-quality-v2": DATASET_DIR / "report-score-quality-v2.json",
@@ -30,7 +32,10 @@ def test_all_frozen_datasets_load_and_verify_hashes():
     for dataset_id, dataset in loaded.items():
         assert dataset.dataset_id == dataset_id
         assert dataset.dataset_version == dataset_id
-        if dataset_id != "followup-decision-quality-v2":
+        if dataset_id not in {
+            "initial-question-quality-v2",
+            "followup-decision-quality-v2",
+        }:
             assert dataset.fixture_only is True
         assert all(not case.gate_eligible for case in dataset.cases)
         assert all(case.source_boundary.contains_real_candidate_data is False for case in dataset.cases)
@@ -56,6 +61,50 @@ def test_followup_v2_has_required_scale_sequences_adversarial_and_boundaries():
     assert len(sequences) == 20
     assert len(adversarial) >= 20
     assert dataset.fixture_only is False
+    assert all(case.annotation.review_status == "pending" for case in dataset.cases)
+    assert all(case.gate_eligible is False for case in dataset.cases)
+
+
+def test_initial_question_v2_has_t57_scale_stratification_and_repeat_budget():
+    dataset = load_interview_quality_dataset(
+        DATASET_FILES["initial-question-quality-v2"]
+    )
+    inputs = [InitialQuestionCaseInput.model_validate(case.input) for case in dataset.cases]
+
+    assert len(dataset.cases) == 12
+    assert dataset.fixture_only is False
+    assert {item.scenario_domain for item in inputs} == {
+        "backend",
+        "frontend",
+        "data",
+        "platform",
+        "general_project",
+        "system_design",
+    }
+    assert {case.difficulty for case in dataset.cases} == {
+        "foundation",
+        "intermediate",
+        "advanced",
+    }
+    assert {item.configuration["focus_preset"] for item in inputs} == {
+        "technical_depth",
+        "system_design",
+        "project_review",
+        "balanced",
+    }
+    assert {item.configuration["target_duration_minutes"] for item in inputs} == {
+        15,
+        30,
+        45,
+        60,
+    }
+    assert all(item.runs_per_case >= 2 for item in inputs)
+    assert sum(case.language == "zh-Hans" for case in dataset.cases) > 6
+    assert {case.partition for case in dataset.cases} == {
+        "train",
+        "dev",
+        "blind-test",
+    }
     assert all(case.annotation.review_status == "pending" for case in dataset.cases)
     assert all(case.gate_eligible is False for case in dataset.cases)
 

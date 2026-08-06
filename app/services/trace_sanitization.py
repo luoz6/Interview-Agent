@@ -125,6 +125,10 @@ AGENT_CONTEXT_BOOLEAN_METADATA_KEYS = frozenset(
         "estimator_fallback_used",
         "deterministic_shrink_used",
         "provider_usage_available",
+        "provider_metered_attempt_count",
+        "provider_unmetered_attempt_count",
+        "plan_knowledge_candidate_count",
+        "plan_knowledge_retained_count",
     }
 )
 

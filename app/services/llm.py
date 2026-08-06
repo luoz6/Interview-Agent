@@ -22,6 +22,7 @@ from app.services.provider_usage import (
     begin_provider_attempt,
     publish_prompt_measurement,
     publish_provider_response,
+    publish_plan_context_selection,
 )
 from app.services.context_runtime import (
     ContextRuntime,
@@ -190,10 +191,15 @@ class OpenAIInterviewLLM:
             operation="plan_generation",
             payload={"knowledge_context": knowledge_context},
         )
+        knowledge_candidate_count = len(knowledge_context or [])
         job_description, resume_text, knowledge_context = self._fit_plan_inputs(
             job_description=job_description,
             resume_text=resume_text,
             knowledge_context=knowledge_context,
+        )
+        publish_plan_context_selection(
+            candidate_count=knowledge_candidate_count,
+            retained_count=len(knowledge_context or []),
         )
         prompt = self._build_plan_prompt(
             job_description=job_description,
@@ -337,20 +343,39 @@ class OpenAIInterviewLLM:
         )
 
     def _invoke_structured_plan(self, prompt: str, schema):
-        structured_model = self.chat_model.with_structured_output(
-            schema,
-            method="json_schema",
-        )
+        try:
+            structured_model = self.chat_model.with_structured_output(
+                schema,
+                method="json_schema",
+                include_raw=True,
+            )
+        except TypeError:
+            # Older adapters and lightweight test doubles may not expose
+            # include_raw. Production requests it so plan evaluation can prove
+            # that every outbound request has usage and model metadata.
+            structured_model = self.chat_model.with_structured_output(
+                schema,
+                method="json_schema",
+            )
         if hasattr(structured_model, "bind"):
             structured_model = structured_model.bind(
                 max_tokens=PLAN_CONTEXT_POLICY.max_output_tokens
             )
         begin_provider_attempt()
         result = structured_model.invoke(prompt)
-        publish_provider_response(result)
-        if isinstance(result, schema):
-            return result
-        return schema.model_validate(result)
+        wrapped = isinstance(result, dict) and any(
+            key in result for key in ("raw", "parsed", "parsing_error")
+        )
+        raw = result.get("raw") if wrapped else None
+        parsed = result.get("parsed") if wrapped else result
+        publish_provider_response(raw or result)
+        if wrapped and result.get("parsing_error") is not None:
+            raise ValueError("structured interview plan response failed parsing")
+        if parsed is None:
+            raise ValueError("structured interview plan response has no parsed value")
+        if isinstance(parsed, schema):
+            return parsed
+        return schema.model_validate(parsed)
 
     def _invoke_raw_json_plan(
         self,

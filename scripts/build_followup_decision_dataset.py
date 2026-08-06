@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.services.followup_diagnostics import stable_followup_fingerprint
 from app.services.interview_quality_dataset import (
@@ -12,7 +18,6 @@ from app.services.interview_quality_dataset import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
 DATASET_DIR = ROOT / "tests" / "golden" / "interview_quality_v1"
 OUTPUT = DATASET_DIR / "followup-decision-quality-v2.json"
 MANIFEST = DATASET_DIR / "manifest.json"
@@ -20,6 +25,7 @@ MANIFEST_DATASET_NAMES = (
     "followup-decision-quality-v1.json",
     "followup-decision-quality-v2.json",
     "initial-question-quality-v1.json",
+    "initial-question-quality-v2.json",
     "report-score-quality-v2.json",
     "report-semantic-quality-v1.json",
 )

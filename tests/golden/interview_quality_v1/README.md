@@ -1,12 +1,24 @@
 # Interview Quality V1 dataset contract fixtures
 
 This directory freezes four dataset families, their versioned revisions, and their
-common machine schema.
-The checked-in records are synthetic contract fixtures only, not completed calibrated
-quality sets. Every fixture has `fixture_only=true` and `gate_eligible=false`; passing
-their schema tests is not a Quality Gate result.
+common machine schema. All checked-in inputs are synthetic, but the directory now
+contains both small contract fixtures and larger construction sets. A contract fixture
+has `fixture_only=true`; a construction set has `fixture_only=false` but still remains
+`gate_eligible=false` until its independent review is complete. Passing schema or
+synthetic replay tests is never by itself a Quality Gate result.
 
-`followup-decision-quality-v2.json` is the first non-fixture construction set:
+`initial-question-quality-v2.json` is the T57 non-fixture construction set. It
+contains 12 synthetic JD/resume combinations, two required generations per case,
+six role domains, all three difficulties, all four focus presets, and all four
+duration presets. It remains `gate_eligible=false` while independent review is
+pending. Its deterministic builder is `scripts/build_initial_question_dataset.py`.
+The T57 evaluator is `scripts/evaluate_initial_question_quality.py`; it supports
+synthetic fixture replay, immutable saved-output replay, and a fail-closed real
+Provider mode. Provider mode validates the unified authorization, frozen hashes,
+redaction, exact model identity, pricing, per-request usage, and local evidence
+persistence before or between outbound requests.
+
+`followup-decision-quality-v2.json` is the T35 non-fixture construction set:
 it contains 100 synthetic cases, including 20 complete two-step sequences and
 20 adversarial cases. It remains `gate_eligible=false` because all annotations
 are still `pending` independent review. Its existence proves T35 Engineering

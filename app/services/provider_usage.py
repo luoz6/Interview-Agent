@@ -48,6 +48,21 @@ def begin_provider_attempt() -> None:
     _provider_context_metadata.set(metadata)
 
 
+def publish_plan_context_selection(
+    *,
+    candidate_count: int,
+    retained_count: int,
+) -> None:
+    if candidate_count < 0 or retained_count < 0:
+        raise ValueError("plan context counts must be non-negative")
+    if retained_count > candidate_count:
+        raise ValueError("retained plan context cannot exceed candidates")
+    metadata = dict(_provider_context_metadata.get() or {})
+    metadata["plan_knowledge_candidate_count"] = candidate_count
+    metadata["plan_knowledge_retained_count"] = retained_count
+    _provider_context_metadata.set(metadata)
+
+
 def publish_provider_response(response: Any) -> None:
     metadata = dict(_provider_context_metadata.get() or {})
     response_metadata = getattr(response, "response_metadata", None)
@@ -57,10 +72,20 @@ def publish_provider_response(response: Any) -> None:
             metadata["provider_model"] = model
     usage = _extract_usage(response)
     if usage is None:
-        metadata.setdefault("provider_usage_available", False)
+        metadata["provider_unmetered_attempt_count"] = int(
+            metadata.get("provider_unmetered_attempt_count", 0)
+        ) + 1
+        metadata["provider_usage_available"] = False
         _provider_context_metadata.set(metadata)
         return
-    metadata["provider_usage_available"] = True
+    metadata["provider_metered_attempt_count"] = int(
+        metadata.get("provider_metered_attempt_count", 0)
+    ) + 1
+    metadata["provider_usage_available"] = (
+        int(metadata.get("provider_unmetered_attempt_count", 0)) == 0
+        and int(metadata.get("provider_metered_attempt_count", 0))
+        == int(metadata.get("provider_attempt_count", 0))
+    )
     for key, value in usage.items():
         metadata[key] = int(metadata.get(key, 0)) + value
     estimated = metadata.get("estimated_input_tokens")

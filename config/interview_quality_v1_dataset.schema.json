@@ -6,7 +6,7 @@
   "required": ["schema_version", "dataset_id", "dataset_version", "description", "fixture_only", "cases"],
   "properties": {
     "schema_version": {"const": "interview-quality-dataset-contract-v1"},
-    "dataset_id": {"enum": ["initial-question-quality-v1", "followup-decision-quality-v1", "followup-decision-quality-v2", "report-score-quality-v2", "report-semantic-quality-v1"]},
+    "dataset_id": {"enum": ["initial-question-quality-v1", "initial-question-quality-v2", "followup-decision-quality-v1", "followup-decision-quality-v2", "report-score-quality-v2", "report-semantic-quality-v1"]},
     "dataset_version": {"type": "string", "minLength": 1},
     "description": {"type": "string", "minLength": 1},
     "fixture_only": {"type": "boolean"},

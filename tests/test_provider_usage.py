@@ -6,8 +6,19 @@ from app.services.provider_usage import (
     normalize_estimator_error,
     publish_prompt_measurement,
     publish_provider_response,
+    publish_plan_context_selection,
     reset_provider_context_metadata,
 )
+
+
+def test_plan_context_selection_records_counts_without_payloads():
+    reset_provider_context_metadata()
+    publish_plan_context_selection(candidate_count=3, retained_count=2)
+
+    assert consume_provider_context_metadata() == {
+        "plan_knowledge_candidate_count": 3,
+        "plan_knowledge_retained_count": 2,
+    }
 from app.services.context_budget import RenderedPromptMeasurement
 
 
@@ -25,6 +36,7 @@ def test_provider_usage_metadata_is_normalized_without_payloads():
     )
     assert consume_provider_context_metadata() == {
         "provider_attempt_count": 1,
+        "provider_metered_attempt_count": 1,
         "provider_usage_available": True,
         "provider_input_tokens": 120,
         "provider_output_tokens": 30,
@@ -53,8 +65,26 @@ def test_provider_model_is_retained_when_usage_is_missing():
 
     assert consume_provider_context_metadata() == {
         "provider_model": "deepseek-v4-pro",
+        "provider_unmetered_attempt_count": 1,
         "provider_usage_available": False,
     }
+
+
+def test_one_metered_response_cannot_hide_an_earlier_unmetered_attempt():
+    reset_provider_context_metadata()
+    begin_provider_attempt()
+    publish_provider_response(SimpleNamespace(content="first"))
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(usage_metadata={"input_tokens": 12, "output_tokens": 3})
+    )
+
+    metadata = consume_provider_context_metadata()
+
+    assert metadata["provider_attempt_count"] == 2
+    assert metadata["provider_metered_attempt_count"] == 1
+    assert metadata["provider_unmetered_attempt_count"] == 1
+    assert metadata["provider_usage_available"] is False
 
 
 def test_cached_input_tokens_and_provider_model_are_normalized():
