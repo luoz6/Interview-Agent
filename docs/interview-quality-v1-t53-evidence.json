@@ -1,0 +1,119 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T53",
+  "generated_at": "2026-08-06T18:58:00+08:00",
+  "implementation_revision_base": "4b42e2b2f246bb39ff586b231634bb8931af77da",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "provider_calls": 0,
+  "production_code_changes": 0,
+  "shared_authority": {
+    "prep_endpoint": "POST /api/prep",
+    "revision_authority": "InterviewPlanRevisionStore",
+    "start_endpoint": "POST /api/interviews",
+    "session_binding_authority": "session_plan_binding_from_revision",
+    "second_start_implementation_added": false,
+    "start_accepts_raw_source_inputs": false,
+    "start_provider_calls": 0
+  },
+  "hash_invariant": {
+    "selected_revision_response_equals_start_request": true,
+    "start_request_equals_session_snapshot": true,
+    "session_snapshot_equals_persisted_revision": true,
+    "configuration_snapshot_equals_persisted_revision": true,
+    "internal_full_plan_snapshot_equals_persisted_revision": true,
+    "public_snapshot_preserves_hash_after_privacy_projection": true
+  },
+  "configuration_matrix": {
+    "durations": [15, 30, 45, 60],
+    "difficulties": ["foundation", "intermediate", "advanced"],
+    "focus_presets": [
+      "technical_depth",
+      "system_design",
+      "project_review",
+      "balanced"
+    ],
+    "representative_type_budgets_derived_from_focus_and_duration": true,
+    "combination_count": 48,
+    "all_passed": true,
+    "start_provider_calls_per_combination": 0
+  },
+  "blocking_e2e": {
+    "preview_then_start": "PASS",
+    "manual_edit_then_start": "PASS",
+    "question_regenerate_then_start": "PASS",
+    "reorder_then_start": "PASS",
+    "two_tab_revision_conflict": "PASS",
+    "changed_job_description_marks_old_plan_stale": "PASS",
+    "provider_unavailable_after_prep_saved_plan_still_starts": "PASS",
+    "nine_question_plan_starts": "PASS",
+    "ten_question_plan_starts": "PASS",
+    "configured_fallback_plan_starts": "PASS"
+  },
+  "identity_and_snapshot": {
+    "manual_edit_uses_latest_revision_hash": true,
+    "reorder_preserves_question_ids": true,
+    "reorder_rewrites_contiguous_positions": true,
+    "regenerate_replaces_question_identity": true,
+    "regenerate_records_replaces_question_id": true,
+    "conflicting_tab_creates_no_revision": true,
+    "started_session_is_bound_to_full_immutable_v2_snapshot": true,
+    "public_snapshot_omits_private_binding_snapshot": true
+  },
+  "call_accounting": {
+    "synthetic_start_operations": 55,
+    "start_boundary_provider_spy_calls": 0,
+    "real_external_provider_calls": 0,
+    "real_external_cost": 0,
+    "real_external_token_usage": 0
+  },
+  "automatic_review_findings": [
+    "Public session snapshots intentionally remove prep_context.binding_snapshot; the test now verifies the complete immutable snapshot in the session store and verifies public identity/hash separately.",
+    "The stale-draft fixture now uses the exact prep source before changing the job description, so active-to-stale transition is proved rather than assumed.",
+    "No production defect or second start path was found; T53 remains a regression-matrix-only change as required."
+  ],
+  "verification": {
+    "t53_dedicated_tests": 55,
+    "configuration_matrix_cases": 48,
+    "blocking_scenario_test_functions": 7,
+    "adjacent_regression_passed": 296,
+    "adjacent_regression_failed": 0,
+    "adjacent_regression_skipped": 0,
+    "postgres_dsn": "postgresql://postgres@127.0.0.1:55432/interview",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "frontend_vitest_passed": 28,
+    "frontend_build": "PASS",
+    "frontend_eslint": "TOOLING_MISSING_ESLINT_COMMAND_NOT_INSTALLED",
+    "provider_calls": 0,
+    "broad_regression": {
+      "passed": 2696,
+      "failed": 7,
+      "skipped": 3,
+      "t52_total_passed": 2639,
+      "t52_total_failed": 9,
+      "t52_total_skipped": 3,
+      "new_t53_test_count": 55,
+      "new_t53_failures": 0,
+      "postgres_cleanup_clock_skew_failures_in_this_run": 2,
+      "measured_postgres_ahead_of_python_seconds": 5.098216,
+      "persistent_preexisting_non_t53_failures": 5,
+      "used_as_t53_acceptance_gate": false
+    }
+  },
+  "phase_boundaries": {
+    "t53_configured_start_e2e_matrix_complete": true,
+    "t54_edit_audit_and_knowledge_binding_complete": false,
+    "t55_editable_plan_ui_complete": false,
+    "t56_configuration_ui_complete": false,
+    "t57_real_provider_quality_benchmark_complete": false
+  },
+  "truthfulness_limits": [
+    "No real Provider was called by T53; all Provider boundaries in the matrix use deterministic test doubles.",
+    "The matrix proves engineering identity, persistence, conflict, and zero-call behavior, not real Provider question quality.",
+    "The seven full-suite failures, three skips, and missing ESLint executable are reported and are not relabeled as PASS.",
+    "T53 does not claim T54 audit/knowledge-binding work, T55-T56 UI work, or T57 Provider quality evaluation is complete.",
+    "Engineering PASS does not change any Provider or human Quality status."
+  ]
+}
