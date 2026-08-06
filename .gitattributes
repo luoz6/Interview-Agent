@@ -1,1 +1,9 @@
+.gitattributes text eol=lf
 docs/prototypes/interview-agent-single-file.html text eol=lf
+tests/fixtures/report_semantic_blind_test_v1.json text eol=lf
+tests/fixtures/report_semantic_blind_test_manifest_v1.json text eol=lf
+reports/interview-quality-v1/t49-blind-review-v1/dataset-validation.json text eol=lf
+reports/interview-quality-v1/t49-blind-review-v1/evidence-ledger.json text eol=lf
+reports/interview-quality-v1/t49-blind-review-v1/reviewer/packet.json text eol=lf
+reports/interview-quality-v1/t49-blind-review-v1/reviewer/empty-review-sheet.json text eol=lf
+reports/interview-quality-v1/t49-blind-review-v1/coordinator-only/assignment-key.json text eol=lf

@@ -1,0 +1,124 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T49",
+  "implementation_revision_base": "e777b85d36ebd825dd9cdd2c9b050aed4d53d35c",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED_INDEPENDENT_HUMAN_REVIEW_NOT_RUN",
+  "human_review_status": "NOT_RUN",
+  "provider_calls": 0,
+  "offline_judge_used": false,
+  "frozen_dataset": {
+    "path": "tests/fixtures/report_semantic_blind_test_v1.json",
+    "manifest_path": "tests/fixtures/report_semantic_blind_test_manifest_v1.json",
+    "dataset_id": "report-semantic-blind-test-v1",
+    "dataset_version": "2026-08-06.1",
+    "sample_size": 24,
+    "critical_case_count": 20,
+    "required_scenario_count": 17,
+    "missing_scenarios": [],
+    "source_classification": "synthetic",
+    "contains_real_candidate_data": false,
+    "contains_principal_memory": false,
+    "dataset_raw_sha256": "39bde7b72e3cfbf381645965cae48fcb01c6935a0b45cfa55503cf3d4634a62c",
+    "dataset_canonical_sha256": "c974a5e97e543a54e29a322c06353e4c816227de6556d807799569a096a6b6a9",
+    "manifest_file_sha256": "ce3a0edb4742a3411c256aadc7ff792b90b273ca52d7795b66095dc11fce6691",
+    "publish_count": 22,
+    "publish_degraded_count": 2,
+    "cases_with_saved_v1_rejection_reasons": 22,
+    "cases_with_saved_v2_rejection_reasons": 0
+  },
+  "blind_review_handoff": {
+    "protocol_version": "report-semantic-blind-review-v1",
+    "packet_path": "reports/interview-quality-v1/t49-blind-review-v1/reviewer/packet.json",
+    "empty_review_sheet_path": "reports/interview-quality-v1/t49-blind-review-v1/reviewer/empty-review-sheet.json",
+    "assignment_key_path": "reports/interview-quality-v1/t49-blind-review-v1/coordinator-only/assignment-key.json",
+    "dataset_validation_path": "reports/interview-quality-v1/t49-blind-review-v1/dataset-validation.json",
+    "evidence_ledger_path": "reports/interview-quality-v1/t49-blind-review-v1/evidence-ledger.json",
+    "packet_canonical_sha256": "c174e36df9eaa84b2841a4d6682bda6ae572079b225402bdb7fcb88066abd1c5",
+    "packet_file_sha256": "62157857ba8954512a92f2d0cd5bcf62800c47f92458d8a468a992d8e93e550a",
+    "empty_review_sheet_file_sha256": "a75a3fcc72236f866a12be83f039e884ed458fa36911f78ad6f176054bab4671",
+    "assignment_key_file_sha256": "3d4703f29e612dfd1762c42a25a78c3b01c58b914c4223b2bd27304f1be22c27",
+    "evidence_ledger_file_sha256": "839bdd8c528e9f011d829cb2ad7eaae270bf6421bace3fef437e185107372f96",
+    "dataset_validation_file_sha256": "9484054aad8399e397f00c1b93766e3149dbff7ae8efe47b0b2099411ac90219",
+    "source_version_visible_to_reviewer": false,
+    "randomization_seed_visible_to_reviewer": false,
+    "assignment_key_separate": true
+  },
+  "initial_evidence_entry": {
+    "entry_id": "t49-not-run-initial",
+    "entry_sha256": "8f88c13525ca319f6f9be8ea0d182afbb68d4c1be5cb50db7e2b5e517fdfc70b",
+    "gate_result_sha256": "2527363677000f88b2b152b75b889386a8937e1c735ca4f825dff79bf5fcc4b4",
+    "review_sheet_sha256": "a792afbee38346e87d9dda439fffff63522ac0a6e574a6c2359ef9280f009890",
+    "previous_entry_sha256": null,
+    "append_only_chain_valid": true
+  },
+  "human_results": {
+    "completed_judgment_count": 0,
+    "independent_reviewer_count": 0,
+    "v2_fabrication_observed_count": null,
+    "v2_fabrication_uncertain_count": null,
+    "false_positive_count": null,
+    "false_negative_count": null,
+    "v2_preferred_count": null,
+    "v1_preferred_count": null,
+    "tie_count": null,
+    "v2_technical_correctness_pass_rate": null,
+    "v2_answer_support_pass_rate": null,
+    "v2_summary_coverage_pass_rate": null,
+    "v2_actionability_pass_rate": null,
+    "v2_tone_calibration_pass_rate": null,
+    "v2_helpfulness_noninferiority_rate": null
+  },
+  "gate_sample_closure": {
+    "adversarial_experience_fabrication_observed_count": {
+      "minimum": 20,
+      "available": 20,
+      "unit": "critical_cases"
+    },
+    "cross_question_summary_coverage_rate": {
+      "minimum": 20,
+      "available": 24,
+      "unit": "pairs"
+    },
+    "technical_correctness_blind_review_pass_rate": {
+      "minimum": 20,
+      "available": 24,
+      "unit": "pairs"
+    },
+    "actionability_blind_review_pass_rate": {
+      "minimum": 20,
+      "available": 24,
+      "unit": "pairs"
+    }
+  },
+  "automatic_review_fixes": [
+    "revalidated the complete append-only ledger on every append instead of using unchecked model_copy updates",
+    "made Provider-component failure and publish_degraded disposition validation bidirectional",
+    "closed dataset and coordinator manifest by ID, version, raw hash, canonical hash, pair set, source boundary, scenario coverage, and GateConfig sample minimums",
+    "generated and replayed separate reviewer and coordinator-only artifacts",
+    "persisted a truthful NOT_RUN Gate result with every human-derived metric set to null",
+    "pinned every T49 frozen JSON artifact to LF so raw SHA-256 remains stable with core.autocrlf enabled"
+  ],
+  "verification": {
+    "t49_dataset_ledger_focused_passed": 10,
+    "semantic_protocol_and_t49_passed": 27,
+    "report_regression_passed": 419,
+    "report_regression_skipped": 0,
+    "postgresql": "16.14",
+    "pgvector": "0.8.6",
+    "compileall": "PASS",
+    "online_runtime_import_scan": "PASS_ZERO_MATCHES",
+    "json_pydantic_hash_replay": "PASS",
+    "frozen_json_eol": "PASS_LF",
+    "diff_check": "PASS"
+  },
+  "truthfulness_limits": [
+    "No independent technical reviewer has completed the frozen packet.",
+    "No human fabrication observed_count is published.",
+    "No v2-over-v1 preference, non-inferiority, or superiority claim is made.",
+    "The optional offline Judge and Provider were not called.",
+    "The synthetic cohort does not estimate population-wide quality or prove zero fabrication probability.",
+    "T49 Engineering PASS does not establish Gate 4 Quality PASS."
+  ]
+}
