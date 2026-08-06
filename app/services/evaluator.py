@@ -24,6 +24,11 @@ from app.services.report_coverage import (
 )
 from app.services.report_contract import build_report_evidence_refs
 from app.services.report_observations import aggregate_report_observations
+from app.services.report_summary import (
+    REPORT_SUMMARY_PROMPT_SHA256,
+    REPORT_SUMMARY_PROMPT_VERSION,
+    build_cross_question_summary,
+)
 from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_SHA256,
     REPORT_SCORING_RUBRIC_VERSION,
@@ -124,6 +129,18 @@ def build_fallback_report(
         dimension_evaluations=report_dimension_evaluations,
         evidence_refs=report_evidence_refs,
     )
+    report_coverage = ReportCoverageV2(
+        status=coverage.coverage_status,
+        evaluated_count=coverage.evaluated_count,
+        total_eligible_count=coverage.total_eligible_count,
+        evidence_count=coverage.evidence_count,
+        per_dimension=report_dimension_evaluations,
+    )
+    summary_result = build_cross_question_summary(
+        observations=observations,
+        coverage=report_coverage,
+        evidence_refs=report_evidence_refs,
+    )
     return InterviewReport(
         session_id=state["session_id"],
         report_schema_version=REPORT_SCHEMA_VERSION_V2,
@@ -140,13 +157,10 @@ def build_fallback_report(
         evidence_count=0,
         dimension_evaluations=report_dimension_evaluations,
         question_evaluations=question_evaluations(feedbacks),
-        coverage=ReportCoverageV2(
-            status=coverage.coverage_status,
-            evaluated_count=coverage.evaluated_count,
-            total_eligible_count=coverage.total_eligible_count,
-            evidence_count=coverage.evidence_count,
-            per_dimension=report_dimension_evaluations,
-        ),
+        coverage=report_coverage,
+        summary_observations=summary_result.summary_observations,
+        strengths=summary_result.strengths,
+        limitations=summary_result.limitations,
         evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
             reason_codes=[
@@ -155,14 +169,15 @@ def build_fallback_report(
             ],
             report_path="heuristic",
             observations=observations,
+            summary_prompt_version=REPORT_SUMMARY_PROMPT_VERSION,
+            summary_prompt_sha256=REPORT_SUMMARY_PROMPT_SHA256,
+            summary_generation_mode="deterministic_fallback",
             metadata={"coverage_status": coverage.coverage_status},
         ),
         report_path="heuristic",
         scoring_rubric_version=REPORT_SCORING_RUBRIC_VERSION,
         scoring_rubric_sha256=REPORT_SCORING_RUBRIC_SHA256,
-        summary=(
-            "AI 评估未能生成完整报告，请结合原始回答继续复盘。"
-        ),
+        summary=summary_result.summary,
         highlights=["已完成本次模拟面试"],
         is_fallback=True,
         feedbacks=feedbacks,

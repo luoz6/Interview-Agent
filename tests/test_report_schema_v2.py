@@ -64,8 +64,9 @@ def test_new_reports_publish_independent_v2_semantic_fields():
     assert report.coverage is not None
     assert report.coverage.status == report.coverage_status
     assert set(report.coverage.per_dimension) == set(REPORT_DIMENSIONS)
-    assert report.summary_observations == []
-    assert report.strengths == []
+    assert report.summary_observations
+    assert all(item.observation_refs for item in report.summary_observations)
+    assert all(item.evidence_refs for item in report.summary_observations)
     assert report.priority_actions == []
     assert report.limitations == []
     assert {item.namespace for item in report.evidence_refs} == {
@@ -73,6 +74,9 @@ def test_new_reports_publish_independent_v2_semantic_fields():
         "reference",
     }
     assert report.technical_appendix.report_path == "full_session"
+    assert report.technical_appendix.summary_prompt_version
+    assert report.technical_appendix.summary_prompt_sha256
+    assert report.technical_appendix.summary_generation_mode == "deterministic"
 
 
 def test_v2_claims_and_actions_must_reference_published_evidence():

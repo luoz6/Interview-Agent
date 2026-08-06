@@ -94,6 +94,7 @@ class ReportEvidenceRefV2(BaseModel):
 
 class ReportClaimV2(BaseModel):
     claim_id: str = Field(min_length=1, max_length=160)
+    kind: Literal["conclusion", "strength", "gap", "risk"] = "conclusion"
     text: str = Field(min_length=1, max_length=2000)
     observation_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(min_length=1)
@@ -114,6 +115,7 @@ class ReportLimitationV2(BaseModel):
     limitation_id: str = Field(min_length=1, max_length=160)
     text: str = Field(min_length=1, max_length=2000)
     reason_code: str = Field(min_length=1, max_length=160)
+    observation_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
 
 
@@ -156,6 +158,16 @@ class ReportTechnicalAppendixV2(BaseModel):
     reason_codes: list[str] = Field(default_factory=list)
     report_path: str | None = None
     observations: list[ReportObservationV2] = Field(default_factory=list)
+    summary_prompt_version: str | None = None
+    summary_prompt_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    summary_generation_mode: Literal[
+        "deterministic",
+        "provider",
+        "deterministic_fallback",
+    ] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -134,7 +134,10 @@ def test_assemble_interview_report_uses_explicit_highlights_not_rationale():
     assert "should not become a highlight" not in " ".join(
         report.highlights
     ).lower()
-    assert "cache-aside" in report.summary.lower()
+    assert report.summary != "Covered cache-aside tradeoffs"
+    assert "本轮" in report.summary
+    assert report.technical_appendix.summary_prompt_version
+    assert report.technical_appendix.summary_prompt_sha256
 
 
 def test_assemble_interview_report_falls_back_to_short_critique_snippets():

@@ -637,7 +637,8 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.summary == "Explained delete-after-write but missed race-window handling."
+    assert "本轮证据不足" in report.summary
+    assert report.summary != " ".join(report.highlights)
     assert report.overall_score is None
     assert report.overall_dimension_scores.depth is None
     assert report.score_status == "unscored"
@@ -667,7 +668,8 @@ def test_generate_report_normalizes_sparse_deepseek_raw_json():
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
     assert report.overall_score is None
-    assert report.summary == "Measured latency improvement with Redis cache-aside."
+    assert "本轮证据不足" in report.summary
+    assert report.summary != " ".join(report.highlights)
     assert report.feedbacks[0].score is None
     assert report.feedbacks[0].evaluation_status == "insufficient_evidence"
     assert "cache-aside pattern" in report.feedbacks[0].rationale
@@ -695,7 +697,8 @@ def test_generate_report_normalizes_evaluation_results_raw_json():
     assert report.is_fallback is False
     assert report.overall_score is None
     assert report.overall_dimension_scores.engineering is None
-    assert report.summary == "Mentioned p95 latency reduction. Described update-then-delete pattern."
+    assert "本轮证据不足" in report.summary
+    assert report.summary != " ".join(report.highlights)
     assert report.highlights == [
         "Mentioned p95 latency reduction.",
         "Described update-then-delete pattern.",

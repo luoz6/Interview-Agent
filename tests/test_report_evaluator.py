@@ -214,10 +214,13 @@ def test_evaluator_returns_fallback_completed_report_when_structured_output_fail
     assert report.report_schema_version == "report-schema-v2"
     assert report.presentation_version == "report-presentation-v2"
     assert report.coverage is not None
-    assert (
-        report.summary
-        == "AI 评估未能生成完整报告，请结合原始回答继续复盘。"
+    assert "本轮证据不足" in report.summary
+    assert "本轮未充分考察" in report.summary
+    assert report.technical_appendix.summary_generation_mode == (
+        "deterministic_fallback"
     )
+    assert report.technical_appendix.summary_prompt_version
+    assert report.technical_appendix.summary_prompt_sha256
     assert len(report.feedbacks) == 2
     assert {feedback.question_id for feedback in report.feedbacks} == {"q1", "q2"}
     assert all(feedback.score is None for feedback in report.feedbacks)

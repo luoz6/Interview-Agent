@@ -1,3 +1,5 @@
+from typing import Any, Callable
+
 from pydantic import BaseModel, Field
 
 from app.services.report import (
@@ -22,6 +24,7 @@ from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_VERSION,
 )
 from app.services.report_observations import aggregate_report_observations
+from app.services.report_summary import build_cross_question_summary
 
 
 class CanonicalQuestionResult(BaseModel):
@@ -47,6 +50,7 @@ def assemble_interview_report(
     session_id: str,
     question_results: list[CanonicalQuestionResult],
     reference_lookup: dict[str, dict[str, str]],
+    summary_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> InterviewReport:
     if not question_results:
         raise ValueError("question_results must not be empty")
@@ -80,13 +84,25 @@ def assemble_interview_report(
     coverage = aggregate_report_coverage(feedbacks)
 
     highlights = _build_highlights(question_results)
-    summary = _build_summary(question_results, highlights)
     report_dimension_evaluations = dimension_evaluations(coverage)
     report_evidence_refs = build_report_evidence_refs(feedbacks)
     observations = aggregate_report_observations(
         feedbacks=feedbacks,
         dimension_evaluations=report_dimension_evaluations,
         evidence_refs=report_evidence_refs,
+    )
+    report_coverage = ReportCoverageV2(
+        status=coverage.coverage_status,
+        evaluated_count=coverage.evaluated_count,
+        total_eligible_count=coverage.total_eligible_count,
+        evidence_count=coverage.evidence_count,
+        per_dimension=report_dimension_evaluations,
+    )
+    summary_result = build_cross_question_summary(
+        observations=observations,
+        coverage=report_coverage,
+        evidence_refs=report_evidence_refs,
+        provider=summary_provider,
     )
 
     return InterviewReport(
@@ -95,6 +111,10 @@ def assemble_interview_report(
         presentation_version=REPORT_PRESENTATION_VERSION_V2,
         overall_score=coverage.overall_score,
         overall_dimension_scores=coverage.overall_dimension_scores,
+        generation_status=(
+            "degraded" if summary_result.degraded else "complete"
+        ),
+        generation_reason_code=summary_result.reason_code,
         score_status=coverage.score_status,
         score_reason_code=coverage.score_reason_code,
         coverage_status=coverage.coverage_status,
@@ -105,21 +125,21 @@ def assemble_interview_report(
         scoring_rubric_sha256=REPORT_SCORING_RUBRIC_SHA256,
         dimension_evaluations=report_dimension_evaluations,
         question_evaluations=question_evaluations(feedbacks),
-        coverage=ReportCoverageV2(
-            status=coverage.coverage_status,
-            evaluated_count=coverage.evaluated_count,
-            total_eligible_count=coverage.total_eligible_count,
-            evidence_count=coverage.evidence_count,
-            per_dimension=report_dimension_evaluations,
-        ),
+        coverage=report_coverage,
+        summary_observations=summary_result.summary_observations,
+        strengths=summary_result.strengths,
+        limitations=summary_result.limitations,
         evidence_refs=report_evidence_refs,
         technical_appendix=ReportTechnicalAppendixV2(
             reason_codes=[coverage.score_reason_code],
             report_path="full_session",
             observations=observations,
+            summary_prompt_version=summary_result.prompt_version,
+            summary_prompt_sha256=summary_result.prompt_sha256,
+            summary_generation_mode=summary_result.generation_mode,
             metadata={"coverage_status": coverage.coverage_status},
         ),
-        summary=summary,
+        summary=summary_result.summary,
         highlights=highlights,
         feedbacks=feedbacks,
     )
@@ -174,15 +194,6 @@ def _build_highlights(question_results: list[CanonicalQuestionResult]) -> list[s
         return highlights
 
     return [_short_snippet(result.critique) for result in question_results[:3]]
-
-
-def _build_summary(
-    question_results: list[CanonicalQuestionResult],
-    highlights: list[str],
-) -> str:
-    if highlights:
-        return " ".join(highlights)
-    return " ".join(result.rationale for result in question_results[:2]).strip()
 
 
 def _short_snippet(text: str, max_length: int = 80) -> str:
