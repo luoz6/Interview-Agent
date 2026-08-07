@@ -180,6 +180,7 @@ def test_complete_real_saved_output_requires_usage_and_matching_model():
         {
             "input_tokens": 10,
             "output_tokens": 2,
+            "cached_input_tokens": 0,
             "provider_model": "deepseek-v4-pro",
         }
     )

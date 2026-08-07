@@ -1,7 +1,12 @@
 import re
+import json
+import hashlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+import app.services.followup_prompts as followup_prompts
 
 from app.services.decision_store import DecisionContract
 from app.services.followup_prompts import (
@@ -12,9 +17,16 @@ from app.services.followup_prompts import (
     StructuredFollowupDecisionProvider,
     StructuredFollowupGenerationProvider,
     StructuredFollowupOutputError,
+    build_followup_decision_provider,
+    build_followup_decision_provider_for_llm,
     generation_context_for_decision,
     render_followup_decision_prompt,
     render_followup_generation_prompt,
+    resolve_followup_decision_output_mode,
+)
+from app.services.provider_usage import (
+    consume_provider_context_metadata,
+    reset_provider_context_metadata,
 )
 
 
@@ -34,11 +46,24 @@ def decision(**updates):
 
 
 def test_decision_and_generation_prompts_have_independent_frozen_lineage():
-    assert FOLLOWUP_DECISION_PROMPT_VERSION == "followup-decision-v1"
+    assert FOLLOWUP_DECISION_PROMPT_VERSION == "followup-decision-v2"
     assert FOLLOWUP_GENERATION_PROMPT_VERSION == "followup-generation-v1"
     assert re.fullmatch(r"[0-9a-f]{64}", FOLLOWUP_DECISION_PROMPT_SHA256)
     assert re.fullmatch(r"[0-9a-f]{64}", FOLLOWUP_GENERATION_PROMPT_SHA256)
     assert FOLLOWUP_DECISION_PROMPT_SHA256 != FOLLOWUP_GENERATION_PROMPT_SHA256
+    assert FOLLOWUP_DECISION_PROMPT_SHA256 == hashlib.sha256(
+        followup_prompts._DECISION_PROMPT_TEMPLATE.encode("utf-8")
+    ).hexdigest()
+
+
+def test_followup_decision_v2_adr_binds_current_prompt_lineage():
+    adr = Path(
+        "docs/adr/followup-decision-provider-protocol-v2.md"
+    ).read_text(encoding="utf-8")
+
+    assert FOLLOWUP_DECISION_PROMPT_VERSION in adr
+    assert FOLLOWUP_DECISION_PROMPT_SHA256 in adr
+    assert "missing or empty model identity -> fail closed before request" in adr
 
 
 def test_decision_prompt_forbids_question_score_reference_answer_and_reasoning():
@@ -55,6 +80,9 @@ def test_decision_prompt_forbids_question_score_reference_answer_and_reasoning()
     assert "numeric score" in prompt
     assert "hidden reasoning" in prompt
     assert "reference or ideal answer" in prompt
+    assert "DECISION_JSON_SCHEMA=" in prompt
+    assert '"additionalProperties":false' in prompt
+    assert "Do not wrap the JSON in markdown code fences" in prompt
 
 
 def test_generation_prompt_consumes_only_bounded_decision_target():
@@ -173,7 +201,11 @@ def test_structured_generation_provider_preserves_usage_and_binds_budget():
             self.prompt = prompt
             return SimpleNamespace(
                 content="  What failed during recovery?  ",
-                usage_metadata={"input_tokens": 30, "output_tokens": 6},
+                usage_metadata={
+                    "input_tokens": 30,
+                    "output_tokens": 6,
+                    "input_token_details": {"cache_read": 0},
+                },
                 response_metadata={"model_name": "deepseek-chat"},
                 id="generation-1",
             )
@@ -207,7 +239,11 @@ def test_structured_decision_parse_error_retains_metering_metadata():
         def invoke(self, prompt):
             return {
                 "raw": SimpleNamespace(
-                    usage_metadata={"input_tokens": 40, "output_tokens": 8},
+                    usage_metadata={
+                        "input_tokens": 40,
+                        "output_tokens": 8,
+                        "input_token_details": {"cache_read": 0},
+                    },
                     response_metadata={"model_name": "deepseek-chat"},
                     id="invalid-response",
                 ),
@@ -228,3 +264,273 @@ def test_structured_decision_parse_error_retains_metering_metadata():
     assert raised.value.output_tokens == 8
     assert raised.value.provider_model == "deepseek-chat"
     assert raised.value.provider_response_id == "invalid-response"
+
+
+def test_followup_decision_output_mode_uses_exact_model_mapping():
+    assert resolve_followup_decision_output_mode("deepseek-v4-pro") == "raw_only"
+    assert (
+        resolve_followup_decision_output_mode("deepseek-v4-flash")
+        == "structured_first"
+    )
+    assert resolve_followup_decision_output_mode("DeepSeek-V4-Pro") == "structured_first"
+    assert resolve_followup_decision_output_mode("deepseek-v4-pro-preview") == "structured_first"
+    assert resolve_followup_decision_output_mode("other-model") == "structured_first"
+
+
+class RawDecisionChatModel:
+    def __init__(self, content: str, *, model: str = "deepseek-v4-pro"):
+        self.content = content
+        self.model = model
+        self.bound = None
+        self.invoke_count = 0
+        self.structured_count = 0
+
+    def bind(self, **kwargs):
+        self.bound = kwargs
+        return self
+
+    def with_structured_output(self, *args, **kwargs):
+        self.structured_count += 1
+        raise AssertionError("raw_only must not construct a structured request")
+
+    def invoke(self, prompt):
+        self.invoke_count += 1
+        self.prompt = prompt
+        return SimpleNamespace(
+            content=self.content,
+            usage_metadata={
+                "input_tokens": 55,
+                "output_tokens": 13,
+                "input_token_details": {"cache_read": 8},
+            },
+            response_metadata={"model_name": self.model},
+            id="raw-decision-1",
+        )
+
+
+def raw_decision_json(**updates) -> str:
+    payload = decision().model_dump(mode="json")
+    payload.update(updates)
+    return json.dumps(payload)
+
+
+def test_raw_only_decision_is_one_metered_request_with_exact_model():
+    chat = RawDecisionChatModel(raw_decision_json())
+    provider = build_followup_decision_provider(
+        chat,
+        model="deepseek-v4-pro",
+        max_tokens=333,
+    )
+    reset_provider_context_metadata()
+
+    result = provider({"question": "q", "candidate_answers": ["a"]})
+    usage = consume_provider_context_metadata()
+
+    assert provider.output_mode == "raw_only"
+    assert chat.bound == {"max_tokens": 333}
+    assert chat.invoke_count == 1
+    assert chat.structured_count == 0
+    assert result.decision == decision()
+    assert result.input_tokens == 55
+    assert result.output_tokens == 13
+    assert result.cached_input_tokens == 8
+    assert result.provider_model == "deepseek-v4-pro"
+    assert result.provider_response_id == "raw-decision-1"
+    assert usage["provider_attempt_count"] == 1
+    assert usage["provider_metered_attempt_count"] == 1
+    assert usage["provider_usage_available"] is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "```json\n{}\n```",
+        "Here is the result: {}",
+        "{} trailing",
+        "{} {}",
+        "[]",
+        '"scalar"',
+        '{"action":"follow_up","action":"next_question"}',
+        '{"nested":{"key":1,"key":2}}',
+        raw_decision_json(extra_field=True),
+        raw_decision_json(action="next_question"),
+    ],
+)
+def test_raw_only_decision_rejects_noncanonical_or_invalid_json_once(content):
+    chat = RawDecisionChatModel(content)
+    provider = build_followup_decision_provider(
+        chat,
+        model="deepseek-v4-pro",
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(StructuredFollowupOutputError) as raised:
+        provider({"question": "q", "candidate_answers": ["a"]})
+    usage = consume_provider_context_metadata()
+
+    assert chat.invoke_count == 1
+    assert chat.structured_count == 0
+    assert raised.value.input_tokens == 55
+    assert raised.value.output_tokens == 13
+    assert raised.value.cached_input_tokens == 8
+    assert raised.value.provider_model == "deepseek-v4-pro"
+    assert str(raised.value) == (
+        "Provider Decision raw response failed JSON/schema validation"
+    )
+    assert usage["provider_attempt_count"] == 1
+    assert usage["provider_metered_attempt_count"] == 1
+    assert usage["provider_usage_available"] is True
+
+
+@pytest.mark.parametrize("content", [None, [], {}])
+def test_raw_only_decision_rejects_non_text_content_after_metering(content):
+    chat = RawDecisionChatModel(content)  # type: ignore[arg-type]
+    provider = build_followup_decision_provider(
+        chat,
+        model="deepseek-v4-pro",
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(StructuredFollowupOutputError) as raised:
+        provider({"question": "q", "candidate_answers": ["a"]})
+    usage = consume_provider_context_metadata()
+
+    assert chat.invoke_count == 1
+    assert raised.value.input_tokens == 55
+    assert raised.value.output_tokens == 13
+    assert str(raised.value) == (
+        "Provider Decision raw response failed JSON/schema validation"
+    )
+    assert usage["provider_metered_attempt_count"] == 1
+
+
+def test_structured_schema_validation_failure_retains_raw_usage():
+    class StructuredModel:
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            return {
+                "raw": SimpleNamespace(
+                    usage_metadata={
+                        "input_tokens": 41,
+                        "output_tokens": 7,
+                        "input_token_details": {"cache_read": 2},
+                    },
+                    response_metadata={"model_name": "other-model"},
+                    id="structured-schema-invalid",
+                ),
+                "parsed": {"action": "not-an-action"},
+                "parsing_error": None,
+            }
+
+    class ChatModel:
+        def with_structured_output(self, *args, **kwargs):
+            return StructuredModel()
+
+    with pytest.raises(StructuredFollowupOutputError) as raised:
+        build_followup_decision_provider(
+            ChatModel(),
+            model="other-model",
+        )({"question": "q", "candidate_answers": ["a"]})
+
+    assert raised.value.input_tokens == 41
+    assert raised.value.output_tokens == 7
+    assert raised.value.cached_input_tokens == 2
+    assert raised.value.provider_model == "other-model"
+
+
+def test_raw_only_decision_model_mismatch_fails_after_metering_without_retry():
+    chat = RawDecisionChatModel(raw_decision_json(), model="deepseek-v4-flash")
+    provider = build_followup_decision_provider(
+        chat,
+        model="deepseek-v4-pro",
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(StructuredFollowupOutputError, match="model") as raised:
+        provider({"question": "q", "candidate_answers": ["a"]})
+    usage = consume_provider_context_metadata()
+
+    assert chat.invoke_count == 1
+    assert raised.value.provider_model == "deepseek-v4-flash"
+    assert usage["provider_attempt_count"] == 1
+    assert usage["provider_metered_attempt_count"] == 1
+
+
+def test_invalid_followup_decision_output_mode_is_rejected_before_request():
+    chat = RawDecisionChatModel(raw_decision_json())
+
+    with pytest.raises(ValueError, match="unsupported followup Decision output_mode"):
+        StructuredFollowupDecisionProvider(
+            chat,
+            output_mode="invalid",  # type: ignore[arg-type]
+        )
+
+    assert chat.invoke_count == 0
+    assert chat.structured_count == 0
+
+
+@pytest.mark.parametrize("model", [None, ""])
+def test_followup_decision_factory_requires_exact_model_before_request(model):
+    chat = RawDecisionChatModel(raw_decision_json())
+
+    with pytest.raises(ValueError, match="requires an exact configured model"):
+        build_followup_decision_provider(chat, model=model)  # type: ignore[arg-type]
+
+    assert chat.invoke_count == 0
+    assert chat.structured_count == 0
+
+
+def test_llm_factory_uses_configured_model_and_fails_closed_without_it():
+    raw_llm = SimpleNamespace(
+        chat_model=RawDecisionChatModel(raw_decision_json()),
+        config=SimpleNamespace(model="deepseek-v4-pro"),
+    )
+    structured_llm = SimpleNamespace(
+        chat_model=object(),
+        config=SimpleNamespace(model="other-model"),
+    )
+
+    raw_provider = build_followup_decision_provider_for_llm(raw_llm)
+    structured_provider = build_followup_decision_provider_for_llm(structured_llm)
+
+    assert raw_provider.output_mode == "raw_only"
+    assert raw_provider.expected_model == "deepseek-v4-pro"
+    assert structured_provider.output_mode == "structured_first"
+    assert structured_provider.expected_model == "other-model"
+    with pytest.raises(ValueError, match="requires an exact configured model"):
+        build_followup_decision_provider_for_llm(
+            SimpleNamespace(chat_model=object())
+        )
+
+
+def test_raw_only_decision_normalizes_response_metadata_usage_aliases():
+    class AliasUsageModel(RawDecisionChatModel):
+        def invoke(self, prompt):
+            self.invoke_count += 1
+            return SimpleNamespace(
+                content=self.content,
+                usage_metadata=None,
+                response_metadata={
+                    "model_name": "deepseek-v4-pro",
+                    "token_usage": {
+                        "prompt_tokens": 60,
+                        "completion_tokens": 14,
+                        "prompt_cache_hit_tokens": 9,
+                    },
+                },
+                id="raw-decision-alias-usage",
+            )
+
+    chat = AliasUsageModel(raw_decision_json())
+    result = build_followup_decision_provider(
+        chat,
+        model="deepseek-v4-pro",
+    )({"question": "q", "candidate_answers": ["a"]})
+
+    assert chat.invoke_count == 1
+    assert result.input_tokens == 60
+    assert result.output_tokens == 14
+    assert result.cached_input_tokens == 9

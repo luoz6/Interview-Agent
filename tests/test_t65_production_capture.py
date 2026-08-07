@@ -28,6 +28,21 @@ from app.services.t65_provider_http_transport import (
     T65ProviderTransportIdentity,
     T65ProviderTransportRejected,
 )
+from app.services.t65_formal_execution_receipt import (
+    REQUIRED_FORMAL_EXECUTOR_PATHS,
+)
+
+
+def test_executor_surface_covers_followup_runtime_protocol_dependencies():
+    required = {
+        "app/graphs/durable_interview_graph.py",
+        "app/services/followup_diagnostics.py",
+        "app/services/followup_prompts.py",
+        "app/services/provider_usage.py",
+    }
+
+    assert required.issubset(EXECUTOR_CODE_PATHS)
+    assert set(EXECUTOR_CODE_PATHS) == REQUIRED_FORMAL_EXECUTOR_PATHS
 
 
 def _identity(**overrides) -> T65ProviderTransportIdentity:

@@ -20,6 +20,7 @@ from app.services.followup_diagnostics import (
 from app.services.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
+    ProviderModelMismatchError,
 )
 
 
@@ -190,6 +191,30 @@ class FollowupDecisionExecutionService:
                         provider_result.provider_response_id
                     )
                     decision = provider_result.decision
+            except ProviderModelMismatchError as mismatch:
+                input_tokens = _safe_usage_int(mismatch, "input_tokens")
+                output_tokens = _safe_usage_int(mismatch, "output_tokens")
+                cached_input_tokens = _safe_usage_int(
+                    mismatch,
+                    "cached_input_tokens",
+                )
+                provider_response_id_sha256 = _sha256_optional_text(
+                    _safe_usage_text(mismatch, "provider_response_id")
+                )
+                self.store.fail(
+                    attempt.attempt_id,
+                    worker_id=worker_id,
+                    lease_token=attempt.lease_token,
+                    error_code="provider_model_mismatch",
+                    duration_ms=_duration_ms(self.clock(), attempt_started),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cached_input_tokens=cached_input_tokens,
+                    provider_response_id_sha256=provider_response_id_sha256,
+                    provider_invocations=attempt_provider_invocations,
+                    terminal=True,
+                )
+                raise
             except _DecisionProviderFailure as failure:
                 error_code = failure.error_code
                 input_tokens = failure.input_tokens
@@ -278,6 +303,8 @@ class FollowupDecisionExecutionService:
             raise _DecisionProviderFailure("provider_failed")
         try:
             raw = self.provider(dict(diagnostics.provider_context))
+        except ProviderModelMismatchError:
+            raise
         except TimeoutError as exc:
             raise _DecisionProviderFailure("provider_timeout", source=exc) from exc
         except (ValidationError, ValueError, TypeError) as exc:

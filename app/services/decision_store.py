@@ -350,6 +350,7 @@ class InMemoryDecisionStore:
         cached_input_tokens: int | None = None,
         provider_response_id_sha256: str | None = None,
         provider_invocations: int = 0,
+        terminal: bool = False,
     ) -> DecisionAttempt:
         _validate_decision_attempt_usage(
             input_tokens=input_tokens,
@@ -380,7 +381,11 @@ class InMemoryDecisionStore:
                 }
             )
             self._attempts[attempt_id] = failed
-            if attempt.attempt_number < self._decisions[attempt.decision_id].max_attempts:
+            if (
+                not terminal
+                and attempt.attempt_number
+                < self._decisions[attempt.decision_id].max_attempts
+            ):
                 next_attempt = DecisionAttempt(
                     attempt_id=str(uuid4()),
                     decision_id=attempt.decision_id,

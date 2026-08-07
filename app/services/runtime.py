@@ -989,6 +989,17 @@ def get_runtime_signal_store():
     return _runtime_signal_store
 
 
+def build_runtime_followup_decision_provider(store):
+    from app.services.followup_prompts import (
+        build_followup_decision_provider_for_llm,
+    )
+
+    llm = store.llm
+    if llm is None or not hasattr(llm, "chat_model"):
+        return None
+    return build_followup_decision_provider_for_llm(llm)
+
+
 def build_interview_workflow_service():
     from app.agents.examiner import ExaminerAgent
     from app.graphs.durable_interview_graph import (
@@ -1003,9 +1014,6 @@ def build_interview_workflow_service():
     from app.services.interview_workflow import InterviewWorkflowService
     from app.services.followup_decision_service import (
         FollowupDecisionExecutionService,
-    )
-    from app.services.followup_prompts import (
-        StructuredFollowupDecisionProvider,
     )
     from app.services.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
@@ -1037,11 +1045,7 @@ def build_interview_workflow_service():
         table_prefix=prefix,
         schema_mode="validate",
     )
-    decision_provider = (
-        StructuredFollowupDecisionProvider(store.llm.chat_model)
-        if store.llm is not None and hasattr(store.llm, "chat_model")
-        else None
-    )
+    decision_provider = build_runtime_followup_decision_provider(store)
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,

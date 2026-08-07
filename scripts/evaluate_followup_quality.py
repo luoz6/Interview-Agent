@@ -41,9 +41,11 @@ from app.services.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_VERSION,
     FOLLOWUP_GENERATION_PROMPT_SHA256,
     FOLLOWUP_GENERATION_PROMPT_VERSION,
-    StructuredFollowupDecisionProvider,
+    ProviderModelMismatchError,
     StructuredFollowupGenerationProvider,
+    build_followup_decision_provider,
     generation_context_for_decision,
+    resolve_followup_decision_output_mode,
 )
 from app.services.followup_provider_preflight import (
     discover_deepseek_provider,
@@ -187,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
             "provider": authorization.provider.name,
             "model": authorization.provider.model_id,
             "base_url": authorization.provider.base_url,
+            "decision_output_mode": resolve_followup_decision_output_mode(
+                authorization.provider.model_id
+            ),
             "decision_prompt_version": FOLLOWUP_DECISION_PROMPT_VERSION,
             "decision_prompt_sha256": FOLLOWUP_DECISION_PROMPT_SHA256,
             "generation_prompt_version": FOLLOWUP_GENERATION_PROMPT_VERSION,
@@ -484,7 +489,11 @@ def _record_live_provider_responses(
         max_retries=0,
     )
     chat_model = OpenAIInterviewLLM._build_chat_model(config)
-    decision_inner = StructuredFollowupDecisionProvider(chat_model, max_tokens=300)
+    decision_inner = build_followup_decision_provider(
+        chat_model,
+        model=authorization.provider.model_id,
+        max_tokens=300,
+    )
     generation_provider = StructuredFollowupGenerationProvider(
         chat_model,
         max_tokens=120,
@@ -502,14 +511,20 @@ def _record_live_provider_responses(
             provider=recording,
         )
         request = _diagnostic_request(case)
-        result = service.execute(
-            request,
-            source_command_id=f"provider-eval:{case.case_id}",
-            worker_id="provider-eval",
-        )
+        try:
+            result = service.execute(
+                request,
+                source_command_id=f"provider-eval:{case.case_id}",
+                worker_id="provider-eval",
+            )
+        except ProviderModelMismatchError:
+            result = None
+            hard_stops.append("PROVIDER_OR_MODEL_MISMATCH")
         generation_attempts: list[SavedGenerationAttempt] = []
         if any(
-            item.input_tokens is None or item.output_tokens is None
+            item.input_tokens is None
+            or item.output_tokens is None
+            or item.cached_input_tokens is None
             for item in recording.attempts
         ):
             hard_stops.append("USAGE_METERING_UNAVAILABLE")
@@ -519,7 +534,7 @@ def _record_live_provider_responses(
             if item.input_tokens is not None and item.output_tokens is not None
         ):
             hard_stops.append("PROVIDER_OR_MODEL_MISMATCH")
-        decision = result.decision
+        decision = result.decision if result is not None else None
         if not hard_stops and decision is not None and decision.action == "follow_up":
             context = generation_context_for_decision(
                 _generation_transcript(case),
@@ -559,7 +574,11 @@ def _record_live_provider_responses(
                         latency_seconds=time.perf_counter() - generation_started,
                     )
                 )
-                if generation.input_tokens is None or generation.output_tokens is None:
+                if (
+                    generation.input_tokens is None
+                    or generation.output_tokens is None
+                    or generation.cached_input_tokens is None
+                ):
                     hard_stops.append("USAGE_METERING_UNAVAILABLE")
                     break
                 if generation.provider_model != authorization.provider.model_id:

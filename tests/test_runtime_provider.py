@@ -6,6 +6,7 @@ import app.services.runtime as runtime_module
 from app.services.runtime import (
     DEFAULT_POSTGRES_DSN,
     build_report_executor,
+    build_runtime_followup_decision_provider,
     build_event_publisher,
     build_report_job_store,
     build_session_store,
@@ -248,6 +249,26 @@ def test_build_report_executor_reuses_session_store_llm_and_vector_store(monkeyp
     assert executor.llm is fake_llm
     assert executor.vector_store is fake_vector_store
     assert created["llm_factory_called"] is False
+
+
+def test_runtime_followup_decision_provider_uses_exact_llm_config():
+    store = SimpleNamespace(
+        llm=SimpleNamespace(
+            chat_model=object(),
+            config=SimpleNamespace(model="deepseek-v4-pro"),
+        )
+    )
+
+    provider = build_runtime_followup_decision_provider(store)
+
+    assert provider.output_mode == "raw_only"
+    assert provider.expected_model == "deepseek-v4-pro"
+
+    missing_model = SimpleNamespace(
+        llm=SimpleNamespace(chat_model=object())
+    )
+    with pytest.raises(ValueError, match="requires an exact configured model"):
+        build_runtime_followup_decision_provider(missing_model)
 
 
 def test_build_report_executor_creates_llm_when_store_has_none(monkeypatch):

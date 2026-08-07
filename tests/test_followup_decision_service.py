@@ -1,8 +1,13 @@
+from types import SimpleNamespace
+
+import pytest
+
 from app.services.decision_store import DecisionContract, InMemoryDecisionStore
 from app.services.followup_decision_service import FollowupDecisionExecutionService
 from app.services.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_SHA256,
     FOLLOWUP_DECISION_PROMPT_VERSION,
+    ProviderModelMismatchError,
 )
 from app.services.followup_diagnostics import stable_followup_fingerprint
 
@@ -129,6 +134,59 @@ def test_invalid_output_retries_once_then_persists_safe_next_fallback():
         "completed",
     ]
     assert len(calls) == 2
+
+
+def test_provider_model_mismatch_is_terminal_and_never_falls_back_or_retries():
+    calls = []
+    store = InMemoryDecisionStore(max_attempts=3)
+    from app.services.followup_diagnostics import diagnose_followup
+
+    diagnostics = diagnose_followup(request())
+    record = store.prepare(
+        session_id="s1",
+        source_command_id="cmd-model-mismatch",
+        input_sha256=diagnostics.input_sha256,
+    )
+
+    def wrong_model_provider(context):
+        calls.append(context)
+        response = SimpleNamespace(
+            usage_metadata={
+                "input_tokens": 70,
+                "output_tokens": 11,
+                "input_token_details": {"cache_read": 6},
+            },
+            response_metadata={"model_name": "deepseek-v4-flash"},
+            id="wrong-model-response",
+        )
+        raise ProviderModelMismatchError(
+            "Provider Decision response model did not match authorization",
+            response=response,
+        )
+
+    service = FollowupDecisionExecutionService(
+        store=store,
+        provider=wrong_model_provider,
+    )
+
+    with pytest.raises(ProviderModelMismatchError):
+        service.execute(
+            request(),
+            source_command_id="cmd-model-mismatch",
+            worker_id="w1",
+        )
+
+    attempts = store.list_attempts(record.decision_id)
+    assert len(calls) == 1
+    assert store.get(record.decision_id).status == "failed"
+    assert len(attempts) == 1
+    assert attempts[0].status == "failed"
+    assert attempts[0].error_code == "provider_model_mismatch"
+    assert attempts[0].provider_invocations == 1
+    assert attempts[0].input_tokens == 70
+    assert attempts[0].output_tokens == 11
+    assert attempts[0].cached_input_tokens == 6
+    assert attempts[0].provider_response_id_sha256 is not None
 
 
 def test_invalid_structured_attempts_preserve_safe_usage_and_hashed_trace():

@@ -282,6 +282,7 @@ class PostgresDecisionStore:
         cached_input_tokens: int | None = None,
         provider_response_id_sha256: str | None = None,
         provider_invocations: int = 0,
+        terminal: bool = False,
     ) -> DecisionAttempt:
         _validate_decision_attempt_usage(
             input_tokens=input_tokens,
@@ -327,7 +328,7 @@ class PostgresDecisionStore:
                 failed_row = cursor.fetchone()
                 if failed_row is None:
                     raise DecisionStoreConflict("decision attempt fencing failed")
-                if int(row[1]) < record.max_attempts:
+                if not terminal and int(row[1]) < record.max_attempts:
                     cursor.execute(
                         sql.SQL(
                             "INSERT INTO {attempts}(attempt_id,decision_id,attempt_number,status,fencing_version) VALUES(%s::uuid,%s::uuid,%s,'pending',%s)"

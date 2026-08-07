@@ -104,6 +104,9 @@ class LLMConfig:
 
 
 class InterviewLLM(Protocol):
+    config: LLMConfig
+    chat_model: Any
+
     def generate_plan(
         self,
         job_description: str,

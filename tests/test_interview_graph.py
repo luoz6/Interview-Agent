@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE, InterviewGraphRunner
@@ -129,6 +131,24 @@ class FakeLLM:
         session_id: str,
     ) -> InterviewReport:
         raise AssertionError("Graph tests do not generate reports")
+
+
+def test_runner_wires_followup_protocol_from_exact_llm_model():
+    llm = SimpleNamespace(
+        chat_model=object(),
+        config=SimpleNamespace(model="deepseek-v4-pro"),
+    )
+    runner = InterviewGraphRunner(llm=llm, examiner=object())
+
+    provider = runner._decision_service.provider
+    assert provider.output_mode == "raw_only"
+    assert provider.expected_model == "deepseek-v4-pro"
+
+    with pytest.raises(ValueError, match="requires an exact configured model"):
+        InterviewGraphRunner(
+            llm=SimpleNamespace(chat_model=object()),
+            examiner=object(),
+        )
 
 
 def test_runner_start_returns_initial_state():

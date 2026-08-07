@@ -39,7 +39,7 @@ from app.services.followup_decision_service import (
     FollowupDecisionExecutionService,
 )
 from app.services.followup_prompts import (
-    StructuredFollowupDecisionProvider,
+    build_followup_decision_provider_for_llm,
     generation_context_for_decision,
 )
 
@@ -74,7 +74,7 @@ class InterviewGraphRunner:
             None,
         )
         decision_provider = (
-            StructuredFollowupDecisionProvider(llm.chat_model)
+            build_followup_decision_provider_for_llm(llm)
             if llm is not None and hasattr(llm, "chat_model")
             else None
         )

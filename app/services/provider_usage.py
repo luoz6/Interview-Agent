@@ -75,7 +75,7 @@ def publish_provider_response(response: Any) -> None:
         model = response_metadata.get("model_name") or response_metadata.get("model")
         if isinstance(model, str) and model:
             metadata["provider_model"] = model
-    usage = _extract_usage(response)
+    usage = extract_provider_usage(response)
     if usage is None:
         metadata["provider_unmetered_attempt_count"] = int(
             metadata.get("provider_unmetered_attempt_count", 0)
@@ -120,7 +120,9 @@ def consume_provider_context_metadata() -> dict[str, Any]:
     return metadata
 
 
-def _extract_usage(response: Any) -> dict[str, int] | None:
+def extract_provider_usage(response: Any) -> dict[str, int] | None:
+    """Normalize complete Provider usage from supported response metadata shapes."""
+
     candidates: list[Mapping[str, Any]] = []
     usage_metadata = getattr(response, "usage_metadata", None)
     if isinstance(usage_metadata, Mapping):

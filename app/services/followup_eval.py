@@ -202,7 +202,11 @@ class SavedFollowupProviderArtifact(BaseModel):
                     *case.decision_attempts,
                     *case.generation_attempts,
                 ]:
-                    if attempt.input_tokens is None or attempt.output_tokens is None:
+                    if (
+                        attempt.input_tokens is None
+                        or attempt.output_tokens is None
+                        or attempt.cached_input_tokens is None
+                    ):
                         raise ValueError(
                             "complete real saved output requires per-request metering"
                         )

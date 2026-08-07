@@ -155,11 +155,16 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
     case_id = "followup-strong-redis-cache-consistency"
     captured = {}
 
-    class Structured:
+    class ChatModel:
+        def __init__(self):
+            self.invoke_calls = 0
+
         def bind(self, **kwargs):
+            captured["bind"] = kwargs
             return self
 
         def invoke(self, prompt):
+            self.invoke_calls += 1
             decision = DecisionContract(
                 action="next_question",
                 answer_state="complete",
@@ -170,19 +175,19 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
                 closed_gap_ids=[],
                 policy_version="adaptive_v1",
             )
-            return {
-                "raw": SimpleNamespace(
-                    usage_metadata={"input_tokens": 20, "output_tokens": 5},
-                    response_metadata={"model_name": "deepseek-v4-pro"},
-                    id="decision-response",
-                ),
-                "parsed": decision,
-                "parsing_error": None,
-            }
+            return SimpleNamespace(
+                content=decision.model_dump_json(),
+                usage_metadata={
+                    "input_tokens": 20,
+                    "output_tokens": 5,
+                    "input_token_details": {"cache_read": 0},
+                },
+                response_metadata={"model_name": "deepseek-v4-pro"},
+                id="decision-response",
+            )
 
-    class ChatModel:
         def with_structured_output(self, *args, **kwargs):
-            return Structured()
+            raise AssertionError("authorized deepseek-v4-pro must use raw_only")
 
     def build_model(config):
         captured["config"] = config
@@ -221,15 +226,17 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
     assert captured["config"].model == "deepseek-v4-pro"
     assert captured["config"].base_url == "https://api.deepseek.com"
     assert captured["config"].max_retries == 0
+    assert captured["bind"] == {"max_tokens": 300}
+    assert manifest["decision_output_mode"] == "raw_only"
     assert manifest["provider_preflight"]["environment_model_ignored"] is True
     assert manifest["provider_called"] is True
     assert manifest["provider_invocations_this_run"] == 1
     assert manifest["planned_inference_requests"] == 1
     assert manifest["inference_attempted"] == 1
-    assert manifest["inference_metered"] == 0
-    assert manifest["cached_input_tokens"] is None
+    assert manifest["inference_metered"] == 1
+    assert manifest["cached_input_tokens"] == 0
     assert manifest["formal_evidence_eligible"] is False
-    assert "USAGE_METERING_UNAVAILABLE" in manifest["hard_stop_conditions"]
+    assert "USAGE_METERING_UNAVAILABLE" not in manifest["hard_stop_conditions"]
     saved = json.loads(
         (tmp_path / "provider-one" / "saved-provider-replay.json").read_text(
             encoding="utf-8"
@@ -282,20 +289,19 @@ def test_live_timeout_stops_before_an_unmetered_retry(monkeypatch):
         if case.case_id == "followup-gap-redis-cache-consistency"
     )
 
-    class TimeoutStructured:
-        def bind(self, **kwargs):
-            return self
-
-        def invoke(self, prompt):
-            model.invoke_calls += 1
-            raise TimeoutError("no metered response")
-
     class TimeoutModel:
         def __init__(self):
             self.invoke_calls = 0
 
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            self.invoke_calls += 1
+            raise TimeoutError("no metered response")
+
         def with_structured_output(self, *args, **kwargs):
-            return TimeoutStructured()
+            raise AssertionError("authorized deepseek-v4-pro must use raw_only")
 
     model = TimeoutModel()
     monkeypatch.setattr(
@@ -318,6 +324,135 @@ def test_live_timeout_stops_before_an_unmetered_retry(monkeypatch):
     assert stops == ["USAGE_METERING_UNAVAILABLE"]
     assert len(artifact.cases[0].decision_attempts) == 1
     assert artifact.cases[0].decision_attempts[0].kind == "timeout"
+
+
+def test_live_missing_cached_usage_hard_stops_after_one_decision(monkeypatch):
+    dataset = load_interview_quality_dataset(DATASET_PATH)
+    case = next(
+        case
+        for case in dataset.cases
+        if case.case_id == "followup-strong-redis-cache-consistency"
+    )
+
+    class MissingCachedUsageModel:
+        def __init__(self):
+            self.invoke_calls = 0
+
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            self.invoke_calls += 1
+            decision = DecisionContract(
+                action="next_question",
+                answer_state="complete",
+                gap_type="none",
+                gap_summary="",
+                reason_code="answer_complete",
+                decision_confidence="high",
+                closed_gap_ids=[],
+                policy_version="adaptive_v1",
+            )
+            return SimpleNamespace(
+                content=decision.model_dump_json(),
+                usage_metadata={"input_tokens": 20, "output_tokens": 5},
+                response_metadata={"model_name": "deepseek-v4-pro"},
+                id="decision-response-missing-cache",
+            )
+
+        def with_structured_output(self, *args, **kwargs):
+            raise AssertionError("authorized deepseek-v4-pro must use raw_only")
+
+    model = MissingCachedUsageModel()
+    monkeypatch.setattr(
+        cli.OpenAIInterviewLLM,
+        "_build_chat_model",
+        staticmethod(lambda config: model),
+    )
+
+    artifact, stops = cli._record_live_provider_responses(
+        dataset.model_copy(update={"cases": [case]}),
+        dataset_sha256=hashlib.sha256(DATASET_PATH.read_bytes()).hexdigest(),
+        authorization=load_provider_authorization(
+            Path("config/interview_quality_v1_provider_authorization.json")
+        ),
+        api_key="not-serialized",
+        timeout_seconds=1,
+    )
+
+    assert model.invoke_calls == 1
+    assert stops == ["USAGE_METERING_UNAVAILABLE"]
+    assert artifact.capture_status == "hard_stopped"
+    assert len(artifact.cases) == 1
+    attempt = artifact.cases[0].decision_attempts[0]
+    assert attempt.input_tokens is None
+    assert attempt.output_tokens is None
+    assert attempt.cached_input_tokens is None
+
+
+def test_live_model_mismatch_hard_stops_after_one_metered_decision(monkeypatch):
+    dataset = load_interview_quality_dataset(DATASET_PATH)
+    case = next(
+        case
+        for case in dataset.cases
+        if case.case_id == "followup-strong-redis-cache-consistency"
+    )
+
+    class WrongModel:
+        def __init__(self):
+            self.invoke_calls = 0
+
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, prompt):
+            self.invoke_calls += 1
+            decision = DecisionContract(
+                action="next_question",
+                answer_state="complete",
+                gap_type="none",
+                gap_summary="",
+                reason_code="answer_complete",
+                decision_confidence="high",
+                closed_gap_ids=[],
+                policy_version="adaptive_v1",
+            )
+            return SimpleNamespace(
+                content=decision.model_dump_json(),
+                usage_metadata={
+                    "input_tokens": 20,
+                    "output_tokens": 5,
+                    "input_token_details": {"cache_read": 0},
+                },
+                response_metadata={"model_name": "deepseek-v4-flash"},
+                id="decision-response-wrong-model",
+            )
+
+    model = WrongModel()
+    monkeypatch.setattr(
+        cli.OpenAIInterviewLLM,
+        "_build_chat_model",
+        staticmethod(lambda config: model),
+    )
+
+    artifact, stops = cli._record_live_provider_responses(
+        dataset.model_copy(update={"cases": [case]}),
+        dataset_sha256=hashlib.sha256(DATASET_PATH.read_bytes()).hexdigest(),
+        authorization=load_provider_authorization(
+            Path("config/interview_quality_v1_provider_authorization.json")
+        ),
+        api_key="not-serialized",
+        timeout_seconds=1,
+    )
+
+    assert model.invoke_calls == 1
+    assert stops == ["PROVIDER_OR_MODEL_MISMATCH"]
+    assert artifact.capture_status == "hard_stopped"
+    attempt = artifact.cases[0].decision_attempts[0]
+    assert attempt.input_tokens == 20
+    assert attempt.output_tokens == 5
+    assert attempt.cached_input_tokens == 0
+    assert attempt.provider_model == "deepseek-v4-flash"
 
 
 def test_provider_full_manifest_is_native_t65_usage_source(monkeypatch, tmp_path):
