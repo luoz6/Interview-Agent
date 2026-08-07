@@ -59,7 +59,15 @@ def _git(*args: str) -> str:
 
 
 def _last_json(path: Path) -> dict:
-    for line in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+    content = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    else:
+        if isinstance(value, dict):
+            return value
+    for line in reversed(content.splitlines()):
         try:
             value = json.loads(line)
         except json.JSONDecodeError:

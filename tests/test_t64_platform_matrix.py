@@ -2,9 +2,29 @@ import json
 
 from scripts.run_t64_platform_matrix import (
     _classify_skip,
+    _last_json,
     _playwright_counts,
     _pytest_counts,
 )
+
+
+def test_t64_platform_runner_parses_pretty_printed_json_log(tmp_path):
+    log = tmp_path / "command.log"
+    expected = {"schema_version": "example-v1", "status": "PASS"}
+    log.write_text(json.dumps(expected, indent=2) + "\n", encoding="utf-8")
+
+    assert _last_json(log) == expected
+
+
+def test_t64_platform_runner_parses_last_json_object_from_mixed_log(tmp_path):
+    log = tmp_path / "command.log"
+    expected = {"schema_version": "example-v1", "status": "PASS"}
+    log.write_text(
+        "diagnostic line\n" + json.dumps(expected) + "\n",
+        encoding="utf-8",
+    )
+
+    assert _last_json(log) == expected
 
 
 def test_t64_platform_runner_parses_pytest_counts_and_skip_identity(tmp_path):
