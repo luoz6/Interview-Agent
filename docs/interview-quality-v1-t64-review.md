@@ -8,7 +8,7 @@ automatic_review=PASS
 quality_status=NOT_REQUIRED_CROSS_PLATFORM_ENGINEERING
 overall_status=PASS
 requirement_mapping=21/21
-tests_passed=6646
+tests_passed=6648
 tests_failed=0
 nonblocking_skips=92
 blocking_skips=0
@@ -19,8 +19,8 @@ traces=0
 open_engineering_findings=0
 ```
 
-T64 已在同一个干净候选提交 `820328c8b0428c31d134e9bc991759dd64611fa2`、tree
-`5f420690d4c54c4c25fb67bfae94b067c270621d` 上完成 Windows 11 x64 与 Ubuntu 24.04 LTS x64
+T64 已在同一个干净候选提交 `214a70646df9f23f38874a2854b9a334a10c269f`、tree
+`83d01ae72a483fb181b435dea4628843aa40c809` 上完成 Windows 11 x64 与 Ubuntu 24.04 LTS x64
 完整验收。跨平台 Gate 为 Engineering PASS；T64 本身不要求真实 Provider Quality PASS，因此
 `quality_status=NOT_REQUIRED_CROSS_PLATFORM_ENGINEERING`。四类质量 replay 的 Engineering 合同通过，
 但其独立评审或真实 Provider 质量结论仍准确保留为 BLOCKED，由 T65 接续，未被本任务冒充为质量通过。
@@ -35,7 +35,7 @@ T64 已在同一个干净候选提交 `820328c8b0428c31d134e9bc991759dd64611fa2`
 | T64-M04 | Node 22 LTS | 两平台均为 22.21.0 | PASS |
 | T64-M05 | PostgreSQL 16 | 两平台均为 16.14，pgvector 0.8.6 | PASS |
 | T64-M06 | 项目锁定 Playwright Chromium | Playwright 1.61.1，Chromium 149.0.7827.55 | PASS |
-| T64-C01 | Python 全量 pytest | 每平台 2955 passed / 0 failed / 3 skipped | PASS |
+| T64-C01 | Python 全量 pytest | 每平台 2956 passed / 0 failed / 3 skipped | PASS |
 | T64-C02 | 可达 DSN 的 PostgreSQL 标记测试 | 每平台 203 passed / 0 failed / 0 skipped；missing-DSN skip=0 | PASS |
 | T64-C03 | migration 和 backup restore | 每平台 7 passed / 0 failed / 0 skipped | PASS |
 | T64-C04 | root 与 frontend `npm ci` | 两平台四次 clean install 全部 PASS，0 vulnerabilities | PASS |
@@ -45,11 +45,11 @@ T64 已在同一个干净候选提交 `820328c8b0428c31d134e9bc991759dd64611fa2`
 | T64-C08 | Playwright preflight 与浏览器测试 | 每平台 91 passed / 0 failed / 43 skipped；preflight PASS | PASS |
 | T64-C09 | 四类冻结质量评测 replay | 两平台四类均 Engineering PASS、Provider calls=0 | PASS_ENGINEERING_ONLY |
 | T64-C10 | 清理端口、进程、trace、截图和临时数据库对象 | 两平台六个 residue 字段全部为 0 | PASS |
-| T64-R01 | 必需测试 0 failure / 0 blocking skip | 6646 passed / 0 failed / 0 blocking skip | PASS |
+| T64-R01 | 必需测试 0 failure / 0 blocking skip | 6648 passed / 0 failed / 0 blocking skip | PASS |
 | T64-R02 | 不接受 missing DSN 导致的 PostgreSQL skip | 两平台 `postgres_dsn_configured=true`、missing-DSN skip=0 | PASS |
 | T64-R03 | 所有非阻塞 skip 都有 reason 和 owner | 92/92 已逐项登记 | PASS |
 | T64-R04 | 拒绝替代 OS、Python、Node、数据库或浏览器版本 | Gate 对目标工具链执行精确校验 | PASS |
-| T64-R05 | 冻结一个干净 Provider candidate SHA/tree | `820328c…` / `5f42069…`，两平台 `source_clean=true` | PASS |
+| T64-R05 | 冻结一个干净 Provider candidate SHA/tree | `214a706…` / `83d01ae…`，两平台 `source_clean=true` | PASS |
 
 权威机器映射位于 `tests/golden/interview_quality_v1/t64-cross-platform-acceptance-v1.json`，共 21 项；
 canonical SHA-256 为 `3da812229919e3892af5733da8bc9efb9b544b8c12c48e35aceb0afeb8631ec7`，
@@ -67,13 +67,13 @@ migration/restore、ESLint、Vitest、frontend build、Playwright preflight、Pl
 两平台测试计数完全一致：
 
 ```text
-Python full:       2955 passed / 0 failed / 3 skipped
+Python full:       2956 passed / 0 failed / 3 skipped
 PostgreSQL marked:  203 passed / 0 failed / 0 skipped
 migration/restore:    7 passed / 0 failed / 0 skipped
 Vitest:              67 passed / 0 failed / 0 skipped
 Playwright:          91 passed / 0 failed / 43 skipped
-per platform:      3323 passed / 0 failed / 46 skipped
-cross platform:    6646 passed / 0 failed / 92 skipped
+per platform:      3324 passed / 0 failed / 46 skipped
+cross platform:    6648 passed / 0 failed / 92 skipped
 ```
 
 ## Skip 清单与归属
@@ -119,6 +119,8 @@ T64 实现与多轮正式候选审查共关闭以下工程问题：
 8. 修复跨平台 Gate 的 `platform_artifacts` key collision，确保 Windows/Ubuntu 产物独立保存。
 9. 修复 Ubuntu regex invalid escape warning。
 10. Chromium 布局验收允许 1/64 CSS pixel 量化，同时保持精确 computed min-height 合同。
+11. T65 fresh-checkout 审查发现冻结 config JSON 未固定 LF；新增 `config/*.json text eol=lf` 和回归测试，
+    使 `core.autocrlf=true` 的全新 Windows worktree 仍保持冻结 GateConfig/授权 Manifest 字节哈希。
 
 最终自动审查重新读取两个平台产物和 Gate，确认候选 SHA/tree、平台版本、计数、skip、清理字段与哈希一致，
 `open_engineering_findings=0`。
@@ -131,7 +133,12 @@ T64 实现与多轮正式候选审查共关闭以下工程问题：
 - `4cd7aea`：Windows PostgreSQL marker 有一次瞬时 queue claim 失败；隔离 10/10 和 marker 重跑 203/203 后，
   将测试改为有界 worker-style polling；已取代。
 - `069b331`：Windows 通过，Ubuntu Chromium 将 40px 量化为 39.999969px；修复后已取代。
-- `820328c`：Windows PASS、Ubuntu PASS、最终跨平台 Gate PASS；这是唯一冻结候选。
+- `820328c`：原 Windows/Ubuntu/Gate 均 PASS；T65 fresh-checkout 审查发现 config JSON 在默认 Windows
+  checkout 会转为 CRLF 并触发 `GATE_CONFIG_OR_DATASET_DRIFT`，因此该候选已作废。
+- `214a706` Ubuntu v1：runner bundle 缺少历史 publication tag ref，full Pytest 3 项失败；补齐 tag 后聚焦
+  10/10 与相邻 45/45 通过，但 v1 仍只保留为诊断。
+- `214a706`：fresh Windows checkout 哈希契约通过；Windows PASS、Ubuntu v2 PASS、最终跨平台 Gate PASS；
+  这是唯一冻结候选。
 
 ## 非阻塞警告
 
@@ -144,17 +151,17 @@ T64 实现与多轮正式候选审查共关闭以下工程问题：
 
 ## 证据、数据和清理边界
 
-- Windows platform Artifact：18889 bytes，SHA-256
-  `a584169da8ee0aba387a6dd8739e1b5ded9ea83ba0e02a62b8732c496f6d146b`。
-- Ubuntu platform Artifact：18862 bytes，SHA-256
-  `932c32992bd4dc953c41f237a46326dbc65906fc70f3ac16866e79542f3622b2`。
+- Windows platform Artifact：18890 bytes，SHA-256
+  `0193be6d3e6da00884d0d8c1a674244762323c98dea432e31d9a101284972a41`。
+- Ubuntu platform Artifact：18864 bytes，SHA-256
+  `36a50980da808263f17e2d3fccb219472a86f2c17b3473ffcf0bfbe06d2dcf21`。
 - T64 Gate Artifact：1139 bytes，SHA-256
-  `e9fa2328920ec7dc9a63d2745636cf085cf0e8c82825bcadf37f071c003ed62b`。
+  `5f2e87a69433d2bd83939922287788ec12d791ba7fc887501a6074718fb0f0e9`。
 - 两个平台 cleanup 的 ports、processes、screenshots、traces、temporary database relations 和 unexpected
   worktree changes 全部为 0。
 - T64 Provider calls=0；没有发送真实候选人数据，只使用 synthetic/public-safe fixture。
 - Playwright 配置保持 screenshot off，正式调用显式 trace off；没有截图、trace 或图像操作。
 - 原始运行日志保留在忽略的 `tmp/` 下；Git 只提交聚合、脱敏、可复核的指标和哈希。
 
-T64 完成后，冻结 Provider candidate 仍是 `820328c…`；后续文档提交不会重新定义该候选。
+T64 完成后，冻结 Provider candidate 是 `214a706…`；后续文档提交不会重新定义该候选。
 下一任务为 T65。总体 Interview Quality V1 Goal 保持 `active`，T72 尚未完成。

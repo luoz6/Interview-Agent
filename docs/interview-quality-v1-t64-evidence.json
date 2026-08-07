@@ -1,11 +1,11 @@
 {
   "schema_version": "interview-quality-v1-t64-evidence-v1",
   "task": "T64",
-  "generated_at": "2026-08-07T11:43:15.7465701+08:00",
-  "implementation_revision": "820328c8b0428c31d134e9bc991759dd64611fa2",
-  "implementation_tree": "5f420690d4c54c4c25fb67bfae94b067c270621d",
-  "provider_candidate_revision": "820328c8b0428c31d134e9bc991759dd64611fa2",
-  "provider_candidate_tree": "5f420690d4c54c4c25fb67bfae94b067c270621d",
+  "generated_at": "2026-08-07T12:39:06.1649073+08:00",
+  "implementation_revision": "214a70646df9f23f38874a2854b9a334a10c269f",
+  "implementation_tree": "83d01ae72a483fb181b435dea4628843aa40c809",
+  "provider_candidate_revision": "214a70646df9f23f38874a2854b9a334a10c269f",
+  "provider_candidate_tree": "83d01ae72a483fb181b435dea4628843aa40c809",
   "engineering_status": "PASS",
   "automatic_review": "PASS",
   "quality_status": "NOT_REQUIRED_CROSS_PLATFORM_ENGINEERING",
@@ -44,7 +44,7 @@
     {"id": "T64-C08", "status": "PASS", "evidence": "Playwright preflight and browser suites passed on both platforms"},
     {"id": "T64-C09", "status": "PASS_ENGINEERING_ONLY", "evidence": "all four zero-Provider frozen quality replays ran on both platforms"},
     {"id": "T64-C10", "status": "PASS", "evidence": "all six cleanup residue fields are zero on both platforms"},
-    {"id": "T64-R01", "status": "PASS", "evidence": "6646 passed, zero failed, zero blocking skips"},
+    {"id": "T64-R01", "status": "PASS", "evidence": "6648 passed, zero failed, zero blocking skips"},
     {"id": "T64-R02", "status": "PASS", "evidence": "zero missing-DSN skips"},
     {"id": "T64-R03", "status": "PASS", "evidence": "92 nonblocking skips each have reason and owner"},
     {"id": "T64-R04", "status": "PASS", "evidence": "target toolchain versions exactly enforced"},
@@ -52,24 +52,24 @@
   ],
   "formal_artifacts": {
     "windows_platform_result": {
-      "source_path": "tmp/t64/formal/820328c/windows/platform-result.json",
-      "bytes": 18889,
-      "sha256": "a584169da8ee0aba387a6dd8739e1b5ded9ea83ba0e02a62b8732c496f6d146b"
+      "source_path": "tmp/t64/formal/214a706/windows/platform-result.json",
+      "bytes": 18890,
+      "sha256": "0193be6d3e6da00884d0d8c1a674244762323c98dea432e31d9a101284972a41"
     },
     "ubuntu_platform_result": {
-      "source_path": "tmp/t64/formal/820328c/ubuntu/platform-result.json",
-      "bytes": 18862,
-      "sha256": "932c32992bd4dc953c41f237a46326dbc65906fc70f3ac16866e79542f3622b2"
+      "source_path": "tmp/t64/formal/214a706/ubuntu/platform-result.json",
+      "bytes": 18864,
+      "sha256": "36a50980da808263f17e2d3fccb219472a86f2c17b3473ffcf0bfbe06d2dcf21"
     },
     "cross_platform_gate_result": {
-      "source_path": "tmp/t64/formal/820328c/t64-gate-result.json",
+      "source_path": "tmp/t64/formal/214a706/t64-gate-result.json",
       "bytes": 1139,
-      "sha256": "e9fa2328920ec7dc9a63d2745636cf085cf0e8c82825bcadf37f071c003ed62b"
+      "sha256": "5f2e87a69433d2bd83939922287788ec12d791ba7fc887501a6074718fb0f0e9"
     }
   },
   "aggregate": {
     "platform_count": 2,
-    "tests_passed": 6646,
+    "tests_passed": 6648,
     "tests_failed": 0,
     "tests_skipped_nonblocking": 92,
     "blocking_skips": 0,
@@ -78,7 +78,7 @@
   },
   "platforms": {
     "windows-11-x64": {
-      "generated_at": "2026-08-07T03:24:13.195286Z",
+      "generated_at": "2026-08-07T04:12:00.759559Z",
       "status": "PASS",
       "source_clean": true,
       "toolchain": {
@@ -92,7 +92,7 @@
         "chromium": "149.0.7827.55"
       },
       "test_counts": {
-        "python_full": {"passed": 2955, "failed": 0, "skipped": 3, "warnings": 1},
+        "python_full": {"passed": 2956, "failed": 0, "skipped": 3, "warnings": 1},
         "postgres_marked": {"passed": 203, "failed": 0, "skipped": 0, "warnings": 1},
         "migration_restore": {"passed": 7, "failed": 0, "skipped": 0, "warnings": 1},
         "vitest": {"passed": 67, "failed": 0, "skipped": 0},
@@ -106,10 +106,10 @@
       "provider_calls": 0,
       "skip_count": 46,
       "cleanup": {"ports": 0, "processes": 0, "screenshots": 0, "traces": 0, "temporary_database_relations": 0, "unexpected_worktree_changes": 0},
-      "cleanup_artifact": {"bytes": 497, "sha256": "879953594fd17884544ab623f711bfa06dbff8ea86b0fb8aa0dd7204f37d32d9"}
+      "cleanup_artifact": {"bytes": 497, "sha256": "f0bffb2d1ce5c2d6d35d04fa7a5f35ebf3b3265d6e8a612d0e32eee174dad56d"}
     },
     "ubuntu-24.04-x64": {
-      "generated_at": "2026-08-07T03:34:31.189067Z",
+      "generated_at": "2026-08-07T04:36:58.778213Z",
       "status": "PASS",
       "source_clean": true,
       "toolchain": {
@@ -123,7 +123,7 @@
         "chromium": "149.0.7827.55"
       },
       "test_counts": {
-        "python_full": {"passed": 2955, "failed": 0, "skipped": 3, "warnings": 1},
+        "python_full": {"passed": 2956, "failed": 0, "skipped": 3, "warnings": 1},
         "postgres_marked": {"passed": 203, "failed": 0, "skipped": 0, "warnings": 1},
         "migration_restore": {"passed": 7, "failed": 0, "skipped": 0, "warnings": 1},
         "vitest": {"passed": 67, "failed": 0, "skipped": 0},
@@ -137,7 +137,7 @@
       "provider_calls": 0,
       "skip_count": 46,
       "cleanup": {"ports": 0, "processes": 0, "screenshots": 0, "traces": 0, "temporary_database_relations": 0, "unexpected_worktree_changes": 0},
-      "cleanup_artifact": {"bytes": 481, "sha256": "e110542ffb870a82251fbda723e033ea3badceedcdfeb704fd982f11456c66ef"}
+      "cleanup_artifact": {"bytes": 481, "sha256": "fd255688dd8d859c54120e9b414276021fed2d57c4fa075f118e95ed3cca7a04"}
     }
   },
   "skip_inventory": {
@@ -173,7 +173,9 @@
     {"revision": "ec9517359e9b589c796f97b04df11476e32b7ceb", "status": "SUPERSEDED_AFTER_REVIEW", "reason": "platform matrices passed but gate artifact keys collided"},
     {"revision": "4cd7aea77be61b55573f02c3ee0fe9bddcf42f10", "status": "SUPERSEDED", "reason": "transient first-poll queue claim assumption; isolated 10/10 and marker rerun 203/203 passed before hardening"},
     {"revision": "069b33170a2fb1773c94b8198696e636545d61af", "status": "SUPERSEDED", "reason": "Ubuntu Chromium 1/64 CSS-pixel layout quantization failure"},
-    {"revision": "820328c8b0428c31d134e9bc991759dd64611fa2", "status": "PASS_FROZEN_CANDIDATE", "reason": "Windows PASS, Ubuntu PASS, cross-platform gate PASS"}
+    {"revision": "820328c8b0428c31d134e9bc991759dd64611fa2", "status": "SUPERSEDED_AFTER_T65_PREFLIGHT_REVIEW", "reason": "fresh Windows checkout expanded frozen config JSON to CRLF and triggered GATE_CONFIG_OR_DATASET_DRIFT"},
+    {"revision": "214a70646df9f23f38874a2854b9a334a10c269f", "run": "ubuntu-v1", "status": "DIAGNOSTIC_ONLY", "reason": "runner bundle omitted a required historical publication tag ref; full Pytest had three harness failures"},
+    {"revision": "214a70646df9f23f38874a2854b9a334a10c269f", "run": "windows-and-ubuntu-v2", "status": "PASS_FROZEN_CANDIDATE", "reason": "fresh Windows hash contract PASS, Windows PASS, Ubuntu PASS, cross-platform gate PASS"}
   ],
   "automatic_review_findings_closed": [
     "cross-platform dependencies and hashed locks are complete",
@@ -185,7 +187,8 @@
     "Windows and Ubuntu platform artifacts are independently retained",
     "queue recovery uses bounded worker-style polling",
     "Ubuntu invalid regex escape warning is removed",
-    "layout acceptance tolerates only 1/64 CSS-pixel quantization"
+    "layout acceptance tolerates only 1/64 CSS-pixel quantization",
+    "all config JSON files are forced to LF so frozen byte hashes survive a fresh Windows checkout"
   ],
   "phase_boundaries": {
     "t64_complete": true,
