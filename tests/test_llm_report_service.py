@@ -246,7 +246,11 @@ class FallbackReportChatModel:
 
 def test_generate_report_falls_back_to_json_prompt_when_structured_output_is_unavailable():
     chat_model = FallbackReportChatModel()
-    llm = OpenAIInterviewLLM(chat_model=chat_model)
+    durable_attempts = []
+    llm = OpenAIInterviewLLM(
+        chat_model=chat_model,
+        provider_attempt_hook=lambda: durable_attempts.append(len(durable_attempts) + 1),
+    )
     plan = make_plan()
 
     report = llm.generate_report(
@@ -260,6 +264,7 @@ def test_generate_report_falls_back_to_json_prompt_when_structured_output_is_una
     assert chat_model.method == "json_schema"
     assert "Return valid JSON only" in chat_model.last_prompt
     assert report.feedbacks[0].references[0].chunk_id == "redis-1"
+    assert durable_attempts == [1, 2]
 
 
 class ProseWrappedJsonChatModel:

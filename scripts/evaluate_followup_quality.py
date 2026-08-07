@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -60,6 +61,7 @@ from app.services.interview_quality_provider_authorization import (
 )
 from app.services.llm import LLMConfig, OpenAIInterviewLLM
 from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.t65_formal_execution_receipt import validate_t65_formal_route
 
 
 DEFAULT_DATASET = Path(
@@ -139,6 +141,13 @@ def main(argv: list[str] | None = None) -> int:
     dataset_sha256 = _sha256_file(dataset_path)
     gate_config = load_gate_config(gate_path)
     authorization = load_provider_authorization(authorization_path)
+    candidate_revision, candidate_tree, worktree_clean = _candidate_identity()
+    complete_frozen_dataset = (
+        args.scope == "full"
+        and args.partition == "all"
+        and not args.case_id
+        and len(selected.cases) == len(full_dataset.cases)
+    )
     run_id = args.run_id or datetime.now(timezone.utc).strftime(
         "followup-t36-%Y%m%dT%H%M%SZ"
     )
@@ -159,6 +168,15 @@ def main(argv: list[str] | None = None) -> int:
             "scope": args.scope,
             "purpose": args.purpose,
             "partition": args.partition,
+            "evidence_origin": {
+                "fixture-replay": "synthetic_fixture",
+                "saved-replay": "saved_replay",
+                "provider": "live_provider",
+            }[args.mode],
+            "formal_evidence_eligible": False,
+            "candidate_revision": candidate_revision,
+            "candidate_tree": candidate_tree,
+            "worktree_clean": worktree_clean,
             "dataset_id": full_dataset.dataset_id,
             "dataset_sha256": dataset_sha256,
             "selected_case_count": len(selected.cases),
@@ -174,11 +192,22 @@ def main(argv: list[str] | None = None) -> int:
             "generation_prompt_version": FOLLOWUP_GENERATION_PROMPT_VERSION,
             "generation_prompt_sha256": FOLLOWUP_GENERATION_PROMPT_SHA256,
             "provider_called": False,
+            "discovery_requests": 0,
+            "planned_inference_requests": None,
+            "inference_attempted": 0,
+            "inference_metered": 0,
+            "retries": 0,
+            "input_tokens": None,
+            "output_tokens": None,
+            "cached_input_tokens": None,
+            "estimated_cost": None,
             "hard_stop_conditions": [],
+            "quality_status": "NOT_RUN",
             "decision": "RUNNING",
         },
     )
     manifest = store.read_manifest()
+    usage_complete = False
 
     if args.mode == "fixture-replay":
         artifact = build_synthetic_fixture_replay(
@@ -226,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
             evidence_persistence_available=_artifact_store_is_writable(store),
             environment_model=os.getenv("OPENAI_MODEL"),
         )
+        manifest["discovery_requests"] = (
+            discovery.model_request_attempts + discovery.pricing_request_attempts
+        )
         manifest["provider_preflight"] = preflight.model_dump(mode="json")
         store.write_manifest(manifest)
         if not preflight.allowed:
@@ -252,6 +284,11 @@ def main(argv: list[str] | None = None) -> int:
                 case.decision_attempts or case.generation_attempts
                 for case in artifact.cases
             )
+        )
+        usage_complete = _apply_provider_usage(
+            manifest,
+            artifact,
+            expected_model=authorization.provider.model_id,
         )
         if live_stops:
             manifest["completed_provider_case_count"] = len(artifact.cases)
@@ -282,12 +319,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.mode == "provider" and preflight is not None:
         price = preflight.discovery.prices[authorization.provider.model_id]
-        metrics["estimated_cost"] = estimate_provider_cost(
-            price=price,
-            input_tokens=metrics["input_tokens"],
-            output_tokens=metrics["output_tokens"],
-            cached_input_tokens=metrics["cached_input_tokens"],
-        )
+        if usage_complete:
+            metrics["estimated_cost"] = estimate_provider_cost(
+                price=price,
+                input_tokens=manifest["input_tokens"],
+                output_tokens=manifest["output_tokens"],
+                cached_input_tokens=manifest["cached_input_tokens"],
+            )
+        else:
+            metrics["estimated_cost"] = None
         metrics["pricing_source"] = preflight.discovery.pricing_source_url
         metrics["pricing_observed_at"] = preflight.discovery.observed_at
         metrics["pricing_currency"] = price.currency
@@ -299,30 +339,57 @@ def main(argv: list[str] | None = None) -> int:
 
     store.write_metrics(metrics)
     store.write_report(render_report(metrics, mode=args.mode, scope=args.scope))
+    non_formal_stops: list[str] = []
+    if args.mode != "provider":
+        non_formal_stops.append("NON_LIVE_PROVIDER_EVIDENCE")
+    if not complete_frozen_dataset:
+        non_formal_stops.append("PARTIAL_DATASET_SCOPE")
+    if not worktree_clean:
+        non_formal_stops.append("CANDIDATE_WORKTREE_DIRTY")
+    if args.mode == "provider" and not usage_complete:
+        non_formal_stops.append("USAGE_METERING_UNAVAILABLE")
+    if args.mode == "provider" and usage_complete:
+        planned = manifest["planned_inference_requests"]
+        attempted = manifest["inference_attempted"]
+        if not planned or attempted / planned > 1.15:
+            non_formal_stops.append("RETRY_AMPLIFICATION_EXCEEDED")
+    formal_evidence_eligible = validate_t65_formal_route(
+        route="builtin_candidate", receipt=None
+    )
+    engineering_evidence_complete = (
+        args.mode == "provider"
+        and complete_frozen_dataset
+        and worktree_clean
+        and usage_complete
+        and not non_formal_stops
+        and metrics["quality_status"] == "PASS"
+    )
+    manifest_quality_status = metrics["quality_status"]
+    if manifest_quality_status == "PASS" and not formal_evidence_eligible:
+        manifest_quality_status = "BLOCKED_NON_FORMAL_EVIDENCE"
     manifest.update(
         {
             "updated_at": _utc_now(),
             "completed_case_count": len(adaptive),
-            "provider_invocations_this_run": (
-                metrics["provider_invocations"] if args.mode == "provider" else 0
-            ),
+            "provider_invocations_this_run": manifest["inference_attempted"],
             "recorded_or_simulated_provider_invocations": metrics[
                 "provider_invocations"
             ],
             "recorded_or_simulated_provider_retries": metrics[
                 "provider_retries"
             ],
-            "input_tokens": metrics["input_tokens"],
-            "output_tokens": metrics["output_tokens"],
-            "cached_input_tokens": metrics["cached_input_tokens"],
+            "estimated_cost": metrics["estimated_cost"],
             "decision_latency_seconds": metrics["decision_latency_seconds"],
             "generation_complete_latency_seconds": metrics[
                 "generation_complete_latency_seconds"
             ],
             "total_latency_seconds": metrics["total_latency_seconds"],
             "automated_status": metrics["automated_status"],
-            "quality_status": metrics["quality_status"],
-            "decision": metrics["quality_status"],
+            "formal_evidence_eligible": formal_evidence_eligible,
+            "engineering_evidence_complete": engineering_evidence_complete,
+            "hard_stop_conditions": list(dict.fromkeys(non_formal_stops)),
+            "quality_status": manifest_quality_status,
+            "decision": manifest_quality_status,
         }
     )
     store.write_manifest(manifest)
@@ -332,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"quality_status={metrics['quality_status']}")
     if metrics["automated_status"] == "FAIL":
         return 1
-    if metrics["quality_status"] != "PASS":
+    if metrics["quality_status"] != "PASS" or not formal_evidence_eligible:
         return 2
     return 0
 
@@ -658,6 +725,55 @@ def _artifact_store_is_writable(store: EvaluationArtifactStore) -> bool:
         return False
 
 
+def _apply_provider_usage(
+    manifest: dict,
+    artifact: SavedFollowupProviderArtifact,
+    *,
+    expected_model: str,
+) -> bool:
+    groups = [
+        attempts
+        for case in artifact.cases
+        for attempts in (case.decision_attempts, case.generation_attempts)
+        if attempts
+    ]
+    attempts = [attempt for group in groups for attempt in group]
+    attempted = len(attempts)
+    planned = len(groups)
+    retries = attempted - planned
+    metered = sum(
+        attempt.input_tokens is not None
+        and attempt.output_tokens is not None
+        and attempt.cached_input_tokens is not None
+        and attempt.provider_model == expected_model
+        for attempt in attempts
+    )
+
+    def complete_sum(field: str) -> int | None:
+        values = [getattr(attempt, field) for attempt in attempts]
+        return sum(values) if all(value is not None for value in values) else None
+
+    manifest.update(
+        {
+            "planned_inference_requests": planned,
+            "inference_attempted": attempted,
+            "inference_metered": metered,
+            "retries": retries,
+            "input_tokens": complete_sum("input_tokens"),
+            "output_tokens": complete_sum("output_tokens"),
+            "cached_input_tokens": complete_sum("cached_input_tokens"),
+        }
+    )
+    return (
+        attempted > 0
+        and attempted == metered
+        and attempted == planned + retries
+        and manifest["input_tokens"] is not None
+        and manifest["output_tokens"] is not None
+        and manifest["cached_input_tokens"] is not None
+    )
+
+
 def _finish_blocked(
     store: EvaluationArtifactStore,
     manifest: dict,
@@ -672,6 +788,7 @@ def _finish_blocked(
             "hard_stop_conditions": list(dict.fromkeys(hard_stops)),
             "decision": decision,
             "quality_status": "BLOCKED",
+            "formal_evidence_eligible": False,
             "stop_detail": detail,
         }
     )
@@ -708,6 +825,24 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _candidate_identity() -> tuple[str, str, bool]:
+    revision = _git("rev-parse", "HEAD")
+    tree = _git("show", "-s", "--format=%T", "HEAD")
+    clean = not _git("status", "--porcelain")
+    return revision, tree, clean
+
+
+def _git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
 
 
 def _utc_now() -> str:

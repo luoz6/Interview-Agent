@@ -113,3 +113,49 @@ def test_next_question_contract_has_no_gap():
             decision_confidence="high",
             policy_version="fixed_v1",
         )
+
+
+def test_decision_attempt_persists_safe_provider_usage_trace():
+    store = InMemoryDecisionStore()
+    record = store.prepare(
+        session_id="s1", source_command_id="cmd-trace", input_sha256="a" * 64
+    )
+    attempt = store.claim(record.decision_id, worker_id="w1")
+    store.complete(
+        attempt.attempt_id,
+        worker_id="w1",
+        lease_token=attempt.lease_token,
+        decision=decision(),
+        input_tokens=100,
+        output_tokens=20,
+        cached_input_tokens=25,
+        provider_response_id_sha256="b" * 64,
+        provider_invocations=1,
+    )
+    stored = store.list_attempts(record.decision_id)[0]
+    assert stored.cached_input_tokens == 25
+    assert stored.provider_response_id_sha256 == "b" * 64
+
+
+@pytest.mark.parametrize(
+    ("input_tokens", "cached_input_tokens", "trace"),
+    [(10, 11, "b" * 64), (10, 1, "provider-response-id")],
+)
+def test_decision_attempt_rejects_invalid_safe_provider_usage_trace(
+    input_tokens, cached_input_tokens, trace
+):
+    store = InMemoryDecisionStore()
+    record = store.prepare(
+        session_id="s1", source_command_id="cmd-invalid", input_sha256="a" * 64
+    )
+    attempt = store.claim(record.decision_id, worker_id="w1")
+    with pytest.raises(ValueError):
+        store.complete(
+            attempt.attempt_id,
+            worker_id="w1",
+            lease_token=attempt.lease_token,
+            decision=decision(),
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            provider_response_id_sha256=trace,
+        )

@@ -61,6 +61,8 @@ def test_postgres_decision_unique_prepare_lease_fencing_and_retry():
         duration_ms=12.5,
         input_tokens=100,
         output_tokens=20,
+        cached_input_tokens=40,
+        provider_response_id_sha256="f" * 64,
         provider_invocations=1,
     )
     assert completed.status == "completed"
@@ -71,6 +73,8 @@ def test_postgres_decision_unique_prepare_lease_fencing_and_retry():
     assert attempts[1].duration_ms == 12.5
     assert attempts[1].input_tokens == 100
     assert attempts[1].output_tokens == 20
+    assert attempts[1].cached_input_tokens == 40
+    assert attempts[1].provider_response_id_sha256 == "f" * 64
     assert attempts[1].provider_invocations == 1
 
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 from time import monotonic
 from typing import Callable, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.services.decision_store import (
     DecisionContract,
@@ -32,9 +33,25 @@ class _DecisionProviderFailure(RuntimeError):
         error_code: Literal[
             "provider_timeout", "provider_invalid_output", "provider_failed"
         ],
+        *,
+        source: object | None = None,
     ) -> None:
         super().__init__(error_code)
         self.error_code = error_code
+        self.input_tokens = _safe_usage_int(source, "input_tokens")
+        self.output_tokens = _safe_usage_int(source, "output_tokens")
+        cached_input_tokens = _safe_usage_int(source, "cached_input_tokens")
+        self.cached_input_tokens = (
+            None
+            if (
+                cached_input_tokens is not None
+                and self.input_tokens is not None
+                and cached_input_tokens > self.input_tokens
+            )
+            else cached_input_tokens
+        )
+        response_id = _safe_usage_text(source, "provider_response_id")
+        self.provider_response_id_sha256 = _sha256_optional_text(response_id)
 
 
 class DecisionProviderResult(BaseModel):
@@ -46,6 +63,16 @@ class DecisionProviderResult(BaseModel):
     cached_input_tokens: int | None = Field(default=None, ge=0)
     provider_model: str | None = None
     provider_response_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_cached_usage(self):
+        if (
+            self.cached_input_tokens is not None
+            and self.input_tokens is not None
+            and self.cached_input_tokens > self.input_tokens
+        ):
+            raise ValueError("cached input tokens cannot exceed input tokens")
+        return self
 
 
 class DecisionExecutionResult(BaseModel):
@@ -60,6 +87,10 @@ class DecisionExecutionResult(BaseModel):
     duration_ms: float = Field(ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cached_input_tokens: int | None = Field(default=None, ge=0)
+    provider_response_id_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
 
 
 class FollowupDecisionExecutionService:
@@ -114,10 +145,11 @@ class FollowupDecisionExecutionService:
             )
 
         provider_invocations = 0
-        input_tokens = output_tokens = None
         while True:
             attempt_started = self.clock()
             attempt_provider_invocations = 0
+            input_tokens = output_tokens = cached_input_tokens = None
+            provider_response_id_sha256 = None
             try:
                 attempt = self.store.claim(record.decision_id, worker_id=worker_id)
             except DecisionStoreConflict as exc:
@@ -153,9 +185,19 @@ class FollowupDecisionExecutionService:
                     )
                     input_tokens = provider_result.input_tokens
                     output_tokens = provider_result.output_tokens
+                    cached_input_tokens = provider_result.cached_input_tokens
+                    provider_response_id_sha256 = _sha256_optional_text(
+                        provider_result.provider_response_id
+                    )
                     decision = provider_result.decision
             except _DecisionProviderFailure as failure:
                 error_code = failure.error_code
+                input_tokens = failure.input_tokens
+                output_tokens = failure.output_tokens
+                cached_input_tokens = failure.cached_input_tokens
+                provider_response_id_sha256 = (
+                    failure.provider_response_id_sha256
+                )
             else:
                 completed = self.store.complete(
                     attempt.attempt_id,
@@ -165,6 +207,8 @@ class FollowupDecisionExecutionService:
                     duration_ms=_duration_ms(self.clock(), attempt_started),
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cached_input_tokens=cached_input_tokens,
+                    provider_response_id_sha256=provider_response_id_sha256,
                     provider_invocations=attempt_provider_invocations,
                 )
                 return self._completed_result(
@@ -175,6 +219,8 @@ class FollowupDecisionExecutionService:
                     attempt_number=attempt.attempt_number,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cached_input_tokens=cached_input_tokens,
+                    provider_response_id_sha256=provider_response_id_sha256,
                 )
 
             if attempt.attempt_number < record.max_attempts:
@@ -186,6 +232,8 @@ class FollowupDecisionExecutionService:
                     duration_ms=_duration_ms(self.clock(), attempt_started),
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cached_input_tokens=cached_input_tokens,
+                    provider_response_id_sha256=provider_response_id_sha256,
                     provider_invocations=attempt_provider_invocations,
                 )
                 record = self.store.get(record.decision_id)
@@ -204,6 +252,8 @@ class FollowupDecisionExecutionService:
                 duration_ms=_duration_ms(self.clock(), attempt_started),
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                cached_input_tokens=cached_input_tokens,
+                provider_response_id_sha256=provider_response_id_sha256,
                 provider_invocations=attempt_provider_invocations,
             )
             return self._completed_result(
@@ -214,6 +264,8 @@ class FollowupDecisionExecutionService:
                 attempt_number=attempt.attempt_number,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                cached_input_tokens=cached_input_tokens,
+                provider_response_id_sha256=provider_response_id_sha256,
             )
 
     def _invoke_provider(
@@ -227,14 +279,16 @@ class FollowupDecisionExecutionService:
         try:
             raw = self.provider(dict(diagnostics.provider_context))
         except TimeoutError as exc:
-            raise _DecisionProviderFailure("provider_timeout") from exc
+            raise _DecisionProviderFailure("provider_timeout", source=exc) from exc
         except (ValidationError, ValueError, TypeError) as exc:
             # Structured adapters may validate before returning to this
             # service. Such responses are malformed Provider output, not a
             # transport outage, and retain the stable invalid-output code.
-            raise _DecisionProviderFailure("provider_invalid_output") from exc
+            raise _DecisionProviderFailure(
+                "provider_invalid_output", source=exc
+            ) from exc
         except Exception as exc:
-            raise _DecisionProviderFailure("provider_failed") from exc
+            raise _DecisionProviderFailure("provider_failed", source=exc) from exc
         try:
             result = _parse_provider_result(raw)
             return result.model_copy(
@@ -247,7 +301,9 @@ class FollowupDecisionExecutionService:
                 }
             )
         except (ValidationError, ValueError, TypeError) as exc:
-            raise _DecisionProviderFailure("provider_invalid_output") from exc
+            raise _DecisionProviderFailure(
+                "provider_invalid_output", source=raw
+            ) from exc
 
     def _completed_result(
         self,
@@ -259,6 +315,8 @@ class FollowupDecisionExecutionService:
         attempt_number: int | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        provider_response_id_sha256: str | None = None,
     ) -> DecisionExecutionResult:
         return DecisionExecutionResult(
             status="completed",
@@ -270,6 +328,8 @@ class FollowupDecisionExecutionService:
             duration_ms=_duration_ms(self.clock(), started),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
+            provider_response_id_sha256=provider_response_id_sha256,
         )
 
 
@@ -283,6 +343,30 @@ def _parse_provider_result(raw: object) -> DecisionProviderResult:
     return DecisionProviderResult(
         decision=DecisionContract.model_validate(raw)
     )
+
+
+def _sha256_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _safe_usage_int(source: object | None, name: str) -> int | None:
+    value = (
+        source.get(name)
+        if isinstance(source, dict)
+        else getattr(source, name, None)
+    )
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _safe_usage_text(source: object | None, name: str) -> str | None:
+    value = (
+        source.get(name)
+        if isinstance(source, dict)
+        else getattr(source, name, None)
+    )
+    return value if isinstance(value, str) and value else None
 
 
 def _enforce_runtime_policy(

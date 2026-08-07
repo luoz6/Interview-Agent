@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from threading import RLock
@@ -129,6 +130,10 @@ class DecisionAttempt(BaseModel):
     duration_ms: float | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cached_input_tokens: int | None = Field(default=None, ge=0)
+    provider_response_id_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     provider_invocations: int = Field(default=0, ge=0, le=1)
     created_at: datetime
     updated_at: datetime
@@ -282,8 +287,15 @@ class InMemoryDecisionStore:
         duration_ms: float | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        provider_response_id_sha256: str | None = None,
         provider_invocations: int = 0,
     ) -> DecisionRecord:
+        _validate_decision_attempt_usage(
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            provider_response_id_sha256=provider_response_id_sha256,
+        )
         now = self._clock()
         with self._lock:
             attempt = self._attempts.get(attempt_id)
@@ -307,6 +319,8 @@ class InMemoryDecisionStore:
                     "duration_ms": duration_ms,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
+                    "cached_input_tokens": cached_input_tokens,
+                    "provider_response_id_sha256": provider_response_id_sha256,
                     "provider_invocations": provider_invocations,
                     "updated_at": now,
                 }
@@ -333,8 +347,15 @@ class InMemoryDecisionStore:
         duration_ms: float | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        provider_response_id_sha256: str | None = None,
         provider_invocations: int = 0,
     ) -> DecisionAttempt:
+        _validate_decision_attempt_usage(
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            provider_response_id_sha256=provider_response_id_sha256,
+        )
         now = self._clock()
         with self._lock:
             attempt = self._attempts.get(attempt_id)
@@ -352,6 +373,8 @@ class InMemoryDecisionStore:
                     "duration_ms": duration_ms,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
+                    "cached_input_tokens": cached_input_tokens,
+                    "provider_response_id_sha256": provider_response_id_sha256,
                     "provider_invocations": provider_invocations,
                     "updated_at": now,
                 }
@@ -389,3 +412,22 @@ class InMemoryDecisionStore:
 def _decision_sha256(decision: DecisionContract) -> str:
     encoded = json.dumps(decision.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _validate_decision_attempt_usage(
+    *,
+    input_tokens: int | None,
+    cached_input_tokens: int | None,
+    provider_response_id_sha256: str | None,
+) -> None:
+    if (
+        input_tokens is not None
+        and cached_input_tokens is not None
+        and cached_input_tokens > input_tokens
+    ):
+        raise ValueError("cached input tokens cannot exceed input tokens")
+    if (
+        provider_response_id_sha256 is not None
+        and re.fullmatch(r"[0-9a-f]{64}", provider_response_id_sha256) is None
+    ):
+        raise ValueError("Provider response trace must be a lowercase SHA-256")

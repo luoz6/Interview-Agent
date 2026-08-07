@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Protocol
 
 from pydantic import ValidationError
 
@@ -125,6 +125,7 @@ class OpenAIInterviewLLM:
         trace_recorder=None,
         report_output_mode: Literal["structured_first", "raw_only"] | None = None,
         context_runtime: ContextRuntime | None = None,
+        provider_attempt_hook: Callable[[], None] | None = None,
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
@@ -160,6 +161,7 @@ class OpenAIInterviewLLM:
         self._budget_resolver = runtime.budget_resolver
         self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
+        self._provider_attempt_hook = provider_attempt_hook
         configured_mode = report_output_mode or os.getenv(
             "OPENAI_REPORT_OUTPUT_MODE",
             "structured_first",
@@ -361,7 +363,7 @@ class OpenAIInterviewLLM:
             structured_model = structured_model.bind(
                 max_tokens=PLAN_CONTEXT_POLICY.max_output_tokens
             )
-        begin_provider_attempt()
+        self._begin_provider_attempt()
         result = structured_model.invoke(prompt)
         wrapped = isinstance(result, dict) and any(
             key in result for key in ("raw", "parsed", "parsing_error")
@@ -575,7 +577,7 @@ class OpenAIInterviewLLM:
             structured_model = structured_model.bind(
                 max_tokens=REPORT_CONTEXT_POLICY.max_output_tokens
             )
-        begin_provider_attempt()
+        self._begin_provider_attempt()
         result = structured_model.invoke(prompt)
         publish_provider_response(result)
         return self._coerce_report_result(result, schema)
@@ -698,6 +700,29 @@ class OpenAIInterviewLLM:
         }
         if config.base_url:
             kwargs["base_url"] = config.base_url
+        transport_mode = os.getenv("T65_PROVIDER_TRANSPORT_MODE", "").strip()
+        if transport_mode:
+            if transport_mode != "builtin_production":
+                raise ContextConfigurationError(
+                    "unsupported T65 Provider transport mode"
+                )
+            if (
+                config.model != "deepseek-v4-pro"
+                or (config.base_url or "").rstrip("/")
+                != "https://api.deepseek.com"
+                or config.max_retries != 0
+            ):
+                raise ContextConfigurationError(
+                    "formal T65 transport requires the frozen DeepSeek model, endpoint, and zero SDK retries"
+                )
+            from app.services.t65_provider_http_transport import (
+                get_t65_provider_http_clients,
+            )
+
+            clients = get_t65_provider_http_clients()
+            kwargs["http_client"] = clients.sync_client
+            kwargs["http_async_client"] = clients.async_client
+            kwargs["http_socket_options"] = ()
         return ChatOpenAI(**kwargs)
 
     def _guard_prompt(
@@ -884,7 +909,7 @@ class OpenAIInterviewLLM:
         model = self.chat_model
         if hasattr(model, "bind"):
             model = model.bind(max_tokens=policy.max_output_tokens)
-        begin_provider_attempt()
+        self._begin_provider_attempt()
         response = model.invoke(prompt)
         publish_provider_response(response)
         return response
@@ -893,7 +918,7 @@ class OpenAIInterviewLLM:
         model = self.chat_model
         if hasattr(model, "bind"):
             model = model.bind(max_tokens=policy.max_output_tokens)
-        begin_provider_attempt()
+        self._begin_provider_attempt()
 
         def iterate():
             for chunk in model.stream(prompt):
@@ -901,6 +926,11 @@ class OpenAIInterviewLLM:
                 yield chunk
 
         return iterate()
+
+    def _begin_provider_attempt(self) -> None:
+        if self._provider_attempt_hook is not None:
+            self._provider_attempt_hook()
+        begin_provider_attempt()
 
 
 def _build_followup_prompt(context: list[dict[str, str]]) -> str:

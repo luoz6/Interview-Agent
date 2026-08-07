@@ -12,6 +12,11 @@ _provider_context_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
     "provider_context_metadata",
     default=None,
 )
+_REQUIRED_USAGE_KEYS = (
+    "provider_input_tokens",
+    "provider_output_tokens",
+    "provider_cached_input_tokens",
+)
 
 
 def reset_provider_context_metadata() -> None:
@@ -116,19 +121,20 @@ def consume_provider_context_metadata() -> dict[str, Any]:
 
 
 def _extract_usage(response: Any) -> dict[str, int] | None:
+    candidates: list[Mapping[str, Any]] = []
     usage_metadata = getattr(response, "usage_metadata", None)
     if isinstance(usage_metadata, Mapping):
-        normalized = _normalize_usage(usage_metadata)
-        if normalized:
-            return normalized
+        candidates.append(usage_metadata)
     response_metadata = getattr(response, "response_metadata", None)
     if isinstance(response_metadata, Mapping):
         for key in ("token_usage", "usage"):
             candidate = response_metadata.get(key)
             if isinstance(candidate, Mapping):
-                normalized = _normalize_usage(candidate)
-                if normalized:
-                    return normalized
+                candidates.append(candidate)
+    for candidate in candidates:
+        normalized = _normalize_usage(candidate)
+        if all(key in normalized for key in _REQUIRED_USAGE_KEYS):
+            return normalized
     return None
 
 

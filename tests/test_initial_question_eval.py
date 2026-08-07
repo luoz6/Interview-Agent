@@ -61,6 +61,24 @@ def test_full_fixture_replay_passes_engineering_gates_without_claiming_provider_
     assert metrics["provider_usage"]["provider_invocations_this_run"] == 0
 
 
+def test_unknown_token_measurement_is_not_coerced_to_zero(dataset, attempts):
+    changed = attempts[0].model_copy(
+        update={
+            "provider_invocations": 1,
+            "provider_metered_invocations": 1,
+            "input_tokens": None,
+            "output_tokens": 2,
+            "cached_input_tokens": 0,
+        }
+    )
+    metrics = calculate_initial_question_metrics(
+        dataset, [changed, *attempts[1:]], gate_config=load_gate_config()
+    )
+    assert metrics["provider_usage"]["input_tokens"] is None
+    assert metrics["provider_usage"]["output_tokens"] is None
+    assert metrics["provider_usage"]["cached_input_tokens"] is None
+
+
 def test_english_regression_cases_generate_english_questions(dataset, attempts):
     english_ids = {case.case_id for case in dataset.cases if case.language == "en"}
     english_attempts = [item for item in attempts if item.case_id in english_ids]

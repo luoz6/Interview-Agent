@@ -11,6 +11,7 @@ from app.services.decision_store import (
     DecisionRecord,
     DecisionStoreConflict,
     _decision_sha256,
+    _validate_decision_attempt_usage,
 )
 from app.services.postgres_connections import ConnectionProvider, DirectPsycopg2ConnectionProvider
 from app.services.postgres_identifiers import (
@@ -132,7 +133,7 @@ class PostgresDecisionStore:
                     sql.SQL(
                         "SELECT attempt_id,decision_id,attempt_number,status,lease_owner,lease_token,"
                         "lease_expires_at,fencing_version,error_code,output_sha256,duration_ms,input_tokens,"
-                        "output_tokens,provider_invocations,created_at,updated_at "
+                        "output_tokens,cached_input_tokens,provider_response_id_sha256,provider_invocations,created_at,updated_at "
                         "FROM {attempts} WHERE decision_id=%s::uuid ORDER BY attempt_number"
                     ).format(attempts=sql.Identifier(self.attempts_table)),
                     (decision_id,),
@@ -155,7 +156,7 @@ class PostgresDecisionStore:
                     sql.SQL(
                         "SELECT attempt_id,decision_id,attempt_number,status,lease_owner,lease_token,"
                         "lease_expires_at,fencing_version,error_code,output_sha256,duration_ms,input_tokens,"
-                        "output_tokens,provider_invocations,created_at,updated_at "
+                        "output_tokens,cached_input_tokens,provider_response_id_sha256,provider_invocations,created_at,updated_at "
                         "FROM {attempts} WHERE decision_id=%s::uuid ORDER BY attempt_number DESC LIMIT 1 FOR UPDATE"
                     ).format(attempts=sql.Identifier(self.attempts_table)),
                     (decision_id,),
@@ -175,7 +176,7 @@ class PostgresDecisionStore:
                         "lease_expires_at=NOW()+(%s*INTERVAL '1 second'),fencing_version=fencing_version+1,updated_at=NOW() "
                         "WHERE attempt_id=%s::uuid AND fencing_version=%s RETURNING attempt_id,decision_id,attempt_number,status,"
                         "lease_owner,lease_token,lease_expires_at,fencing_version,error_code,output_sha256,duration_ms,input_tokens,"
-                        "output_tokens,provider_invocations,created_at,updated_at"
+                        "output_tokens,cached_input_tokens,provider_response_id_sha256,provider_invocations,created_at,updated_at"
                     ).format(attempts=sql.Identifier(self.attempts_table)),
                     (worker_id, token, self.lease_seconds, attempt.attempt_id, attempt.fencing_version),
                 )
@@ -208,8 +209,15 @@ class PostgresDecisionStore:
         duration_ms: float | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        provider_response_id_sha256: str | None = None,
         provider_invocations: int = 0,
     ) -> DecisionRecord:
+        _validate_decision_attempt_usage(
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            provider_response_id_sha256=provider_response_id_sha256,
+        )
         _, sql = self._import_psycopg2()
         digest = _decision_sha256(decision)
         with self._provider.connection() as connection:
@@ -232,7 +240,8 @@ class PostgresDecisionStore:
                 cursor.execute(
                     sql.SQL(
                         "UPDATE {attempts} SET status='completed',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,"
-                        "output_sha256=%s,duration_ms=%s,input_tokens=%s,output_tokens=%s,provider_invocations=%s,updated_at=NOW() "
+                        "output_sha256=%s,duration_ms=%s,input_tokens=%s,output_tokens=%s,cached_input_tokens=%s,"
+                        "provider_response_id_sha256=%s,provider_invocations=%s,updated_at=NOW() "
                         "WHERE attempt_id=%s::uuid AND status='running' AND lease_owner=%s "
                         "AND lease_token=%s::uuid AND lease_expires_at>NOW()"
                     ).format(attempts=sql.Identifier(self.attempts_table)),
@@ -241,6 +250,8 @@ class PostgresDecisionStore:
                         duration_ms,
                         input_tokens,
                         output_tokens,
+                        cached_input_tokens,
+                        provider_response_id_sha256,
                         provider_invocations,
                         attempt_id,
                         worker_id,
@@ -268,8 +279,15 @@ class PostgresDecisionStore:
         duration_ms: float | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        provider_response_id_sha256: str | None = None,
         provider_invocations: int = 0,
     ) -> DecisionAttempt:
+        _validate_decision_attempt_usage(
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            provider_response_id_sha256=provider_response_id_sha256,
+        )
         _, sql = self._import_psycopg2()
         with self._provider.connection() as connection:
             with connection.cursor() as cursor:
@@ -286,16 +304,20 @@ class PostgresDecisionStore:
                 cursor.execute(
                     sql.SQL(
                         "UPDATE {attempts} SET status='failed',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code=%s,"
-                        "duration_ms=%s,input_tokens=%s,output_tokens=%s,provider_invocations=%s,updated_at=NOW() "
+                        "duration_ms=%s,input_tokens=%s,output_tokens=%s,cached_input_tokens=%s,provider_response_id_sha256=%s,"
+                        "provider_invocations=%s,updated_at=NOW() "
                         "WHERE attempt_id=%s::uuid AND status='running' AND lease_owner=%s AND lease_token=%s::uuid AND lease_expires_at>NOW() "
                         "RETURNING attempt_id,decision_id,attempt_number,status,lease_owner,lease_token,lease_expires_at,fencing_version,"
-                        "error_code,output_sha256,duration_ms,input_tokens,output_tokens,provider_invocations,created_at,updated_at"
+                        "error_code,output_sha256,duration_ms,input_tokens,output_tokens,cached_input_tokens,"
+                        "provider_response_id_sha256,provider_invocations,created_at,updated_at"
                     ).format(attempts=sql.Identifier(self.attempts_table)),
                     (
                         error_code,
                         duration_ms,
                         input_tokens,
                         output_tokens,
+                        cached_input_tokens,
+                        provider_response_id_sha256,
                         provider_invocations,
                         attempt_id,
                         worker_id,
@@ -350,8 +372,9 @@ class PostgresDecisionStore:
             lease_owner=row[4], lease_token=str(row[5]) if row[5] else None, lease_expires_at=row[6],
             fencing_version=int(row[7]), error_code=row[8], output_sha256=row[9],
             duration_ms=float(row[10]) if row[10] is not None else None,
-            input_tokens=row[11], output_tokens=row[12], provider_invocations=int(row[13]),
-            created_at=row[14], updated_at=row[15]
+            input_tokens=row[11], output_tokens=row[12], cached_input_tokens=row[13],
+            provider_response_id_sha256=row[14], provider_invocations=int(row[15]),
+            created_at=row[16], updated_at=row[17]
         )
 
     def _ensure_schema(self) -> None:
@@ -389,7 +412,8 @@ class PostgresDecisionStore:
                         "CREATE TABLE IF NOT EXISTS {attempts}(attempt_id UUID PRIMARY KEY,decision_id UUID NOT NULL REFERENCES {decisions}(decision_id) ON DELETE CASCADE,"
                         "attempt_number INTEGER NOT NULL CHECK(attempt_number>=1),status TEXT NOT NULL CHECK(status IN('pending','running','completed','failed','abandoned')),"
                         "lease_owner TEXT,lease_token UUID,lease_expires_at TIMESTAMPTZ,fencing_version INTEGER NOT NULL DEFAULT 0,error_code TEXT,output_sha256 TEXT,"
-                        "duration_ms DOUBLE PRECISION,input_tokens INTEGER,output_tokens INTEGER,provider_invocations INTEGER NOT NULL DEFAULT 0,"
+                        "duration_ms DOUBLE PRECISION,input_tokens INTEGER,output_tokens INTEGER,cached_input_tokens INTEGER,"
+                        "provider_response_id_sha256 TEXT,provider_invocations INTEGER NOT NULL DEFAULT 0,"
                         "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(decision_id,attempt_number))"
                     ).format(attempts=sql.Identifier(self.attempts_table), decisions=sql.Identifier(self.decisions_table))
                 )
@@ -397,6 +421,8 @@ class PostgresDecisionStore:
                     "duration_ms DOUBLE PRECISION",
                     "input_tokens INTEGER",
                     "output_tokens INTEGER",
+                    "cached_input_tokens INTEGER",
+                    "provider_response_id_sha256 TEXT",
                     "provider_invocations INTEGER NOT NULL DEFAULT 0",
                 ):
                     cursor.execute(
@@ -404,6 +430,29 @@ class PostgresDecisionStore:
                             "ALTER TABLE {attempts} ADD COLUMN IF NOT EXISTS "
                             + column_definition
                         ).format(attempts=sql.Identifier(self.attempts_table))
+                    )
+                trace_constraint = runtime_schema_identifier(
+                    self.table_prefix,
+                    "decision_attempt_usage_trace_check",
+                )
+                cursor.execute(
+                    "SELECT 1 FROM pg_constraint "
+                    "WHERE conrelid=to_regclass(%s) AND conname=%s",
+                    (f"public.{self.attempts_table}", trace_constraint),
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {attempts} ADD CONSTRAINT {constraint} "
+                            "CHECK ((cached_input_tokens IS NULL OR cached_input_tokens >= 0) "
+                            "AND (input_tokens IS NULL OR cached_input_tokens IS NULL "
+                            "OR cached_input_tokens <= input_tokens) "
+                            "AND (provider_response_id_sha256 IS NULL "
+                            "OR provider_response_id_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                        ).format(
+                            attempts=sql.Identifier(self.attempts_table),
+                            constraint=sql.Identifier(trace_constraint),
+                        )
                     )
                 metrics_constraint = runtime_schema_identifier(
                     self.table_prefix,

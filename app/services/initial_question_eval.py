@@ -151,7 +151,11 @@ class InitialQuestionEvalAttempt(BaseModel):
                 raise ValueError("live Provider attempts require an invocation")
             if self.provider_metered_invocations != self.provider_invocations:
                 raise ValueError("every live Provider invocation must be metered")
-            if self.input_tokens is None or self.output_tokens is None:
+            if (
+                self.input_tokens is None
+                or self.output_tokens is None
+                or self.cached_input_tokens is None
+            ):
                 raise ValueError("live Provider attempts require token usage")
             if self.latency_seconds <= 0 or self.response_sha256 is None:
                 raise ValueError("live Provider attempts require latency and response hash")
@@ -362,6 +366,12 @@ def calculate_initial_question_metrics(
         if not independent or not dataset_gate_eligible
         else "PASS"
     )
+    def complete_token_total(field: str) -> int | None:
+        if not attempts or sum(item.provider_invocations for item in attempts) == 0:
+            return 0
+        values = [getattr(item, field) for item in attempts]
+        return sum(values) if all(value is not None for value in values) else None
+
     return {
         "dataset_case_count": len(dataset.cases),
         "attempt_count": len(attempts),
@@ -412,9 +422,9 @@ def calculate_initial_question_metrics(
             "provider_invocations_this_run": sum(item.provider_invocations for item in attempts),
             "provider_metered_invocations": sum(item.provider_metered_invocations for item in attempts),
             "provider_retries": sum(item.provider_retries for item in attempts),
-            "input_tokens": sum(item.input_tokens or 0 for item in attempts),
-            "output_tokens": sum(item.output_tokens or 0 for item in attempts),
-            "cached_input_tokens": sum(item.cached_input_tokens or 0 for item in attempts),
+            "input_tokens": complete_token_total("input_tokens"),
+            "output_tokens": complete_token_total("output_tokens"),
+            "cached_input_tokens": complete_token_total("cached_input_tokens"),
             "latency_seconds": sum(item.latency_seconds for item in attempts),
         },
         "deterministic_failures": deterministic_failures,

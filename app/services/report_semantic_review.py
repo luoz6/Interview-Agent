@@ -11,6 +11,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SEMANTIC_REVIEW_PROTOCOL_VERSION = "report-semantic-blind-review-v1"
 SEMANTIC_REVIEW_HASH_ALGORITHM = "sha256-canonical-json-v1"
+SEMANTIC_NONINFERIORITY_RULE_VERSION = (
+    "observed-pass-rate-v2-gte-v1-v1"
+)
+SEMANTIC_NONINFERIORITY_PASS_SCORE = 4
+SEMANTIC_NONINFERIORITY_MARGIN = 0.0
+SEMANTIC_NONINFERIORITY_DIMENSIONS = (
+    "technical_correctness",
+    "answer_support",
+    "summary_coverage",
+    "actionability",
+)
 
 VariantVersion = Literal["v1", "v2"]
 BlindLabel = Literal["A", "B"]
@@ -401,6 +412,7 @@ class SemanticReviewGateResult(BaseModel):
         "BLOCKED_CRITICAL_FORBIDDEN_ITEM_UNRESOLVED",
         "FAIL_CANDIDATE_EXPERIENCE_FABRICATION",
         "FAIL_SEMANTIC_THRESHOLDS",
+        "FAIL_SEMANTIC_NONINFERIORITY",
         "FAIL_PROTOCOL_INTEGRITY",
     ]
     human_review_status: Literal["NOT_RUN", "INCOMPLETE", "COMPLETE"]
@@ -426,6 +438,57 @@ class SemanticReviewGateResult(BaseModel):
     v2_tone_calibration_pass_rate: float | None = Field(default=None, ge=0, le=1)
     v2_helpfulness_noninferiority_rate: float | None = Field(
         default=None, ge=0, le=1
+    )
+    noninferiority_rule_version: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    noninferiority_pass_score: int | None = Field(
+        default=None,
+        ge=1,
+        le=5,
+        exclude_if=lambda value: value is None,
+    )
+    noninferiority_margin: float | None = Field(
+        default=None,
+        ge=0,
+        exclude_if=lambda value: value is None,
+    )
+    v1_technical_correctness_pass_rate: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        exclude_if=lambda value: value is None,
+    )
+    v1_answer_support_pass_rate: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        exclude_if=lambda value: value is None,
+    )
+    v1_summary_coverage_pass_rate: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        exclude_if=lambda value: value is None,
+    )
+    v1_actionability_pass_rate: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        exclude_if=lambda value: value is None,
+    )
+    v2_noninferior_to_v1_by_dimension: dict[str, bool] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    noninferiority_failed_dimensions: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    v2_noninferiority_passed: bool | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
     )
     provider_calls: int = Field(ge=0)
     offline_judge_used: bool
@@ -507,12 +570,15 @@ def evaluate_semantic_review_gate(
     v2_preferred = 0
     v1_preferred = 0
     ties = 0
-    v2_scores: dict[str, list[int]] = {
-        "technical_correctness": [],
-        "answer_support": [],
-        "summary_coverage": [],
-        "actionability": [],
-        "tone_calibration": [],
+    version_scores: dict[str, dict[str, list[int]]] = {
+        version: {
+            "technical_correctness": [],
+            "answer_support": [],
+            "summary_coverage": [],
+            "actionability": [],
+            "tone_calibration": [],
+        }
+        for version in ("v1", "v2")
     }
     for judgment in known_judgments:
         assignment = assignment_by_id.get(judgment.pair_id)
@@ -521,6 +587,7 @@ def evaluate_semantic_review_gate(
         v2_label: BlindLabel = (
             "A" if assignment.variant_a_version == "v2" else "B"
         )
+        v1_label: BlindLabel = "B" if v2_label == "A" else "A"
         assessment = (
             judgment.experience_fabrication_A
             if v2_label == "A"
@@ -536,18 +603,27 @@ def evaluate_semantic_review_gate(
             v2_preferred += 1
         else:
             v1_preferred += 1
-        for dimension in v2_scores:
+        for dimension in version_scores["v2"]:
             scores = getattr(judgment, dimension)
-            v2_scores[dimension].append(getattr(scores, v2_label))
+            version_scores["v2"][dimension].append(getattr(scores, v2_label))
+            version_scores["v1"][dimension].append(getattr(scores, v1_label))
 
-    pass_rates = {
-        dimension: (
-            sum(score >= 4 for score in scores) / len(scores)
-            if scores
-            else None
-        )
-        for dimension, scores in v2_scores.items()
+    pass_rates_by_version = {
+        version: {
+            dimension: (
+                sum(
+                    score >= SEMANTIC_NONINFERIORITY_PASS_SCORE
+                    for score in scores
+                )
+                / len(scores)
+                if scores
+                else None
+            )
+            for dimension, scores in scores_by_dimension.items()
+        }
+        for version, scores_by_dimension in version_scores.items()
     }
+    pass_rates = pass_rates_by_version["v2"]
     semantic_threshold_failed = any(
         pass_rates[dimension] is not None
         and pass_rates[dimension] < 0.90
@@ -558,6 +634,31 @@ def evaluate_semantic_review_gate(
             "actionability",
         )
     )
+    review_is_complete = bool(known_judgments) and not (
+        issues or missing_primary or missing_second
+    )
+    noninferiority_by_dimension = (
+        {
+            dimension: (
+                pass_rates_by_version["v2"][dimension]
+                >= pass_rates_by_version["v1"][dimension]
+                - SEMANTIC_NONINFERIORITY_MARGIN
+            )
+            for dimension in SEMANTIC_NONINFERIORITY_DIMENSIONS
+        }
+        if review_is_complete
+        else None
+    )
+    noninferiority_failed_dimensions = (
+        [
+            dimension
+            for dimension, passed in noninferiority_by_dimension.items()
+            if not passed
+        ]
+        if noninferiority_by_dimension is not None
+        else None
+    )
+    noninferiority_failed = bool(noninferiority_failed_dimensions)
 
     if issues:
         quality_status = "FAIL_PROTOCOL_INTEGRITY"
@@ -579,6 +680,9 @@ def evaluate_semantic_review_gate(
         human_status = "COMPLETE"
     elif semantic_threshold_failed:
         quality_status = "FAIL_SEMANTIC_THRESHOLDS"
+        human_status = "COMPLETE"
+    elif noninferiority_failed:
+        quality_status = "FAIL_SEMANTIC_NONINFERIORITY"
         human_status = "COMPLETE"
     else:
         quality_status = "PASS"
@@ -622,6 +726,40 @@ def evaluate_semantic_review_gate(
             (v2_preferred + ties) / len(known_judgments)
             if known_judgments
             else None
+        ),
+        noninferiority_rule_version=(
+            SEMANTIC_NONINFERIORITY_RULE_VERSION if review_is_complete else None
+        ),
+        noninferiority_pass_score=(
+            SEMANTIC_NONINFERIORITY_PASS_SCORE if review_is_complete else None
+        ),
+        noninferiority_margin=(
+            SEMANTIC_NONINFERIORITY_MARGIN if review_is_complete else None
+        ),
+        v1_technical_correctness_pass_rate=(
+            pass_rates_by_version["v1"]["technical_correctness"]
+            if review_is_complete
+            else None
+        ),
+        v1_answer_support_pass_rate=(
+            pass_rates_by_version["v1"]["answer_support"]
+            if review_is_complete
+            else None
+        ),
+        v1_summary_coverage_pass_rate=(
+            pass_rates_by_version["v1"]["summary_coverage"]
+            if review_is_complete
+            else None
+        ),
+        v1_actionability_pass_rate=(
+            pass_rates_by_version["v1"]["actionability"]
+            if review_is_complete
+            else None
+        ),
+        v2_noninferior_to_v1_by_dimension=noninferiority_by_dimension,
+        noninferiority_failed_dimensions=noninferiority_failed_dimensions,
+        v2_noninferiority_passed=(
+            not noninferiority_failed if review_is_complete else None
         ),
         provider_calls=judge_bundle.provider_calls if judge_bundle else 0,
         offline_judge_used=judge_bundle is not None,

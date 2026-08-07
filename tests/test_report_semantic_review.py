@@ -11,6 +11,7 @@ from app.services.report_semantic_review import (
     OfflineJudgeBundle,
     OfflineJudgeConfig,
     OfflineJudgeFinding,
+    SEMANTIC_NONINFERIORITY_RULE_VERSION,
     VariantScores,
     build_blinded_review_artifacts,
     canonical_sha256,
@@ -176,6 +177,10 @@ def test_blank_human_sheet_is_truthfully_blocked_with_zero_provider_calls():
     assert result.v2_preferred_count is None
     assert result.v2_technical_correctness_pass_rate is None
     assert result.v2_summary_coverage_pass_rate is None
+    assert result.noninferiority_rule_version is None
+    assert result.v2_noninferior_to_v1_by_dimension is None
+    assert result.v2_noninferiority_passed is None
+    assert "noninferiority_rule_version" not in result.model_dump(mode="json")
     assert result.provider_calls == 0
     assert result.offline_judge_used is False
     assert result.issue_codes == []
@@ -219,6 +224,53 @@ def test_two_distinct_independent_reviewers_can_complete_the_protocol():
     assert result.v2_summary_coverage_pass_rate == 1.0
     assert result.v2_actionability_pass_rate == 1.0
     assert result.v2_tone_calibration_pass_rate == 1.0
+    assert (
+        result.noninferiority_rule_version
+        == SEMANTIC_NONINFERIORITY_RULE_VERSION
+    )
+    assert result.noninferiority_margin == 0.0
+    assert result.v2_noninferiority_passed is True
+    assert result.noninferiority_failed_dimensions == []
+    assert canonical_sha256(result) != canonical_sha256(
+        result.model_copy(update={"noninferiority_margin": 0.01})
+    )
+
+
+def test_absolute_v2_thresholds_cannot_hide_regression_against_v1():
+    artifacts = _artifacts()
+    assignments = {
+        assignment.pair_id: assignment
+        for assignment in artifacts.assignment_key.assignments
+    }
+    judgments = [
+        _judgment(pair.pair_id, reviewer_id)
+        for pair in artifacts.packet.pairs
+        for reviewer_id in ("reviewer-one", "reviewer-two")
+    ]
+    first = judgments[0]
+    assignment = assignments[first.pair_id]
+    v2_label = "A" if assignment.variant_a_version == "v2" else "B"
+    regressed_scores = VariantScores(
+        **{v2_label: 3, ("B" if v2_label == "A" else "A"): 5}
+    )
+    judgments[0] = first.model_copy(
+        update={"technical_correctness": regressed_scores}
+    )
+
+    result = _evaluate(artifacts, _sheet(artifacts, judgments))
+
+    assert result.v2_technical_correctness_pass_rate == pytest.approx(11 / 12)
+    assert result.v1_technical_correctness_pass_rate == 1.0
+    assert result.quality_status == "FAIL_SEMANTIC_NONINFERIORITY"
+    assert result.human_review_status == "COMPLETE"
+    assert result.v2_noninferiority_passed is False
+    assert result.noninferiority_failed_dimensions == ["technical_correctness"]
+    assert result.v2_noninferior_to_v1_by_dimension == {
+        "technical_correctness": False,
+        "answer_support": True,
+        "summary_coverage": True,
+        "actionability": True,
+    }
 
 
 def test_duplicate_rows_from_one_reviewer_fail_protocol_integrity():

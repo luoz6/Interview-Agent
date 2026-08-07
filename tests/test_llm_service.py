@@ -1,10 +1,18 @@
+import asyncio
 import sys
 from types import SimpleNamespace
 
 import pytest
 
 from app.services.llm import LLMConfig, MissingLLMConfigError, OpenAIInterviewLLM
+from app.services.model_capabilities import ContextConfigurationError
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.t65_production_capture import (
+    install_t65_controlled_http_clients,
+    shutdown_t65_controlled_http_clients_async,
+    shutdown_t65_controlled_http_clients_sync,
+)
+from app.services.t65_provider_http_transport import T65ProviderTransportIdentity
 
 
 def test_llm_config_reads_model_from_environment(monkeypatch):
@@ -53,6 +61,128 @@ def test_chat_model_receives_timeout_and_retry_settings(monkeypatch):
 
     assert captured["timeout"] == 45
     assert captured["max_retries"] == 0
+    assert "http_client" not in captured
+    assert "http_async_client" not in captured
+    assert "http_socket_options" not in captured
+
+
+def test_formal_t65_chat_model_requires_and_injects_both_controlled_clients(
+    monkeypatch,
+):
+    captured = {}
+    sync_client = object()
+    async_client = object()
+
+    monkeypatch.setenv("T65_PROVIDER_TRANSPORT_MODE", "builtin_production")
+    monkeypatch.setitem(
+        sys.modules,
+        "langchain_openai",
+        SimpleNamespace(
+            ChatOpenAI=lambda **kwargs: captured.update(kwargs) or object()
+        ),
+    )
+    import app.services.t65_provider_http_transport as controlled
+
+    monkeypatch.setattr(
+        controlled,
+        "get_t65_provider_http_clients",
+        lambda: SimpleNamespace(
+            sync_client=sync_client,
+            async_client=async_client,
+        ),
+    )
+
+    OpenAIInterviewLLM._build_chat_model(
+        LLMConfig(
+            api_key="test-key",
+            model="deepseek-v4-pro",
+            base_url="https://api.deepseek.com",
+            max_retries=0,
+        )
+    )
+
+    assert captured["http_client"] is sync_client
+    assert captured["http_async_client"] is async_client
+    assert captured["http_socket_options"] == ()
+
+
+def test_production_installer_is_the_registry_seen_by_formal_llm(
+    monkeypatch, tmp_path
+):
+    identity = T65ProviderTransportIdentity(
+        run_id="llm-registry-integration",
+        process_role="api",
+        candidate_revision="a" * 40,
+        candidate_tree="b" * 40,
+        authorization_id="authorization-test",
+        authorization_sha256="c" * 64,
+        executor_sha256="d" * 64,
+    )
+    clients = install_t65_controlled_http_clients(
+        ledger_directory=tmp_path,
+        active_identity=identity,
+        expected_identity=identity,
+    )
+    captured = {}
+    monkeypatch.setenv("T65_PROVIDER_TRANSPORT_MODE", "builtin_production")
+    monkeypatch.setitem(
+        sys.modules,
+        "langchain_openai",
+        SimpleNamespace(ChatOpenAI=lambda **kwargs: captured.update(kwargs) or object()),
+    )
+    try:
+        OpenAIInterviewLLM._build_chat_model(
+            LLMConfig(
+                api_key="test-key",
+                model="deepseek-v4-pro",
+                base_url="https://api.deepseek.com",
+                max_retries=0,
+            )
+        )
+        assert captured["http_client"] is clients.sync_client
+        assert captured["http_async_client"] is clients.async_client
+    finally:
+        shutdown_t65_controlled_http_clients_sync()
+        asyncio.run(shutdown_t65_controlled_http_clients_async())
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LLMConfig(
+            api_key="test-key",
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com",
+            max_retries=0,
+        ),
+        LLMConfig(
+            api_key="test-key",
+            model="deepseek-v4-pro",
+            base_url="https://api.deepseek.com/v1",
+            max_retries=0,
+        ),
+        LLMConfig(
+            api_key="test-key",
+            model="deepseek-v4-pro",
+            base_url="https://api.deepseek.com",
+            max_retries=1,
+        ),
+    ],
+)
+def test_formal_t65_chat_model_rejects_model_endpoint_or_retry_drift(
+    monkeypatch, config
+):
+    monkeypatch.setenv("T65_PROVIDER_TRANSPORT_MODE", "builtin_production")
+    with pytest.raises(ContextConfigurationError):
+        OpenAIInterviewLLM._build_chat_model(config)
+
+
+def test_unknown_t65_transport_mode_fails_before_chat_model_creation(monkeypatch):
+    monkeypatch.setenv("T65_PROVIDER_TRANSPORT_MODE", "diagnostic")
+    with pytest.raises(ContextConfigurationError, match="unsupported"):
+        OpenAIInterviewLLM._build_chat_model(
+            LLMConfig(api_key="test-key", model="deepseek-v4-pro")
+        )
 
 
 def test_report_output_mode_can_be_selected_from_environment(monkeypatch):

@@ -30,6 +30,7 @@ def test_provider_usage_metadata_is_normalized_without_payloads():
             usage_metadata={
                 "input_tokens": 120,
                 "output_tokens": 30,
+                "cached_input_tokens": 0,
                 "total_tokens": 150,
             }
         )
@@ -40,6 +41,7 @@ def test_provider_usage_metadata_is_normalized_without_payloads():
         "provider_usage_available": True,
         "provider_input_tokens": 120,
         "provider_output_tokens": 30,
+        "provider_cached_input_tokens": 0,
         "provider_total_tokens": 150,
     }
 
@@ -76,7 +78,13 @@ def test_one_metered_response_cannot_hide_an_earlier_unmetered_attempt():
     publish_provider_response(SimpleNamespace(content="first"))
     begin_provider_attempt()
     publish_provider_response(
-        SimpleNamespace(usage_metadata={"input_tokens": 12, "output_tokens": 3})
+        SimpleNamespace(
+            usage_metadata={
+                "input_tokens": 12,
+                "output_tokens": 3,
+                "cached_input_tokens": 0,
+            }
+        )
     )
 
     metadata = consume_provider_context_metadata()
@@ -137,7 +145,13 @@ def test_provider_usage_records_bucket_and_normalized_estimator_error():
         language_bucket="zh_hans",
     )
     publish_provider_response(
-        SimpleNamespace(usage_metadata={"input_tokens": 120})
+        SimpleNamespace(
+            usage_metadata={
+                "input_tokens": 120,
+                "output_tokens": 0,
+                "cached_input_tokens": 0,
+            }
+        )
     )
 
     metadata = consume_provider_context_metadata()
@@ -145,6 +159,79 @@ def test_provider_usage_records_bucket_and_normalized_estimator_error():
     assert metadata["estimator_error_direction"] == "over"
     assert metadata["estimator_error_basis_points"] == 2_500
     assert "prompt" not in metadata
+
+
+def test_partial_or_invalid_usage_never_becomes_available():
+    for usage in (
+        {"input_tokens": 10, "cached_input_tokens": 0},
+        {"input_tokens": 10, "output_tokens": 2},
+        {"input_tokens": 10, "output_tokens": "2", "cached_input_tokens": 0},
+        {"input_tokens": True, "output_tokens": 2, "cached_input_tokens": 0},
+    ):
+        reset_provider_context_metadata()
+        begin_provider_attempt()
+        publish_provider_response(SimpleNamespace(usage_metadata=usage))
+        metadata = consume_provider_context_metadata()
+        assert metadata["provider_usage_available"] is False
+        assert metadata["provider_unmetered_attempt_count"] == 1
+        assert "provider_input_tokens" not in metadata
+        assert "provider_output_tokens" not in metadata
+        assert "provider_cached_input_tokens" not in metadata
+
+
+def test_explicit_zero_usage_is_complete_and_not_unknown():
+    reset_provider_context_metadata()
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(
+            usage_metadata={
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cached_input_tokens": 0,
+            }
+        )
+    )
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_input_tokens"] == 0
+    assert metadata["provider_output_tokens"] == 0
+    assert metadata["provider_cached_input_tokens"] == 0
+
+
+def test_raw_fallback_and_multiple_attempts_aggregate_only_complete_usage():
+    reset_provider_context_metadata()
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(
+            usage_metadata={"input_tokens": 999},
+            response_metadata={
+                "token_usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "prompt_cache_hit_tokens": 1,
+                }
+            },
+        )
+    )
+    begin_provider_attempt()
+    publish_provider_response(
+        SimpleNamespace(
+            response_metadata={
+                "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 3,
+                    "cached_input_tokens": 0,
+                }
+            }
+        )
+    )
+    metadata = consume_provider_context_metadata()
+    assert metadata["provider_attempt_count"] == 2
+    assert metadata["provider_metered_attempt_count"] == 2
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_input_tokens"] == 30
+    assert metadata["provider_output_tokens"] == 5
+    assert metadata["provider_cached_input_tokens"] == 1
 
 
 def test_estimator_error_contract_distinguishes_under_exact_and_over():

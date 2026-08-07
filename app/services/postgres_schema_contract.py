@@ -558,6 +558,25 @@ RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX = {
             }
         ),
     ),
+    "_decision_attempts": (
+        frozenset(
+            {
+                "duration_ms",
+                "input_tokens",
+                "output_tokens",
+                "provider_invocations",
+            }
+        ),
+        frozenset(
+            {
+                "cached_input_tokens",
+                "input_tokens",
+                "cached_input_tokens<=input_tokens",
+                "provider_response_id_sha256",
+                "provider_response_id_sha256~^[0-9a-f]{64}$",
+            }
+        ),
+    ),
 }
 RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_principal_memory_tombs"] = (
     frozenset({"deployment_id", "principal_id", "requested_at"}),
@@ -747,6 +766,8 @@ RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
                 "duration_ms",
                 "input_tokens",
                 "output_tokens",
+                "cached_input_tokens",
+                "provider_response_id_sha256",
                 "provider_invocations",
             }
         ),
@@ -947,6 +968,23 @@ RUNTIME_SCHEMA_V22_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V22_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_SCHEMA_V23_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V22_CHECKSUM,
+        "decision_attempt_usage_trace": {
+            "cached_input_tokens": "nullable-non-negative-not-greater-than-input",
+            "provider_response_id_sha256": "nullable-lowercase-sha256",
+            "raw_provider_response_id_persisted": False,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V23_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V23_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1056,6 +1094,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="report_history_session_deletion_v1",
         checksum=RUNTIME_SCHEMA_V22_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_attempt_usage_trace_v3",
+        checksum=RUNTIME_SCHEMA_V23_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

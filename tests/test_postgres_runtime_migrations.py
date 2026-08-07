@@ -438,6 +438,35 @@ def test_ledger_watermark_contract_owns_columns_and_database_checks():
     assert any("schema_version" in tokens for tokens in checks)
 
 
+def test_decision_attempt_contract_requires_usage_and_trace_checks():
+    from app.services.postgres_schema_contract import (
+        required_check_tokens_for_relation,
+        required_columns_for_relation,
+    )
+
+    relation = "interview_decision_attempts"
+    assert {
+        "cached_input_tokens",
+        "provider_response_id_sha256",
+    }.issubset(required_columns_for_relation(relation))
+    checks = required_check_tokens_for_relation(relation)
+    assert any(
+        {"duration_ms", "input_tokens", "output_tokens", "provider_invocations"}
+        .issubset(tokens)
+        for tokens in checks
+    )
+    assert any(
+        {
+            "cached_input_tokens",
+            "input_tokens",
+            "cached_input_tokens<=input_tokens",
+            "provider_response_id_sha256",
+            "provider_response_id_sha256~^[0-9a-f]{64}$",
+        }.issubset(tokens)
+        for tokens in checks
+    )
+
+
 def test_schema_validation_rejects_missing_latest_migration_row():
     table = "test_schema_migrations"
     columns = [
@@ -473,6 +502,7 @@ def test_schema_validation_accepts_latest_migration_contract():
 def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
     import psycopg2
     from psycopg2 import sql
+    from app.services.postgres_decision_store import PostgresDecisionStore
 
     prefix = make_runtime_table_prefix("report_heartbeat")
     vector = make_runtime_table_prefix("report_vector")
@@ -531,6 +561,28 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                 decision_columns = {row[0] for row in cursor.fetchall()}
                 cursor.execute(
                     """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_decision_attempts",),
+                )
+                decision_attempt_columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
+                    SELECT conname, pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid = to_regclass(%s)
+                      AND contype = 'c'
+                    """,
+                    (f"public.{prefix}_decision_attempts",),
+                )
+                decision_attempt_checks = {
+                    row[0]: row[1].casefold() for row in cursor.fetchall()
+                }
+                cursor.execute(
+                    """
                     SELECT pg_get_constraintdef(oid)
                     FROM pg_constraint
                     WHERE conrelid = to_regclass(%s)
@@ -571,7 +623,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "report_history_session_deletion_v1"
+        assert first.migration_id == "followup_decision_attempt_usage_trace_v3"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert "source_decision_id" in generation_columns
@@ -585,6 +637,108 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
             "decision_prompt_version",
             "decision_prompt_sha256",
         } <= decision_columns
+        assert {
+            "cached_input_tokens",
+            "provider_response_id_sha256",
+        } <= decision_attempt_columns
+        metrics_check = runtime_schema_identifier(
+            prefix, "decision_attempt_metrics_check"
+        )
+        trace_check = runtime_schema_identifier(
+            prefix, "decision_attempt_usage_trace_check"
+        )
+        assert metrics_check in decision_attempt_checks
+        assert {
+            "duration_ms",
+            "input_tokens",
+            "output_tokens",
+            "provider_invocations",
+        } <= set(
+            decision_attempt_checks[metrics_check]
+            .replace("(", " ")
+            .replace(")", " ")
+            .replace(",", " ")
+            .split()
+        )
+        assert trace_check in decision_attempt_checks
+        assert "cached_input_tokens" in decision_attempt_checks[trace_check]
+        assert "provider_response_id_sha256" in decision_attempt_checks[trace_check]
+        assert "cached_input_tokens <= input_tokens" in decision_attempt_checks[
+            trace_check
+        ]
+        assert "^[0-9a-f]{64}$" in decision_attempt_checks[trace_check]
+        PostgresDecisionStore(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            schema_mode="validate",
+        )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("ALTER TABLE {attempts} DROP CONSTRAINT {constraint}").format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+        with pytest.raises(PostgresSchemaNotReady, match="checks are incompatible"):
+            PostgresDecisionStore(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                schema_mode="validate",
+            )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {attempts} ADD CONSTRAINT {constraint} "
+                        "CHECK ((cached_input_tokens IS NULL OR cached_input_tokens >= 0) "
+                        "AND (input_tokens IS NULL OR cached_input_tokens IS NULL "
+                        "OR cached_input_tokens >= input_tokens) "
+                        "AND (duration_ms IS NULL OR duration_ms < 999999) "
+                        "AND (provider_response_id_sha256 IS NULL "
+                        "OR provider_response_id_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                    ).format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+        with pytest.raises(PostgresSchemaNotReady, match="checks are incompatible"):
+            PostgresDecisionStore(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                schema_mode="validate",
+            )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {attempts} DROP CONSTRAINT {constraint}"
+                    ).format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {attempts} ADD CONSTRAINT {constraint} "
+                        "CHECK ((cached_input_tokens IS NULL OR cached_input_tokens >= 0) "
+                        "AND (input_tokens IS NULL OR cached_input_tokens IS NULL "
+                        "OR cached_input_tokens <= input_tokens) "
+                        "AND (provider_response_id_sha256 IS NULL "
+                        "OR provider_response_id_sha256 ~ '^[0-9a-f]+$') "
+                        "AND (output_sha256 IS NULL "
+                        "OR output_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                    ).format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+        with pytest.raises(PostgresSchemaNotReady, match="checks are incompatible"):
+            PostgresDecisionStore(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                schema_mode="validate",
+            )
         assert "foreign key (source_decision_id)" in generation_constraints
         assert f"{prefix}_followup_decisions" in generation_constraints
         assert "unique index" in generation_indexes
@@ -662,7 +816,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "report_history_session_deletion_v1"
+        assert result.migration_id == "followup_decision_attempt_usage_trace_v3"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -832,7 +986,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "report_history_session_deletion_v1"
+        assert result.migration_id == "followup_decision_attempt_usage_trace_v3"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

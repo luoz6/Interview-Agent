@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -55,6 +56,7 @@ from app.services.provider_usage import (
     reset_provider_context_metadata,
 )
 from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.t65_formal_execution_receipt import validate_t65_formal_route
 
 
 DEFAULT_DATASET = Path(
@@ -137,12 +139,18 @@ def main(argv: list[str] | None = None) -> int:
     dataset_sha256 = _sha256_file(dataset_path)
     gate_config = load_gate_config(gate_path)
     authorization = load_provider_authorization(authorization_path)
+    candidate_revision, candidate_tree, worktree_clean = _candidate_identity()
     run_id = args.run_id or datetime.now(timezone.utc).strftime(
         "initial-question-t57-%Y%m%dT%H%M%SZ"
     )
     run_dir = args.out.resolve() / run_id
     if run_dir.exists() and any(run_dir.iterdir()):
         raise SystemExit(f"run directory already exists: {run_dir}")
+    # Formal eligibility is owned by the formal verifier, not inferred from
+    # Provider mode or engineering completeness.
+    formal_route_verified = validate_t65_formal_route(
+        route="builtin_candidate", receipt=None
+    )
     store = EvaluationArtifactStore.create(
         root=args.out.resolve(),
         run_id=run_id,
@@ -162,12 +170,28 @@ def main(argv: list[str] | None = None) -> int:
             "gate_config_sha256": _sha256_file(gate_path),
             "authorization_id": authorization.authorization_id,
             "authorization_sha256": _sha256_file(authorization_path),
+            "candidate_revision": candidate_revision,
+            "candidate_tree": candidate_tree,
+            "worktree_clean": worktree_clean,
             "provider": authorization.provider.name,
             "model": authorization.provider.model_id,
             "base_url": authorization.provider.base_url,
             "provider_called": False,
             "first_data_request_sent": False,
             "hard_stop_conditions": [],
+            "evidence_origin": _diagnostic_evidence_origin(args.mode, args.scope),
+            "formal_evidence_eligible": formal_route_verified,
+            "engineering_evidence_complete": False,
+            "discovery_requests": 0,
+            "planned_inference_requests": 0,
+            "inference_attempted": 0,
+            "inference_metered": 0,
+            "retries": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_input_tokens": 0,
+            "estimated_cost": 0.0,
+            "quality_status": "NOT_RUN",
             "decision": "RUNNING",
         },
     )
@@ -205,6 +229,9 @@ def main(argv: list[str] | None = None) -> int:
         discovery = discover_deepseek_provider(
             api_key=key,
             timeout_seconds=args.request_timeout_seconds,
+        )
+        manifest["discovery_requests"] = (
+            discovery.model_request_attempts + discovery.pricing_request_attempts
         )
         preflight = evaluate_initial_question_provider_preflight(
             manifest=authorization,
@@ -248,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(store.run_dir / "saved-provider-replay.json", artifact.model_dump(mode="json"))
         manifest["provider_called"] = artifact.outbound_requests_attempted > 0
         manifest["first_data_request_sent"] = artifact.outbound_requests_attempted > 0
+        _apply_usage_manifest(manifest, artifact)
         if artifact.capture_status == "hard_stopped":
             return _finish_blocked(
                 store,
@@ -256,11 +284,19 @@ def main(argv: list[str] | None = None) -> int:
                 "real Provider run stopped before the next request",
             )
         if args.scope == "smoke":
+            smoke_price = preflight.discovery.prices[authorization.provider.model_id]
+            manifest["estimated_cost"] = estimate_provider_cost(
+                price=smoke_price,
+                input_tokens=manifest["input_tokens"],
+                output_tokens=manifest["output_tokens"],
+                cached_input_tokens=manifest["cached_input_tokens"],
+            )
             manifest.update(
                 {
                     "updated_at": _utc_now(),
                     "completed_attempt_count": len(artifact.attempts),
-                    "decision": "SMOKE_COMPLETE_FULL_NOT_RUN",
+                    "quality_status": "NOT_RUN_FULL_REQUIRED",
+                    "decision": "NOT_RUN_FULL_REQUIRED",
                 }
             )
             store.write_manifest(manifest)
@@ -295,7 +331,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         metrics["provider_usage"]["pricing_currency"] = provider_price.currency
     else:
-        metrics["provider_usage"]["estimated_cost"] = None
+        metrics["provider_usage"]["estimated_cost"] = (
+            0.0
+            if metrics["provider_usage"]["provider_invocations_this_run"] == 0
+            else None
+        )
         metrics["provider_usage"]["pricing_currency"] = None
     store.write_metrics(metrics)
     store.write_report(render_initial_question_report(metrics))
@@ -306,11 +346,36 @@ def main(argv: list[str] | None = None) -> int:
             "completed_question_count": metrics["question_count"],
             "provider_invocations_this_run": metrics["provider_usage"]["provider_invocations_this_run"],
             "provider_metered_invocations": metrics["provider_usage"]["provider_metered_invocations"],
+            "planned_inference_requests": (
+                metrics["provider_usage"]["provider_invocations_this_run"]
+                - metrics["provider_usage"]["provider_retries"]
+            ),
+            "inference_attempted": metrics["provider_usage"]["provider_invocations_this_run"],
+            "inference_metered": metrics["provider_usage"]["provider_metered_invocations"],
+            "retries": metrics["provider_usage"]["provider_retries"],
             "input_tokens": metrics["provider_usage"]["input_tokens"],
             "output_tokens": metrics["provider_usage"]["output_tokens"],
+            "cached_input_tokens": metrics["provider_usage"]["cached_input_tokens"],
+            "estimated_cost": metrics["provider_usage"]["estimated_cost"],
             "automated_status": metrics["automated_status"],
             "quality_status": metrics["quality_status"],
             "decision": metrics["quality_status"],
+            "evidence_origin": (
+                "live_provider"
+                if args.mode == "provider"
+                and args.scope == "full"
+                and complete_frozen_dataset
+                else _diagnostic_evidence_origin(args.mode, args.scope)
+            ),
+            "formal_evidence_eligible": formal_route_verified,
+            "engineering_evidence_complete": (
+                args.mode == "provider"
+                and args.scope == "full"
+                and complete_frozen_dataset
+                and artifact.capture_status == "complete"
+                and artifact.outbound_requests_attempted
+                == artifact.outbound_requests_metered
+            ),
         }
     )
     store.write_manifest(manifest)
@@ -384,7 +449,12 @@ def _record_live_provider_responses(
             metered = int(metadata.get("provider_metered_attempt_count", 0))
             outbound_requests_attempted += invocations
             outbound_requests_metered += metered
-            if not metadata.get("provider_usage_available") or metered != invocations:
+            token_usage = _complete_provider_token_usage(metadata)
+            if (
+                not metadata.get("provider_usage_available")
+                or metered != invocations
+                or token_usage is None
+            ):
                 stops.append("USAGE_METERING_UNAVAILABLE")
                 break
             provider_model = metadata.get("provider_model")
@@ -439,9 +509,9 @@ def _record_live_provider_responses(
                     provider_invocations=invocations,
                     provider_metered_invocations=metered,
                     provider_retries=max(0, invocations - 1),
-                    input_tokens=int(metadata.get("provider_input_tokens", 0)),
-                    output_tokens=int(metadata.get("provider_output_tokens", 0)),
-                    cached_input_tokens=int(metadata.get("provider_cached_input_tokens", 0)),
+                    input_tokens=token_usage["provider_input_tokens"],
+                    output_tokens=token_usage["provider_output_tokens"],
+                    cached_input_tokens=token_usage["provider_cached_input_tokens"],
                     latency_seconds=latency,
                     response_sha256=plan_sha256,
                 )
@@ -506,6 +576,89 @@ def _finish_blocked(
     print(f"run_id={manifest['run_id']}")
     print(f"hard_stop_conditions={','.join(manifest['hard_stop_conditions'])}")
     return 2
+
+
+def _apply_usage_manifest(
+    manifest: dict,
+    artifact: InitialQuestionProviderArtifact,
+) -> None:
+    attempts = artifact.attempts
+    attempted = artifact.outbound_requests_attempted
+    metered = artifact.outbound_requests_metered
+    retries = sum(item.provider_retries for item in attempts)
+    usage_fully_observed = (
+        attempted == sum(item.provider_invocations for item in attempts)
+        and all(
+            value is not None
+            for item in attempts
+            for value in (
+                item.input_tokens,
+                item.output_tokens,
+                item.cached_input_tokens,
+            )
+        )
+    )
+
+    def total(field: str) -> int | None:
+        if attempted == 0:
+            return 0
+        if not usage_fully_observed:
+            return None
+        return sum(getattr(item, field) for item in attempts)
+
+    manifest.update(
+        {
+            "provider_invocations_this_run": attempted,
+            "provider_metered_invocations": metered,
+            "planned_inference_requests": attempted - retries,
+            "inference_attempted": attempted,
+            "inference_metered": metered,
+            "retries": retries,
+            "input_tokens": total("input_tokens"),
+            "output_tokens": total("output_tokens"),
+            "cached_input_tokens": total("cached_input_tokens"),
+        }
+    )
+
+
+def _complete_provider_token_usage(metadata: dict) -> dict[str, int] | None:
+    result: dict[str, int] = {}
+    for key in (
+        "provider_input_tokens",
+        "provider_output_tokens",
+        "provider_cached_input_tokens",
+    ):
+        value = metadata.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return None
+        result[key] = value
+    return result
+
+
+def _diagnostic_evidence_origin(mode: str, scope: str) -> str:
+    if mode == "fixture-replay":
+        return "synthetic_fixture"
+    if mode == "saved-replay":
+        return "saved_replay"
+    return "provider_smoke" if scope == "smoke" else "provider_diagnostic"
+
+
+def _candidate_identity() -> tuple[str, str, bool]:
+    revision = _git("rev-parse", "HEAD")
+    tree = _git("show", "-s", "--format=%T", "HEAD")
+    clean = not _git("status", "--porcelain")
+    return revision, tree, clean
+
+
+def _git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
 
 
 def _artifact_store_is_writable(store: EvaluationArtifactStore) -> bool:
