@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 if __package__:
@@ -12,8 +11,10 @@ if __package__:
         DEFAULT_OUTPUT,
         validate_acceptance,
     )
+    from scripts.postgres_backup_tools import postgres_tool_version
 else:
     from build_t62_migration_acceptance import DEFAULT_OUTPUT, validate_acceptance
+    from postgres_backup_tools import postgres_tool_version
 
 
 class _PytestResultPlugin:
@@ -59,24 +60,19 @@ def _preflight(container: str) -> dict[str, str]:
         raise RuntimeError("configured POSTGRES_DSN is not reachable") from exc
 
     versions: dict[str, str] = {}
+    transports: dict[str, str] = {}
     for tool in ("pg_dump", "pg_restore"):
         try:
-            result = subprocess.run(
-                ["docker", "exec", container, tool, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
+            version, transport = postgres_tool_version(tool, container=container)
         except Exception as exc:
             raise RuntimeError("T62 PostgreSQL backup tools are unavailable") from exc
-        if result.returncode != 0 or tool not in result.stdout:
-            raise RuntimeError("T62 PostgreSQL backup tools are unavailable")
-        versions[tool] = result.stdout.strip()
+        versions[tool] = version
+        transports[f"{tool}_transport"] = transport
     return {
         "postgresql_version": str(postgresql_version),
         "pgvector_version": str(pgvector_version),
         **versions,
+        **transports,
     }
 
 

@@ -1,4 +1,7 @@
 .gitattributes text eol=lf
+requirements*.txt text eol=lf
+requirements.lock.meta.json text eol=lf
+tests/golden/interview_quality_v1/*.json text eol=lf
 docs/prototypes/interview-agent-single-file.html text eol=lf
 tests/fixtures/report_semantic_blind_test_v1.json text eol=lf
 tests/fixtures/report_semantic_blind_test_manifest_v1.json text eol=lf

@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("checked-in T63 acceptance differs from deterministic builder")
     else:
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(serialized, encoding="utf-8")
+        output.write_text(serialized, encoding="utf-8", newline="\n")
     print(payload["canonical_sha256"])
     return 0
 

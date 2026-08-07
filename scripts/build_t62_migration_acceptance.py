@@ -219,7 +219,7 @@ def main() -> int:
             raise SystemExit("checked-in T62 acceptance manifest is stale")
     else:
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered, encoding="utf-8")
+        output.write_text(rendered, encoding="utf-8", newline="\n")
     print(payload["canonical_sha256"])
     return 0
 

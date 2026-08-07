@@ -495,6 +495,7 @@ def write_outputs() -> None:
     OUTPUT.write_text(
         json.dumps(build_dataset(), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     files = {
         name: hashlib.sha256((DATASET_DIR / name).read_bytes()).hexdigest()
@@ -512,6 +513,7 @@ def write_outputs() -> None:
         )
         + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 

@@ -279,6 +279,7 @@ def main() -> int:
     DATASET_PATH.write_text(
         json.dumps(dataset, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     load_interview_quality_dataset(DATASET_PATH)
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -288,6 +289,7 @@ def main() -> int:
     MANIFEST_PATH.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     print(
         json.dumps(

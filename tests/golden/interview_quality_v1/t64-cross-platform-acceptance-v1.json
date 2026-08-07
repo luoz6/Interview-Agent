@@ -1,0 +1,280 @@
+{
+  "schema_version": "interview-quality-v1-t64-cross-platform-acceptance-v1",
+  "acceptance_id": "t64-cross-platform-acceptance-v1",
+  "plan_task": "T64",
+  "required_platforms": [
+    "windows-11-x64",
+    "ubuntu-24.04-x64"
+  ],
+  "required_commands": [
+    "python_full_pytest",
+    "postgres_marked_pytest",
+    "migration_restore",
+    "npm_ci_root",
+    "npm_ci_frontend",
+    "eslint",
+    "vitest",
+    "frontend_build",
+    "playwright_preflight",
+    "playwright_browser",
+    "quality_replays"
+  ],
+  "target_toolchain": {
+    "python": "3.11.x",
+    "node": "22.x",
+    "postgresql": "16.x",
+    "playwright": "1.61.1",
+    "chromium": "149.0.7827.55"
+  },
+  "required_quality_replays": [
+    "initial_question",
+    "followup_decision",
+    "report_score",
+    "report_semantic"
+  ],
+  "skip_policy": "zero_blocking_and_every_nonblocking_owned",
+  "postgres_missing_dsn_skips_allowed": 0,
+  "provider_calls_expected": 0,
+  "requirement_count": 21,
+  "unique_test_node_count": 11,
+  "requirements": [
+    {
+      "id": "T64-M01",
+      "requirement": "run Windows 11 x64",
+      "evidence_codes": [
+        "windows_11_x64"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix"
+      ]
+    },
+    {
+      "id": "T64-M02",
+      "requirement": "run Ubuntu 24.04 LTS x64",
+      "evidence_codes": [
+        "ubuntu_24_04_x64"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix"
+      ]
+    },
+    {
+      "id": "T64-M03",
+      "requirement": "run Python 3.11 from an absolute executable path",
+      "evidence_codes": [
+        "python_3_11",
+        "python_absolute_path"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+      ]
+    },
+    {
+      "id": "T64-M04",
+      "requirement": "run Node 22 LTS",
+      "evidence_codes": [
+        "node_22"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+      ]
+    },
+    {
+      "id": "T64-M05",
+      "requirement": "run PostgreSQL 16",
+      "evidence_codes": [
+        "postgresql_16"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+      ]
+    },
+    {
+      "id": "T64-M06",
+      "requirement": "run project-locked Playwright Chromium",
+      "evidence_codes": [
+        "chromium_149_0_7827_55",
+        "playwright_1_61_1"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+      ]
+    },
+    {
+      "id": "T64-C01",
+      "requirement": "run full Python pytest",
+      "evidence_codes": [
+        "python_full_pytest"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
+        "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity"
+      ]
+    },
+    {
+      "id": "T64-C02",
+      "requirement": "run PostgreSQL-marked tests with a reachable DSN",
+      "evidence_codes": [
+        "postgres_dsn_configured",
+        "postgres_marked_pytest"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn"
+      ]
+    },
+    {
+      "id": "T64-C03",
+      "requirement": "run migration and backup restore",
+      "evidence_codes": [
+        "migration_restore"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+      ]
+    },
+    {
+      "id": "T64-C04",
+      "requirement": "run root and frontend npm ci",
+      "evidence_codes": [
+        "npm_ci_frontend",
+        "npm_ci_root"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+      ]
+    },
+    {
+      "id": "T64-C05",
+      "requirement": "run ESLint",
+      "evidence_codes": [
+        "eslint"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+      ]
+    },
+    {
+      "id": "T64-C06",
+      "requirement": "run Vitest",
+      "evidence_codes": [
+        "vitest"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+      ]
+    },
+    {
+      "id": "T64-C07",
+      "requirement": "run frontend production build",
+      "evidence_codes": [
+        "frontend_build"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+      ]
+    },
+    {
+      "id": "T64-C08",
+      "requirement": "run Playwright preflight and browser tests",
+      "evidence_codes": [
+        "playwright_browser",
+        "playwright_preflight"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
+        "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason"
+      ]
+    },
+    {
+      "id": "T64-C09",
+      "requirement": "replay all four frozen quality evaluations",
+      "evidence_codes": [
+        "followup_decision_replay",
+        "initial_question_replay",
+        "report_score_replay",
+        "report_semantic_replay"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_requires_all_four_zero_provider_replays"
+      ]
+    },
+    {
+      "id": "T64-C10",
+      "requirement": "clean ports processes traces screenshots and temporary database objects",
+      "evidence_codes": [
+        "cleanup_zero_residue"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_cleanup_residue"
+      ]
+    },
+    {
+      "id": "T64-R01",
+      "requirement": "allow zero required failures and zero blocking skips",
+      "evidence_codes": [
+        "zero_blocking_skips",
+        "zero_failures"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+      ]
+    },
+    {
+      "id": "T64-R02",
+      "requirement": "never accept PostgreSQL skips caused by a missing DSN",
+      "evidence_codes": [
+        "zero_missing_dsn_skips"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn"
+      ]
+    },
+    {
+      "id": "T64-R03",
+      "requirement": "give every non-blocking skip a reason and owner",
+      "evidence_codes": [
+        "skip_inventory_owned"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_unowned_or_blocking_skip",
+        "tests/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"
+      ]
+    },
+    {
+      "id": "T64-R04",
+      "requirement": "reject substitute Python Node OS database or browser versions",
+      "evidence_codes": [
+        "target_versions_exact"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+      ]
+    },
+    {
+      "id": "T64-R05",
+      "requirement": "freeze one clean provider candidate revision and tree",
+      "evidence_codes": [
+        "candidate_revision_frozen",
+        "candidate_tree_frozen",
+        "source_clean"
+      ],
+      "test_nodes": [
+        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_revision_tree_or_cleanliness_drift"
+      ]
+    }
+  ],
+  "unique_test_nodes": [
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_cleanup_residue",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_revision_tree_or_cleanliness_drift",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_unowned_or_blocking_skip",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python",
+    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_requires_all_four_zero_provider_replays",
+    "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason",
+    "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity",
+    "tests/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"
+  ],
+  "canonical_sha256": "3da812229919e3892af5733da8bc9efb9b544b8c12c48e35aceb0afeb8631ec7"
+}

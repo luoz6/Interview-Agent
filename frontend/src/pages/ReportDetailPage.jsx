@@ -417,7 +417,7 @@ export function ReportDetailPage() {
     return () => window.clearTimeout(timer);
   }, [downloadState]);
 
-  const feedbacks = report?.feedbacks || [];
+  const feedbacks = useMemo(() => report?.feedbacks || [], [report?.feedbacks]);
   const dimensions = report?.overall_dimension_scores || {};
   const score = Number.isFinite(report?.overall_score) ? report.overall_score : null;
   const band = scoreBand(score);

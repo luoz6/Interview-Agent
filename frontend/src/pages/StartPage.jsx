@@ -54,8 +54,8 @@ import {
 } from "../interviewPlanConfiguration";
 import {
   ConfirmationDialog,
-  useConfirmationDialog,
 } from "../components/ConfirmationDialog";
+import { useConfirmationDialog } from "../components/useConfirmationDialog";
 import { clearStableRequestId, stableRequestId } from "../api/client";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];

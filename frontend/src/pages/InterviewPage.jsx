@@ -22,8 +22,8 @@ import {
 import { apiUrl, getJson, HttpError, postJson, postSse, readSse } from "../api/client";
 import {
   ConfirmationDialog,
-  useConfirmationDialog,
 } from "../components/ConfirmationDialog";
+import { useConfirmationDialog } from "../components/useConfirmationDialog";
 import { AssistanceNotice } from "../components/UI";
 import { usePageMeta } from "../hooks/usePageMeta";
 import { useSessionId } from "../hooks/useSessionId";

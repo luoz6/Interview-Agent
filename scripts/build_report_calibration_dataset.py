@@ -172,6 +172,7 @@ def main() -> int:
     args.out.write_text(
         content,
         encoding="utf-8",
+        newline="\n",
     )
     manifest_path = args.out.with_suffix(".manifest.json")
     manifest_path.write_text(
@@ -190,6 +191,7 @@ def main() -> int:
             indent=2,
         ) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     print(args.out)
     return 0

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VALIDATED_REVISION = "e6b8f29d25276f17c874d07cebc15565bad37492"
 VALIDATED_TREE = "354d3d0a1ad99bfef57fd51244d1f5358442c79f"
 PUBLICATION_REF = "refs/tags/local-v1-hardening-v0.4-accepted"
+PUBLICATION_REVISION = "462e6b321d53a0c13fe362de6c6b673e67bec358"
 INHERITED_SHA256 = "de0afe41e815b8befbd56ae4acdd5ed7e07540a0baffd3d06bdca4e6542c3227"
 
 ACCEPTANCE_JSON = ROOT / "docs" / "local-v1-hardening-acceptance.json"
@@ -62,16 +63,13 @@ def _json(path: Path) -> dict:
 
 
 def _changed_publication_paths() -> set[str]:
-    paths: set[str] = set()
-    commands = (
-        ("diff", "--name-only", f"{VALIDATED_REVISION}..HEAD"),
-        ("diff", "--name-only"),
-        ("diff", "--cached", "--name-only"),
-        ("ls-files", "--others", "--exclude-standard"),
-    )
-    for command in commands:
-        paths.update(line for line in _git(*command).splitlines() if line)
-    return paths
+    return {
+        line
+        for line in _git(
+            "diff", "--name-only", f"{VALIDATED_REVISION}..{PUBLICATION_REF}"
+        ).splitlines()
+        if line
+    }
 
 
 def test_publication_subject_and_status_are_exact_and_consistent():
@@ -105,6 +103,7 @@ def test_publication_uses_external_ref_and_never_self_hashes():
 def test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged():
     changed = _changed_publication_paths()
 
+    assert _git("rev-parse", f"{PUBLICATION_REF}^{{commit}}") == PUBLICATION_REVISION
     assert changed
     assert changed <= ALLOWED_PUBLICATION_PATHS
     assert _git("show", "-s", "--format=%T", VALIDATED_REVISION) == VALIDATED_TREE
@@ -123,7 +122,17 @@ def test_historical_acceptance_evidence_was_not_rewritten():
         "docs/local-v1-long-term-memory-rc-handoff.md",
     )
 
-    assert _git("diff", "--name-only", VALIDATED_REVISION, "--", *historical) == ""
+    assert (
+        _git(
+            "diff",
+            "--name-only",
+            VALIDATED_REVISION,
+            PUBLICATION_REF,
+            "--",
+            *historical,
+        )
+        == ""
+    )
 
 
 def test_test_counts_skip_classification_and_cleanup_match_acceptance():
@@ -205,6 +214,7 @@ def test_publication_contains_no_private_or_machine_specific_material():
         "diff",
         "--unified=0",
         VALIDATED_REVISION,
+        PUBLICATION_REF,
         "--",
         *changed_existing_paths,
     )

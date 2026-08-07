@@ -171,7 +171,7 @@ export function ReportProcessingPage() {
   const [polling, setPolling] = useState(true);
   const [requeueing, setRequeueing] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
-  const pollStartedAt = useRef(Date.now());
+  const pollStartedAt = useRef(0);
 
   const loadProgress = useCallback(async ({ signal } = {}) => {
     if (!sessionId) {

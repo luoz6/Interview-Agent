@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import subprocess
-from urllib.parse import urlparse
 
 from fastapi.testclient import TestClient
 import pytest
@@ -26,6 +25,10 @@ from app.services.report_artifact import report_artifact_sha256
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.review_execution import bind_review_execution_lease
 from app.services.review_workflow_store import PostgresReviewWorkflowStore
+from scripts.postgres_backup_tools import (
+    build_pg_dump_invocation,
+    build_pg_restore_invocation,
+)
 from tests.postgres_support import (
     assert_safe_test_prefix,
     make_runtime_table_prefix,
@@ -385,34 +388,19 @@ def _postgres_container() -> str:
     return value
 
 
-def _database_identity(dsn: str) -> tuple[str, str]:
-    parsed = urlparse(dsn)
-    database = parsed.path.lstrip("/")
-    user = parsed.username or "postgres"
-    if not database:
-        raise RuntimeError("POSTGRES_DSN must name a database")
-    return user, database
-
-
 def _dump_report_tables(dsn: str, prefix: str) -> bytes:
     assert_safe_test_prefix(prefix)
-    user, database = _database_identity(dsn)
-    command = [
-        "docker",
-        "exec",
-        _postgres_container(),
-        "pg_dump",
-        "-U",
-        user,
-        "-d",
-        database,
-        "--format=custom",
-        "--no-owner",
-        "--no-privileges",
-    ]
-    for suffix in REPORT_BACKUP_SUFFIXES:
-        command.extend(["--table", f"public.{prefix}_{suffix}"])
-    completed = subprocess.run(command, capture_output=True, check=False)
+    invocation = build_pg_dump_invocation(
+        dsn,
+        container=_postgres_container(),
+        table_names=tuple(f"{prefix}_{suffix}" for suffix in REPORT_BACKUP_SUFFIXES),
+    )
+    completed = subprocess.run(
+        invocation.command,
+        env=invocation.env,
+        capture_output=True,
+        check=False,
+    )
     if completed.returncode != 0:
         raise RuntimeError("T62 pg_dump failed")
     if not completed.stdout.startswith(b"PGDMP"):
@@ -421,22 +409,13 @@ def _dump_report_tables(dsn: str, prefix: str) -> bytes:
 
 
 def _restore_report_tables(dsn: str, archive: bytes) -> None:
-    user, database = _database_identity(dsn)
+    invocation = build_pg_restore_invocation(
+        dsn,
+        container=_postgres_container(),
+    )
     completed = subprocess.run(
-        [
-            "docker",
-            "exec",
-            "-i",
-            _postgres_container(),
-            "pg_restore",
-            "-U",
-            user,
-            "-d",
-            database,
-            "--no-owner",
-            "--no-privileges",
-            "--exit-on-error",
-        ],
+        invocation.command,
+        env=invocation.env,
         input=archive,
         capture_output=True,
         check=False,
