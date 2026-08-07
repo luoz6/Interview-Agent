@@ -1,0 +1,341 @@
+{
+  "schema_version": "interview-quality-v1-t67-evidence-v1",
+  "task": "T67",
+  "generated_at": "2026-08-07T15:21:24.4556925+08:00",
+  "implementation_revision_base": "ce061bc03b9e2cd627d9911b10b3f69497ea4a2c",
+  "implementation_tree_base": "c6fca6fd809951ce504c7b073fa538847ef60a07",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED",
+  "overall_status": "ENGINEERING_PASS_QUALITY_BLOCKED",
+  "gate_6_engineering_status": "PASS",
+  "gate_6_quality_status": "BLOCKED",
+  "provider_calls": 0,
+  "provider_inference_calls": 0,
+  "first_data_request_sent": false,
+  "real_candidate_data_used": false,
+  "screenshots": 0,
+  "traces": 0,
+  "blocking_skips": 0,
+  "nonblocking_skips": 92,
+  "open_engineering_p0_p1_findings": 0,
+  "open_quality_p0_blockers": 4,
+  "engineering_rc": {
+    "status": "FROZEN",
+    "revision": "ce061bc03b9e2cd627d9911b10b3f69497ea4a2c",
+    "tree": "c6fca6fd809951ce504c7b073fa538847ef60a07",
+    "source_clean": true,
+    "platforms": ["windows-11-x64", "ubuntu-24.04-x64"],
+    "frozen_after_t66": true,
+    "unrelated_rc_changes_forbidden": true
+  },
+  "provider_candidate_preserved": {
+    "status": "UNCHANGED_UNIQUE_T65_IMPLEMENTATION",
+    "revision": "214a70646df9f23f38874a2854b9a334a10c269f",
+    "tree": "83d01ae72a483fb181b435dea4628843aa40c809",
+    "t67_engineering_rc_is_provider_candidate": false
+  },
+  "quality_rc": {
+    "status": "NOT_FROZEN_BLOCKED",
+    "revision": null,
+    "tree": null,
+    "reason": "Gate 2-5 Quality, T65 real Provider benchmark, and required independent reviews are not complete."
+  },
+  "plan_work_items": [
+    {
+      "id": "T67-W01",
+      "status": "PASS",
+      "work_item": "汇总所有 failing Gate、blocking skip 和已知限制",
+      "evidence": "Gate 2-5 Quality remain BLOCKED; Gate 6 Engineering has zero blocking skips; all limitations are listed below."
+    },
+    {
+      "id": "T67-W02",
+      "status": "PASS",
+      "work_item": "P0/P1 缺陷必须关闭或明确阻塞最终验收",
+      "evidence": "Engineering has zero open P0/P1 defects; four Quality P0 categories explicitly block final Quality acceptance and T68."
+    },
+    {
+      "id": "T67-W03",
+      "status": "PASS",
+      "work_item": "P2 延期项具有 owner、原因和不影响核心可信度证明",
+      "evidence": "All warning and coverage-scope deferrals below identify an owner, reason, and passing regression proof."
+    },
+    {
+      "id": "T67-W04",
+      "status": "PASS",
+      "work_item": "修复先跑聚焦测试再跑全量",
+      "evidence": "The stale orphan-error assertion was reproduced, fixed, verified by 1-node/3-file/5-API focused runs, then both platform full matrices were rerun."
+    },
+    {
+      "id": "T67-W05",
+      "status": "PASS",
+      "work_item": "冻结 release candidate implementation SHA/tree",
+      "evidence": "Engineering RC ce061bc03/c6fca6fd is clean and identical across Windows and Ubuntu."
+    },
+    {
+      "id": "T67-W06",
+      "status": "PASS",
+      "work_item": "T64 Provider candidate 保持 T65 唯一 implementation revision",
+      "evidence": "Provider candidate remains 214a70646d/83d01ae72a and is not replaced by the T67 Engineering RC."
+    },
+    {
+      "id": "T67-W07",
+      "status": "PASS",
+      "work_item": "T65 运行期间不得修改冻结 revision",
+      "evidence": "T65 evidence remains bound to the immutable T64 candidate; later T66/T67 commits do not rewrite that revision or its evidence."
+    },
+    {
+      "id": "T67-W08",
+      "status": "BLOCKED_BY_QUALITY_PREREQUISITES",
+      "work_item": "T65 和必要专家证据完成后冻结最终 Quality RC",
+      "evidence": "No Quality RC is frozen because T65 ran 0/6 dimensions and independent review is absent."
+    },
+    {
+      "id": "T67-W09",
+      "status": "PASS",
+      "work_item": "RC 冻结后禁止混入 UI 动画、依赖升级或无关重构",
+      "evidence": "The Engineering RC freeze contains T66 changes plus one adjacent test-contract correction only; no UI animation, dependency upgrade, or unrelated refactor was added."
+    }
+  ],
+  "gate_6_engineering_criteria": [
+    {
+      "id": "G6-E01",
+      "status": "PASS",
+      "criterion": "T60-T64 and T66 Engineering acceptance complete"
+    },
+    {
+      "id": "G6-E02",
+      "status": "PASS",
+      "criterion": "Migration, rollback, backup and restore pass",
+      "evidence": "T62 acceptance remains 7/7; current Windows and Ubuntu migration_restore each pass 7/7."
+    },
+    {
+      "id": "G6-E03",
+      "status": "PASS",
+      "criterion": "Crash recovery, Lease, idempotency and orphan recovery pass",
+      "evidence": "T61 remains 54/54 with 17/17 requirements; current full regression includes the corrected orphan recovery contract."
+    },
+    {
+      "id": "G6-E04",
+      "status": "PASS",
+      "criterion": "Windows, Ubuntu, PostgreSQL and Chromium have zero blocking skip",
+      "evidence": "6672 tests passed, 92 skips are nonblocking and owned, blocking_skips=0."
+    },
+    {
+      "id": "G6-E05",
+      "status": "PASS_ENGINEERING_METERING_QUALITY_NOT_RUN",
+      "criterion": "Latency, calls, tokens and cost are completely metered without a budget-within claim",
+      "evidence": "T63 instrumentation is Engineering PASS; this run records 0 Provider calls. Token, model latency, and cost are null/NOT_RUN because T65 sent no inference request, which blocks Quality rather than being reported as zero-cost PASS."
+    },
+    {
+      "id": "G6-E06",
+      "status": "PASS",
+      "criterion": "Engineering RC SHA/tree frozen",
+      "evidence": "ce061bc03b9e2cd627d9911b10b3f69497ea4a2c / c6fca6fd809951ce504c7b073fa538847ef60a07"
+    }
+  ],
+  "quality_p0_blockers": [
+    {
+      "id": "Q-P0-01",
+      "severity": "P0",
+      "status": "BLOCKS_GATE_6_QUALITY_AND_T68",
+      "owner": "PROVIDER_API_OWNER_AND_AUTHORIZATION_OWNER",
+      "kind": "MODEL_VERSION_DRIFT",
+      "reason": "The unified authorization fixes deepseek-chat, while the reachable Provider catalog and pricing page expose only deepseek-v4-flash and deepseek-v4-pro; automatic substitution is forbidden.",
+      "unblock_condition": "The exact authorized model becomes available and priced, or the user explicitly revises model authorization followed by all required candidate freeze and affected Engineering/Quality reruns."
+    },
+    {
+      "id": "Q-P0-02",
+      "severity": "P0",
+      "status": "BLOCKS_GATE_6_QUALITY_AND_T68",
+      "owner": "T65_PROVIDER_QUALITY",
+      "kind": "FULL_REAL_PROVIDER_BENCHMARK_NOT_RUN",
+      "reason": "T65 stopped before the first data request and ran 0/6 required quality dimensions.",
+      "unblock_condition": "Run all six frozen Provider dimensions on the authorized model with sanitized evidence and complete latency/call/token/cost accounting."
+    },
+    {
+      "id": "Q-P0-03",
+      "severity": "P0",
+      "status": "BLOCKS_GATE_6_QUALITY_AND_T68",
+      "owner": "INDEPENDENT_TECHNICAL_REVIEWER",
+      "kind": "REQUIRED_INDEPENDENT_REVIEW_NOT_RUN",
+      "reason": "Follow-up, scoring, and report semantic packets have no eligible independent reviewer decisions; independent_reviewer_count remains zero.",
+      "unblock_condition": "Independent reviewers complete and append the frozen protocols without rewriting historical NOT_RUN evidence."
+    },
+    {
+      "id": "Q-P0-04",
+      "severity": "P0",
+      "status": "BLOCKS_GATE_6_QUALITY_AND_T68",
+      "owner": "T27_AND_GATE_2_QUALITY",
+      "kind": "BLIND_TEST_AND_T27_NOT_RUN",
+      "reason": "The calibration blind partition remains sealed pending independent review and no real Provider scoring acceptance exists.",
+      "unblock_condition": "Complete calibration review, run the one-time blind evaluation, and execute T27 on the valid frozen Provider candidate."
+    }
+  ],
+  "p1_findings": [],
+  "p2_deferrals": [
+    {
+      "id": "P2-01",
+      "owner": "DEPENDENCY_MAINTENANCE",
+      "status": "DEFERRED_POST_RC",
+      "item": "Starlette TestClient/httpx deprecation warning",
+      "reason": "Resolving it requires an upstream compatibility dependency migration outside the frozen RC scope.",
+      "core_trust_proof": "2967 Python tests pass on each platform and the warning is identical, non-failing, and unrelated to request/result assertions."
+    },
+    {
+      "id": "P2-02",
+      "owner": "FRONTEND_RUNTIME",
+      "status": "DEFERRED_POST_RC",
+      "item": "Six react-hooks/exhaustive-deps warnings per platform",
+      "reason": "Hook dependency refactoring is excluded after RC freeze absent a demonstrated correctness defect.",
+      "core_trust_proof": "ESLint reports zero errors; 67 Vitest and 91 Chromium tests pass on each platform, including recovery, focus, polling, and accessibility paths."
+    },
+    {
+      "id": "P2-03",
+      "owner": "FRONTEND_PERFORMANCE",
+      "status": "DEFERRED_POST_RC",
+      "item": "Vite 542.31 kB JavaScript chunk exceeds the 500 kB warning threshold",
+      "reason": "Code splitting is an optimization and unrelated refactor is forbidden after RC freeze.",
+      "core_trust_proof": "Production build passes on both platforms; browser and T63 Engineering performance acceptance remain passing."
+    },
+    {
+      "id": "P2-04",
+      "owner": "T64_PLATFORM_MATRIX",
+      "status": "ACCEPTED_EXPLICIT_COVERAGE_SCOPE",
+      "item": "86 T64-owned platform or viewport skips across two platforms",
+      "reason": "The skipped cases are complementary OS contracts or explicitly desktop-owned design checks, each with a reason and owner.",
+      "core_trust_proof": "The complementary platform checks run where applicable; 182 Chromium cases pass across Windows and Ubuntu and blocking_skips=0."
+    }
+  ],
+  "quality_owned_engineering_nonblocking_skips": {
+    "owner": "T65_PROVIDER_QUALITY",
+    "count": 6,
+    "engineering_blocking": false,
+    "quality_blocking": true,
+    "reason": "One Python real-LLM smoke and two Playwright real-model cases per platform require the blocked T65 Provider run."
+  },
+  "verification": {
+    "aggregate": {
+      "platforms": 2,
+      "tests_passed": 6672,
+      "tests_failed": 0,
+      "tests_skipped_nonblocking": 92,
+      "blocking_skips": 0,
+      "provider_calls": 0,
+      "cleanup_residue": 0
+    },
+    "windows_11_x64": {
+      "status": "PASS",
+      "generated_at": "2026-08-07T06:15:28.528035Z",
+      "python_full": {"passed": 2967, "failed": 0, "skipped": 3, "warnings": 1, "duration_seconds": 209.56},
+      "postgres_marked": {"passed": 204, "failed": 0, "skipped": 0, "duration_seconds": 137.853},
+      "migration_restore": {"passed": 7, "failed": 0, "skipped": 0, "duration_seconds": 12.601},
+      "vitest": {"passed": 67, "failed": 0, "skipped": 0, "duration_seconds": 28.875},
+      "playwright": {"passed": 91, "failed": 0, "skipped": 43, "duration_seconds": 211.047, "trace": "off", "screenshots": 0},
+      "eslint": {"errors": 0, "warnings": 6},
+      "frontend_build": "PASS_WITH_542_31_KB_CHUNK_WARNING",
+      "cleanup": {"ports": 0, "processes": 0, "temporary_database_relations": 0, "screenshots": 0, "traces": 0, "unexpected_worktree_changes": 0}
+    },
+    "ubuntu_24_04_x64": {
+      "status": "PASS",
+      "generated_at": "2026-08-07T07:11:12.749159Z",
+      "python_full": {"passed": 2967, "failed": 0, "skipped": 3, "warnings": 1, "duration_seconds": 270.314},
+      "postgres_marked": {"passed": 204, "failed": 0, "skipped": 0, "duration_seconds": 89.018},
+      "migration_restore": {"passed": 7, "failed": 0, "skipped": 0, "duration_seconds": 9.722},
+      "vitest": {"passed": 67, "failed": 0, "skipped": 0, "duration_seconds": 13.457},
+      "playwright": {"passed": 91, "failed": 0, "skipped": 43, "duration_seconds": 285.744, "trace": "off", "screenshots": 0},
+      "eslint": {"errors": 0, "warnings": 6},
+      "frontend_build": "PASS_WITH_542_31_KB_CHUNK_WARNING",
+      "dependency_install": "PASS_REQUIRE_HASHES_AND_PIP_CHECK",
+      "cleanup": {"ports": 0, "processes": 0, "temporary_database_relations": 0, "screenshots": 0, "traces": 0, "unexpected_worktree_changes": 0}
+    }
+  },
+  "formal_artifacts": {
+    "windows_platform_result": {
+      "path": "tmp/t67/formal/ce061bc/windows/platform-result.json",
+      "bytes": 18889,
+      "sha256": "d70fcff141778fa97370553610edd05011381d801fa74eefbd477adb7a5cc706"
+    },
+    "ubuntu_platform_result": {
+      "path": "tmp/t67/formal/ce061bc/ubuntu/platform-result.json",
+      "bytes": 18867,
+      "sha256": "04a7a6f9b7a4aa64b18f0564a793d6f5bd3a836d1d6f413dcc5ba152bbd49be7"
+    },
+    "cross_platform_engineering_gate": {
+      "path": "tmp/t67/formal/ce061bc/t67-engineering-gate-result.json",
+      "bytes": 1139,
+      "sha256": "234a572d3f6d778ada85a83a0a5c0fffdbb51cdd7c875813bc2de7d39dd7025d",
+      "legacy_runner_field_note": "The reused T64 validator names its validated source provider_candidate_revision; for T67 this field is treated only as the Engineering RC source identity and does not redefine the frozen T64/T65 Provider candidate."
+    }
+  },
+  "automatic_review_findings_closed": [
+    "The first Windows full matrix found one stale orphan-recovery assertion that expected an internal lowercase error string after T66 introduced the stable public message. The assertion was corrected without changing production behavior.",
+    "The first Ubuntu linked worktree mount exposed Windows Git metadata and line-ending incompatibility; the formal run used a Linux-native clean checkout from a read-only object store.",
+    "The first successful Ubuntu console run wrote its Artifact to a CR-suffixed container path due PowerShell stdin CRLF; it was rejected as evidence and rerun with a checked LF script and verified host bind mount."
+  ],
+  "diagnostic_runs_not_accepted_as_pass": [
+    {
+      "run": "windows-4a29e87",
+      "status": "FAIL_SUPERSEDED",
+      "artifact": "tmp/t67/formal/4a29e87/windows/platform-result.json",
+      "artifact_bytes": 18890,
+      "artifact_sha256": "ffbc4797adb6d76b15be9171f580523978b5d23ceb0c8dc2bb9d50df14e6ad80",
+      "result": "2966 passed, 1 failed, 3 skipped",
+      "reason": "Adjacent test asserted the pre-T66 raw queue error message."
+    },
+    {
+      "run": "ubuntu-ce061bc-console-only-v1",
+      "status": "PASS_RESULT_REJECTED_ARTIFACT_NOT_PERSISTED",
+      "reason": "The test result was visible, but PowerShell stdin CRLF produced a CR-suffixed container output path and the --rm container removed it; no formal Artifact survived."
+    }
+  ],
+  "focused_fix_verification": {
+    "single_failed_node": "1 passed",
+    "orphan_recovery_file": "3 passed",
+    "related_report_api_selection": "5 passed, 43 deselected",
+    "fix_commit": "ce061bc03b9e2cd627d9911b10b3f69497ea4a2c"
+  },
+  "cleanup_and_residue": {
+    "formal_runtime_cleanup_residue": 0,
+    "t67_docker_containers": 0,
+    "t67_docker_cache_volumes": 0,
+    "postgres_temporary_relations": 0,
+    "screenshots": 0,
+    "traces": 0,
+    "retained_clean_reproduction_clone": {
+      "path": "F:/agent/Interview-Agent-quality-v1-t67-ubuntu-ce061bc",
+      "revision": "ce061bc03b9e2cd627d9911b10b3f69497ea4a2c",
+      "tree": "c6fca6fd809951ce504c7b073fa538847ef60a07",
+      "status": "RETAINED_NON_RUNTIME_LOCAL_CHECKOUT",
+      "reason": "Local tool policy rejected recursive deletion after exact-path verification; the checkout is clean, contains no test output or secrets, starts no process, and is not an authoritative worktree."
+    }
+  },
+  "usage_truthfulness": {
+    "authorization_budget": "UNLIMITED",
+    "authorization_requests": "UNLIMITED",
+    "provider_inference_calls": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "provider_cost": null,
+    "provider_latency": null,
+    "usage_status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT",
+    "budget_within_claimed": false
+  },
+  "truthfulness_limits": [
+    "Gate 6 Engineering PASS does not establish Gate 6 Quality PASS.",
+    "No real Provider inference, token, model latency, or cost result exists; null/NOT_RUN is preserved rather than reported as zero-cost PASS.",
+    "No independent reviewer decision exists and no automated agent review substitutes for it.",
+    "No Quality RC is frozen.",
+    "T68 depends on both Gate 6 Engineering PASS and Quality PASS, so Phase 7 cannot start while these P0 Quality blockers remain."
+  ],
+  "phase_boundaries": {
+    "t67_attempted": true,
+    "t67_engineering_complete": true,
+    "t67_quality_complete": false,
+    "t67_complete": false,
+    "next_task": "T68",
+    "next_task_status": "BLOCKED_GATE_6_QUALITY",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  }
+}
