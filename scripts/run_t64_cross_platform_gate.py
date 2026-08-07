@@ -222,6 +222,26 @@ def evaluate_cross_platform(
     }
 
 
+def build_platform_artifacts(
+    paths: list[Path], platform_results: list[dict[str, Any]]
+) -> dict[str, dict[str, object]]:
+    if len(paths) != len(platform_results):
+        raise ValueError("T64 platform artifact paths and results do not align")
+    artifacts: dict[str, dict[str, object]] = {}
+    for path, payload in zip(paths, platform_results, strict=True):
+        platform_id = str(payload.get("platform", ""))
+        if platform_id not in REQUIRED_PLATFORMS or platform_id in artifacts:
+            raise ValueError("T64 platform artifact identity is invalid or duplicated")
+        artifacts[platform_id] = {
+            "file_name": path.name,
+            "sha256": _sha256(path),
+            "bytes": path.stat().st_size,
+        }
+    if set(artifacts) != set(REQUIRED_PLATFORMS):
+        raise ValueError("T64 platform artifact set is incomplete")
+    return artifacts
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate and freeze the T64 cross-platform candidate")
     parser.add_argument("--acceptance", type=Path, default=DEFAULT_OUTPUT)
@@ -234,19 +254,21 @@ def main(argv: list[str] | None = None) -> int:
     acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
     validate_acceptance(acceptance, root=root)
     paths = [args.windows.resolve(), args.ubuntu.resolve()]
+    platform_results = [
+        json.loads(path.read_text(encoding="utf-8")) for path in paths
+    ]
     try:
         result = evaluate_cross_platform(
             acceptance,
-            [json.loads(path.read_text(encoding="utf-8")) for path in paths],
+            platform_results,
             root=root,
+        )
+        result["platform_artifacts"] = build_platform_artifacts(
+            paths, platform_results
         )
     except ValueError as exc:
         print(json.dumps({"schema_version": GATE_SCHEMA, "status": "FAIL", "detail": str(exc)}, sort_keys=True))
         return 1
-    result["platform_artifacts"] = {
-        path.name: {"sha256": _sha256(path), "bytes": path.stat().st_size}
-        for path in paths
-    }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, sort_keys=True))

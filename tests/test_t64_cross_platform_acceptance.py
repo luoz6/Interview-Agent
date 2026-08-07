@@ -12,6 +12,7 @@ from scripts.build_t64_cross_platform_acceptance import (
 )
 from scripts.run_t64_cross_platform_gate import (
     PLATFORM_SCHEMA,
+    build_platform_artifacts,
     evaluate_cross_platform,
     validate_platform_result,
 )
@@ -130,6 +131,31 @@ def test_t64_gate_accepts_complete_target_matrix():
     assert result["provider_candidate_tree"] == TREE
     assert result["blocking_skips"] == 0
     assert result["provider_calls"] == 0
+
+
+def test_t64_gate_indexes_same_named_platform_artifacts_without_overwrite(
+    tmp_path,
+):
+    paths = []
+    payloads = _matrix()
+    for payload in payloads:
+        path = tmp_path / payload["platform"] / "platform-result.json"
+        path.parent.mkdir()
+        path.write_text(
+            json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        paths.append(path)
+
+    artifacts = build_platform_artifacts(paths, payloads)
+
+    assert set(artifacts) == {"windows-11-x64", "ubuntu-24.04-x64"}
+    assert all(
+        artifact["file_name"] == "platform-result.json"
+        for artifact in artifacts.values()
+    )
+    assert artifacts["windows-11-x64"]["sha256"] != artifacts[
+        "ubuntu-24.04-x64"
+    ]["sha256"]
 
 
 def test_t64_gate_rejects_wrong_toolchain_or_relative_python():
