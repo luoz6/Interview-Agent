@@ -221,7 +221,7 @@ def test_attempt_contract_rejects_inconsistent_calls_and_unsafe_display():
         "followup_count_before": 0,
         "followup_count_after": 0,
     }
-    with pytest.raises(ValidationError, match="Decision \+ Generation"):
+    with pytest.raises(ValidationError, match=r"Decision \+ Generation"):
         FollowupEvalAttempt(**base, provider_invocations=1)
     with pytest.raises(ValidationError, match="runtime_action=follow_up"):
         FollowupEvalAttempt(**base, displayed_question="unsafe")

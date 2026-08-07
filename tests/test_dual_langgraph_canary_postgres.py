@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 import pytest
@@ -161,6 +162,16 @@ class FailAfterReportEnqueue:
             self.triggered = True
             raise RuntimeError("lost after report enqueue")
         return job
+
+
+def _claim_eventually(job_store, *, worker_id: str, timeout_seconds: float = 2):
+    """Model the worker's bounded polling without weakening job identity."""
+    deadline = monotonic() + timeout_seconds
+    while True:
+        claimed = job_store.claim_next(worker_id=worker_id)
+        if claimed is not None or monotonic() >= deadline:
+            return claimed
+        sleep(0.02)
 
 
 def _build_interview_service(
@@ -466,9 +477,11 @@ def test_local_one_percent_joint_assignment_resumes_after_rollout_zero(
             == "langgraph-review-v1"
         )
 
-        claimed = resumed_jobs.claim_next(
-            worker_id="local-canary-review-worker"
+        claimed = _claim_eventually(
+            resumed_jobs,
+            worker_id="local-canary-review-worker",
         )
+        assert claimed is not None
         assert claimed["job_id"] == job_id
         review_store = PostgresReviewWorkflowStore(
             dsn=dsn, table_prefix=prefix
