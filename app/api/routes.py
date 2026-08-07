@@ -1886,7 +1886,12 @@ def get_interview_report(
             },
         )
     if record.status == "failed":
-        raise HTTPException(status_code=500, detail=record.error)
+        raise HTTPException(
+            status_code=500,
+            detail=_public_report_failure_message(
+                _public_report_error_code(record.error or "")
+            ),
+        )
     return record.report.model_dump()
 
 
@@ -1927,21 +1932,42 @@ def _report_artifact_to_dict(
     active: bool = False,
     latest_job=None,
 ) -> dict:
-    return compose_report_view(
+    result = compose_report_view(
         artifact,
         latest_job=latest_job,
         active=active,
     ).model_dump(mode="json")
+    if result.get("latest_job") is not None:
+        result["latest_job"]["error_code"] = _public_artifact_error_code(
+            result["latest_job"].get("error_code")
+        )
+    return result
 
 
 def _report_job_v2_to_dict(job) -> dict | None:
     if job is None:
         return None
     result = job.model_dump(mode="json")
+    result["error_code"] = _public_artifact_error_code(job.error_code)
     result["internal_status"] = job.status
     result["status"] = "running" if job.status == "retrying" else job.status
     result["retrying"] = job.status == "retrying"
     return result
+
+
+def _public_artifact_error_code(raw_code: object) -> str | None:
+    code = str(raw_code or "").strip().casefold()
+    if not code:
+        return None
+    return {
+        "provider_timeout": "report_provider_timeout",
+        "report_provider_timeout": "report_provider_timeout",
+        "provider_unavailable": "provider_unavailable",
+        "embedding_provider_timeout": "embedding_provider_timeout",
+        "knowledge_store_unavailable": "knowledge_store_unavailable",
+        "report_enqueue_unavailable": "report_enqueue_unavailable",
+        "report_job_missing": "report_job_missing",
+    }.get(code, "report_generation_failed")
 
 
 @router.get("/interviews/{session_id}/report.pdf")
@@ -1972,7 +1998,12 @@ def download_interview_report_pdf(
     if record is None or record.status == "processing":
         raise HTTPException(status_code=409, detail="report is not ready")
     if record.status == "failed":
-        raise HTTPException(status_code=409, detail=record.error)
+        raise HTTPException(
+            status_code=409,
+            detail=_public_report_failure_message(
+                _public_report_error_code(record.error or "")
+            ),
+        )
 
     pdf_bytes = build_report_pdf(record.report)
     filename = f'interview-report-{session_id}.pdf'
@@ -2025,12 +2056,16 @@ def list_interview_report_jobs(
 @router.get("/reports/{report_id}.pdf")
 def download_report_artifact_pdf(
     report_id: str,
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
     artifact_store=Depends(get_report_artifact_store),
 ):
-    try:
-        artifact = artifact_store.get_artifact(report_id)
-    except ReportArtifactNotFound as exc:
-        raise HTTPException(status_code=404, detail="report artifact not found") from exc
+    artifact = _session_bound_report_artifact(
+        session_id=session_id,
+        report_id=report_id,
+        store=store,
+        artifact_store=artifact_store,
+    )
     return _report_artifact_pdf_response(artifact)
 
 
@@ -2065,12 +2100,42 @@ def _report_artifact_pdf_response(artifact):
 @router.get("/reports/{report_id}")
 def get_report_artifact(
     report_id: str,
+    session_id: str,
+    store: InterviewSessionStore = Depends(get_session_store),
     artifact_store=Depends(get_report_artifact_store),
 ):
+    artifact = _session_bound_report_artifact(
+        session_id=session_id,
+        report_id=report_id,
+        store=store,
+        artifact_store=artifact_store,
+    )
+    return _report_artifact_to_dict(artifact)
+
+
+def _session_bound_report_artifact(
+    *,
+    session_id: str,
+    report_id: str,
+    store,
+    artifact_store,
+):
     try:
-        return _report_artifact_to_dict(artifact_store.get_artifact(report_id))
-    except ReportArtifactNotFound as exc:
-        raise HTTPException(status_code=404, detail="report artifact not found") from exc
+        state = store.get(session_id)
+        if state.get("deletion_status") == "deleting":
+            raise ValueError("session is deleting")
+        artifact = artifact_store.get_artifact(report_id)
+    except (ValueError, ReportArtifactNotFound) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="report artifact not found for session",
+        ) from exc
+    if artifact.session_id != session_id:
+        raise HTTPException(
+            status_code=404,
+            detail="report artifact not found for session",
+        )
+    return artifact
 
 
 @router.post("/interviews/{session_id}/report/rescore", status_code=202)
@@ -2355,7 +2420,13 @@ def _report_summary_to_dict(
         "overall_score": report.overall_score if report is not None else None,
         "summary": report.summary if report is not None else None,
         "is_fallback": report.is_fallback if report is not None else False,
-        "error": record.error,
+        "error": (
+            _public_report_failure_message(
+                _public_report_error_code(record.error or "")
+            )
+            if record.status == "failed"
+            else None
+        ),
         "job_title": session_summary.get("job_title"),
         "job_tags": list(session_summary.get("job_tags") or []),
         "question_count": session_summary.get("question_count"),
@@ -2367,6 +2438,42 @@ def _report_summary_to_dict(
         if record.status == "completed"
         else None,
     }
+
+
+_PUBLIC_REPORT_KNOWLEDGE_PATHS = frozenset(
+    {
+        "not_recorded",
+        "bound_evidence_reuse",
+        "degraded",
+        "legacy_semantic_search",
+        "mixed",
+    }
+)
+_PUBLIC_REPORT_PROGRESS_COUNT_KEYS = frozenset(
+    {
+        "microbatch_total_questions",
+        "microbatch_reused_questions",
+        "microbatch_rerun_questions",
+        "microbatch_failed_questions",
+    }
+)
+
+
+def _public_report_progress_metadata(metadata: object) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+    result = {}
+    report_path = metadata.get("report_path")
+    if report_path in _PUBLIC_REPORT_PATHS:
+        result["report_path"] = report_path
+    knowledge_path = metadata.get("knowledge_path")
+    if knowledge_path in _PUBLIC_REPORT_KNOWLEDGE_PATHS:
+        result["knowledge_path"] = knowledge_path
+    for key in _PUBLIC_REPORT_PROGRESS_COUNT_KEYS:
+        value = metadata.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            result[key] = value
+    return result
 
 
 def _report_progress_detail(session_id: str, record, *, job: dict | None):
@@ -2387,7 +2494,9 @@ def _report_progress_detail(session_id: str, record, *, job: dict | None):
         }
 
     if record.status == "completed":
-        metadata = record.progress.metadata if record.progress is not None else {}
+        metadata = _public_report_progress_metadata(
+            record.progress.metadata if record.progress is not None else {}
+        )
         return {
             "session_id": session_id,
             "report_job_id": report_job_id,
@@ -2402,11 +2511,15 @@ def _report_progress_detail(session_id: str, record, *, job: dict | None):
         }
 
     if record.status == "failed":
-        message = record.error or "Report generation failed."
-        metadata = record.progress.metadata if record.progress is not None else {}
-        error_code = (
-            job.get("last_error_code") if job else None
-        ) or _public_report_error_code(message)
+        internal_message = record.error or ""
+        metadata = _public_report_progress_metadata(
+            record.progress.metadata if record.progress is not None else {}
+        )
+        error_code = _coerce_public_report_error_code(
+            job.get("last_error_code") if job else None,
+            internal_message,
+        )
+        message = _public_report_failure_message(error_code)
         retryable = _report_error_retryable(error_code)
         return {
             "session_id": session_id,
@@ -2438,7 +2551,9 @@ def _report_progress_detail(session_id: str, record, *, job: dict | None):
         percent = progress.percent
         message = progress.message
         current_question_id = progress.current_question_id
-    metadata = progress.metadata if progress is not None else {}
+    metadata = _public_report_progress_metadata(
+        progress.metadata if progress is not None else {}
+    )
 
     if job_health["orphaned"]:
         return {
@@ -2549,6 +2664,42 @@ def _public_report_error_code(message: str) -> str:
     return "report_generation_failed"
 
 
+_PUBLIC_REPORT_ERROR_CODES = frozenset(
+    {
+        "report_enqueue_unavailable",
+        "embedding_provider_disabled",
+        "embedding_provider_timeout",
+        "knowledge_store_unavailable",
+        "report_provider_timeout",
+        "provider_unavailable",
+        "report_job_missing",
+        "report_generation_failed",
+    }
+)
+
+
+def _coerce_public_report_error_code(
+    raw_code: object,
+    internal_message: str,
+) -> str:
+    code = str(raw_code or "").strip().casefold()
+    if code in _PUBLIC_REPORT_ERROR_CODES:
+        return code
+    return _public_report_error_code(internal_message)
+
+
+def _public_report_failure_message(error_code: str) -> str:
+    return {
+        "report_enqueue_unavailable": "Report queue is unavailable.",
+        "embedding_provider_disabled": "Report knowledge retrieval is unavailable.",
+        "embedding_provider_timeout": "Report knowledge retrieval timed out.",
+        "knowledge_store_unavailable": "Report knowledge retrieval is unavailable.",
+        "report_provider_timeout": "Report generation timed out.",
+        "provider_unavailable": "Report provider is unavailable.",
+        "report_job_missing": "Report task lost its execution owner.",
+    }.get(error_code, "Report generation failed.")
+
+
 def _report_error_retryable(error_code: str) -> bool:
     return error_code in {
         "report_enqueue_unavailable",
@@ -2606,8 +2757,8 @@ def _publish_round_closed_event(
                     "session_id": event.session_id,
                     "question_id": event.question_id,
                     "event_backend": get_runtime_event_backend(),
+                    "error_code": type(exc).__name__,
                 },
-                exc_info=exc,
             )
 
 

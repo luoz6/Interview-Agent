@@ -186,12 +186,16 @@ class PostgresReportJobStore:
                 # The session row serializes enqueue-or-get for this session.
                 cursor.execute(
                     sql.SQL(
-                        "SELECT session_id FROM {sessions} WHERE session_id = %s FOR UPDATE"
+                        "SELECT deletion_status FROM {sessions} "
+                        "WHERE session_id = %s FOR UPDATE"
                     ).format(sessions=sql.Identifier(self.sessions_table)),
                     (session_id,),
                 )
-                if cursor.fetchone() is None:
+                session = cursor.fetchone()
+                if session is None:
                     raise ValueError("session not found")
+                if session[0] != "active":
+                    raise ValueError("session is deleting")
                 cursor.execute(
                     sql.SQL(
                         """

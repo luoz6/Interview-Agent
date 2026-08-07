@@ -928,6 +928,25 @@ RUNTIME_SCHEMA_V21_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V21_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_SCHEMA_V22_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V21_CHECKSUM,
+        "report_history_session_deletion": {
+            "artifact_delete_authorization": "owning-session-deleting-only",
+            "artifact_update_authorization": "never",
+            "delete_order": ["report_heads", "report_artifacts", "report_jobs"],
+            "enqueue_publish_session_guard": "active-session-row-lock",
+            "retry_semantics": "idempotent",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V22_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V22_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1032,6 +1051,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="followup_prompt_lineage_v1",
         checksum=RUNTIME_SCHEMA_V21_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="report_history_session_deletion_v1",
+        checksum=RUNTIME_SCHEMA_V22_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

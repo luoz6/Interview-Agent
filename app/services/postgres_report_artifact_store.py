@@ -82,13 +82,19 @@ class PostgresReportArtifactStore:
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    sql.SQL("SELECT session_id FROM {sessions} WHERE session_id=%s FOR UPDATE").format(
+                    sql.SQL(
+                        "SELECT deletion_status FROM {sessions} "
+                        "WHERE session_id=%s FOR UPDATE"
+                    ).format(
                         sessions=sql.Identifier(self.sessions_table)
                     ),
                     (session_id,),
                 )
-                if cursor.fetchone() is None:
+                session = cursor.fetchone()
+                if session is None:
                     raise ReportArtifactNotFound("session not found")
+                if session[0] != "active":
+                    raise ReportArtifactConflict("session is deleting")
                 cursor.execute(
                     sql.SQL(
                         "SELECT {fields} FROM {jobs} WHERE session_id=%s AND idempotency_key=%s"
@@ -215,6 +221,27 @@ class PostgresReportArtifactStore:
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
+                    sql.SQL(
+                        "SELECT session_id FROM {jobs} WHERE job_id=%s::uuid"
+                    ).format(jobs=sql.Identifier(self.jobs_table)),
+                    (job_id,),
+                )
+                job_session = cursor.fetchone()
+                if job_session is None:
+                    raise ReportArtifactNotFound("report job not found")
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT state_version,deletion_status FROM {sessions} "
+                        "WHERE session_id=%s FOR UPDATE"
+                    ).format(sessions=sql.Identifier(self.sessions_table)),
+                    (job_session[0],),
+                )
+                session = cursor.fetchone()
+                if session is None:
+                    raise ReportArtifactNotFound("session not found")
+                if session[1] != "active":
+                    raise ReportArtifactConflict("session is deleting")
+                cursor.execute(
                     sql.SQL("SELECT {fields} FROM {jobs} WHERE job_id=%s::uuid FOR UPDATE").format(
                         fields=self._job_fields(sql), jobs=sql.Identifier(self.jobs_table)
                     ),
@@ -246,15 +273,8 @@ class PostgresReportArtifactStore:
                     return artifact
                 if job.status != "running" or job.lease_owner != worker_id or job.lease_token is None:
                     raise ReportArtifactConflict("job fencing token is not active")
-                cursor.execute(
-                    sql.SQL("SELECT state_version FROM {sessions} WHERE session_id=%s FOR UPDATE").format(
-                        sessions=sql.Identifier(self.sessions_table)
-                    ),
-                    (job.session_id,),
-                )
-                session = cursor.fetchone()
-                if session is None:
-                    raise ReportArtifactNotFound("session not found")
+                if job.session_id != job_session[0]:
+                    raise ReportArtifactConflict("report job session changed")
                 cursor.execute(
                     sql.SQL(
                         "SELECT active_report_id,latest_job_id FROM {heads} "
@@ -446,6 +466,49 @@ class PostgresReportArtifactStore:
                 row = cursor.fetchone()
                 return self._job_from_row(row) if row is not None else None
 
+    def delete_session_history(self, session_id: str) -> int:
+        """Delete report history only inside the authorized session deletion path."""
+        _, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT deletion_status FROM {sessions} "
+                        "WHERE session_id=%s FOR UPDATE"
+                    ).format(sessions=sql.Identifier(self.sessions_table)),
+                    (session_id,),
+                )
+                session = cursor.fetchone()
+                if session is None:
+                    return 0
+                if session[0] != "deleting":
+                    raise ReportArtifactConflict(
+                        "report history deletion requires a deleting session"
+                    )
+                deleted = 0
+                cursor.execute(
+                    sql.SQL("DELETE FROM {heads} WHERE session_id=%s").format(
+                        heads=sql.Identifier(self.heads_table)
+                    ),
+                    (session_id,),
+                )
+                deleted += cursor.rowcount
+                cursor.execute(
+                    sql.SQL("DELETE FROM {artifacts} WHERE session_id=%s").format(
+                        artifacts=sql.Identifier(self.artifacts_table)
+                    ),
+                    (session_id,),
+                )
+                deleted += cursor.rowcount
+                cursor.execute(
+                    sql.SQL("DELETE FROM {jobs} WHERE session_id=%s").format(
+                        jobs=sql.Identifier(self.jobs_table)
+                    ),
+                    (session_id,),
+                )
+                deleted += cursor.rowcount
+                return deleted
+
     def migrate_legacy_reports(
         self,
         *,
@@ -486,6 +549,16 @@ class PostgresReportArtifactStore:
                 )
                 rows = cursor.fetchall()
                 for legacy_session_id, report_json in rows:
+                    cursor.execute(
+                        sql.SQL(
+                            "SELECT deletion_status FROM {sessions} "
+                            "WHERE session_id=%s FOR UPDATE"
+                        ).format(sessions=sql.Identifier(self.sessions_table)),
+                        (legacy_session_id,),
+                    )
+                    legacy_session = cursor.fetchone()
+                    if legacy_session is None or legacy_session[0] != "active":
+                        continue
                     cursor.execute(
                         sql.SQL("SELECT 1 FROM {artifacts} WHERE session_id=%s LIMIT 1").format(
                             artifacts=sql.Identifier(self.artifacts_table)
@@ -724,8 +797,18 @@ class PostgresReportArtifactStore:
                 cursor.execute(
                     sql.SQL(
                         "CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $$ "
-                        "BEGIN RAISE EXCEPTION 'report artifacts are immutable'; END; $$"
-                    ).format(function=sql.Identifier(function_name))
+                        "BEGIN "
+                        "IF TG_OP='UPDATE' THEN "
+                        "RAISE EXCEPTION 'report artifacts are immutable'; END IF; "
+                        "PERFORM 1 FROM {sessions} WHERE session_id=OLD.session_id "
+                        "AND deletion_status='deleting'; "
+                        "IF NOT FOUND THEN "
+                        "RAISE EXCEPTION 'report artifacts are immutable'; END IF; "
+                        "RETURN OLD; END; $$"
+                    ).format(
+                        function=sql.Identifier(function_name),
+                        sessions=sql.Identifier(self.sessions_table),
+                    )
                 )
                 cursor.execute(
                     "SELECT 1 FROM pg_trigger WHERE tgname=%s AND tgrelid=to_regclass(%s)",

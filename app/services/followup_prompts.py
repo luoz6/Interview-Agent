@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,6 +46,77 @@ def _sha256(value: str) -> str:
 
 FOLLOWUP_DECISION_PROMPT_SHA256 = _sha256(_DECISION_PROMPT_TEMPLATE)
 FOLLOWUP_GENERATION_PROMPT_SHA256 = _sha256(_GENERATION_PROMPT_TEMPLATE)
+
+
+_UNSAFE_FOLLOWUP_OUTPUT_MARKERS = (
+    "reference answer",
+    "ideal answer",
+    "system prompt",
+    "developer prompt",
+    "hidden prompt",
+    "chain-of-thought",
+    "ignore previous",
+    "ignore all previous",
+    "prompt_version=",
+    "prompt_sha256=",
+    "followup_decision_target",
+    "decision_confidence",
+    "policy_version",
+    "gap_id",
+    "gap_type",
+    "参考答案",
+    "标准答案",
+    "系统提示词",
+    "开发者提示词",
+    "忽略之前",
+)
+
+
+class UnsafeFollowupOutput(ValueError):
+    """Raised before an untrusted follow-up can be persisted or displayed."""
+
+
+def validate_followup_output(
+    text: str,
+    context: list[dict[str, str]],
+) -> str:
+    value = str(text or "").strip()
+    if not value:
+        raise UnsafeFollowupOutput("empty follow-up output")
+    normalized = _fold_security_text(value)
+    if any(marker in normalized for marker in _UNSAFE_FOLLOWUP_OUTPUT_MARKERS):
+        raise UnsafeFollowupOutput("follow-up output contains an internal marker")
+    for item in context:
+        if str(item.get("role", "")).casefold() not in {
+            "system",
+            "developer",
+            "knowledge_agent",
+            "knowledge_evidence",
+            "reference",
+        }:
+            continue
+        protected = _fold_security_text(str(item.get("content", "")))
+        if _contains_protected_excerpt(normalized, protected):
+            raise UnsafeFollowupOutput(
+                "follow-up output contains protected context text"
+            )
+    return value
+
+
+def _fold_security_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.casefold()).strip()
+
+
+def _contains_protected_excerpt(output: str, protected: str) -> bool:
+    compact_output = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", output)
+    compact_protected = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", protected)
+    window = 18
+    if len(compact_protected) < window or len(compact_output) < window:
+        return False
+    return any(
+        compact_protected[index : index + window] in compact_output
+        for index in range(len(compact_protected) - window + 1)
+    )
 
 
 class StructuredFollowupOutputError(ValueError):

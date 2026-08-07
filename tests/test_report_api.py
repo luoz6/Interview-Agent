@@ -403,7 +403,7 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     ]
     assert body["items"][0]["overall_score"] is None
     assert body["items"][0]["report_pdf_url"] is None
-    assert body["items"][1]["error"] == "llm timeout"
+    assert body["items"][1]["error"] == "Report generation timed out."
     assert body["items"][2]["overall_score"] == 81
     assert body["items"][2]["summary"] == "Completed summary."
     assert body["items"][2]["report_url"] == f"/api/interviews/{completed}/report"
@@ -993,7 +993,7 @@ def test_finished_answer_fails_report_without_process_coupled_fallback_when_job_
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
     assert report_response.status_code == 500
-    assert report_response.json()["detail"] == "report queue unavailable"
+    assert report_response.json()["detail"] == "Report queue is unavailable."
 
 
 def test_report_endpoint_returns_500_for_failed_report():
@@ -1006,7 +1006,7 @@ def test_report_endpoint_returns_500_for_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "report generation timed out"
+    assert response.json()["detail"] == "Report generation timed out."
 
 
 def test_report_pdf_endpoint_rejects_failed_report():
@@ -1019,7 +1019,7 @@ def test_report_pdf_endpoint_rejects_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report.pdf")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "report generation timed out"
+    assert response.json()["detail"] == "Report generation timed out."
 
 
 def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
@@ -1032,7 +1032,7 @@ def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "pgvector knowledge store is unavailable"
+    assert response.json()["detail"] == "Report knowledge retrieval is unavailable."
 
 
 def test_report_endpoint_returns_quality_failure_detail():
@@ -1048,10 +1048,7 @@ def test_report_endpoint_returns_quality_failure_detail():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert (
-        response.json()["detail"]
-        == "runtime report quality check failed: summary must include Simplified Chinese text"
-    )
+    assert response.json()["detail"] == "Report generation failed."
 
 
 def test_report_endpoint_returns_fallback_report_for_evidence_insufficient():

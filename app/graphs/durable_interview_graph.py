@@ -28,7 +28,9 @@ from app.services.followup_prompts import (
     FOLLOWUP_DECISION_PROMPT_VERSION,
     FOLLOWUP_GENERATION_PROMPT_SHA256,
     FOLLOWUP_GENERATION_PROMPT_VERSION,
+    UnsafeFollowupOutput,
     generation_context_for_target,
+    validate_followup_output,
 )
 from app.services.knowledge_binding import resolve_evidence_by_ids
 from app.services.runtime_work import (
@@ -628,6 +630,12 @@ def generate_followup(state, deps) -> dict:
                         "follow-up stream event limit exceeded"
                     )
                 chunks.append(chunk)
+            final_text = validate_followup_output("".join(chunks), context or [])
+            if _is_duplicate_followup_text(state, final_text):
+                raise DuplicateFollowupGenerated(
+                    "generated follow-up duplicates the current question history"
+                )
+            for chunk in chunks:
                 persisted = coalescer.add(chunk)
                 if not persisted:
                     continue
@@ -652,11 +660,6 @@ def generate_followup(state, deps) -> dict:
                     final_chunk,
                     lease_token=attempt.lease_token,
                     fencing_version=attempt.fencing_version,
-                )
-            final_text = "".join(chunks).strip()
-            if _is_duplicate_followup_text(state, final_text):
-                raise DuplicateFollowupGenerated(
-                    "generated follow-up duplicates the current question history"
                 )
             heartbeat.ensure_owned()
             if parent_ownership is not None:
@@ -691,6 +694,8 @@ def generate_followup(state, deps) -> dict:
         failure = (
             RuntimeFailure("duplicate_question", False)
             if isinstance(exc, DuplicateFollowupGenerated)
+            else RuntimeFailure("unsafe_generation", False)
+            if isinstance(exc, UnsafeFollowupOutput)
             else RuntimeFailure("event_limit_reached", False)
             if isinstance(exc, FollowupEventLimitExceeded)
             else deps.failure_classifier(exc)
@@ -792,6 +797,7 @@ def terminate_followup_generation(state) -> dict:
     reason = state.get("followup_guard_reason_code")
     if reason is None and state.get("last_error_code") in {
         "duplicate_question",
+        "unsafe_generation",
         "event_limit_reached",
         "provider_call_limit_reached",
     }:

@@ -34,6 +34,7 @@ class ReportArtifactStore:
     def get_head(self, session_id: str) -> ReportHead: ...
     def get_latest_job(self, session_id: str) -> ReportJobV2 | None: ...
     def list_jobs(self, session_id: str) -> list[ReportJobV2]: ...
+    def delete_session_history(self, session_id: str) -> int: ...
 
 
 class InMemoryReportArtifactStore:
@@ -45,6 +46,7 @@ class InMemoryReportArtifactStore:
         self._artifacts: dict[str, ReportArtifact] = {}
         self._artifact_by_source_job: dict[str, str] = {}
         self._heads: dict[str, ReportHead] = {}
+        self._deleted_sessions: set[str] = set()
         self._failure_step: str | None = None
 
     def inject_failure(self, step: str | None) -> None:
@@ -63,6 +65,8 @@ class InMemoryReportArtifactStore:
         key = idempotency_key or f"{job_kind}:{uuid4()}"
         now = self._clock()
         with self._lock:
+            if session_id in self._deleted_sessions:
+                raise ReportArtifactNotFound("session is deleting or deleted")
             existing_id = self._job_keys.get((session_id, key))
             if existing_id is not None:
                 return deepcopy(self._jobs[existing_id])
@@ -256,6 +260,33 @@ class InMemoryReportArtifactStore:
                 default=None,
             )
             return deepcopy(latest)
+
+    def delete_session_history(self, session_id: str) -> int:
+        with self._lock:
+            job_ids = {
+                job_id
+                for job_id, job in self._jobs.items()
+                if job.session_id == session_id
+            }
+            report_ids = {
+                report_id
+                for report_id, artifact in self._artifacts.items()
+                if artifact.session_id == session_id
+            }
+            deleted = len(job_ids) + len(report_ids) + int(
+                session_id in self._heads
+            )
+            for key, job_id in list(self._job_keys.items()):
+                if key[0] == session_id or job_id in job_ids:
+                    self._job_keys.pop(key, None)
+            for job_id in job_ids:
+                self._jobs.pop(job_id, None)
+                self._artifact_by_source_job.pop(job_id, None)
+            for report_id in report_ids:
+                self._artifacts.pop(report_id, None)
+            self._heads.pop(session_id, None)
+            self._deleted_sessions.add(session_id)
+            return deleted
 
     def _get_job(self, job_id: str) -> ReportJobV2:
         try:

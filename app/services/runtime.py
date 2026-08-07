@@ -594,11 +594,8 @@ def get_session_deletion_worker():
             ),
             question_memory_index=get_question_memory_index_store(),
             context_artifact_store=get_context_artifact_store(),
-            report_job_store=(
-                get_report_job_store()
-                if get_runtime_store() == "postgres"
-                else None
-            ),
+            report_job_store=get_report_job_store(),
+            report_artifact_store=get_report_artifact_store(),
             tombstone_store=service.tombstone_store,
             principal_memory_store=get_principal_memory_fact_store(),
             principal_memory_control_store=get_principal_memory_control_store(),

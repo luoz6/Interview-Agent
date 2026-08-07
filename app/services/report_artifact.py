@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from uuid import UUID
 
@@ -31,6 +32,21 @@ ScoreReasonCode = Literal[
 ]
 CoverageStatus = Literal["complete", "partial", "none"]
 ReportPath = Literal["microbatch", "full_session", "heuristic", "legacy"]
+
+
+_FORBIDDEN_REPORT_PAYLOAD_KEYS = frozenset(
+    {
+        "principal_memory",
+        "principal_memory_context",
+        "principal_memory_payload",
+        "principal_memory_facts",
+        "memory_context",
+        "memory_payload",
+        "memory_facts",
+        "assistance_memory",
+        "historical_preference",
+    }
+)
 
 
 class ImmutableReportModel(BaseModel):
@@ -89,6 +105,7 @@ class ReportArtifact(ImmutableReportModel):
 
     @model_validator(mode="after")
     def validate_artifact(self):
+        _assert_no_memory_payload(self.payload)
         for field_name in (
             "report_id",
             "source_report_id",
@@ -131,9 +148,33 @@ class PublishReportArtifact(ImmutableReportModel):
     report_path: ReportPath
     payload: dict[str, Any]
 
+    @model_validator(mode="after")
+    def validate_payload_boundary(self):
+        _assert_no_memory_payload(self.payload)
+        return self
+
 
 def report_artifact_sha256(payload: dict[str, Any]) -> str:
     return canonical_sha256(payload)
+
+
+def _assert_no_memory_payload(value: Any, *, path: str = "payload") -> None:
+    if isinstance(value, Mapping):
+        for raw_key, child in value.items():
+            key = str(raw_key).strip().casefold().replace("-", "_")
+            if key in _FORBIDDEN_REPORT_PAYLOAD_KEYS or key.startswith(
+                "principal_memory"
+            ):
+                raise ValueError(
+                    f"report artifact contains forbidden memory field at {path}.{raw_key}"
+                )
+            _assert_no_memory_payload(child, path=f"{path}.{raw_key}")
+        return
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        for index, child in enumerate(value):
+            _assert_no_memory_payload(child, path=f"{path}[{index}]")
 
 
 def _uuid_text(value: str, field_name: str) -> str:

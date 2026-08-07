@@ -227,7 +227,7 @@ class ExpertShadowEvaluator:
                 "Falling back to heuristic interview report",
                 extra={
                     "session_id": state["session_id"],
-                    "reason": str(exc),
+                    "error_code": type(exc).__name__,
                     "question_count": len(chunks),
                 },
             )

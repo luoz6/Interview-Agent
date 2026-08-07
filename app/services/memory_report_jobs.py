@@ -26,12 +26,15 @@ class InMemoryReportJobStore:
         self._on_enqueue = on_enqueue
         self._jobs: dict[str, dict] = {}
         self._session_jobs: dict[str, str] = {}
+        self._deleted_sessions: set[str] = set()
         self._threads: set[Thread] = set()
         self._lock = RLock()
         self._closed = False
 
     def enqueue_report_request(self, session_id: str) -> dict:
         with self._lock:
+            if session_id in self._deleted_sessions:
+                raise ValueError("session is deleting or deleted")
             existing_id = self._session_jobs.get(session_id)
             if existing_id is not None:
                 return deepcopy(self._jobs[existing_id])
@@ -77,12 +80,28 @@ class InMemoryReportJobStore:
     def get_job_by_session(self, session_id: str) -> dict | None:
         with self._lock:
             job_id = self._session_jobs.get(session_id)
-            return deepcopy(self._jobs[job_id]) if job_id is not None else None
+            job = self._jobs.get(job_id) if job_id is not None else None
+            return deepcopy(job) if job is not None else None
 
     def get_job(self, job_id: str) -> dict | None:
         with self._lock:
             job = self._jobs.get(job_id)
             return deepcopy(job) if job is not None else None
+
+    def delete_session_history(self, session_id: str) -> int:
+        with self._lock:
+            job_ids = {
+                job_id
+                for job_id, job in self._jobs.items()
+                if job["session_id"] == session_id
+            }
+            mapped_job_id = self._session_jobs.pop(session_id, None)
+            if mapped_job_id is not None:
+                job_ids.add(mapped_job_id)
+            for job_id in job_ids:
+                self._jobs.pop(job_id, None)
+            self._deleted_sessions.add(session_id)
+            return len(job_ids)
 
     def claim_next(
         self,

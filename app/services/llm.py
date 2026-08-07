@@ -217,7 +217,7 @@ class OpenAIInterviewLLM:
         except Exception as exc:
             logger.warning(
                 "Structured interview plan output failed, trying raw JSON path",
-                extra={"reason": str(exc)},
+                extra={"error_code": type(exc).__name__},
             )
             payload = self._invoke_raw_json_plan(
                 prompt,
@@ -459,22 +459,28 @@ class OpenAIInterviewLLM:
                 self._record_trace(
                     session_id,
                     "structured_output_error",
-                    {"error": str(exc), "error_type": type(exc).__name__},
+                    {"error_code": type(exc).__name__},
                 )
                 logger.warning(
                     "Structured report output was invalid",
-                    extra={"session_id": session_id, "reason": str(exc)},
+                    extra={
+                        "session_id": session_id,
+                        "error_code": type(exc).__name__,
+                    },
                 )
             except Exception as exc:
                 structured_error = exc
                 self._record_trace(
                     session_id,
                     "structured_output_error",
-                    {"error": str(exc), "error_type": type(exc).__name__},
+                    {"error_code": type(exc).__name__},
                 )
                 logger.warning(
                     "Structured report output failed, trying raw JSON path",
-                    extra={"session_id": session_id, "reason": str(exc)},
+                    extra={
+                        "session_id": session_id,
+                        "error_code": type(exc).__name__,
+                    },
                 )
 
         try:
@@ -491,7 +497,7 @@ class OpenAIInterviewLLM:
             self._record_trace(
                 session_id,
                 "report_output_format_error",
-                {"error": str(exc), "error_type": type(exc).__name__},
+                {"error_code": type(exc).__name__},
             )
             raise
         except Exception as exc:
@@ -677,7 +683,6 @@ class OpenAIInterviewLLM:
             logger.debug(
                 "Failed to record report trace artifact",
                 extra={"session_id": session_id, "stage": stage},
-                exc_info=True,
             )
 
     @staticmethod

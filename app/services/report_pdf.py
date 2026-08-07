@@ -223,9 +223,7 @@ def _build_story(
             ),
             Paragraph(
                 "Summary mode："
-                f"{_safe(report.technical_appendix.summary_generation_mode or '未记录')}；"
-                "Prompt version："
-                f"{_safe(report.technical_appendix.summary_prompt_version or '未记录')}",
+                f"{_safe(report.technical_appendix.summary_generation_mode or '未记录')}",
                 styles["body"],
             ),
         ]
