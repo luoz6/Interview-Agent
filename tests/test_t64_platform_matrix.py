@@ -3,6 +3,7 @@ import json
 from scripts.run_t64_platform_matrix import (
     _classify_skip,
     _last_json,
+    _platform_status,
     _playwright_counts,
     _pytest_counts,
 )
@@ -102,6 +103,87 @@ def test_t64_platform_runner_unknown_skip_is_blocking():
 
     assert classified["owner"] == ""
     assert classified["blocking"] is True
+
+
+def test_t64_windows_symlink_skip_is_nonblocking_only_with_exact_reparse_proof():
+    symlink_test = (
+        "tests.test_t65_production_capture::"
+        "test_executor_manifest_rejects_symlinked_file_surface"
+    )
+    reparse_test = (
+        "tests.test_t65_production_capture::"
+        "test_executor_manifest_rejects_reparse_detection_before_read"
+    )
+    item = {
+        "test": symlink_test,
+        "reason": "symlink creation unavailable: [WinError 1314] privilege missing",
+        "_passed_test_ids": frozenset({reparse_test}),
+    }
+
+    classified = _classify_skip("windows-11-x64", "python_full_pytest", item)
+
+    assert classified["owner"] == "T65"
+    assert classified["blocking"] is False
+    assert "simulated reparse rejection test passed" in classified["reason"]
+
+
+def test_t64_windows_symlink_skip_stays_blocking_without_exact_reparse_proof():
+    base = {
+        "test": (
+            "tests.test_t65_production_capture::"
+            "test_executor_manifest_rejects_symlinked_file_surface"
+        ),
+        "reason": "symlink creation unavailable: [WinError 1314] privilege missing",
+        "_passed_test_ids": frozenset(),
+    }
+    missing_companion = _classify_skip(
+        "windows-11-x64", "python_full_pytest", base
+    )
+    unknown_test = _classify_skip(
+        "windows-11-x64",
+        "python_full_pytest",
+        {**base, "test": "tests.test_unknown::test_symlink"},
+    )
+
+    assert missing_companion["owner"] == ""
+    assert missing_companion["blocking"] is True
+    assert unknown_test["blocking"] is True
+
+
+def test_t64_pytest_parser_binds_symlink_skip_to_same_run_reparse_pass(tmp_path):
+    junit = tmp_path / "pytest.xml"
+    junit.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" errors="0" failures="0" skipped="1" tests="2">
+<testcase classname="tests.test_t65_production_capture" name="test_executor_manifest_rejects_symlinked_file_surface">
+<skipped message="symlink creation unavailable: [WinError 1314] privilege missing" />
+</testcase>
+<testcase classname="tests.test_t65_production_capture" name="test_executor_manifest_rejects_reparse_detection_before_read" />
+</testsuite></testsuites>
+""",
+        encoding="utf-8",
+    )
+
+    counts, skips = _pytest_counts(junit)
+    classified = _classify_skip("windows-11-x64", "python_full_pytest", skips[0])
+
+    assert counts == {"passed": 1, "failed": 0, "skipped": 1}
+    assert classified["owner"] == "T65"
+    assert classified["blocking"] is False
+
+
+def test_t64_platform_status_fails_on_any_blocking_skip():
+    commands = {"python_full_pytest": {"status": "PASS"}}
+
+    assert _platform_status(commands, []) == "PASS"
+    assert _platform_status(
+        commands,
+        [{"blocking": False, "owner": "T64", "reason": "bounded"}],
+    ) == "PASS"
+    assert _platform_status(
+        commands,
+        [{"blocking": True, "owner": "", "reason": "unknown"}],
+    ) == "FAIL"
 
 
 def test_t64_platform_runner_assigns_real_model_browser_skip_to_t65():

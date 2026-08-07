@@ -119,13 +119,18 @@ def _pytest_counts(path: Path) -> tuple[dict[str, int], list[dict[str, object]]]
         errors = int(float(suite.attrib.get("errors", "0")))
         skipped = int(float(suite.attrib.get("skipped", "0")))
     inventory: list[dict[str, object]] = []
+    passed_test_ids: set[str] = set()
     for case in suite.iter("testcase"):
+        test_id = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}".strip(":")
         skipped_node = case.find("skipped")
         if skipped_node is None:
+            if case.find("failure") is None and case.find("error") is None:
+                passed_test_ids.add(test_id)
             continue
         reason = (skipped_node.attrib.get("message") or skipped_node.text or "").strip()
-        test_id = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}".strip(":")
         inventory.append({"test": test_id, "reason": reason})
+    for item in inventory:
+        item["_passed_test_ids"] = frozenset(passed_test_ids)
     return {
         "passed": total - failures - errors - skipped,
         "failed": failures + errors,
@@ -139,7 +144,30 @@ def _classify_skip(platform_id: str, scope: str, item: dict[str, object]) -> dic
     lowered = f"{test_id} {reason}".casefold()
     owner = ""
     blocking = True
-    if "run_real_llm_eval" in lowered or "real_llm" in lowered:
+    windows_symlink_test = (
+        "tests.test_t65_production_capture::"
+        "test_executor_manifest_rejects_symlinked_file_surface"
+    )
+    simulated_reparse_test = (
+        "tests.test_t65_production_capture::"
+        "test_executor_manifest_rejects_reparse_detection_before_read"
+    )
+    passed_test_ids = item.get("_passed_test_ids", frozenset())
+    if (
+        platform_id == "windows-11-x64"
+        and scope == "python_full_pytest"
+        and test_id == windows_symlink_test
+        and reason.startswith("symlink creation unavailable:")
+        and "WinError 1314" in reason
+        and isinstance(passed_test_ids, (set, frozenset))
+        and simulated_reparse_test in passed_test_ids
+    ):
+        owner, blocking = "T65", False
+        reason = (
+            "Windows symlink privilege unavailable (WinError 1314); exact "
+            "simulated reparse rejection test passed in the same pytest run"
+        )
+    elif "run_real_llm_eval" in lowered or "real_llm" in lowered:
         owner, blocking = "T65", False
     elif scope == "playwright_browser" and (
         "real-model-smoke" in test_id.casefold()
@@ -163,6 +191,14 @@ def _classify_skip(platform_id: str, scope: str, item: dict[str, object]) -> dic
         "owner": owner,
         "blocking": blocking,
     }
+
+
+def _platform_status(
+    commands: dict[str, dict[str, object]], skips: list[dict[str, object]]
+) -> str:
+    commands_pass = all(item.get("status") == "PASS" for item in commands.values())
+    has_blocking_skip = any(item.get("blocking") is not False for item in skips)
+    return "PASS" if commands_pass and not has_blocking_skip else "FAIL"
 
 
 def _playwright_counts(path: Path) -> tuple[dict[str, int], list[dict[str, object]]]:
@@ -363,7 +399,7 @@ def run_platform(*, platform_id: str, out: Path) -> dict:
         quality = _last_json(out / "quality_replays.log")
         commands["quality_replays"]["replays"] = quality["replays"]
         quality_provider_calls = int(quality["provider_calls"])
-        status = "PASS" if all(item["status"] == "PASS" for item in commands.values()) else "FAIL"
+        status = _platform_status(commands, skips)
     finally:
         cleanup_log = out / "postgres_cleanup.log"
         cleanup_command = _command(
