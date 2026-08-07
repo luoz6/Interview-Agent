@@ -20,7 +20,10 @@ from app.services.interview_quality_provider_authorization import (
 )
 
 
-PRICING_SOURCE_URL = "https://api-docs.deepseek.com/quick_start/pricing"
+# The trailing slash is significant on the live Docusaurus deployment.  The
+# slashless path currently returns the documentation home page with HTTP 200,
+# which is reachable but contains no pricing table.
+PRICING_SOURCE_URL = "https://api-docs.deepseek.com/quick_start/pricing/"
 MODELS_ENDPOINT = "https://api.deepseek.com/models"
 
 
@@ -42,7 +45,7 @@ class DeepSeekDiscoverySnapshot(BaseModel):
     model_request_attempts: int = Field(default=1, ge=0)
     model_ids: list[str]
     pricing_source_url: Literal[
-        "https://api-docs.deepseek.com/quick_start/pricing"
+        "https://api-docs.deepseek.com/quick_start/pricing/"
     ] = PRICING_SOURCE_URL
     pricing_page_ok: bool
     pricing_request_attempts: int = Field(default=1, ge=0)

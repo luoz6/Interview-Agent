@@ -4,6 +4,7 @@ import pytest
 
 from app.services.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
+    PRICING_SOURCE_URL,
     ProviderPrice,
     estimate_provider_cost,
     evaluate_followup_provider_preflight,
@@ -22,6 +23,12 @@ GATE = Path("config/interview_quality_v1_gate.json")
 AUTH = Path("config/interview_quality_v1_provider_authorization.json")
 DATASET_MANIFEST = Path("tests/golden/interview_quality_v1/manifest.json")
 EXECUTION_MANIFEST = Path("docs/interview-quality-v1-execution-manifest.json")
+
+
+def test_official_pricing_source_uses_live_table_route():
+    assert PRICING_SOURCE_URL == (
+        "https://api-docs.deepseek.com/quick_start/pricing/"
+    )
 
 
 def discovery(*, models=("deepseek-v4-pro",), priced=True, error_code=None):
