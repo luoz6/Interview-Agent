@@ -4,9 +4,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.llm import LLMConfig, MissingLLMConfigError, OpenAIInterviewLLM
+from app.services.llm import (
+    LLMConfig,
+    MissingLLMConfigError,
+    OpenAIInterviewLLM,
+    resolve_plan_output_mode,
+)
 from app.services.model_capabilities import ContextConfigurationError
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.provider_usage import (
+    consume_provider_context_metadata,
+    reset_provider_context_metadata,
+)
 from app.services.t65_production_capture import (
     install_t65_controlled_http_clients,
     shutdown_t65_controlled_http_clients_async,
@@ -36,6 +45,21 @@ def test_llm_config_reads_bounded_provider_request_settings(monkeypatch):
 
     assert config.request_timeout_seconds == 75
     assert config.max_retries == 0
+
+
+def test_deepseek_production_config_resolves_single_request_plan_protocol(
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-pro")
+
+    config = LLMConfig.from_env()
+
+    assert config.plan_output_mode == "raw_only"
+    assert resolve_plan_output_mode("deepseek-v4-pro") == "raw_only"
+    assert resolve_plan_output_mode("deepseek-v4-flash") == "structured_first"
+    assert resolve_plan_output_mode("deepseek-future") == "structured_first"
+    assert resolve_plan_output_mode("other-model") == "structured_first"
 
 
 def test_chat_model_receives_timeout_and_retry_settings(monkeypatch):
@@ -249,12 +273,22 @@ class FakeJsonMessage:
         self.content = content
 
 
+class MeteredJsonMessage(FakeJsonMessage):
+    usage_metadata = {
+        "input_tokens": 120,
+        "output_tokens": 30,
+        "input_token_details": {"cache_read": 20},
+    }
+    response_metadata = {"model_name": "deepseek-v4-pro"}
+
+
 class FallbackPlanChatModel:
     def __init__(self, content: str):
         self.content = content
         self.schema = None
         self.method = None
         self.last_prompt = None
+        self.invoke_count = 0
 
     def with_structured_output(self, schema, method=None):
         self.schema = schema
@@ -262,8 +296,23 @@ class FallbackPlanChatModel:
         return FailingPlanStructuredModel()
 
     def invoke(self, prompt: str):
+        self.invoke_count += 1
         self.last_prompt = prompt
         return FakeJsonMessage(self.content)
+
+
+class MeteredRawPlanChatModel(FallbackPlanChatModel):
+    def invoke(self, prompt: str):
+        self.invoke_count += 1
+        self.last_prompt = prompt
+        return MeteredJsonMessage(self.content)
+
+
+class FailingRawPlanChatModel(FallbackPlanChatModel):
+    def invoke(self, prompt: str):
+        self.invoke_count += 1
+        self.last_prompt = prompt
+        raise RuntimeError("provider unavailable")
 
 
 def test_openai_interview_llm_uses_structured_output_for_plan():
@@ -349,6 +398,191 @@ def test_openai_interview_llm_falls_back_to_json_for_plan_when_structured_output
     assert chat_model.method == "json_schema"
     assert "Return valid JSON only" in chat_model.last_prompt
     assert "FastAPI Redis resume" in chat_model.last_prompt
+
+
+def test_openai_interview_llm_raw_only_plan_skips_structured_request():
+    chat_model = FallbackPlanChatModel(
+        """
+        {
+          "title": "Single request backend interview",
+          "questions": [
+            {
+              "id": "q1",
+              "kind": "project",
+              "prompt": "Explain your backend project.",
+              "focus": "project ownership"
+            },
+            {
+              "id": "q2",
+              "kind": "technical",
+              "prompt": "How do you keep cache data consistent?",
+              "focus": "cache consistency"
+            },
+            {
+              "id": "q3",
+              "kind": "system-design",
+              "prompt": "How would you scale the service?",
+              "focus": "system scalability"
+            }
+          ]
+        }
+        """
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    plan = llm.generate_plan("Backend JD", "Backend resume")
+
+    assert plan.title == "Single request backend interview"
+    assert chat_model.schema is None
+    assert chat_model.method is None
+    assert "Return valid JSON only" in chat_model.last_prompt
+
+
+def test_raw_only_plan_publishes_one_complete_provider_usage_record():
+    chat_model = MeteredRawPlanChatModel(
+        """
+        {
+          "title": "Metered backend interview",
+          "questions": [
+            {"id": "q1", "kind": "project", "prompt": "Project?", "focus": "ownership"},
+            {"id": "q2", "kind": "technical", "prompt": "Cache?", "focus": "consistency"},
+            {"id": "q3", "kind": "system-design", "prompt": "Scale?", "focus": "scalability"}
+          ]
+        }
+        """
+    )
+    provider_attempts = []
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            model="deepseek-v4-pro",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+        provider_attempt_hook=lambda: provider_attempts.append("started"),
+    )
+    reset_provider_context_metadata()
+
+    llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert provider_attempts == ["started"]
+    assert metadata["provider_attempt_count"] == 1
+    assert metadata["provider_metered_attempt_count"] == 1
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_model"] == "deepseek-v4-pro"
+    assert metadata["provider_input_tokens"] == 120
+    assert metadata["provider_output_tokens"] == 30
+    assert metadata["provider_cached_input_tokens"] == 20
+    assert chat_model.invoke_count == 1
+
+
+def test_raw_only_invalid_json_keeps_usage_and_never_sends_second_request():
+    chat_model = MeteredRawPlanChatModel("not-json")
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            model="deepseek-v4-pro",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(ValueError, match="JSON"):
+        llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert chat_model.invoke_count == 1
+    assert metadata["provider_attempt_count"] == 1
+    assert metadata["provider_metered_attempt_count"] == 1
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_model"] == "deepseek-v4-pro"
+    assert metadata["provider_input_tokens"] == 120
+    assert metadata["provider_output_tokens"] == 30
+    assert metadata["provider_cached_input_tokens"] == 20
+
+
+def test_raw_only_schema_failure_keeps_usage_and_never_sends_second_request():
+    chat_model = MeteredRawPlanChatModel(
+        """
+        {
+          "title": "Invalid schema plan",
+          "questions": [
+            {"id": "q1", "kind": "unsupported", "prompt": "Question?", "focus": "focus"}
+          ]
+        }
+        """
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            model="deepseek-v4-pro",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(ValueError, match="schema validation failed"):
+        llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert chat_model.invoke_count == 1
+    assert metadata["provider_attempt_count"] == 1
+    assert metadata["provider_metered_attempt_count"] == 1
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_model"] == "deepseek-v4-pro"
+
+
+def test_raw_only_provider_failure_records_one_unmetered_attempt_without_fallback():
+    chat_model = FailingRawPlanChatModel("unused")
+    provider_attempts = []
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            model="deepseek-v4-pro",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+        provider_attempt_hook=lambda: provider_attempts.append("started"),
+    )
+    reset_provider_context_metadata()
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert provider_attempts == ["started"]
+    assert chat_model.invoke_count == 1
+    assert metadata["provider_attempt_count"] == 1
+    assert metadata.get("provider_metered_attempt_count", 0) == 0
+    assert metadata.get("provider_usage_available") is not True
+
+
+def test_invalid_plan_output_mode_is_rejected_before_chat_model_build(monkeypatch):
+    build_calls = []
+    monkeypatch.setattr(
+        OpenAIInterviewLLM,
+        "_build_chat_model",
+        staticmethod(lambda _config: build_calls.append("called")),
+    )
+
+    with pytest.raises(ValueError, match="unsupported plan_output_mode"):
+        OpenAIInterviewLLM(
+            config=LLMConfig(
+                api_key="test-key",
+                plan_output_mode="invalid",  # type: ignore[arg-type]
+            )
+        )
+
+    assert build_calls == []
 
 
 def test_openai_interview_llm_rejects_invalid_json_plan_fallback():

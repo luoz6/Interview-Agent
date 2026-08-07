@@ -56,6 +56,7 @@ def test_fixture_cli_writes_full_evidence_and_returns_blocked_not_pass(tmp_path)
     assert manifest["authorization_sha256"]
     assert manifest["provider"]
     assert manifest["model"]
+    assert manifest["plan_output_mode"] == "raw_only"
     assert metrics["automated_status"] == "PASS"
     assert metrics["attempt_count"] == 24
     assert metrics["provider_usage"]["recorded_source_invocations"] == 0
@@ -216,6 +217,7 @@ def test_usage_manifest_keeps_all_token_totals_null_when_any_usage_is_unknown():
     assert manifest["input_tokens"] is None
     assert manifest["output_tokens"] is None
     assert manifest["cached_input_tokens"] is None
+    assert manifest["estimated_cost"] is None
 
 
 def test_usage_manifest_aggregates_explicit_zero_without_treating_it_as_unknown():
@@ -236,12 +238,14 @@ def test_usage_manifest_aggregates_explicit_zero_without_treating_it_as_unknown(
     assert manifest["input_tokens"] == 0
     assert manifest["output_tokens"] == 0
     assert manifest["cached_input_tokens"] == 0
+    assert manifest["estimated_cost"] is None
 
 
 def test_live_capture_hard_stops_and_keeps_manifest_null_on_partial_usage(
     monkeypatch,
 ):
     dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:1]})
     legacy = v2_plan_to_legacy(
         build_synthetic_initial_question_attempts(dataset)[0].plan
     )
@@ -284,3 +288,184 @@ def test_live_capture_hard_stops_and_keeps_manifest_null_on_partial_usage(
     assert manifest["input_tokens"] is None
     assert manifest["output_tokens"] is None
     assert manifest["cached_input_tokens"] is None
+    assert manifest["estimated_cost"] is None
+
+
+def test_live_capture_selects_single_request_raw_json_mode(monkeypatch):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:1]})
+    legacy = v2_plan_to_legacy(
+        build_synthetic_initial_question_attempts(dataset)[0].plan
+    )
+    captured_configs = []
+
+    def build_llm(config):
+        captured_configs.append(config)
+        return SimpleNamespace(generate_plan=lambda *_args, **_kwargs: legacy)
+
+    monkeypatch.setattr(cli, "OpenAIInterviewLLM", build_llm)
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            "provider_attempt_count": 1,
+            "provider_metered_attempt_count": 1,
+            "provider_usage_available": True,
+            "provider_model": "deepseek-v4-pro",
+            "provider_input_tokens": 10,
+            "provider_output_tokens": 2,
+            "provider_cached_input_tokens": 0,
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    assert captured_configs[0].plan_output_mode == "raw_only"
+    assert captured_configs[0].model == "deepseek-v4-pro"
+    assert captured_configs[0].base_url == "https://api.deepseek.com"
+    assert captured_configs[0].max_retries == 0
+    assert captured_configs[0].context_window_tokens == 128_000
+    assert artifact.capture_status == "complete"
+    assert artifact.outbound_requests_attempted == 1
+    assert artifact.outbound_requests_metered == 1
+
+
+def test_live_capture_honors_preselected_smoke_case_count(monkeypatch):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:2]})
+    legacy = v2_plan_to_legacy(
+        build_synthetic_initial_question_attempts(dataset)[0].plan
+    )
+    business_calls = []
+
+    def generate_plan(*_args, **_kwargs):
+        business_calls.append("started")
+        return legacy
+
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda _config: SimpleNamespace(generate_plan=generate_plan),
+    )
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            "provider_attempt_count": 1,
+            "provider_metered_attempt_count": 1,
+            "provider_usage_available": True,
+            "provider_model": "deepseek-v4-pro",
+            "provider_input_tokens": 10,
+            "provider_output_tokens": 2,
+            "provider_cached_input_tokens": 0,
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    assert business_calls == ["started", "started"]
+    assert len(artifact.attempts) == 2
+    assert artifact.outbound_requests_attempted == 2
+    assert artifact.outbound_requests_metered == 2
+
+
+def test_live_capture_stops_before_starting_the_next_business_sample(monkeypatch):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:2]})
+    business_calls = []
+
+    def generate_plan(*_args, **_kwargs):
+        business_calls.append("started")
+        raise RuntimeError("provider request failed")
+
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda _config: SimpleNamespace(generate_plan=generate_plan),
+    )
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            "provider_attempt_count": 1,
+            "provider_metered_attempt_count": 0,
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    assert business_calls == ["started"]
+    assert artifact.capture_status == "hard_stopped"
+    assert artifact.outbound_requests_attempted == 1
+
+
+def test_live_capture_model_mismatch_stops_before_next_business_sample(monkeypatch):
+    dataset = cli.load_interview_quality_dataset(cli.DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:2]})
+    legacy = v2_plan_to_legacy(
+        build_synthetic_initial_question_attempts(dataset)[0].plan
+    )
+    business_calls = []
+
+    def generate_plan(*_args, **_kwargs):
+        business_calls.append("started")
+        return legacy
+
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda _config: SimpleNamespace(generate_plan=generate_plan),
+    )
+    monkeypatch.setattr(
+        cli,
+        "consume_provider_context_metadata",
+        lambda: {
+            "provider_attempt_count": 1,
+            "provider_metered_attempt_count": 1,
+            "provider_usage_available": True,
+            "provider_model": "deepseek-v4-flash",
+            "provider_input_tokens": 10,
+            "provider_output_tokens": 2,
+            "provider_cached_input_tokens": 0,
+        },
+    )
+
+    artifact = cli._record_live_provider_responses(
+        dataset,
+        dataset_sha256="a" * 64,
+        authorization=cli.load_provider_authorization(cli.DEFAULT_AUTHORIZATION),
+        api_key="not-serialized",
+        timeout_seconds=1.0,
+        context_window_tokens=128_000,
+        smoke=True,
+    )
+
+    assert business_calls == ["started"]
+    assert artifact.capture_status == "hard_stopped"
+    assert artifact.hard_stop_conditions == ("PROVIDER_OR_MODEL_MISMATCH",)
+    assert artifact.outbound_requests_attempted == 1
+    assert artifact.outbound_requests_metered == 1

@@ -44,10 +44,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
+RAW_ONLY_PLAN_MODELS = frozenset({"deepseek-v4-pro"})
 
 
 class MissingLLMConfigError(RuntimeError):
     """LLM configuration is missing, usually OPENAI_API_KEY."""
+
+
+def resolve_plan_output_mode(
+    model: str,
+) -> Literal["structured_first", "raw_only"]:
+    """Choose the production plan protocol before any Provider request."""
+
+    return "raw_only" if model in RAW_ONLY_PLAN_MODELS else "structured_first"
 
 
 @dataclass(frozen=True)
@@ -63,6 +72,7 @@ class LLMConfig:
     structured_output_reserve_tokens: int = 2048
     context_safety_margin_tokens: int = 1024
     tokenizer_family: str | None = None
+    plan_output_mode: Literal["structured_first", "raw_only"] = "structured_first"
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -89,6 +99,7 @@ class LLMConfig:
             ),
             context_safety_margin_tokens=memory.safety_margin_tokens,
             tokenizer_family=memory.tokenizer_family,
+            plan_output_mode=resolve_plan_output_mode(memory.model),
         )
 
 
@@ -134,6 +145,11 @@ class OpenAIInterviewLLM:
             if chat_model is not None
             else LLMConfig.from_env()
         )
+        if resolved_config.plan_output_mode not in {"structured_first", "raw_only"}:
+            raise ValueError(
+                "unsupported plan_output_mode: "
+                f"{resolved_config.plan_output_mode}"
+            )
         self.config = resolved_config
         self.chat_model = chat_model or self._build_chat_model(resolved_config)
         runtime = context_runtime or build_context_runtime(
@@ -162,6 +178,7 @@ class OpenAIInterviewLLM:
         self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
         self._provider_attempt_hook = provider_attempt_hook
+        self.plan_output_mode = resolved_config.plan_output_mode
         configured_mode = report_output_mode or os.getenv(
             "OPENAI_REPORT_OUTPUT_MODE",
             "structured_first",
@@ -214,13 +231,7 @@ class OpenAIInterviewLLM:
             PLAN_CONTEXT_POLICY,
             force_enforcement=True,
         )
-        try:
-            generated = self._invoke_structured_plan(prompt, InterviewPlan)
-        except Exception as exc:
-            logger.warning(
-                "Structured interview plan output failed, trying raw JSON path",
-                extra={"error_code": type(exc).__name__},
-            )
+        if self.plan_output_mode == "raw_only":
             payload = self._invoke_raw_json_plan(
                 prompt,
                 force_context_enforcement=True,
@@ -231,6 +242,24 @@ class OpenAIInterviewLLM:
                 raise ValueError(
                     f"raw interview plan JSON schema validation failed: {exc}"
                 ) from exc
+        else:
+            try:
+                generated = self._invoke_structured_plan(prompt, InterviewPlan)
+            except Exception as exc:
+                logger.warning(
+                    "Structured interview plan output failed, trying raw JSON path",
+                    extra={"error_code": type(exc).__name__},
+                )
+                payload = self._invoke_raw_json_plan(
+                    prompt,
+                    force_context_enforcement=True,
+                )
+                try:
+                    generated = InterviewPlan.model_validate(payload)
+                except ValidationError as exc:
+                    raise ValueError(
+                        f"raw interview plan JSON schema validation failed: {exc}"
+                    ) from exc
         if configuration is None:
             return generated
         return enforce_generated_interview_plan(generated, configuration)

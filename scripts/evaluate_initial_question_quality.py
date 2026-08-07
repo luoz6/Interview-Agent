@@ -49,7 +49,11 @@ from app.services.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
 from app.services.job_tags import extract_job_tags
-from app.services.llm import LLMConfig, OpenAIInterviewLLM
+from app.services.llm import (
+    LLMConfig,
+    OpenAIInterviewLLM,
+    resolve_plan_output_mode,
+)
 from app.services.prep import attach_prep_context
 from app.services.provider_usage import (
     consume_provider_context_metadata,
@@ -139,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     dataset_sha256 = _sha256_file(dataset_path)
     gate_config = load_gate_config(gate_path)
     authorization = load_provider_authorization(authorization_path)
+    plan_output_mode = resolve_plan_output_mode(authorization.provider.model_id)
     candidate_revision, candidate_tree, worktree_clean = _candidate_identity()
     run_id = args.run_id or datetime.now(timezone.utc).strftime(
         "initial-question-t57-%Y%m%dT%H%M%SZ"
@@ -175,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
             "worktree_clean": worktree_clean,
             "provider": authorization.provider.name,
             "model": authorization.provider.model_id,
+            "plan_output_mode": plan_output_mode,
             "base_url": authorization.provider.base_url,
             "provider_called": False,
             "first_data_request_sent": False,
@@ -276,6 +282,21 @@ def main(argv: list[str] | None = None) -> int:
         manifest["provider_called"] = artifact.outbound_requests_attempted > 0
         manifest["first_data_request_sent"] = artifact.outbound_requests_attempted > 0
         _apply_usage_manifest(manifest, artifact)
+        if all(
+            isinstance(manifest.get(field), int)
+            and not isinstance(manifest.get(field), bool)
+            for field in (
+                "input_tokens",
+                "output_tokens",
+                "cached_input_tokens",
+            )
+        ):
+            manifest["estimated_cost"] = estimate_provider_cost(
+                price=preflight.discovery.prices[authorization.provider.model_id],
+                input_tokens=manifest["input_tokens"],
+                output_tokens=manifest["output_tokens"],
+                cached_input_tokens=manifest["cached_input_tokens"],
+            )
         if artifact.capture_status == "hard_stopped":
             return _finish_blocked(
                 store,
@@ -406,6 +427,9 @@ def _record_live_provider_responses(
             temperature=0.2,
             request_timeout_seconds=timeout_seconds,
             max_retries=0,
+            plan_output_mode=resolve_plan_output_mode(
+                authorization.provider.model_id
+            ),
             context_window_tokens=context_window_tokens,
         )
     )
@@ -413,7 +437,10 @@ def _record_live_provider_responses(
     stops: list[str] = []
     outbound_requests_attempted = 0
     outbound_requests_metered = 0
-    selected_cases = list(dataset.cases[:1] if smoke else dataset.cases)
+    # The caller has already applied the requested smoke/full selection.  Do
+    # not silently truncate it again here; this keeps selected_case_count and
+    # the actual business samples aligned.
+    selected_cases = list(dataset.cases)
     for case in selected_cases:
         item = InitialQuestionCaseInput.model_validate(case.input)
         configuration = PlanConfigurationSnapshot.model_validate(item.configuration)
@@ -617,6 +644,7 @@ def _apply_usage_manifest(
             "input_tokens": total("input_tokens"),
             "output_tokens": total("output_tokens"),
             "cached_input_tokens": total("cached_input_tokens"),
+            "estimated_cost": 0.0 if attempted == 0 else None,
         }
     )
 
