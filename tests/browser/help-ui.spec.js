@@ -31,16 +31,22 @@ test("help route uses the shared app workbench and switches factual manual panes
   await expect(page.locator(".help-app")).toHaveAttribute("data-help-view", "guide");
   await expect(page.locator("#help-panel-guide")).toBeVisible();
 
-  const visualDetails = await page.locator("#help-panel-guide").evaluate((panel) => ({
-    titleSize: Number.parseFloat(getComputedStyle(panel.querySelector(".help-flow-list h3")).fontSize),
-    copySize: Number.parseFloat(getComputedStyle(panel.querySelector(".help-flow-list p")).fontSize),
-    actionHeight: panel.querySelector(".help-flow-list a").getBoundingClientRect().height,
-    paneAnimation: getComputedStyle(panel).animationName,
-    paneDuration: getComputedStyle(panel).animationDuration,
-  }));
+  const visualDetails = await page.locator("#help-panel-guide").evaluate((panel) => {
+    const action = panel.querySelector(".help-flow-list a");
+    return {
+      titleSize: Number.parseFloat(getComputedStyle(panel.querySelector(".help-flow-list h3")).fontSize),
+      copySize: Number.parseFloat(getComputedStyle(panel.querySelector(".help-flow-list p")).fontSize),
+      actionMinHeight: Number.parseFloat(getComputedStyle(action).minHeight),
+      actionHeight: action.getBoundingClientRect().height,
+      paneAnimation: getComputedStyle(panel).animationName,
+      paneDuration: getComputedStyle(panel).animationDuration,
+    };
+  });
   expect(visualDetails.titleSize).toBeGreaterThanOrEqual(15);
   expect(visualDetails.copySize).toBeGreaterThanOrEqual(14);
-  expect(visualDetails.actionHeight).toBeGreaterThanOrEqual(40);
+  expect(visualDetails.actionMinHeight).toBeGreaterThanOrEqual(40);
+  // Blink quantizes layout to 1/64 CSS-pixel units; tolerate only that unit.
+  expect(visualDetails.actionHeight).toBeGreaterThanOrEqual(40 - (1 / 64));
   expect(visualDetails.paneAnimation).toContain("help-pane-enter");
   expect(visualDetails.paneDuration).toBe("0.2s");
 
