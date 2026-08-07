@@ -22,7 +22,7 @@ class ProviderIdentity(BaseModel):
     protocol: Literal["openai-compatible"]
     name: Literal["DeepSeek"]
     base_url: str
-    model_id: Literal["deepseek-chat"]
+    model_id: Literal["deepseek-v4-pro"]
     allowed_fallback_models: list[str]
     allow_automatic_model_substitution: bool
 
@@ -72,11 +72,14 @@ class ProviderEvidencePolicy(BaseModel):
 class ProviderAuthorizationManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["provider-authorization-manifest-v1"]
-    authorization_id: Literal["interview-quality-v1-20260805-unlimited-01"]
+    schema_version: Literal["provider-authorization-manifest-v2"]
+    authorization_id: Literal["interview-quality-v1-20260807-unlimited-02"]
+    supersedes_authorization_id: Literal[
+        "interview-quality-v1-20260805-unlimited-01"
+    ]
     status: Literal["GRANTED"]
     authorized_by: Literal["user"]
-    authorized_at: Literal["2026-08-05"]
+    authorized_at: Literal["2026-08-07"]
     valid_until: None
     allowed_tasks: list[Literal["T27", "T36", "T57", "T65"]]
     provider: ProviderIdentity

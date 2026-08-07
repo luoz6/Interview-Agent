@@ -196,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         scenario_sha = hashlib.sha256(scenario_bytes).hexdigest()
         _write_json(run_dir / "scenario-matrix.json", scenarios)
 
+        authorization = _read_json(AUTHORIZATION)
         artifact = T63PerformanceArtifact(
             run_id=args.run_id,
             source_revision=_git_revision(),
@@ -221,10 +222,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
             active_get_database_contract=active_get_database_contract,
             provider_evidence=T63ProviderEvidence(
-                authorization_id=_read_json(AUTHORIZATION)["authorization_id"],
+                authorization_id=authorization["authorization_id"],
                 provider="DeepSeek",
-                authorized_model="deepseek-chat",
-                status="BLOCKED_MODEL_VERSION_DRIFT",
+                authorized_model=authorization["provider"]["model_id"],
+                status="NOT_RUN_PROVIDER_QUALITY",
                 provider_called=False,
                 first_data_request_sent=False,
                 actual_usage_artifact_available=False,

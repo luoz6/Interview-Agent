@@ -272,6 +272,21 @@ def test_t63_blocked_model_drift_cannot_fabricate_usage():
         )
 
 
+def test_t63_new_authorized_model_not_run_cannot_fabricate_usage():
+    with pytest.raises(ValidationError, match="cannot fabricate usage"):
+        T63ProviderEvidence(
+            authorization_id="interview-quality-v1-20260807-unlimited-02",
+            provider="DeepSeek",
+            authorized_model="deepseek-v4-pro",
+            status="NOT_RUN_PROVIDER_QUALITY",
+            provider_called=False,
+            first_data_request_sent=False,
+            actual_usage_artifact_available=False,
+            provider_calls=0,
+            estimated_cost=0,
+        )
+
+
 def test_t63_provider_pass_requires_bound_metered_usage_artifact():
     with pytest.raises(ValidationError, match="bound actual usage artifact"):
         T63ProviderEvidence(

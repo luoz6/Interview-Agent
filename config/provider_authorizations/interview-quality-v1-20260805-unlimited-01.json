@@ -1,17 +1,16 @@
 {
-  "schema_version": "provider-authorization-manifest-v2",
-  "authorization_id": "interview-quality-v1-20260807-unlimited-02",
-  "supersedes_authorization_id": "interview-quality-v1-20260805-unlimited-01",
+  "schema_version": "provider-authorization-manifest-v1",
+  "authorization_id": "interview-quality-v1-20260805-unlimited-01",
   "status": "GRANTED",
   "authorized_by": "user",
-  "authorized_at": "2026-08-07",
+  "authorized_at": "2026-08-05",
   "valid_until": null,
   "allowed_tasks": ["T27", "T36", "T57", "T65"],
   "provider": {
     "protocol": "openai-compatible",
     "name": "DeepSeek",
     "base_url": "https://api.deepseek.com",
-    "model_id": "deepseek-v4-pro",
+    "model_id": "deepseek-chat",
     "allowed_fallback_models": [],
     "allow_automatic_model_substitution": false
   },

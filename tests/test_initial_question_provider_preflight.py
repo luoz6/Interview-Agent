@@ -22,7 +22,7 @@ DATASET_MANIFEST = Path("tests/golden/interview_quality_v1/manifest.json")
 EXECUTION_MANIFEST = Path("docs/interview-quality-v1-execution-manifest.json")
 
 
-def discovery(*, model_ids=("deepseek-chat",), priced=("deepseek-chat",)):
+def discovery(*, model_ids=("deepseek-v4-pro",), priced=("deepseek-v4-pro",)):
     price = ProviderPrice(
         cache_hit_input_per_million=0.1,
         cache_miss_input_per_million=0.2,
@@ -63,17 +63,18 @@ def test_t57_preflight_accepts_only_exact_authorized_model_and_safe_categories()
         "synthetic_job_descriptions",
         "synthetic_resumes",
     )
-    assert result.environment_model_ignored is True
+    assert result.environment_model_ignored is False
+    assert result.authorized_model == "deepseek-v4-pro"
     assert result.dataset_manifest_match is True
     assert result.gate_config_manifest_match is True
     assert result.authorization_manifest_match is True
 
 
-def test_current_v4_only_catalog_is_model_version_drift_without_fallback():
+def test_catalog_without_exact_v4_pro_is_model_version_drift_without_fallback():
     result = evaluate(
         discovery(
-            model_ids=("deepseek-v4-flash", "deepseek-v4-pro"),
-            priced=("deepseek-v4-flash", "deepseek-v4-pro"),
+            model_ids=("deepseek-chat", "deepseek-v4-flash"),
+            priced=("deepseek-chat", "deepseek-v4-flash"),
         )
     )
 
@@ -83,6 +84,6 @@ def test_current_v4_only_catalog_is_model_version_drift_without_fallback():
 
 
 def test_available_but_unpriced_authorized_model_stops_usage_metering():
-    result = evaluate(discovery(priced=("deepseek-v4-pro",)))
+    result = evaluate(discovery(priced=()))
 
     assert result.hard_stop_conditions == ("USAGE_METERING_UNAVAILABLE",)

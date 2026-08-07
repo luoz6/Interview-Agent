@@ -24,10 +24,10 @@ DATASET_MANIFEST = Path("tests/golden/interview_quality_v1/manifest.json")
 EXECUTION_MANIFEST = Path("docs/interview-quality-v1-execution-manifest.json")
 
 
-def discovery(*, models=("deepseek-chat",), priced=True, error_code=None):
+def discovery(*, models=("deepseek-v4-pro",), priced=True, error_code=None):
     prices = (
         {
-            "deepseek-chat": ProviderPrice(
+            "deepseek-v4-pro": ProviderPrice(
                 cache_hit_input_per_million=0.1,
                 cache_miss_input_per_million=0.2,
                 output_per_million=0.3,
@@ -71,14 +71,14 @@ def test_preflight_accepts_only_frozen_model_hashes_and_redacted_dataset():
     assert result.gate_config_manifest_match is True
     assert result.authorization_manifest_match is True
     assert result.redaction_preflight_passed is True
-    assert result.environment_model_ignored is True
-    assert result.authorized_model == "deepseek-chat"
+    assert result.environment_model_ignored is False
+    assert result.authorized_model == "deepseek-v4-pro"
 
 
-def test_current_official_model_list_causes_model_drift_before_requests():
+def test_catalog_without_exact_v4_pro_causes_model_drift_before_requests():
     result = evaluate(
         discovery(
-            models=("deepseek-v4-flash", "deepseek-v4-pro"),
+            models=("deepseek-chat", "deepseek-v4-flash"),
             priced=False,
         )
     )

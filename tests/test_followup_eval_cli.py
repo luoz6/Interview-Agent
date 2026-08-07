@@ -23,7 +23,7 @@ DATASET_PATH = Path(
 )
 
 
-def valid_discovery(*, models=("deepseek-chat",), priced=True):
+def valid_discovery(*, models=("deepseek-v4-pro",), priced=True):
     return DeepSeekDiscoverySnapshot(
         observed_at="2026-08-05T00:00:00Z",
         models_endpoint_ok=True,
@@ -31,7 +31,7 @@ def valid_discovery(*, models=("deepseek-chat",), priced=True):
         pricing_page_ok=True,
         prices=(
             {
-                "deepseek-chat": ProviderPrice(
+                "deepseek-v4-pro": ProviderPrice(
                     cache_hit_input_per_million=0.1,
                     cache_miss_input_per_million=0.2,
                     output_per_million=0.3,
@@ -108,7 +108,7 @@ def test_provider_cli_stops_on_current_model_drift_before_building_model(
         cli,
         "discover_deepseek_provider",
         lambda **kwargs: valid_discovery(
-            models=("deepseek-v4-flash", "deepseek-v4-pro"),
+            models=("deepseek-chat", "deepseek-v4-flash"),
             priced=False,
         ),
     )
@@ -164,7 +164,7 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
             return {
                 "raw": SimpleNamespace(
                     usage_metadata={"input_tokens": 20, "output_tokens": 5},
-                    response_metadata={"model_name": "deepseek-chat"},
+                    response_metadata={"model_name": "deepseek-v4-pro"},
                     id="decision-response",
                 ),
                 "parsed": decision,
@@ -180,7 +180,7 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
         return ChatModel()
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-not-written")
-    monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
     monkeypatch.setattr(
         cli,
         "discover_deepseek_provider",
@@ -209,7 +209,7 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
     )
 
     assert exit_code == 2  # One case is below formal Gate sample sizes.
-    assert captured["config"].model == "deepseek-chat"
+    assert captured["config"].model == "deepseek-v4-pro"
     assert captured["config"].base_url == "https://api.deepseek.com"
     assert captured["config"].max_retries == 0
     assert manifest["provider_preflight"]["environment_model_ignored"] is True
@@ -224,7 +224,7 @@ def test_live_path_uses_authorized_model_not_environment_model(monkeypatch, tmp_
     assert recorded["latency_seconds"] > 0
     assert recorded["input_tokens"] == 20
     assert recorded["output_tokens"] == 5
-    assert recorded["provider_model"] == "deepseek-chat"
+    assert recorded["provider_model"] == "deepseek-v4-pro"
 
 
 def test_development_mode_cannot_consume_blind_partition():

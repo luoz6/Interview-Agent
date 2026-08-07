@@ -92,8 +92,12 @@ class T63ProviderEvidence(BaseModel):
 
     authorization_id: str
     provider: Literal["DeepSeek"]
-    authorized_model: Literal["deepseek-chat"]
-    status: Literal["PASS", "BLOCKED_MODEL_VERSION_DRIFT"]
+    authorized_model: Literal["deepseek-chat", "deepseek-v4-pro"]
+    status: Literal[
+        "PASS",
+        "BLOCKED_MODEL_VERSION_DRIFT",
+        "NOT_RUN_PROVIDER_QUALITY",
+    ]
     provider_called: bool
     first_data_request_sent: bool
     actual_usage_artifact_available: bool
@@ -111,18 +115,21 @@ class T63ProviderEvidence(BaseModel):
 
     @model_validator(mode="after")
     def validate_provider_boundary(self):
-        if self.status == "BLOCKED_MODEL_VERSION_DRIFT":
+        if self.status in {
+            "BLOCKED_MODEL_VERSION_DRIFT",
+            "NOT_RUN_PROVIDER_QUALITY",
+        }:
             if self.provider_called or self.first_data_request_sent or self.provider_calls:
-                raise ValueError("model drift must stop before the first Provider request")
+                raise ValueError("non-PASS Provider evidence cannot claim a request")
             if self.actual_usage_artifact_available:
-                raise ValueError("blocked Provider preflight cannot claim actual usage")
+                raise ValueError("non-PASS Provider evidence cannot claim actual usage")
             if any(
                 value is not None
                 for value in (self.input_tokens, self.output_tokens, self.estimated_cost)
             ):
-                raise ValueError("blocked Provider preflight cannot fabricate usage")
+                raise ValueError("non-PASS Provider evidence cannot fabricate usage")
             if self.session_count or self.usage_artifact_path or self.usage_artifact_sha256:
-                raise ValueError("blocked Provider preflight cannot claim a usage artifact")
+                raise ValueError("non-PASS Provider evidence cannot claim a usage artifact")
         if self.status == "PASS":
             if not (
                 self.provider_called

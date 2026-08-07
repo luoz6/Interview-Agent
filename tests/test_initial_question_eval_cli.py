@@ -64,9 +64,9 @@ def test_provider_cli_stops_before_data_request_on_model_drift(
         lambda **_kwargs: DeepSeekDiscoverySnapshot(
             observed_at="2026-08-06T00:00:00Z",
             models_endpoint_ok=True,
-            model_ids=["deepseek-v4-flash", "deepseek-v4-pro"],
+            model_ids=["deepseek-chat", "deepseek-v4-flash"],
             pricing_page_ok=True,
-            prices={"deepseek-v4-pro": price, "deepseek-v4-flash": price},
+            prices={"deepseek-chat": price, "deepseek-v4-flash": price},
         ),
     )
 

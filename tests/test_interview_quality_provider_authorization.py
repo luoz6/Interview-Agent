@@ -16,7 +16,7 @@ def valid_request(**overrides):
         "task": "T27",
         "provider_name": "DeepSeek",
         "base_url": "https://api.deepseek.com",
-        "model_id": "deepseek-chat",
+        "model_id": "deepseek-v4-pro",
         "data_categories": {"synthetic_candidate_answers"},
         "redaction_preflight_passed": True,
         "usage_metering_available": True,
@@ -31,7 +31,13 @@ def test_unified_unlimited_authorization_loads_without_a_secret():
     manifest = load_provider_authorization(MANIFEST_PATH)
 
     assert set(manifest.allowed_tasks) == {"T27", "T36", "T57", "T65"}
-    assert manifest.provider.model_id == "deepseek-chat"
+    assert manifest.schema_version == "provider-authorization-manifest-v2"
+    assert manifest.authorization_id == "interview-quality-v1-20260807-unlimited-02"
+    assert (
+        manifest.supersedes_authorization_id
+        == "interview-quality-v1-20260805-unlimited-01"
+    )
+    assert manifest.provider.model_id == "deepseek-v4-pro"
     assert manifest.limits.total_budget == "unlimited"
     assert manifest.limits.total_outbound_requests == "unlimited"
     assert len(provider_authorization_sha256(MANIFEST_PATH)) == 64
