@@ -1,0 +1,202 @@
+{
+  "schema_version": "interview-quality-v1-t64-evidence-v1",
+  "task": "T64",
+  "generated_at": "2026-08-07T11:43:15.7465701+08:00",
+  "implementation_revision": "820328c8b0428c31d134e9bc991759dd64611fa2",
+  "implementation_tree": "5f420690d4c54c4c25fb67bfae94b067c270621d",
+  "provider_candidate_revision": "820328c8b0428c31d134e9bc991759dd64611fa2",
+  "provider_candidate_tree": "5f420690d4c54c4c25fb67bfae94b067c270621d",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED_CROSS_PLATFORM_ENGINEERING",
+  "overall_status": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "real_candidate_data_used": false,
+  "screenshots": 0,
+  "traces": 0,
+  "cleanup_residue": 0,
+  "open_engineering_findings": 0,
+  "acceptance": {
+    "path": "tests/golden/interview_quality_v1/t64-cross-platform-acceptance-v1.json",
+    "schema_version": "interview-quality-v1-t64-cross-platform-acceptance-v1",
+    "canonical_sha256": "3da812229919e3892af5733da8bc9efb9b544b8c12c48e35aceb0afeb8631ec7",
+    "file_sha256": "0c1963bf1327e854fe1dfbf1dd2f896b420864e12970969177c1987ee2652665",
+    "file_bytes": 9166,
+    "requirement_count": 21,
+    "unique_test_node_count": 11,
+    "required_command_count_per_platform": 11
+  },
+  "requirements": [
+    {"id": "T64-M01", "status": "PASS", "evidence": "Windows 11 build 10.0.26200 AMD64"},
+    {"id": "T64-M02", "status": "PASS", "evidence": "Ubuntu 24.04.4 LTS x86_64"},
+    {"id": "T64-M03", "status": "PASS", "evidence": "absolute Python 3.11 executable paths recorded on both platforms"},
+    {"id": "T64-M04", "status": "PASS", "evidence": "Node 22.21.0 on both platforms"},
+    {"id": "T64-M05", "status": "PASS", "evidence": "PostgreSQL 16.14 and pgvector 0.8.6 on both platforms"},
+    {"id": "T64-M06", "status": "PASS", "evidence": "Playwright 1.61.1 and Chromium 149.0.7827.55 on both platforms"},
+    {"id": "T64-C01", "status": "PASS", "evidence": "full Python pytest passed on both platforms"},
+    {"id": "T64-C02", "status": "PASS", "evidence": "PostgreSQL-marked tests ran with reachable DSN on both platforms"},
+    {"id": "T64-C03", "status": "PASS", "evidence": "migration and backup restore passed on both platforms"},
+    {"id": "T64-C04", "status": "PASS", "evidence": "root and frontend npm ci passed with zero vulnerabilities"},
+    {"id": "T64-C05", "status": "PASS_WITH_NONBLOCKING_WARNINGS", "evidence": "ESLint zero errors and six warnings per platform"},
+    {"id": "T64-C06", "status": "PASS", "evidence": "Vitest passed on both platforms"},
+    {"id": "T64-C07", "status": "PASS_WITH_NONBLOCKING_WARNING", "evidence": "frontend production build passed; 542.31 kB chunk warning retained"},
+    {"id": "T64-C08", "status": "PASS", "evidence": "Playwright preflight and browser suites passed on both platforms"},
+    {"id": "T64-C09", "status": "PASS_ENGINEERING_ONLY", "evidence": "all four zero-Provider frozen quality replays ran on both platforms"},
+    {"id": "T64-C10", "status": "PASS", "evidence": "all six cleanup residue fields are zero on both platforms"},
+    {"id": "T64-R01", "status": "PASS", "evidence": "6646 passed, zero failed, zero blocking skips"},
+    {"id": "T64-R02", "status": "PASS", "evidence": "zero missing-DSN skips"},
+    {"id": "T64-R03", "status": "PASS", "evidence": "92 nonblocking skips each have reason and owner"},
+    {"id": "T64-R04", "status": "PASS", "evidence": "target toolchain versions exactly enforced"},
+    {"id": "T64-R05", "status": "PASS", "evidence": "same clean candidate revision and tree frozen across both platforms"}
+  ],
+  "formal_artifacts": {
+    "windows_platform_result": {
+      "source_path": "tmp/t64/formal/820328c/windows/platform-result.json",
+      "bytes": 18889,
+      "sha256": "a584169da8ee0aba387a6dd8739e1b5ded9ea83ba0e02a62b8732c496f6d146b"
+    },
+    "ubuntu_platform_result": {
+      "source_path": "tmp/t64/formal/820328c/ubuntu/platform-result.json",
+      "bytes": 18862,
+      "sha256": "932c32992bd4dc953c41f237a46326dbc65906fc70f3ac16866e79542f3622b2"
+    },
+    "cross_platform_gate_result": {
+      "source_path": "tmp/t64/formal/820328c/t64-gate-result.json",
+      "bytes": 1139,
+      "sha256": "e9fa2328920ec7dc9a63d2745636cf085cf0e8c82825bcadf37f071c003ed62b"
+    }
+  },
+  "aggregate": {
+    "platform_count": 2,
+    "tests_passed": 6646,
+    "tests_failed": 0,
+    "tests_skipped_nonblocking": 92,
+    "blocking_skips": 0,
+    "provider_calls": 0,
+    "cleanup_residue": 0
+  },
+  "platforms": {
+    "windows-11-x64": {
+      "generated_at": "2026-08-07T03:24:13.195286Z",
+      "status": "PASS",
+      "source_clean": true,
+      "toolchain": {
+        "os": "Windows 11 (10.0.26200) AMD64",
+        "python": "3.11.3",
+        "python_executable": "F:/python3.11/python.exe",
+        "node": "22.21.0",
+        "postgresql": "16.14",
+        "pgvector": "0.8.6",
+        "playwright": "1.61.1",
+        "chromium": "149.0.7827.55"
+      },
+      "test_counts": {
+        "python_full": {"passed": 2955, "failed": 0, "skipped": 3, "warnings": 1},
+        "postgres_marked": {"passed": 203, "failed": 0, "skipped": 0, "warnings": 1},
+        "migration_restore": {"passed": 7, "failed": 0, "skipped": 0, "warnings": 1},
+        "vitest": {"passed": 67, "failed": 0, "skipped": 0},
+        "playwright": {"passed": 91, "failed": 0, "skipped": 43}
+      },
+      "eslint": {"errors": 0, "warnings": 6},
+      "npm_ci": {"root": "PASS_ZERO_VULNERABILITIES", "frontend": "PASS_ZERO_VULNERABILITIES"},
+      "frontend_build": "PASS_WITH_542_31_KB_CHUNK_WARNING",
+      "postgres_dsn_configured": true,
+      "postgres_missing_dsn_skips": 0,
+      "provider_calls": 0,
+      "skip_count": 46,
+      "cleanup": {"ports": 0, "processes": 0, "screenshots": 0, "traces": 0, "temporary_database_relations": 0, "unexpected_worktree_changes": 0},
+      "cleanup_artifact": {"bytes": 497, "sha256": "879953594fd17884544ab623f711bfa06dbff8ea86b0fb8aa0dd7204f37d32d9"}
+    },
+    "ubuntu-24.04-x64": {
+      "generated_at": "2026-08-07T03:34:31.189067Z",
+      "status": "PASS",
+      "source_clean": true,
+      "toolchain": {
+        "os": "Ubuntu 24.04.4 LTS x86_64",
+        "python": "3.11.15",
+        "python_executable": "/usr/local/bin/python3.11",
+        "node": "22.21.0",
+        "postgresql": "16.14",
+        "pgvector": "0.8.6",
+        "playwright": "1.61.1",
+        "chromium": "149.0.7827.55"
+      },
+      "test_counts": {
+        "python_full": {"passed": 2955, "failed": 0, "skipped": 3, "warnings": 1},
+        "postgres_marked": {"passed": 203, "failed": 0, "skipped": 0, "warnings": 1},
+        "migration_restore": {"passed": 7, "failed": 0, "skipped": 0, "warnings": 1},
+        "vitest": {"passed": 67, "failed": 0, "skipped": 0},
+        "playwright": {"passed": 91, "failed": 0, "skipped": 43}
+      },
+      "eslint": {"errors": 0, "warnings": 6},
+      "npm_ci": {"root": "PASS_ZERO_VULNERABILITIES", "frontend": "PASS_ZERO_VULNERABILITIES"},
+      "frontend_build": "PASS_WITH_542_31_KB_CHUNK_WARNING",
+      "postgres_dsn_configured": true,
+      "postgres_missing_dsn_skips": 0,
+      "provider_calls": 0,
+      "skip_count": 46,
+      "cleanup": {"ports": 0, "processes": 0, "screenshots": 0, "traces": 0, "temporary_database_relations": 0, "unexpected_worktree_changes": 0},
+      "cleanup_artifact": {"bytes": 481, "sha256": "e110542ffb870a82251fbda723e033ea3badceedcdfeb704fd982f11456c66ef"}
+    }
+  },
+  "skip_inventory": {
+    "total": 92,
+    "blocking": 0,
+    "owner_counts": {"T64": 86, "T65": 6},
+    "per_platform": {"python_full": 3, "playwright": 43},
+    "real_provider_deferred_to_t65_per_platform": {"python_real_llm_eval": 1, "playwright_real_model_smoke": 2},
+    "missing_reason_or_owner": 0
+  },
+  "quality_replays": {
+    "windows-11-x64": {
+      "initial_question": {"case_count": 24, "engineering_status": "PASS", "quality_status": "BLOCKED_SYNTHETIC_FIXTURE_ONLY", "provider_calls": 0},
+      "followup_decision": {"case_count": 100, "sequence_count": 20, "engineering_status": "PASS", "quality_status": "BLOCKED_PENDING_INDEPENDENT_REVIEW", "provider_calls": 0},
+      "report_score": {"case_count": 60, "engineering_status": "PASS", "quality_status": "BLOCKED_PENDING_INDEPENDENT_REVIEW", "provider_calls": 0},
+      "report_semantic": {"case_count": 24, "covered_scenario_count": 17, "engineering_status": "PASS", "quality_status": "BLOCKED_INDEPENDENT_HUMAN_REVIEW_NOT_RUN", "provider_calls": 0}
+    },
+    "ubuntu-24.04-x64": {
+      "initial_question": {"case_count": 24, "engineering_status": "PASS", "quality_status": "BLOCKED_SYNTHETIC_FIXTURE_ONLY", "provider_calls": 0},
+      "followup_decision": {"case_count": 100, "sequence_count": 20, "engineering_status": "PASS", "quality_status": "BLOCKED_PENDING_INDEPENDENT_REVIEW", "provider_calls": 0},
+      "report_score": {"case_count": 60, "engineering_status": "PASS", "quality_status": "BLOCKED_PENDING_INDEPENDENT_REVIEW", "provider_calls": 0},
+      "report_semantic": {"case_count": 24, "covered_scenario_count": 17, "engineering_status": "PASS", "quality_status": "BLOCKED_INDEPENDENT_HUMAN_REVIEW_NOT_RUN", "provider_calls": 0}
+    }
+  },
+  "nonblocking_warnings": [
+    "Starlette TestClient/httpx deprecation warning on both platforms",
+    "six react-hooks/exhaustive-deps warnings per platform and zero ESLint errors",
+    "Vite build chunk 542.31 kB exceeds the 500 kB warning threshold"
+  ],
+  "diagnostic_attempts_not_accepted_as_pass": [
+    {"revision": "7bedaf9319e14f697a147cef40ac7282df20d4d2", "status": "SUPERSEDED", "reason": "three Windows clock-domain failures and pretty cleanup JSON parsing failure"},
+    {"revision": "c907dce47cf7bae8b10e7d1e069423e76903b2f3", "status": "SUPERSEDED", "reason": "report-detail focus loading race and real-model skips misclassified blocking"},
+    {"revision": "ec9517359e9b589c796f97b04df11476e32b7ceb", "status": "SUPERSEDED_AFTER_REVIEW", "reason": "platform matrices passed but gate artifact keys collided"},
+    {"revision": "4cd7aea77be61b55573f02c3ee0fe9bddcf42f10", "status": "SUPERSEDED", "reason": "transient first-poll queue claim assumption; isolated 10/10 and marker rerun 203/203 passed before hardening"},
+    {"revision": "069b33170a2fb1773c94b8198696e636545d61af", "status": "SUPERSEDED", "reason": "Ubuntu Chromium 1/64 CSS-pixel layout quantization failure"},
+    {"revision": "820328c8b0428c31d134e9bc991759dd64611fa2", "status": "PASS_FROZEN_CANDIDATE", "reason": "Windows PASS, Ubuntu PASS, cross-platform gate PASS"}
+  ],
+  "automatic_review_findings_closed": [
+    "cross-platform dependencies and hashed locks are complete",
+    "PostgreSQL tooling and catalog/cleanup behavior are portable and fail closed",
+    "host and PostgreSQL clock domains are not mixed in acceptance tests",
+    "platform runner accepts structured pretty JSON logs",
+    "browser focus loading race is bounded",
+    "real-model skips are nonblocking T65-owned skips",
+    "Windows and Ubuntu platform artifacts are independently retained",
+    "queue recovery uses bounded worker-style polling",
+    "Ubuntu invalid regex escape warning is removed",
+    "layout acceptance tolerates only 1/64 CSS-pixel quantization"
+  ],
+  "phase_boundaries": {
+    "t64_complete": true,
+    "next_task": "T65",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "T64 is a cross-platform Engineering gate and does not claim real Provider Quality PASS.",
+    "Synthetic quality replays remain blocked for independent or real Provider quality conclusions.",
+    "No real Provider request, real candidate data, screenshot, trace, or image operation occurred.",
+    "The documentation commit after T64 does not redefine the frozen provider candidate revision or tree."
+  ]
+}
