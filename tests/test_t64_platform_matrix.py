@@ -102,3 +102,28 @@ def test_t64_platform_runner_unknown_skip_is_blocking():
 
     assert classified["owner"] == ""
     assert classified["blocking"] is True
+
+
+def test_t64_platform_runner_assigns_real_model_browser_skip_to_t65():
+    classified = _classify_skip(
+        "windows-11-x64",
+        "playwright_browser",
+        {
+            "test": "real-model-smoke.spec.js / provider acceptance / desktop-chromium",
+            "reason": "explicit provider opt-in required",
+        },
+    )
+
+    assert classified["owner"] == "T65"
+    assert classified["blocking"] is False
+
+    unrelated = _classify_skip(
+        "windows-11-x64",
+        "playwright_browser",
+        {
+            "test": "unexpected-provider-suite.spec.js / unknown",
+            "reason": "explicit provider opt-in required",
+        },
+    )
+    assert unrelated["owner"] == ""
+    assert unrelated["blocking"] is True

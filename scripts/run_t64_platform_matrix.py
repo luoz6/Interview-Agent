@@ -135,10 +135,16 @@ def _pytest_counts(path: Path) -> tuple[dict[str, int], list[dict[str, object]]]
 
 def _classify_skip(platform_id: str, scope: str, item: dict[str, object]) -> dict[str, object]:
     reason = str(item.get("reason", ""))
-    lowered = reason.casefold()
+    test_id = str(item.get("test", ""))
+    lowered = f"{test_id} {reason}".casefold()
     owner = ""
     blocking = True
     if "run_real_llm_eval" in lowered or "real_llm" in lowered:
+        owner, blocking = "T65", False
+    elif scope == "playwright_browser" and (
+        "real-model-smoke" in test_id.casefold()
+        and "explicit provider opt-in required" in reason.casefold()
+    ):
         owner, blocking = "T65", False
     elif platform_id == "ubuntu-24.04-x64" and "windows" in lowered:
         owner, blocking = "T64", False
@@ -152,7 +158,7 @@ def _classify_skip(platform_id: str, scope: str, item: dict[str, object]) -> dic
         owner, blocking = "T64", False
     return {
         "scope": scope,
-        "test": str(item.get("test", "")),
+        "test": test_id,
         "reason": reason,
         "owner": owner,
         "blocking": blocking,

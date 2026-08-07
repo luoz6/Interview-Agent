@@ -256,6 +256,7 @@ test("report detail motion and focus states remain accessible", async ({
   await page.goto("/report-detail?session_id=" + sessionId);
 
   const download = page.getByRole("button", { name: "下载完整报告" });
+  await expect(download).toBeEnabled();
   await download.focus();
   const focus = await download.evaluate((button) => {
     const style = getComputedStyle(button);
