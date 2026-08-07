@@ -429,7 +429,7 @@ def test_injected_runner_uses_absolute_pinned_git_and_sanitized_environment(
 
 def test_trusted_git_executable_drift_blocks_before_execution(publication_repo, tmp_path):
     copied_git = tmp_path / publication_repo["native_git"].name
-    shutil.copyfile(publication_repo["native_git"], copied_git)
+    shutil.copy2(publication_repo["native_git"], copied_git)
     runner = TrustedGitRunner(copied_git, file_identity(copied_git)["sha256"])
     copied_git.write_bytes(copied_git.read_bytes() + b"drift")
     with pytest.raises(PublicationVerificationError) as raised:
