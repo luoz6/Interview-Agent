@@ -19,6 +19,7 @@ from app.services.context_artifacts import (
     canonical_json,
     parse_artifact_payload,
 )
+from app.services.context_compression_intent import CompressionIntent
 from app.services.token_estimation import TokenEstimator
 
 
@@ -55,6 +56,7 @@ def validate_compression_artifact(
     expected_session_scope_sha256: str | None = None,
     expected_question_focus_sha256: str | None = None,
     expected_source_manifest_sha256: str | None = None,
+    intent: CompressionIntent | None = None,
 ) -> ValidatedCompressionArtifact:
     """Validate one provider payload against authoritative in-memory sources."""
 
@@ -64,6 +66,14 @@ def validate_compression_artifact(
         raise ContextArtifactValidationFailed(
             "context artifact payload schema is invalid"
         ) from exc
+    resolved_intent = None
+    if intent is not None:
+        try:
+            resolved_intent = CompressionIntent.model_validate(intent)
+        except (ValidationError, TypeError, ValueError) as exc:
+            raise ContextArtifactValidationFailed(
+                "context artifact compression intent is invalid"
+            ) from exc
     if validated.schema_version != policy.output_schema_version:
         raise ContextArtifactValidationFailed(
             "context artifact output schema version is invalid"
@@ -143,8 +153,10 @@ def validate_compression_artifact(
             )
 
     supporting_excerpt_count = 0
+    output_text_parts: list[str] = []
 
     for unit in units:
+        output_text_parts.append(unit.summary)
         anchored_sources = []
         for digest in unit.source_segment_sha256:
             source = source_by_digest.get(digest)
@@ -155,9 +167,12 @@ def validate_compression_artifact(
             anchored_sources.append(source)
 
         anchored_text = "\n".join(source.content for source in anchored_sources)
-        anchored_numbers = set(_NUMBER_RE.findall(anchored_text))
-        anchored_identifiers = set(_IDENTIFIER_RE.findall(anchored_text))
+        anchored_numbers = _extract_numbers(anchored_text)
+        anchored_identifiers = _extract_identifiers(anchored_text)
 
+        # Supporting excerpts are additional provenance and may come from a
+        # different cited source than the summary. They never replace the
+        # independent exact-source summary requirement below.
         for excerpt in unit.supporting_excerpts:
             supporting_excerpt_count += 1
             if not any(excerpt in source.content for source in anchored_sources):
@@ -172,8 +187,20 @@ def validate_compression_artifact(
                     "context artifact exceeds the supporting excerpt budget"
                 )
 
-        summary_numbers = set(_NUMBER_RE.findall(unit.summary))
-        summary_identifiers = set(_IDENTIFIER_RE.findall(unit.summary))
+        if resolved_intent is not None:
+            if not unit.supporting_excerpts:
+                raise ContextArtifactValidationFailed(
+                    "context artifact intent-aware unit requires a supporting excerpt"
+                )
+            if not any(
+                unit.summary in source.content for source in anchored_sources
+            ):
+                raise ContextArtifactValidationFailed(
+                    "context artifact intent-aware summary is not an exact source excerpt"
+                )
+
+        summary_numbers = _extract_numbers(unit.summary)
+        summary_identifiers = _extract_identifiers(unit.summary)
         if not summary_numbers.issubset(
             anchored_numbers
         ) or not summary_identifiers.issubset(
@@ -185,6 +212,7 @@ def validate_compression_artifact(
 
     if isinstance(validated, EvidenceCompressionArtifact):
         for excerpt in validated.exact_excerpts:
+            output_text_parts.append(excerpt)
             if not any(excerpt in source.content for source in source_segments):
                 raise ContextArtifactValidationFailed(
                     "context artifact exact excerpt is not grounded"
@@ -196,6 +224,22 @@ def validate_compression_artifact(
                 raise ContextArtifactValidationFailed(
                     "context artifact exceeds the supporting excerpt budget"
                 )
+
+    if resolved_intent is not None:
+        source_text = "\n".join(source.content for source in source_segments)
+        output_text = "\n".join(output_text_parts)
+        if "numbers" in resolved_intent.preserve and not _extract_numbers(
+            source_text
+        ).issubset(_extract_numbers(output_text)):
+            raise ContextArtifactValidationFailed(
+                "context artifact omitted a required number"
+            )
+        if "identifiers" in resolved_intent.preserve and not _extract_identifiers(
+            source_text
+        ).issubset(_extract_identifiers(output_text)):
+            raise ContextArtifactValidationFailed(
+                "context artifact omitted a required identifier"
+            )
 
     estimated_output_tokens = estimator.estimate_text(
         canonical_json(validated),
@@ -235,3 +279,15 @@ def _iter_units(payload: ArtifactPayload) -> Iterable[AnchoredCompressedUnit]:
         yield from payload.experience_units
         yield from payload.project_units
         yield from payload.constraint_units
+
+
+def _extract_numbers(text: str) -> set[str]:
+    """Return the deliberately narrow numeric-literal preservation contract."""
+
+    return set(_NUMBER_RE.findall(text))
+
+
+def _extract_identifiers(text: str) -> set[str]:
+    """Return snake_case and lower-camel-case identifiers only."""
+
+    return set(_IDENTIFIER_RE.findall(text))

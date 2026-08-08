@@ -38,7 +38,7 @@ from app.services.workflow_thread_lock import GenerationLeaseLost
 QUESTION_CONVERSATION_COMPRESSION_POLICY = ContextCompressionPolicy(
     artifact_type="question_conversation",
     policy_version="question-conversation-compression-v1",
-    prompt_contract_version="question-conversation-prompt-v1",
+    prompt_contract_version="question-conversation-prompt-v2",
     output_schema_version="question-conversation-v1",
     compressor_operation="context_compressor.question_conversation",
     compressor_input_cap_tokens=16_000,

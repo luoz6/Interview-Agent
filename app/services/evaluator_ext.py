@@ -140,15 +140,38 @@ class ExpertShadowEvaluator:
                 if self._reference_transform is not None
                 else reference_dicts
             )
+            non_authoritative_context = (
+                effective_reference_dicts
+                if _is_non_authoritative_reference_context(
+                    effective_reference_dicts
+                )
+                else None
+            )
             if context_enforcement_enabled(QUESTION_REVIEW_CONTEXT_POLICY.operation):
                 bounded_messages, bounded_references = _budget_question_review_input(
                     chunk,
-                    effective_reference_dicts,
+                    non_authoritative_context or effective_reference_dicts,
                     context_runtime=self._context_runtime,
                 )
             else:
                 bounded_messages = chunk.model_dump()["messages"]
-                bounded_references = effective_reference_dicts
+                bounded_references = (
+                    non_authoritative_context or effective_reference_dicts
+                )
+            if non_authoritative_context is not None:
+                bounded_non_authoritative_context = bounded_references
+                visible_chunk_ids = {
+                    str(reference.get("chunk_id", ""))
+                    for reference in bounded_non_authoritative_context
+                    if str(reference.get("chunk_id", ""))
+                }
+                bounded_references = [
+                    reference
+                    for reference in reference_dicts
+                    if str(reference.get("chunk_id", "")) in visible_chunk_ids
+                ]
+            else:
+                bounded_non_authoritative_context = None
             self.last_retrieval_by_question[chunk.question_id] = {
                 "retrieval_path": retrieval.retrieval_path,
                 "degraded_reason": retrieval.degraded_reason,
@@ -161,19 +184,22 @@ class ExpertShadowEvaluator:
                     and reference.get("metadata", {}).get("content_sha256")
                 },
             }
-            evaluation_items.append(
-                {
-                    "question_id": chunk.question_id,
-                    "question_text": chunk.question_text,
-                    "question_kind": chunk.question_kind,
-                    "focus": chunk.focus,
-                    "messages": bounded_messages,
-                    "scoring_references": bounded_references,
-                    "answer_references": [],
-                    "retrieval_path": retrieval.retrieval_path,
-                    "degraded_reason": retrieval.degraded_reason,
-                }
-            )
+            evaluation_item = {
+                "question_id": chunk.question_id,
+                "question_text": chunk.question_text,
+                "question_kind": chunk.question_kind,
+                "focus": chunk.focus,
+                "messages": bounded_messages,
+                "scoring_references": bounded_references,
+                "answer_references": [],
+                "retrieval_path": retrieval.retrieval_path,
+                "degraded_reason": retrieval.degraded_reason,
+            }
+            if bounded_non_authoritative_context is not None:
+                evaluation_item["non_authoritative_reference_context"] = (
+                    bounded_non_authoritative_context
+                )
+            evaluation_items.append(evaluation_item)
 
         if on_progress is not None:
             on_progress(
@@ -317,6 +343,16 @@ def _budget_question_review_input(
         selected_references.append(bounded)
         remaining -= cost
     return messages, selected_references
+
+
+def _is_non_authoritative_reference_context(references: list[dict]) -> bool:
+    return bool(references) and all(
+        reference.get("context_artifact_projection") is True
+        and reference.get("authority") == "non_authoritative"
+        and reference.get("candidate_exact_quote") is False
+        and reference.get("authoritative_scoring_evidence") is False
+        for reference in references
+    )
 
 
 def _enforce_v2_report_references(

@@ -179,6 +179,40 @@ def test_generate_report_prompt_requests_evidence_not_scores():
     assert '"better_answer":' not in prompt
 
 
+def test_compressed_review_context_is_provider_visible_without_raw_scoring_content():
+    chat_model = FakeReportChatModel()
+    llm = OpenAIInterviewLLM(chat_model=chat_model)
+    items = make_items()
+    items[0]["non_authoritative_reference_context"] = [
+        {
+            "context_artifact_projection": True,
+            "chunk_id": "redis-1",
+            "authority": "non_authoritative",
+            "candidate_exact_quote": False,
+            "authoritative_scoring_evidence": False,
+            "content": "Compressed Redis consistency guidance only.",
+        }
+    ]
+
+    report = llm.generate_report(
+        plan=make_plan(),
+        evaluation_items=items,
+        session_id="s1",
+    )
+
+    prompt = chat_model.structured_model.last_prompt
+    assert "Compressed Redis consistency guidance only." in prompt
+    assert "Delete cache after database updates." not in prompt
+    assert "Use delayed double delete or binlog-driven invalidation" not in prompt
+    assert '\"scoring_references\"' not in prompt
+    assert '\"answer_references\"' not in prompt
+    assert report.overall_score == 44
+    assert report.feedbacks[0].references[0].chunk_id == "redis-1"
+    assert report.feedbacks[0].references[0].excerpt == (
+        "Delete cache after database updates."
+    )
+
+
 class FailingStructuredModel:
     def invoke(self, prompt: str):
         raise RuntimeError(

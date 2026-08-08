@@ -25,6 +25,7 @@ from app.services.evidence_context_artifacts import (
 from app.services.in_memory_context_artifact_store import (
     InMemoryContextArtifactStore,
 )
+from app.services.llm import _build_followup_prompt
 from app.services.token_estimation import ConservativeUtf8TokenEstimator
 
 
@@ -346,6 +347,8 @@ def test_shadow_creates_and_validates_but_never_consumes_or_persists_ref():
 def test_enabled_evidence_consumes_only_grounded_output_and_returns_bounded_ref():
     runner = CapturingRunner()
     parent = ParentOwnership()
+    messages = make_context_messages()
+    raw_evidence = messages[1].copy()
     coordinator = make_coordinator(
         gates=ContextCompressionGates(
             interview_enabled=True,
@@ -356,7 +359,7 @@ def test_enabled_evidence_consumes_only_grounded_output_and_returns_bounded_ref(
 
     result = coordinator.build_interview_context(
         state=make_state(),
-        context_messages=make_context_messages(),
+        context_messages=messages,
         parent_ownership=parent,
         worker_id="worker-1",
     )
@@ -365,9 +368,40 @@ def test_enabled_evidence_consumes_only_grounded_output_and_returns_bounded_ref(
     assert runner.calls[0]["worker_id"] == parent.worker_id
     assert result.context_messages == [
         {"role": "candidate", "content": "I use a cache."},
-        {"role": "knowledge_evidence", "content": "advisory cache strategy"},
-        {"role": "knowledge_evidence", "content": "cache invalidation"},
+        {
+            "role": "evidence_compression_projection",
+            "content": (
+                "[context_artifact_projection authority=non_authoritative "
+                "candidate_exact_quote=false "
+                "authoritative_scoring_evidence=false "
+                f"source_segment_sha256={runner.calls[0]['source_segments'][0].content_sha256}]\n"
+                "cache invalidation\n"
+                "[/context_artifact_projection]"
+            ),
+        },
     ]
+    assert messages[1] == raw_evidence
+    assert not any(
+        item["role"] == "knowledge_evidence"
+        for item in result.context_messages
+    )
+    provider_prompt = _build_followup_prompt(result.context_messages)
+    projections = result.context_messages[1:]
+    assert provider_prompt.count("authority=non_authoritative") == len(projections)
+    for projection in projections:
+        assert projection["content"].count("authority=non_authoritative") == 1
+        assert projection["content"].count("candidate_exact_quote=false") == 1
+        assert (
+            projection["content"].count(
+                "authoritative_scoring_evidence=false"
+            )
+            == 1
+        )
+        assert projection["content"].count("[context_artifact_projection ") == 1
+        assert (
+            f"evidence_compression_projection: {projection['content']}"
+            in provider_prompt
+        )
     assert result.artifact_ref == "context-artifact-ref:ref-1"
     assert result.artifact_type == "evidence_compression"
     assert not hasattr(result, "payload")
@@ -425,6 +459,70 @@ def test_evidence_identity_binds_content_order_corpus_focus_and_session_scope():
     assert changed_manifest.source_sha256 == original.source_sha256
     assert changed_manifest.source_manifest_sha256 != original.source_manifest_sha256
     assert changed_session.privacy_scope_sha256 != original.privacy_scope_sha256
+
+
+def test_interview_multi_source_summary_envelope_uses_only_matching_digest():
+    class MultiSourceCompressor:
+        def compress(
+            self,
+            *,
+            source_segments,
+            expected_evidence_content_sha256,
+            **_kwargs,
+        ):
+            return {
+                "schema_version": "evidence-compression-v1",
+                "evidence_content_sha256": expected_evidence_content_sha256,
+                "units": [
+                    {
+                        "summary": "retry with an idempotency key",
+                        "source_segment_sha256": [
+                            source_segments[0].content_sha256,
+                            source_segments[1].content_sha256,
+                        ],
+                        "supporting_excerpts": ["cache invalidation"],
+                    }
+                ],
+                "exact_excerpts": [],
+            }
+
+    messages = [
+        {"role": "candidate", "content": "I use a cache."},
+        {
+            "role": "knowledge_evidence",
+            "content": "cache invalidation protects consistency",
+        },
+        {
+            "role": "knowledge_evidence",
+            "content": "retry with an idempotency key",
+        },
+    ]
+    runner = CapturingRunner()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(
+            interview_enabled=True,
+            evidence_enabled=True,
+        ),
+        runner=runner,
+        agent=MultiSourceCompressor(),
+    )
+
+    result = coordinator.build_interview_context(
+        state=make_state(),
+        context_messages=messages,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+
+    first_digest = runner.calls[0]["source_segments"][0].content_sha256
+    second_digest = runner.calls[0]["source_segments"][1].content_sha256
+    envelope = result.context_messages[1]["content"]
+    assert result.context_messages[1]["role"] == "evidence_compression_projection"
+    assert f"source_segment_sha256={second_digest}]" in envelope
+    assert first_digest not in envelope
+    provider_prompt = _build_followup_prompt(result.context_messages)
+    assert second_digest in provider_prompt
+    assert first_digest not in provider_prompt
 
 
 def test_empty_compression_output_never_replaces_authoritative_evidence():
@@ -553,10 +651,25 @@ def test_review_evidence_flag_is_independent_and_preserves_uncompressed_referenc
     )
 
     assert len(runner.calls) == 1
-    assert enabled[0]["context_artifact_compressed"] is True
-    assert enabled[0]["content"] == "cache invalidation"
-    assert "advisory cache strategy" not in enabled[0]["content"]
-    assert enabled[1] == references[1]
+    assert references == make_review_references()
+    assert enabled == [
+        {
+            "context_artifact_projection": True,
+            "chunk_id": "chunk-1",
+            "authority": "non_authoritative",
+            "candidate_exact_quote": False,
+            "authoritative_scoring_evidence": False,
+            "prohibited_uses": [
+                "candidate_exact_quote",
+                "authoritative_scoring_evidence",
+            ],
+            "source_segment_sha256": [
+                runner.calls[0]["source_segments"][0].content_sha256
+            ],
+            "content": "cache invalidation",
+        }
+    ]
+    assert "cache invalidation protects consistency" not in enabled[0]["content"]
 
 
 def test_review_shadow_creates_but_does_not_consume_evidence():
@@ -580,6 +693,73 @@ def test_review_shadow_creates_but_does_not_consume_evidence():
 
     assert len(runner.calls) == 1
     assert result == references
+
+
+def test_review_multi_source_summary_traces_the_anchor_that_contains_it():
+    class MultiSourceCompressor:
+        def compress(
+            self,
+            *,
+            source_segments,
+            expected_evidence_content_sha256,
+            **_kwargs,
+        ):
+            return {
+                "schema_version": "evidence-compression-v1",
+                "evidence_content_sha256": expected_evidence_content_sha256,
+                "units": [
+                    {
+                        "summary": "retry with an idempotency key",
+                        "source_segment_sha256": [
+                            source_segments[0].content_sha256,
+                            source_segments[1].content_sha256,
+                        ],
+                        "supporting_excerpts": [
+                            "retry with an idempotency key"
+                        ],
+                    }
+                ],
+                "exact_excerpts": [],
+            }
+
+    references = make_review_references()
+    runner = CapturingRunner()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(
+            review_enabled=True,
+            evidence_enabled=True,
+        ),
+        runner=runner,
+        agent=MultiSourceCompressor(),
+    )
+
+    result = coordinator.transform_review_references(
+        state=make_state(),
+        question_id="q1",
+        focus="cache consistency",
+        references=references,
+        job_id="job-1",
+        attempt_number=1,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+
+    second_digest = runner.calls[0]["source_segments"][1].content_sha256
+    assert result == [
+        {
+            "context_artifact_projection": True,
+            "chunk_id": "chunk-2",
+            "authority": "non_authoritative",
+            "candidate_exact_quote": False,
+            "authoritative_scoring_evidence": False,
+            "prohibited_uses": [
+                "candidate_exact_quote",
+                "authoritative_scoring_evidence",
+            ],
+            "source_segment_sha256": [second_digest],
+            "content": "retry with an idempotency key",
+        }
+    ]
 
 
 def test_review_duplicate_source_content_falls_back_without_ambiguous_grounding():

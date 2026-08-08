@@ -273,9 +273,16 @@ def test_reference_transform_changes_only_provider_context_not_provenance():
 
     def transform(*, state, chunk, references):
         calls.append((state["session_id"], chunk.question_id, references))
-        transformed = dict(references[0])
-        transformed["content"] = "Compressed Redis consistency guidance."
-        return [transformed]
+        return [
+            {
+                "context_artifact_projection": True,
+                "chunk_id": references[0]["chunk_id"],
+                "authority": "non_authoritative",
+                "candidate_exact_quote": False,
+                "authoritative_scoring_evidence": False,
+                "content": "Compressed Redis consistency guidance.",
+            }
+        ]
 
     evaluator = ExpertShadowEvaluator(
         llm=llm,
@@ -287,6 +294,11 @@ def test_reference_transform_changes_only_provider_context_not_provenance():
 
     assert calls[0][0:2] == ("s1", "q1")
     assert llm.last_items[0]["scoring_references"][0]["content"] == (
+        "Delete cache after database writes and handle race conditions."
+    )
+    assert llm.last_items[0]["non_authoritative_reference_context"][0][
+        "content"
+    ] == (
         "Compressed Redis consistency guidance."
     )
     assert evaluator.last_retrieval_by_question["q1"]["retrieval_path"] == (

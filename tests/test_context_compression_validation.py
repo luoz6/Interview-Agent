@@ -11,6 +11,7 @@ from app.services.context_artifacts import (
 from app.services.context_compression_validation import (
     validate_compression_artifact,
 )
+from app.services.context_compression_intent import CompressionIntent
 
 
 class CharacterEstimator:
@@ -63,7 +64,25 @@ def make_payload(segment):
     }
 
 
-def validate(payload, segment, *, policy=None):
+def make_intent(*preserve):
+    return CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="retry safety",
+        preserve=preserve,
+        authority="non_authoritative",
+        prohibited_authority_upgrades=[
+            "candidate_exact_quote",
+            "authoritative_scoring_evidence",
+            "new_fact",
+            "identity_inference",
+        ],
+    )
+
+
+def validate(payload, segment, *, policy=None, intent=None):
     return validate_compression_artifact(
         policy=policy or make_policy(),
         payload=payload,
@@ -71,6 +90,7 @@ def validate(payload, segment, *, policy=None):
         estimator=CharacterEstimator(),
         model="test-model",
         expected_question_id_sha256="1" * 64,
+        intent=intent,
     )
 
 
@@ -118,6 +138,93 @@ def test_summary_cannot_introduce_new_numbers_or_identifiers(summary):
 
     with pytest.raises(ContextArtifactValidationFailed, match="grounding"):
         validate(payload, segment)
+
+
+def test_intent_number_preservation_rejects_omission_from_all_output_text():
+    segment = make_segment()
+    payload = make_payload(segment)
+    payload["units"][0]["summary"] = "Use idempotency_key"
+    payload["units"][0]["supporting_excerpts"] = [
+        "idempotency_key with retry count 3"
+    ]
+
+    with pytest.raises(ContextArtifactValidationFailed, match="required number"):
+        validate(payload, segment, intent=make_intent("numbers"))
+
+
+def test_intent_identifier_preservation_rejects_omission_from_all_output_text():
+    segment = make_segment()
+    payload = make_payload(segment)
+    payload["units"][0]["summary"] = "retry count 3"
+    payload["units"][0]["supporting_excerpts"] = [
+        "idempotency_key with retry count 3"
+    ]
+
+    with pytest.raises(ContextArtifactValidationFailed, match="required identifier"):
+        validate(payload, segment, intent=make_intent("identifiers"))
+
+
+def test_intent_aware_unit_requires_supporting_excerpt_and_exact_source_summary():
+    segment = make_segment()
+    payload = make_payload(segment)
+    payload["units"][0]["supporting_excerpts"] = []
+
+    with pytest.raises(ContextArtifactValidationFailed, match="supporting excerpt"):
+        validate(payload, segment, intent=make_intent("candidate_claims"))
+
+    payload = make_payload(segment)
+    payload["units"][0]["summary"] = (
+        "This guarantees perfect delivery under every failure mode."
+    )
+    with pytest.raises(ContextArtifactValidationFailed, match="exact source excerpt"):
+        validate(payload, segment, intent=make_intent("candidate_claims"))
+
+
+def test_intent_aware_summary_accepts_exact_case_sensitive_source_excerpt():
+    segment = make_segment()
+    payload = make_payload(segment)
+    payload["units"][0]["summary"] = "idempotency_key with retry count 3"
+
+    result = validate(
+        payload,
+        segment,
+        intent=make_intent("numbers", "identifiers"),
+    )
+
+    assert result.payload.units[0].summary == "idempotency_key with retry count 3"
+
+
+def test_summary_and_supporting_excerpt_may_use_different_cited_sources():
+    summary_source = make_segment("Candidate chose Redis for cache consistency.")
+    excerpt_content = "The observed retry count was 3."
+    excerpt_source = CompressionSourceSegment(
+        segment_index=1,
+        segment_type="conversation_message",
+        content=excerpt_content,
+        content_sha256=sha256(excerpt_content.encode("utf-8")).hexdigest(),
+    )
+    payload = make_payload(summary_source)
+    payload["units"][0] = {
+        "summary": "Candidate chose Redis for cache consistency.",
+        "source_segment_sha256": [
+            summary_source.content_sha256,
+            excerpt_source.content_sha256,
+        ],
+        "supporting_excerpts": ["retry count was 3"],
+    }
+    payload["source_message_count"] = 2
+
+    result = validate_compression_artifact(
+        policy=make_policy(),
+        payload=payload,
+        source_segments=[summary_source, excerpt_source],
+        estimator=CharacterEstimator(),
+        model="test-model",
+        expected_question_id_sha256="1" * 64,
+        intent=make_intent("candidate_claims"),
+    )
+
+    assert result.payload.units[0].summary == payload["units"][0]["summary"]
 
 
 def test_unit_excerpt_and_total_output_limits_fail_closed():
@@ -193,6 +300,20 @@ def test_programmable_validation_does_not_claim_free_language_semantic_authority
     assert result.payload.units[0].summary == payload["units"][0]["summary"]
     assert not hasattr(result, "semantic_authority")
     assert not hasattr(result.payload.units[0], "semantic_authority")
+
+
+def test_shared_source_keyword_cannot_ground_a_fabricated_conclusion():
+    segment = make_segment(
+        "Candidate chose Redis because it reduced latency by 20 percent."
+    )
+    payload = make_payload(segment)
+    payload["units"][0]["summary"] = (
+        "Redis guarantees ideal behavior in every failure mode."
+    )
+    payload["units"][0]["supporting_excerpts"] = ["chose Redis"]
+
+    with pytest.raises(ContextArtifactValidationFailed, match="exact source excerpt"):
+        validate(payload, segment, intent=make_intent("candidate_claims"))
 
 
 def test_question_memory_validation_preserves_non_authoritative_semantic_boundary():

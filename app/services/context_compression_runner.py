@@ -202,6 +202,7 @@ class ContextCompressionRunner:
                 expected_session_scope_sha256=expected_session_scope_sha256,
                 expected_question_focus_sha256=expected_question_focus_sha256,
                 expected_source_manifest_sha256=expected_source_manifest_sha256,
+                intent=intent,
             )
 
         try:
@@ -232,6 +233,7 @@ class ContextCompressionRunner:
                     expected_session_scope_sha256=expected_session_scope_sha256,
                     expected_question_focus_sha256=expected_question_focus_sha256,
                     expected_source_manifest_sha256=expected_source_manifest_sha256,
+                    intent=intent,
                 )
                 heartbeat.ensure_owned()
                 self._ensure_parent(parent_ownership)
@@ -259,6 +261,7 @@ class ContextCompressionRunner:
                     expected_session_scope_sha256=expected_session_scope_sha256,
                     expected_question_focus_sha256=expected_question_focus_sha256,
                     expected_source_manifest_sha256=expected_source_manifest_sha256,
+                    intent=intent,
                 )
                 if recovered is not None:
                     return recovered
@@ -287,6 +290,7 @@ class ContextCompressionRunner:
                     expected_session_scope_sha256=expected_session_scope_sha256,
                     expected_question_focus_sha256=expected_question_focus_sha256,
                     expected_source_manifest_sha256=expected_source_manifest_sha256,
+                    intent=intent,
                 )
                 if recovered is not None:
                     return recovered
@@ -337,6 +341,7 @@ class ContextCompressionRunner:
         expected_session_scope_sha256: str | None,
         expected_question_focus_sha256: str | None,
         expected_source_manifest_sha256: str | None,
+        intent: CompressionIntent | None,
     ) -> ContextCompressionResolution:
         record = self.store.get_terminal_by_key(identity.artifact_key)
         if record is None:
@@ -356,6 +361,7 @@ class ContextCompressionRunner:
             expected_session_scope_sha256=expected_session_scope_sha256,
             expected_question_focus_sha256=expected_question_focus_sha256,
             expected_source_manifest_sha256=expected_source_manifest_sha256,
+            intent=intent,
         )
         ref = self.store.create_owner_ref(
             record,

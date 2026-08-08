@@ -40,7 +40,7 @@ from app.services.context_runtime import ContextRuntime
 EVIDENCE_COMPRESSION_POLICY = ContextCompressionPolicy(
     artifact_type="evidence_compression",
     policy_version="evidence-compression-v1",
-    prompt_contract_version="evidence-compression-prompt-v1",
+    prompt_contract_version="evidence-compression-prompt-v2",
     output_schema_version="evidence-compression-v1",
     compressor_operation="context_compressor.evidence",
     compressor_input_cap_tokens=16_000,
@@ -184,12 +184,34 @@ class EvidenceContextArtifactCoordinator:
 
         compressed = []
         for unit in resolution.payload.units:
+            anchored_digests = set(unit.source_segment_sha256)
+            matching_digests = [
+                source.content_sha256
+                for source in sources
+                if source.content_sha256 in anchored_digests
+                and unit.summary in source.content
+            ]
+            if not matching_digests:
+                continue
             compressed.append(
-                {"role": "knowledge_evidence", "content": unit.summary}
+                self._projection_message(
+                    content=unit.summary,
+                    source_digests=matching_digests,
+                )
             )
         for excerpt in resolution.payload.exact_excerpts:
+            matching_digests = [
+                source.content_sha256
+                for source in sources
+                if excerpt in source.content
+            ]
+            if not matching_digests:
+                continue
             compressed.append(
-                {"role": "knowledge_evidence", "content": excerpt}
+                self._projection_message(
+                    content=excerpt,
+                    source_digests=matching_digests,
+                )
             )
         if not compressed:
             return self._deterministic(context_messages)
@@ -304,51 +326,62 @@ class EvidenceContextArtifactCoordinator:
             for reference in references
             if str(reference.get("content", "")).strip()
         }
-        excerpts_by_chunk: dict[str, list[str]] = {}
-        reference_by_chunk: dict[str, dict] = {}
+        projection_parts: dict[str, list[str]] = {}
+        projection_digests: dict[str, list[str]] = {}
         for unit in resolution.payload.units:
-            if len(unit.source_segment_sha256) != 1:
+            matches = [
+                (digest, source_reference_by_digest[digest])
+                for digest in unit.source_segment_sha256
+                if digest in source_reference_by_digest
+                and unit.summary
+                in str(source_reference_by_digest[digest].get("content", ""))
+            ]
+            if len(matches) != 1:
                 continue
-            source_reference = source_reference_by_digest.get(
-                unit.source_segment_sha256[0]
-            )
-            if source_reference is None:
-                continue
+            source_digest, source_reference = matches[0]
             chunk_id = str(source_reference.get("chunk_id", ""))
             if not chunk_id:
                 continue
-            grounded_excerpts = list(unit.supporting_excerpts)
-            if not grounded_excerpts:
-                continue
-            reference_by_chunk[chunk_id] = source_reference
-            excerpts_by_chunk.setdefault(chunk_id, []).extend(
-                grounded_excerpts
-            )
+            projection_parts.setdefault(chunk_id, []).append(unit.summary)
+            projection_digests.setdefault(chunk_id, []).append(source_digest)
         for excerpt in resolution.payload.exact_excerpts:
             matches = [
-                reference
-                for reference in references
+                (digest, reference)
+                for digest, reference in source_reference_by_digest.items()
                 if excerpt in str(reference.get("content", ""))
             ]
             if len(matches) != 1:
                 continue
-            chunk_id = str(matches[0].get("chunk_id", ""))
+            source_digest, source_reference = matches[0]
+            chunk_id = str(source_reference.get("chunk_id", ""))
             if not chunk_id:
                 continue
-            reference_by_chunk[chunk_id] = matches[0]
-            excerpts_by_chunk.setdefault(chunk_id, []).append(excerpt)
-        transformed = []
+            projection_parts.setdefault(chunk_id, []).append(excerpt)
+            projection_digests.setdefault(chunk_id, []).append(source_digest)
+        projections = []
         for reference in references:
             chunk_id = str(reference.get("chunk_id", ""))
-            excerpts = list(dict.fromkeys(excerpts_by_chunk.get(chunk_id, [])))
-            if not excerpts:
-                transformed.append(reference)
+            parts = list(dict.fromkeys(projection_parts.get(chunk_id, [])))
+            if not chunk_id or not parts:
                 continue
-            item = dict(reference_by_chunk[chunk_id])
-            item["content"] = "\n".join(excerpts)
-            item["context_artifact_compressed"] = True
-            transformed.append(item)
-        return transformed
+            projections.append(
+                {
+                    "context_artifact_projection": True,
+                    "chunk_id": chunk_id,
+                    "authority": "non_authoritative",
+                    "candidate_exact_quote": False,
+                    "authoritative_scoring_evidence": False,
+                    "prohibited_uses": [
+                        "candidate_exact_quote",
+                        "authoritative_scoring_evidence",
+                    ],
+                    "source_segment_sha256": list(
+                        dict.fromkeys(projection_digests[chunk_id])
+                    ),
+                    "content": "\n".join(parts),
+                }
+            )
+        return projections or references
 
     def _identity_material(
         self,
@@ -514,6 +547,22 @@ class EvidenceContextArtifactCoordinator:
             for source in sources
         ]
         return sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _projection_message(*, content: str, source_digests) -> dict[str, str]:
+        trace = ",".join(dict.fromkeys(str(digest) for digest in source_digests))
+        return {
+            "role": "evidence_compression_projection",
+            "content": (
+                "[context_artifact_projection "
+                "authority=non_authoritative "
+                "candidate_exact_quote=false "
+                "authoritative_scoring_evidence=false "
+                f"source_segment_sha256={trace}]\n"
+                f"{content}\n"
+                "[/context_artifact_projection]"
+            ),
+        }
 
     @staticmethod
     def _corpus_manifest_sha256(state: dict[str, Any]) -> str | None:

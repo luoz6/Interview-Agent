@@ -1,17 +1,23 @@
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 
 import pytest
 
 from app.services.context_artifacts import (
     CompressionSourceSegment,
+    ContextArtifactIdentity,
     ContextArtifactIdentityMaterial,
     ContextArtifactLeaseLost,
     ContextArtifactConflict,
     ContextArtifactProviderFailed,
+    ContextArtifactValidationFailed,
     ContextCompressionPolicy,
 )
-from app.services.context_compression_intent import CompressionIntent
+from app.services.context_compression_intent import (
+    CompressionIntent,
+    compression_intent_sha256,
+)
 from app.services.context_compression_runner import (
     ContextArtifactHeartbeat,
     ContextCompressionRunner,
@@ -166,6 +172,247 @@ def test_runner_rejects_intent_digest_mismatch_before_claim_or_provider_call():
 
     assert provider_calls == []
     assert store.get_terminal_by_key("0" * 64) is None
+
+
+def test_runner_revalidates_completed_artifact_with_its_intent():
+    store = InMemoryContextArtifactStore()
+    runner = ContextCompressionRunner(store, lease_seconds=30)
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="idempotency",
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    material, policy, sources, payload, question_digest = make_contract(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(intent),
+    )
+    payload["units"][0]["summary"] = (
+        "idempotency guarantees perfect delivery under every failure mode."
+    )
+
+    claim = store.claim(
+        ContextArtifactIdentity.from_material(material),
+        worker_id="seed-worker",
+        lease_seconds=30,
+    )
+    store.complete(claim, payload)
+    provider_calls = []
+
+    with pytest.raises(ContextArtifactValidationFailed, match="exact source excerpt"):
+        runner.resolve(
+            identity_material=material,
+            intent=intent,
+            policy=policy,
+            source_segments=sources,
+            estimator=Estimator(),
+            model="gpt-4o",
+            compressor=lambda: provider_calls.append("provider") or payload,
+            worker_id="worker-1",
+            owner_type="interview_session",
+            owner_key="session-1",
+            purpose="interview_conversation_context",
+            expected_question_id_sha256=question_digest,
+        )
+
+    assert provider_calls == []
+
+
+def test_runner_rejects_fabricated_intent_summary_on_create():
+    store = InMemoryContextArtifactStore()
+    runner = ContextCompressionRunner(store, lease_seconds=30)
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="idempotency",
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    material, policy, sources, payload, question_digest = make_contract(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(intent),
+    )
+    payload["units"][0]["summary"] = (
+        "idempotency guarantees perfect delivery under every failure mode."
+    )
+    identity = ContextArtifactIdentity.from_material(material)
+
+    with pytest.raises(ContextArtifactValidationFailed, match="exact source excerpt"):
+        runner.resolve(
+            identity_material=material,
+            intent=intent,
+            policy=policy,
+            source_segments=sources,
+            estimator=Estimator(),
+            model="gpt-4o",
+            compressor=lambda: payload,
+            worker_id="worker-1",
+            owner_type="interview_session",
+            owner_key="session-1",
+            purpose="interview_conversation_context",
+            expected_question_id_sha256=question_digest,
+        )
+
+    failed = store.get_terminal_by_key(identity.artifact_key)
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.last_error_code == "validation_failed"
+
+
+def test_runner_revalidates_competing_completion_after_lease_loss():
+    now = [datetime(2026, 8, 8, tzinfo=timezone.utc)]
+    store = InMemoryContextArtifactStore(clock=lambda: now[0])
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="idempotency",
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    material, policy, sources, payload, question_digest = make_contract(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(intent),
+    )
+    identity = ContextArtifactIdentity.from_material(material)
+    competing_payload = {
+        **payload,
+        "units": [
+            {
+                **payload["units"][0],
+                "summary": (
+                    "idempotency guarantees perfect delivery under every failure mode."
+                ),
+            }
+        ],
+    }
+
+    class CompletingHeartbeat:
+        def __init__(self, _store, _claim, *, lease_seconds):
+            assert _store is store
+            assert lease_seconds == 30
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def ensure_owned(self):
+            now[0] += timedelta(seconds=31)
+            competing_claim = store.claim(
+                identity,
+                worker_id="competing-worker",
+                lease_seconds=30,
+            )
+            store.complete(competing_claim, competing_payload)
+            raise ContextArtifactLeaseLost("simulated lease loss")
+
+    runner = ContextCompressionRunner(
+        store,
+        lease_seconds=30,
+        heartbeat_factory=CompletingHeartbeat,
+    )
+
+    with pytest.raises(ContextArtifactValidationFailed, match="exact source excerpt"):
+        runner.resolve(
+            identity_material=material,
+            intent=intent,
+            policy=policy,
+            source_segments=sources,
+            estimator=Estimator(),
+            model="gpt-4o",
+            compressor=lambda: payload,
+            worker_id="worker-1",
+            owner_type="interview_session",
+            owner_key="session-1",
+            purpose="interview_conversation_context",
+            expected_question_id_sha256=question_digest,
+        )
+
+
+def test_runner_revalidates_competing_completion_after_fail_race():
+    now = [datetime(2026, 8, 8, tzinfo=timezone.utc)]
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="idempotency",
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    material, policy, sources, payload, question_digest = make_contract(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(intent),
+    )
+    identity = ContextArtifactIdentity.from_material(material)
+    competing_payload = {
+        **payload,
+        "units": [
+            {
+                **payload["units"][0],
+                "summary": (
+                    "idempotency guarantees perfect delivery under every failure mode."
+                ),
+            }
+        ],
+    }
+
+    class FailRaceStore(InMemoryContextArtifactStore):
+        fail_called = False
+
+        def fail(self, claim, *, error_code):
+            assert error_code == "validation_failed"
+            self.fail_called = True
+            now[0] += timedelta(seconds=31)
+            competing_claim = self.claim(
+                identity,
+                worker_id="competing-worker",
+                lease_seconds=30,
+            )
+            self.complete(competing_claim, competing_payload)
+            raise ContextArtifactLeaseLost("simulated fail race")
+
+    store = FailRaceStore(clock=lambda: now[0])
+    runner = ContextCompressionRunner(store, lease_seconds=30)
+    initially_invalid = {
+        **payload,
+        "units": [
+            {
+                **payload["units"][0],
+                "source_segment_sha256": ["f" * 64],
+            }
+        ],
+    }
+
+    with pytest.raises(ContextArtifactValidationFailed, match="exact source excerpt"):
+        runner.resolve(
+            identity_material=material,
+            intent=intent,
+            policy=policy,
+            source_segments=sources,
+            estimator=Estimator(),
+            model="gpt-4o",
+            compressor=lambda: initially_invalid,
+            worker_id="worker-1",
+            owner_type="interview_session",
+            owner_key="session-1",
+            purpose="interview_conversation_context",
+            expected_question_id_sha256=question_digest,
+        )
+
+    assert store.fail_called is True
 
 
 def test_runner_checks_parent_before_provider_completion_and_return():

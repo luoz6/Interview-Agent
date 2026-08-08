@@ -467,13 +467,16 @@ class OpenAIInterviewLLM:
         from app.services.report import ReportGenerationFailed, ReportOutputFormatError
         from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
 
+        provider_evaluation_items = _provider_visible_report_items(
+            evaluation_items
+        )
         assert_principal_memory_sink(
             operation="report_generation",
-            payload={"plan": plan, "evaluation_items": evaluation_items},
+            payload={"plan": plan, "evaluation_items": provider_evaluation_items},
         )
         prompt = self._build_report_prompt(
             plan=plan,
-            evaluation_items=evaluation_items,
+            evaluation_items=provider_evaluation_items,
             session_id=session_id,
         )
         self._guard_prompt(prompt, REPORT_CONTEXT_POLICY)
@@ -576,7 +579,8 @@ class OpenAIInterviewLLM:
             "Return exactly one question_results item for each evaluation item.\n"
             "All user-facing fields must be written in Simplified Chinese.\n"
             "Keep literal identifiers like Redis, Kafka, MySQL, p95, and API names unchanged when needed.\n"
-            "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
+            "When non_authoritative_reference_context is present, only use reference_chunk_ids listed there; otherwise use ids from the supplied evaluation_items references.\n"
+            "Non-authoritative reference context is guidance only: never treat it as a candidate exact quote or authoritative scoring evidence.\n"
             "Do not invent new chunk ids.\n"
             "The backend computes all numeric scores from evidence.\n"
             "Do not return score or dimension_scores for any question.\n"
@@ -964,6 +968,19 @@ class OpenAIInterviewLLM:
         if self._provider_attempt_hook is not None:
             self._provider_attempt_hook()
         begin_provider_attempt()
+
+
+def _provider_visible_report_items(
+    evaluation_items: list[dict],
+) -> list[dict]:
+    provider_items = []
+    for evaluation_item in evaluation_items:
+        provider_item = dict(evaluation_item)
+        if "non_authoritative_reference_context" in provider_item:
+            provider_item.pop("scoring_references", None)
+            provider_item.pop("answer_references", None)
+        provider_items.append(provider_item)
+    return provider_items
 
 
 def _build_followup_prompt(context: list[dict[str, str]]) -> str:
