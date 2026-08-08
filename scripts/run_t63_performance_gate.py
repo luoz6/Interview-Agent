@@ -208,13 +208,13 @@ def _validate_run_artifacts(
 
     provider = artifact.provider_evidence
     if (
-        provider.status != "BLOCKED_MODEL_VERSION_DRIFT"
+        provider.status != "NOT_RUN_PROVIDER_QUALITY"
         or provider.provider_called
         or provider.first_data_request_sent
         or provider.actual_usage_artifact_available
         or provider.provider_calls != 0
     ):
-        raise ValueError("T63 blocked Provider boundary was not preserved")
+        raise ValueError("T63 pre-T64 Provider-not-run boundary was not preserved")
     if artifact.report_completion_evidence.status != "INSUFFICIENT_BASELINE":
         raise ValueError("T63 missing comparable report baseline was not preserved")
     platform_status = {item.platform: item.status for item in artifact.platform_execution}

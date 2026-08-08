@@ -16,6 +16,7 @@ from app.services.t63_performance import (
     evaluate_t63_performance,
     summarize_t63_samples,
 )
+from scripts import run_t63_performance_acceptance as t63_runner
 from scripts.build_t63_performance_acceptance import (
     DEFAULT_OUTPUT,
     build_acceptance,
@@ -121,10 +122,10 @@ def _artifact(**updates):
             n_plus_one_detected=False,
         ),
         "provider_evidence": T63ProviderEvidence(
-            authorization_id="authorization-1",
+            authorization_id="interview-quality-v1-20260807-unlimited-02",
             provider="DeepSeek",
-            authorized_model="deepseek-chat",
-            status="BLOCKED_MODEL_VERSION_DRIFT",
+            authorized_model="deepseek-v4-pro",
+            status="NOT_RUN_PROVIDER_QUALITY",
             provider_called=False,
             first_data_request_sent=False,
             actual_usage_artifact_available=False,
@@ -234,8 +235,8 @@ def test_t63_engineering_pass_preserves_real_quality_blockers():
     assert result["engineering_failures"] == []
     assert result["quality_blockers"] == [
         "ACTUAL_PROVIDER_USAGE_ARTIFACT_MISSING",
-        "BLOCKED_MODEL_VERSION_DRIFT",
         "INSUFFICIENT_BASELINE",
+        "NOT_RUN_PROVIDER_QUALITY",
         "UBUNTU_MEASUREMENT_NOT_RUN",
     ]
 
@@ -371,8 +372,182 @@ def test_t63_checked_in_acceptance_matches_deterministic_builder():
     assert checked_in == build_acceptance()
     validate_acceptance(checked_in, root=root)
     assert checked_in["requirement_count"] == 22
-    assert checked_in["unique_test_node_count"] == 20
+    assert checked_in["unique_test_node_count"] == 21
     assert checked_in["planned_scenario_count"] == 432
+
+
+def test_t63_acceptance_rejects_identity_drift():
+    root = Path(__file__).resolve().parents[1]
+    drifted = build_acceptance()
+    drifted["acceptance_id"] = "t63-performance-acceptance-v1"
+
+    with pytest.raises(ValueError, match="identity drifted"):
+        validate_acceptance(drifted, root=root)
+
+
+def test_t63_local_runner_artifacts_satisfy_formal_validator_without_provider(
+    tmp_path,
+    monkeypatch,
+):
+    root = Path(__file__).resolve().parents[1]
+    run_id = "t63-runner-validator-contract"
+    revision = "a" * 40
+    base_samples = _samples()
+    samples = [
+        base_samples[index % len(base_samples)].model_copy(
+            update={"sample_id": f"runner-sample-{index:04d}"}
+        )
+        for index in range(318)
+    ]
+    database_contract = _artifact().active_get_database_contract
+    observed = {
+        "preflight": [],
+        "migrate": [],
+        "measure": [],
+        "capacity": [],
+        "cleanup": [],
+    }
+
+    def fake_preflight(dsn):
+        observed["preflight"].append(dsn)
+
+    def fake_migrate(**kwargs):
+        observed["migrate"].append(kwargs)
+
+    def fake_measure(dsn, prefix):
+        observed["measure"].append((dsn, prefix))
+        return samples, database_contract
+
+    def fake_capacity_main(argv):
+        runtime_prefix = t63_runner.os.environ["INTERVIEW_RUNTIME_TABLE_PREFIX"]
+        vector_prefix = t63_runner.os.environ["PGVECTOR_TABLE"]
+        observed["capacity"].append(
+            {
+                "argv": tuple(argv),
+                "runtime_prefix": runtime_prefix,
+                "vector_prefix": vector_prefix,
+            }
+        )
+        output = Path(argv[argv.index("--output") + 1])
+        assert t63_runner.SAFE_PREFIX.fullmatch(runtime_prefix)
+        assert t63_runner.SAFE_PREFIX.fullmatch(vector_prefix)
+        output.write_text(
+            json.dumps({"status": "ELIGIBLE_FOR_CAPACITY_CANARY"}),
+            encoding="utf-8",
+        )
+        return 0
+
+    def fake_cleanup(dsn, prefix, vector_prefix):
+        observed["cleanup"].append((dsn, prefix, vector_prefix))
+
+    monkeypatch.setenv("POSTGRES_DSN", "postgresql://synthetic-t63-contract")
+    monkeypatch.setenv(
+        "INTERVIEW_RUNTIME_TABLE_PREFIX",
+        "preexisting-runtime-sentinel",
+    )
+    monkeypatch.setenv("PGVECTOR_TABLE", "preexisting-vector-sentinel")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(t63_runner, "_preflight_postgres", fake_preflight)
+    monkeypatch.setattr(t63_runner.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(t63_runner, "migrate_postgres_runtime", fake_migrate)
+    monkeypatch.setattr(t63_runner, "_measure_local_operations", fake_measure)
+    monkeypatch.setattr(t63_runner, "capacity_main", fake_capacity_main)
+    monkeypatch.setattr(t63_runner, "_drop_isolated_relations", fake_cleanup)
+    monkeypatch.setattr(t63_runner, "_git_revision", lambda: revision)
+
+    assert t63_runner.main(["--out", str(tmp_path), "--run-id", run_id]) == 0
+
+    run_dir = tmp_path / run_id
+    artifact_files = _validate_run_artifacts(
+        run_dir,
+        acceptance=build_acceptance(),
+        root=root,
+        expected_revision=revision,
+        expected_run_id=run_id,
+    )
+    assert set(artifact_files) == {
+        "manifest.json",
+        "metrics.json",
+        "performance-artifact.json",
+        "postgres-capacity.json",
+        "scenario-matrix.json",
+    }
+    assert all(item["bytes"] > 0 for item in artifact_files.values())
+    assert all(len(item["sha256"]) == 64 for item in artifact_files.values())
+
+    artifact = json.loads(
+        (run_dir / "performance-artifact.json").read_text(encoding="utf-8")
+    )
+    provider = artifact["provider_evidence"]
+    assert provider["authorization_id"] == (
+        "interview-quality-v1-20260807-unlimited-02"
+    )
+    assert provider["authorized_model"] == "deepseek-v4-pro"
+    assert provider["status"] == "NOT_RUN_PROVIDER_QUALITY"
+    assert provider["provider_called"] is False
+    assert provider["first_data_request_sent"] is False
+    assert provider["actual_usage_artifact_available"] is False
+    assert provider["provider_calls"] == 0
+    assert provider["input_tokens"] is None
+    assert provider["output_tokens"] is None
+    assert provider["estimated_cost"] is None
+    assert provider["session_count"] == 0
+    assert provider["usage_artifact_path"] is None
+    assert provider["usage_artifact_sha256"] is None
+    assert provider["automatic_model_substitution_used"] is False
+
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["engineering_status"] == "PASS"
+    assert metrics["quality_status"] == "BLOCKED"
+    assert metrics["overall_status"] == "BLOCKED"
+    assert metrics["engineering_failures"] == []
+    assert metrics["quality_blockers"] == build_acceptance()[
+        "required_quality_blockers"
+    ]
+    assert metrics["provider_calls"] == 0
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_revision"] == revision
+    assert manifest["provider_called"] is False
+    assert manifest["first_data_request_sent"] is False
+    assert manifest["provider_calls"] == 0
+    assert manifest["automatic_model_substitution_used"] is False
+
+    assert len(observed["preflight"]) == 1
+    assert len(observed["migrate"]) == 1
+    assert len(observed["measure"]) == 1
+    assert len(observed["capacity"]) == 1
+    assert len(observed["cleanup"]) == 1
+    migration = observed["migrate"][0]
+    measure_dsn, measure_prefix = observed["measure"][0]
+    capacity = observed["capacity"][0]
+    cleanup_dsn, cleanup_prefix, cleanup_vector_prefix = observed["cleanup"][0]
+    assert migration["dsn"] == "postgresql://synthetic-t63-contract"
+    assert measure_dsn == migration["dsn"] == cleanup_dsn
+    assert (
+        migration["table_prefix"]
+        == measure_prefix
+        == capacity["runtime_prefix"]
+        == cleanup_prefix
+    )
+    assert (
+        migration["pgvector_table"]
+        == capacity["vector_prefix"]
+        == cleanup_vector_prefix
+    )
+    assert cleanup_prefix != cleanup_vector_prefix
+    assert t63_runner.SAFE_PREFIX.fullmatch(cleanup_prefix)
+    assert t63_runner.SAFE_PREFIX.fullmatch(cleanup_vector_prefix)
+    assert migration["run_checkpointer_setup"] is False
+    assert migration["embedding_provider"].provider_name == "disabled"
+    assert migration["embedding_provider"].model_name == "disabled"
+    assert migration["embedding_provider"].dimension == 3
+    assert (
+        t63_runner.os.environ["INTERVIEW_RUNTIME_TABLE_PREFIX"]
+        == "preexisting-runtime-sentinel"
+    )
+    assert t63_runner.os.environ["PGVECTOR_TABLE"] == "preexisting-vector-sentinel"
 
 
 def test_t63_official_gate_fails_closed_without_postgres(monkeypatch, capsys):

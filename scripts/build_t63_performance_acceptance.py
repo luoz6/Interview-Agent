@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "interview-quality-v1-t63-performance-acceptance-v1"
-ACCEPTANCE_ID = "t63-performance-acceptance-v1"
+SCHEMA_VERSION = "interview-quality-v1-t63-performance-acceptance-v2"
+ACCEPTANCE_ID = "t63-performance-acceptance-v2"
 DEFAULT_OUTPUT = Path(
-    "tests/golden/interview_quality_v1/t63-performance-acceptance-v1.json"
+    "tests/golden/interview_quality_v1/t63-performance-acceptance-v2.json"
 )
 
 
@@ -92,7 +92,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         ["provider_usage_bound", "provider_blocker_preserved"],
         [
             f"{T63_CONTRACT}::test_t63_provider_pass_requires_bound_metered_usage_artifact",
-            f"{T63_CONTRACT}::test_t63_blocked_model_drift_cannot_fabricate_usage",
+            f"{T63_CONTRACT}::test_t63_new_authorized_model_not_run_cannot_fabricate_usage",
+            f"{T63_CONTRACT}::test_t63_local_runner_artifacts_satisfy_formal_validator_without_provider",
         ],
     ),
     _requirement(
@@ -185,8 +186,8 @@ def build_acceptance() -> dict[str, Any]:
         "expected_overall_status": "BLOCKED",
         "required_quality_blockers": [
             "ACTUAL_PROVIDER_USAGE_ARTIFACT_MISSING",
-            "BLOCKED_MODEL_VERSION_DRIFT",
             "INSUFFICIENT_BASELINE",
+            "NOT_RUN_PROVIDER_QUALITY",
             "UBUNTU_MEASUREMENT_NOT_RUN",
         ],
         "planned_scenario_count": 432,
@@ -202,6 +203,12 @@ def build_acceptance() -> dict[str, Any]:
 def validate_acceptance(payload: dict[str, Any], *, root: Path) -> None:
     if payload.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("T63 acceptance schema drifted")
+    if payload.get("acceptance_id") != ACCEPTANCE_ID:
+        raise ValueError("T63 acceptance identity drifted")
+    if payload.get("plan_task") != "T63":
+        raise ValueError("T63 acceptance task binding drifted")
+    if payload != build_acceptance():
+        raise ValueError("T63 acceptance content differs from the frozen builder")
     if payload.get("requirement_count") != len(REQUIREMENTS) != 0:
         raise ValueError("T63 requirement count drifted")
     expected_ids = [item["id"] for item in REQUIREMENTS]
