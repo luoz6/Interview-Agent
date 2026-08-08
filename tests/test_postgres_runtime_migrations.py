@@ -58,6 +58,45 @@ def test_v15_prep_plan_versions_uses_specific_contract_not_pgvector_suffix():
     assert "embedding" not in columns
 
 
+def test_v16_context_artifact_identity_contract_requires_versioned_columns():
+    from app.services.postgres_schema_contract import (
+        RUNTIME_SCHEMA_V15_CHECKSUM,
+        RUNTIME_SCHEMA_V16_CHECKSUM,
+        RUNTIME_SCHEMA_V16_MANIFEST,
+        required_check_tokens_for_relation,
+    )
+
+    columns = required_columns_for_relation("interview_context_artifacts")
+
+    assert {
+        "identity_schema_version",
+        "compression_intent_sha256",
+    }.issubset(columns)
+    assert RUNTIME_SCHEMA_V15_CHECKSUM == (
+        "e611aad12ce1929d323249c5adb2c90b33a057bc313fd834d7fbf3fcf95cc52e"
+    )
+    assert RUNTIME_SCHEMA_V16_CHECKSUM == (
+        "f0381a784430bca592cc33ecf5d96ad4d989f9ab9ac7c50d14d4693fa2e3c8b6"
+    )
+    checks = required_check_tokens_for_relation("interview_context_artifacts")
+    assert any(
+        {
+            "identity_schema_version",
+            "compression_intent_sha256",
+            "identity-v1",
+        }.issubset(tokens)
+        for tokens in checks
+    )
+    assert RUNTIME_SCHEMA_V16_CHECKSUM != RUNTIME_SCHEMA_V15_CHECKSUM
+    assert (
+        f'"base_schema_checksum":"{RUNTIME_SCHEMA_V15_CHECKSUM}"'
+        in RUNTIME_SCHEMA_V16_MANIFEST
+    )
+    assert LATEST_RUNTIME_MIGRATION.migration_id == (
+        "context_artifact_identity_v1_v16"
+    )
+
+
 class FakeConnection:
     def __init__(self, applied_row=None, current_schema="public"):
         self.applied_row = applied_row
@@ -81,6 +120,157 @@ class FakeConnection:
 
     def close(self):
         self.closed = True
+
+
+class IdentityUpgradeCursor:
+    def __init__(self, connection):
+        self.connection = connection
+        self.row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, statement, params=None):
+        rendered = str(statement)
+        self.connection.calls.append((rendered, params))
+        if "SELECT 1 FROM pg_constraint" in rendered:
+            self.row = (1,) if self.connection.constraint_exists else None
+        else:
+            self.row = None
+        if "ADD CONSTRAINT" in rendered:
+            self.connection.constraint_exists = True
+
+    def fetchone(self):
+        return self.row
+
+
+class IdentityUpgradeConnection:
+    def __init__(self):
+        self.calls = []
+        self.constraint_exists = False
+
+    def cursor(self):
+        return IdentityUpgradeCursor(self)
+
+
+def test_context_artifact_identity_upgrade_is_idempotent_and_never_backfills():
+    connection = IdentityUpgradeConnection()
+
+    migrations._upgrade_context_artifact_identity_v1(
+        connection,
+        table_prefix="interview",
+    )
+    migrations._upgrade_context_artifact_identity_v1(
+        connection,
+        table_prefix="interview",
+    )
+
+    statements = "\n".join(statement for statement, _ in connection.calls)
+    assert statements.count("ADD COLUMN IF NOT EXISTS identity_schema_version") == 2
+    assert statements.count("ADD CONSTRAINT") == 1
+    assert "identity_schema_version IS NOT NULL" in statements
+    assert "compression_intent_sha256 IS NOT NULL" in statements
+    assert "identity-v1" in statements
+    assert "UPDATE" not in statements
+
+
+def _versioned_artifact_rows():
+    from app.services.context_artifacts import (
+        ContextArtifactIdentity,
+        ContextArtifactIdentityMaterial,
+    )
+
+    material = ContextArtifactIdentityMaterial(
+        artifact_type="question_conversation",
+        privacy_scope_sha256="1" * 64,
+        source_sha256="2" * 64,
+        source_manifest_sha256=None,
+        semantic_focus_sha256="3" * 64,
+        compression_policy_version="conversation-v1",
+        prompt_contract_version="prompt-v1",
+        output_schema_version="question-conversation-v1",
+        compressor_provider="openai-compatible",
+        compressor_model="gpt-4o",
+        compressor_settings_sha256="4" * 64,
+        target_output_tokens=256,
+        identity_schema_version="identity-v1",
+        compression_intent_sha256="6" * 64,
+    )
+    identity = ContextArtifactIdentity.from_material(material)
+    identity_values = [
+        material.artifact_type,
+        material.privacy_scope_sha256,
+        material.source_sha256,
+        material.source_manifest_sha256,
+        material.semantic_focus_sha256,
+        material.compression_policy_version,
+        material.prompt_contract_version,
+        material.output_schema_version,
+        material.compressor_provider,
+        material.compressor_model,
+        material.compressor_settings_sha256,
+        material.target_output_tokens,
+    ]
+    ordinary = [None] * 26
+    ordinary[1] = identity.artifact_key
+    ordinary[2:14] = identity_values
+    ordinary[24:26] = [
+        material.identity_schema_version,
+        material.compression_intent_sha256,
+    ]
+    joined = [None] * 25
+    joined[5] = identity.artifact_key
+    joined[6:18] = identity_values
+    joined[23:25] = ordinary[24:26]
+    return identity, ordinary, joined
+
+
+def test_postgres_identity_row_layout_reconstructs_full_v1_identity():
+    from app.services.context_artifact_store import PostgresContextArtifactStore
+
+    identity, ordinary, joined = _versioned_artifact_rows()
+
+    assert PostgresContextArtifactStore._identity_from_row(ordinary) == identity
+    assert (
+        PostgresContextArtifactStore._identity_from_joined_ref_row(joined)
+        == identity
+    )
+
+
+@pytest.mark.parametrize(
+    ("identity_schema_version", "compression_intent_sha256", "tamper_key"),
+    (
+        ("identity-v1", None, False),
+        (None, "6" * 64, False),
+        ("identity-v2", "6" * 64, False),
+        ("identity-v1", "not-a-digest", False),
+        ("identity-v1", "6" * 64, True),
+    ),
+)
+def test_postgres_identity_row_loaders_fail_closed(
+    identity_schema_version,
+    compression_intent_sha256,
+    tamper_key,
+):
+    from app.services.context_artifact_store import PostgresContextArtifactStore
+
+    _, ordinary, joined = _versioned_artifact_rows()
+    ordinary[24:26] = [
+        identity_schema_version,
+        compression_intent_sha256,
+    ]
+    joined[23:25] = ordinary[24:26]
+    if tamper_key:
+        ordinary[1] = "0" * 64
+        joined[5] = "0" * 64
+
+    with pytest.raises(ValueError):
+        PostgresContextArtifactStore._identity_from_row(ordinary)
+    with pytest.raises(ValueError):
+        PostgresContextArtifactStore._identity_from_joined_ref_row(joined)
 
 
 def _patch_schema_owners(monkeypatch, seen):
@@ -123,6 +313,13 @@ def _patch_schema_owners(monkeypatch, seen):
             ("exclusive_scope_upgrade", connection)
         ),
     )
+    monkeypatch.setattr(
+        migrations,
+        "_upgrade_context_artifact_identity_v1",
+        lambda connection, *, table_prefix: seen.append(
+            ("context_artifact_identity_v1_upgrade", connection)
+        ),
+    )
 
 
 def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
@@ -143,6 +340,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     assert result.applied is True
     assert len([item for item in seen if item[0] == "migrate"]) == 15
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
+    assert ("context_artifact_identity_v1_upgrade", connection) in seen
     assert setup == ["private-dsn"]
     assert connection.commits >= 2
     assert connection.closed is True
@@ -461,7 +659,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "frontend_product_experience_v15"
+        assert first.migration_id == "context_artifact_identity_v1_v16"
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
         assert local_rights_tables == {
@@ -536,7 +734,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "frontend_product_experience_v15"
+        assert result.migration_id == "context_artifact_identity_v1_v16"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -706,7 +904,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "frontend_product_experience_v15"
+        assert result.migration_id == "context_artifact_identity_v1_v16"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

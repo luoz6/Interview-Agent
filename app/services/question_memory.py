@@ -23,6 +23,12 @@ from app.services.context_artifacts import (
     compressor_settings_sha256,
 )
 from app.services.context_compression import QUESTION_MEMORY_COMPRESSION_POLICY
+from app.services.context_compression_intent import (
+    ALL_PROHIBITED_AUTHORITY_UPGRADES,
+    CONVERSATION_PRESERVATION_RULES,
+    CompressionIntent,
+    compression_intent_sha256,
+)
 from app.services.question_memory_index import QuestionMemoryIndexEntry
 from app.services.question_memory_retrieval import rank_question_memory_entries
 from app.services.memory_metrics import publish_memory_route
@@ -54,6 +60,7 @@ class QuestionMemoryCoordinator:
         max_memory_tokens: int,
         scope_resolver=None,
         clock=None,
+        task_intent_enabled: bool = False,
     ) -> None:
         if exact_recent_questions < 1:
             raise ValueError("exact_recent_questions must be positive")
@@ -74,6 +81,7 @@ class QuestionMemoryCoordinator:
             scope_resolver or StableContextArtifactPrivacyScopeResolver()
         )
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.task_intent_enabled = task_intent_enabled
 
     def build_context(
         self,
@@ -196,9 +204,10 @@ class QuestionMemoryCoordinator:
             state=state,
             source=source,
             parent_ownership=parent_ownership,
-            compressor=lambda: self.compressor_agent.compress(
+            compressor=lambda intent: self.compressor_agent.compress(
                 policy=QUESTION_MEMORY_COMPRESSION_POLICY,
                 source_segments=source["segments"],
+                intent=intent,
                 expected_session_scope_sha256=source["session_scope_sha256"],
                 expected_question_id_sha256=source["question_id_sha256"],
                 expected_question_focus_sha256=source["focus_sha256"],
@@ -247,7 +256,7 @@ class QuestionMemoryCoordinator:
             state=state,
             source=source,
             parent_ownership=parent_ownership,
-            compressor=lambda: (_ for _ in ()).throw(
+            compressor=lambda _intent: (_ for _ in ()).throw(
                 ContextArtifactProviderFailed(
                     "indexed question memory artifact is missing"
                 )
@@ -255,13 +264,14 @@ class QuestionMemoryCoordinator:
         )
 
     def _resolve(self, *, state, source, parent_ownership, compressor):
+        intent = self._compression_intent(source)
         return self.runner.resolve(
-            identity_material=self._identity(source),
+            identity_material=self._identity(source, intent=intent),
             policy=QUESTION_MEMORY_COMPRESSION_POLICY,
             source_segments=source["segments"],
             estimator=self.context_runtime.estimator_resolution.estimator,
             model=self.context_runtime.model_profile.model,
-            compressor=compressor,
+            compressor=lambda: compressor(intent),
             worker_id=parent_ownership.worker_id,
             owner_type="interview_session",
             owner_key=state["session_id"],
@@ -271,9 +281,10 @@ class QuestionMemoryCoordinator:
             expected_question_id_sha256=source["question_id_sha256"],
             expected_question_focus_sha256=source["focus_sha256"],
             expected_source_manifest_sha256=source["manifest"].sha256,
+            intent=intent,
         )
 
-    def _identity(self, source):
+    def _identity(self, source, *, intent=None):
         return ContextArtifactIdentityMaterial(
             artifact_type="question_memory",
             privacy_scope_sha256=source["session_scope_sha256"],
@@ -301,6 +312,24 @@ class QuestionMemoryCoordinator:
                 self.compressor_config
             ),
             target_output_tokens=QUESTION_MEMORY_COMPRESSION_POLICY.target_output_tokens,
+            identity_schema_version=("identity-v1" if intent is not None else None),
+            compression_intent_sha256=(
+                compression_intent_sha256(intent) if intent is not None else None
+            ),
+        )
+
+    def _compression_intent(self, source) -> CompressionIntent | None:
+        if not self.task_intent_enabled:
+            return None
+        return CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus=source["question"].get("focus"),
+            current_focus=None,
+            preserve=CONVERSATION_PRESERVATION_RULES,
+            authority="non_authoritative",
+            prohibited_authority_upgrades=ALL_PROHIBITED_AUTHORITY_UPGRADES,
         )
 
     def _closed_question_sources(self, state):

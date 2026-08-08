@@ -15,6 +15,7 @@ from app.services.context_compression import (
     QUESTION_MEMORY_COMPRESSION_POLICY,
     compressor_config_from_llm,
 )
+from app.services.context_compression_intent import CompressionIntent
 from app.services.context_artifacts import QuestionMemoryArtifact
 from app.services.llm import LLMConfig
 
@@ -155,10 +156,26 @@ def test_agent_has_no_business_fallback_and_emits_only_safe_metadata():
         provider=provider,
         execution_runner=AgentExecutionRunner(recorder=recorder),
     )
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="PRIVATE INTENT FOCUS",
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=[
+            "candidate_exact_quote",
+            "authoritative_scoring_evidence",
+            "new_fact",
+            "identity_inference",
+        ],
+    )
 
     result = agent.compress(
         policy=policy,
         source_segments=sources,
+        intent=intent,
         expected_question_id_sha256=question_digest,
         execution_context=AgentExecutionContext(
             correlation_id="correlation-1",
@@ -177,6 +194,8 @@ def test_agent_has_no_business_fallback_and_emits_only_safe_metadata():
     assert metadata["target_output_tokens"] == 256
     assert metadata["provider_attempt_count"] == 1
     assert metadata["provider_usage_available"] is False
+    assert "PRIVATE INTENT FOCUS" not in chat.prompts[0]
+    assert "PRIVATE INTENT FOCUS" not in str(metadata)
     assert set(metadata) == {
         "artifact_type",
         "context_policy_version",

@@ -34,6 +34,7 @@ ArtifactPurpose = Literal[
     "review_evidence_context",
 ]
 ArtifactStatus = Literal["running", "completed", "failed"]
+IdentitySchemaVersion = Literal["identity-v1"]
 
 _ARTIFACT_TYPES = frozenset(
     {
@@ -286,6 +287,8 @@ class ContextArtifactIdentityMaterial:
     compressor_model: str
     compressor_settings_sha256: str
     target_output_tokens: int
+    identity_schema_version: IdentitySchemaVersion | None = None
+    compression_intent_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if self.artifact_type not in _ARTIFACT_TYPES:
@@ -308,12 +311,48 @@ class ContextArtifactIdentityMaterial:
             _require_nonempty(getattr(self, field_name), field_name=field_name)
         if self.target_output_tokens <= 0:
             raise ValueError("target_output_tokens must be positive")
+        if (
+            self.identity_schema_version is None
+            and self.compression_intent_sha256 is None
+        ):
+            return
+        if (
+            self.identity_schema_version != "identity-v1"
+            or self.compression_intent_sha256 is None
+        ):
+            raise ValueError(
+                "identity_schema_version and compression_intent_sha256 "
+                "must form a valid identity-v1 pair"
+            )
+        _require_sha256(
+            self.compression_intent_sha256,
+            field_name="compression_intent_sha256",
+        )
 
 
 def canonical_identity_payload(material: ContextArtifactIdentityMaterial) -> str:
     if not isinstance(material, ContextArtifactIdentityMaterial):
         raise TypeError("canonical identity requires identity material")
-    return canonical_json(material)
+    payload = {
+        "artifact_type": material.artifact_type,
+        "privacy_scope_sha256": material.privacy_scope_sha256,
+        "source_sha256": material.source_sha256,
+        "source_manifest_sha256": material.source_manifest_sha256,
+        "semantic_focus_sha256": material.semantic_focus_sha256,
+        "compression_policy_version": material.compression_policy_version,
+        "prompt_contract_version": material.prompt_contract_version,
+        "output_schema_version": material.output_schema_version,
+        "compressor_provider": material.compressor_provider,
+        "compressor_model": material.compressor_model,
+        "compressor_settings_sha256": material.compressor_settings_sha256,
+        "target_output_tokens": material.target_output_tokens,
+    }
+    if material.identity_schema_version == "identity-v1":
+        payload["identity_schema_version"] = material.identity_schema_version
+        payload["compression_intent_sha256"] = (
+            material.compression_intent_sha256
+        )
+    return canonical_json(payload)
 
 
 @dataclass(frozen=True)

@@ -7,9 +7,11 @@ from app.services.context_artifacts import (
     CompressionSourceSegment,
     ContextArtifactIdentityMaterial,
     ContextArtifactLeaseLost,
+    ContextArtifactConflict,
     ContextArtifactProviderFailed,
     ContextCompressionPolicy,
 )
+from app.services.context_compression_intent import CompressionIntent
 from app.services.context_compression_runner import (
     ContextArtifactHeartbeat,
     ContextCompressionRunner,
@@ -125,6 +127,45 @@ def test_runner_creates_then_reuses_without_second_provider_call():
     assert reused.route == "artifact_reused"
     assert created.record == reused.record
     assert calls == 1
+
+
+def test_runner_rejects_intent_digest_mismatch_before_claim_or_provider_call():
+    store = InMemoryContextArtifactStore()
+    runner = ContextCompressionRunner(store, lease_seconds=30)
+    material, policy, sources, payload, question_digest = make_contract(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256="0" * 64,
+    )
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus="idempotency",
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    provider_calls = []
+
+    with pytest.raises(ContextArtifactConflict, match="intent digest"):
+        runner.resolve(
+            identity_material=material,
+            intent=intent,
+            policy=policy,
+            source_segments=sources,
+            estimator=Estimator(),
+            model="gpt-4o",
+            compressor=lambda: provider_calls.append("provider") or payload,
+            worker_id="worker-1",
+            owner_type="interview_session",
+            owner_key="session-1",
+            purpose="interview_conversation_context",
+            expected_question_id_sha256=question_digest,
+        )
+
+    assert provider_calls == []
+    assert store.get_terminal_by_key("0" * 64) is None
 
 
 def test_runner_checks_parent_before_provider_completion_and_return():

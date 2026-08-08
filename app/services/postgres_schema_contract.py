@@ -734,6 +734,41 @@ RUNTIME_SCHEMA_V15_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V15_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_context_artifacts"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_context_artifacts"]
+    | frozenset(
+        {
+            "identity_schema_version",
+            "compression_intent_sha256",
+        }
+    )
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_context_artifacts"] = (
+    frozenset(
+        {
+            "identity_schema_version",
+            "compression_intent_sha256",
+            "identity-v1",
+        }
+    ),
+)
+RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V15_CHECKSUM,
+        "context_artifact_identity": {
+            "legacy_v0": "null-version-and-null-intent-digest",
+            "identity_v1": "identity-v1-with-lowercase-sha256-intent-digest",
+            "migration": "nullable-no-backfill-no-rekey",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V16_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V16_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -808,6 +843,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="frontend_product_experience_v15",
         checksum=RUNTIME_SCHEMA_V15_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="context_artifact_identity_v1_v16",
+        checksum=RUNTIME_SCHEMA_V16_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

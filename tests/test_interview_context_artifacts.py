@@ -17,6 +17,7 @@ from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
 from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_intent import compression_intent_sha256
 from app.services.context_selection import ContextSelectionStats
 from app.services.interview_context_artifacts import (
     InterviewContextArtifactCoordinator,
@@ -43,8 +44,16 @@ class FakeCompressorAgent:
         source_segments,
         expected_question_id_sha256,
         execution_context,
+        intent=None,
     ):
-        self.calls.append((policy, source_segments, execution_context))
+        self.calls.append(
+            {
+                "policy": policy,
+                "source_segments": source_segments,
+                "execution_context": execution_context,
+                "intent": intent,
+            }
+        )
         return {
             "schema_version": "question-conversation-v1",
             "question_id_sha256": expected_question_id_sha256,
@@ -110,7 +119,13 @@ def make_state():
     }
 
 
-def make_coordinator(*, gates, runner=None, agent=None):
+def make_coordinator(
+    *,
+    gates,
+    runner=None,
+    agent=None,
+    task_intent_enabled=False,
+):
     return InterviewContextArtifactCoordinator(
         runner=runner or CapturingRunner(),
         compressor_agent=agent or FakeCompressorAgent(),
@@ -134,6 +149,7 @@ def make_coordinator(*, gates, runner=None, agent=None):
         gates=gates,
         deployment_scope="single-tenant-test",
         eligibility_policy=ContextCompressionEligibilityPolicy(),
+        task_intent_enabled=task_intent_enabled,
     )
 
 
@@ -143,6 +159,70 @@ def loss_stats():
         selected_message_count=2,
         dropped_message_count=2,
     )
+
+
+def test_task_intent_uses_current_question_and_binds_the_same_object_to_v1():
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(shadow_enabled=True),
+        runner=runner,
+        agent=agent,
+        task_intent_enabled=True,
+    )
+
+    coordinator.build_context(
+        state=make_state(),
+        deterministic_context=[{"role": "candidate", "content": "current answer"}],
+        parent_ownership=ParentOwnership(),
+        selection_stats=loss_stats(),
+    )
+
+    intent = agent.calls[0]["intent"]
+    identity = runner.calls[0]["identity_material"]
+    assert intent.consumer_operation == "followup"
+    assert intent.phase == "interview"
+    assert intent.source_focus is None
+    assert intent.current_focus == "current focus"
+    assert intent.preserve == (
+        "candidate_claims",
+        "numbers",
+        "identifiers",
+        "tradeoffs",
+        "failure_boundaries",
+        "unresolved_topics",
+    )
+    assert intent.prohibited_authority_upgrades == (
+        "candidate_exact_quote",
+        "authoritative_scoring_evidence",
+        "new_fact",
+        "identity_inference",
+    )
+    assert runner.calls[0]["intent"] is intent
+    assert identity.identity_schema_version == "identity-v1"
+    assert identity.compression_intent_sha256 == compression_intent_sha256(intent)
+
+
+def test_disabled_task_intent_keeps_conversation_identity_v0():
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(shadow_enabled=True),
+        runner=runner,
+        agent=agent,
+    )
+
+    coordinator.build_context(
+        state=make_state(),
+        deterministic_context=[{"role": "candidate", "content": "current answer"}],
+        parent_ownership=ParentOwnership(),
+        selection_stats=loss_stats(),
+    )
+
+    assert agent.calls[0]["intent"] is None
+    identity = runner.calls[0]["identity_material"]
+    assert identity.identity_schema_version is None
+    assert identity.compression_intent_sha256 is None
 
 
 def test_short_context_without_selection_loss_never_calls_compressor():

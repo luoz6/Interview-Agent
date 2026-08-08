@@ -102,6 +102,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             "MEMORY_MODEL_SAFETY_MARGIN_TOKENS": "987",
             "MEMORY_MODEL_TOKENIZER_FAMILY": "composition-tokenizer",
             "MEMORY_COMPRESSION_MODE": "shadow",
+            "MEMORY_COMPRESSION_TASK_INTENT_ENABLED": "true",
             "MEMORY_ARTIFACT_LEASE_SECONDS": "73",
             "MEMORY_PRIVACY_DEPLOYMENT_ID": "single-tenant-composition",
             "MEMORY_SELECTION_EXACT_RECENT_QUESTIONS": "2",
@@ -360,6 +361,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     ]
     assert len(question_memory_calls) == 1
     assert question_memory_calls[0]["context_runtime"] is context_runtime_marker
+    assert question_memory_calls[0]["task_intent_enabled"] is True
     assert {
         name: question_memory_calls[0][name]
         for name in (
@@ -376,6 +378,8 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     }
     assert len(interview_artifact_calls) == 1
     assert len(evidence_artifact_calls) == 1
+    assert interview_artifact_calls[0]["task_intent_enabled"] is True
+    assert evidence_artifact_calls[0]["task_intent_enabled"] is True
     policy = interview_artifact_calls[0]["eligibility_policy"]
     assert interview_artifact_calls[0]["context_runtime"] is (
         context_runtime_marker
@@ -401,6 +405,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         {
             "MEMORY_INTERVIEW_GRAPH_RUNTIME_ENABLED": "false",
             "MEMORY_COMPRESSION_MODE": "shadow",
+            "MEMORY_COMPRESSION_TASK_INTENT_ENABLED": "true",
             "MEMORY_ARTIFACT_LEASE_SECONDS": "83",
             "MEMORY_PRIVACY_DEPLOYMENT_ID": "review-composition",
             "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": "3456",
@@ -583,4 +588,5 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     assert len(evidence_calls) == 1
     assert evidence_calls[0]["deployment_scope"] == "review-composition"
     assert evidence_calls[0]["context_runtime"] is provider_runtime
+    assert evidence_calls[0]["task_intent_enabled"] is True
     assert len(service_calls) == 1

@@ -119,11 +119,12 @@ class PostgresContextArtifactStore:
                             compressor_model, compressor_settings_sha256,
                             target_output_tokens, status, attempt_count,
                             claim_owner, claim_token, claim_expires_at,
-                            fencing_version
+                            fencing_version, identity_schema_version,
+                            compression_intent_sha256
                         ) VALUES (
                             %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, 'running', 1, %s, %s::uuid,
-                            NOW() + (%s * INTERVAL '1 second'), 1
+                            NOW() + (%s * INTERVAL '1 second'), 1, %s, %s
                         )
                         ON CONFLICT (artifact_key) DO NOTHING
                         RETURNING artifact_id::text
@@ -147,6 +148,8 @@ class PostgresContextArtifactStore:
                         worker_id,
                         claim_token,
                         lease_seconds,
+                        material.identity_schema_version,
+                        material.compression_intent_sha256,
                     ),
                 )
                 inserted = cursor.fetchone()
@@ -506,7 +509,9 @@ class PostgresContextArtifactStore:
                                a.compressor_settings_sha256,
                                a.target_output_tokens, a.status,
                                a.output_json, a.output_sha256,
-                               a.last_error_code, a.completed_at
+                               a.last_error_code, a.completed_at,
+                               a.identity_schema_version,
+                               a.compression_intent_sha256
                         FROM {refs} r
                         JOIN {artifacts} a ON a.artifact_id = r.artifact_id
                         WHERE r.ref_id = %s::uuid
@@ -782,6 +787,8 @@ class PostgresContextArtifactStore:
                             last_error_code TEXT,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             completed_at TIMESTAMPTZ,
+                            identity_schema_version TEXT,
+                            compression_intent_sha256 TEXT,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             CHECK (
                                 (status = 'running'
@@ -809,10 +816,28 @@ class PostgresContextArtifactStore:
                                  AND output_sha256 IS NULL
                                  AND completed_at IS NULL
                                  AND last_error_code IS NOT NULL)
+                            ),
+                            CONSTRAINT {identity_constraint} CHECK (
+                                (identity_schema_version IS NULL
+                                 AND compression_intent_sha256 IS NULL)
+                                OR
+                                (identity_schema_version IS NOT NULL
+                                 AND identity_schema_version = 'identity-v1'
+                                 AND compression_intent_sha256 IS NOT NULL
+                                 AND compression_intent_sha256 ~
+                                     '^[0-9a-f]{{64}}$')
                             )
                         )
                         """
-                    ).format(artifacts=artifacts)
+                    ).format(
+                        artifacts=artifacts,
+                        identity_constraint=sql.Identifier(
+                            runtime_schema_identifier(
+                                self.table_prefix,
+                                "context_artifacts_identity_v1_check",
+                            )
+                        ),
+                    )
                 )
                 cursor.execute(
                     sql.SQL(
@@ -909,7 +934,8 @@ class PostgresContextArtifactStore:
             "compressor_settings_sha256, target_output_tokens, status, "
             "attempt_count, fencing_version, claim_owner, claim_token::text, "
             "output_sha256, claim_expires_at, output_json, last_error_code, "
-            "completed_at FROM {artifacts} WHERE artifact_key = %s " + suffix
+            "completed_at, identity_schema_version, compression_intent_sha256 "
+            "FROM {artifacts} WHERE artifact_key = %s " + suffix
         )
 
     def _select_artifact_by_id_sql(self, suffix: str) -> str:
@@ -922,7 +948,8 @@ class PostgresContextArtifactStore:
             "compressor_settings_sha256, target_output_tokens, status, "
             "attempt_count, fencing_version, claim_owner, claim_token::text, "
             "output_sha256, claim_expires_at, output_json, last_error_code, "
-            "completed_at FROM {artifacts} WHERE artifact_id = %s::uuid " + suffix
+            "completed_at, identity_schema_version, compression_intent_sha256 "
+            "FROM {artifacts} WHERE artifact_id = %s::uuid " + suffix
         )
 
     @staticmethod
@@ -940,6 +967,8 @@ class PostgresContextArtifactStore:
             compressor_model=row[11],
             compressor_settings_sha256=row[12],
             target_output_tokens=row[13],
+            identity_schema_version=row[24],
+            compression_intent_sha256=row[25],
         )
         return ContextArtifactIdentity(artifact_key=row[1], material=material)
 
@@ -958,6 +987,8 @@ class PostgresContextArtifactStore:
             compressor_model=row[15],
             compressor_settings_sha256=row[16],
             target_output_tokens=row[17],
+            identity_schema_version=row[23],
+            compression_intent_sha256=row[24],
         )
         return ContextArtifactIdentity(artifact_key=row[5], material=material)
 

@@ -27,6 +27,10 @@ from app.services.context_compression_validation import (
     ValidatedCompressionArtifact,
     validate_compression_artifact,
 )
+from app.services.context_compression_intent import (
+    CompressionIntent,
+    validate_compression_intent_digest,
+)
 from app.services.token_estimation import TokenEstimator
 
 
@@ -167,7 +171,12 @@ class ContextCompressionRunner:
         expected_session_scope_sha256: str | None = None,
         expected_question_focus_sha256: str | None = None,
         expected_source_manifest_sha256: str | None = None,
+        intent: CompressionIntent | None = None,
     ) -> ContextCompressionResolution:
+        self._validate_intent_identity(
+            intent=intent,
+            identity_material=identity_material,
+        )
         identity = ContextArtifactIdentity.from_material(identity_material)
         claim = self.store.claim(
             identity,
@@ -399,3 +408,32 @@ class ContextCompressionRunner:
         if isinstance(exc, ContextArtifactProviderFailed):
             return "provider_failed"
         return "parent_or_runtime_failed"
+
+    @staticmethod
+    def _validate_intent_identity(
+        *,
+        intent: CompressionIntent | None,
+        identity_material: ContextArtifactIdentityMaterial,
+    ) -> None:
+        if intent is None:
+            if identity_material.identity_schema_version is not None:
+                raise ContextArtifactConflict(
+                    "identity-v1 requires compression intent"
+                )
+            return
+        if (
+            identity_material.identity_schema_version != "identity-v1"
+            or identity_material.compression_intent_sha256 is None
+        ):
+            raise ContextArtifactConflict(
+                "compression intent requires identity-v1 material"
+            )
+        try:
+            validate_compression_intent_digest(
+                intent,
+                identity_material.compression_intent_sha256,
+            )
+        except ValueError as exc:
+            raise ContextArtifactConflict(
+                "compression intent digest conflicts with identity"
+            ) from exc

@@ -1146,6 +1146,7 @@ def build_interview_workflow_service():
             gates=compression_gates,
             deployment_scope=deployment_scope,
             eligibility_policy=eligibility_policy,
+            task_intent_enabled=compression_config.task_intent_enabled,
         )
         from app.services.question_memory import QuestionMemoryCoordinator
 
@@ -1159,6 +1160,7 @@ def build_interview_workflow_service():
             exact_recent_questions=selection_config.exact_recent_questions,
             max_memory_units=selection_config.max_memory_units,
             max_memory_tokens=selection_config.max_memory_tokens,
+            task_intent_enabled=compression_config.task_intent_enabled,
         )
         if compression_gates.shadow_enabled or (
             compression_gates.interview_enabled
@@ -1173,6 +1175,7 @@ def build_interview_workflow_service():
                     gates=compression_gates,
                     deployment_scope=deployment_scope,
                     eligibility_policy=eligibility_policy,
+                    task_intent_enabled=compression_config.task_intent_enabled,
                 )
             )
     registry = VersionedGraphRegistry()
@@ -1358,6 +1361,7 @@ def build_review_workflow_service():
             gates=review_compression_gates,
             deployment_scope=deployment_scope,
             eligibility_policy=review_eligibility_policy,
+            task_intent_enabled=compression_config.task_intent_enabled,
         )
 
     def review_question(graph_state, question_id):
