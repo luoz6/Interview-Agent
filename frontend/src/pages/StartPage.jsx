@@ -924,8 +924,7 @@ export function StartPage() {
               </header>
               <div className="start-prep-scroll-pane">
                 {plan ? <>
-                  {jobTags.length ? <div className="start-job-tags start-prep-job-tags" aria-label="岗位标签">{jobTags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
-                  <PlanEditor plan={plan} busy={busy} activeQuestionId={activePlanQuestionId} onPatch={updatePlan} onRegenerate={regeneratePlanQuestion} />
+                  <PlanEditor plan={plan} tags={jobTags} busy={busy} activeQuestionId={activePlanQuestionId} onPatch={updatePlan} onRegenerate={regeneratePlanQuestion} />
                 </> : <div className="start-prep-empty"><ListChecks size={28} weight="duotone" aria-hidden="true" /><h2>尚未生成面试计划</h2><p>先在“资料”中填写岗位 JD 与候选人经历，再生成可检查的面试蓝图。</p><button className="button start-tool-button" type="button" onClick={() => selectPane("sources")}>返回填写资料</button></div>}
               </div>
               <footer className="start-prep-launch-bar">
@@ -951,7 +950,7 @@ export function StartPage() {
             </section>
           )}
 
-          <p className="sr-only" aria-live="polite" aria-atomic="true">{planAnnouncement}</p>
+          <p className="visually-hidden start-plan-announcement" aria-live="polite" aria-atomic="true">{planAnnouncement}</p>
         </section>
 
         <PrepInspector

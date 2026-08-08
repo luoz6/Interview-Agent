@@ -141,6 +141,7 @@ export function ReportsPage() {
     [totalPages, page],
   );
   const hasActiveFilters = Boolean(query || status !== "all" || days !== "30");
+  const isFirstRunEmpty = state === "empty" && !hasActiveFilters;
   const activeStatusLabel = statusLabels[status] || status;
   const activeRangeLabel = days === "all" ? "全部日期" : `最近 ${days} 天`;
 
@@ -254,7 +255,7 @@ export function ReportsPage() {
                 <button className="button start-tool-button reports-refresh-button" type="button" onClick={loadReports} disabled={state === "loading"} aria-busy={state === "loading" || undefined} data-state={state === "loading" ? "loading" : undefined} aria-label={state === "loading" ? "正在同步报告" : "刷新报告"} title={state === "loading" ? "正在同步报告" : "刷新报告"}>
                   <ArrowClockwise className={state === "loading" ? "start-spinner" : undefined} size={16} weight="bold" aria-hidden="true" /><span>{state === "loading" ? "同步中" : "刷新"}</span>
                 </button>
-                <button className="button start-tool-button button-primary reports-new-interview-button" type="button" onClick={() => window.location.assign("/prep")}><Plus size={16} weight="bold" aria-hidden="true" /><span>新面试</span></button>
+                <button className={`button start-tool-button reports-new-interview-button${isFirstRunEmpty ? "" : " button-primary"}`} type="button" onClick={() => window.location.assign("/prep")}><Plus size={16} weight="bold" aria-hidden="true" /><span>新面试</span></button>
               </div>
 
               <div
@@ -284,15 +285,17 @@ export function ReportsPage() {
           <StatusNotice className="reports-notice" closeClassName="reports-notice-close" notice={state === "error" ? null : notice} onDismiss={() => setNotice(null)} />
 
           <div className="reports-canvas">
-            <section className="reports-ledger" aria-labelledby="ledger-title">
+            <section className="reports-ledger" data-state={state} data-first-run={isFirstRunEmpty || undefined} aria-labelledby="ledger-title">
               <header className="reports-ledger-head">
                 <div><h2 id="ledger-title">{activeStatusLabel}报告</h2><span>按最近更新时间排列</span></div>
-                <p>{state === "ready" ? `第 ${page} / ${totalPages} 页，共 ${payload.total} 条` : "状态和生成结果会自动同步"}</p>
+                <p>{state === "ready" ? `第 ${page} / ${totalPages} 页，共 ${payload.total} 条` : state === "empty" ? "完成面试后自动归档" : "状态和生成结果会自动同步"}</p>
               </header>
 
-              <div className="reports-table-head" aria-hidden="true">
-                <span>岗位与摘要</span><span>状态</span><span>评分</span><span>时间</span><span>操作</span>
-              </div>
+              {(state === "loading" || state === "ready") && (
+                <div className="reports-table-head" aria-hidden="true">
+                  <span>岗位与摘要</span><span>状态</span><span>评分</span><span>时间</span><span>操作</span>
+                </div>
+              )}
 
               <div className="reports-report-ledger" aria-busy={state === "loading"}>
                 {state === "loading" && <ReportSkeleton />}
@@ -311,13 +314,22 @@ export function ReportsPage() {
                 {state === "empty" && (
                   <AsyncState
                     className="reports-empty"
-                    icon={<FileText className="reports-state-illustration" size={24} weight="bold" aria-hidden="true" />}
-                    title={hasActiveFilters ? "当前条件下没有报告" : "完成第一场面试后，从这里查看报告"}
-                    description={hasActiveFilters ? "调整搜索、日期或状态筛选后再试。" : "报告生成后会自动进入列表，并显示评分、下载和处理状态。"}
-                    action={<button className="button start-tool-button reports-empty-action" type="button" onClick={hasActiveFilters ? clearFilters : () => window.location.assign("/prep")}>
-                      {hasActiveFilters ? <X size={16} weight="bold" aria-hidden="true" /> : <Plus size={16} weight="bold" aria-hidden="true" />}<span>{hasActiveFilters ? "清除筛选" : "开始面试"}</span>
+                    data-first-run={isFirstRunEmpty || undefined}
+                    icon={<FileText className="reports-state-illustration" size={28} weight="duotone" aria-hidden="true" />}
+                    title={hasActiveFilters ? "当前条件下没有报告" : "还没有面试报告"}
+                    description={hasActiveFilters ? "调整搜索、日期或状态筛选后再试。" : "完成一场面试后，评分、摘要和生成状态会自动归档到这里。"}
+                    action={<button className={`button start-tool-button reports-empty-action${isFirstRunEmpty ? " button-primary" : ""}`} type="button" onClick={hasActiveFilters ? clearFilters : () => window.location.assign("/prep")}>
+                      {hasActiveFilters ? <X size={16} weight="bold" aria-hidden="true" /> : <Plus size={16} weight="bold" aria-hidden="true" />}<span>{hasActiveFilters ? "清除筛选" : "开始第一场面试"}</span>
                     </button>}
-                  />
+                  >
+                    {isFirstRunEmpty && (
+                      <ol className="reports-empty-flow" aria-label="报告生成流程">
+                        <li><span aria-hidden="true"><FileText size={16} weight="bold" /></span><div><strong>准备资料</strong><small>确认岗位与经历</small></div></li>
+                        <li><span aria-hidden="true"><CheckCircle size={16} weight="bold" /></span><div><strong>完成面试</strong><small>提交真实回答</small></div></li>
+                        <li><span aria-hidden="true"><Files size={16} weight="bold" /></span><div><strong>查看报告</strong><small>跟进评分与状态</small></div></li>
+                      </ol>
+                    )}
+                  </AsyncState>
                 )}
                 {state === "ready" && payload.items.map((item, index) => {
                   const RowStatusIcon = statusIcons[item.status] || Info;
@@ -355,11 +367,13 @@ export function ReportsPage() {
                 })}
               </div>
 
-              <nav className="reports-pagination" aria-label="报告分页">
-                <button className="button start-tool-button" type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
-                <div>{pageNumbers.map((number, index) => <span key={number}>{index > 0 && number - pageNumbers[index - 1] > 1 ? <i>…</i> : null}<button type="button" aria-current={number === page ? "page" : undefined} onClick={() => setPage(number)}>{number}</button></span>)}</div>
-                <button className="button start-tool-button" type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</button>
-              </nav>
+              {state === "ready" && (
+                <nav className="reports-pagination" aria-label="报告分页">
+                  <button className="button start-tool-button" type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
+                  <div>{pageNumbers.map((number, index) => <span key={number}>{index > 0 && number - pageNumbers[index - 1] > 1 ? <i>…</i> : null}<button type="button" aria-current={number === page ? "page" : undefined} onClick={() => setPage(number)}>{number}</button></span>)}</div>
+                  <button className="button start-tool-button" type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</button>
+                </nav>
+              )}
             </section>
           </div>
         </section>

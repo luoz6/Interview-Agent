@@ -20,6 +20,27 @@ async function generatePlan(page, jd = jobDescription) {
   await expect(page.locator(".start-plan-question[data-enabled='true']")).toHaveCount(5);
 }
 
+async function expectVisuallyHidden(locator) {
+  const state = await locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return {
+      position: style.position,
+      overflow: style.overflow,
+      whiteSpace: style.whiteSpace,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+  expect(state).toMatchObject({
+    position: "absolute",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    width: 1,
+    height: 1,
+  });
+}
+
 test("preparation uses one pane state model and makes the plan authoritative", async ({ page }) => {
   await page.goto("/prep");
   await expect(page.locator(".start-prep-app-shell")).toBeVisible();
@@ -35,6 +56,55 @@ test("preparation uses one pane state model and makes the plan authoritative", a
   await expect(page.getByRole("button", { name: "确认版本并开始面试" })).toBeVisible();
 });
 
+test("plan editor presents a compact ledger with integrated metadata and controls", async ({ page }) => {
+  await generatePlan(page);
+
+  const editor = page.locator(".start-plan-editor");
+  const first = page.locator(".start-plan-question[data-enabled='true']").first();
+  const toolbar = first.locator(".start-plan-question-actions");
+
+  await expect(editor.locator(".start-plan-editor-meta")).toContainText("v1 当前版本");
+  await expect(editor.locator(".start-plan-editor-tag")).toHaveCount(3);
+  await expect(editor.locator(".start-plan-editor-meta")).toContainText("python");
+  await expect(page.locator(".start-prep-job-tags")).toHaveCount(0);
+  await expect(toolbar.getByRole("button")).toHaveCount(5);
+  await expect(first.getByRole("button", { name: /上移第 1 题/ })).toBeVisible();
+  await expect(first.getByText(/个来源/)).toBeVisible();
+
+  const geometry = await first.evaluate((question) => {
+    const toolbarElement = question.querySelector(".start-plan-question-actions");
+    const focusControl = question.querySelector(".start-plan-focus-control");
+    const questionRect = question.getBoundingClientRect();
+    const toolbarRect = toolbarElement.getBoundingClientRect();
+    const focusRect = focusControl.getBoundingClientRect();
+    const toolbarButtons = [...toolbarElement.querySelectorAll("button")]
+      .map((button) => button.getBoundingClientRect());
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      questionHeight: questionRect.height,
+      questionClientWidth: question.clientWidth,
+      questionScrollWidth: question.scrollWidth,
+      toolbarHeight: toolbarRect.height,
+      toolbarInsideQuestion: toolbarRect.left >= questionRect.left - 1 && toolbarRect.right <= questionRect.right + 1,
+      focusInsideQuestion: focusRect.left >= questionRect.left - 1 && focusRect.right <= questionRect.right + 1,
+      toolbarButtonsMeetTouchTarget: toolbarButtons.every((button) => button.height >= 44),
+    };
+  });
+
+  if (geometry.viewportWidth > 767) {
+    expect(geometry.questionHeight).toBeLessThan(330);
+    expect(geometry.toolbarHeight).toBeLessThanOrEqual(100);
+  } else {
+    expect(geometry.questionHeight).toBeLessThan(geometry.viewportHeight * 0.65);
+    expect(geometry.toolbarHeight).toBeLessThan(geometry.viewportHeight * 0.2);
+    expect(geometry.toolbarButtonsMeetTouchTarget).toBe(true);
+  }
+  expect(geometry.questionScrollWidth).toBeLessThanOrEqual(geometry.questionClientWidth + 1);
+  expect(geometry.toolbarInsideQuestion).toBe(true);
+  expect(geometry.focusInsideQuestion).toBe(true);
+});
+
 test("plan editor patches order, focus, required and enabled state with CAS", async ({ page }) => {
   await generatePlan(page);
   const patches = [];
@@ -46,6 +116,8 @@ test("plan editor patches order, focus, required and enabled state with CAS", as
   const second = page.locator(".start-plan-question[data-enabled='true']").nth(1);
   await second.getByRole("button", { name: /上移第 2 题/ }).click();
   await expect.poll(() => patches.length).toBe(1);
+  await expect(page.locator(".start-plan-announcement")).toContainText("第 2 题已上移");
+  await expectVisuallyHidden(page.locator(".start-plan-announcement"));
   expect(patches[0]).toMatchObject({
     expected_version: 1,
     operations: [{ type: "move", position: 1 }],
@@ -62,12 +134,61 @@ test("plan editor patches order, focus, required and enabled state with CAS", as
 
   const requiredCandidate = page.locator(".start-plan-question[data-enabled='true']").last();
   await requiredCandidate.getByRole("button", { name: "设为必考" }).click();
+  const requiredHelp = requiredCandidate.locator(".start-plan-action-help");
+  await expect(requiredHelp).toBeVisible();
+  await expect(requiredHelp).toContainText("请先选择“取消必考”");
+  await expect(requiredHelp).toHaveAttribute("role", "note");
+  await expect(requiredHelp).toHaveAttribute("tabindex", "0");
+  await requiredHelp.focus();
+  await expect(requiredHelp).toBeFocused();
   await expect(requiredCandidate.getByRole("button", { name: "排除" })).toBeDisabled();
   await requiredCandidate.getByRole("button", { name: "取消必考" }).click();
   await requiredCandidate.getByRole("button", { name: "排除" }).click();
   await expect(page.locator(".start-plan-question[data-enabled='true']")).toHaveCount(4);
   await expect(page.locator(".start-plan-question[data-enabled='false']")).toHaveCount(1);
+
+  await page.locator(".start-plan-question[data-enabled='true']").last().getByRole("button", { name: "排除" }).click();
+  await expect(page.locator(".start-plan-question[data-enabled='true']")).toHaveCount(3);
+  const minimumCandidate = page.locator(".start-plan-question[data-enabled='true']").first();
+  const minimumHelp = minimumCandidate.locator(".start-plan-action-help");
+  await expect(minimumHelp).toBeVisible();
+  await expect(minimumHelp).toContainText("当前只剩 3 道启用题");
+  await expect(minimumHelp).toHaveAttribute("tabindex", "0");
+  await minimumHelp.focus();
+  await expect(minimumHelp).toBeFocused();
+  await expect(minimumCandidate.getByRole("button", { name: "排除" })).toBeDisabled();
   expect(patches.every((payload) => Number.isInteger(payload.expected_version))).toBe(true);
+});
+
+test("maximum plan size exposes visible keyboard-focusable recovery guidance", async ({ page }) => {
+  await page.route("**/api/prep", async (route) => {
+    const response = await route.fetch();
+    const plan = await response.json();
+    plan.questions.push({
+      ...plan.questions[0],
+      question_id: "00000000-0000-4000-8000-000000000006",
+      position: null,
+      enabled: false,
+      required: false,
+      prompt: "容量边界候选题",
+    });
+    await route.fulfill({
+      status: response.status(),
+      headers: response.headers(),
+      body: JSON.stringify(plan),
+    });
+  });
+  await generatePlan(page);
+
+  const excluded = page.locator(".start-plan-question[data-enabled='false']");
+  const help = excluded.locator(".start-plan-action-help");
+  await expect(excluded.getByRole("button", { name: "重新启用" })).toBeDisabled();
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("当前已启用 5 道题");
+  await expect(help).toContainText("请先排除一道非必考题");
+  await expect(help).toHaveAttribute("tabindex", "0");
+  await help.focus();
+  await expect(help).toBeFocused();
 });
 
 test("single-question regeneration replaces only the target and preserves position", async ({ page }) => {
@@ -145,13 +266,15 @@ test("pending feedback delays fast spinners and keeps slow spinners stable", asy
   await page.goto("/prep");
   await fillSources(page);
   const action = page.locator(".start-prep-primary-action");
+  const spinner = page.locator(".start-app-topbar .start-spinner");
   await action.click();
-  await expect(page.locator(".start-app-topbar .start-spinner")).toHaveCount(0);
+  await expect(spinner).toHaveCount(0);
   await page.waitForTimeout(175);
-  await expect(page.locator(".start-app-topbar .start-spinner")).toBeVisible();
+  await expect(spinner).toBeVisible();
+  const spinnerObservedAt = Date.now();
   await expect(page.locator(".start-plan-editor")).toBeVisible();
-  await expect(page.locator(".start-app-topbar .start-spinner")).toBeVisible();
-  await expect(page.locator(".start-app-topbar .start-spinner")).toHaveCount(0, { timeout: 1_000 });
+  await expect(spinner).toHaveCount(0, { timeout: 1_000 });
+  expect(Date.now() - spinnerObservedAt).toBeGreaterThanOrEqual(250);
 });
 
 test("version conflict refreshes the latest plan instead of replaying a stale patch", async ({ page }) => {

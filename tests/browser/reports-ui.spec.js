@@ -20,6 +20,56 @@ test("report center remains stable across viewports", async ({ page }) => {
   }
 });
 
+test("report center gives the first-run empty state a deliberate composition", async ({ page }) => {
+  await page.route("**/api/reports?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], total: 0, status_totals: {} }),
+    });
+  });
+
+  await page.goto("/reports");
+  const emptyState = page.locator('.reports-empty[data-first-run="true"]');
+  await expect(emptyState).toContainText("还没有面试报告");
+  await expect(emptyState.locator(".reports-empty-flow li")).toHaveCount(3);
+  await expect(emptyState.getByRole("button", { name: "开始第一场面试" })).toHaveClass(/button-primary/);
+  await expect(page.locator(".reports-table-head")).toHaveCount(0);
+  await expect(page.locator(".reports-pagination")).toHaveCount(0);
+  await expect(page.locator(".button-primary:not(:disabled)")).toHaveCount(1);
+
+  const composition = await page.evaluate(() => {
+    const ledger = document.querySelector(".reports-report-ledger").getBoundingClientRect();
+    const empty = document.querySelector(".reports-empty").getBoundingClientRect();
+    const action = document.querySelector(".reports-empty-action").getBoundingClientRect();
+    return {
+      topGap: empty.top - ledger.top,
+      bottomGap: ledger.bottom - empty.bottom,
+      actionHeight: action.height,
+      emptyWidth: empty.width,
+    };
+  });
+  expect(Math.abs(composition.topGap - composition.bottomGap)).toBeLessThan(2);
+  expect(composition.actionHeight).toBeGreaterThanOrEqual(40);
+  expect(composition.emptyWidth).toBeLessThanOrEqual(672);
+
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expectGeometry(page);
+  const mobileComposition = await page.evaluate(() => {
+    const flow = document.querySelector(".reports-empty-flow");
+    const action = document.querySelector(".reports-empty-action").getBoundingClientRect();
+    return {
+      flowColumns: getComputedStyle(flow).gridTemplateColumns.split(" ").filter(Boolean).length,
+      actionHeight: action.height,
+      viewportWidth: document.documentElement.clientWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    };
+  });
+  expect(mobileComposition.flowColumns).toBe(1);
+  expect(mobileComposition.actionHeight).toBeGreaterThanOrEqual(44);
+  expect(mobileComposition.documentWidth).toBeLessThanOrEqual(mobileComposition.viewportWidth);
+});
+
 test("report center keeps archive hierarchy and honest report states", async ({ page, request }) => {
   await seedReport(request, "processing");
   await seedReport(request, "failed");
@@ -145,6 +195,27 @@ test("report center keeps archive hierarchy and honest report states", async ({ 
   await expect(page.locator(".reports-report-row-failed").first()).toBeVisible();
   await expect(page.locator(".reports-report-row-failed").first().locator(".reports-row-score")).not.toContainText("综合评分");
   await expect(page.locator(".reports-report-row-failed").first().getByRole("button", { name: "重新排队" })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const failedRowGeometry = await page.locator(".reports-report-row-failed").first().evaluate((row) => {
+    const rowRect = row.getBoundingClientRect();
+    const time = row.querySelector(".reports-row-time");
+    const actions = row.querySelector(".reports-row-actions");
+    const timeRect = time.getBoundingClientRect();
+    const actionsRect = actions.getBoundingClientRect();
+    const buttons = [...actions.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+    return {
+      timeActionGap: actionsRect.left - timeRect.right,
+      actionsInsideRow: actionsRect.right <= rowRect.right + 1,
+      timeInsideColumn: time.scrollWidth <= time.clientWidth + 1,
+      buttonsInsideActions: buttons.every((button) => button.left >= actionsRect.left - 1 && button.right <= actionsRect.right + 1),
+      buttonsDoNotOverlap: buttons.every((button, index) => index === 0 || button.left >= buttons[index - 1].right - 1),
+    };
+  });
+  expect(failedRowGeometry.timeActionGap).toBeGreaterThanOrEqual(0);
+  expect(failedRowGeometry.actionsInsideRow).toBe(true);
+  expect(failedRowGeometry.timeInsideColumn).toBe(true);
+  expect(failedRowGeometry.buttonsInsideActions).toBe(true);
+  expect(failedRowGeometry.buttonsDoNotOverlap).toBe(true);
 });
 
 test("report center presents one bounded recovery alert", async ({ page }) => {

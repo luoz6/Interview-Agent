@@ -111,6 +111,59 @@ test("interview focus mode keeps the answer draft and restores both side panes",
   await expect(page.getByLabel("你的回答")).toHaveValue(draft);
 });
 
+test("answer composer stays at the workspace bottom with a fixed-size editor", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/interview?session_id=" + sessionId);
+  await expect(page.locator(".answer-composer")).toBeVisible();
+  await expect(page.locator("#answerInput")).toBeEnabled();
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(
+      document.getAnimations()
+        .filter((animation) => animation.playState !== "finished" && animation.effect?.getTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
+
+  const before = await page.evaluate(() => {
+    const main = document.querySelector(".interview-main").getBoundingClientRect();
+    const scrollRegion = document.querySelector(".interview-workspace-scroll").getBoundingClientRect();
+    const composer = document.querySelector(".answer-composer").getBoundingClientRect();
+    const textarea = document.querySelector("#answerInput");
+    const textareaRect = textarea.getBoundingClientRect();
+    const textareaStyle = getComputedStyle(textarea);
+    return {
+      mainBottom: main.bottom,
+      scrollBottom: scrollRegion.bottom,
+      composerTop: composer.top,
+      composerBottom: composer.bottom,
+      textareaHeight: textareaRect.height,
+      resize: textareaStyle.resize,
+      overflowY: textareaStyle.overflowY,
+    };
+  });
+
+  expect(Math.abs(before.mainBottom - before.composerBottom)).toBeLessThanOrEqual(16);
+  expect(before.scrollBottom).toBeLessThanOrEqual(before.composerTop + 1);
+  expect(before.resize).toBe("none");
+  expect(before.overflowY).toBe("auto");
+
+  await page.locator("#answerInput").fill(Array.from({ length: 20 }, (_, index) => `第 ${index + 1} 行回答`).join("\n"));
+  const after = await page.evaluate(() => {
+    const composer = document.querySelector(".answer-composer").getBoundingClientRect();
+    const textarea = document.querySelector("#answerInput").getBoundingClientRect();
+    return { composerTop: composer.top, composerBottom: composer.bottom, textareaHeight: textarea.height };
+  });
+
+  expect(after.textareaHeight).toBeCloseTo(before.textareaHeight, 1);
+  expect(after.composerTop).toBeCloseTo(before.composerTop, 1);
+  expect(after.composerBottom).toBeCloseTo(before.composerBottom, 1);
+});
+
 test("submitting an answer follows the newest conversation inside the message list", async ({
   page,
   request,
