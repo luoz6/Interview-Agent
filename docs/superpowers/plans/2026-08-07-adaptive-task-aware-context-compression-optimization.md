@@ -2,6 +2,9 @@
 
 **Plan revision:** v1.2.1.
 
+**Pinned Spec:** `docs/interview-agent-memory-system-optimization-spec.md`
+Spec v1.1.2-draft.
+
 **Revision focus:** Preserve the v1.1 task ordering and v1.2 architecture while
 closing its remaining execution ambiguities. Define byte-compatible Artifact
 identity v0/v1 persistence, correct the Follow-up selectable-budget example,

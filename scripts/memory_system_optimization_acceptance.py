@@ -18,6 +18,14 @@ PLAN = (
     / "plans"
     / "2026-07-30-interview-agent-memory-system-optimization.md"
 )
+ADAPTIVE_CONTEXT_PLAN = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "plans"
+    / "2026-08-07-adaptive-task-aware-context-compression-optimization.md"
+)
+ADAPTIVE_CONTEXT_SPEC_VERSION = "1.1.2-draft"
 FOCUSED_TESTS = (
     "tests/test_api.py",
     "tests/test_dual_langgraph_rollout.py",
@@ -83,6 +91,13 @@ _NORMATIVE_ID = re.compile(
 _RANGE = re.compile(
     r"MEM-([A-Z]+)-(\d{3})`?\s+(?:through|to|至|~|～|-)+\s+`?MEM-\1-(\d{3})"
 )
+_ADAPTIVE_REQUIREMENT_ID = re.compile(r"MEM-CTX-[A-Z]+-\d{3}")
+_ADAPTIVE_NORMATIVE_LINE = re.compile(
+    r"(?m)^-\s+`(MEM-CTX-[A-Z]+-\d{3})`[：:]\s+\S.*$"
+)
+_ADAPTIVE_VERIFICATION_LINE = re.compile(
+    r"(?m)^-\s+Verification\s+`(MEM-CTX-[A-Z]+-\d{3})`[：:]\s+\S.*$"
+)
 
 
 def extract_spec_normative_ids(text: str) -> list[str]:
@@ -124,6 +139,99 @@ def verify_traceability() -> None:
     )
     if missing:
         raise RuntimeError("Plan references missing Spec IDs: " + ", ".join(missing))
+
+
+def extract_adaptive_plan_requirement_ids(text: str) -> set[str]:
+    return set(_ADAPTIVE_REQUIREMENT_ID.findall(text))
+
+
+def extract_adaptive_spec_normative_ids(text: str) -> list[str]:
+    return _ADAPTIVE_NORMATIVE_LINE.findall(text)
+
+
+def extract_adaptive_spec_verification_ids(text: str) -> list[str]:
+    return _ADAPTIVE_VERIFICATION_LINE.findall(text)
+
+
+def _duplicate_ids(ids: list[str]) -> list[str]:
+    return sorted(requirement for requirement in set(ids) if ids.count(requirement) > 1)
+
+
+def verify_adaptive_context_traceability_texts(
+    *,
+    plan_text: str,
+    spec_text: str,
+) -> tuple[set[str], set[str], set[str]]:
+    expected_pin = f"Spec v{ADAPTIVE_CONTEXT_SPEC_VERSION}"
+    if expected_pin not in plan_text[:500]:
+        raise RuntimeError(
+            "adaptive context plan does not pin "
+            f"{expected_pin}"
+        )
+
+    plan_ids = extract_adaptive_plan_requirement_ids(plan_text)
+    normative_list = extract_adaptive_spec_normative_ids(spec_text)
+    verification_list = extract_adaptive_spec_verification_ids(spec_text)
+
+    duplicate_normative = _duplicate_ids(normative_list)
+    if duplicate_normative:
+        raise RuntimeError(
+            "duplicate adaptive normative Spec IDs: "
+            + ", ".join(duplicate_normative)
+        )
+
+    normative_ids = set(normative_list)
+    missing_normative = sorted(plan_ids - normative_ids)
+    if missing_normative:
+        raise RuntimeError(
+            "adaptive Plan references missing normative Spec IDs: "
+            + ", ".join(missing_normative)
+        )
+
+    unreferenced_normative = sorted(normative_ids - plan_ids)
+    if unreferenced_normative:
+        raise RuntimeError(
+            "adaptive Spec has unreferenced normative IDs: "
+            + ", ".join(unreferenced_normative)
+        )
+
+    duplicate_verification = _duplicate_ids(verification_list)
+    if duplicate_verification:
+        raise RuntimeError(
+            "duplicate adaptive verification mappings: "
+            + ", ".join(duplicate_verification)
+        )
+
+    verification_ids = set(verification_list)
+    missing_verification = sorted(plan_ids - verification_ids)
+    if missing_verification:
+        raise RuntimeError(
+            "adaptive requirements missing verification mappings: "
+            + ", ".join(missing_verification)
+        )
+
+    unreferenced_verification = sorted(verification_ids - plan_ids)
+    if unreferenced_verification:
+        raise RuntimeError(
+            "adaptive verification mappings reference unplanned IDs: "
+            + ", ".join(unreferenced_verification)
+        )
+
+    return plan_ids, normative_ids, verification_ids
+
+
+def adaptive_context_traceability_sets() -> tuple[set[str], set[str], set[str]]:
+    return verify_adaptive_context_traceability_texts(
+        plan_text=ADAPTIVE_CONTEXT_PLAN.read_text(encoding="utf-8"),
+        spec_text=SPEC.read_text(encoding="utf-8"),
+    )
+
+
+def verify_adaptive_context_traceability() -> None:
+    verify_adaptive_context_traceability_texts(
+        plan_text=ADAPTIVE_CONTEXT_PLAN.read_text(encoding="utf-8"),
+        spec_text=SPEC.read_text(encoding="utf-8"),
+    )
 
 
 def verify_safe_defaults() -> None:
@@ -221,12 +329,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-tests", action="store_true")
     args = parser.parse_args(argv)
     verify_traceability()
+    verify_adaptive_context_traceability()
     verify_safe_defaults()
     audit_artifact_paths(
         [ROOT / "reports" / "memory-system-optimization-acceptance"]
     )
     if not args.skip_tests:
         run_repository_gates(python=sys.executable)
+    # Compatibility output for the historical memory-system acceptance
+    # contract. Passing adaptive traceability here is a fail-closed preflight;
+    # it does not declare adaptive Task 10 repository readiness.
     print("READY_FOR_MEMORY_SYSTEM_SHADOW")
     print("PRODUCTION_OBSERVATION=NOT_RUN")
     return 0

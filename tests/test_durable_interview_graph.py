@@ -1,6 +1,8 @@
+from copy import deepcopy
 from dataclasses import dataclass
 import re
 from threading import Event
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -12,11 +14,28 @@ from psycopg2 import sql
 from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
     GenerationLeaseHeartbeat,
+    _build_examiner_context_selection,
     build_durable_interview_graph,
+    build_durable_interview_graph_for_schema,
     generate_followup,
     project_state_node,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
+from app.graphs.durable_interview_state_v2 import (
+    DurableInterviewStateV2,
+    make_durable_initial_state_v2,
+)
+from app.services.context_artifacts import ContextCompressorConfig
+from app.services.context_budget import ContextBudgetResolver
+from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_runner import ContextCompressionRunner
+from app.services.context_runtime import ContextRuntime
+from app.services.in_memory_context_artifact_store import (
+    InMemoryContextArtifactStore,
+)
+from app.services.interview_context_artifacts import (
+    InterviewContextArtifactCoordinator,
+)
 from app.services.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
@@ -27,6 +46,11 @@ from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.agents.examiner import fallback_followup
 from app.services.report import ReportGenerationFailed
+from app.services.model_capabilities import ModelRuntimeProfile
+from app.services.token_estimation import (
+    ConservativeUtf8TokenEstimator,
+    TokenEstimatorResolution,
+)
 from app.services.workflow_thread_lock import GenerationLeaseLost
 from tests.test_durable_interview_state import make_start_kwargs
 from tests.test_postgres_session_store import require_dsn
@@ -149,6 +173,320 @@ def make_initial_input():
     return make_durable_initial_state("s1", kwargs["plan"])
 
 
+class CharacterizationGenerationStore:
+    def __init__(self):
+        self.completed = []
+
+    def start_or_reclaim_attempt(self, *_args, **_kwargs):
+        return SimpleNamespace(
+            generation_id="generation-characterization",
+            attempt_number=1,
+            lease_token="lease-characterization",
+            fencing_version=1,
+        )
+
+    def assert_attempt_owned(self, *_args, **_kwargs):
+        return True
+
+    def append_chunk(self, *_args, **_kwargs):
+        return None
+
+    def complete_attempt(self, *_args, **_kwargs):
+        self.completed.append((_args, _kwargs))
+
+    def fail_attempt(self, *_args, **_kwargs):
+        raise AssertionError("characterization generation must not fail")
+
+
+class CharacterizationHeartbeat:
+    def __init__(self, **_kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def ensure_owned(self):
+        return None
+
+
+class CharacterizationCoalescer:
+    def add(self, value):
+        return value
+
+    def flush(self):
+        return None
+
+
+class CapturingProviderExaminer:
+    def __init__(self):
+        self.contexts = []
+
+    def stream_followup_attempt(self, *, context, execution_context):
+        self.contexts.append(deepcopy(context))
+        yield "Generated follow-up."
+
+
+class CountingConversationCompressor:
+    def __init__(self):
+        self.calls = []
+
+    def compress(
+        self,
+        *,
+        policy,
+        source_segments,
+        expected_question_id_sha256,
+        execution_context,
+    ):
+        self.calls.append(
+            (policy, tuple(source_segments), execution_context)
+        )
+        source = source_segments[0]
+        return {
+            "schema_version": "question-conversation-v1",
+            "question_id_sha256": expected_question_id_sha256,
+            "units": [
+                {
+                    "summary": "Earlier interview context.",
+                    "source_segment_sha256": [source.content_sha256],
+                    "supporting_excerpts": [source.content],
+                }
+            ],
+            "unresolved_topics": [],
+            "source_message_count": len(source_segments),
+        }
+
+
+def _characterization_messages():
+    return [
+        {"role": "interviewer", "content": "old question", "question_id": "q1"},
+        {"role": "candidate", "content": "old answer", "question_id": "q1"},
+        {
+            "role": "interviewer",
+            "content": "middle question",
+            "question_id": "q2",
+        },
+        {"role": "candidate", "content": "middle answer", "question_id": "q2"},
+        {
+            "role": "interviewer",
+            "content": "current question",
+            "question_id": "q3",
+        },
+        {"role": "candidate", "content": "current answer", "question_id": "q3"},
+    ]
+
+
+def _provider_state(messages, *, workflow_engine="langgraph-v1"):
+    state = make_initial_input()
+    state.update(
+        {
+            "workflow_engine": workflow_engine,
+            "graph_schema_version": workflow_engine,
+            "messages": deepcopy(messages),
+            "generation_id": "generation-characterization",
+            "generation_attempt": 1,
+            "active_command_id": "command-characterization",
+            "state_version": 3,
+        }
+    )
+    if workflow_engine == "langgraph-v2":
+        state.update(
+            {
+                "active_context_artifact_ref": None,
+                "active_context_artifact_sha256": None,
+                "active_context_artifact_type": None,
+                "active_context_policy_version": None,
+                "context_route": None,
+                "memory_policy_version": "question-conversation-v1",
+            }
+        )
+    return state
+
+
+def _run_provider_characterization(
+    state,
+    *,
+    context_runtime=None,
+    context_artifact_coordinator=None,
+):
+    examiner = CapturingProviderExaminer()
+    deps = DurableInterviewGraphDependencies(
+        workflow_store=FakeWorkflowStore(),
+        generation_store=CharacterizationGenerationStore(),
+        examiner=examiner,
+        context_runtime=context_runtime,
+        context_artifact_coordinator=context_artifact_coordinator,
+        coalescer_factory=CharacterizationCoalescer,
+        generation_heartbeat_factory=CharacterizationHeartbeat,
+    )
+
+    result = generate_followup(state, deps)
+
+    assert result["generation_outcome"] == "completed"
+    assert len(examiner.contexts) == 1
+    return examiner.contexts[0]
+
+
+@pytest.mark.parametrize(
+    ("source_count", "expected_contents"),
+    (
+        pytest.param(
+            2,
+            ["old question", "old answer"],
+            id="short",
+        ),
+        pytest.param(
+            4,
+            ["old question", "old answer", "middle question", "middle answer"],
+            id="medium",
+        ),
+        pytest.param(
+            6,
+            [
+                "middle question",
+                "middle answer",
+                "current question",
+                "current answer",
+            ],
+            id="lossy",
+        ),
+    ),
+)
+def test_final_examiner_provider_context_is_pinned(
+    monkeypatch,
+    source_count,
+    expected_contents,
+):
+    monkeypatch.setattr(
+        "app.graphs.durable_interview_graph.context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    source = _characterization_messages()[:source_count]
+    original = deepcopy(source)
+
+    provider_context = _run_provider_characterization(
+        _provider_state(source)
+    )
+
+    assert provider_context == [
+        {
+            "role": message["role"],
+            "content": message["content"],
+        }
+        for message in source[-4:]
+    ]
+    assert [message["content"] for message in provider_context] == (
+        expected_contents
+    )
+    assert source == original
+
+
+def _lossy_context_runtime():
+    estimator = ConservativeUtf8TokenEstimator()
+    return ContextRuntime(
+        model_profile=ModelRuntimeProfile(
+            provider="test",
+            model="unknown",
+            context_window_tokens=1_300,
+            protocol_reserve_tokens=0,
+            structured_output_reserve_tokens=0,
+            safety_margin_tokens=0,
+        ),
+        estimator_resolution=TokenEstimatorResolution(
+            estimator=estimator,
+            estimator_path="conservative_utf8",
+            fallback_used=True,
+        ),
+        budget_resolver=ContextBudgetResolver(),
+    )
+
+
+def _conversation_coordinator(*, gates, agent, context_runtime):
+    return InterviewContextArtifactCoordinator(
+        runner=ContextCompressionRunner(
+            InMemoryContextArtifactStore(),
+            lease_seconds=30,
+        ),
+        compressor_agent=agent,
+        compressor_config=ContextCompressorConfig(
+            provider="openai-compatible",
+            model="gpt-4o",
+            base_url_identity="https://api.example.com/v1",
+            temperature=0,
+            request_timeout_seconds=30,
+            timeout_policy_version="timeout-v1",
+            max_retries=1,
+            structured_output_mode="json_schema",
+            tokenizer_family=None,
+        ),
+        context_runtime=context_runtime,
+        gates=gates,
+        deployment_scope="single-tenant-test",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_compressor_calls"),
+    (
+        pytest.param("disabled", 0, id="disabled"),
+        pytest.param("shadow", 1, id="shadow"),
+        pytest.param("consume", 1, id="consume"),
+    ),
+)
+def test_compression_mode_pins_real_calls_and_final_provider_input(
+    monkeypatch,
+    mode,
+    expected_compressor_calls,
+):
+    monkeypatch.setattr(
+        "app.graphs.durable_interview_graph.context_enforcement_enabled",
+        lambda _operation: True,
+    )
+    gates = {
+        "disabled": ContextCompressionGates(),
+        "shadow": ContextCompressionGates(shadow_enabled=True),
+        "consume": ContextCompressionGates(interview_enabled=True),
+    }[mode]
+    context_runtime = _lossy_context_runtime()
+    agent = CountingConversationCompressor()
+    coordinator = _conversation_coordinator(
+        gates=gates,
+        agent=agent,
+        context_runtime=context_runtime,
+    )
+    source = _characterization_messages()
+    state = _provider_state(source, workflow_engine="langgraph-v2")
+
+    deterministic_context, stats = _build_examiner_context_selection(
+        state,
+        None,
+        context_runtime,
+    )
+    assert stats.dropped_message_count > 0
+
+    provider_context = _run_provider_characterization(
+        state,
+        context_runtime=context_runtime,
+        context_artifact_coordinator=coordinator,
+    )
+
+    assert len(agent.calls) == expected_compressor_calls
+    if mode in {"disabled", "shadow"}:
+        assert provider_context == deterministic_context
+    else:
+        assert provider_context[0] == {
+            "role": "conversation_summary",
+            "content": "Earlier interview context.",
+        }
+        assert provider_context[1:] == [
+            {"role": item["role"], "content": item["content"]}
+            for item in source[-4:]
+        ]
+
+
 def test_graph_initializes_then_waits_for_answer():
     graph, config, _ = make_graph()
 
@@ -193,6 +531,86 @@ def test_conflicted_command_replay_is_idempotent():
 
     assert graph.get_state(config).next == ("wait_for_answer",)
     assert deps.workflow_store.marked_conflicts == []
+
+
+def _recovery_dependencies(store):
+    def project_state(state):
+        return {
+            "state_version": state["state_version"] + 1,
+            "command_outcome": None,
+        }
+
+    return DurableInterviewGraphDependencies(store, project_state)
+
+
+def _assert_graph_rebuild_recovers(*, graph_version):
+    kwargs = make_start_kwargs()
+    store = FakeWorkflowStore()
+    deps = _recovery_dependencies(store)
+    saver = InMemorySaver()
+    config = {
+        "configurable": {
+            "thread_id": f"checkpoint-rebuild-{graph_version}"
+        }
+    }
+    if graph_version == "langgraph-v1":
+        initial = make_durable_initial_state("s1", kwargs["plan"])
+        first = build_durable_interview_graph(deps, checkpointer=saver)
+        rebuild = lambda: build_durable_interview_graph(
+            deps,
+            checkpointer=saver,
+        )
+    else:
+        initial = make_durable_initial_state_v2(
+            "s1",
+            kwargs["plan"],
+            memory_policy_version="question-conversation-v1",
+        )
+        first = build_durable_interview_graph_for_schema(
+            deps,
+            state_schema=DurableInterviewStateV2,
+            checkpointer=saver,
+        )
+        rebuild = lambda: build_durable_interview_graph_for_schema(
+            deps,
+            state_schema=DurableInterviewStateV2,
+            checkpointer=saver,
+        )
+
+    first.invoke(initial, config=config)
+    before = first.get_state(config)
+    recovered = rebuild()
+    after = recovered.get_state(config)
+
+    assert after.next == before.next == ("wait_for_answer",)
+    assert after.values["workflow_engine"] == graph_version
+    assert after.values["graph_schema_version"] == graph_version
+    assert after.values["messages"] == before.values["messages"]
+    assert after.values["state_version"] == before.values["state_version"]
+
+    store.seed_command("cmd-recovered", status="applied")
+    recovered.invoke(
+        Command(
+            resume={
+                "kind": "answer_command",
+                "command_id": "cmd-recovered",
+            }
+        ),
+        config=config,
+    )
+
+    final = recovered.get_state(config)
+    assert final.next == ("wait_for_answer",)
+    assert final.values["messages"] == before.values["messages"]
+    assert store.loaded_commands == [("s1", "cmd-recovered")]
+
+
+def test_v1_checkpoint_recovers_after_graph_rebuild():
+    _assert_graph_rebuild_recovers(graph_version="langgraph-v1")
+
+
+def test_v2_checkpoint_recovers_after_graph_rebuild():
+    _assert_graph_rebuild_recovers(graph_version="langgraph-v2")
 
 
 def test_generation_heartbeat_is_throttled_independently_of_chunk_flushes():

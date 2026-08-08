@@ -14,6 +14,7 @@ from app.services.context_budget import (
     ContextSelectionBudget,
     FOLLOWUP_CONTEXT_POLICY,
 )
+from app.services.memory_config import SelectionMemoryConfig
 from app.services.token_estimation import ConservativeUtf8TokenEstimator
 
 
@@ -137,6 +138,121 @@ def test_build_interview_context_uses_resolved_small_window_budget():
     assert estimator.estimate_messages(selected, model="unknown") <= 200
     assert any(item["role"] == "candidate" for item in selected)
     assert stats.dropped_message_count > 0 or stats.truncated_message_count > 0
+
+
+@pytest.mark.parametrize(
+    (
+        "token_budget",
+        "expected_contents",
+        "expected_selected",
+        "expected_dropped",
+    ),
+    (
+        (
+            160,
+            [
+                "old question",
+                "old answer",
+                "middle question",
+                "middle answer",
+                "current question",
+                "current answer",
+            ],
+            6,
+            0,
+        ),
+        (
+            110,
+            [
+                "middle question",
+                "middle answer",
+                "current question",
+                "current answer",
+            ],
+            4,
+            2,
+        ),
+        (
+            60,
+            ["current question", "current answer"],
+            2,
+            4,
+        ),
+    ),
+)
+def test_interview_provider_input_characterization_before_v121_changes(
+    token_budget,
+    expected_contents,
+    expected_selected,
+    expected_dropped,
+):
+    messages = [
+        {"role": "interviewer", "content": "old question", "question_id": "q1"},
+        {"role": "candidate", "content": "old answer", "question_id": "q1"},
+        {
+            "role": "interviewer",
+            "content": "middle question",
+            "question_id": "q2",
+        },
+        {"role": "candidate", "content": "middle answer", "question_id": "q2"},
+        {
+            "role": "interviewer",
+            "content": "current question",
+            "question_id": "q3",
+        },
+        {"role": "candidate", "content": "current answer", "question_id": "q3"},
+    ]
+
+    selected, stats = select_interview_messages(
+        messages,
+        current_question_id="q3",
+        token_budget=token_budget,
+        max_single_message_tokens=100,
+        estimator=ConservativeUtf8TokenEstimator(),
+        model="unknown",
+    )
+
+    assert [message["content"] for message in selected] == expected_contents
+    assert stats.source_message_count == 6
+    assert stats.selected_message_count == expected_selected
+    assert stats.dropped_message_count == expected_dropped
+    assert stats.truncated_message_count == 0
+
+
+def test_declared_exact_recent_questions_does_not_change_current_selection():
+    configs = [
+        SelectionMemoryConfig(exact_recent_questions=value)
+        for value in (1, 3)
+    ]
+    messages = [
+        {"role": "interviewer", "content": "q1", "question_id": "q1"},
+        {"role": "candidate", "content": "a1", "question_id": "q1"},
+        {"role": "interviewer", "content": "q2", "question_id": "q2"},
+        {"role": "candidate", "content": "a2", "question_id": "q2"},
+        {"role": "interviewer", "content": "q3", "question_id": "q3"},
+        {"role": "candidate", "content": "a3", "question_id": "q3"},
+    ]
+
+    results = [
+        select_interview_messages(
+            messages,
+            current_question_id="q3",
+            token_budget=60,
+            max_single_message_tokens=100,
+            estimator=ConservativeUtf8TokenEstimator(),
+            model="unknown",
+        )
+        for _config in configs
+    ]
+
+    assert [config.exact_recent_questions for config in configs] == [1, 3]
+    assert results[0] == results[1]
+    assert [message["content"] for message in results[0][0]] == [
+        "q2",
+        "a2",
+        "q3",
+        "a3",
+    ]
 
 
 def evidence(content: str) -> dict[str, str]:

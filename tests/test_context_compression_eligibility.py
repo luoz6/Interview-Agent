@@ -3,6 +3,7 @@ from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
 from app.services.context_selection import ContextSelectionStats
+from app.services.memory_config import SelectionMemoryConfig
 
 
 def evaluate(stats, *, target="question_conversation"):
@@ -67,3 +68,22 @@ def test_missing_selection_stats_fails_safe_to_not_eligible():
 
     assert result.eligible is False
     assert result.reason is None
+
+
+def test_declared_eligibility_utilization_threshold_does_not_change_current_policy():
+    thresholds = [
+        SelectionMemoryConfig(eligibility_utilization_basis_points=value)
+        for value in (1, 10_000)
+    ]
+    no_loss = ContextSelectionStats(
+        source_message_count=2,
+        selected_message_count=2,
+    )
+
+    results = [evaluate(no_loss) for _config in thresholds]
+
+    assert [
+        config.eligibility_utilization_basis_points for config in thresholds
+    ] == [1, 10_000]
+    assert [result.eligible for result in results] == [False, False]
+    assert [result.reason for result in results] == [None, None]
