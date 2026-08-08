@@ -28,6 +28,7 @@ from app.services.interview_plan_revision import (
 from app.services.interview_plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
+from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.llm import OpenAIInterviewLLM
 from app.services.prep import (
     bind_prepared_plan_revision,
@@ -599,6 +600,7 @@ def test_trace_hash_allowlist_accepts_only_canonical_sha256_values():
 
 def test_prep_api_persists_requested_configuration_and_same_plan_hash(monkeypatch):
     store = InMemoryInterviewPlanRevisionStore()
+    product_plan_store = InMemoryPrepPlanStore()
     llm = ConfigAwarePlanLLM()
     recorder = CapturingRecorder()
     runner = AgentExecutionRunner(recorder=recorder)
@@ -608,6 +610,9 @@ def test_prep_api_persists_requested_configuration_and_same_plan_hash(monkeypatc
         focus="system_design",
     )
     app.dependency_overrides[route_module.get_plan_revision_store] = lambda: store
+    app.dependency_overrides[route_module.get_prep_plan_store] = (
+        lambda: product_plan_store
+    )
     monkeypatch.setattr(
         route_module,
         "get_agent_execution_runner",
@@ -653,8 +658,11 @@ def test_prep_api_persists_requested_configuration_and_same_plan_hash(monkeypatc
     assert response.status_code == 200
     payload = response.json()
     saved = store.get_by_id(payload["plan_revision_id"])
+    persisted_product_plan = product_plan_store.get(payload["plan_id"])
+    assert persisted_product_plan["questions"] == payload["questions"]
+    assert product_plan_store.version_count(payload["plan_id"]) == 1
     assert len(payload["plan"]["questions"]) == 9
-    assert [item["id"] for item in payload["questions"]] == [
+    assert [item["question_id"] for item in payload["questions"]] == [
         item["question_id"] for item in payload["plan"]["questions"]
     ]
     assert [item["id"] for item in payload["legacy_plan"]["questions"]] == [

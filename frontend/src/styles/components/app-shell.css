@@ -544,7 +544,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--start-space-2xs);
-  min-height: 2.25rem;
+  min-width: var(--start-control-height-touch);
+  min-height: var(--start-control-height-touch);
   padding: 0 var(--start-space-xs);
   border-color: transparent;
   border-radius: var(--start-radius-control);
@@ -1422,12 +1423,14 @@
 
 .start-plan-order-actions {
   display: inline-grid;
-  grid-template-columns: repeat(2, 2.25rem);
+  grid-template-columns: repeat(2, var(--start-control-height-touch));
   gap: var(--start-space-3xs);
 }
 
 .start-plan-order-actions button {
-  width: 2.25rem;
+  width: var(--start-control-height-touch);
+  min-width: var(--start-control-height-touch);
+  min-height: var(--start-control-height-touch);
   padding: 0;
 }
 

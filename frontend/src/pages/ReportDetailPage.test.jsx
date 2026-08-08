@@ -130,7 +130,7 @@ afterEach(() => {
 });
 
 describe("ReportDetailPage candidate information architecture", () => {
-  it("keeps six candidate sections primary and diagnostics folded", async () => {
+  it("keeps six candidate sections primary and expands only enabled diagnostics", async () => {
     render(<ReportDetailPage showDiagnostics />);
 
     const primaryHeadings = [
@@ -144,7 +144,7 @@ describe("ReportDetailPage candidate information architecture", () => {
     primaryHeadings.forEach((heading) => expect(heading.closest("details")).toBeNull());
 
     const appendix = screen.getByText("技术附录").closest("details");
-    expect(appendix).not.toHaveAttribute("open");
+    expect(appendix).toHaveAttribute("open");
     expect(appendix).toHaveTextContent("逐题评审与检索路径");
     expect(appendix).toHaveTextContent("Agent 执行与运行事件");
     expect(appendix).toHaveTextContent("Report Artifact");
@@ -154,6 +154,7 @@ describe("ReportDetailPage candidate information architecture", () => {
     getJson.mockClear();
     render(<ReportDetailPage showDiagnostics={false} />);
     await screen.findByRole("heading", { name: "01 · 本轮结论与评分状态" });
+    expect(screen.getByText("技术附录").closest("details")).not.toHaveAttribute("open");
     expect(getJson.mock.calls.some(([path]) => (
       path.includes("question-evaluations")
       || path.includes("agent-runs")

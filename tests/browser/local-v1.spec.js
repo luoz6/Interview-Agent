@@ -12,18 +12,29 @@ async function fillPrepSources(page, jobDescription = jd, resumeText = resume) {
   await page.getByLabel("简历内容").fill(resumeText);
 }
 
+async function openEvidencePanel(page) {
+  await page.getByRole("tab", { name: "证据", exact: true }).click();
+  const evidence = page.getByRole("region", { name: "知识证据" });
+  await expect(evidence).toBeVisible();
+  return evidence;
+}
+
 async function startInterview(page) {
   await page.goto("/prep");
   await fillPrepSources(page);
   await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.locator(".start-plan-question")).toHaveCount(5);
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence.locator("code")).toContainText("redis_consistency");
+  const evidence = await openEvidencePanel(page);
   const prepEvidenceIds = ["redis_consistency", "system_design_backend"];
+  for (const evidenceId of prepEvidenceIds) {
+    await expect(evidence.locator(`[data-evidence-id="${evidenceId}"]`)).toBeVisible();
+  }
+  await expect(evidence.locator("[data-evidence-id='redis_consistency'] code")).toContainText("redis_consistency");
   await page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
-  await expect(page.getByLabel("当前会话：面试进行中")).toBeVisible();
+  const runtimeStatus = page.getByRole("status").filter({ hasText: "当前会话" });
+  await expect(runtimeStatus).toHaveCount(1);
+  await expect(runtimeStatus).toContainText("面试进行中");
   return { sessionId: new URL(page.url()).searchParams.get("session_id"), prepEvidenceIds };
 }
 
@@ -60,9 +71,8 @@ test("React preparation evidence is visible and bounded on mobile", async ({ pag
   await page.goto("/prep");
   await fillPrepSources(page);
   await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence.locator("code")).toContainText("redis_consistency");
+  const evidence = await openEvidencePanel(page);
+  await expect(evidence.locator("[data-evidence-id='redis_consistency'] code")).toContainText("redis_consistency");
   const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
   expect(widths.document).toBeLessThanOrEqual(widths.viewport);
   await expect(page.locator("body")).not.toContainText("Internal benchmark answer");
@@ -72,9 +82,9 @@ test("degraded knowledge is explicit and report completes without fake reference
   await page.goto("/prep");
   await fillPrepSources(page, "Backend Redis role simulate degraded", "Built Redis APIs");
   await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence).toContainText("知识证据不可用");
+  const evidence = await openEvidencePanel(page);
+  await expect(evidence).toContainText("知识检索已降级");
+  await expect(evidence.locator("[data-evidence-id]")).toHaveCount(0);
   await expect(evidence.locator("code")).toHaveCount(0);
   await page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);

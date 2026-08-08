@@ -129,7 +129,7 @@ test("leave and continue preserves the active session without finishing it", asy
   expect(finishWrites).toBe(0);
 });
 
-test("bootstrap recovery retries with the same pending start command", async ({ page }) => {
+test("bootstrap recovery reuses one revision-bound request across explicit retries", async ({ page }) => {
   await preparePlan(page);
   const attempts = [];
   await page.route("**/api/interviews", async (route) => {
@@ -163,14 +163,22 @@ test("bootstrap recovery retries with the same pending start command", async ({ 
     });
   });
 
-  await page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ }).click();
-  await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(3);
-  expect(new Set(attempts.map((item) => item.command_id)).size).toBe(1);
-  expect(attempts[0].command_id.replace(/^start_/, "")).toMatch(uuidPattern);
-  expect(new Set(attempts.map((item) => item.expected_plan_version)).size).toBe(1);
+  const start = page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ });
+  for (let expectedAttempts = 1; expectedAttempts <= 3; expectedAttempts += 1) {
+    await start.click();
+    await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(expectedAttempts);
+    if (expectedAttempts < 3) {
+      await expect(page.getByRole("alert")).toContainText("会话正在恢复初始化。");
+    }
+  }
+  expect(new Set(attempts.map((item) => item.request_id)).size).toBe(1);
+  expect(attempts[0].request_id).toMatch(uuidPattern);
+  expect(new Set(attempts.map((item) => item.plan_revision_id)).size).toBe(1);
+  expect(new Set(attempts.map((item) => item.expected_revision)).size).toBe(1);
+  expect(new Set(attempts.map((item) => item.plan_sha256)).size).toBe(1);
   await expect(page).toHaveURL(/\/interview\?session_id=recovering-session/);
   const pendingKeys = await page.evaluate(() => (
-    Object.keys(localStorage).filter((key) => key.startsWith("interview-agent:pending-start:"))
+    Object.keys(sessionStorage).filter((key) => key.startsWith("interview-agent:request-id:session-start:"))
   ));
   expect(pendingKeys).toEqual([]);
 });

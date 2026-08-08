@@ -139,6 +139,29 @@ describe("StartPage editable plan workflow", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the live generate action retryable after a request failure", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Backend resume");
+
+    fetchMock.mockImplementationOnce(() =>
+      response({ detail: { code: "provider_timeout", message: "Timed out" } }, 503),
+    );
+    const generate = screen.getByRole("button", { name: "生成面试计划" });
+    await user.click(generate);
+
+    expect(await screen.findByText("Timed out")).toBeInTheDocument();
+    expect(generate).toBeEnabled();
+
+    fetchMock.mockImplementationOnce(() => response(revisionResponse(1)));
+    await user.click(generate);
+
+    await screen.findByText("R1");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps start disabled for a local draft and adopts the successful server revision", async () => {
     const user = userEvent.setup();
     render(<StartPage />);

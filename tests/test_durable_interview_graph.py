@@ -253,10 +253,11 @@ class CountingConversationCompressor:
         policy,
         source_segments,
         expected_question_id_sha256,
+        intent,
         execution_context,
     ):
         self.calls.append(
-            (policy, tuple(source_segments), execution_context)
+            (policy, tuple(source_segments), intent, execution_context)
         )
         source = source_segments[0]
         return {
@@ -506,6 +507,12 @@ def test_compression_mode_pins_real_calls_and_final_provider_input(
     )
 
     assert len(agent.calls) == expected_compressor_calls
+    if agent.calls:
+        # This characterization intentionally exercises the legacy identity
+        # path. The coordinator must still call the compressor through the
+        # task-intent-aware protocol, with the disabled intent represented as
+        # an explicit None value.
+        assert agent.calls[0][2] is None
     target_instruction = _characterization_target_instruction()
     if mode in {"disabled", "shadow"}:
         assert provider_context == [target_instruction, *deterministic_context]

@@ -1367,7 +1367,7 @@
   margin: var(--start-space-xs) 0 0;
   color: var(--start-color-ink);
   font-family: var(--start-font-display);
-  font-size: var(--start-text-md);
+  font-size: var(--start-text-title-sm);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }

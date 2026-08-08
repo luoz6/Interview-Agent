@@ -50,6 +50,13 @@ async function fillPrepSources(page, jd = jobDescription, resume = resumeText) {
   await page.getByLabel("简历内容").fill(resume);
 }
 
+async function openEvidencePanel(page) {
+  await page.getByRole("tab", { name: "证据", exact: true }).click();
+  const evidence = page.getByRole("region", { name: "知识证据" });
+  await expect(evidence).toBeVisible();
+  return evidence;
+}
+
 async function expectGeometry(page) {
   await expect(page.locator(".start-app-root")).toBeVisible();
   await expect(page.locator("main")).toBeVisible();
@@ -71,19 +78,22 @@ async function expectGeometry(page) {
 
 test("React preparation validates imports and renders the authoritative plan", async ({ page }) => {
   await page.goto("/prep");
-  await page.locator('input[type="file"]').first().setInputFiles({
+  const launch = page.getByRole("button", { name: "开始本次面试" });
+  await expect(launch).toBeDisabled();
+  await page.getByLabel("导入当前岗位文档").setInputFiles({
     name: "role.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("unsupported"),
   });
   await expect(page.getByRole("alert")).toContainText("复制其中的文本后粘贴");
-  await page.locator('input[type="file"]').first().setInputFiles({
+  await page.getByLabel("导入当前岗位文档").setInputFiles({
     name: "role.md",
     mimeType: "text/markdown",
     buffer: Buffer.from(jobDescription),
   });
   await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
-  await page.locator('input[type="file"]').nth(1).setInputFiles({
+  await page.getByRole("tab", { name: /候选人经历/ }).click();
+  await page.getByLabel("导入当前经历文档").setInputFiles({
     name: "resume.txt",
     mimeType: "text/plain",
     buffer: Buffer.from(resumeText),
@@ -91,10 +101,12 @@ test("React preparation validates imports and renders the authoritative plan", a
   await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
   await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.locator(".start-plan-question")).toHaveCount(5);
-  await expect(page.locator(".start-prep-launch-bar")).toContainText("20–30 分钟");
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence.locator("code")).toContainText("redis_consistency");
+  const durationMetric = page.locator(".start-plan-metrics > div").filter({ hasText: "时长" });
+  await expect(durationMetric.locator("dt")).toHaveText("时长");
+  await expect(durationMetric.locator("dd")).toHaveText(/^\d+ 分钟$/);
+  await expect(launch).toBeEnabled();
+  const evidence = await openEvidencePanel(page);
+  await expect(evidence.locator("[data-evidence-id='redis_consistency'] code")).toContainText("redis_consistency");
 });
 
 test("preparation validation focuses the missing document and uses restrained feedback", async ({ page }) => {
@@ -124,9 +136,11 @@ test("primary preparation action preserves its hierarchy while generating", asyn
     await new Promise((resolve) => setTimeout(resolve, 500));
     await route.continue();
   });
-  const action = page.locator(".start-prep-primary-action");
+  const action = page.getByRole("button", { name: /^(?:生成|正在生成)面试计划$/ });
+  await expect(action).toHaveClass(/\bbutton-primary\b/);
   await action.click();
   await expect(action).toHaveAttribute("aria-busy", "true");
+  await expect(action).toBeDisabled();
   const state = await action.evaluate((element) => ({
     height: element.getBoundingClientRect().height,
     opacity: Number(getComputedStyle(element).opacity),
@@ -158,7 +172,9 @@ test("secondary draft action stays identifiable while saving", async ({ page }) 
   expect(state.cursor).toBe("wait");
   expect(state.opacity).toBe(1);
   expect(state.iconCount).toBe(1);
-  await expect(page.locator(".start-notice")).toContainText("草稿已保存在本机浏览器中");
+  await expect(page.locator(".start-notice")).toContainText(
+    /草稿已(?:持久保存|进程内临时保存)；它不会跨浏览器或跨设备同步。/,
+  );
 });
 
 test("destructive canvas clearing requires an explicit confirmation dialog", async ({ page }) => {
@@ -166,7 +182,9 @@ test("destructive canvas clearing requires an explicit confirmation dialog", asy
   await fillPrepSources(page);
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("interview-agent:draft-id"))).not.toBeNull();
-  await expect(page.locator(".start-prep-draft-state")).toContainText(/持久保存|进程内临时保存/);
+  await expect(page.getByRole("contentinfo", { name: "工作区状态" })).toContainText(
+    /草稿(?:持久保存|进程内临时保存)/,
+  );
 
   const clear = page.getByRole("button", { name: "清空当前画布" });
   await clear.click();
@@ -191,6 +209,7 @@ test("destructive canvas clearing requires an explicit confirmation dialog", asy
   await expect(restoreDialog).toContainText("当前画布中的岗位 JD 和候选人经历会被替换");
   await restoreDialog.getByRole("button", { name: "确认恢复草稿" }).click();
   await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await page.getByRole("tab", { name: /候选人经历/ }).click();
   await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
 });
 
@@ -198,9 +217,9 @@ test("degraded knowledge stays honest without blocking launch", async ({ page })
   await page.goto("/prep");
   await fillPrepSources(page, `${jobDescription} simulate degraded`);
   await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence).toContainText("知识证据不可用");
+  const evidence = await openEvidencePanel(page);
+  await expect(evidence).toContainText("知识检索已降级");
+  await expect(evidence.locator("[data-evidence-id]")).toHaveCount(0);
   await expect(evidence.locator("code")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ })).toBeEnabled();
 });

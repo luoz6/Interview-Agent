@@ -37,7 +37,8 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
       const overview = required(".report-detail-overview");
       const score = required(".report-detail-score-mark");
       const title = required("#report-detail-title");
-      const referencePanel = required(".report-detail-dimension-panel");
+      const coveragePanel = required("#coverage");
+      const technicalAppendix = required(".report-detail-technical-appendix");
       const scoreTrack = document.querySelector(".report-detail-score-track > span");
       const dimensionTrack = document.querySelector(".report-detail-dimension-track > span");
       const workspaceRect = workspace.getBoundingClientRect();
@@ -61,7 +62,7 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         dimensionRows: document.querySelectorAll(
           ".report-detail-dimensions > li",
         ).length,
-        introRevealCount: document.querySelectorAll(
+        primaryRevealCount: document.querySelectorAll(
           "[data-report-reveal]",
         ).length,
         horizontalOverflow:
@@ -84,10 +85,18 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           '.report-detail-dimension-track[role="progressbar"]',
         ).length,
         dimensionAnimation: dimensionTrack ? getComputedStyle(dimensionTrack).animationName : "none",
-        referencePanelBackground: getComputedStyle(referencePanel).backgroundColor,
+        coveragePanelBackground: getComputedStyle(coveragePanel).backgroundColor,
         workspaceColor: getComputedStyle(workspace).color,
-        reliabilityVisible: Boolean(document.querySelector(".report-detail-reliability")),
-        practiceVisible: Boolean(document.querySelector("#practice")),
+        candidateSectionCount: document.querySelectorAll(
+          "#overview, #coverage, #strengths, #actions, #questions, #limitations",
+        ).length,
+        technicalAppendixCount: document.querySelectorAll(
+          ".report-detail-technical-appendix",
+        ).length,
+        technicalAppendixOpen: technicalAppendix.open,
+        revisionHistoryCount: document.querySelectorAll(
+          "#report-revision-history-title",
+        ).length,
         runtimeTraceCount: document.querySelectorAll("#runtime-trace").length,
         evaluationLedgerCount: document.querySelectorAll(".report-detail-evaluation-ledger").length,
         inspectorScoreCount: document.querySelectorAll(".report-detail-inspector-score").length,
@@ -125,23 +134,25 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.scoreTrackAnimation).toBe("none");
     expect(detail.scoreOrbitCount).toBe(0);
     expect(detail.dimensionRows).toBe(5);
-    expect(detail.introRevealCount).toBe(4);
+    expect(detail.primaryRevealCount).toBe(6);
     expect(detail.horizontalOverflow).toBe(false);
     expect(detail.wrappedActionLabels).toBe(0);
-    expect(detail.railIconCount).toBe(5);
-    expect(detail.sectionIconCount).toBe(7);
+    expect(detail.railIconCount).toBe(6);
+    expect(detail.sectionIconCount).toBe(5);
     expect(detail.scoreAnimations).toContain("report-detail-score-enter");
     expect(detail.dimensionTrackCount).toBe(5);
     expect(detail.dimensionProgressCount).toBe(0);
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
-    expect(detail.referencePanelBackground).not.toBe("");
+    expect(detail.coveragePanelBackground).not.toBe("");
     expect(detail.workspaceColor).not.toBe("");
-    expect(detail.reliabilityVisible).toBe(true);
-    expect(detail.practiceVisible).toBe(true);
+    expect(detail.candidateSectionCount).toBe(6);
+    expect(detail.technicalAppendixCount).toBe(1);
+    expect(detail.technicalAppendixOpen).toBe(false);
+    expect(detail.revisionHistoryCount).toBe(1);
     expect(detail.runtimeTraceCount).toBe(0);
     expect(detail.evaluationLedgerCount).toBe(0);
-    expect(detail.inspectorScoreCount).toBe(0);
-    expect(detail.statusBarCount).toBe(0);
+    expect(detail.inspectorScoreCount).toBe(1);
+    expect(detail.statusBarCount).toBe(1);
     expect(detail.legacyTraceIdCount).toBe(0);
     expect(detail.traceEmptyCount).toBe(0);
     expect(detail.traceGridCount).toBe(0);
@@ -180,7 +191,10 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载完整报告" }).click();
   await downloadPromise;
-  await expect(page.locator(".report-detail-download-action")).toContainText("下载已开始");
+  await expect(
+    page.locator(".report-detail-inspector-actions")
+      .getByRole("button", { name: "下载已开始" }),
+  ).toBeVisible();
   await expect(firstFeedback).not.toHaveAttribute("open", "");
 });
 
@@ -204,7 +218,10 @@ test("report detail error state explains the failure and reloads in place", asyn
   });
 
   await page.goto("/report-detail?session_id=" + sessionId);
-  await expect(page.locator(".report-detail-error")).toContainText("报告存储暂时不可用");
+  const errorState = page.getByRole("alert");
+  await expect(errorState.getByRole("heading", { name: "报告暂时无法读取" })).toBeVisible();
+  await expect(errorState).toContainText("服务正在恢复中，请稍后重试。");
+  await expect(errorState).not.toContainText("报告存储暂时不可用");
   const reload = page.getByRole("button", { name: "重新加载" });
   await expect(reload).toBeEnabled();
   await reload.click();

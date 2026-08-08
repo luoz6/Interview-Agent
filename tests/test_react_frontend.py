@@ -28,9 +28,6 @@ def test_frontend_is_an_independent_vite_react_service():
 
 def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states():
     prep = read(SRC / "pages" / "StartPage.jsx")
-    plan_editor = read(SRC / "components" / "PlanEditor.jsx")
-    plan_question = read(SRC / "components" / "PlanQuestionCard.jsx")
-    prep_inspector = read(SRC / "components" / "PrepInspector.jsx")
     mobile_nav = read(SRC / "components" / "MobileNav.jsx")
     tokens = read(SRC / "styles" / "tokens.css")
     css = read(SRC / "styles" / "components" / "app-shell.css")
@@ -73,26 +70,26 @@ def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states()
         "@media (prefers-reduced-motion: reduce)",
     ):
         assert state in css
-    prep_system = "\n".join((prep, prep_inspector))
     for behavior in (
         "function RuntimeStatus",
-        "function DraftSaveState",
-        "<PrepActivityRail",
-        "<PrepInspector",
-        "<PrepStatusBar",
+        "function PlanQuestion",
+        "function InspectorEmpty",
+        "function KnowledgeStatus",
+        "function StatusBarItem",
         "useDelayedPendingOperation",
         'role="tablist"',
-        'data-document="jd"',
-        "knowledgeStatus",
+        'id="document-workspace"',
+        'className="start-activity-rail"',
+        'className="start-inspector-tabs"',
+        'className="start-status-bar"',
         'onClick={requestClearWorkspace}',
         'title: "清空当前画布？"',
         'idPrefix="plan-confirm"',
         'aria-controls="inspector-panel"',
         'role="tabpanel"',
     ):
-        assert behavior in prep_system
-    assert 'data-state={clearArmed ? "confirm" : undefined}' in prep_inspector
-    production_prep = "\n".join((prep, plan_editor, plan_question, prep_css))
+        assert behavior in prep
+    production_prep = "\n".join((prep, prep_css))
     assert not re.search(r'className=(?:["`]plan-|\{`plan-)', production_prep)
     assert not re.search(r'(?<!start-)\.plan-', production_prep)
 
@@ -268,17 +265,17 @@ def test_design_document_state_evidence_and_single_action_contracts_are_implemen
     reports = read(SRC / "pages" / "ReportsPage.jsx")
     interview = read(SRC / "pages" / "InterviewPage.jsx")
 
-    assert 'activePane === "sources"' in prep
-    assert 'setActivePane("plan")' in prep
-    assert 'activeInspectorTab' in prep
+    assert 'inspectorView === "readiness"' in prep
+    assert 'setInspectorView("plan")' in prep
+    assert 'inspectorView === "evidence"' in prep
     assert 'aria-invalid={invalid || undefined}' in prep
     assert 'data-prep-state' not in prep
     assert 'dataset.prepState' in prep
-    assert 'className="start-app-shell start-prep-app-shell"' in prep
-    assert '<PrepActivityRail' in prep
-    assert '<PrepInspector' in prep
-    assert '<PrepStatusBar' in prep
-    assert 'className="start-prep-launch-bar"' in prep
+    assert 'className="start-app-shell"' in prep
+    assert 'className="start-activity-rail"' in prep
+    assert 'className="start-inspector-tabs"' in prep
+    assert 'className="start-status-bar"' in prep
+    assert 'className="start-inspector-actions"' in prep
     assert 'className="start-hero"' not in prep
 
     for stage in ("queued", "retrieving", "analyzing", "evaluating", "aggregating", "coaching", "completed"):
@@ -307,15 +304,13 @@ def test_design_document_state_evidence_and_single_action_contracts_are_implemen
     assert 'unanswered: "未回答"' in interview
 
 
-def test_prep_public_knowledge_and_retry_contracts_are_explicit():
+def test_prep_public_knowledge_and_retry_contracts_are_live_not_retired_shells():
     prep = read(SRC / "pages" / "StartPage.jsx")
-    inspector = read(SRC / "components" / "PrepInspector.jsx")
 
-    for public_state in ("keyword", "completed", "empty", "degraded"):
-        assert f"{public_state}: {{" in inspector
-    assert "当前公开数据不包含具体原因" in inspector
-    assert "degraded_reason" not in inspector
-    assert '{ operation: "generate", label: "重试生成" }' in prep
-    assert '{ operation: "save", label: "重试保存" }' in prep
-    assert '{ operation: "restore", label: "重试恢复" }' in prep
-    assert 'operation: "regenerate"' not in prep
+    for public_state in ("completed", "empty", "degraded"):
+        assert f"{public_state}:" in prep
+    assert "degraded_reason" not in prep
+    assert "async function generatePlan()" in prep
+    assert "async function saveDraft()" in prep
+    assert "const restoreDraft = useCallback(async () =>" in prep
+    assert "disabled={busy}" in prep

@@ -314,7 +314,8 @@ def test_browser_acceptance_targets_react_and_test_support():
     )
 
     assert 'testInfo.project.name !== "desktop-chromium"' in spec
-    assert 'page.locator(\'input[type="file"]\')' in spec
+    assert 'page.getByLabel("导入当前岗位文档").setInputFiles' in spec
+    assert 'page.getByLabel("导入当前经历文档").setInputFiles' in spec
     assert 'page.getByLabel("岗位 JD")' in spec
     assert 'page.getByLabel("简历内容")' in spec
     assert "await page.reload()" in spec

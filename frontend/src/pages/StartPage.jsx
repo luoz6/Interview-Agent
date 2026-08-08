@@ -57,6 +57,7 @@ import {
 } from "../components/ConfirmationDialog";
 import { AppShell } from "../components/AppShell";
 import { useConfirmationDialog } from "../components/useConfirmationDialog";
+import { useDelayedPendingOperation } from "../hooks/useDelayedPending";
 import {
   clearStableRequestId,
   deleteJson,
@@ -71,8 +72,10 @@ const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TEXT_LENGTH = 50000;
+const PENDING_STATES = ["generating", "saving", "restoring", "starting"];
 
 const KNOWLEDGE_STATUS_LABELS = {
+  keyword: "关键词准备",
   completed: "检索完成",
   degraded: "检索降级",
   empty: "无公开证据",
@@ -553,13 +556,12 @@ function PlanConfigurationPanel({ configuration, stale, disabled, onChange }) {
   );
 }
 
-function RuntimeStatus({ status, label }) {
-  const loading = ["generating", "saving", "restoring", "starting"].includes(status);
+function RuntimeStatus({ status, label, showSpinner }) {
   const StateIcon = status === "ready" ? CheckCircle : status === "error" ? WarningCircle : Circle;
   return (
     <div className="start-runtime" data-state={status} role="status" aria-live="polite">
       <span className="start-runtime-icon" aria-hidden="true">
-        {loading
+        {showSpinner
           ? <SpinnerGap className="start-spinner" size={15} weight="bold" focusable="false" />
           : <StateIcon size={15} weight={status === "idle" ? "fill" : "bold"} focusable="false" />}
       </span>
@@ -642,6 +644,7 @@ export function StartPage() {
   const [status, setStatus] = useState("idle");
   const [notice, setNotice] = useState(null);
   const [draftId, setDraftId] = useState(() => getStoredDraftId());
+  const [draftDurability, setDraftDurability] = useState("");
   const [fileNames, setFileNames] = useState({ jd: "未导入文件", resume: "未导入文件" });
   const [invalid, setInvalid] = useState({ jd: false, resume: false });
   const [activeDocument, setActiveDocument] = useState("jd");
@@ -678,9 +681,24 @@ export function StartPage() {
   const topics = prepContext.topics || [];
   const evidence = prepContext.evidence_refs || [];
   const jobTags = plan?.job_tags || [];
+  const draftDurabilityLabel = draftDurability === "postgres"
+    ? "持久保存"
+    : draftDurability
+      ? "进程内临时保存"
+      : draftId
+        ? "读取中"
+        : "未保存";
   const busy =
-    ["generating", "saving", "restoring", "starting"].includes(status) ||
+    PENDING_STATES.includes(status) ||
     Boolean(editor.pendingOperation);
+  const { showSpinner: showRuntimeSpinner } = useDelayedPendingOperation(
+    editor.pendingOperation ? "saving" : status,
+    {
+      pendingStates: PENDING_STATES,
+      delay: 150,
+      minimumVisible: 300,
+    },
+  );
   const sourcesReady = Number(Boolean(jobDescription.trim())) + Number(Boolean(resumeText.trim()));
   const estimatedMinutes = useMemo(
     () => {
@@ -759,7 +777,7 @@ export function StartPage() {
     if (!file) return;
     const extension = file.name.split(".").pop()?.toLowerCase();
     if (!extension || !["txt", "md"].includes(extension)) {
-      setNotice({ tone: "error", text: "仅支持 .txt 或 .md 文件；PDF、Word 和图片不会被静默解析。" });
+      setNotice({ tone: "error", text: "仅支持 .txt 或 .md 文件；PDF、Word 和图片不会被静默解析。请复制其中的文本后粘贴。" });
       input.value = "";
       return;
     }
@@ -835,10 +853,12 @@ export function StartPage() {
           latest_plan_revision_id: plan?.plan_revision_id || null,
         }),
       });
+      automaticRestoreStarted.current = true;
       setDraftId(draft.draft_id);
+      setDraftDurability(draft.durability);
       storeDraftId(draft.draft_id);
       setStatus(plan ? "ready" : "idle");
-      setNotice({ tone: "success", text: "草稿已保存在本机浏览器中。它不会跨浏览器或跨设备同步。" });
+      setNotice({ tone: "success", text: `草稿已${draft.durability === "postgres" ? "持久保存" : "进程内临时保存"}；它不会跨浏览器或跨设备同步。` });
     } catch (error) {
       setStatus("error");
       setNotice({ tone: "error", text: error.message });
@@ -866,6 +886,7 @@ export function StartPage() {
       }
 
       setDraftId(draft.draft_id);
+      setDraftDurability(draft.durability);
       setJobDescription(draft.job_description || "");
       setResumeText(draft.resume_text || "");
       if (restoredPlan) {
@@ -890,6 +911,7 @@ export function StartPage() {
       if ([404, 410].includes(error.status)) {
         clearStoredDraftId();
         setDraftId("");
+        setDraftDurability("");
       }
       setStatus("error");
       setNotice({ tone: "error", text: `草稿恢复失败：${error.message}` });
@@ -1518,7 +1540,7 @@ export function StartPage() {
   }
 
   return (
-    <AppShell status={<RuntimeStatus status={runtimeStatus} label={statusLabel} />}>
+    <AppShell status={<RuntimeStatus status={runtimeStatus} label={statusLabel} showSpinner={showRuntimeSpinner} />}>
 
       <main id="main-content" className="start-app-shell" tabIndex="-1">
         <nav className="start-activity-rail" aria-label="准备工作区">
@@ -1607,6 +1629,7 @@ export function StartPage() {
                         onClick={() => setCustomOpen((value) => !value)}
                         disabled={busy || questions.length >= 10}
                         aria-expanded={customOpen}
+                        aria-describedby={questions.length >= 10 ? "plan-capacity-note" : undefined}
                       >
                         <Plus size={15} weight="bold" aria-hidden="true" />
                         添加题目
@@ -1633,6 +1656,11 @@ export function StartPage() {
                         全部换题
                       </button>
                     </div>
+                    {questions.length >= 10 ? (
+                      <p id="plan-capacity-note" className="start-plan-draft-note" role="note" tabIndex="0">
+                        已达到 10 题上限，请先删除一道题再添加。
+                      </p>
+                    ) : null}
 
                     {editor.conflict ? (
                       <section className="start-plan-state-panel" data-state="conflict" role="alert">
@@ -1827,9 +1855,9 @@ export function StartPage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="start-evidence-state" data-tone={prepContext.knowledge_status === "degraded" ? "warning" : "info"} role="status">
-                        <span aria-hidden="true">{prepContext.knowledge_status === "degraded" ? <WarningCircle size={18} weight="fill" focusable="false" /> : <Info size={18} weight="bold" focusable="false" />}</span>
-                        <div><strong>{prepContext.knowledge_status === "degraded" ? "知识检索已降级" : "暂无公开知识证据"}</strong><p>{prepContext.knowledge_status === "degraded" ? "面试仍可继续；系统不会展示不存在的引用。" : "计划仍可使用；证据列表保持为空，不会填充示例引用。"}</p></div>
+                      <div className="start-evidence-state" data-tone={knowledgeStatus === "degraded" ? "warning" : "info"} role="status">
+                        <span aria-hidden="true">{knowledgeStatus === "degraded" ? <WarningCircle size={18} weight="fill" focusable="false" /> : <Info size={18} weight="bold" focusable="false" />}</span>
+                        <div><strong>{knowledgeStatus === "degraded" ? "知识检索已降级" : knowledgeStatus === "keyword" ? "关键词准备完成" : "暂无公开知识证据"}</strong><p>{knowledgeStatus === "degraded" ? "面试仍可继续；系统不会展示不存在的引用。" : knowledgeStatus === "keyword" ? "本次计划仅使用关键词信号；没有可展示的证据引用。" : "计划仍可使用；证据列表保持为空，不会填充示例引用。"}</p></div>
                       </div>
                     )}
                   </>
@@ -1844,7 +1872,7 @@ export function StartPage() {
                 <div className="start-readiness-list">
                   <ReadinessItem ready={Boolean(jobDescription.trim())} label="岗位 JD" value={jobDescription.trim() ? jobDescription.length.toLocaleString() + " 字" : "尚未填写"} />
                   <ReadinessItem ready={Boolean(resumeText.trim())} label="候选人经历" value={resumeText.trim() ? resumeText.length.toLocaleString() + " 字" : "尚未填写"} />
-                  <ReadinessItem ready={Boolean(draftId)} label="匿名草稿" value={draftId ? "当前浏览器已关联" : "尚未保存"} />
+                  <ReadinessItem ready={Boolean(draftId)} label="匿名草稿" value={draftDurabilityLabel} />
                   <ReadinessItem ready={Boolean(plan)} label="面试计划" value={plan ? "已生成" : "尚未生成"} />
                 </div>
                 <div className="start-privacy-note"><ShieldCheck size={17} weight="bold" aria-hidden="true" focusable="false" /><p><strong>仅与当前浏览器关联</strong><span>资料用于当前面试流程；匿名草稿不会跨设备同步。</span></p></div>
@@ -1866,7 +1894,7 @@ export function StartPage() {
       </main>
 
       <footer className="start-status-bar" aria-label="工作区状态">
-        <StatusBarItem ready={Boolean(draftId)} label="草稿" value={draftId ? "已关联" : "未保存"} />
+        <StatusBarItem ready={Boolean(draftId)} label="草稿" value={draftDurabilityLabel} />
         <StatusBarItem ready={Boolean(jobDescription.trim())} label="JD" value={jobDescription.trim() ? "已填写" : "待填写"} />
         <StatusBarItem ready={Boolean(resumeText.trim())} label="经历" value={resumeText.trim() ? "已填写" : "待填写"} />
         <StatusBarItem ready={knowledgeStatus === "completed"} state={knowledgeStatus === "degraded" ? "warning" : knowledgeStatus === "empty" ? "info" : "idle"} label="知识" value={knowledgeStatusLabel} />

@@ -12,8 +12,19 @@ from app.services.in_memory_interview_launch_repository import (
 )
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.interview_plan_revision import default_plan_configuration
+from app.services.interview_plan_revision_store import (
+    InMemoryInterviewPlanRevisionStore,
+)
+from app.services.prep import (
+    bind_prepared_plan_revision,
+    fallback_interview_plan,
+    InterviewPlan,
+    InterviewQuestion,
+    prepared_plan_revision,
+)
 from app.services.prep_plans import PrepPlanError
+from app.services.prep_question_regeneration import PrepQuestionRegenerator
 from app.services.session import InterviewSessionStore
 
 
@@ -55,6 +66,73 @@ def test_prep_plan_has_stable_public_ids_positions_kind_and_snapshot():
     assert all(item["enabled"] for item in public["questions"])
     assert all(UUID(item["question_id"].removeprefix("pq_")).version == 4 for item in public["questions"])
     assert store.version_count(public["plan_id"]) == 1
+
+
+def test_bound_revision_identity_survives_product_edit_regeneration_and_launch():
+    configuration = default_plan_configuration()
+    bound_plan = bind_prepared_plan_revision(
+        fallback_interview_plan(configuration),
+        configuration,
+    )
+    revision_plan = prepared_plan_revision(bound_plan, configuration)
+    store = InMemoryPrepPlanStore()
+    public = store.create(
+        plan=bound_plan,
+        job_description="Backend role",
+        resume_text="Built backend systems",
+        job_tags=["backend"],
+    )
+    revision_question_ids = [
+        question.question_id for question in revision_plan.questions
+    ]
+
+    assert [
+        question["question_id"] for question in public["questions"]
+    ] == revision_question_ids
+
+    edited = store.apply_operations(
+        public["plan_id"],
+        expected_version=1,
+        operations=[
+            {
+                "type": "set_focus",
+                "question_id": revision_question_ids[0],
+                "focus": "Updated UUID-bound focus",
+            }
+        ],
+    )
+    regenerated = PrepQuestionRegenerator(
+        lambda _context: sample_plan()
+    ).regenerate(
+        store,
+        plan_id=public["plan_id"],
+        question_id=revision_question_ids[0],
+        expected_version=edited["plan_version"],
+    )
+    assert regenerated["replaced_question_id"] == revision_question_ids[0]
+
+    sessions = InterviewSessionStore()
+    launches = InMemoryInterviewLaunchRepository()
+    launched = InterviewLaunchCoordinator(
+        prep_plan_store=store,
+        session_store=sessions,
+        launch_repository=launches,
+    ).launch(
+        plan_id=public["plan_id"],
+        expected_plan_version=regenerated["plan_version"],
+        command_id=f"start_{uuid4()}",
+    )
+    persisted_question_ids = [
+        question["question_id"] for question in regenerated["questions"]
+    ]
+    assert [
+        mapping["plan_question_id"]
+        for mapping in launches.mappings_for_session(launched["session_id"])
+    ] == persisted_question_ids
+    assert [
+        question.id
+        for question in sessions.get(launched["session_id"])["plan"].questions
+    ] == [f"q{index}" for index in range(1, len(persisted_question_ids) + 1)]
 
 
 def test_patch_is_atomic_allows_different_operations_and_rejects_duplicate_type():
@@ -316,6 +394,7 @@ def test_bootstrap_failure_retries_same_command_and_same_session():
 
 def test_new_api_uses_authoritative_plan_without_preparing_twice(monkeypatch):
     plans = InMemoryPrepPlanStore()
+    revisions = InMemoryInterviewPlanRevisionStore()
     sessions = InterviewSessionStore()
     launches = InMemoryInterviewLaunchRepository()
     coordinator = InterviewLaunchCoordinator(
@@ -331,13 +410,18 @@ def test_new_api_uses_authoritative_plan_without_preparing_twice(monkeypatch):
 
     monkeypatch.setattr(route_module, "prepare_interview", prepare)
     app.dependency_overrides[route_module.get_prep_plan_store] = lambda: plans
+    app.dependency_overrides[route_module.get_plan_revision_store] = (
+        lambda: revisions
+    )
     monkeypatch.setattr(route_module, "get_interview_launch_coordinator", lambda: coordinator)
     client = TestClient(app)
     try:
-        prepared = client.post(
+        prep_response = client.post(
             "/api/prep",
             json={"job_description": "Backend role", "resume_text": "Built systems"},
-        ).json()
+        )
+        assert prep_response.status_code == 200, prep_response.text
+        prepared = prep_response.json()
         response = client.post(
             "/api/interviews",
             json={
@@ -360,6 +444,7 @@ def test_launch_dependency_uses_same_overridden_session_store_as_session_routes(
     monkeypatch,
 ):
     plans = InMemoryPrepPlanStore()
+    revisions = InMemoryInterviewPlanRevisionStore()
     route_sessions = InterviewSessionStore()
     runtime_sessions = InterviewSessionStore()
     launches = InMemoryInterviewLaunchRepository()
@@ -375,13 +460,18 @@ def test_launch_dependency_uses_same_overridden_session_store_as_session_routes(
         lambda: runtime_coordinator,
     )
     app.dependency_overrides[route_module.get_prep_plan_store] = lambda: plans
+    app.dependency_overrides[route_module.get_plan_revision_store] = (
+        lambda: revisions
+    )
     app.dependency_overrides[route_module.get_session_store] = lambda: route_sessions
     client = TestClient(app)
     try:
-        prepared = client.post(
+        prep_response = client.post(
             "/api/prep",
             json={"job_description": "Backend role", "resume_text": "Built systems"},
-        ).json()
+        )
+        assert prep_response.status_code == 200, prep_response.text
+        prepared = prep_response.json()
         launched = client.post(
             "/api/interviews",
             json={

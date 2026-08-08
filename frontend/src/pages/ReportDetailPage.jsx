@@ -752,7 +752,7 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
                 {limitations.length ? <ol className="report-detail-limitation-list">{limitations.map((item, index) => <li key={item.limitation_id || index}><span>{String(index + 1).padStart(2, "0")}</span><p>{item.text}</p></li>)}</ol> : <p className="report-detail-muted">除本轮样本范围外，没有记录额外的评估限制。</p>}
               </section>
 
-              <details className="report-detail-technical-appendix">
+              <details className="report-detail-technical-appendix" open={showDiagnostics}>
                 <summary><span><Pulse size={18} weight="duotone" aria-hidden="true" /></span><div><strong>技术附录</strong><small>{showDiagnostics ? "Agent 执行、检索路径、版本、reason codes 与公开运行事件" : "版本、reason codes 与公开知识引用"}</small></div><CaretDown size={17} weight="bold" aria-hidden="true" /></summary>
                 <div className="report-detail-technical-body">
                   <section aria-labelledby="report-revision-history-title">
@@ -767,12 +767,12 @@ export function ReportDetailPage({ showDiagnostics = showRuntimeDiagnostics } = 
                   </section>
 
                   {showDiagnostics && <>
-                  <section className="report-detail-evaluation-ledger" aria-labelledby="report-evaluation-ledger-title">
+                  <section className="report-detail-evaluation-ledger" aria-label="逐题评审链路">
                     <header className="report-detail-subsection-head"><h3 id="report-evaluation-ledger-title"><ListChecks size={17} weight="duotone" aria-hidden="true" />逐题评审与检索路径</h3><span>{evaluationUnavailable ? "暂时不可用" : `${evaluations.length} 条`}</span></header>
                     {evaluationUnavailable ? <div className="report-detail-empty-inline" data-tone="warning"><WarningCircle size={17} weight="fill" aria-hidden="true" /><p><strong>逐题评审链路暂时不可用</strong><span>候选人报告不受影响，当前只缺少可选诊断账本。</span></p></div> : evaluations.length ? <ol>{evaluations.map((item, index) => { const degraded = item.retrieval_path === "degraded" || Boolean(item.degraded_reason); return <li key={item.question_id || index}><span className="report-detail-evaluation-index">{String(index + 1).padStart(2, "0")}</span><div><header><strong>{item.question_id || "未提供题目 ID"}</strong><span data-state={item.status} data-degraded={degraded}>{degraded ? "降级评审" : item.status || "已记录"}</span></header><p>{item.feedback?.rationale || "评审记录已保存。"}</p><small>{item.retrieval_path || "未提供检索路径"}{item.degraded_reason ? ` · ${item.degraded_reason}` : ""}</small></div></li>; })}</ol> : <div className="report-detail-empty-inline"><Info size={17} weight="bold" aria-hidden="true" /><p><strong>暂无逐题评审链路</strong><span>当前运行存储没有提供可公开诊断记录。</span></p></div>}
                   </section>
 
-                  <section className="report-detail-trace-section" aria-labelledby="report-trace-title">
+                  <section className="report-detail-trace-section" aria-label="运行轨迹">
                     <header className="report-detail-subsection-head"><h3 id="report-trace-title"><Pulse size={17} weight="duotone" aria-hidden="true" />Agent 执行与运行事件</h3><span>{tracePartiallyUnavailable ? "部分不可用" : `${agentRuns.length + runtimeEvents.length} 条`}</span></header>
                     <div className="report-detail-trace-privacy"><ShieldCheck size={17} weight="duotone" aria-hidden="true" /><p>不展示提示词、密钥、绝对路径、候选人完整原文或 Provider 原始错误。</p></div>
                     {allTraceUnavailable || allTraceEmpty ? <TraceEmptyState unavailable={allTraceUnavailable} onRetry={retryDiagnostics} retrying={diagnosticsRefreshing} /> : <div className="report-detail-trace-grid"><article><header className="report-detail-subsection-head"><h3><ClipboardText size={17} weight="duotone" aria-hidden="true" />Agent 执行</h3><span>{agentRunsUnavailable ? "—" : agentRuns.length}</span></header><RuntimeList items={agentRuns} type="agent" unavailable={agentRunsUnavailable} /></article><article><header className="report-detail-subsection-head"><h3><Pulse size={17} weight="duotone" aria-hidden="true" />运行事件</h3><span>{runtimeEventsUnavailable ? "—" : runtimeEvents.length}</span></header><RuntimeList items={runtimeEvents} type="event" unavailable={runtimeEventsUnavailable} /></article></div>}

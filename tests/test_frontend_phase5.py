@@ -15,12 +15,29 @@ def read(path: Path) -> str:
 
 
 def test_phase5_shared_component_boundaries_are_explicit_and_consumed():
-    consumers = "\n".join(read(path) for path in SRC.rglob("*.jsx"))
+    consumers = {
+        path: read(path)
+        for path in SRC.rglob("*.jsx")
+        if not path.name.endswith(".test.jsx")
+    }
     for component in (
         "PageHeader",
         "StatusNotice",
         "AsyncState",
         "TechnicalDetails",
+    ):
+        path = SRC / "components" / f"{component}.jsx"
+        assert path.exists()
+        production_consumers = "\n".join(
+            source for candidate, source in consumers.items() if candidate != path
+        )
+        assert re.search(
+            rf'from\s+["\'][^"\']*/components/{component}["\']',
+            production_consumers,
+        )
+        assert f"<{component}" in production_consumers
+
+    for retired_component in (
         "ReliabilitySummary",
         "PlanEditor",
         "PlanQuestionCard",
@@ -28,9 +45,7 @@ def test_phase5_shared_component_boundaries_are_explicit_and_consumed():
         "PrepInspector",
         "PrepStatusBar",
     ):
-        path = SRC / "components" / f"{component}.jsx"
-        assert path.exists()
-        assert consumers.count(f"<{component}") >= 1
+        assert not (SRC / "components" / f"{retired_component}.jsx").exists()
 
 
 def test_phase5_runtime_has_one_shell_and_no_retired_prep_implementation():

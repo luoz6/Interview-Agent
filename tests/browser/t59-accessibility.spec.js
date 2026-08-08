@@ -201,7 +201,11 @@ test("offline, 422, and 500 prep failures preserve inputs and expose assertive g
   await generate.click();
   await expect(page.getByRole("alert")).toContainText("计划服务暂时不可用");
   await generate.click();
-  await expect(page.getByRole("alert")).toContainText("无法连接后端服务");
+  const networkAlert = page.getByRole("alert");
+  await expect(networkAlert).toContainText(/无法连接服务/);
+  await expect(networkAlert).toContainText("检查网络");
+  await expect(networkAlert).toContainText("确认服务已经启动");
+  await expect(networkAlert).toHaveAttribute("aria-live", "assertive");
   await expectPrepSourcesPreserved(page);
 });
 
@@ -211,16 +215,20 @@ test("the interview turn live region stays singular across decision and generati
 }) => {
   const sessionId = await createSession(request);
   await page.goto("/interview?session_id=" + sessionId);
-  const liveRegion = page.locator(".interview-turn-status");
+  const liveRegion = page.locator(
+    '.interview-app > .visually-hidden[role="status"][aria-live="polite"][aria-atomic="true"]',
+  );
   await expect(liveRegion).toHaveCount(1);
   await expect(liveRegion).toHaveAttribute("role", "status");
   await expect(liveRegion).toHaveAttribute("aria-live", "polite");
   await expect(liveRegion).toHaveAttribute("aria-atomic", "true");
   await expect(page.locator(".agent-console")).not.toHaveAttribute("aria-live", /.+/);
+  await expect(page.locator(".agent-console [aria-live]")).toHaveCount(0);
 
   await page.getByLabel("你的回答").fill("先说明判断，再比较故障恢复路径和验证指标。");
   await page.getByRole("button", { name: "提交回答" }).click();
   await expect(page.locator(".message-candidate")).toContainText("故障恢复路径");
   await expect(liveRegion).toHaveCount(1);
+  await expect(page.locator(".agent-console [aria-live]")).toHaveCount(0);
   await expect(liveRegion).not.toContainText(/gap|confidence|reason|chain.of.thought/i);
 });

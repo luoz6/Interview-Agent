@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import app.api.routes as route_module
 from app.main import app
 from app.services.drafts import AnonymousDraftStore
+from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
 from app.services.interview_plan_regenerator import PlanRegenerationFailed
 from app.services.interview_plan_revision import (
@@ -175,6 +176,7 @@ class ConfiguredRegenerator:
 @pytest.fixture
 def configured_api(monkeypatch):
     revision_store = InMemoryInterviewPlanRevisionStore()
+    prep_plan_store = InMemoryPrepPlanStore()
     prep_provider = PrepProvider()
     start_provider = StartProviderSpy()
     session_store = InterviewSessionStore(llm=start_provider)
@@ -183,6 +185,9 @@ def configured_api(monkeypatch):
 
     app.dependency_overrides[route_module.get_plan_revision_store] = (
         lambda: revision_store
+    )
+    app.dependency_overrides[route_module.get_prep_plan_store] = (
+        lambda: prep_plan_store
     )
     app.dependency_overrides[route_module.get_session_store] = lambda: session_store
     app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
@@ -206,6 +211,7 @@ def configured_api(monkeypatch):
         yield SimpleNamespace(
             client=TestClient(app),
             revision_store=revision_store,
+            prep_plan_store=prep_plan_store,
             prep_provider=prep_provider,
             start_provider=start_provider,
             session_store=session_store,
