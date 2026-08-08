@@ -12,6 +12,7 @@ from scripts.build_t64_cross_platform_acceptance import (
 )
 from scripts.run_t64_cross_platform_gate import (
     PLATFORM_SCHEMA,
+    _canonical_sha256,
     build_platform_artifacts,
     evaluate_cross_platform,
     validate_platform_result,
@@ -30,6 +31,7 @@ def _command(*, tests=None, replays=None):
         "duration_seconds": 0.1,
         "log_sha256": "c" * 64,
         "log_bytes": 1,
+        "log_redaction_verified": True,
     }
     if tests is not None:
         result["tests"] = tests
@@ -64,6 +66,25 @@ def _platform(platform_id: str):
             )
         }
     )
+    database_name = "t64_acceptance_test"
+    cleanup_inventory = {
+        "schema_version": (
+            "interview-quality-v1-t64-postgres-cleanup-inventory-v2"
+        ),
+        "authority": "same-process-advisory-lock",
+        "platform": platform_id,
+        "source_revision": REVISION,
+        "source_tree": TREE,
+        "expected_database": database_name,
+        "baseline_public_table_count": 4,
+        "baseline_public_table_inventory_sha256": "d" * 64,
+        "owned_relation_inventory": [],
+        "owned_temporary_tables": [],
+        "owned_temporary_table_count": 0,
+    }
+    cleanup_inventory["canonical_sha256"] = _canonical_sha256(
+        cleanup_inventory
+    )
     return {
         "schema_version": PLATFORM_SCHEMA,
         "platform": platform_id,
@@ -97,6 +118,14 @@ def _platform(platform_id: str):
         },
         "postgres_dsn_configured": True,
         "postgres_missing_dsn_skips": 0,
+        "postgres_test_database": {
+            "expected_database": database_name,
+            "actual_database": database_name,
+            "post_run_database": database_name,
+            "dedicated_boundary_verified": True,
+            "baseline_public_table_count": 4,
+            "baseline_public_table_inventory_sha256": "d" * 64,
+        },
         "commands": commands,
         "skips": [
             {
@@ -108,6 +137,14 @@ def _platform(platform_id: str):
             }
         ],
         "provider_calls": 0,
+        "zero_provider_boundary": {
+            "scope": "all_child_commands",
+            "provider_api_key_environment_removed": True,
+            "provider_opt_in_environment_removed": True,
+            "command_log_redaction_verified": True,
+            "internal_cleanup_log_redaction_verified": True,
+            "quality_replay_reported_provider_calls": 0,
+        },
         "cleanup": {
             "ports": 0,
             "processes": 0,
@@ -115,6 +152,32 @@ def _platform(platform_id: str):
             "screenshots": 0,
             "traces": 0,
             "unexpected_worktree_changes": 0,
+        },
+        "cleanup_inventory": cleanup_inventory,
+        "cleanup_inventory_artifact": {
+            "path": "postgres-cleanup-inventory.json",
+            "sha256": "e" * 64,
+            "bytes": 100,
+        },
+        "postgres_cleanup": {
+            "schema_version": "interview-quality-v1-t64-postgres-cleanup-v3",
+            "status": "PASS",
+            "applied": True,
+            "authority": "same-process-advisory-lock",
+            "database_name": database_name,
+            "dedicated_database_boundary_verified": True,
+            "advisory_lock_held": True,
+            "baseline_public_table_inventory_sha256": "d" * 64,
+            "owned_relation_inventory": [],
+            "owned_temporary_table_count_declared": 0,
+            "owned_temporary_table_count_after": 0,
+            "temporary_relation_residue": 0,
+            "drop_cascade_used": False,
+        },
+        "cleanup_artifact": {
+            "path": "postgres-cleanup.json",
+            "sha256": "f" * 64,
+            "bytes": 100,
         },
     }
 
@@ -211,6 +274,18 @@ def test_t64_gate_requires_all_four_zero_provider_replays():
     with pytest.raises(ValueError, match="replay set"):
         validate_platform_result(payload)
 
+
+def test_t64_gate_rejects_unverified_zero_provider_boundary_or_log_redaction():
+    payload = _platform("ubuntu-24.04-x64")
+    payload["zero_provider_boundary"]["provider_api_key_environment_removed"] = False
+    with pytest.raises(ValueError, match="zero-Provider boundary"):
+        validate_platform_result(payload)
+
+    payload = _platform("ubuntu-24.04-x64")
+    payload["commands"]["python_full_pytest"]["log_redaction_verified"] = False
+    with pytest.raises(ValueError, match="log redaction"):
+        validate_platform_result(payload)
+
     payload = _platform("ubuntu-24.04-x64")
     payload["commands"]["quality_replays"]["replays"]["report_score"][
         "provider_calls"
@@ -225,6 +300,26 @@ def test_t64_gate_rejects_cleanup_residue():
         payload["cleanup"][field] = 1
         with pytest.raises(ValueError, match="cleanup residue"):
             validate_platform_result(payload)
+
+
+def test_t64_gate_rejects_database_or_exact_cleanup_inventory_drift():
+    payload = _platform("ubuntu-24.04-x64")
+    payload["postgres_test_database"]["actual_database"] = "interview"
+    with pytest.raises(ValueError, match="database boundary"):
+        validate_platform_result(payload)
+
+    payload = _platform("ubuntu-24.04-x64")
+    payload["cleanup_inventory"]["owned_temporary_tables"] = [
+        "test_runtime_0123456789ab_sessions"
+    ]
+    payload["cleanup_inventory"]["owned_temporary_table_count"] = 1
+    with pytest.raises(ValueError, match="cleanup inventory boundary"):
+        validate_platform_result(payload)
+
+    payload = _platform("ubuntu-24.04-x64")
+    payload["postgres_cleanup"]["advisory_lock_held"] = False
+    with pytest.raises(ValueError, match="cleanup receipt"):
+        validate_platform_result(payload)
 
 
 def test_t64_gate_rejects_unowned_or_blocking_skip():
@@ -247,6 +342,10 @@ def test_t64_gate_rejects_revision_tree_or_cleanliness_drift():
 
     matrix = _matrix()
     matrix[1]["source_revision"] = "d" * 40
+    inventory = matrix[1]["cleanup_inventory"]
+    inventory["source_revision"] = matrix[1]["source_revision"]
+    inventory.pop("canonical_sha256")
+    inventory["canonical_sha256"] = _canonical_sha256(inventory)
     with pytest.raises(ValueError, match="revision or tree"):
         evaluate_cross_platform(build_acceptance(), matrix, root=None)
 

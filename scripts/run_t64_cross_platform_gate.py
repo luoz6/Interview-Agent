@@ -15,6 +15,12 @@ if __package__:
         REQUIRED_PLATFORMS,
         validate_acceptance,
     )
+    from scripts.cleanup_t64_postgres_relations import (
+        CLEANUP_INVENTORY_SCHEMA,
+        CLEANUP_SCHEMA,
+        is_dedicated_test_database,
+        is_safe_temporary_table,
+    )
 else:
     from build_t64_cross_platform_acceptance import (
         DEFAULT_OUTPUT,
@@ -22,9 +28,15 @@ else:
         REQUIRED_PLATFORMS,
         validate_acceptance,
     )
+    from cleanup_t64_postgres_relations import (
+        CLEANUP_INVENTORY_SCHEMA,
+        CLEANUP_SCHEMA,
+        is_dedicated_test_database,
+        is_safe_temporary_table,
+    )
 
 
-PLATFORM_SCHEMA = "interview-quality-v1-t64-platform-result-v1"
+PLATFORM_SCHEMA = "interview-quality-v1-t64-platform-result-v2"
 GATE_SCHEMA = "interview-quality-v1-t64-cross-platform-gate-result-v1"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
@@ -48,6 +60,25 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _validate_artifact_metadata(
+    value: object, *, expected_path: str
+) -> None:
+    if not isinstance(value, dict) or value.get("path") != expected_path:
+        raise ValueError(f"T64 artifact path drifted: {expected_path}")
+    if SHA64.fullmatch(str(value.get("sha256", ""))) is None:
+        raise ValueError(f"T64 artifact hash is invalid: {expected_path}")
+    if not isinstance(value.get("bytes"), int) or value["bytes"] <= 0:
+        raise ValueError(f"T64 artifact is empty: {expected_path}")
+
+
 def _version_major(value: object) -> int | None:
     match = re.search(r"(?:^|\D)(\d+)", str(value))
     return int(match.group(1)) if match else None
@@ -69,6 +100,8 @@ def _validate_command(name: str, command: dict[str, Any]) -> None:
         raise ValueError(f"T64 command log hash is invalid: {name}")
     if not isinstance(command.get("log_bytes"), int) or command["log_bytes"] <= 0:
         raise ValueError(f"T64 command log is empty: {name}")
+    if command.get("log_redaction_verified") is not True:
+        raise ValueError(f"T64 command log redaction is unverified: {name}")
     counts = command.get("tests")
     if counts is not None:
         if counts.get("failed") != 0 or counts.get("passed", 0) <= 0:
@@ -122,6 +155,29 @@ def validate_platform_result(payload: dict[str, Any]) -> None:
         raise ValueError("T64 PostgreSQL DSN was not configured")
     if payload.get("postgres_missing_dsn_skips") != 0:
         raise ValueError("T64 PostgreSQL missing-DSN skips are forbidden")
+    database_boundary = payload.get("postgres_test_database", {})
+    expected_database = str(
+        database_boundary.get("expected_database", "")
+    )
+    if (
+        not is_dedicated_test_database(expected_database)
+        or database_boundary.get("actual_database") != expected_database
+        or database_boundary.get("post_run_database") != expected_database
+        or database_boundary.get("dedicated_boundary_verified") is not True
+        or not isinstance(
+            database_boundary.get("baseline_public_table_count"), int
+        )
+        or database_boundary["baseline_public_table_count"] < 0
+        or SHA64.fullmatch(
+            str(
+                database_boundary.get(
+                    "baseline_public_table_inventory_sha256", ""
+                )
+            )
+        )
+        is None
+    ):
+        raise ValueError("T64 dedicated PostgreSQL database boundary is invalid")
     postgres_tests = commands["postgres_marked_pytest"].get("tests", {})
     if postgres_tests.get("skipped") != 0 or postgres_tests.get("passed", 0) <= 0:
         raise ValueError("T64 PostgreSQL-marked tests were skipped or absent")
@@ -151,10 +207,94 @@ def validate_platform_result(payload: dict[str, Any]) -> None:
         raise ValueError("T64 offline quality replay failed or called a Provider")
     if payload.get("provider_calls") != 0:
         raise ValueError("T64 platform run unexpectedly called a Provider")
+    zero_provider = payload.get("zero_provider_boundary", {})
+    if (
+        zero_provider.get("scope") != "all_child_commands"
+        or zero_provider.get("provider_api_key_environment_removed") is not True
+        or zero_provider.get("provider_opt_in_environment_removed") is not True
+        or zero_provider.get("command_log_redaction_verified") is not True
+        or zero_provider.get("internal_cleanup_log_redaction_verified")
+        is not True
+        or zero_provider.get("quality_replay_reported_provider_calls") != 0
+    ):
+        raise ValueError("T64 zero-Provider boundary is incomplete")
 
     cleanup = payload.get("cleanup", {})
     if any(cleanup.get(field) != 0 for field in ZERO_CLEANUP_FIELDS):
         raise ValueError("T64 cleanup residue is non-zero")
+    cleanup_inventory = payload.get("cleanup_inventory")
+    if not isinstance(cleanup_inventory, dict):
+        raise ValueError("T64 exact cleanup inventory is missing")
+    canonical_inventory = dict(cleanup_inventory)
+    claimed_inventory_hash = canonical_inventory.pop("canonical_sha256", None)
+    owned_tables = cleanup_inventory.get("owned_temporary_tables")
+    owned_relations = cleanup_inventory.get("owned_relation_inventory")
+    if (
+        cleanup_inventory.get("schema_version") != CLEANUP_INVENTORY_SCHEMA
+        or cleanup_inventory.get("authority")
+        != "same-process-advisory-lock"
+        or cleanup_inventory.get("platform") != platform_id
+        or cleanup_inventory.get("source_revision")
+        != payload.get("source_revision")
+        or cleanup_inventory.get("source_tree") != payload.get("source_tree")
+        or cleanup_inventory.get("expected_database") != expected_database
+        or cleanup_inventory.get("baseline_public_table_count")
+        != database_boundary.get("baseline_public_table_count")
+        or cleanup_inventory.get("baseline_public_table_inventory_sha256")
+        != database_boundary.get("baseline_public_table_inventory_sha256")
+        or claimed_inventory_hash != _canonical_sha256(canonical_inventory)
+        or not isinstance(owned_tables, list)
+        or owned_tables != sorted(set(owned_tables))
+        or any(
+            not isinstance(name, str) or not is_safe_temporary_table(name)
+            for name in owned_tables
+        )
+        or cleanup_inventory.get("owned_temporary_table_count")
+        != len(owned_tables)
+        or not isinstance(owned_relations, list)
+        or any(not isinstance(item, dict) for item in owned_relations)
+        or [item.get("name") for item in owned_relations] != owned_tables
+        or any(
+            item.get("owner") != "postgres"
+            or item.get("relkind") not in {"r", "p"}
+            or not isinstance(item.get("oid"), int)
+            or item["oid"] <= 0
+            or not isinstance(item.get("relfilenode"), int)
+            or item["relfilenode"] < 0
+            for item in owned_relations
+        )
+    ):
+        raise ValueError("T64 exact cleanup inventory boundary is invalid")
+    _validate_artifact_metadata(
+        payload.get("cleanup_inventory_artifact"),
+        expected_path="postgres-cleanup-inventory.json",
+    )
+    _validate_artifact_metadata(
+        payload.get("cleanup_artifact"),
+        expected_path="postgres-cleanup.json",
+    )
+    cleanup_receipt = payload.get("postgres_cleanup", {})
+    if (
+        cleanup_receipt.get("schema_version") != CLEANUP_SCHEMA
+        or cleanup_receipt.get("status") != "PASS"
+        or cleanup_receipt.get("applied") is not True
+        or cleanup_receipt.get("authority")
+        != "same-process-advisory-lock"
+        or cleanup_receipt.get("database_name") != expected_database
+        or cleanup_receipt.get("dedicated_database_boundary_verified")
+        is not True
+        or cleanup_receipt.get("advisory_lock_held") is not True
+        or cleanup_receipt.get("baseline_public_table_inventory_sha256")
+        != database_boundary.get("baseline_public_table_inventory_sha256")
+        or cleanup_receipt.get("owned_relation_inventory")
+        != owned_relations
+        or cleanup_receipt.get("owned_temporary_table_count_declared")
+        != len(owned_tables)
+        or cleanup_receipt.get("owned_temporary_table_count_after") != 0
+        or cleanup_receipt.get("temporary_relation_residue") != 0
+        or cleanup_receipt.get("drop_cascade_used") is not False
+    ):
+        raise ValueError("T64 PostgreSQL cleanup receipt is invalid")
 
 
 def _git(root: Path, *args: str) -> str:

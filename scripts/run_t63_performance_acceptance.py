@@ -41,6 +41,7 @@ from app.services.prep import fallback_interview_plan, prepared_plan_revision
 from app.services.report import DimensionScores, InterviewReport
 from app.services.report_artifact import PublishReportArtifact
 from app.services.report_pdf import build_report_pdf
+from app.services.report_eval_artifacts import resolve_evaluation_run_dir
 from app.services.t63_performance import (
     T63ActiveGetDatabaseContract,
     T63OperationSample,
@@ -137,7 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--run-id", default="t63-local-windows-v1")
     args = parser.parse_args(argv)
-    run_dir = args.out.resolve() / args.run_id
+    try:
+        run_dir = resolve_evaluation_run_dir(args.out, args.run_id)
+    except ValueError as exc:
+        parser.error(str(exc))
     if run_dir.exists() and any(run_dir.iterdir()):
         raise SystemExit("run directory already exists and is not empty")
     run_dir.mkdir(parents=True, exist_ok=True)

@@ -9,7 +9,6 @@ import subprocess
 import sys
 from typing import Any
 from uuid import uuid4
-import re
 
 if __package__:
     from scripts.build_t63_performance_acceptance import (
@@ -31,7 +30,6 @@ REQUIRED_RUN_FILES = (
     "postgres-capacity.json",
     "scenario-matrix.json",
 )
-RUN_ID_PATTERN = re.compile(r"^[a-z0-9_.:-]+$")
 
 
 class _PytestResultPlugin:
@@ -125,8 +123,13 @@ def _validate_run_artifacts(
     artifact = T63PerformanceArtifact.model_validate(artifact_payload)
     recomputed = evaluate_t63_performance(artifact)
 
-    if expected_run_id is not None and not RUN_ID_PATTERN.fullmatch(expected_run_id):
-        raise ValueError("T63 run-id contains unsafe characters")
+    if expected_run_id is not None:
+        from app.services.report_eval_artifacts import validate_evaluation_run_id
+
+        try:
+            validate_evaluation_run_id(expected_run_id)
+        except ValueError as exc:
+            raise ValueError("T63 run-id contains unsafe characters") from exc
     if expected_run_id is not None:
         if artifact.run_id != expected_run_id:
             raise ValueError("T63 artifact is not bound to the requested run-id")
@@ -261,7 +264,14 @@ def main(argv: list[str] | None = None) -> int:
     source = args.acceptance if args.acceptance.is_absolute() else root / args.acceptance
     acceptance = _read_json(source)
     validate_acceptance(acceptance, root=root)
-    if not RUN_ID_PATTERN.fullmatch(args.run_id):
+    from app.services.report_eval_artifacts import (
+        resolve_evaluation_run_dir,
+        validate_evaluation_run_id,
+    )
+
+    try:
+        validate_evaluation_run_id(args.run_id)
+    except ValueError:
         _print_result(
             {
                 "schema_version": RESULT_SCHEMA,
@@ -351,7 +361,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return local.returncode
 
-    run_dir = output_root.resolve() / args.run_id
+    run_dir = resolve_evaluation_run_dir(output_root, args.run_id)
     try:
         artifact_files = _validate_run_artifacts(
             run_dir,

@@ -6,7 +6,6 @@ import hashlib
 import io
 import json
 from pathlib import Path
-import re
 import sys
 
 
@@ -16,6 +15,10 @@ if str(ROOT) not in sys.path:
 
 from app.services.report_calibration_dataset import load_calibration_dataset
 from app.services.report_calibration_runner import evaluate_calibration_dataset
+from app.services.report_eval_artifacts import (
+    resolve_evaluation_run_dir,
+    validate_evaluation_run_id,
+)
 from app.services.report_semantic_dataset import (
     load_t49_semantic_dataset_manifest,
     validate_t49_semantic_dataset,
@@ -39,7 +42,6 @@ SEMANTIC_MANIFEST = (
     ROOT / "tests/fixtures/report_semantic_blind_test_manifest_v1.json"
 )
 GATE_CONFIG = ROOT / "config/interview_quality_v1_gate.json"
-RUN_ID_PATTERN = re.compile(r"^[a-z0-9_.-]+$")
 
 
 def _sha256(path: Path) -> str:
@@ -71,9 +73,11 @@ def _validate_dataset_manifest() -> dict[str, str]:
 
 
 def run_quality_replays(*, out: Path, run_id: str) -> dict:
-    if RUN_ID_PATTERN.fullmatch(run_id) is None:
-        raise RuntimeError("run_id contains unsafe characters")
-    run_root = out.resolve() / run_id
+    try:
+        validate_evaluation_run_id(run_id)
+        run_root = resolve_evaluation_run_dir(out, run_id)
+    except ValueError as exc:
+        raise RuntimeError("run_id contains unsafe characters") from exc
     if run_root.exists() and any(run_root.iterdir()):
         raise RuntimeError("T64 quality replay run directory already exists")
     run_root.mkdir(parents=True, exist_ok=True)
