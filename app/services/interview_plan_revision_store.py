@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
 from threading import RLock
-from typing import Protocol
+from typing import Mapping, Protocol
 from uuid import uuid4
 
 from app.services.interview_plan_audit import (
@@ -49,6 +50,8 @@ class PlanSourceUnavailable(PlanRevisionError):
 
 
 class InterviewPlanRevisionStore(Protocol):
+    def source_reference_recovery_lock(self): ...
+
     def create_initial(
         self,
         *,
@@ -79,6 +82,50 @@ class InterviewPlanRevisionStore(Protocol):
 
     def list_revisions(self, plan_family_id: str) -> list[InterviewPlanRevision]: ...
 
+    def get_source(self, source_id: str) -> PlanSourceRecord: ...
+
+    def list_source_references(
+        self, source_id: str
+    ) -> list[PlanSourceReference]: ...
+
+    def add_source_reference(
+        self,
+        source_id: str,
+        *,
+        owner_type: PlanSourceReferenceType,
+        owner_id: str,
+    ) -> PlanSourceReference: ...
+
+    def replace_source_reference(
+        self,
+        *,
+        old_source_id: str | None,
+        new_source_id: str | None,
+        owner_type: PlanSourceReferenceType,
+        owner_id: str,
+    ) -> PlanSourceReference | None: ...
+
+    def remove_source_reference(
+        self,
+        source_id: str,
+        *,
+        owner_type: PlanSourceReferenceType,
+        owner_id: str,
+    ) -> bool: ...
+
+    def reconcile_source_references(
+        self,
+        *,
+        owner_type: PlanSourceReferenceType,
+        expected: Mapping[str, str],
+    ) -> int: ...
+
+    def reconcile_session_source_references(self) -> int: ...
+
+    def tombstone_source_payload(
+        self, source_id: str, *, reason: str
+    ) -> PlanSourceRecord: ...
+
 
 class InMemoryInterviewPlanRevisionStore:
     def __init__(self) -> None:
@@ -89,6 +136,11 @@ class InMemoryInterviewPlanRevisionStore:
         self._revisions: dict[str, InterviewPlanRevision] = {}
         self._revision_ids_by_family: dict[str, list[str]] = {}
         self._requests: dict[tuple[str, str], tuple[str, str]] = {}
+
+    @contextmanager
+    def source_reference_recovery_lock(self):
+        with self._lock:
+            yield
 
     def create_initial(
         self,
@@ -252,12 +304,52 @@ class InMemoryInterviewPlanRevisionStore:
             source = self._sources.get(source_id)
             if source is None:
                 raise PlanRevisionNotFound("plan source not found")
+            if source.protected_payload is None:
+                raise PlanSourceUnavailable("plan source payload is unavailable")
             key = (source_id, owner_type, owner_id)
             existing = self._source_refs.get(key)
             if existing is not None:
                 return _copy(existing)
             ref = PlanSourceReference(
                 source_id=source_id,
+                owner_type=owner_type,
+                owner_id=owner_id,
+                created_at=utc_now(),
+            )
+            self._source_refs[key] = ref
+            return _copy(ref)
+
+    def replace_source_reference(
+        self,
+        *,
+        old_source_id: str | None,
+        new_source_id: str | None,
+        owner_type: PlanSourceReferenceType,
+        owner_id: str,
+    ) -> PlanSourceReference | None:
+        if old_source_id is None and new_source_id is None:
+            return None
+        with self._lock:
+            if new_source_id is not None:
+                source = self._sources.get(new_source_id)
+                if source is None:
+                    raise PlanRevisionNotFound("plan source not found")
+                if source.protected_payload is None:
+                    raise PlanSourceUnavailable(
+                        "plan source payload is unavailable"
+                    )
+            if old_source_id is not None and old_source_id != new_source_id:
+                self._source_refs.pop(
+                    (old_source_id, owner_type, owner_id), None
+                )
+            if new_source_id is None:
+                return None
+            key = (new_source_id, owner_type, owner_id)
+            existing = self._source_refs.get(key)
+            if existing is not None:
+                return _copy(existing)
+            ref = PlanSourceReference(
+                source_id=new_source_id,
                 owner_type=owner_type,
                 owner_id=owner_id,
                 created_at=utc_now(),
@@ -274,6 +366,48 @@ class InMemoryInterviewPlanRevisionStore:
     ) -> bool:
         with self._lock:
             return self._source_refs.pop((source_id, owner_type, owner_id), None) is not None
+
+    def reconcile_source_references(
+        self,
+        *,
+        owner_type: PlanSourceReferenceType,
+        expected: Mapping[str, str],
+    ) -> int:
+        with self._lock:
+            for source_id in expected.values():
+                source = self._sources.get(source_id)
+                if source is None:
+                    raise PlanRevisionNotFound("plan source not found")
+                if source.protected_payload is None:
+                    raise PlanSourceUnavailable("plan source payload is unavailable")
+            changed = 0
+            expected_pairs = {(source_id, owner_id) for owner_id, source_id in expected.items()}
+            expected_owner_ids = set(expected)
+            for key in list(self._source_refs):
+                source_id, ref_owner_type, owner_id = key
+                if (
+                    ref_owner_type == owner_type
+                    and owner_id in expected_owner_ids
+                    and (source_id, owner_id) not in expected_pairs
+                ):
+                    del self._source_refs[key]
+                    changed += 1
+            for owner_id, source_id in expected.items():
+                key = (source_id, owner_type, owner_id)
+                if key not in self._source_refs:
+                    self._source_refs[key] = PlanSourceReference(
+                        source_id=source_id,
+                        owner_type=owner_type,
+                        owner_id=owner_id,
+                        created_at=utc_now(),
+                    )
+                    changed += 1
+            return changed
+
+    def reconcile_session_source_references(self) -> int:
+        # Memory sessions and references share the process lifetime. Persistent
+        # session recovery is implemented by the PostgreSQL store.
+        return 0
 
     def tombstone_source_payload(self, source_id: str, *, reason: str) -> PlanSourceRecord:
         if not reason.strip():

@@ -25,6 +25,7 @@ from app.services.report_artifact import (
 from app.services.report_artifact_store import (
     ReportArtifactConflict,
     ReportArtifactNotFound,
+    _job_request_matches,
 )
 
 
@@ -106,7 +107,18 @@ class PostgresReportArtifactStore:
                 )
                 existing = cursor.fetchone()
                 if existing is not None:
-                    return self._job_from_row(existing)
+                    existing_job = self._job_from_row(existing)
+                    if not _job_request_matches(
+                        existing_job,
+                        job_kind=job_kind,
+                        source_report_id=source_report_id,
+                        parent_job_id=parent_job_id,
+                        activate_on_success=activate_on_success,
+                    ):
+                        raise ReportArtifactConflict(
+                            "idempotency key payload conflicts"
+                        )
+                    return existing_job
                 if source_report_id is not None:
                     cursor.execute(
                         sql.SQL("SELECT session_id FROM {artifacts} WHERE report_id=%s::uuid").format(
@@ -449,6 +461,25 @@ class PostgresReportArtifactStore:
                 )
                 return [self._job_from_row(row) for row in cursor.fetchall()]
 
+    def get_job_by_idempotency_key(
+        self, session_id: str, idempotency_key: str
+    ) -> ReportJobV2 | None:
+        _, sql = self._import_psycopg2()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {fields} FROM {jobs} "
+                        "WHERE session_id=%s AND idempotency_key=%s"
+                    ).format(
+                        fields=self._job_fields(sql),
+                        jobs=sql.Identifier(self.jobs_table),
+                    ),
+                    (session_id, idempotency_key),
+                )
+                row = cursor.fetchone()
+                return self._job_from_row(row) if row is not None else None
+
     def get_latest_job(self, session_id: str) -> ReportJobV2 | None:
         _, sql = self._import_psycopg2()
         with self._connection_provider.connection() as connection:
@@ -570,7 +601,10 @@ class PostgresReportArtifactStore:
                     cursor.execute(
                         sql.SQL(
                             "SELECT job_id FROM {jobs} WHERE session_id=%s "
-                            "ORDER BY created_at,job_id LIMIT 1"
+                            "AND status='completed' AND job_kind='initial' "
+                            "AND source_report_id IS NULL AND report_id IS NULL "
+                            "AND idempotency_key='legacy:' || job_id::text "
+                            "ORDER BY created_at,job_id LIMIT 1 FOR UPDATE"
                         ).format(jobs=sql.Identifier(self.jobs_table)),
                         (legacy_session_id,),
                     )

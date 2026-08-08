@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Mapping
 from uuid import uuid4
 
 from app.services.interview_plan_audit import PlanRevisionAudit
@@ -59,6 +60,7 @@ class PostgresInterviewPlanRevisionStore:
         self.sources_table = f"{table_prefix}_plan_sources"
         self.source_refs_table = f"{table_prefix}_plan_source_refs"
         self.revisions_table = f"{table_prefix}_plan_revisions"
+        self.sessions_table = f"{table_prefix}_sessions"
         self.schema_mode = resolve_schema_mode(
             schema_mode, provider_is_owned=self._provider_is_owned
         )
@@ -69,6 +71,28 @@ class PostgresInterviewPlanRevisionStore:
                 self._connection_provider,
                 (self.sources_table, self.source_refs_table, self.revisions_table),
             )
+
+    @property
+    def _source_reference_lock_name(self) -> str:
+        return f"{self.table_prefix}:plan-source-reference-lifecycle"
+
+    @contextmanager
+    def source_reference_recovery_lock(self):
+        """Serialize cross-store ref recovery; PostgreSQL releases it on crash."""
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_lock(hashtextextended(%s, 0))",
+                    (self._source_reference_lock_name,),
+                )
+            try:
+                yield
+            finally:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+                        (self._source_reference_lock_name,),
+                    )
 
     def create_initial(
         self,
@@ -339,6 +363,19 @@ class PostgresInterviewPlanRevisionStore:
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
+                    sql.SQL(self._select_source_by_id_sql("FOR UPDATE")).format(
+                        sources=sql.Identifier(self.sources_table)
+                    ),
+                    (source_id,),
+                )
+                source_row = cursor.fetchone()
+                if source_row is None:
+                    raise PlanRevisionNotFound("plan source not found")
+                if self._source_from_row(source_row).protected_payload is None:
+                    raise PlanSourceUnavailable(
+                        "plan source payload is unavailable"
+                    )
+                cursor.execute(
                     sql.SQL(
                         """
                         INSERT INTO {refs} (source_id, owner_type, owner_id, created_at)
@@ -352,6 +389,67 @@ class PostgresInterviewPlanRevisionStore:
                 )
                 row = cursor.fetchone()
         return self._reference_from_row(row)
+
+    def replace_source_reference(
+        self,
+        *,
+        old_source_id: str | None,
+        new_source_id: str | None,
+        owner_type: PlanSourceReferenceType,
+        owner_id: str,
+    ) -> PlanSourceReference | None:
+        if old_source_id is None and new_source_id is None:
+            return None
+        _, sql, _ = self._imports()
+        now = utc_now()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                source_ids = sorted(
+                    {
+                        source_id
+                        for source_id in (old_source_id, new_source_id)
+                        if source_id is not None
+                    }
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT source_id::text, protected_payload FROM {sources} "
+                        "WHERE source_id = ANY(%s::uuid[]) ORDER BY source_id FOR UPDATE"
+                    ).format(sources=sql.Identifier(self.sources_table)),
+                    (source_ids,),
+                )
+                sources = {
+                    str(source_id): protected_payload
+                    for source_id, protected_payload in cursor.fetchall()
+                }
+                if new_source_id is not None:
+                    if new_source_id not in sources:
+                        raise PlanRevisionNotFound("plan source not found")
+                    if sources[new_source_id] is None:
+                        raise PlanSourceUnavailable(
+                            "plan source payload is unavailable"
+                        )
+                if old_source_id is not None and old_source_id != new_source_id:
+                    cursor.execute(
+                        sql.SQL(
+                            "DELETE FROM {refs} WHERE source_id=%s::uuid "
+                            "AND owner_type=%s AND owner_id=%s"
+                        ).format(refs=sql.Identifier(self.source_refs_table)),
+                        (old_source_id, owner_type, owner_id),
+                    )
+                if new_source_id is None:
+                    return None
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {refs}(source_id,owner_type,owner_id,created_at) "
+                        "VALUES(%s::uuid,%s,%s,%s) "
+                        "ON CONFLICT(source_id,owner_type,owner_id) "
+                        "DO UPDATE SET owner_id=EXCLUDED.owner_id "
+                        "RETURNING source_id::text,owner_type,owner_id,created_at"
+                    ).format(refs=sql.Identifier(self.source_refs_table)),
+                    (new_source_id, owner_type, owner_id, now),
+                )
+                return self._reference_from_row(cursor.fetchone())
 
     def remove_source_reference(
         self,
@@ -372,12 +470,123 @@ class PostgresInterviewPlanRevisionStore:
                 )
                 return cursor.rowcount == 1
 
+    def reconcile_source_references(
+        self,
+        *,
+        owner_type: PlanSourceReferenceType,
+        expected: Mapping[str, str],
+    ) -> int:
+        """Repair only explicitly known owners, preserving other workers' refs."""
+        _, sql, _ = self._imports()
+        expected_pairs = [(owner_id, source_id) for owner_id, source_id in expected.items()]
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT source_id::text, protected_payload FROM {sources} "
+                        "WHERE source_id = ANY(%s::uuid[]) ORDER BY source_id FOR UPDATE"
+                    ).format(sources=sql.Identifier(self.sources_table)),
+                    ([source_id for _, source_id in expected_pairs],),
+                )
+                available = {
+                    str(source_id): payload for source_id, payload in cursor.fetchall()
+                }
+                for _, source_id in expected_pairs:
+                    if source_id not in available:
+                        raise PlanRevisionNotFound("plan source not found")
+                    if available[source_id] is None:
+                        raise PlanSourceUnavailable("plan source payload is unavailable")
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {refs} r WHERE r.owner_type=%s AND EXISTS ("
+                        "SELECT 1 FROM unnest(%s::text[], %s::uuid[]) AS e(owner_id,source_id) "
+                        "WHERE e.owner_id=r.owner_id AND e.source_id<>r.source_id)"
+                    ).format(refs=sql.Identifier(self.source_refs_table)),
+                    (
+                        owner_type,
+                        [owner_id for owner_id, _ in expected_pairs],
+                        [source_id for _, source_id in expected_pairs],
+                    ),
+                )
+                changed = cursor.rowcount
+                if expected_pairs:
+                    cursor.execute(
+                        sql.SQL(
+                            "INSERT INTO {refs}(source_id,owner_type,owner_id,created_at) "
+                            "SELECT e.source_id,%s,e.owner_id,NOW() FROM "
+                            "unnest(%s::text[], %s::uuid[]) AS e(owner_id,source_id) "
+                            "ON CONFLICT(source_id,owner_type,owner_id) DO NOTHING"
+                        ).format(refs=sql.Identifier(self.source_refs_table)),
+                        (
+                            owner_type,
+                            [owner_id for owner_id, _ in expected_pairs],
+                            [source_id for _, source_id in expected_pairs],
+                        ),
+                    )
+                    changed += cursor.rowcount
+                return changed
+
+    def reconcile_session_source_references(self) -> int:
+        """Repair refs from durable active session plan bindings after a crash."""
+        _, sql, _ = self._imports()
+        with self._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass(%s)", (f"public.{self.sessions_table}",))
+                if cursor.fetchone()[0] is None:
+                    return 0
+                valid_binding = (
+                    "s.deletion_status='active' AND "
+                    "s.plan_binding_json->>'plan_origin'='plan_revision' AND "
+                    "COALESCE(s.plan_binding_json->>'plan_revision_id','') "
+                    "~ '^[0-9a-fA-F-]{36}$'"
+                )
+                binding_revision = (
+                    "CASE WHEN COALESCE(s.plan_binding_json->>'plan_revision_id','') "
+                    "~ '^[0-9a-fA-F-]{36}$' THEN "
+                    "(s.plan_binding_json->>'plan_revision_id')::uuid ELSE NULL END"
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "DELETE FROM {refs} ref WHERE ref.owner_type='session' "
+                        "AND NOT EXISTS (SELECT 1 FROM {sessions} s "
+                        "JOIN {revisions} rev ON rev.plan_revision_id=" + binding_revision + " "
+                        "WHERE s.session_id=ref.owner_id AND " + valid_binding +
+                        " AND rev.source_id=ref.source_id)"
+                    ).format(
+                        refs=sql.Identifier(self.source_refs_table),
+                        sessions=sql.Identifier(self.sessions_table),
+                        revisions=sql.Identifier(self.revisions_table),
+                    )
+                )
+                changed = cursor.rowcount
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {refs}(source_id,owner_type,owner_id,created_at) "
+                        "SELECT rev.source_id,'session',s.session_id,NOW() "
+                        "FROM {sessions} s JOIN {revisions} rev ON rev.plan_revision_id=" +
+                        binding_revision + " "
+                        "JOIN {sources} src ON src.source_id=rev.source_id "
+                        "WHERE " + valid_binding + " AND src.protected_payload IS NOT NULL "
+                        "ON CONFLICT(source_id,owner_type,owner_id) DO NOTHING"
+                    ).format(
+                        refs=sql.Identifier(self.source_refs_table),
+                        sessions=sql.Identifier(self.sessions_table),
+                        revisions=sql.Identifier(self.revisions_table),
+                        sources=sql.Identifier(self.sources_table),
+                    )
+                )
+                return changed + cursor.rowcount
+
     def tombstone_source_payload(self, source_id: str, *, reason: str) -> PlanSourceRecord:
         if not reason.strip():
             raise ValueError("tombstone reason is required")
         _, sql, _ = self._imports()
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (self._source_reference_lock_name,),
+                )
                 cursor.execute(
                     sql.SQL(self._select_source_by_id_sql("FOR UPDATE")).format(
                         sources=sql.Identifier(self.sources_table)

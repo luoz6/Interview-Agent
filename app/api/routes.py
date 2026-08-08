@@ -1149,7 +1149,14 @@ def save_interview_draft(
     draft_store=Depends(get_draft_store),
     revision_store=Depends(get_plan_revision_store),
 ):
+    with revision_store.source_reference_recovery_lock():
+        return _save_interview_draft_locked(payload, draft_store, revision_store)
+
+
+def _save_interview_draft_locked(payload, draft_store, revision_store):
     try:
+        _reconcile_draft_source_references(draft_store, revision_store)
+        existing_draft = None
         previous_revision = None
         if payload.draft_id is not None:
             try:
@@ -1169,7 +1176,7 @@ def save_interview_draft(
                     detail={"code": "draft_plan_family_mismatch"},
                 )
             plan_source_sha256 = revision.source_sha256
-        draft = draft_store.save(
+        prepared = draft_store.prepare_save(
             draft_id=payload.draft_id,
             job_description=payload.job_description,
             resume_text=payload.resume_text,
@@ -1182,27 +1189,37 @@ def save_interview_draft(
             plan_source_sha256=plan_source_sha256,
             clear_plan=payload.clear_plan,
         )
-        if previous_revision is not None and (
-            payload.clear_plan
-            or (
-                revision is not None
-                and revision.source_id != previous_revision.source_id
-            )
-        ):
-            revision_store.remove_source_reference(
-                previous_revision.source_id,
+        target_revision_id = prepared.get("latest_plan_revision_id")
+        target_revision = (
+            revision_store.get_by_id(target_revision_id)
+            if target_revision_id is not None
+            else None
+        )
+        old_source_id = previous_revision.source_id if previous_revision else None
+        new_source_id = target_revision.source_id if target_revision else None
+        revision_store.replace_source_reference(
+            old_source_id=old_source_id,
+            new_source_id=new_source_id,
+            owner_type="draft",
+            owner_id=prepared["draft_id"],
+        )
+        try:
+            draft = draft_store.commit_save(prepared)
+        except Exception:
+            revision_store.replace_source_reference(
+                old_source_id=new_source_id,
+                new_source_id=old_source_id,
                 owner_type="draft",
-                owner_id=draft["draft_id"],
+                owner_id=prepared["draft_id"],
             )
-        if revision is not None:
-            revision_store.add_source_reference(
-                revision.source_id,
-                owner_type="draft",
-                owner_id=draft["draft_id"],
-            )
+            raise
         return draft
     except PlanRevisionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PlanSourceUnavailable as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "plan_source_unavailable"}
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1221,17 +1238,34 @@ def delete_interview_draft(
     draft_store=Depends(get_draft_store),
     revision_store=Depends(get_plan_revision_store),
 ):
+    with revision_store.source_reference_recovery_lock():
+        return _delete_interview_draft_locked(draft_id, draft_store, revision_store)
+
+
+def _delete_interview_draft_locked(draft_id, draft_store, revision_store):
     try:
+        _reconcile_draft_source_references(draft_store, revision_store)
         draft = draft_store.get(draft_id)
         revision_id = draft.get("latest_plan_revision_id")
         revision = revision_store.get_by_id(revision_id) if revision_id else None
-        draft_store.delete(draft_id)
         if revision is not None:
-            revision_store.remove_source_reference(
-                revision.source_id,
+            revision_store.replace_source_reference(
+                old_source_id=revision.source_id,
+                new_source_id=None,
                 owner_type="draft",
                 owner_id=draft_id,
             )
+        try:
+            draft_store.delete(draft_id)
+        except Exception:
+            if revision is not None:
+                revision_store.replace_source_reference(
+                    old_source_id=None,
+                    new_source_id=revision.source_id,
+                    owner_type="draft",
+                    owner_id=draft_id,
+                )
+            raise
     except (ValueError, PlanRevisionNotFound) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return Response(status_code=204)
@@ -1288,7 +1322,16 @@ def start_interview(
     store: InterviewSessionStore = Depends(get_session_store),
     revision_store=Depends(get_plan_revision_store),
 ):
+    with revision_store.source_reference_recovery_lock():
+        return _start_interview_locked(payload, store, revision_store)
+
+
+def _start_interview_locked(payload, store, revision_store):
     try:
+        # A previous process can have died after reserving a source but before
+        # inserting its session, or after inserting the session but before the
+        # reference became visible. Persistent stores repair both directions.
+        revision_store.reconcile_session_source_references()
         revision = revision_store.get_by_id(payload.plan_revision_id)
         plan_binding = session_plan_binding_from_revision(revision)
         session_id = _session_id_for_start_request(
@@ -1334,6 +1377,11 @@ def start_interview(
         job_description = source_payload.job_description
         resume_text = source_payload.resume_text
         job_tags = list(source_payload.job_tags)
+        revision_store.add_source_reference(
+            revision.source_id,
+            owner_type="session",
+            owner_id=session_id,
+        )
         try:
             if (
                 get_runtime_store() == "postgres"
@@ -1356,9 +1404,7 @@ def start_interview(
                     plan_binding=plan_binding,
                     session_id=session_id,
                 )
-        except Exception as exc:
-            if not _is_unique_constraint_violation(exc):
-                raise
+        except Exception:
             turn = _load_session_start_replay(
                 store,
                 session_id,
@@ -1367,12 +1413,12 @@ def start_interview(
                 plan_sha256=payload.plan_sha256,
             )
             if turn is None:
+                revision_store.remove_source_reference(
+                    revision.source_id,
+                    owner_type="session",
+                    owner_id=session_id,
+                )
                 raise
-        revision_store.add_source_reference(
-            revision.source_id,
-            owner_type="session",
-            owner_id=turn.session_id,
-        )
     except SessionStartRequestConflict:
         return JSONResponse(
             status_code=409,
@@ -1392,6 +1438,16 @@ class SessionStartRequestConflict(Exception):
 def _session_id_for_start_request(plan_family_id: str, request_id: str) -> str:
     identity = f"{plan_family_id}:{request_id}"
     return str(uuid5(_SESSION_START_REQUEST_NAMESPACE, identity))
+
+
+def _reconcile_draft_source_references(draft_store, revision_store) -> None:
+    expected = {}
+    for draft_id, revision_id in draft_store.plan_revision_bindings().items():
+        expected[draft_id] = revision_store.get_by_id(revision_id).source_id
+    revision_store.reconcile_source_references(
+        owner_type="draft",
+        expected=expected,
+    )
 
 
 def _load_session_start_replay(
@@ -2150,11 +2206,31 @@ def rescore_interview_report(
         _raise_if_deleting(state)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="interview session not found") from exc
+    request_body = body or RescoreReportRequest()
+    key = request_body.idempotency_key or f"rescore:{uuid4()}"
+    if request_body.idempotency_key is not None:
+        existing = artifact_store.get_job_by_idempotency_key(session_id, key)
+        if existing is not None:
+            if (
+                existing.job_kind != "rescore"
+                or existing.activate_on_success
+                is not request_body.activate_on_success
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="idempotency key payload conflicts",
+                )
+            return {
+                "session_id": session_id,
+                "report_job_id": existing.job_id,
+                "status": existing.status,
+                "job_kind": existing.job_kind,
+                "source_report_id": existing.source_report_id,
+                "active_report_id": existing.source_report_id,
+            }
     active_artifact, _ = _active_report_view(artifact_store, session_id)
     if active_artifact is None:
         raise HTTPException(status_code=409, detail="an active report is required before rescoring")
-    request_body = body or RescoreReportRequest()
-    key = request_body.idempotency_key or f"rescore:{uuid4()}"
     try:
         job = artifact_store.enqueue_job(
             session_id=session_id,
@@ -2164,14 +2240,26 @@ def rescore_interview_report(
             idempotency_key=key,
         )
     except ReportArtifactConflict as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        existing = (
+            artifact_store.get_job_by_idempotency_key(session_id, key)
+            if request_body.idempotency_key is not None
+            else None
+        )
+        if (
+            existing is None
+            or existing.job_kind != "rescore"
+            or existing.activate_on_success
+            is not request_body.activate_on_success
+        ):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        job = existing
     return {
         "session_id": session_id,
         "report_job_id": job.job_id,
         "status": job.status,
         "job_kind": job.job_kind,
         "source_report_id": job.source_report_id,
-        "active_report_id": active_artifact.report_id,
+        "active_report_id": job.source_report_id,
     }
 
 

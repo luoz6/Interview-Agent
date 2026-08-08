@@ -213,3 +213,46 @@ def test_source_references_require_explicit_release_before_tombstone():
         generator_version="plan-generator-v2-test",
     )
     assert edited.revision == 2
+
+    with pytest.raises(PlanSourceUnavailable):
+        store.add_source_reference(
+            first.source_id,
+            owner_type="session",
+            owner_id="late-session",
+        )
+
+
+def test_memory_reconcile_validates_all_expected_sources_before_mutating_refs():
+    store = InMemoryInterviewPlanRevisionStore()
+    current = store.create_initial(
+        source_payload=source(),
+        plan=plan(),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    unavailable = store.create_initial(
+        source_payload=source(),
+        plan=plan(title="Unavailable target"),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    store.add_source_reference(
+        current.source_id, owner_type="draft", owner_id="draft-atomic"
+    )
+    store.remove_source_reference(
+        unavailable.source_id,
+        owner_type="family",
+        owner_id=unavailable.plan_family_id,
+    )
+    store.tombstone_source_payload(
+        unavailable.source_id, reason="retention_expired"
+    )
+    before = store.list_source_references(current.source_id)
+
+    with pytest.raises(PlanSourceUnavailable):
+        store.reconcile_source_references(
+            owner_type="draft",
+            expected={"draft-atomic": unavailable.source_id},
+        )
+
+    assert store.list_source_references(current.source_id) == before

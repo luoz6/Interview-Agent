@@ -9,6 +9,7 @@ from app.services.review_workflow_store import PostgresReviewWorkflowStore
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.report import InterviewReport
 from tests.postgres_support import require_postgres_dsn
 
 
@@ -84,6 +85,54 @@ def test_postgres_artifact_history_active_pointer_and_failed_requeue():
     assert store.get_head(session_id).active_report_id == first.report_id
     assert store.requeue_failed(rescore.job_id).status == "queued"
     assert [item.revision for item in store.list_artifacts(session_id)] == [1]
+
+
+def test_postgres_idempotency_key_rejects_changed_job_semantics():
+    _, store, session_id = make_stores()
+    original = store.enqueue_job(
+        session_id=session_id,
+        activate_on_success=True,
+        idempotency_key="same-key",
+    )
+    assert store.enqueue_job(
+        session_id=session_id,
+        activate_on_success=True,
+        idempotency_key="same-key",
+    ).job_id == original.job_id
+
+    with pytest.raises(ReportArtifactConflict, match="payload conflicts"):
+        store.enqueue_job(
+            session_id=session_id,
+            activate_on_success=False,
+            idempotency_key="same-key",
+        )
+
+
+def test_postgres_idempotency_lookup_is_session_scoped_after_completion():
+    sessions, store, session_id = make_stores()
+    first = store.enqueue_job(
+        session_id=session_id, idempotency_key="shared-completed-key"
+    )
+    first = store.claim_job(first.job_id, worker_id="worker-1")
+    store.publish(first.job_id, payload(), worker_id="worker-1")
+    other_session = sessions.start(
+        make_plan(),
+        job_description="Other role",
+        resume_text="Other resume",
+        job_tags=["other"],
+    )
+    other = store.enqueue_job(
+        session_id=other_session.session_id,
+        idempotency_key="shared-completed-key",
+    )
+
+    assert store.get_job_by_idempotency_key(
+        session_id, "shared-completed-key"
+    ).job_id == first.job_id
+    assert store.get_job_by_idempotency_key(
+        other_session.session_id, "shared-completed-key"
+    ).job_id == other.job_id
+    assert store.get_job_by_idempotency_key(session_id, "missing") is None
 
 
 def test_postgres_publish_replays_after_response_loss_by_source_job_and_hash():
@@ -296,3 +345,80 @@ def test_postgres_legacy_report_promotion_is_additive_and_idempotent():
     assert len(artifacts) == 1
     assert artifacts[0].schema_version == "legacy-v1"
     assert store.get_head(session.session_id).active_report_id == artifacts[0].report_id
+
+
+def test_legacy_migration_does_not_complete_an_unrelated_queued_job():
+    dsn = require_postgres_dsn()
+    table_prefix = prefix()
+    sessions = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    session = sessions.start(
+        make_plan(),
+        job_description="Legacy role",
+        resume_text="Legacy resume",
+        job_tags=["legacy"],
+    )
+    sessions.finish(session.session_id)
+    sessions.save_report(
+        session.session_id,
+        InterviewReport(
+            session_id=session.session_id,
+            overall_score=73,
+            overall_dimension_scores={"depth": 73},
+            summary="legacy",
+            highlights=["legacy"],
+            feedbacks=[],
+        ),
+    )
+    store = PostgresReportArtifactStore(dsn=dsn, table_prefix=table_prefix)
+    queued = store.enqueue_job(
+        session_id=session.session_id,
+        idempotency_key="unrelated-queued",
+    )
+
+    assert store.migrate_legacy_reports(session_id=session.session_id) == 1
+    jobs = {job.job_id: job for job in store.list_jobs(session.session_id)}
+    artifact = store.list_artifacts(session.session_id)[0]
+    assert jobs[queued.job_id].status == "queued"
+    assert artifact.source_job_id != queued.job_id
+
+
+def test_legacy_migration_does_not_reuse_an_unrelated_completed_current_job():
+    dsn = require_postgres_dsn()
+    table_prefix = prefix()
+    sessions = PostgresInterviewSessionStore(dsn=dsn, table_prefix=table_prefix)
+    session = sessions.start(
+        make_plan(),
+        job_description="Legacy role",
+        resume_text="Legacy resume",
+        job_tags=["legacy"],
+    )
+    sessions.finish(session.session_id)
+    sessions.save_report(
+        session.session_id,
+        InterviewReport(
+            session_id=session.session_id,
+            overall_score=73,
+            overall_dimension_scores={"depth": 73},
+            summary="legacy",
+            highlights=["legacy"],
+            feedbacks=[],
+        ),
+    )
+    store = PostgresReportArtifactStore(dsn=dsn, table_prefix=table_prefix)
+    unrelated = store.enqueue_job(
+        session_id=session.session_id,
+        idempotency_key="current-completed-job",
+    )
+    psycopg2, sql = store._import_psycopg2()
+    with psycopg2.connect(dsn) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("UPDATE {jobs} SET status='completed' WHERE job_id=%s::uuid").format(
+                    jobs=sql.Identifier(store.jobs_table)
+                ),
+                (unrelated.job_id,),
+            )
+
+    assert store.migrate_legacy_reports(session_id=session.session_id) == 1
+    artifact = store.list_artifacts(session.session_id)[0]
+    assert artifact.source_job_id != unrelated.job_id

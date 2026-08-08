@@ -89,6 +89,52 @@ def test_failed_job_keeps_old_active_and_requeue_reuses_job():
     assert len(store.list_artifacts("session-1")) == 1
 
 
+def test_idempotency_key_rejects_changed_job_semantics():
+    store = InMemoryReportArtifactStore()
+    original = store.enqueue_job(
+        session_id="session-1",
+        job_kind="initial",
+        activate_on_success=True,
+        idempotency_key="same-key",
+    )
+
+    replay = store.enqueue_job(
+        session_id="session-1",
+        job_kind="initial",
+        activate_on_success=True,
+        idempotency_key="same-key",
+    )
+    assert replay.job_id == original.job_id
+
+    with pytest.raises(ReportArtifactConflict, match="payload conflicts"):
+        store.enqueue_job(
+            session_id="session-1",
+            job_kind="initial",
+            activate_on_success=False,
+            idempotency_key="same-key",
+        )
+
+
+def test_idempotency_lookup_is_session_scoped_after_job_completion():
+    store = InMemoryReportArtifactStore()
+    first = store.enqueue_job(
+        session_id="session-1", idempotency_key="shared-key"
+    )
+    claimed = store.claim_job(first.job_id, worker_id="worker-1")
+    store.publish(claimed.job_id, publish_payload(), worker_id="worker-1")
+    other = store.enqueue_job(
+        session_id="session-2", idempotency_key="shared-key"
+    )
+
+    assert store.get_job_by_idempotency_key(
+        "session-1", "shared-key"
+    ).job_id == first.job_id
+    assert store.get_job_by_idempotency_key(
+        "session-2", "shared-key"
+    ).job_id == other.job_id
+    assert store.get_job_by_idempotency_key("session-1", "missing") is None
+
+
 @pytest.mark.parametrize(
     "step",
     ["before_artifact", "artifact", "head", "job", "review_run", "session"],

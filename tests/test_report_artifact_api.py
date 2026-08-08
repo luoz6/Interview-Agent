@@ -29,6 +29,30 @@ class TrackingArtifactStore(InMemoryReportArtifactStore):
         return super().list_jobs(session_id)
 
 
+class PublishRescoreDuringLookupStore(InMemoryReportArtifactStore):
+    def __init__(self):
+        super().__init__()
+        self.race_source_report_id = None
+        self.race_key = None
+        self.raced_job = None
+
+    def get_job_by_idempotency_key(self, session_id, idempotency_key):
+        if self.race_key == idempotency_key:
+            self.race_key = None
+            job = super().enqueue_job(
+                session_id=session_id,
+                job_kind="rescore",
+                source_report_id=self.race_source_report_id,
+                activate_on_success=True,
+                idempotency_key=idempotency_key,
+            )
+            job = super().claim_job(job.job_id, worker_id="racing-worker")
+            super().publish(job.job_id, payload(), worker_id="racing-worker")
+            self.raced_job = job
+            return None
+        return super().get_job_by_idempotency_key(session_id, idempotency_key)
+
+
 def payload():
     return PublishReportArtifact(
         schema_version="report-artifact-v2",
@@ -98,6 +122,99 @@ def test_report_version_endpoints_keep_active_artifact_when_rescore_fails():
             f"/api/reports/{first.report_id}",
             params={"session_id": "session-1"},
         ).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rescore_api_rejects_same_idempotency_key_with_changed_semantics():
+    artifacts = InMemoryReportArtifactStore()
+    initial = artifacts.enqueue_job(
+        session_id="session-1", idempotency_key="initial"
+    )
+    initial = artifacts.claim_job(initial.job_id, worker_id="w1")
+    artifacts.publish(initial.job_id, payload(), worker_id="w1")
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    try:
+        client = TestClient(app)
+        first = client.post(
+            "/api/interviews/session-1/report/rescore",
+            json={"activate_on_success": True, "idempotency_key": "same-key"},
+        )
+        conflict = client.post(
+            "/api/interviews/session-1/report/rescore",
+            json={"activate_on_success": False, "idempotency_key": "same-key"},
+        )
+
+        assert first.status_code == 202
+        assert conflict.status_code == 409
+        assert "payload conflicts" in conflict.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rescore_late_retry_replays_completed_job_after_active_report_moves():
+    artifacts = InMemoryReportArtifactStore()
+    initial = artifacts.enqueue_job(
+        session_id="session-1", idempotency_key="initial"
+    )
+    initial = artifacts.claim_job(initial.job_id, worker_id="w1")
+    first = artifacts.publish(initial.job_id, payload(), worker_id="w1")
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    try:
+        client = TestClient(app)
+        first_response = client.post(
+            "/api/interviews/session-1/report/rescore",
+            json={"activate_on_success": True, "idempotency_key": "lost-response"},
+        )
+        job = artifacts.claim_job(
+            first_response.json()["report_job_id"], worker_id="w2"
+        )
+        second = artifacts.publish(job.job_id, payload(), worker_id="w2")
+        assert artifacts.get_head("session-1").active_report_id == second.report_id
+
+        replay = client.post(
+            "/api/interviews/session-1/report/rescore",
+            json={"activate_on_success": True, "idempotency_key": "lost-response"},
+        )
+        changed = client.post(
+            "/api/interviews/session-1/report/rescore",
+            json={"activate_on_success": False, "idempotency_key": "lost-response"},
+        )
+
+        assert replay.status_code == 202
+        assert replay.json()["report_job_id"] == job.job_id
+        assert replay.json()["status"] == "completed"
+        assert replay.json()["source_report_id"] == first.report_id
+        assert replay.json()["active_report_id"] == first.report_id
+        assert changed.status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_rescore_retry_replays_when_first_request_publishes_after_lookup_miss():
+    artifacts = PublishRescoreDuringLookupStore()
+    initial = artifacts.enqueue_job(
+        session_id="session-1", idempotency_key="initial-race"
+    )
+    initial = artifacts.claim_job(initial.job_id, worker_id="w1")
+    first = artifacts.publish(initial.job_id, payload(), worker_id="w1")
+    artifacts.race_source_report_id = first.report_id
+    artifacts.race_key = "racing-retry"
+    app.dependency_overrides[routes.get_session_store] = lambda: FinishedSessionStore()
+    app.dependency_overrides[routes.get_report_artifact_store] = lambda: artifacts
+    try:
+        response = TestClient(app).post(
+            "/api/interviews/session-1/report/rescore",
+            json={"activate_on_success": True, "idempotency_key": "racing-retry"},
+        )
+
+        assert response.status_code == 202
+        assert response.json()["report_job_id"] == artifacts.raced_job.job_id
+        assert response.json()["source_report_id"] == first.report_id
+        assert response.json()["active_report_id"] == first.report_id
+        assert len(artifacts.list_jobs("session-1")) == 2
     finally:
         app.dependency_overrides.clear()
 

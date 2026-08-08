@@ -55,6 +55,50 @@ class FailingRegenerator:
         raise PlanRegenerationFailed("provider_timeout", "Provider regeneration timed out")
 
 
+class FailOnceReferenceStore(InMemoryInterviewPlanRevisionStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_replace = False
+        self.fail_next_add = False
+
+    def replace_source_reference(self, **kwargs):
+        if self.fail_next_replace:
+            self.fail_next_replace = False
+            raise RuntimeError("injected reference replacement failure")
+        return super().replace_source_reference(**kwargs)
+
+    def add_source_reference(self, *args, **kwargs):
+        if self.fail_next_add:
+            self.fail_next_add = False
+            raise RuntimeError("injected reference add failure")
+        return super().add_source_reference(*args, **kwargs)
+
+
+class FailOnceCommitDraftStore(AnonymousDraftStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_commit = False
+
+    def commit_save(self, draft):
+        if self.fail_next_commit:
+            self.fail_next_commit = False
+            raise RuntimeError("injected draft commit failure")
+        return super().commit_save(draft)
+
+
+class ResponseLossSessionStore(InterviewSessionStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lose_next_response = True
+
+    def start(self, *args, **kwargs):
+        turn = super().start(*args, **kwargs)
+        if self.lose_next_response:
+            self.lose_next_response = False
+            raise RuntimeError("injected response loss")
+        return turn
+
+
 @pytest.fixture
 def api_plan():
     store = InMemoryInterviewPlanRevisionStore()
@@ -601,6 +645,63 @@ def test_duplicate_session_start_request_replays_one_business_session(api_plan):
     assert len(session_refs) == 1
 
 
+def test_session_start_repairs_response_loss_without_missing_reference(api_plan):
+    client, revision_store, initial, _ = api_plan
+    session_store = ResponseLossSessionStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "response-loss-session-start",
+    }
+
+    response = client.post("/api/interviews", json=payload)
+
+    assert response.status_code == 200
+    session_id = response.json()["session_id"]
+    assert session_store.get(session_id)["session_id"] == session_id
+    assert any(
+        ref.owner_type == "session" and ref.owner_id == session_id
+        for ref in revision_store.list_source_references(initial.source_id)
+    )
+
+
+def test_session_start_reference_failure_creates_no_session_and_retry_recovers():
+    revision_store = FailOnceReferenceStore()
+    initial = revision_store.create_initial(
+        source_payload=source(),
+        plan=plan(),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    session_store = InterviewSessionStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "reference-failure-session-start",
+    }
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        revision_store.fail_next_add = True
+        failed = client.post("/api/interviews", json=payload)
+        assert failed.status_code == 500
+        assert session_store._sessions == {}
+
+        recovered = client.post("/api/interviews", json=payload)
+        assert recovered.status_code == 200
+        session_id = recovered.json()["session_id"]
+        assert any(
+            ref.owner_type == "session" and ref.owner_id == session_id
+            for ref in revision_store.list_source_references(initial.source_id)
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_session_start_request_id_reuse_with_new_revision_is_conflict(api_plan):
     client, _, initial, _ = api_plan
     session_store = InterviewSessionStore()
@@ -846,3 +947,119 @@ def test_draft_restores_exact_revision_and_source_edits_mark_it_stale(api_plan):
         ref.owner_type == "draft" and ref.owner_id == created.json()["draft_id"]
         for ref in revision_store.list_source_references(initial.source_id)
     )
+
+
+def test_draft_reference_failure_is_retryable_without_mutating_draft():
+    revision_store = FailOnceReferenceStore()
+    initial = revision_store.create_initial(
+        source_payload=source(),
+        plan=plan(),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    draft_store = AnonymousDraftStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
+    app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        revision_store.fail_next_replace = True
+        body = {
+            "draft_id": "draft_retryable",
+            "job_description": source().job_description,
+            "resume_text": source().resume_text,
+            "job_tags": list(source().job_tags),
+            "plan_family_id": initial.plan_family_id,
+            "latest_plan_revision_id": initial.plan_revision_id,
+        }
+        failed = client.post("/api/interview-drafts", json=body)
+        assert failed.status_code == 500
+        with pytest.raises(ValueError, match="draft not found"):
+            draft_store.get("draft_retryable")
+
+        recovered = client.post("/api/interview-drafts", json=body)
+        assert recovered.status_code == 200
+        assert any(
+            ref.owner_type == "draft" and ref.owner_id == "draft_retryable"
+            for ref in revision_store.list_source_references(initial.source_id)
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_draft_commit_failure_compensates_reference_and_delete_retry_succeeds():
+    revision_store = FailOnceReferenceStore()
+    initial = revision_store.create_initial(
+        source_payload=source(),
+        plan=plan(),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    draft_store = FailOnceCommitDraftStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
+    app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
+    body = {
+        "draft_id": "draft_compensated",
+        "job_description": source().job_description,
+        "resume_text": source().resume_text,
+        "job_tags": list(source().job_tags),
+        "plan_family_id": initial.plan_family_id,
+        "latest_plan_revision_id": initial.plan_revision_id,
+    }
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        draft_store.fail_next_commit = True
+        assert client.post("/api/interview-drafts", json=body).status_code == 500
+        assert not any(
+            ref.owner_type == "draft" and ref.owner_id == "draft_compensated"
+            for ref in revision_store.list_source_references(initial.source_id)
+        )
+        assert client.post("/api/interview-drafts", json=body).status_code == 200
+
+        revision_store.fail_next_replace = True
+        assert client.delete("/api/interview-drafts/draft_compensated").status_code == 500
+        assert draft_store.get("draft_compensated")["draft_id"] == "draft_compensated"
+        assert client.delete("/api/interview-drafts/draft_compensated").status_code == 204
+        assert not any(
+            ref.owner_type == "draft" and ref.owner_id == "draft_compensated"
+            for ref in revision_store.list_source_references(initial.source_id)
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_next_worker_draft_operation_preserves_unknown_draft_reference():
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    initial = revision_store.create_initial(
+        source_payload=source(),
+        plan=plan(),
+        retention_policy="local-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    # A process-local draft snapshot is not authoritative for other workers.
+    revision_store.add_source_reference(
+        initial.source_id, owner_type="draft", owner_id="crashed-draft"
+    )
+    draft_store = AnonymousDraftStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
+    app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
+    try:
+        response = TestClient(app).post(
+            "/api/interview-drafts",
+            json={
+                "draft_id": "next-draft",
+                "job_description": source().job_description,
+                "resume_text": source().resume_text,
+                "job_tags": list(source().job_tags),
+                "plan_family_id": initial.plan_family_id,
+                "latest_plan_revision_id": initial.plan_revision_id,
+            },
+        )
+        assert response.status_code == 200
+        refs = revision_store.list_source_references(initial.source_id)
+        assert any(ref.owner_id == "crashed-draft" for ref in refs)
+        assert any(
+            ref.owner_type == "draft" and ref.owner_id == "next-draft"
+            for ref in refs
+        )
+    finally:
+        app.dependency_overrides.clear()

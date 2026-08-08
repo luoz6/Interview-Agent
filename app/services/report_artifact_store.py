@@ -34,7 +34,24 @@ class ReportArtifactStore:
     def get_head(self, session_id: str) -> ReportHead: ...
     def get_latest_job(self, session_id: str) -> ReportJobV2 | None: ...
     def list_jobs(self, session_id: str) -> list[ReportJobV2]: ...
+    def get_job_by_idempotency_key(self, session_id: str, idempotency_key: str) -> ReportJobV2 | None: ...
     def delete_session_history(self, session_id: str) -> int: ...
+
+
+def _job_request_matches(
+    job: ReportJobV2,
+    *,
+    job_kind: str,
+    source_report_id: str | None,
+    parent_job_id: str | None,
+    activate_on_success: bool,
+) -> bool:
+    return (
+        job.job_kind == job_kind
+        and job.source_report_id == source_report_id
+        and job.parent_job_id == parent_job_id
+        and job.activate_on_success is activate_on_success
+    )
 
 
 class InMemoryReportArtifactStore:
@@ -69,7 +86,18 @@ class InMemoryReportArtifactStore:
                 raise ReportArtifactNotFound("session is deleting or deleted")
             existing_id = self._job_keys.get((session_id, key))
             if existing_id is not None:
-                return deepcopy(self._jobs[existing_id])
+                existing = self._jobs[existing_id]
+                if not _job_request_matches(
+                    existing,
+                    job_kind=job_kind,
+                    source_report_id=source_report_id,
+                    parent_job_id=parent_job_id,
+                    activate_on_success=activate_on_success,
+                ):
+                    raise ReportArtifactConflict(
+                        "idempotency key payload conflicts"
+                    )
+                return deepcopy(existing)
             if source_report_id is not None:
                 source = self._artifacts.get(source_report_id)
                 if source is None or source.session_id != session_id:
@@ -250,6 +278,13 @@ class InMemoryReportArtifactStore:
                 (deepcopy(job) for job in self._jobs.values() if job.session_id == session_id),
                 key=lambda item: item.created_at,
             )
+
+    def get_job_by_idempotency_key(
+        self, session_id: str, idempotency_key: str
+    ) -> ReportJobV2 | None:
+        with self._lock:
+            job_id = self._job_keys.get((session_id, idempotency_key))
+            return None if job_id is None else deepcopy(self._jobs[job_id])
 
     def get_latest_job(self, session_id: str) -> ReportJobV2 | None:
         with self._lock:

@@ -22,6 +22,32 @@ class AnonymousDraftStore:
         plan_source_sha256: str | None = None,
         clear_plan: bool = False,
     ) -> dict[str, Any]:
+        draft = self.prepare_save(
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=job_tags,
+            title=title,
+            draft_id=draft_id,
+            plan_family_id=plan_family_id,
+            latest_plan_revision_id=latest_plan_revision_id,
+            plan_source_sha256=plan_source_sha256,
+            clear_plan=clear_plan,
+        )
+        return self.commit_save(draft)
+
+    def prepare_save(
+        self,
+        *,
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str] | None = None,
+        title: str | None = None,
+        draft_id: str | None = None,
+        plan_family_id: str | None = None,
+        latest_plan_revision_id: str | None = None,
+        plan_source_sha256: str | None = None,
+        clear_plan: bool = False,
+    ) -> dict[str, Any]:
         if not job_description or not job_description.strip():
             raise ValueError("job_description is required")
         if not resume_text or not resume_text.strip():
@@ -76,8 +102,12 @@ class AnonymousDraftStore:
             "created_at": created_at,
             "updated_at": now,
         }
-        self._drafts[resolved_id] = draft
         return _copy_draft(draft)
+
+    def commit_save(self, draft: dict[str, Any]) -> dict[str, Any]:
+        committed = _copy_draft(draft)
+        self._drafts[committed["draft_id"]] = committed
+        return _copy_draft(committed)
 
     def get(self, draft_id: str) -> dict[str, Any]:
         try:
@@ -90,6 +120,14 @@ class AnonymousDraftStore:
             return _copy_draft(self._drafts.pop(draft_id))
         except KeyError as exc:
             raise ValueError("draft not found") from exc
+
+    def plan_revision_bindings(self) -> dict[str, str]:
+        """Return the committed draft-to-revision bindings used for ref repair."""
+        return {
+            draft_id: revision_id
+            for draft_id, draft in self._drafts.items()
+            if (revision_id := draft.get("latest_plan_revision_id")) is not None
+        }
 
     def clear(self) -> None:
         self._drafts.clear()
