@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { CheckCircle } from "@phosphor-icons/react";
 import { PlanQuestionCard } from "./PlanQuestionCard";
+
+const TAG_LABELS = {
+  general: "通用",
+};
 
 function orderedQuestions(questions) {
   const enabled = questions
@@ -9,7 +14,7 @@ function orderedQuestions(questions) {
   return [...enabled, ...excluded];
 }
 
-export function PlanEditor({ plan, busy = false, activeQuestionId = "", onPatch, onRegenerate }) {
+export function PlanEditor({ plan, tags = [], busy = false, activeQuestionId = "", onPatch, onRegenerate }) {
   const [focusDrafts, setFocusDrafts] = useState({});
   const questions = useMemo(() => orderedQuestions(plan?.questions || []), [plan?.questions]);
   const enabledCount = questions.filter((question) => question.enabled).length;
@@ -25,13 +30,17 @@ export function PlanEditor({ plan, busy = false, activeQuestionId = "", onPatch,
   return (
     <section className="start-plan-editor" aria-labelledby="plan-editor-title">
       <header className="start-plan-editor-heading">
-        <div>
-          <span className="start-plan-editor-kicker">第 {plan.plan_version} 版计划</span>
+        <div className="start-plan-editor-heading-copy">
+          <div className="start-plan-editor-meta" aria-label="蓝图元数据">
+            <span className="start-plan-editor-version">v{plan.plan_version} 当前版本</span>
+            {tags.map((tag) => <span key={tag} className="start-plan-editor-tag">{TAG_LABELS[tag] || tag}</span>)}
+          </div>
           <h2 id="plan-editor-title">{plan.title}</h2>
-          <p>启用 {enabledCount} 道题。调整范围、顺序和重点后，本版本会直接用于面试。</p>
+          <p>按实际面试顺序检查题目；这里保存的范围、重点与证据会直接用于本次面试。</p>
         </div>
-        <div className="start-plan-editor-count" aria-label={`已启用 ${enabledCount} 道题`}>
-          <strong>{enabledCount}</strong><span>道启用题</span>
+        <div className="start-plan-editor-count" aria-label={`当前已启用 ${enabledCount} 道题`}>
+          <CheckCircle size={18} weight="fill" aria-hidden="true" />
+          <strong>{enabledCount}</strong><span>道题已启用</span>
         </div>
       </header>
 

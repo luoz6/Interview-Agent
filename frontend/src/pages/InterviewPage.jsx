@@ -666,8 +666,9 @@ export function InterviewPage() {
                 ) : null}
               </div>
             </section>
+          </div>
 
-            <form className="answer-composer" data-state={status} data-filled={Boolean(answer)} onSubmit={submitAnswer}>
+          <form className="answer-composer" data-state={status} data-filled={Boolean(answer)} onSubmit={submitAnswer}>
               <div className="composer-head">
                 <label htmlFor="answerInput"><FileText size={16} weight="duotone" aria-hidden="true" />你的回答</label>
                 <span>Enter 提交 · Shift+Enter 换行</span>
@@ -710,8 +711,7 @@ export function InterviewPage() {
                   </button>
                 </div>
               </div>
-            </form>
-          </div>
+          </form>
         </section>
 
         {!focusMode && (

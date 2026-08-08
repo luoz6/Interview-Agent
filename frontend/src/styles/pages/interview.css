@@ -30,7 +30,7 @@
   --interview-disabled: var(--start-color-disabled);
   --interview-conversation-min-height: 14rem;
   --interview-conversation-max-height: 24rem;
-  --interview-editor-min-height: 7.75rem;
+  --interview-editor-height: 7.75rem;
   --interview-control-height: 2.75rem;
   --interview-icon-box: 2rem;
   --interview-question-index: 1.875rem;
@@ -357,9 +357,9 @@
 }
 
 .interview-workspace-scroll {
-  display: grid;
+  display: flex;
   flex: 1 1 auto;
-  align-content: start;
+  flex-direction: column;
   gap: var(--start-space-xs);
   min-width: 0;
   min-height: 0;
@@ -497,9 +497,10 @@
 
 .interview-app .agent-console {
   display: flex;
+  flex: 1 1 var(--interview-conversation-min-height);
   flex-direction: column;
   min-height: var(--interview-conversation-min-height);
-  max-height: var(--interview-conversation-max-height);
+  max-height: none;
   overflow: hidden;
   border: var(--start-rule-thin) solid var(--interview-rule);
   border-radius: var(--start-radius-panel);
@@ -750,7 +751,10 @@
 }
 
 .interview-app .answer-composer {
-  margin: 0;
+  position: relative;
+  z-index: var(--z-sticky);
+  flex: 0 0 auto;
+  margin: 0 var(--start-space-xs) var(--start-space-xs);
   overflow: hidden;
   border: var(--start-rule-thin) solid var(--interview-rule);
   border-radius: var(--start-radius-panel);
@@ -796,14 +800,17 @@
 
 .interview-app .answer-composer textarea {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  min-height: var(--interview-editor-min-height);
-  max-height: 12rem;
+  height: var(--interview-editor-height);
+  min-height: var(--interview-editor-height);
+  max-height: var(--interview-editor-height);
   padding: var(--start-space-sm);
   border: 0;
   outline: var(--start-rule-focus) solid transparent;
   outline-offset: calc(var(--start-rule-strong) * -1);
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
   background: var(--interview-surface);
   color: var(--interview-ink);
   font-family: var(--start-font-body);
@@ -1222,6 +1229,7 @@
 @media (max-width: 767px) {
   .interview-app {
     --interview-conversation-max-height: 20rem;
+    --interview-editor-height: 6.5rem;
   }
 
   .interview-app-shell.interview-workspace,
@@ -1289,6 +1297,10 @@
 
   .interview-workspace-scroll {
     padding: var(--start-space-2xs);
+  }
+
+  .interview-app .answer-composer {
+    margin: 0 var(--start-space-2xs) var(--start-space-2xs);
   }
 
   .interview-app .current-question {
