@@ -111,10 +111,19 @@ _BEARER_TOKEN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]{12,}")
 _JWT_TOKEN = re.compile(
     r"\beyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\b"
 )
-_MACHINE_PATHS = (
-    re.compile(r"(?i)(?:^|[\s\"'`(])(?:[A-Z]:[\\/])Users[\\/]"),
-    re.compile(r"(?i)(?:^|[\s\"'`(])/(?:home|Users|tmp|workspace)/"),
-    re.compile(r"(?i)(?:^|[\s\"'`(])\\\\[^\\\s]+\\[^\\\s]+"),
+_WINDOWS_DRIVE_ROOT = re.compile(r"(?i)(?<![a-z0-9])[a-z]:[\\/]+")
+_WINDOWS_DEVICE_OR_UNC = re.compile(
+    r"(?i)(?<![a-z0-9\\])\\{2,}"
+    r"(?:[?.](?:\\+|$)|[^\\\s\"']+\\+[^\\\s\"']+)"
+)
+_FILE_URI = re.compile(r"(?i)(?<![a-z0-9+.-])file:")
+_NON_FILE_URI_TOKEN = re.compile(
+    r"(?i)\b(?!file:)[a-z][a-z0-9+.-]*://[^\s\"'`<>()]+"
+)
+_POSIX_MACHINE_ROOT = re.compile(
+    r"(?i)(?<![a-z0-9:/])/"
+    r"(?:data|etc|home|mnt|opt|private|root|run|srv|tmp|users|usr|var|volumes|workspace)"
+    r"(?:/|$)"
 )
 _SENSITIVE_FIELDS = frozenset(
     {
@@ -605,7 +614,7 @@ def _scan_public_text(content: bytes) -> list[str]:
         codes.append("BEARER_TOKEN_PRESENT")
     if _JWT_TOKEN.search(rendered):
         codes.append("JWT_TOKEN_PRESENT")
-    if any(pattern.search(rendered) for pattern in _MACHINE_PATHS):
+    if _contains_machine_specific_path(rendered):
         codes.append("MACHINE_SPECIFIC_PATH_PRESENT")
     try:
         structured = json.loads(rendered)
@@ -614,6 +623,30 @@ def _scan_public_text(content: bytes) -> list[str]:
     if structured is not None and _has_sensitive_value(structured):
         codes.append("SENSITIVE_FIELD_VALUE_PRESENT")
     return codes
+
+
+def _contains_machine_specific_path(rendered: str) -> bool:
+    """Return whether public text exposes a host-specific absolute file location.
+
+    Windows drive roots, device/UNC paths, and file URIs are unconditionally
+    host-specific.  A drive-shaped substring inside a complete non-file URI
+    token is URI data rather than a local path.  POSIX detection intentionally
+    names the machine-local roots used by this project instead of treating every
+    leading slash as a file path; that keeps API routes and ordinary URL paths
+    out of the publication finding.
+    """
+
+    if _FILE_URI.search(rendered) is not None:
+        return True
+    local_text = _NON_FILE_URI_TOKEN.sub("", rendered)
+    return any(
+        pattern.search(local_text) is not None
+        for pattern in (
+            _WINDOWS_DRIVE_ROOT,
+            _WINDOWS_DEVICE_OR_UNC,
+            _POSIX_MACHINE_ROOT,
+        )
+    )
 
 
 def _has_sensitive_value(value: object) -> bool:

@@ -18,6 +18,7 @@ from scripts.verify_interview_quality_v1_publication import (
     REQUIRED_EVIDENCE_KINDS,
     TrustedGitRunner,
     _changed_paths,
+    _contains_machine_specific_path,
     _git_regular_file_blob,
     PublicationVerificationError,
     _publication_path_allowed,
@@ -317,6 +318,17 @@ def _verify(bundle, *, manifest=None, index=None):
 
 def _assert_code(exc: pytest.ExceptionInfo[PublicationVerificationError], code: str) -> None:
     assert code in exc.value.codes
+
+
+def _write_indexed_evidence_note(publication_repo, content: str) -> dict[str, object]:
+    root = publication_repo["root"]
+    document = json.loads((root / EVIDENCE_PATH).read_text(encoding="utf-8"))
+    document["publication_note"] = content
+    _write_json(root / EVIDENCE_PATH, document)
+    index = deepcopy(publication_repo["index"])
+    index["entries"][0].update(file_identity(root / EVIDENCE_PATH))
+    index["bundle_sha256"] = evidence_bundle_sha256(index["entries"])
+    return index
 
 
 def test_valid_i_to_p_to_f_bundle_passes_without_self_hash(publication_repo):
@@ -827,6 +839,144 @@ def test_indexed_public_text_rejects_secrets_and_machine_paths(
             manifest_path=MANIFEST_PATH,
         )
     _assert_code(raised, code)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        r"D:\workspace\quality\manifest.json",
+        "F:/agent/Interview-Agent/evidence.json",
+        r"\\?\C:\private\evidence.json",
+        r"\\.\pipe\private-evidence",
+        r"\\server\private-share\evidence.json",
+        "file:///C:/private/evidence.json",
+        "file:///F:/literal",
+        "file:///home/operator/evidence.json",
+        "file://server/private-share/evidence.json",
+        "/home/operator/evidence.json",
+        "/Users/operator/evidence.json",
+        "/tmp/private-evidence.json",
+        "/workspace/private-evidence.json",
+        "/var/lib/private-evidence.json",
+        "/opt/private-evidence.json",
+        "/mnt/private/evidence.json",
+        "/root/private-evidence.json",
+        "/srv/private-evidence.json",
+        "/data/private-evidence.json",
+        "/run/private-evidence.json",
+        "/etc/private-evidence.json",
+        "/usr/local/private-evidence.json",
+        "/private/var/private-evidence.json",
+        "/Volumes/private/evidence.json",
+    ],
+)
+def test_machine_path_helper_rejects_absolute_host_locations(content):
+    assert _contains_machine_specific_path(content)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "https://example.com/home/operator/evidence.json",
+        "https://example.com/F:/literal",
+        "https://example.com/search?next=F:/literal",
+        "s3://bucket/F:/key",
+        "/api/interviews/session-1/report",
+        r"C:relative\evidence.json",
+        "release version 1.2.3 and schema v2.0",
+        "docs/interview-quality-v1-publication-evidence/evidence.json",
+    ],
+)
+def test_machine_path_helper_allows_non_machine_path_text(content):
+    assert not _contains_machine_specific_path(content)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        r"D:\workspace\quality\manifest.json",
+        "file:///home/operator/evidence.json",
+        "/var/lib/private/evidence.json",
+    ],
+)
+def test_index_validation_rejects_expanded_machine_path_forms(
+    publication_repo, content
+):
+    root = publication_repo["root"]
+    index = _write_indexed_evidence_note(publication_repo, content)
+
+    with pytest.raises(PublicationVerificationError) as raised:
+        validate_evidence_index(
+            index,
+            root=root,
+            index_path=INDEX_PATH,
+            manifest_path=MANIFEST_PATH,
+        )
+    _assert_code(raised, "MACHINE_SPECIFIC_PATH_PRESENT")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "https://example.com/home/operator/evidence.json",
+        "https://example.com/F:/literal",
+        "https://example.com/search?next=F:/literal",
+        "s3://bucket/F:/key",
+        "/api/interviews/session-1/report",
+        r"C:relative\evidence.json",
+        "release version 1.2.3",
+        "docs/interview-quality-v1-publication-evidence/evidence.json",
+    ],
+)
+def test_index_validation_allows_non_machine_path_text(publication_repo, content):
+    root = publication_repo["root"]
+    index = _write_indexed_evidence_note(publication_repo, content)
+
+    result = validate_evidence_index(
+        index,
+        root=root,
+        index_path=INDEX_PATH,
+        manifest_path=MANIFEST_PATH,
+    )
+    assert result["entries_verified"] == len(REQUIRED_EVIDENCE_KINDS)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "F:/agent/Interview-Agent/publication.json",
+        r"\\?\C:\private\publication.json",
+        "file:///workspace/private/publication.json",
+        "/Volumes/private/publication.json",
+    ],
+)
+def test_manifest_rejects_expanded_machine_path_forms(publication_repo, content):
+    manifest = deepcopy(publication_repo["manifest"])
+    manifest["publication_note"] = content
+
+    with pytest.raises(PublicationVerificationError) as raised:
+        _verify(publication_repo, manifest=manifest)
+    _assert_code(raised, "MACHINE_SPECIFIC_PATH_PRESENT")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "https://example.com/home/operator/publication.json",
+        "https://example.com/F:/literal",
+        "https://example.com/search?next=F:/literal",
+        "s3://bucket/F:/key",
+        "/api/publication/status",
+        r"D:relative\publication.json",
+        "schema version 1.2.3",
+        "docs/interview-quality-v1-execution-manifest.json",
+    ],
+)
+def test_manifest_allows_non_machine_path_text(publication_repo, content):
+    manifest = deepcopy(publication_repo["manifest"])
+    manifest["publication_note"] = content
+
+    assert _verify(publication_repo, manifest=manifest)["status"] == "PASS"
 
 
 def test_redacted_secret_field_is_safe_public_metadata(publication_repo):
