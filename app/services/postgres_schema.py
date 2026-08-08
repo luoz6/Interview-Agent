@@ -12,6 +12,7 @@ from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     required_check_tokens_for_relation,
     required_columns_for_relation,
+    required_foreign_key_tokens_for_relation,
     required_index_tokens_for_relation,
 )
 
@@ -194,6 +195,54 @@ def validate_relations(
                         ):
                             raise PostgresSchemaNotReady(
                                 "PostgreSQL runtime checks are incompatible"
+                            )
+
+            foreign_key_requirements = {
+                name: required_foreign_key_tokens_for_relation(name)
+                for name in relation_names
+                if required_foreign_key_tokens_for_relation(name)
+            }
+            if foreign_key_requirements:
+                cursor.execute(
+                    "SELECT relation.relname, pg_get_constraintdef(rule.oid) "
+                    "FROM pg_constraint AS rule "
+                    "JOIN pg_class AS relation ON relation.oid=rule.conrelid "
+                    "JOIN pg_namespace AS namespace "
+                    "ON namespace.oid=relation.relnamespace "
+                    "WHERE namespace.nspname='public' AND rule.contype='f' "
+                    "AND relation.relname = ANY(%s::text[])",
+                    (list(foreign_key_requirements),),
+                )
+                definitions: dict[str, list[set[str]]] = {
+                    name: [] for name in foreign_key_requirements
+                }
+                for table_name, foreign_key_definition in cursor.fetchall():
+                    normalized = (
+                        str(foreign_key_definition)
+                        .lower()
+                        .replace('"', "")
+                        .replace("'", "")
+                        .replace("::text", "")
+                    )
+                    tokens = {
+                        token
+                        for token in normalized.replace("(", " ")
+                        .replace(")", " ")
+                        .replace("[", " ")
+                        .replace("]", " ")
+                        .replace(",", " ")
+                        .replace("=", " ")
+                        .split()
+                    }
+                    definitions.setdefault(table_name, []).append(tokens)
+                for table_name, requirements in foreign_key_requirements.items():
+                    for required_tokens in requirements:
+                        if not any(
+                            required_tokens.issubset(tokens)
+                            for tokens in definitions.get(table_name, [])
+                        ):
+                            raise PostgresSchemaNotReady(
+                                "PostgreSQL runtime foreign keys are incompatible"
                             )
 
             migration_tables = [

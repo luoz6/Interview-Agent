@@ -1,9 +1,184 @@
 import pytest
+from pydantic import ValidationError
 
 from app.services.memory_config import (
+    SelectionMemoryConfig,
     load_effective_memory_config,
     memory_readiness_payload,
 )
+
+
+def test_adaptive_context_compression_defaults_are_frozen_and_behavior_preserving():
+    config = load_effective_memory_config({})
+
+    assert config.compression.task_intent_enabled is False
+    assert config.compression.status_projection_enabled is False
+    assert config.compression.provider_circuit_threshold == 3
+    assert config.compression.provider_circuit_cooldown_seconds == 300
+    assert config.compression.validation_quarantine_threshold == 2
+    assert config.compression.validation_quarantine_cooldown_seconds == 3_600
+    assert config.compression.failure_state_lease_seconds == 60
+    assert config.selection.exact_recent_questions == 1
+    assert config.selection.max_memory_units == 4
+    assert config.selection.max_memory_tokens == 2_500
+    assert config.selection.eligibility_utilization_basis_points == 8_000
+    assert config.selection.exact_deduplication_mode == "disabled"
+    assert config.selection.dynamic_target_floor_tokens == 256
+    assert config.selection.dynamic_target_source_ratio_basis_points == 2_500
+    assert config.selection.dynamic_target_allowed_tokens == (
+        256,
+        512,
+        1_024,
+        1_536,
+        2_000,
+    )
+    assert isinstance(config.selection.dynamic_target_allowed_tokens, tuple)
+    with pytest.raises(ValidationError, match="frozen"):
+        config.selection.dynamic_target_allowed_tokens = (256, 512)
+
+
+def test_adaptive_context_compression_fields_load_from_new_only_environment():
+    config = load_effective_memory_config(
+        {
+            "MEMORY_COMPRESSION_TASK_INTENT_ENABLED": "true",
+            "MEMORY_COMPRESSION_STATUS_PROJECTION_ENABLED": "true",
+            "MEMORY_COMPRESSION_PROVIDER_CIRCUIT_THRESHOLD": "4",
+            "MEMORY_COMPRESSION_PROVIDER_CIRCUIT_COOLDOWN_SECONDS": "601",
+            "MEMORY_COMPRESSION_VALIDATION_QUARANTINE_THRESHOLD": "5",
+            "MEMORY_COMPRESSION_VALIDATION_QUARANTINE_COOLDOWN_SECONDS": "602",
+            "MEMORY_COMPRESSION_FAILURE_STATE_LEASE_SECONDS": "600",
+            "MEMORY_SELECTION_EXACT_RECENT_QUESTIONS": "2",
+            "MEMORY_SELECTION_MAX_MEMORY_UNITS": "3",
+            "MEMORY_SELECTION_MAX_MEMORY_TOKENS": "2400",
+            "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": "7500",
+            "MEMORY_SELECTION_EXACT_DEDUPLICATION_MODE": "ENFORCE",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS": "300",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_SOURCE_RATIO_BASIS_POINTS": "3333",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": (
+                "300, 600, 1200, 2000"
+            ),
+        }
+    )
+
+    assert config.compression.model_dump() | config.selection.model_dump() == {
+        "mode": "disabled",
+        "interview_question_memory": False,
+        "evidence": False,
+        "prep": False,
+        "review": False,
+        "task_intent_enabled": True,
+        "status_projection_enabled": True,
+        "provider_circuit_threshold": 4,
+        "provider_circuit_cooldown_seconds": 601,
+        "validation_quarantine_threshold": 5,
+        "validation_quarantine_cooldown_seconds": 602,
+        "failure_state_lease_seconds": 600,
+        "exact_recent_questions": 2,
+        "max_memory_units": 3,
+        "max_memory_tokens": 2_400,
+        "eligibility_utilization_basis_points": 7_500,
+        "exact_deduplication_mode": "enforce",
+        "dynamic_target_floor_tokens": 300,
+        "dynamic_target_source_ratio_basis_points": 3_333,
+        "dynamic_target_allowed_tokens": (300, 600, 1_200, 2_000),
+    }
+    assert config.legacy_environment_used is False
+
+
+def test_adaptive_context_compression_does_not_introduce_legacy_aliases():
+    config = load_effective_memory_config(
+        {
+            "CONTEXT_COMPRESSION_TASK_INTENT_ENABLED": "true",
+            "CONTEXT_SELECTION_MAX_MEMORY_UNITS": "99",
+        }
+    )
+
+    assert config.compression.task_intent_enabled is False
+    assert config.selection.max_memory_units == 4
+    assert config.legacy_environment_used is False
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MEMORY_COMPRESSION_PROVIDER_CIRCUIT_THRESHOLD", "0"),
+        ("MEMORY_COMPRESSION_PROVIDER_CIRCUIT_THRESHOLD", "101"),
+        ("MEMORY_COMPRESSION_VALIDATION_QUARANTINE_THRESHOLD", "0"),
+        ("MEMORY_COMPRESSION_VALIDATION_QUARANTINE_THRESHOLD", "101"),
+        ("MEMORY_COMPRESSION_PROVIDER_CIRCUIT_COOLDOWN_SECONDS", "0"),
+        ("MEMORY_COMPRESSION_PROVIDER_CIRCUIT_COOLDOWN_SECONDS", "86401"),
+        ("MEMORY_COMPRESSION_VALIDATION_QUARANTINE_COOLDOWN_SECONDS", "0"),
+        ("MEMORY_COMPRESSION_VALIDATION_QUARANTINE_COOLDOWN_SECONDS", "86401"),
+        ("MEMORY_COMPRESSION_FAILURE_STATE_LEASE_SECONDS", "0"),
+        ("MEMORY_COMPRESSION_FAILURE_STATE_LEASE_SECONDS", "86401"),
+        ("MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS", "2001"),
+    ],
+)
+def test_adaptive_context_compression_bounds_fail_during_loading(name, value):
+    with pytest.raises(ValueError):
+        load_effective_memory_config({name: value})
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {
+            "MEMORY_COMPRESSION_FAILURE_STATE_LEASE_SECONDS": "300",
+            "MEMORY_COMPRESSION_PROVIDER_CIRCUIT_COOLDOWN_SECONDS": "300",
+        },
+        {
+            "MEMORY_COMPRESSION_FAILURE_STATE_LEASE_SECONDS": "3600",
+            "MEMORY_COMPRESSION_VALIDATION_QUARANTINE_COOLDOWN_SECONDS": "3600",
+        },
+    ],
+)
+def test_failure_state_lease_must_be_shorter_than_both_cooldowns(environment):
+    with pytest.raises(ValueError, match="lease must be shorter"):
+        load_effective_memory_config(environment)
+
+
+@pytest.mark.parametrize(
+    ("environment", "message"),
+    [
+        (
+            {"MEMORY_SELECTION_EXACT_DEDUPLICATION_MODE": "enabled"},
+            "disabled, shadow, or enforce",
+        ),
+        (
+            {"MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": "256,256,512"},
+            "duplicates",
+        ),
+        (
+            {
+                "MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS": "512",
+                "MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": "512,256",
+            },
+            "strictly increasing",
+        ),
+        (
+            {
+                "MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS": "300",
+                "MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": "256,512",
+            },
+            "configured floor",
+        ),
+        (
+            {"MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": "256,2001"},
+            "hard cap",
+        ),
+    ],
+)
+def test_deduplication_mode_and_dynamic_target_tiers_fail_closed(
+    environment,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        load_effective_memory_config(environment)
+
+
+def test_dynamic_target_tiers_cannot_be_empty_even_in_direct_frozen_model():
+    with pytest.raises(ValueError, match="must not be empty"):
+        SelectionMemoryConfig(dynamic_target_allowed_tokens=())
 
 
 def test_new_structured_value_is_used_without_legacy_flag():
@@ -114,6 +289,21 @@ def test_readiness_payload_contains_only_safe_effective_modes():
         "configuration_valid": True,
         "budget_mode": "disabled",
         "compression_mode": "disabled",
+        "task_intent_enabled": False,
+        "status_projection_enabled": False,
+        "provider_circuit_threshold": 3,
+        "provider_circuit_cooldown_seconds": 300,
+        "validation_quarantine_threshold": 2,
+        "validation_quarantine_cooldown_seconds": 3_600,
+        "failure_state_lease_seconds": 60,
+        "exact_recent_questions": 1,
+        "max_memory_units": 4,
+        "max_memory_tokens": 2_500,
+        "eligibility_utilization_basis_points": 8_000,
+        "exact_deduplication_mode": "disabled",
+        "dynamic_target_floor_tokens": 256,
+        "dynamic_target_source_ratio_basis_points": 2_500,
+        "dynamic_target_allowed_tokens": [256, 512, 1_024, 1_536, 2_000],
         "long_term_mode": "disabled",
         "local_principal_enabled": False,
         "local_consumption_enabled": False,
@@ -122,6 +312,35 @@ def test_readiness_payload_contains_only_safe_effective_modes():
         "legacy_environment_used": False,
         "consumption_ready": True,
         "reason": None,
+    }
+    assert set(payload) == {
+        "schema_version",
+        "configuration_valid",
+        "budget_mode",
+        "compression_mode",
+        "task_intent_enabled",
+        "status_projection_enabled",
+        "provider_circuit_threshold",
+        "provider_circuit_cooldown_seconds",
+        "validation_quarantine_threshold",
+        "validation_quarantine_cooldown_seconds",
+        "failure_state_lease_seconds",
+        "exact_recent_questions",
+        "max_memory_units",
+        "max_memory_tokens",
+        "eligibility_utilization_basis_points",
+        "exact_deduplication_mode",
+        "dynamic_target_floor_tokens",
+        "dynamic_target_source_ratio_basis_points",
+        "dynamic_target_allowed_tokens",
+        "long_term_mode",
+        "local_principal_enabled",
+        "local_consumption_enabled",
+        "interview_graph_version",
+        "interview_graph_rollout_percent",
+        "legacy_environment_used",
+        "consumption_ready",
+        "reason",
     }
     assert "base_url" not in payload
 

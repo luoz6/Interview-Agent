@@ -37,13 +37,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V24_MANIFEST,
+    RUNTIME_SCHEMA_V26_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V24_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V26_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -187,6 +187,10 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
+            _upgrade_context_artifact_identity_v1(
+                connection,
+                table_prefix=table_prefix,
+            )
             from app.services.postgres_question_memory_index import (
                 PostgresQuestionMemoryIndexStore,
             )
@@ -282,11 +286,23 @@ def migrate_postgres_runtime(
                 PostgresInterviewPlanRevisionStore,
             )
 
+            # V17 plan revisions must exist before V18 draft binding installs
+            # its restrictive foreign key.
+            PostgresInterviewPlanRevisionStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
             PostgresDraftStore(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,
                 schema_mode="migrate",
+            )
+            _upgrade_interview_draft_plan_binding(
+                connection,
+                table_prefix=table_prefix,
             )
             PostgresPrepPlanStore(
                 dsn=dsn,
@@ -324,12 +340,6 @@ def migrate_postgres_runtime(
             _upgrade_session_plan_bindings(
                 connection,
                 table_prefix=table_prefix,
-            )
-            PostgresInterviewPlanRevisionStore(
-                dsn=dsn,
-                connection_provider=provider,
-                table_prefix=table_prefix,
-                schema_mode="migrate",
             )
             _upgrade_interview_workflow_engine_constraint(
                 connection,
@@ -415,6 +425,65 @@ def _setup_langgraph_checkpointer(dsn: str) -> None:
 
     with PostgresSaver.from_conn_string(dsn) as saver:
         saver.setup()
+
+
+def _upgrade_context_artifact_identity_v1(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Add nullable v1 identity material without rewriting legacy v0 rows."""
+
+    from psycopg2 import sql
+
+    table = f"{table_prefix}_context_artifacts"
+    constraint_name = runtime_schema_identifier(
+        table_prefix,
+        "context_artifacts_identity_v1_check",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {table} "
+                "ADD COLUMN IF NOT EXISTS identity_schema_version TEXT, "
+                "ADD COLUMN IF NOT EXISTS compression_intent_sha256 TEXT"
+            ).format(table=sql.Identifier(table))
+        )
+        cursor.execute(
+            "SELECT 1 FROM pg_constraint "
+            "WHERE conname=%s AND conrelid=to_regclass(%s)",
+            (constraint_name, f"public.{table}"),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {table} ADD CONSTRAINT {constraint} CHECK ("
+                    "(identity_schema_version IS NULL AND "
+                    "compression_intent_sha256 IS NULL) OR "
+                    "(identity_schema_version IS NOT NULL AND "
+                    "identity_schema_version = 'identity-v1' AND "
+                    "compression_intent_sha256 IS NOT NULL AND "
+                    "compression_intent_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                ).format(
+                    table=sql.Identifier(table),
+                    constraint=sql.Identifier(constraint_name),
+                )
+            )
+
+
+def _upgrade_interview_draft_plan_binding(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    from app.services.postgres_draft_store import (
+        ensure_postgres_draft_plan_binding_schema,
+    )
+
+    ensure_postgres_draft_plan_binding_schema(
+        connection,
+        table_prefix=table_prefix,
+    )
 
 
 def _upgrade_principal_memory_exclusive_scope(

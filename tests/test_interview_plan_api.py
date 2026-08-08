@@ -9,7 +9,8 @@ from app.services.interview_plan_revision_store import (
     InMemoryInterviewPlanRevisionStore,
 )
 from app.services.session import InterviewSessionStore
-from app.services.drafts import AnonymousDraftStore
+from app.services.drafts import AnonymousDraftStore, DraftWriteConflict
+from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from tests.test_interview_plan_revision import plan, source
 
 
@@ -86,6 +87,11 @@ class FailOnceCommitDraftStore(AnonymousDraftStore):
         return super().commit_save(draft)
 
 
+class ConflictingDraftStore(AnonymousDraftStore):
+    def commit_save(self, draft):
+        raise DraftWriteConflict("injected concurrent write")
+
+
 class ResponseLossSessionStore(InterviewSessionStore):
     def __init__(self) -> None:
         super().__init__()
@@ -112,6 +118,9 @@ def api_plan():
     app.dependency_overrides[route_module.get_plan_revision_store] = lambda: store
     app.dependency_overrides[route_module.get_plan_regenerator] = lambda: regenerator
     app.dependency_overrides[route_module.get_draft_store] = lambda: AnonymousDraftStore()
+    app.dependency_overrides[route_module.get_prep_plan_store] = (
+        lambda: InMemoryPrepPlanStore()
+    )
     try:
         yield TestClient(app), store, initial, regenerator
     finally:
@@ -960,6 +969,9 @@ def test_draft_reference_failure_is_retryable_without_mutating_draft():
     draft_store = AnonymousDraftStore()
     app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
     app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
+    app.dependency_overrides[route_module.get_prep_plan_store] = (
+        lambda: InMemoryPrepPlanStore()
+    )
     try:
         client = TestClient(app, raise_server_exceptions=False)
         revision_store.fail_next_replace = True
@@ -986,6 +998,30 @@ def test_draft_reference_failure_is_retryable_without_mutating_draft():
         app.dependency_overrides.clear()
 
 
+def test_draft_write_conflict_maps_to_stable_http_409():
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = (
+        lambda: revision_store
+    )
+    app.dependency_overrides[route_module.get_draft_store] = (
+        lambda: ConflictingDraftStore()
+    )
+    try:
+        response = TestClient(app).post(
+            "/api/interview-drafts",
+            json={
+                "draft_id": "draft-conflict",
+                "job_description": "Backend role",
+                "resume_text": "Built APIs",
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == {"code": "draft_write_conflict"}
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_draft_commit_failure_compensates_reference_and_delete_retry_succeeds():
     revision_store = FailOnceReferenceStore()
     initial = revision_store.create_initial(
@@ -997,6 +1033,9 @@ def test_draft_commit_failure_compensates_reference_and_delete_retry_succeeds():
     draft_store = FailOnceCommitDraftStore()
     app.dependency_overrides[route_module.get_plan_revision_store] = lambda: revision_store
     app.dependency_overrides[route_module.get_draft_store] = lambda: draft_store
+    app.dependency_overrides[route_module.get_prep_plan_store] = (
+        lambda: InMemoryPrepPlanStore()
+    )
     body = {
         "draft_id": "draft_compensated",
         "job_description": source().job_description,

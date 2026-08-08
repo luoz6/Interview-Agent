@@ -9,16 +9,13 @@ from app.services.config import (
     DEFAULT_POSTGRES_DSN,
     get_durable_workflow_maintenance_seconds,
     get_context_artifact_cleanup_batch_size,
-    get_context_artifact_deployment_scope,
     get_context_artifact_failed_retention_hours,
     get_context_artifact_lease_seconds,
     get_context_artifact_prep_ref_retention_hours,
     get_context_artifact_unreferenced_retention_hours,
     get_postgres_dsn,
     get_postgres_pool_settings,
-    get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
-    get_interview_langgraph_version,
     get_interview_chunk_retention_hours,
     get_interview_draft_ttl_seconds,
     get_prep_plan_consumed_retention_seconds,
@@ -50,7 +47,7 @@ from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
 from app.services.in_memory_interview_launch_repository import InMemoryInterviewLaunchRepository
 from app.services.postgres_interview_launch_repository import PostgresInterviewLaunchRepository
 from app.services.interview_launch import InterviewLaunchCoordinator
-from app.services.llm import InterviewLLM, OpenAIInterviewLLM
+from app.services.llm import InterviewLLM, LLMConfig, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.memory_report_jobs import InMemoryReportJobStore
@@ -127,7 +124,7 @@ _principal_memory_consume_service = None
 _context_compression_lock = RLock()
 
 
-def get_principal_identity_resolver():
+def get_principal_identity_resolver(*, config=None):
     global _principal_identity_resolver
     if _principal_identity_resolver is None:
         from app.services.memory_config import load_effective_memory_config
@@ -136,7 +133,7 @@ def get_principal_identity_resolver():
             NullPrincipalIdentityResolver,
         )
 
-        config = load_effective_memory_config()
+        config = config or load_effective_memory_config()
         if config.long_term.local_principal_enabled:
             _principal_identity_resolver = ExplicitPrincipalIdentityResolver(
                 deployment_id=config.privacy.deployment_id,
@@ -265,11 +262,11 @@ def get_principal_memory_safe_ref_store():
     return _principal_memory_safe_ref_store
 
 
-def get_principal_memory_ledger_watermark_store():
+def get_principal_memory_ledger_watermark_store(*, config=None):
     global _principal_memory_ledger_watermark_store
     from app.services.memory_config import load_effective_memory_config
 
-    config = load_effective_memory_config()
+    config = config or load_effective_memory_config()
     if config.long_term.mode != "local_consume":
         return None
     if get_runtime_store() != "postgres":
@@ -290,13 +287,13 @@ def get_principal_memory_ledger_watermark_store():
     return _principal_memory_ledger_watermark_store
 
 
-def get_principal_memory_durable_ledger():
+def get_principal_memory_durable_ledger(*, config=None):
     global _principal_memory_durable_ledger
     from pathlib import Path
 
     from app.services.memory_config import load_effective_memory_config
 
-    config = load_effective_memory_config()
+    config = config or load_effective_memory_config()
     if config.long_term.mode != "local_consume":
         return None
     path = config.long_term.operator_tombstone_ledger_path
@@ -312,7 +309,9 @@ def get_principal_memory_durable_ledger():
         _principal_memory_durable_ledger = PrincipalMemoryDurableLedger(
             path=path,
             workspace=Path.cwd(),
-            watermark_store=get_principal_memory_ledger_watermark_store(),
+            watermark_store=get_principal_memory_ledger_watermark_store(
+                config=config
+            ),
         )
     return _principal_memory_durable_ledger
 
@@ -383,11 +382,11 @@ def get_principal_memory_proposal_processor():
     return _principal_memory_proposal_processor
 
 
-def get_principal_memory_shadow_service():
+def get_principal_memory_shadow_service(*, config=None):
     global _principal_memory_shadow_service
     from app.services.memory_config import load_effective_memory_config
 
-    config = load_effective_memory_config()
+    config = config or load_effective_memory_config()
     if config.long_term.mode != "read_shadow":
         return None
     if _principal_memory_shadow_service is None:
@@ -395,7 +394,7 @@ def get_principal_memory_shadow_service():
         from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
         from app.services.principal_memory_shadow import PrincipalMemoryShadowService
 
-        resolver = get_principal_identity_resolver()
+        resolver = get_principal_identity_resolver(config=config)
         _principal_memory_shadow_service = PrincipalMemoryShadowService(
             mode=config.long_term.mode,
             retriever=PrincipalMemoryRetriever(
@@ -418,16 +417,16 @@ def get_principal_memory_shadow_service():
     return _principal_memory_shadow_service
 
 
-def get_principal_memory_consume_service():
+def get_principal_memory_consume_service(*, config=None, context_runtime=None):
     global _principal_memory_consume_service
     from app.services.memory_config import load_effective_memory_config
 
-    config = load_effective_memory_config()
+    config = config or load_effective_memory_config()
     if config.long_term.mode != "local_consume":
         return None
     if get_runtime_store() != "postgres":
         raise RuntimeError("local principal memory consumption requires PostgreSQL")
-    durable_ledger = get_principal_memory_durable_ledger()
+    durable_ledger = get_principal_memory_durable_ledger(config=config)
     if durable_ledger is None:
         raise RuntimeError("TOMBSTONE_LEDGER_REQUIRED")
     durable_ledger.require_ready()
@@ -438,8 +437,8 @@ def get_principal_memory_consume_service():
             PrincipalMemoryLocalConsumeService,
         )
 
-        resolver = get_principal_identity_resolver()
-        context_runtime = get_context_runtime()
+        resolver = get_principal_identity_resolver(config=config)
+        context_runtime = context_runtime or get_context_runtime()
         _principal_memory_consume_service = PrincipalMemoryLocalConsumeService(
             fact_store=get_principal_memory_fact_store(),
             consent_service=PrincipalMemoryConsentService(
@@ -939,7 +938,7 @@ def get_context_artifact_store():
         return _context_artifact_store
 
 
-def get_context_compression_runner():
+def get_context_compression_runner(*, lease_seconds: int | None = None):
     global _context_compression_runner
     with _context_compression_lock:
         if _context_compression_runner is None:
@@ -949,19 +948,29 @@ def get_context_compression_runner():
 
             _context_compression_runner = ContextCompressionRunner(
                 get_context_artifact_store(),
-                lease_seconds=get_context_artifact_lease_seconds(),
+                lease_seconds=(
+                    lease_seconds
+                    if lease_seconds is not None
+                    else get_context_artifact_lease_seconds()
+                ),
             )
         return _context_compression_runner
 
 
-def get_context_compressor_agent():
+def get_context_compressor_agent(*, context_runtime=None, model_config=None):
     global _context_compressor_agent
     with _context_compression_lock:
         if _context_compressor_agent is None:
             from app.agents.context_compressor import ContextCompressorAgent
             from app.services.context_compression import OpenAIContextCompressor
 
-            llm = resolve_runtime_llm(get_session_store())
+            llm = get_session_store().llm
+            if llm is None and model_config is not None:
+                llm = OpenAIInterviewLLM(
+                    config=LLMConfig.from_env(memory=model_config),
+                    context_runtime=context_runtime,
+                )
+            llm = resolve_runtime_llm(get_session_store(), llm)
             provider = (
                 OpenAIContextCompressor(
                     llm_config=llm.config,
@@ -978,12 +987,19 @@ def get_context_compressor_agent():
         return _context_compressor_agent
 
 
-def get_langgraph_checkpointer_runtime():
+def get_langgraph_checkpointer_runtime(
+    *,
+    interview_runtime_enabled: bool | None = None,
+):
     global _langgraph_checkpointer_runtime
     if get_runtime_store() != "postgres":
         return None
     if not (
-        get_interview_langgraph_runtime_enabled()
+        (
+            interview_runtime_enabled
+            if interview_runtime_enabled is not None
+            else get_interview_langgraph_runtime_enabled()
+        )
         or get_report_langgraph_runtime_enabled()
     ):
         return None
@@ -1108,17 +1124,60 @@ def build_interview_workflow_service():
     from app.services.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
     )
-    from app.services.context_runtime import get_context_runtime
+    from app.services.context_runtime import (
+        ContextRuntimeConfig,
+        get_context_runtime,
+    )
     from app.services.langgraph_runtime import (
         VersionedGraphRegistry,
+    )
+    from app.services.context_compression_eligibility import (
+        ContextCompressionEligibilityPolicy,
+    )
+    from app.services.context_compression_gating import ContextCompressionGates
+    from app.services.memory_config import (
+        load_effective_memory_config,
+        memory_readiness_payload,
+    )
+
+    effective_memory = load_effective_memory_config()
+    memory_readiness = memory_readiness_payload(effective_memory)
+    graph_config = effective_memory.interview_graph
+    compression_config = effective_memory.compression
+    selection_config = effective_memory.selection
+    deployment_scope = effective_memory.privacy.deployment_id
+    compression_gates = ContextCompressionGates.from_config(compression_config)
+    eligibility_policy = ContextCompressionEligibilityPolicy(
+        eligibility_utilization_basis_points=(
+            selection_config.eligibility_utilization_basis_points
+        )
     )
 
     if get_runtime_store() != "postgres":
         raise RuntimeError("durable interview workflow requires PostgreSQL")
-    checkpointer = get_langgraph_checkpointer_runtime()
+    checkpointer = get_langgraph_checkpointer_runtime(
+        interview_runtime_enabled=(
+            effective_memory.interview_graph.runtime_enabled
+        )
+    )
     if checkpointer is None:
         raise RuntimeError("LangGraph runtime is disabled")
     saver = checkpointer.start()
+    model_config = effective_memory.model
+    context_runtime = get_context_runtime(
+        ContextRuntimeConfig(
+            provider=model_config.provider,
+            model=model_config.model,
+            base_url="custom" if model_config.custom_base_url else None,
+            context_window_tokens=model_config.context_window_tokens,
+            protocol_reserve_tokens=model_config.protocol_reserve_tokens,
+            structured_output_reserve_tokens=(
+                model_config.structured_output_reserve_tokens
+            ),
+            safety_margin_tokens=model_config.safety_margin_tokens,
+            tokenizer_family=model_config.tokenizer_family,
+        )
+    )
     store = get_session_store()
     dsn = get_postgres_dsn()
     prefix = get_runtime_table_prefix()
@@ -1147,19 +1206,21 @@ def build_interview_workflow_service():
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),
         ),
-        context_runtime=get_context_runtime(),
+        context_runtime=context_runtime,
         knowledge_repository=get_knowledge_store(
             connection_provider=domains.business,
             schema_mode="validate",
         ),
         report_job_queue=get_report_job_store(),
         worker_id=_runtime_worker_id("interview-graph"),
-        principal_memory_shadow=get_principal_memory_shadow_service(),
-        principal_memory_consumer=get_principal_memory_consume_service(),
+        principal_memory_shadow=get_principal_memory_shadow_service(
+            config=effective_memory
+        ),
+        principal_memory_consumer=get_principal_memory_consume_service(
+            config=effective_memory,
+            context_runtime=context_runtime,
+        ),
     )
-    from app.services.context_compression_gating import ContextCompressionGates
-
-    compression_gates = ContextCompressionGates.from_env()
     if compression_gates.creation_enabled(workflow="interview"):
         from app.services.interview_context_artifacts import (
             InterviewContextArtifactCoordinator,
@@ -1168,24 +1229,36 @@ def build_interview_workflow_service():
             EvidenceContextArtifactCoordinator,
         )
 
-        compressor_agent = get_context_compressor_agent()
+        compressor_agent = get_context_compressor_agent(
+            context_runtime=context_runtime,
+            model_config=model_config,
+        )
+        compression_runner = get_context_compression_runner(
+            lease_seconds=effective_memory.artifact.lease_seconds
+        )
         deps.context_artifact_coordinator = InterviewContextArtifactCoordinator(
-            runner=get_context_compression_runner(),
+            runner=compression_runner,
             compressor_agent=compressor_agent,
             compressor_config=compressor_agent.provider.config,
-            context_runtime=get_context_runtime(),
+            context_runtime=context_runtime,
             gates=compression_gates,
-            deployment_scope=get_context_artifact_deployment_scope(),
+            deployment_scope=deployment_scope,
+            eligibility_policy=eligibility_policy,
+            task_intent_enabled=compression_config.task_intent_enabled,
         )
         from app.services.question_memory import QuestionMemoryCoordinator
 
         deps.question_memory_coordinator = QuestionMemoryCoordinator(
-            runner=get_context_compression_runner(),
+            runner=compression_runner,
             compressor_agent=compressor_agent,
             compressor_config=compressor_agent.provider.config,
-            context_runtime=get_context_runtime(),
+            context_runtime=context_runtime,
             index_store=get_question_memory_index_store(),
-            deployment_scope=get_context_artifact_deployment_scope(),
+            deployment_scope=deployment_scope,
+            exact_recent_questions=selection_config.exact_recent_questions,
+            max_memory_units=selection_config.max_memory_units,
+            max_memory_tokens=selection_config.max_memory_tokens,
+            task_intent_enabled=compression_config.task_intent_enabled,
         )
         if compression_gates.shadow_enabled or (
             compression_gates.interview_enabled
@@ -1193,16 +1266,18 @@ def build_interview_workflow_service():
         ):
             deps.evidence_artifact_coordinator = (
                 EvidenceContextArtifactCoordinator(
-                    runner=get_context_compression_runner(),
+                    runner=compression_runner,
                     compressor_agent=compressor_agent,
                     compressor_config=compressor_agent.provider.config,
-                    context_runtime=get_context_runtime(),
+                    context_runtime=context_runtime,
                     gates=compression_gates,
-                    deployment_scope=get_context_artifact_deployment_scope(),
+                    deployment_scope=deployment_scope,
+                    eligibility_policy=eligibility_policy,
+                    task_intent_enabled=compression_config.task_intent_enabled,
                 )
             )
     registry = VersionedGraphRegistry()
-    version = get_interview_langgraph_version()
+    version = graph_config.version
     registry.register(
         "langgraph-v1",
         build_durable_interview_graph(deps, checkpointer=saver),
@@ -1215,12 +1290,6 @@ def build_interview_workflow_service():
             checkpointer=saver,
         ),
     )
-    from app.services.memory_config import load_effective_memory_config
-    from app.services.memory_config import memory_readiness_payload
-
-    effective_memory = load_effective_memory_config()
-    memory_readiness = memory_readiness_payload(effective_memory)
-
     def memory_policy_for_engine(engine):
         if engine != "langgraph-v2":
             return "deterministic-v1"
@@ -1239,8 +1308,8 @@ def build_interview_workflow_service():
         generation_store=generation_store,
         graph_registry=registry,
         runtime_store="postgres",
-        runtime_enabled=get_interview_langgraph_runtime_enabled(),
-        rollout_percent=get_interview_langgraph_rollout_percent(),
+        runtime_enabled=graph_config.runtime_enabled,
+        rollout_percent=graph_config.rollout_percent,
         default_graph_version=version,
         thread_lock=get_workflow_thread_lock(),
         memory_policy_resolver=memory_policy_for_engine,
@@ -1333,8 +1402,30 @@ def build_review_workflow_service():
     from app.services.round_review_runner import evaluate_round_review_event
     from app.services.runtime_domain_events import RoundClosedEvent
     from app.services.langgraph_runtime import VersionedGraphRegistry
+    from app.services.context_compression_eligibility import (
+        ContextCompressionEligibilityPolicy,
+    )
+    from app.services.context_compression_gating import ContextCompressionGates
+    from app.services.memory_config import load_effective_memory_config
 
-    checkpointer = get_langgraph_checkpointer_runtime()
+    effective_memory = load_effective_memory_config()
+    compression_config = effective_memory.compression
+    selection_config = effective_memory.selection
+    deployment_scope = effective_memory.privacy.deployment_id
+    review_compression_gates = ContextCompressionGates.from_config(
+        compression_config
+    )
+    review_eligibility_policy = ContextCompressionEligibilityPolicy(
+        eligibility_utilization_basis_points=(
+            selection_config.eligibility_utilization_basis_points
+        )
+    )
+
+    checkpointer = get_langgraph_checkpointer_runtime(
+        interview_runtime_enabled=(
+            effective_memory.interview_graph.runtime_enabled
+        )
+    )
     if checkpointer is None:
         raise RuntimeError("LangGraph runtime is disabled")
     store = get_session_store()
@@ -1349,9 +1440,6 @@ def build_review_workflow_service():
         connection_provider=get_postgres_connection_domains().business,
         schema_mode="validate",
     )
-    from app.services.context_compression_gating import ContextCompressionGates
-
-    review_compression_gates = ContextCompressionGates.from_env()
     review_evidence_coordinator = None
     if review_compression_gates.shadow_enabled or (
         review_compression_gates.review_enabled
@@ -1361,14 +1449,21 @@ def build_review_workflow_service():
             EvidenceContextArtifactCoordinator,
         )
 
-        compressor_agent = get_context_compressor_agent()
+        compressor_agent = get_context_compressor_agent(
+            model_config=effective_memory.model
+        )
+        compression_runner = get_context_compression_runner(
+            lease_seconds=effective_memory.artifact.lease_seconds
+        )
         review_evidence_coordinator = EvidenceContextArtifactCoordinator(
-            runner=get_context_compression_runner(),
+            runner=compression_runner,
             compressor_agent=compressor_agent,
             compressor_config=compressor_agent.provider.config,
             context_runtime=compressor_agent.provider.context_runtime,
             gates=review_compression_gates,
-            deployment_scope=get_context_artifact_deployment_scope(),
+            deployment_scope=deployment_scope,
+            eligibility_policy=review_eligibility_policy,
+            task_intent_enabled=compression_config.task_intent_enabled,
         )
 
     def review_question(graph_state, question_id):

@@ -20,6 +20,12 @@ from app.services.context_artifacts import (
     compressor_settings_sha256,
 )
 from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_intent import (
+    ALL_PROHIBITED_AUTHORITY_UPGRADES,
+    EVIDENCE_PRESERVATION_RULES,
+    CompressionIntent,
+    compression_intent_sha256,
+)
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
@@ -66,6 +72,7 @@ class EvidenceContextArtifactCoordinator:
         deployment_scope: str,
         scope_resolver=None,
         eligibility_policy=None,
+        task_intent_enabled: bool = False,
     ) -> None:
         self.runner = runner
         self.compressor_agent = compressor_agent
@@ -79,6 +86,7 @@ class EvidenceContextArtifactCoordinator:
         self.eligibility_policy = (
             eligibility_policy or ContextCompressionEligibilityPolicy()
         )
+        self.task_intent_enabled = task_intent_enabled
 
     def build_interview_context(
         self,
@@ -121,11 +129,13 @@ class EvidenceContextArtifactCoordinator:
         if not eligibility.eligible:
             return self._deterministic(context_messages)
         question = state["plan_snapshot"]["questions"][state["current_index"]]
+        intent = self._interview_compression_intent(question)
         identity = self._identity_material(
             state=state,
             question=question,
             sources=sources,
             evidence_digest=evidence_digest,
+            intent=intent,
         )
         try:
             resolution = self.runner.resolve(
@@ -138,6 +148,7 @@ class EvidenceContextArtifactCoordinator:
                     policy=EVIDENCE_COMPRESSION_POLICY,
                     source_segments=sources,
                     expected_evidence_content_sha256=evidence_digest,
+                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         causation_id=state.get("active_command_id"),
@@ -157,6 +168,7 @@ class EvidenceContextArtifactCoordinator:
                 purpose="interview_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
+                intent=intent,
             )
         except (
             ContextArtifactBusy,
@@ -234,6 +246,7 @@ class EvidenceContextArtifactCoordinator:
             deployment_scope=self.deployment_scope,
             session_id=state["session_id"],
         )
+        intent = self._review_compression_intent(focus)
         identity = self._review_identity_material(
             scope_material=scope_material,
             question_id=question_id,
@@ -241,6 +254,7 @@ class EvidenceContextArtifactCoordinator:
             sources=sources,
             evidence_digest=evidence_digest,
             corpus_manifest_sha256=self._corpus_manifest_sha256(state),
+            intent=intent,
         )
         try:
             resolution = self.runner.resolve(
@@ -253,6 +267,7 @@ class EvidenceContextArtifactCoordinator:
                     policy=EVIDENCE_COMPRESSION_POLICY,
                     source_segments=sources,
                     expected_evidence_content_sha256=evidence_digest,
+                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         agent="context_compressor",
@@ -270,6 +285,7 @@ class EvidenceContextArtifactCoordinator:
                 purpose="review_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
+                intent=intent,
             )
         except (
             ContextArtifactBusy,
@@ -341,6 +357,7 @@ class EvidenceContextArtifactCoordinator:
         question,
         sources,
         evidence_digest,
+        intent=None,
     ):
         manifest = {
             "corpus_manifest_sha256": self._corpus_manifest_sha256(state),
@@ -380,6 +397,10 @@ class EvidenceContextArtifactCoordinator:
                 self.compressor_config
             ),
             target_output_tokens=EVIDENCE_COMPRESSION_POLICY.target_output_tokens,
+            identity_schema_version=("identity-v1" if intent is not None else None),
+            compression_intent_sha256=(
+                compression_intent_sha256(intent) if intent is not None else None
+            ),
         )
 
     def _review_identity_material(
@@ -391,6 +412,7 @@ class EvidenceContextArtifactCoordinator:
         sources,
         evidence_digest,
         corpus_manifest_sha256,
+        intent=None,
     ):
         manifest = {
             "corpus_manifest_sha256": corpus_manifest_sha256,
@@ -426,6 +448,39 @@ class EvidenceContextArtifactCoordinator:
                 self.compressor_config
             ),
             target_output_tokens=EVIDENCE_COMPRESSION_POLICY.target_output_tokens,
+            identity_schema_version=("identity-v1" if intent is not None else None),
+            compression_intent_sha256=(
+                compression_intent_sha256(intent) if intent is not None else None
+            ),
+        )
+
+    def _interview_compression_intent(self, question) -> CompressionIntent | None:
+        if not self.task_intent_enabled:
+            return None
+        focus = question["focus"]
+        return CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus=focus,
+            current_focus=focus,
+            preserve=EVIDENCE_PRESERVATION_RULES,
+            authority="non_authoritative",
+            prohibited_authority_upgrades=ALL_PROHIBITED_AUTHORITY_UPGRADES,
+        )
+
+    def _review_compression_intent(self, focus) -> CompressionIntent | None:
+        if not self.task_intent_enabled:
+            return None
+        return CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="question_review",
+            phase="review",
+            source_focus=focus,
+            current_focus=focus,
+            preserve=EVIDENCE_PRESERVATION_RULES,
+            authority="non_authoritative",
+            prohibited_authority_upgrades=ALL_PROHIBITED_AUTHORITY_UPGRADES,
         )
 
     @staticmethod

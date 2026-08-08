@@ -44,6 +44,19 @@ class ContextCompressionEligibility:
 class ContextCompressionEligibilityPolicy:
     policy_version = "context-compression-eligibility-v1"
 
+    def __init__(
+        self,
+        *,
+        eligibility_utilization_basis_points: int = 8_000,
+    ) -> None:
+        if not 1 <= eligibility_utilization_basis_points <= 10_000:
+            raise ValueError(
+                "eligibility_utilization_basis_points must be between 1 and 10000"
+            )
+        self.eligibility_utilization_basis_points = (
+            eligibility_utilization_basis_points
+        )
+
     def evaluate(
         self,
         *,

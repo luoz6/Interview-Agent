@@ -13,6 +13,7 @@ from app.services.context_artifacts import (
     EvidenceCompressionArtifact,
 )
 from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_intent import compression_intent_sha256
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
@@ -49,6 +50,7 @@ class FakeCompressorAgent:
         source_segments,
         expected_evidence_content_sha256,
         execution_context,
+        intent=None,
     ):
         self.calls.append(
             {
@@ -56,6 +58,7 @@ class FakeCompressorAgent:
                 "sources": source_segments,
                 "expected_digest": expected_evidence_content_sha256,
                 "execution_context": execution_context,
+                "intent": intent,
             }
         )
         if self.empty:
@@ -173,6 +176,7 @@ def make_coordinator(
     runner=None,
     agent=None,
     eligibility_policy=None,
+    task_intent_enabled=False,
 ):
     return EvidenceContextArtifactCoordinator(
         runner=runner or CapturingRunner(),
@@ -182,7 +186,75 @@ def make_coordinator(
         gates=gates,
         deployment_scope="single-tenant-test",
         eligibility_policy=eligibility_policy or AlwaysEligiblePolicy(),
+        task_intent_enabled=task_intent_enabled,
     )
+
+
+def test_interview_evidence_intent_binds_current_focus_to_identity_v1():
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(shadow_enabled=True),
+        runner=runner,
+        agent=agent,
+        task_intent_enabled=True,
+    )
+
+    coordinator.build_interview_context(
+        state=make_state(),
+        context_messages=make_context_messages(),
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+
+    intent = agent.calls[0]["intent"]
+    identity = runner.calls[0]["identity_material"]
+    assert intent.consumer_operation == "followup"
+    assert intent.phase == "interview"
+    assert intent.source_focus == "cache consistency"
+    assert intent.current_focus == "cache consistency"
+    assert intent.preserve == ("numbers", "identifiers", "evidence_provenance")
+    assert intent.prohibited_authority_upgrades == (
+        "candidate_exact_quote",
+        "authoritative_scoring_evidence",
+        "new_fact",
+        "identity_inference",
+    )
+    assert runner.calls[0]["intent"] is intent
+    assert identity.identity_schema_version == "identity-v1"
+    assert identity.compression_intent_sha256 == compression_intent_sha256(intent)
+
+
+def test_review_evidence_intent_binds_review_focus_to_identity_v1():
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(shadow_enabled=True),
+        runner=runner,
+        agent=agent,
+        task_intent_enabled=True,
+    )
+
+    coordinator.transform_review_references(
+        state=make_state(),
+        question_id="q1",
+        focus="cache consistency",
+        references=make_review_references(),
+        job_id="job-1",
+        attempt_number=1,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+
+    intent = agent.calls[0]["intent"]
+    identity = runner.calls[0]["identity_material"]
+    assert intent.consumer_operation == "question_review"
+    assert intent.phase == "review"
+    assert intent.source_focus == "cache consistency"
+    assert intent.current_focus == "cache consistency"
+    assert intent.preserve == ("numbers", "identifiers", "evidence_provenance")
+    assert runner.calls[0]["intent"] is intent
+    assert identity.compression_intent_sha256 == compression_intent_sha256(intent)
 
 
 def test_short_selected_evidence_does_not_call_compressor():

@@ -3,11 +3,11 @@ from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
 from app.services.context_selection import ContextSelectionStats
-from app.services.memory_config import SelectionMemoryConfig
+from app.services.memory_config import load_effective_memory_config
 
 
-def evaluate(stats, *, target="question_conversation"):
-    return ContextCompressionEligibilityPolicy().evaluate(
+def evaluate(stats, *, target="question_conversation", policy=None):
+    return (policy or ContextCompressionEligibilityPolicy()).evaluate(
         selection_stats=stats,
         target_artifact_type=target,
         source_unit_count=2,
@@ -70,20 +70,34 @@ def test_missing_selection_stats_fails_safe_to_not_eligible():
     assert result.reason is None
 
 
-def test_declared_eligibility_utilization_threshold_does_not_change_current_policy():
-    thresholds = [
-        SelectionMemoryConfig(eligibility_utilization_basis_points=value)
+def test_loaded_eligibility_threshold_is_injected_without_enabling_task4_proactive_logic():
+    configs = [
+        load_effective_memory_config(
+            {
+                "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": str(
+                    value
+                )
+            }
+        )
         for value in (1, 10_000)
+    ]
+    policies = [
+        ContextCompressionEligibilityPolicy(
+            eligibility_utilization_basis_points=(
+                config.selection.eligibility_utilization_basis_points
+            )
+        )
+        for config in configs
     ]
     no_loss = ContextSelectionStats(
         source_message_count=2,
         selected_message_count=2,
     )
 
-    results = [evaluate(no_loss) for _config in thresholds]
+    results = [evaluate(no_loss, policy=policy) for policy in policies]
 
     assert [
-        config.eligibility_utilization_basis_points for config in thresholds
+        policy.eligibility_utilization_basis_points for policy in policies
     ] == [1, 10_000]
     assert [result.eligible for result in results] == [False, False]
     assert [result.reason for result in results] == [None, None]

@@ -181,6 +181,40 @@ def test_completed_artifact_is_write_once_and_reused(store):
         store.fail(claim, error_code="late_failure")
 
 
+def test_identity_v1_complete_and_ref_round_trip_preserves_full_identity(store):
+    identity = make_identity(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256="6" * 64,
+    )
+    record = store.complete(
+        store.claim(identity, worker_id="worker-v1", lease_seconds=30),
+        make_payload(),
+    )
+    ref = store.create_owner_ref(
+        record,
+        owner_type="interview_session",
+        owner_key="session-v1",
+        purpose="interview_conversation_context",
+    )
+
+    direct = store.get_terminal_by_key(identity.artifact_key)
+    loaded = store.load_ref(
+        ref,
+        owner_type="interview_session",
+        owner_key="session-v1",
+        purpose="interview_conversation_context",
+        expected_identity=identity,
+    )
+
+    assert direct is not None
+    assert direct.identity == identity
+    assert direct.identity.material == identity.material
+    assert loaded.identity == identity
+    assert loaded.identity.material == identity.material
+    assert loaded.identity.material.identity_schema_version == "identity-v1"
+    assert loaded.identity.material.compression_intent_sha256 == "6" * 64
+
+
 def test_completed_reuse_revalidates_payload_schema_and_digest(store):
     identity = make_identity()
     store.complete(
@@ -267,6 +301,10 @@ def test_load_ref_checks_owner_purpose_digest_and_complete_identity(store):
         make_identity(compressor_settings_sha256="8" * 64),
         make_identity(prompt_contract_version="prompt-v2"),
         make_identity(target_output_tokens=128),
+        make_identity(
+            identity_schema_version="identity-v1",
+            compression_intent_sha256="9" * 64,
+        ),
     )
     for kwargs in (
         {"owner_key": "session-2"},

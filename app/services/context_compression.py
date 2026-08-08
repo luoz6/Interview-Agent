@@ -18,6 +18,10 @@ from app.services.context_budget import (
     RenderedPromptGuard,
 )
 from app.services.context_language import classify_context_language
+from app.services.context_compression_intent import (
+    CompressionIntent,
+    canonical_compression_intent_payload,
+)
 from app.services.context_runtime import (
     ContextRuntime,
     ContextRuntimeConfig,
@@ -116,7 +120,12 @@ class OpenAIContextCompressor:
         expected_session_scope_sha256: str | None = None,
         expected_question_focus_sha256: str | None = None,
         expected_source_manifest_sha256: str | None = None,
+        intent: CompressionIntent | None = None,
     ) -> dict[str, Any]:
+        if intent is not None:
+            # Task 2 validates and carries intent without changing the prompt.
+            # Task 3 owns semantic prompt injection.
+            canonical_compression_intent_payload(intent)
         schema = _SCHEMAS[policy.artifact_type]
         prompt = self._build_prompt(
             policy=policy,

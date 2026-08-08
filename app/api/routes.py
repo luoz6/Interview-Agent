@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services.job_tags import extract_job_tags
+from app.services.drafts import DraftWriteConflict
 from app.services.agent_runtime import correlation_id_from_plan
 from app.services.prep import (
     PlanGenerationValidationError,
@@ -1400,6 +1401,11 @@ def _save_interview_draft_locked(payload, draft_store, revision_store):
         raise HTTPException(
             status_code=422, detail={"code": "plan_source_unavailable"}
         ) from exc
+    except DraftWriteConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "draft_write_conflict"},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1561,7 +1567,10 @@ def start_interview(
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),
         )
-        validate_launchable_interview_plan(plan)
+        try:
+            validate_launchable_interview_plan(plan)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         job_tags = extract_job_tags(payload.job_description)
         if (
             get_runtime_store() == "postgres"

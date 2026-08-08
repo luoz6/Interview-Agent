@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from app.services.drafts import AnonymousDraftStore
+from app.services.drafts import AnonymousDraftStore, DraftWriteConflict
 from app.services.interview_plan_revision import PlanSourcePayload, source_payload_sha256
 
 
@@ -28,6 +28,7 @@ def test_save_draft_creates_id_timestamps_and_tags():
     assert draft["plan_status"] == "no_plan"
     assert draft["plan_family_id"] is None
     assert draft["latest_plan_revision_id"] is None
+    assert draft["draft_version"] == 1
 
 
 def test_save_draft_updates_existing_id():
@@ -52,6 +53,7 @@ def test_save_draft_updates_existing_id():
     assert updated["updated_at"] >= created["updated_at"]
     assert updated["job_tags"] == ["python", "fastapi"]
     assert store.get(created["draft_id"])["title"] == "Updated"
+    assert updated["draft_version"] == 2
 
 
 @pytest.mark.parametrize(
@@ -154,3 +156,86 @@ def test_delete_and_fixed_expiry_make_draft_unavailable():
     second = store.save(job_description="Backend role", resume_text="Built APIs")
     assert store.delete(second["draft_id"]) is True
     assert store.delete(second["draft_id"]) is False
+
+
+def test_two_candidates_from_same_version_allow_only_one_commit():
+    store = AnonymousDraftStore()
+    created = store.save(job_description="Backend role", resume_text="Built APIs")
+    first = store.prepare_save(
+        draft_id=created["draft_id"],
+        job_description="First edit",
+        resume_text="Built APIs",
+    )
+    second = store.prepare_save(
+        draft_id=created["draft_id"],
+        job_description="Second edit",
+        resume_text="Built APIs",
+    )
+
+    committed = store.commit_save(first)
+
+    assert committed["draft_version"] == 2
+    with pytest.raises(DraftWriteConflict):
+        store.commit_save(second)
+
+
+def test_delete_recreate_rejects_prepared_candidate_from_old_epoch():
+    store = AnonymousDraftStore()
+    created = store.save(job_description="Backend role", resume_text="Built APIs")
+    stale = store.prepare_save(
+        draft_id=created["draft_id"],
+        job_description="Stale edit",
+        resume_text="Built APIs",
+    )
+    assert store.delete(created["draft_id"]) is True
+    recreated = store.save(
+        draft_id=created["draft_id"],
+        job_description="Recreated role",
+        resume_text="Built APIs",
+    )
+
+    assert recreated["draft_version"] > created["draft_version"]
+    with pytest.raises(DraftWriteConflict):
+        store.commit_save(stale)
+
+
+def test_title_only_edit_keeps_bound_plan_active_and_clear_plan_removes_binding():
+    store = AnonymousDraftStore()
+    job_description = "Backend role"
+    resume_text = "Built APIs"
+    tags = ["backend"]
+    digest = source_payload_sha256(
+        PlanSourcePayload(
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=tags,
+        )
+    )
+    created = store.save(
+        job_description=job_description,
+        resume_text=resume_text,
+        job_tags=tags,
+        plan_family_id="family-1",
+        latest_plan_revision_id="revision-1",
+        plan_source_sha256=digest,
+    )
+    titled = store.save(
+        draft_id=created["draft_id"],
+        job_description=job_description,
+        resume_text=resume_text,
+        job_tags=tags,
+        title="Renamed",
+    )
+    cleared = store.save(
+        draft_id=created["draft_id"],
+        job_description=job_description,
+        resume_text=resume_text,
+        job_tags=tags,
+        clear_plan=True,
+    )
+
+    assert titled["plan_status"] == "active"
+    assert cleared["plan_status"] == "no_plan"
+    assert cleared["plan_family_id"] is None
+    assert cleared["latest_plan_revision_id"] is None
+    assert cleared["plan_source_sha256"] is None

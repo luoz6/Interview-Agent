@@ -8,6 +8,7 @@ from app.services.context_artifacts import (
     ContextCompressionPolicy,
 )
 from app.services.context_compression import OpenAIContextCompressor
+from app.services.context_compression_intent import CompressionIntent
 
 
 class ContextCompressorAgent:
@@ -30,6 +31,7 @@ class ContextCompressorAgent:
         expected_session_scope_sha256: str | None = None,
         expected_question_focus_sha256: str | None = None,
         expected_source_manifest_sha256: str | None = None,
+        intent: CompressionIntent | None = None,
     ) -> dict:
         provider = self.provider or OpenAIContextCompressor()
         return self._execution_runner.run(
@@ -44,6 +46,7 @@ class ContextCompressorAgent:
                 expected_session_scope_sha256=expected_session_scope_sha256,
                 expected_question_focus_sha256=expected_question_focus_sha256,
                 expected_source_manifest_sha256=expected_source_manifest_sha256,
+                intent=intent,
             ),
             fallback=None,
             metadata=lambda _output: {

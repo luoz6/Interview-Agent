@@ -132,6 +132,46 @@ def test_v15_prep_plan_versions_uses_specific_contract_not_pgvector_suffix():
     assert "embedding" not in columns
 
 
+def test_v16_context_artifact_identity_contract_requires_versioned_columns():
+    from app.services.postgres_schema_contract import (
+        RUNTIME_SCHEMA_V15_CHECKSUM,
+        RUNTIME_SCHEMA_V16_CHECKSUM,
+        RUNTIME_SCHEMA_V16_MANIFEST,
+        required_check_tokens_for_relation,
+    )
+
+    columns = required_columns_for_relation("interview_context_artifacts")
+
+    assert {
+        "identity_schema_version",
+        "compression_intent_sha256",
+    }.issubset(columns)
+    assert RUNTIME_SCHEMA_V15_CHECKSUM == (
+        "e611aad12ce1929d323249c5adb2c90b33a057bc313fd834d7fbf3fcf95cc52e"
+    )
+    assert RUNTIME_SCHEMA_V16_CHECKSUM == (
+        "f0381a784430bca592cc33ecf5d96ad4d989f9ab9ac7c50d14d4693fa2e3c8b6"
+    )
+    checks = required_check_tokens_for_relation("interview_context_artifacts")
+    assert any(
+        {
+            "identity_schema_version",
+            "compression_intent_sha256",
+            "identity-v1",
+        }.issubset(tokens)
+        for tokens in checks
+    )
+    assert RUNTIME_SCHEMA_V16_CHECKSUM != RUNTIME_SCHEMA_V15_CHECKSUM
+    assert (
+        f'"base_schema_checksum":"{RUNTIME_SCHEMA_V15_CHECKSUM}"'
+        in RUNTIME_SCHEMA_V16_MANIFEST
+    )
+    assert RUNTIME_MIGRATIONS[15].migration_id == "context_artifact_identity_v1_v16"
+    assert LATEST_RUNTIME_MIGRATION.migration_id == (
+        "followup_decision_attempt_usage_trace_v3"
+    )
+
+
 class FakeConnection:
     def __init__(self, applied_row=None, current_schema="public"):
         self.applied_row = applied_row
@@ -254,6 +294,156 @@ class PersistentMigrationCursor:
         return self.result_rows
 
 
+class IdentityUpgradeCursor:
+    def __init__(self, connection):
+        self.connection = connection
+        self.row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, statement, params=None):
+        rendered = str(statement)
+        self.connection.calls.append((rendered, params))
+        if "SELECT 1 FROM pg_constraint" in rendered:
+            self.row = (1,) if self.connection.constraint_exists else None
+        else:
+            self.row = None
+        if "ADD CONSTRAINT" in rendered:
+            self.connection.constraint_exists = True
+
+    def fetchone(self):
+        return self.row
+
+class IdentityUpgradeConnection:
+    def __init__(self):
+        self.calls = []
+        self.constraint_exists = False
+
+    def cursor(self):
+        return IdentityUpgradeCursor(self)
+
+
+def test_context_artifact_identity_upgrade_is_idempotent_and_never_backfills():
+    connection = IdentityUpgradeConnection()
+
+    migrations._upgrade_context_artifact_identity_v1(
+        connection,
+        table_prefix="interview",
+    )
+    migrations._upgrade_context_artifact_identity_v1(
+        connection,
+        table_prefix="interview",
+    )
+
+    statements = "\n".join(statement for statement, _ in connection.calls)
+    assert statements.count("ADD COLUMN IF NOT EXISTS identity_schema_version") == 2
+    assert statements.count("ADD CONSTRAINT") == 1
+    assert "identity_schema_version IS NOT NULL" in statements
+    assert "compression_intent_sha256 IS NOT NULL" in statements
+    assert "identity-v1" in statements
+    assert "UPDATE" not in statements
+
+
+def _versioned_artifact_rows():
+    from app.services.context_artifacts import (
+        ContextArtifactIdentity,
+        ContextArtifactIdentityMaterial,
+    )
+
+    material = ContextArtifactIdentityMaterial(
+        artifact_type="question_conversation",
+        privacy_scope_sha256="1" * 64,
+        source_sha256="2" * 64,
+        source_manifest_sha256=None,
+        semantic_focus_sha256="3" * 64,
+        compression_policy_version="conversation-v1",
+        prompt_contract_version="prompt-v1",
+        output_schema_version="question-conversation-v1",
+        compressor_provider="openai-compatible",
+        compressor_model="gpt-4o",
+        compressor_settings_sha256="4" * 64,
+        target_output_tokens=256,
+        identity_schema_version="identity-v1",
+        compression_intent_sha256="6" * 64,
+    )
+    identity = ContextArtifactIdentity.from_material(material)
+    identity_values = [
+        material.artifact_type,
+        material.privacy_scope_sha256,
+        material.source_sha256,
+        material.source_manifest_sha256,
+        material.semantic_focus_sha256,
+        material.compression_policy_version,
+        material.prompt_contract_version,
+        material.output_schema_version,
+        material.compressor_provider,
+        material.compressor_model,
+        material.compressor_settings_sha256,
+        material.target_output_tokens,
+    ]
+    ordinary = [None] * 26
+    ordinary[1] = identity.artifact_key
+    ordinary[2:14] = identity_values
+    ordinary[24:26] = [
+        material.identity_schema_version,
+        material.compression_intent_sha256,
+    ]
+    joined = [None] * 25
+    joined[5] = identity.artifact_key
+    joined[6:18] = identity_values
+    joined[23:25] = ordinary[24:26]
+    return identity, ordinary, joined
+
+
+def test_postgres_identity_row_layout_reconstructs_full_v1_identity():
+    from app.services.context_artifact_store import PostgresContextArtifactStore
+
+    identity, ordinary, joined = _versioned_artifact_rows()
+
+    assert PostgresContextArtifactStore._identity_from_row(ordinary) == identity
+    assert (
+        PostgresContextArtifactStore._identity_from_joined_ref_row(joined)
+        == identity
+    )
+
+
+@pytest.mark.parametrize(
+    ("identity_schema_version", "compression_intent_sha256", "tamper_key"),
+    (
+        ("identity-v1", None, False),
+        (None, "6" * 64, False),
+        ("identity-v2", "6" * 64, False),
+        ("identity-v1", "not-a-digest", False),
+        ("identity-v1", "6" * 64, True),
+    ),
+)
+def test_postgres_identity_row_loaders_fail_closed(
+    identity_schema_version,
+    compression_intent_sha256,
+    tamper_key,
+):
+    from app.services.context_artifact_store import PostgresContextArtifactStore
+
+    _, ordinary, joined = _versioned_artifact_rows()
+    ordinary[24:26] = [
+        identity_schema_version,
+        compression_intent_sha256,
+    ]
+    joined[23:25] = ordinary[24:26]
+    if tamper_key:
+        ordinary[1] = "0" * 64
+        joined[5] = "0" * 64
+
+    with pytest.raises(ValueError):
+        PostgresContextArtifactStore._identity_from_row(ordinary)
+    with pytest.raises(ValueError):
+        PostgresContextArtifactStore._identity_from_joined_ref_row(joined)
+
+
 def _patch_schema_owners(monkeypatch, seen):
     def owner(**kwargs):
         provider = kwargs["connection_provider"]
@@ -292,6 +482,20 @@ def _patch_schema_owners(monkeypatch, seen):
         "_upgrade_principal_memory_exclusive_scope",
         lambda connection, *, table_prefix: seen.append(
             ("exclusive_scope_upgrade", connection)
+        ),
+    )
+    monkeypatch.setattr(
+        migrations,
+        "_upgrade_context_artifact_identity_v1",
+        lambda connection, *, table_prefix: seen.append(
+            ("context_artifact_identity_v1_upgrade", connection)
+        ),
+    )
+    monkeypatch.setattr(
+        migrations,
+        "_upgrade_interview_draft_plan_binding",
+        lambda connection, *, table_prefix: seen.append(
+            ("interview_draft_plan_binding_upgrade", connection)
         ),
     )
 
@@ -336,6 +540,7 @@ def _patch_full_schema_owners(monkeypatch, seen):
     )
     for attribute in (
         "_upgrade_principal_memory_exclusive_scope",
+        "_upgrade_interview_draft_plan_binding",
         "_upgrade_session_plan_bindings",
         "_upgrade_interview_workflow_engine_constraint",
         "_upgrade_interview_memory_policy_constraint",
@@ -395,10 +600,11 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
         (spec.migration_id, spec.checksum, spec.transaction_mode)
         for spec in RUNTIME_MIGRATIONS
     ]
-    assert len(database.rows) == 24
-    assert len({row[0] for row in database.rows}) == 24
+    assert len(database.rows) == 26
+    assert len({row[0] for row in database.rows}) == 26
     assert {
         "PostgresInterviewPlanRevisionStore",
+        "_upgrade_interview_draft_plan_binding",
         "PostgresReportArtifactStore",
         "PostgresDecisionStore",
         "PostgresInterviewGenerationStore",
@@ -406,7 +612,7 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
     }.issubset(schema_owners)
 
 
-def test_v15_upgrade_preserves_history_and_appends_v16_through_v24(monkeypatch):
+def test_v15_upgrade_preserves_history_and_appends_v16_through_v26(monkeypatch):
     expected_context_history = (
         ("stage48_runtime_schema_v1", "84b2fae3965237b69fb98c8f72c97f9e572c8bf09d93321d91b909cd307fd5b1"),
         ("stage48_runtime_schema_v2_contract", "6602195b698364d335b207d783fefd260d2757e9b8ef79ade84d705bd23d9185"),
@@ -459,6 +665,7 @@ def test_v15_upgrade_preserves_history_and_appends_v16_through_v24(monkeypatch):
     ]
     assert {
         "PostgresInterviewPlanRevisionStore",
+        "_upgrade_interview_draft_plan_binding",
         "PostgresReportArtifactStore",
         "PostgresDecisionStore",
         "PostgresInterviewGenerationStore",
@@ -482,6 +689,35 @@ def test_v15_upgrade_preserves_history_and_appends_v16_through_v24(monkeypatch):
     assert all(connection.closed for connection in database.connections)
 
 
+def test_v16_upgrade_preserves_canonical_history_and_appends_v17_through_v26(
+    monkeypatch,
+):
+    initial_rows = [
+        (spec.migration_id, spec.checksum, spec.transaction_mode)
+        for spec in RUNTIME_MIGRATIONS[:16]
+    ]
+    database = PersistentMigrationDatabase(initial_rows)
+    schema_owners = []
+    _patch_full_schema_owners(monkeypatch, schema_owners)
+    monkeypatch.setattr(migrations, "_setup_langgraph_checkpointer", lambda dsn: None)
+
+    result = migrate_postgres_runtime(
+        dsn="private-dsn",
+        table_prefix="test_runtime",
+        pgvector_table="knowledge_chunks",
+        embedding_provider=object(),
+        connect=database.connect,
+        run_checkpointer_setup=False,
+    )
+
+    assert result.applied is True
+    assert database.rows[:16] == initial_rows
+    assert database.rows[16:] == [
+        (spec.migration_id, spec.checksum, spec.transaction_mode)
+        for spec in RUNTIME_MIGRATIONS[16:]
+    ]
+
+
 def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     connection = FakeConnection()
     seen = []
@@ -500,6 +736,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     assert result.applied is True
     assert len([item for item in seen if item[0] == "migrate"]) == 15
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
+    assert ("context_artifact_identity_v1_upgrade", connection) in seen
     assert setup == ["private-dsn"]
     assert connection.commits >= 2
     assert connection.closed is True
@@ -598,9 +835,20 @@ def test_read_only_schema_validation_rejects_missing_relation():
 
 
 class ContractCursor:
-    def __init__(self, *, columns, migration=None):
+    def __init__(
+        self,
+        *,
+        columns,
+        migration=None,
+        indexes=None,
+        checks=None,
+        foreign_keys=None,
+    ):
         self.columns = columns
         self.migration = migration
+        self.indexes = list(indexes or [])
+        self.checks = list(checks or [])
+        self.foreign_keys = list(foreign_keys or [])
         self.result = []
 
     def __enter__(self):
@@ -615,6 +863,12 @@ class ContractCursor:
             self.result = [(name, name) for name in params[0]]
         elif "information_schema.columns" in text:
             self.result = list(self.columns)
+        elif "FROM pg_indexes" in text:
+            self.result = list(self.indexes)
+        elif "rule.contype='c'" in text:
+            self.result = list(self.checks)
+        elif "rule.contype='f'" in text:
+            self.result = list(self.foreign_keys)
         elif "WHERE migration_id" in text:
             self.result = [self.migration] if self.migration is not None else []
 
@@ -786,6 +1040,66 @@ def test_schema_validation_accepts_latest_migration_contract():
         ContractProvider(ContractCursor(columns=columns, migration=migration)),
         (table,),
     )
+
+
+def test_draft_schema_validation_requires_binding_checks_index_and_foreign_key():
+    from app.services.postgres_schema_contract import (
+        required_columns_for_relation,
+        required_foreign_key_tokens_for_relation,
+    )
+
+    table = "test_interview_drafts"
+    columns = [(table, name) for name in required_columns_for_relation(table)]
+    indexes = [
+        (table, f"CREATE INDEX ON {table} (expires_at)"),
+        (
+            table,
+            f"CREATE INDEX ON {table} (latest_plan_revision_id) "
+            "WHERE deleted_at IS NULL AND latest_plan_revision_id IS NOT NULL",
+        ),
+    ]
+    checks = [
+        (
+            table,
+            "CHECK (((plan_family_id IS NULL AND latest_plan_revision_id IS NULL "
+            "AND plan_source_sha256 IS NULL) OR (plan_family_id IS NOT NULL "
+            "AND latest_plan_revision_id IS NOT NULL AND plan_source_sha256 IS NOT NULL "
+            "AND plan_source_sha256 ~ '^[0-9a-f]{64}$')))",
+        ),
+        (table, "CHECK (draft_version > 0)"),
+    ]
+    foreign_keys = [
+        (
+            table,
+            "FOREIGN KEY (latest_plan_revision_id) REFERENCES "
+            "test_plan_revisions(plan_revision_id) ON DELETE RESTRICT",
+        )
+    ]
+
+    assert required_foreign_key_tokens_for_relation(table)
+    validate_relations(
+        ContractProvider(
+            ContractCursor(
+                columns=columns,
+                indexes=indexes,
+                checks=checks,
+                foreign_keys=foreign_keys,
+            )
+        ),
+        (table,),
+    )
+    with pytest.raises(PostgresSchemaNotReady, match="foreign keys"):
+        validate_relations(
+            ContractProvider(
+                ContractCursor(
+                    columns=columns,
+                    indexes=indexes,
+                    checks=checks,
+                    foreign_keys=[],
+                )
+            ),
+            (table,),
+        )
 
 
 @pytest.mark.pg_runtime

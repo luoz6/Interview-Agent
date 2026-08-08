@@ -20,6 +20,12 @@ from app.services.context_artifacts import (
     compressor_settings_sha256,
 )
 from app.services.context_compression_gating import ContextCompressionGates
+from app.services.context_compression_intent import (
+    ALL_PROHIBITED_AUTHORITY_UPGRADES,
+    CONVERSATION_PRESERVATION_RULES,
+    CompressionIntent,
+    compression_intent_sha256,
+)
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
@@ -84,6 +90,7 @@ class InterviewContextArtifactCoordinator:
         deployment_scope: str,
         scope_resolver=None,
         eligibility_policy=None,
+        task_intent_enabled: bool = False,
     ) -> None:
         self.runner = runner
         self.compressor_agent = compressor_agent
@@ -97,6 +104,7 @@ class InterviewContextArtifactCoordinator:
         self.eligibility_policy = (
             eligibility_policy or ContextCompressionEligibilityPolicy()
         )
+        self.task_intent_enabled = task_intent_enabled
 
     def build_context(
         self,
@@ -137,10 +145,12 @@ class InterviewContextArtifactCoordinator:
             return self._deterministic(deterministic_context)
         question = state["plan_snapshot"]["questions"][state["current_index"]]
         question_digest = sha256(question["id"].encode("utf-8")).hexdigest()
+        intent = self._compression_intent(question)
         identity_material = self._identity_material(
             state=state,
             question=question,
             sources=sources,
+            intent=intent,
         )
         try:
             resolution = self.runner.resolve(
@@ -153,6 +163,7 @@ class InterviewContextArtifactCoordinator:
                     policy=QUESTION_CONVERSATION_COMPRESSION_POLICY,
                     source_segments=sources,
                     expected_question_id_sha256=question_digest,
+                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         causation_id=state.get("active_command_id"),
@@ -174,6 +185,7 @@ class InterviewContextArtifactCoordinator:
                 purpose="interview_conversation_context",
                 parent_ownership=parent_ownership,
                 expected_question_id_sha256=question_digest,
+                intent=intent,
             )
         except (
             ContextArtifactBusy,
@@ -214,7 +226,7 @@ class InterviewContextArtifactCoordinator:
             route=resolution.route,
         )
 
-    def _identity_material(self, *, state, question, sources):
+    def _identity_material(self, *, state, question, sources, intent=None):
         source_payload = [
             {
                 "segment_index": item.segment_index,
@@ -267,6 +279,24 @@ class InterviewContextArtifactCoordinator:
             target_output_tokens=(
                 QUESTION_CONVERSATION_COMPRESSION_POLICY.target_output_tokens
             ),
+            identity_schema_version=("identity-v1" if intent is not None else None),
+            compression_intent_sha256=(
+                compression_intent_sha256(intent) if intent is not None else None
+            ),
+        )
+
+    def _compression_intent(self, question) -> CompressionIntent | None:
+        if not self.task_intent_enabled:
+            return None
+        return CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus=None,
+            current_focus=question["focus"],
+            preserve=CONVERSATION_PRESERVATION_RULES,
+            authority="non_authoritative",
+            prohibited_authority_upgrades=ALL_PROHIBITED_AUTHORITY_UPGRADES,
         )
 
     @staticmethod

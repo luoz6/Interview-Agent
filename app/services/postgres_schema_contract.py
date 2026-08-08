@@ -102,6 +102,9 @@ RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX: dict[str, tuple[frozenset[str], ...]] =
         frozenset({"unique", "where", "status", "active"}),
     ),
 }
+RUNTIME_REQUIRED_FOREIGN_KEY_TOKENS_BY_SUFFIX: dict[
+    str, tuple[frozenset[str], ...]
+] = {}
 
 RUNTIME_SCHEMA_V1_MANIFEST = "\n".join(
     (
@@ -734,8 +737,46 @@ RUNTIME_SCHEMA_V15_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V15_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-# V16+ adds the interview-quality schema contract. Keep these registry changes
-# below the immutable V15 checksum boundary so V1-V15 remain byte-compatible.
+# V16 adds versioned context-artifact identity. Keep this exact canonical
+# manifest boundary byte-compatible with the context line: legacy rows stay
+# nullable and migration never backfills or rekeys them.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_context_artifacts"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_context_artifacts"]
+    | frozenset(
+        {
+            "identity_schema_version",
+            "compression_intent_sha256",
+        }
+    )
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_context_artifacts"] = (
+    frozenset(
+        {
+            "identity_schema_version",
+            "compression_intent_sha256",
+            "identity-v1",
+        }
+    ),
+)
+RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V15_CHECKSUM,
+        "context_artifact_identity": {
+            "legacy_v0": "null-version-and-null-intent-digest",
+            "identity_v1": "identity-v1-with-lowercase-sha256-intent-digest",
+            "migration": "nullable-no-backfill-no-rekey",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V16_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V16_MANIFEST.encode("utf-8")
+).hexdigest()
+
+# V17+ adds the interview-quality schema contract. Keep these registry changes
+# below the immutable V16 checksum boundary so V1-V16 remain byte-compatible.
 RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"] = (
     RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"]
     | frozenset({"plan_binding_json"})
@@ -895,9 +936,9 @@ RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_decision_attempts"] = (
     ),
 )
 
-RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V17_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V15_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V16_CHECKSUM,
         "interview_plan_revision": {
             "schema_version": "interview-plan-v2",
             "relations": [
@@ -914,13 +955,83 @@ RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V16_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V16_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V17_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V17_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V17_MANIFEST = json.dumps(
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_interview_drafts"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_interview_drafts"]
+    | frozenset(
+        {
+            "plan_family_id",
+            "latest_plan_revision_id",
+            "plan_source_sha256",
+            "draft_version",
+        }
+    )
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_interview_drafts"] = (
+    RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_interview_drafts"]
+    + (
+        frozenset(
+            {
+                "latest_plan_revision_id",
+                "where",
+                "deleted_at",
+                "null",
+            }
+        ),
+    )
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_interview_drafts"] = (
+    frozenset(
+        {
+            "plan_family_id",
+            "latest_plan_revision_id",
+            "plan_source_sha256",
+            "or",
+            "plan_source_sha256~^[0-9a-f]{64}$",
+        }
+    ),
+    frozenset({"draft_version"}),
+)
+RUNTIME_REQUIRED_FOREIGN_KEY_TOKENS_BY_SUFFIX["_interview_drafts"] = (
+    frozenset(
+        {
+            "foreign",
+            "key",
+            "latest_plan_revision_id",
+            "plan_revision_id",
+            "restrict",
+        }
+    ),
+)
+RUNTIME_SCHEMA_V18_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V16_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V17_CHECKSUM,
+        "interview_draft_plan_binding": {
+            "binding_columns": [
+                "plan_family_id",
+                "latest_plan_revision_id",
+                "plan_source_sha256",
+            ],
+            "binding_integrity": "all-null-or-all-present-v1",
+            "revision_foreign_key": "restrict",
+            "draft_version": "monotonic-cas-v1",
+            "legacy_backfill": "binding-null-version-one",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V18_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V18_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V19_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V18_CHECKSUM,
         "session_plan_binding": {
             "column": "_sessions.plan_binding_json",
             "schema_version": "session-plan-binding-v1",
@@ -933,13 +1044,13 @@ RUNTIME_SCHEMA_V17_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V17_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V17_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V19_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V19_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V18_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V20_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V17_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V19_CHECKSUM,
         "report_artifacts": {
             "schema_version": "report-artifact-v2",
             "immutability": "database-update-trigger-v1",
@@ -960,13 +1071,13 @@ RUNTIME_SCHEMA_V18_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V18_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V18_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V20_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V20_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V19_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V21_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V18_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V20_CHECKSUM,
         "followup_decisions": {
             "unique_command": ["session_id", "source_command_id"],
             "final_payload": "immutable-after-completion",
@@ -982,13 +1093,13 @@ RUNTIME_SCHEMA_V19_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V19_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V19_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V21_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V21_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V20_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V22_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V19_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V21_CHECKSUM,
         "decision_attempt_observability": {
             "duration_ms": "nullable-non-negative",
             "input_tokens": "nullable-non-negative",
@@ -1001,13 +1112,13 @@ RUNTIME_SCHEMA_V20_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V20_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V20_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V22_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V22_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V21_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V23_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V20_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V22_CHECKSUM,
         "decision_generation_link": {
             "generation_column": "source_decision_id",
             "decision_cardinality": "zero-or-one-generation-per-decision",
@@ -1019,13 +1130,13 @@ RUNTIME_SCHEMA_V21_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V21_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V21_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V23_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V23_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V22_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V24_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V21_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V23_CHECKSUM,
         "followup_prompt_lineage": {
             "decision_artifact": [
                 "decision_prompt_version",
@@ -1044,13 +1155,13 @@ RUNTIME_SCHEMA_V22_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V22_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V22_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V24_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V24_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V23_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V25_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V22_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V24_CHECKSUM,
         "report_history_session_deletion": {
             "artifact_delete_authorization": "owning-session-deleting-only",
             "artifact_update_authorization": "never",
@@ -1063,13 +1174,13 @@ RUNTIME_SCHEMA_V23_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V23_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V23_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V25_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V25_MANIFEST.encode("utf-8")
 ).hexdigest()
 
-RUNTIME_SCHEMA_V24_MANIFEST = json.dumps(
+RUNTIME_SCHEMA_V26_MANIFEST = json.dumps(
     {
-        "base_schema_checksum": RUNTIME_SCHEMA_V23_CHECKSUM,
+        "base_schema_checksum": RUNTIME_SCHEMA_V25_CHECKSUM,
         "decision_attempt_usage_trace": {
             "cached_input_tokens": "nullable-non-negative-not-greater-than-input",
             "provider_response_id_sha256": "nullable-lowercase-sha256",
@@ -1080,8 +1191,8 @@ RUNTIME_SCHEMA_V24_MANIFEST = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 )
-RUNTIME_SCHEMA_V24_CHECKSUM = hashlib.sha256(
-    RUNTIME_SCHEMA_V24_MANIFEST.encode("utf-8")
+RUNTIME_SCHEMA_V26_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V26_MANIFEST.encode("utf-8")
 ).hexdigest()
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
@@ -1160,48 +1271,58 @@ RUNTIME_MIGRATIONS = (
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="interview_plan_revision_v2",
+        migration_id="context_artifact_identity_v1_v16",
         checksum=RUNTIME_SCHEMA_V16_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="session_plan_binding_v1",
+        migration_id="interview_plan_revision_v2",
         checksum=RUNTIME_SCHEMA_V17_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="report_artifact_v2",
+        migration_id="interview_draft_plan_binding_v1",
         checksum=RUNTIME_SCHEMA_V18_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="followup_decision_v1",
+        migration_id="session_plan_binding_v1",
         checksum=RUNTIME_SCHEMA_V19_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="followup_decision_attempt_observability_v2",
+        migration_id="report_artifact_v2",
         checksum=RUNTIME_SCHEMA_V20_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="followup_decision_generation_link_v1",
+        migration_id="followup_decision_v1",
         checksum=RUNTIME_SCHEMA_V21_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="followup_prompt_lineage_v1",
+        migration_id="followup_decision_attempt_observability_v2",
         checksum=RUNTIME_SCHEMA_V22_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="report_history_session_deletion_v1",
+        migration_id="followup_decision_generation_link_v1",
         checksum=RUNTIME_SCHEMA_V23_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
     PostgresMigrationSpec(
-        migration_id="followup_decision_attempt_usage_trace_v3",
+        migration_id="followup_prompt_lineage_v1",
         checksum=RUNTIME_SCHEMA_V24_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="report_history_session_deletion_v1",
+        checksum=RUNTIME_SCHEMA_V25_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_attempt_usage_trace_v3",
+        checksum=RUNTIME_SCHEMA_V26_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )
@@ -1237,6 +1358,19 @@ def required_check_tokens_for_relation(
 ) -> tuple[frozenset[str], ...]:
     for suffix, requirements in sorted(
         RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if name.endswith(suffix):
+            return requirements
+    return ()
+
+
+def required_foreign_key_tokens_for_relation(
+    name: str,
+) -> tuple[frozenset[str], ...]:
+    for suffix, requirements in sorted(
+        RUNTIME_REQUIRED_FOREIGN_KEY_TOKENS_BY_SUFFIX.items(),
         key=lambda item: len(item[0]),
         reverse=True,
     ):
