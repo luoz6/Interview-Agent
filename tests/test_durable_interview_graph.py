@@ -14,6 +14,7 @@ from psycopg2 import sql
 from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
     GenerationLeaseHeartbeat,
+    _build_examiner_context_plan,
     _build_examiner_context_selection,
     build_durable_interview_graph,
     build_durable_interview_graph_for_schema,
@@ -498,6 +499,11 @@ def test_compression_mode_pins_real_calls_and_final_provider_input(
         None,
         context_runtime,
     )
+    structured_selection = _build_examiner_context_plan(
+        state,
+        None,
+        context_runtime,
+    )
     assert stats.dropped_message_count > 0
 
     provider_context = _run_provider_characterization(
@@ -524,7 +530,7 @@ def test_compression_mode_pins_real_calls_and_final_provider_input(
         }
         assert provider_context[2:] == [
             {"role": item["role"], "content": item["content"]}
-            for item in source[-4:]
+            for item in structured_selection.mandatory_bounded_raw
         ]
 
 

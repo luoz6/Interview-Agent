@@ -29,9 +29,17 @@ from app.services.context_compression_intent import (
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_selection import ContextSelectionStats
+from app.services.context_selection import (
+    ContextSelectionStats,
+    InterviewContextSelection,
+)
 from app.services.context_compression_runner import ContextCompressionRunner
 from app.services.context_runtime import ContextRuntime
+from app.services.context_source_identity import (
+    ContextSourceIdentityConfig,
+    ConversationSourceIdentity,
+    content_sha256,
+)
 from app.services.workflow_thread_lock import GenerationLeaseLost
 
 
@@ -91,6 +99,7 @@ class InterviewContextArtifactCoordinator:
         scope_resolver=None,
         eligibility_policy=None,
         task_intent_enabled: bool = False,
+        source_identity_config=None,
     ) -> None:
         self.runner = runner
         self.compressor_agent = compressor_agent
@@ -105,6 +114,14 @@ class InterviewContextArtifactCoordinator:
             eligibility_policy or ContextCompressionEligibilityPolicy()
         )
         self.task_intent_enabled = task_intent_enabled
+        self.source_identity_config = (
+            source_identity_config
+            or getattr(
+                context_runtime,
+                "source_identity_config",
+                ContextSourceIdentityConfig(),
+            )
+        )
 
     def build_context(
         self,
@@ -113,16 +130,37 @@ class InterviewContextArtifactCoordinator:
         deterministic_context: list[dict[str, str]],
         parent_ownership: GenerationAttemptOwnership,
         selection_stats: ContextSelectionStats | None = None,
+        selection: InterviewContextSelection | None = None,
     ) -> InterviewArtifactContext:
         if not self.gates.creation_enabled(workflow="interview"):
             return self._deterministic(deterministic_context)
-        source_messages = list(state.get("messages", []))[:-2]
+        if selection is not None:
+            selection_stats = selection.stats
+            source_messages = list(selection.compressible_conversation_sources)
+        else:
+            source_messages = [
+                item
+                for item in deterministic_context
+                if item.get("role") != "knowledge_evidence"
+            ]
         if not source_messages:
             return self._deterministic(deterministic_context)
         sources = [
             self._source_segment(index, message)
             for index, message in enumerate(source_messages)
         ]
+        source_identity_sha256 = []
+        if (
+            selection is not None
+            and self.source_identity_config.exact_deduplication_mode == "enforce"
+        ):
+            try:
+                source_identity_sha256 = [
+                    self._conversation_source_identity(state, message).sha256
+                    for message in source_messages
+                ]
+            except (TypeError, ValueError):
+                return self._deterministic(deterministic_context)
         source_manifest_sha256 = sha256(
             canonical_json(
                 [
@@ -150,6 +188,7 @@ class InterviewContextArtifactCoordinator:
             state=state,
             question=question,
             sources=sources,
+            source_identity_sha256=source_identity_sha256,
             intent=intent,
         )
         try:
@@ -205,18 +244,26 @@ class InterviewContextArtifactCoordinator:
             summary_messages.append(
                 {"role": "conversation_summary", "content": unit.summary}
             )
-        evidence = [
-            item
-            for item in deterministic_context
-            if item.get("role") == "knowledge_evidence"
-        ]
-        current = [
-            {
-                "role": message["role"],
-                "content": message["content"],
-            }
-            for message in state["messages"][-4:]
-        ]
+        if selection is not None:
+            current = [
+                {"role": item["role"], "content": item["content"]}
+                for item in selection.mandatory_bounded_raw
+            ]
+            evidence = [
+                {"role": item["role"], "content": item["content"]}
+                for item in selection.evidence_sources
+            ]
+        else:
+            current = [
+                {"role": item["role"], "content": item["content"]}
+                for item in deterministic_context
+                if item.get("role") != "knowledge_evidence"
+            ]
+            evidence = [
+                {"role": item["role"], "content": item["content"]}
+                for item in deterministic_context
+                if item.get("role") == "knowledge_evidence"
+            ]
         return InterviewArtifactContext(
             context_messages=[*summary_messages, *current, *evidence],
             artifact_ref=resolution.ref.artifact_ref,
@@ -226,7 +273,15 @@ class InterviewContextArtifactCoordinator:
             route=resolution.route,
         )
 
-    def _identity_material(self, *, state, question, sources, intent=None):
+    def _identity_material(
+        self,
+        *,
+        state,
+        question,
+        sources,
+        source_identity_sha256=(),
+        intent=None,
+    ):
         source_payload = [
             {
                 "segment_index": item.segment_index,
@@ -244,6 +299,19 @@ class InterviewContextArtifactCoordinator:
             }
             for item in sources
         ]
+        if source_identity_sha256:
+            for payload, identity_sha256 in zip(
+                source_payload,
+                source_identity_sha256,
+                strict=True,
+            ):
+                payload["source_identity_sha256"] = identity_sha256
+            for payload, identity_sha256 in zip(
+                manifest_payload,
+                source_identity_sha256,
+                strict=True,
+            ):
+                payload["source_identity_sha256"] = identity_sha256
         scope = self.scope_resolver.for_interview(
             deployment_scope=self.deployment_scope,
             session_id=state["session_id"],
@@ -307,6 +375,32 @@ class InterviewContextArtifactCoordinator:
             segment_type="conversation_message",
             content=content,
             content_sha256=sha256(content.encode("utf-8")).hexdigest(),
+        )
+
+    @staticmethod
+    def _conversation_source_identity(state, message):
+        content = message.get("content")
+        if not isinstance(content, str):
+            raise TypeError("conversation source content must be a string")
+        authoritative_digest = message.get("authoritative_content_sha256")
+        source_digest = message.get("source_content_sha256")
+        if (
+            authoritative_digest is not None
+            and source_digest is not None
+            and authoritative_digest != source_digest
+        ):
+            raise ValueError("conflicting authoritative content digests")
+        return ConversationSourceIdentity(
+            owner_scope=f"interview-session:{state['session_id']}",
+            question_id=message.get("question_id"),
+            sequence_no=message.get("sequence_no"),
+            sequence_contract=message.get("sequence_contract"),
+            role=message.get("role"),
+            content_sha256=(
+                authoritative_digest
+                or source_digest
+                or content_sha256(content)
+            ),
         )
 
     @staticmethod

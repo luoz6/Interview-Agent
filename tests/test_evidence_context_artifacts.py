@@ -17,7 +17,11 @@ from app.services.context_compression_intent import compression_intent_sha256
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_selection import ContextSelectionStats
+from app.services.context_selection import (
+    ContextSelectionStats,
+    InterviewContextSelection,
+)
+from app.services.context_source_identity import ContextSourceIdentityConfig
 from app.services.context_compression_runner import ContextCompressionRunner
 from app.services.evidence_context_artifacts import (
     EvidenceContextArtifactCoordinator,
@@ -178,6 +182,7 @@ def make_coordinator(
     agent=None,
     eligibility_policy=None,
     task_intent_enabled=False,
+    source_identity_config=None,
 ):
     return EvidenceContextArtifactCoordinator(
         runner=runner or CapturingRunner(),
@@ -188,7 +193,70 @@ def make_coordinator(
         deployment_scope="single-tenant-test",
         eligibility_policy=eligibility_policy or AlwaysEligiblePolicy(),
         task_intent_enabled=task_intent_enabled,
+        source_identity_config=source_identity_config,
     )
+
+
+def test_structured_evidence_provenance_changes_artifact_identity_not_input():
+    identities = []
+    compressor_inputs = []
+    for provenance in ("theory", "benchmark"):
+        runner = CapturingRunner()
+        agent = FakeCompressorAgent()
+        coordinator = make_coordinator(
+            gates=ContextCompressionGates(shadow_enabled=True),
+            runner=runner,
+            agent=agent,
+            source_identity_config=ContextSourceIdentityConfig(
+                exact_deduplication_mode="enforce"
+            ),
+        )
+        source = {
+            "role": "knowledge_evidence",
+            "content": (
+                "Bound interview evidence [id=e1]: cache invalidation "
+                "protects consistency"
+            ),
+            "evidence_id": "e1",
+            "chunk_id": "e1",
+            "provenance": provenance,
+            "content_sha256": "c" * 64,
+            "corpus_manifest_sha256": "a" * 64,
+            "representation": "authoritative_raw",
+            "mandatory_bounded_raw": True,
+        }
+        provider_message = {
+            "role": source["role"],
+            "content": source["content"],
+        }
+        selection = InterviewContextSelection(
+            provider_messages=(provider_message,),
+            mandatory_bounded_raw=(),
+            compressible_conversation_sources=(),
+            evidence_sources=(source,),
+            stats=ContextSelectionStats(
+                source_evidence_count=1,
+                selected_evidence_count=1,
+            ),
+        )
+
+        coordinator.build_interview_context(
+            state=make_state(),
+            context_messages=[provider_message],
+            selection=selection,
+            parent_ownership=ParentOwnership(),
+            worker_id="worker-1",
+        )
+
+        identities.append(
+            runner.calls[0]["identity_material"].source_manifest_sha256
+        )
+        compressor_inputs.append(
+            [item.content for item in agent.calls[0]["sources"]]
+        )
+
+    assert identities[0] != identities[1]
+    assert compressor_inputs[0] == compressor_inputs[1]
 
 
 def test_interview_evidence_intent_binds_current_focus_to_identity_v1():

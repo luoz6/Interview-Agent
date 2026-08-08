@@ -61,6 +61,7 @@ class QuestionMemoryCoordinator:
         scope_resolver=None,
         clock=None,
         task_intent_enabled: bool = False,
+        source_identity_config=None,
     ) -> None:
         if exact_recent_questions < 1:
             raise ValueError("exact_recent_questions must be positive")
@@ -82,6 +83,11 @@ class QuestionMemoryCoordinator:
         )
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.task_intent_enabled = task_intent_enabled
+        self.source_identity_config = source_identity_config or getattr(
+            context_runtime,
+            "source_identity_config",
+            None,
+        )
 
     def build_context(
         self,

@@ -162,6 +162,17 @@ def test_v2_resolver_uses_only_current_question_ids_and_never_searches():
     ]
     assert len(evidence_messages) == 1
     assert "Redis internal consistency evidence" in evidence_messages[0]["content"]
+    assert evidence_messages[0] | {"content": "provider-visible"} == {
+        "role": "knowledge_evidence",
+        "content": "provider-visible",
+        "evidence_id": "redis_consistency",
+        "chunk_id": "redis_consistency",
+        "provenance": "theory",
+        "content_sha256": "a" * 64,
+        "corpus_manifest_sha256": MANIFEST_HASH,
+        "representation": "authoritative_raw",
+        "mandatory_bounded_raw": True,
+    }
     assert "Kafka internal delivery evidence" not in str(resolution.messages)
 
 

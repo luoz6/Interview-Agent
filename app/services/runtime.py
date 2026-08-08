@@ -1128,6 +1128,7 @@ def build_interview_workflow_service():
         ContextRuntimeConfig,
         get_context_runtime,
     )
+    from app.services.context_source_identity import ContextSourceIdentityConfig
     from app.services.langgraph_runtime import (
         VersionedGraphRegistry,
     )
@@ -1164,6 +1165,11 @@ def build_interview_workflow_service():
         raise RuntimeError("LangGraph runtime is disabled")
     saver = checkpointer.start()
     model_config = effective_memory.model
+    source_identity_config = ContextSourceIdentityConfig(
+        exact_deduplication_mode=(
+            selection_config.exact_deduplication_mode
+        )
+    )
     context_runtime = get_context_runtime(
         ContextRuntimeConfig(
             provider=model_config.provider,
@@ -1176,6 +1182,7 @@ def build_interview_workflow_service():
             ),
             safety_margin_tokens=model_config.safety_margin_tokens,
             tokenizer_family=model_config.tokenizer_family,
+            source_identity_config=source_identity_config,
         )
     )
     store = get_session_store()
@@ -1207,6 +1214,7 @@ def build_interview_workflow_service():
             execution_runner=get_agent_execution_runner(),
         ),
         context_runtime=context_runtime,
+        source_identity_config=source_identity_config,
         knowledge_repository=get_knowledge_store(
             connection_provider=domains.business,
             schema_mode="validate",
@@ -1245,6 +1253,7 @@ def build_interview_workflow_service():
             deployment_scope=deployment_scope,
             eligibility_policy=eligibility_policy,
             task_intent_enabled=compression_config.task_intent_enabled,
+            source_identity_config=source_identity_config,
         )
         from app.services.question_memory import QuestionMemoryCoordinator
 
@@ -1259,6 +1268,7 @@ def build_interview_workflow_service():
             max_memory_units=selection_config.max_memory_units,
             max_memory_tokens=selection_config.max_memory_tokens,
             task_intent_enabled=compression_config.task_intent_enabled,
+            source_identity_config=source_identity_config,
         )
         if compression_gates.shadow_enabled or (
             compression_gates.interview_enabled
@@ -1274,6 +1284,7 @@ def build_interview_workflow_service():
                     deployment_scope=deployment_scope,
                     eligibility_policy=eligibility_policy,
                     task_intent_enabled=compression_config.task_intent_enabled,
+                    source_identity_config=source_identity_config,
                 )
             )
     registry = VersionedGraphRegistry()

@@ -14,6 +14,7 @@ from app.services.context_runtime import (
     ContextRuntimeConfig,
     build_context_runtime,
 )
+from app.services.context_source_identity import ContextSourceIdentityConfig
 from app.services.model_capabilities import (
     ContextConfigurationError,
     ModelRuntimeProfile,
@@ -60,6 +61,19 @@ def test_context_runtime_does_not_require_api_key(monkeypatch):
         ContextRuntimeConfig(model="gpt-4o")
     )
     assert runtime.model_profile.model == "gpt-4o"
+
+
+def test_context_runtime_preserves_the_injected_source_identity_snapshot():
+    snapshot = ContextSourceIdentityConfig(exact_deduplication_mode="shadow")
+
+    runtime = build_context_runtime(
+        ContextRuntimeConfig(
+            model="gpt-4o",
+            source_identity_config=snapshot,
+        )
+    )
+
+    assert runtime.source_identity_config is snapshot
 
 
 def test_custom_context_runtime_requires_explicit_window():

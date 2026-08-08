@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import app.services.runtime as runtime
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_runtime import ContextRuntimeConfig
+from app.services.context_source_identity import ContextSourceIdentityConfig
 from app.services.memory_config import load_effective_memory_config
 
 
@@ -109,6 +110,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             "MEMORY_SELECTION_MAX_MEMORY_UNITS": "3",
             "MEMORY_SELECTION_MAX_MEMORY_TOKENS": "1777",
             "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": "4321",
+            "MEMORY_SELECTION_EXACT_DEDUPLICATION_MODE": "shadow",
         }
     )
     load_calls = []
@@ -354,6 +356,9 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             structured_output_reserve_tokens=654,
             safety_margin_tokens=987,
             tokenizer_family="composition-tokenizer",
+            source_identity_config=ContextSourceIdentityConfig(
+                exact_deduplication_mode="shadow"
+            ),
         )
     ]
     assert principal_shadow_calls == [snapshot]
@@ -369,6 +374,17 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     decision_service = dependency_calls[0]["decision_service"]
     assert isinstance(decision_service, FollowupDecisionExecutionService)
     assert decision_service.store is decision_store_marker
+    source_identity_config = context_runtime_calls[0].source_identity_config
+    assert dependency_calls[0]["source_identity_config"] is source_identity_config
+    assert interview_artifact_calls[0]["source_identity_config"] is (
+        source_identity_config
+    )
+    assert evidence_artifact_calls[0]["source_identity_config"] is (
+        source_identity_config
+    )
+    assert question_memory_calls[0]["source_identity_config"] is (
+        source_identity_config
+    )
     assert eligibility_calls == [
         {"eligibility_utilization_basis_points": 4_321}
     ]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Lock
 
 from app.services.context_budget import ContextBudgetResolver
@@ -12,6 +12,7 @@ from app.services.token_estimation import (
     CompositeTokenEstimator,
     TokenEstimatorResolution,
 )
+from app.services.context_source_identity import ContextSourceIdentityConfig
 
 
 @dataclass(frozen=True)
@@ -24,12 +25,16 @@ class ContextRuntimeConfig:
     structured_output_reserve_tokens: int = 2048
     safety_margin_tokens: int = 1024
     tokenizer_family: str | None = None
+    source_identity_config: ContextSourceIdentityConfig = field(
+        default_factory=ContextSourceIdentityConfig
+    )
 
     @classmethod
     def from_env(cls) -> "ContextRuntimeConfig":
         from app.services.memory_config import load_effective_memory_config
 
-        memory = load_effective_memory_config().model
+        effective = load_effective_memory_config()
+        memory = effective.model
         return cls(
             provider=memory.provider,
             model=memory.model,
@@ -41,6 +46,11 @@ class ContextRuntimeConfig:
             ),
             safety_margin_tokens=memory.safety_margin_tokens,
             tokenizer_family=memory.tokenizer_family,
+            source_identity_config=ContextSourceIdentityConfig(
+                exact_deduplication_mode=(
+                    effective.selection.exact_deduplication_mode
+                )
+            ),
         )
 
 
@@ -49,6 +59,9 @@ class ContextRuntime:
     model_profile: ModelRuntimeProfile
     estimator_resolution: TokenEstimatorResolution
     budget_resolver: ContextBudgetResolver
+    source_identity_config: ContextSourceIdentityConfig = field(
+        default_factory=ContextSourceIdentityConfig
+    )
 
 
 @dataclass(frozen=True)
@@ -107,6 +120,7 @@ def build_context_runtime(
         model_profile=profile,
         estimator_resolution=estimator,
         budget_resolver=ContextBudgetResolver(),
+        source_identity_config=config.source_identity_config,
     )
 
 

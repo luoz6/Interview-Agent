@@ -18,7 +18,11 @@ from app.services.context_compression_eligibility import (
 )
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_compression_intent import compression_intent_sha256
-from app.services.context_selection import ContextSelectionStats
+from app.services.context_selection import (
+    ContextSelectionStats,
+    InterviewContextSelection,
+)
+from app.services.context_source_identity import ContextSourceIdentityConfig
 from app.services.interview_context_artifacts import (
     InterviewContextArtifactCoordinator,
 )
@@ -125,6 +129,7 @@ def make_coordinator(
     runner=None,
     agent=None,
     task_intent_enabled=False,
+    source_identity_config=None,
 ):
     return InterviewContextArtifactCoordinator(
         runner=runner or CapturingRunner(),
@@ -150,6 +155,7 @@ def make_coordinator(
         deployment_scope="single-tenant-test",
         eligibility_policy=ContextCompressionEligibilityPolicy(),
         task_intent_enabled=task_intent_enabled,
+        source_identity_config=source_identity_config,
     )
 
 
@@ -159,6 +165,150 @@ def loss_stats():
         selected_message_count=2,
         dropped_message_count=2,
     )
+
+
+def test_compressor_and_consume_context_use_structured_selection_not_raw_state():
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(interview_enabled=True),
+        runner=runner,
+        agent=agent,
+    )
+    state = make_state()
+    state["messages"] = [
+        {"role": "candidate", "content": "raw-state bypass poison"}
+    ] * 6
+    selected_old = {
+        "role": "candidate",
+        "content": "selected historical answer",
+        "question_id": "q1",
+        "sequence_no": 2,
+        "sequence_contract": "state-order-v1",
+    }
+    mandatory = {
+        "role": "candidate",
+        "content": "selected current answer",
+        "question_id": "q2",
+        "sequence_no": 4,
+        "sequence_contract": "state-order-v1",
+    }
+    evidence = {
+        "role": "knowledge_evidence",
+        "content": "selected evidence",
+        "evidence_id": "e1",
+        "provenance": "theory",
+        "content_sha256": "a" * 64,
+        "corpus_manifest_sha256": "b" * 64,
+    }
+    selection = InterviewContextSelection(
+        provider_messages=(
+            {"role": "candidate", "content": selected_old["content"]},
+            {"role": "candidate", "content": mandatory["content"]},
+            {"role": "knowledge_evidence", "content": evidence["content"]},
+        ),
+        mandatory_bounded_raw=(mandatory,),
+        compressible_conversation_sources=(selected_old,),
+        evidence_sources=(evidence,),
+        stats=loss_stats(),
+    )
+
+    result = coordinator.build_context(
+        state=state,
+        deterministic_context=[dict(item) for item in selection.provider_messages],
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert [item.content for item in agent.calls[0]["source_segments"]] == [
+        "selected historical answer"
+    ]
+    assert [item["content"] for item in result.context_messages] == [
+        "old answer summary",
+        "selected current answer",
+        "selected evidence",
+    ]
+    assert "raw-state bypass poison" not in str(runner.calls)
+    assert "raw-state bypass poison" not in str(result.context_messages)
+
+
+def test_conversation_source_identity_binds_enforce_artifact_manifest_only():
+    def resolve(mode, *, question_id, sequence_no):
+        runner = CapturingRunner()
+        agent = FakeCompressorAgent()
+        coordinator = make_coordinator(
+            gates=ContextCompressionGates(shadow_enabled=True),
+            runner=runner,
+            agent=agent,
+            source_identity_config=ContextSourceIdentityConfig(
+                exact_deduplication_mode=mode
+            ),
+        )
+        source = {
+            "role": "candidate",
+            "content": "identical historical answer",
+            "question_id": question_id,
+            "sequence_no": sequence_no,
+            "sequence_contract": "authoritative-v1",
+            "mandatory_bounded_raw": False,
+            "representation": "authoritative_raw",
+        }
+        selection = InterviewContextSelection(
+            provider_messages=(
+                {"role": "candidate", "content": source["content"]},
+            ),
+            mandatory_bounded_raw=(),
+            compressible_conversation_sources=(source,),
+            evidence_sources=(),
+            stats=loss_stats(),
+        )
+
+        coordinator.build_context(
+            state=make_state(),
+            deterministic_context=[dict(selection.provider_messages[0])],
+            selection=selection,
+            parent_ownership=ParentOwnership(),
+        )
+
+        return (
+            runner.calls[0]["identity_material"],
+            [
+                item.content
+                for item in agent.calls[0]["source_segments"]
+            ],
+        )
+
+    disabled, disabled_sources = resolve(
+        "disabled",
+        question_id="q1",
+        sequence_no=1,
+    )
+    shadow, shadow_sources = resolve(
+        "shadow",
+        question_id="q9",
+        sequence_no=9,
+    )
+    enforce_first, enforce_first_sources = resolve(
+        "enforce",
+        question_id="q1",
+        sequence_no=1,
+    )
+    enforce_second, enforce_second_sources = resolve(
+        "enforce",
+        question_id="q9",
+        sequence_no=9,
+    )
+
+    assert disabled.source_sha256 == shadow.source_sha256
+    assert disabled.source_manifest_sha256 == shadow.source_manifest_sha256
+    assert enforce_first.source_sha256 != enforce_second.source_sha256
+    assert (
+        enforce_first.source_manifest_sha256
+        != enforce_second.source_manifest_sha256
+    )
+    assert disabled_sources == shadow_sources
+    assert enforce_first_sources == enforce_second_sources
+    assert enforce_first_sources == ["identical historical answer"]
 
 
 def test_task_intent_uses_current_question_and_binds_the_same_object_to_v1():

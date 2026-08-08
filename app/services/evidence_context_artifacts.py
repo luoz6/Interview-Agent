@@ -29,7 +29,15 @@ from app.services.context_compression_intent import (
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_selection import ContextSelectionStats
+from app.services.context_selection import (
+    ContextSelectionStats,
+    InterviewContextSelection,
+)
+from app.services.context_source_identity import (
+    ContextSourceIdentityConfig,
+    EvidenceSourceIdentity,
+    source_value_sha256,
+)
 from app.services.context_compression_runner import (
     ContextCompressionParentOwnership,
     ContextCompressionRunner,
@@ -73,6 +81,7 @@ class EvidenceContextArtifactCoordinator:
         scope_resolver=None,
         eligibility_policy=None,
         task_intent_enabled: bool = False,
+        source_identity_config=None,
     ) -> None:
         self.runner = runner
         self.compressor_agent = compressor_agent
@@ -87,6 +96,14 @@ class EvidenceContextArtifactCoordinator:
             eligibility_policy or ContextCompressionEligibilityPolicy()
         )
         self.task_intent_enabled = task_intent_enabled
+        self.source_identity_config = (
+            source_identity_config
+            or getattr(
+                context_runtime,
+                "source_identity_config",
+                ContextSourceIdentityConfig(),
+            )
+        )
 
     def build_interview_context(
         self,
@@ -96,12 +113,17 @@ class EvidenceContextArtifactCoordinator:
         parent_ownership: ContextCompressionParentOwnership,
         worker_id: str,
         selection_stats: ContextSelectionStats | None = None,
+        selection: InterviewContextSelection | None = None,
     ) -> EvidenceArtifactContext:
-        evidence = [
-            item
-            for item in context_messages
-            if item.get("role") == "knowledge_evidence"
-        ]
+        if selection is not None:
+            selection_stats = selection.stats
+            evidence = list(selection.evidence_sources)
+        else:
+            evidence = [
+                item
+                for item in context_messages
+                if item.get("role") == "knowledge_evidence"
+            ]
         should_create = self.gates.shadow_enabled or (
             self.gates.interview_enabled and self.gates.evidence_enabled
         )
@@ -119,6 +141,20 @@ class EvidenceContextArtifactCoordinator:
             self._source_segment(index, message)
             for index, message in enumerate(evidence)
         ]
+        source_identity_sha256 = []
+        identity_mode = self.source_identity_config.exact_deduplication_mode
+        if selection is not None and identity_mode != "disabled":
+            try:
+                source_identity_sha256 = [
+                    self._evidence_source_identity(state, message).sha256
+                    for message in evidence
+                ]
+            except (TypeError, ValueError):
+                if identity_mode == "enforce":
+                    return self._deterministic(context_messages)
+                source_identity_sha256 = []
+        if identity_mode != "enforce":
+            source_identity_sha256 = []
         evidence_digest = self._evidence_digest(sources)
         eligibility = self.eligibility_policy.evaluate(
             selection_stats=selection_stats,
@@ -135,6 +171,7 @@ class EvidenceContextArtifactCoordinator:
             question=question,
             sources=sources,
             evidence_digest=evidence_digest,
+            source_identity_sha256=source_identity_sha256,
             intent=intent,
         )
         try:
@@ -390,18 +427,27 @@ class EvidenceContextArtifactCoordinator:
         question,
         sources,
         evidence_digest,
+        source_identity_sha256=(),
         intent=None,
     ):
+        segments = [
+            {
+                "segment_index": source.segment_index,
+                "segment_type": source.segment_type,
+                "content_sha256": source.content_sha256,
+            }
+            for source in sources
+        ]
+        if source_identity_sha256:
+            for segment, identity_sha256 in zip(
+                segments,
+                source_identity_sha256,
+                strict=True,
+            ):
+                segment["source_identity_sha256"] = identity_sha256
         manifest = {
             "corpus_manifest_sha256": self._corpus_manifest_sha256(state),
-            "segments": [
-                {
-                    "segment_index": source.segment_index,
-                    "segment_type": source.segment_type,
-                    "content_sha256": source.content_sha256,
-                }
-                for source in sources
-            ],
+            "segments": segments,
         }
         scope_material = self.scope_resolver.for_interview(
             deployment_scope=self.deployment_scope,
@@ -485,6 +531,18 @@ class EvidenceContextArtifactCoordinator:
             compression_intent_sha256=(
                 compression_intent_sha256(intent) if intent is not None else None
             ),
+        )
+
+    @staticmethod
+    def _evidence_source_identity(state, message) -> EvidenceSourceIdentity:
+        evidence_id = message.get("chunk_id") or message.get("evidence_id")
+        return EvidenceSourceIdentity(
+            owner_scope=f"interview-session:{state['session_id']}",
+            provenance=message.get("provenance"),
+            chunk_or_evidence_id_sha256=source_value_sha256(evidence_id),
+            content_sha256=message.get("content_sha256"),
+            corpus_manifest_sha256=message.get("corpus_manifest_sha256"),
+            role=message.get("role", "knowledge_evidence"),
         )
 
     def _interview_compression_intent(self, question) -> CompressionIntent | None:
