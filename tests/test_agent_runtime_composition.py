@@ -374,6 +374,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     decision_service = dependency_calls[0]["decision_service"]
     assert isinstance(decision_service, FollowupDecisionExecutionService)
     assert decision_service.store is decision_store_marker
+    assert dependency_calls[0]["exact_recent_questions"] == 2
     source_identity_config = context_runtime_calls[0].source_identity_config
     assert dependency_calls[0]["source_identity_config"] is source_identity_config
     assert interview_artifact_calls[0]["source_identity_config"] is (

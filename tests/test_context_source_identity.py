@@ -10,9 +10,77 @@ from app.services.context_source_identity import (
     ConversationSourceIdentity,
     EvidenceSourceIdentity,
     SourceRepresentationIdentity,
+    canonical_conversation_sequence_pair,
     content_sha256,
     source_value_sha256,
 )
+
+
+@pytest.mark.parametrize(
+    ("sequence_no", "sequence_contract", "expected"),
+    (
+        (9, "authoritative-v1", (9, "authoritative-v1")),
+        (9, None, (4, "state-order-v1")),
+        (None, "authoritative-v1", (4, "state-order-v1")),
+        (None, None, (4, "state-order-v1")),
+    ),
+)
+def test_conversation_sequence_pair_is_canonical_and_indivisible(
+    sequence_no,
+    sequence_contract,
+    expected,
+):
+    pair = canonical_conversation_sequence_pair(
+        sequence_no=sequence_no,
+        sequence_contract=sequence_contract,
+        state_position=4,
+    )
+    identity = ConversationSourceIdentity(
+        owner_scope="interview-session:session-1",
+        question_id="question-1",
+        sequence_no=pair[0],
+        sequence_contract=pair[1],
+        role="candidate",
+        content_sha256=content_sha256("answer"),
+    )
+    replay_pair = canonical_conversation_sequence_pair(
+        sequence_no=pair[0],
+        sequence_contract=pair[1],
+        state_position=99,
+    )
+    replay = replace(
+        identity,
+        sequence_no=replay_pair[0],
+        sequence_contract=replay_pair[1],
+    )
+
+    assert pair == expected
+    assert replay_pair == expected
+    assert identity.canonical_json.encode("utf-8") == replay.canonical_json.encode(
+        "utf-8"
+    )
+    assert identity.sha256 == replay.sha256
+
+
+@pytest.mark.parametrize(
+    ("sequence_no", "sequence_contract", "state_position"),
+    (
+        (0, "authoritative-v1", 1),
+        (1, "unknown-v1", 1),
+        (1, "authoritative-v1", 0),
+    ),
+)
+def test_complete_malformed_sequence_pair_is_not_relabelled_as_state_order(
+    sequence_no,
+    sequence_contract,
+    state_position,
+):
+    with pytest.raises(ValueError):
+        canonical_conversation_sequence_pair(
+            sequence_no=sequence_no,
+            sequence_contract=sequence_contract,
+            state_position=state_position,
+        )
 
 
 def _conversation() -> ConversationSourceIdentity:

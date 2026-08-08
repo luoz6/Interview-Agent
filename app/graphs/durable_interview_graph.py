@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
@@ -46,12 +46,18 @@ from app.services.context_budget import (
 from app.services.context_selection import (
     ContextSelectionStats,
     InterviewContextSelection,
+    MandatoryBoundedRawOverflow,
+    _mark_mandatory_conversation_sources,
     build_interview_context_selection,
     deduplicate_conversation_replays,
     deduplicate_evidence_replays,
 )
-from app.services.context_source_identity import ContextSourceIdentityConfig
+from app.services.context_source_identity import (
+    ContextSourceIdentityConfig,
+    canonical_conversation_sequence_pair,
+)
 from app.services.context_runtime import ContextRuntime, get_context_runtime
+from app.services.model_capabilities import ContextConfigurationError
 
 
 class GenerationLeaseHeartbeat:
@@ -146,9 +152,13 @@ class DurableInterviewGraphDependencies:
     examiner: Any | None = None
     knowledge_repository: Any | None = None
     report_job_queue: Any | None = None
-    context_builder: Callable[[DurableInterviewState], list[dict[str, str]]] | None = None
+    context_builder: Callable[
+        [DurableInterviewState],
+        list[dict[str, str]],
+    ] | None = None
     context_runtime: ContextRuntime | None = None
     source_identity_config: ContextSourceIdentityConfig | None = None
+    exact_recent_questions: int = 1
     context_artifact_coordinator: Any | None = None
     evidence_artifact_coordinator: Any | None = None
     question_memory_coordinator: Any | None = None
@@ -163,6 +173,14 @@ class DurableInterviewGraphDependencies:
     generation_heartbeat_factory: Callable[..., Any] = (
         GenerationLeaseHeartbeat
     )
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.exact_recent_questions, bool)
+            or not isinstance(self.exact_recent_questions, int)
+            or self.exact_recent_questions <= 0
+        ):
+            raise ValueError("exact recent questions must be a positive integer")
 
 
 def initialize_session(state: DurableInterviewState) -> dict:
@@ -415,6 +433,15 @@ def guard_after_retry(state) -> dict:
     )
 
 
+def _custom_context_builder_result(state, deps):
+    result = deps.context_builder(state)
+    if not isinstance(result, list):
+        raise ContextConfigurationError(
+            "custom context builder result is invalid"
+        )
+    return [dict(message) for message in result]
+
+
 def prepare_generation(state, deps) -> dict:
     if state.get("decision_action") != "follow_up" or not state.get(
         "active_decision_id"
@@ -460,19 +487,27 @@ def generate_followup(state, deps) -> dict:
     raw_event_count = 0
     is_v2 = state.get("workflow_engine") == "langgraph-v2"
     context = None
-    if not is_v2:
-        context = (
-            deps.context_builder(state)
-            if deps.context_builder is not None
-            else _build_examiner_context(
-                state,
-                deps.knowledge_repository,
-                deps.context_runtime,
-            )
-        )
     artifact_context = None
     parent_ownership = None
     try:
+        if (
+            deps.context_builder is not None
+            and context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation)
+        ):
+            raise ContextConfigurationError(
+                "custom context builder is disabled when context enforcement "
+                "is enabled"
+            )
+        if not is_v2:
+            if deps.context_builder is not None:
+                context = _custom_context_builder_result(state, deps)
+            else:
+                context = _build_examiner_context(
+                    state,
+                    deps.knowledge_repository,
+                    deps.context_runtime,
+                    exact_recent_questions=deps.exact_recent_questions,
+                )
         heartbeat_context = deps.generation_heartbeat_factory(
             generation_store=deps.generation_store,
             attempt=attempt,
@@ -491,7 +526,10 @@ def generate_followup(state, deps) -> dict:
                     worker_id=deps.worker_id,
                 )
                 if deps.context_builder is not None:
-                    deterministic_context = deps.context_builder(state)
+                    deterministic_context = _custom_context_builder_result(
+                        state,
+                        deps,
+                    )
                     selection_stats = None
                     context_selection = None
                 else:
@@ -500,6 +538,7 @@ def generate_followup(state, deps) -> dict:
                         deps.knowledge_repository,
                         deps.context_runtime,
                         deps.source_identity_config,
+                        exact_recent_questions=deps.exact_recent_questions,
                     )
                     deterministic_context = [
                         dict(item)
@@ -520,6 +559,7 @@ def generate_followup(state, deps) -> dict:
                         state=state,
                         deterministic_context=deterministic_context,
                         parent_ownership=parent_ownership,
+                        selection=context_selection,
                     )
                     if question_memory_enabled
                     else deps.context_artifact_coordinator.build_context(
@@ -700,6 +740,20 @@ def generate_followup(state, deps) -> dict:
             "generated_text": final_text,
             "command_provider_invocations": provider_invocations,
             **artifact_updates,
+        }
+    except MandatoryBoundedRawOverflow as exc:
+        code = exc.code
+        if attempt is not None:
+            deps.generation_store.fail_attempt(
+                attempt.generation_id,
+                attempt.attempt_number,
+                code,
+                lease_token=attempt.lease_token,
+                fencing_version=attempt.fencing_version,
+            )
+        return {
+            "generation_outcome": "terminal",
+            "last_error_code": code,
         }
     except Exception as exc:
         failure = (
@@ -1129,6 +1183,30 @@ def _decision_state_updates(decision) -> dict:
     }
 
 
+def _recent_completed_question_ids(
+    state,
+    *,
+    limit: int,
+) -> tuple[str, ...]:
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise ValueError("exact recent questions must be a positive integer")
+    candidate_question_ids = {
+        message.get("question_id")
+        for message in state.get("messages", [])
+        if message.get("role") == "candidate"
+    }
+    completed = [
+        question_id
+        for question in state["plan_snapshot"]["questions"][
+            : state["current_index"]
+        ]
+        if isinstance((question_id := question.get("id")), str)
+        and question_id
+        and question_id in candidate_question_ids
+    ]
+    return tuple(completed[-limit:])
+
+
 def _recent_conversation_messages(
     state,
     context_runtime: ContextRuntime | None = None,
@@ -1144,10 +1222,29 @@ def _recent_conversation_selection(
     return [dict(item) for item in plan.provider_messages], plan.stats
 
 
+def _canonical_conversation_state_sources(messages) -> list[dict[str, Any]]:
+    result = []
+    for state_position, message in enumerate(messages, start=1):
+        sequence_no, sequence_contract = canonical_conversation_sequence_pair(
+            sequence_no=message.get("sequence_no"),
+            sequence_contract=message.get("sequence_contract"),
+            state_position=state_position,
+        )
+        result.append(
+            {
+                **message,
+                "sequence_no": sequence_no,
+                "sequence_contract": sequence_contract,
+            }
+        )
+    return result
+
+
 def _recent_conversation_plan(
     state,
     context_runtime: ContextRuntime | None = None,
     source_identity_config: ContextSourceIdentityConfig | None = None,
+    exact_recent_question_ids: tuple[str, ...] = (),
 ) -> InterviewContextSelection:
     question_id = _current_question(state)["id"]
     runtime = context_runtime or get_context_runtime()
@@ -1157,17 +1254,11 @@ def _recent_conversation_plan(
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
-        normalized = [
-            {
-                **message,
-                "sequence_no": message.get("sequence_no", index),
-                "sequence_contract": message.get(
-                    "sequence_contract",
-                    "state-order-v1",
-                ),
-            }
-            for index, message in enumerate(state["messages"], start=1)
-        ]
+        normalized = _mark_mandatory_conversation_sources(
+            _canonical_conversation_state_sources(state["messages"]),
+            current_question_id=question_id,
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
         deduplicated = None
         business = normalized
         if identity_config.exact_deduplication_mode != "disabled":
@@ -1178,24 +1269,13 @@ def _recent_conversation_plan(
             )
             if identity_config.exact_deduplication_mode == "enforce":
                 business = list(deduplicated.items)
-        selected_sources = [dict(item) for item in business[-4:]]
-        latest_candidate = next(
-            (
-                index
-                for index in range(len(selected_sources) - 1, -1, -1)
-                if selected_sources[index].get("role") == "candidate"
-            ),
-            None,
-        )
-        mandatory = []
-        compressible = []
-        for index, item in enumerate(selected_sources):
-            is_mandatory = (
-                item.get("question_id") == question_id
-                or index == latest_candidate
-            )
-            target = mandatory if is_mandatory else compressible
-            target.append({**item, "mandatory_bounded_raw": is_mandatory})
+        legacy_start = max(0, len(business) - 4)
+        selected_sources = [
+            dict(item)
+            for index, item in enumerate(business)
+            if item.get("mandatory_bounded_raw") is True
+            or index >= legacy_start
+        ]
         duplicate_count = deduplicated.duplicate_count if deduplicated else 0
         before_tokens = estimator.estimate_messages(
             [_provider_message(item) for item in normalized],
@@ -1206,10 +1286,32 @@ def _recent_conversation_plan(
             model=model,
         )
         removed_tokens = max(0, before_tokens - after_tokens)
-        stats = ContextSelectionStats(
+        budget = runtime.budget_resolver.resolve(
+            profile=runtime.model_profile,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        selection_budget = runtime.budget_resolver.resolve_selection_budget(
+            budget=budget,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        selection = build_interview_context_selection(
+            selected_sources,
+            current_question_id=question_id,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+            selection_budget=selection_budget,
+            estimator=estimator,
+            model=model,
+            owner_scope=_interview_owner_scope(state),
+            exact_deduplication_mode=identity_config.exact_deduplication_mode,
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
+        stats = replace(
+            selection.stats,
             source_message_count=len(normalized),
-            selected_message_count=len(selected_sources),
-            dropped_message_count=max(0, len(normalized) - len(selected_sources)),
+            dropped_message_count=max(
+                0,
+                len(normalized) - selection.stats.selected_message_count,
+            ),
             deduplicated_message_count=(
                 duplicate_count
                 if identity_config.exact_deduplication_mode == "enforce"
@@ -1241,13 +1343,7 @@ def _recent_conversation_plan(
                 else 0
             ),
         )
-        return InterviewContextSelection(
-            provider_messages=tuple(_provider_message(item) for item in selected_sources),
-            mandatory_bounded_raw=tuple(mandatory),
-            compressible_conversation_sources=tuple(compressible),
-            evidence_sources=(),
-            stats=stats,
-        )
+        return replace(selection, stats=stats)
     budget = runtime.budget_resolver.resolve(
         profile=runtime.model_profile,
         policy=FOLLOWUP_CONTEXT_POLICY,
@@ -1265,6 +1361,7 @@ def _recent_conversation_plan(
         model=model,
         owner_scope=_interview_owner_scope(state),
         exact_deduplication_mode=identity_config.exact_deduplication_mode,
+        exact_recent_question_ids=exact_recent_question_ids,
     )
 
 
@@ -1272,11 +1369,14 @@ def _build_examiner_context(
     state,
     repository,
     context_runtime: ContextRuntime | None = None,
+    *,
+    exact_recent_questions: int = 1,
 ) -> list[dict[str, str]]:
     return _build_examiner_context_selection(
         state,
         repository,
         context_runtime,
+        exact_recent_questions=exact_recent_questions,
     )[0]
 
 
@@ -1284,8 +1384,15 @@ def _build_examiner_context_selection(
     state,
     repository,
     context_runtime: ContextRuntime | None = None,
+    *,
+    exact_recent_questions: int = 1,
 ) -> tuple[list[dict[str, str]], ContextSelectionStats]:
-    plan = _build_examiner_context_plan(state, repository, context_runtime)
+    plan = _build_examiner_context_plan(
+        state,
+        repository,
+        context_runtime,
+        exact_recent_questions=exact_recent_questions,
+    )
     return [dict(item) for item in plan.provider_messages], plan.stats
 
 
@@ -1294,14 +1401,21 @@ def _build_examiner_context_plan(
     repository,
     context_runtime: ContextRuntime | None = None,
     source_identity_config: ContextSourceIdentityConfig | None = None,
+    *,
+    exact_recent_questions: int = 1,
 ) -> InterviewContextSelection:
     question = _current_question(state)
+    exact_recent_question_ids = _recent_completed_question_ids(
+        state,
+        limit=exact_recent_questions,
+    )
     evidence_messages = []
     if repository is None:
         return _recent_conversation_plan(
             state,
             context_runtime,
             source_identity_config,
+            exact_recent_question_ids,
         )
     resolution = resolve_evidence_by_ids(
         repository,
@@ -1322,6 +1436,7 @@ def _build_examiner_context_plan(
             state,
             runtime,
             identity_config,
+            exact_recent_question_ids,
         )
         evidence_deduplication = None
         business_evidence = evidence_messages
@@ -1421,6 +1536,7 @@ def _build_examiner_context_plan(
         model=model,
         owner_scope=_interview_owner_scope(state),
         exact_deduplication_mode=identity_config.exact_deduplication_mode,
+        exact_recent_question_ids=exact_recent_question_ids,
     )
 
 

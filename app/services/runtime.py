@@ -1215,6 +1215,7 @@ def build_interview_workflow_service():
         ),
         context_runtime=context_runtime,
         source_identity_config=source_identity_config,
+        exact_recent_questions=selection_config.exact_recent_questions,
         knowledge_repository=get_knowledge_store(
             connection_provider=domains.business,
             schema_mode="validate",

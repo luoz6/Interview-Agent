@@ -6,9 +6,9 @@ from app.services.in_memory_question_memory_index import (
 from tests.test_question_memory import (
     CompressorAgent,
     ParentOwnership,
-    deterministic_context,
     make_coordinator,
     make_state,
+    make_structured_selection,
 )
 
 
@@ -29,13 +29,19 @@ def test_concurrent_generation_attempts_create_one_artifact_and_one_active_index
     index = InMemoryQuestionMemoryIndexStore()
     coordinator = make_coordinator(agent, index)
     state = make_state()
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
     results = []
 
     first = Thread(
         target=lambda: results.append(
             coordinator.build_context(
                 state=state,
-                deterministic_context=deterministic_context(),
+                deterministic_context=list(selection.provider_messages),
+                selection=selection,
                 parent_ownership=ParentOwnership(),
             )
         )
@@ -45,7 +51,8 @@ def test_concurrent_generation_attempts_create_one_artifact_and_one_active_index
 
     competing = coordinator.build_context(
         state=state,
-        deterministic_context=deterministic_context(),
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
         parent_ownership=ParentOwnership(),
     )
     agent.release.set()
@@ -73,11 +80,18 @@ class LostOwnership:
 def test_parent_ownership_loss_happens_before_question_memory_provider_call():
     agent = CompressorAgent()
     coordinator = make_coordinator(agent)
+    state = make_state()
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
 
     try:
         coordinator.build_context(
-            state=make_state(),
-            deterministic_context=deterministic_context(),
+            state=state,
+            deterministic_context=list(selection.provider_messages),
+            selection=selection,
             parent_ownership=LostOwnership(),
         )
     except RuntimeError as exc:

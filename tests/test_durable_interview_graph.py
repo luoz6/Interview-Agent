@@ -1,5 +1,5 @@
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from threading import Event
 from types import SimpleNamespace
@@ -188,6 +188,15 @@ def make_initial_input():
     return make_durable_initial_state("s1", kwargs["plan"])
 
 
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_graph_dependencies_require_positive_exact_recent_questions(value):
+    with pytest.raises(ValueError, match="exact recent questions"):
+        DurableInterviewGraphDependencies(
+            workflow_store=FakeWorkflowStore(),
+            exact_recent_questions=value,
+        )
+
+
 class CharacterizationGenerationStore:
     def __init__(self):
         self.completed = []
@@ -341,14 +350,18 @@ def _run_provider_characterization(
     *,
     context_runtime=None,
     context_artifact_coordinator=None,
+    question_memory_coordinator=None,
+    context_builder=None,
 ):
     examiner = CapturingProviderExaminer()
     deps = DurableInterviewGraphDependencies(
         workflow_store=FakeWorkflowStore(),
         generation_store=CharacterizationGenerationStore(),
         examiner=examiner,
+        context_builder=context_builder,
         context_runtime=context_runtime,
         context_artifact_coordinator=context_artifact_coordinator,
+        question_memory_coordinator=question_memory_coordinator,
         coalescer_factory=CharacterizationCoalescer,
         generation_heartbeat_factory=CharacterizationHeartbeat,
     )
@@ -358,6 +371,204 @@ def _run_provider_characterization(
     assert result["generation_outcome"] == "completed"
     assert len(examiner.contexts) == 1
     return examiner.contexts[0]
+
+
+@pytest.mark.parametrize("custom_context", [False, True])
+def test_enforcement_off_keeps_custom_context_builder_test_compatibility(
+    monkeypatch,
+    custom_context,
+):
+    class CapturingQuestionMemoryCoordinator:
+        def __init__(self):
+            self.selections = []
+
+        def build_context(
+            self,
+            *,
+            deterministic_context,
+            selection,
+            **_kwargs,
+        ):
+            self.selections.append(selection)
+            return SimpleNamespace(
+                context_messages=deterministic_context,
+                artifact_ref=None,
+                artifact_sha256=None,
+                artifact_type=None,
+                policy_version=None,
+                route="deterministic",
+            )
+
+    monkeypatch.setattr(
+        "app.graphs.durable_interview_graph.context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    state = _provider_state(
+        _characterization_messages(),
+        workflow_engine="langgraph-v2",
+    )
+    state["memory_policy_version"] = "question-memory-v1"
+    coordinator = CapturingQuestionMemoryCoordinator()
+    custom = (
+        lambda _state: [{"role": "candidate", "content": "custom context"}]
+    ) if custom_context else None
+
+    provider_context = _run_provider_characterization(
+        state,
+        context_runtime=_lossy_context_runtime(),
+        question_memory_coordinator=coordinator,
+        context_builder=custom,
+    )
+
+    assert len(coordinator.selections) == 1
+    assert (coordinator.selections[0] is None) is custom_context
+    if custom_context:
+        assert provider_context == [
+            _characterization_target_instruction(),
+            {"role": "candidate", "content": "custom context"}
+        ]
+
+
+@pytest.mark.parametrize("workflow_engine", ("langgraph-v1", "langgraph-v2"))
+@pytest.mark.parametrize(
+    "custom_result_kind",
+    (
+        pytest.param("list", id="bare-list"),
+        pytest.param("structured", id="forged-structured"),
+    ),
+)
+def test_enforcement_rejects_any_custom_context_before_builder_provider_or_coordinators(
+    monkeypatch,
+    workflow_engine,
+    custom_result_kind,
+):
+    import app.graphs.durable_interview_graph as durable_interview_graph
+    from app.services.context_selection import (
+        ContextSelectionStats,
+        InterviewContextSelection,
+    )
+
+    class RecordingGenerationStore(CharacterizationGenerationStore):
+        def __init__(self):
+            super().__init__()
+            self.failed = []
+
+        def fail_attempt(self, *args, **kwargs):
+            self.failed.append((args, kwargs))
+
+    class NeverCalledArtifactCoordinator:
+        def __init__(self):
+            self.calls = 0
+
+        def build_context(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("custom context must not reach a compressor")
+
+    class NeverCalledEvidenceCoordinator:
+        def __init__(self):
+            self.calls = 0
+
+        def build_interview_context(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("custom context must not reach Evidence")
+
+    class NeverCalledExaminer:
+        def __init__(self):
+            self.calls = 0
+
+        def stream_followup_attempt(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("custom context must not reach the Provider")
+
+    builder_calls = []
+    custom_result = (
+        [{"role": "candidate", "content": "unbounded custom context"}]
+        if custom_result_kind == "list"
+        else InterviewContextSelection(
+            provider_messages=(
+                {
+                    "role": "candidate",
+                    "content": "forged replacement for mandatory raw",
+                },
+            ),
+            mandatory_bounded_raw=(),
+            compressible_conversation_sources=(),
+            evidence_sources=(),
+            stats=ContextSelectionStats(),
+        )
+    )
+
+    def forbidden_custom_builder(_state):
+        builder_calls.append(True)
+        return custom_result
+
+    monkeypatch.setattr(
+        durable_interview_graph,
+        "context_enforcement_enabled",
+        lambda _operation: True,
+    )
+    state = _provider_state(
+        _characterization_messages(),
+        workflow_engine=workflow_engine,
+    )
+    state["plan_snapshot"] = {
+        "questions": [
+            {
+                "id": "q1",
+                "focus": "q1",
+                "kind": "technical",
+                "evidence_ids": [],
+                "evidence_sha256": {},
+            },
+            {
+                "id": "q2",
+                "focus": "q2",
+                "kind": "technical",
+                "evidence_ids": [],
+                "evidence_sha256": {},
+            },
+            {
+                "id": "q3",
+                "focus": "q3",
+                "kind": "technical",
+                "evidence_ids": ["evidence-1"],
+                "evidence_sha256": {"evidence-1": "a" * 64},
+            },
+        ],
+        "corpus_manifest_sha256": "b" * 64,
+    }
+    state["current_index"] = 2
+    generation_store = RecordingGenerationStore()
+    examiner = NeverCalledExaminer()
+    context_artifact_coordinator = NeverCalledArtifactCoordinator()
+    question_memory_coordinator = NeverCalledArtifactCoordinator()
+    evidence_artifact_coordinator = NeverCalledEvidenceCoordinator()
+    deps = DurableInterviewGraphDependencies(
+        workflow_store=FakeWorkflowStore(),
+        generation_store=generation_store,
+        examiner=examiner,
+        context_builder=forbidden_custom_builder,
+        context_artifact_coordinator=context_artifact_coordinator,
+        question_memory_coordinator=question_memory_coordinator,
+        evidence_artifact_coordinator=evidence_artifact_coordinator,
+        coalescer_factory=CharacterizationCoalescer,
+        generation_heartbeat_factory=CharacterizationHeartbeat,
+    )
+
+    result = generate_followup(state, deps)
+
+    assert result == {
+        "generation_outcome": "terminal",
+        "last_error_code": "context_configuration_error",
+        "command_provider_invocations": 0,
+    }
+    assert builder_calls == []
+    assert examiner.calls == 0
+    assert context_artifact_coordinator.calls == 0
+    assert question_memory_coordinator.calls == 0
+    assert evidence_artifact_coordinator.calls == 0
+    assert len(generation_store.failed) == 1
+    assert generation_store.failed[0][0][2] == "context_configuration_error"
 
 
 @pytest.mark.parametrize(
@@ -376,6 +587,8 @@ def _run_provider_characterization(
         pytest.param(
             6,
             [
+                "old question",
+                "old answer",
                 "middle question",
                 "middle answer",
                 "current question",
@@ -409,7 +622,8 @@ def test_final_examiner_provider_context_is_pinned(
                 "role": message["role"],
                 "content": message["content"],
             }
-            for message in source[-4:]
+            for message in source
+            if message["content"] in expected_contents
         ],
     ]
     assert [message["content"] for message in provider_context] == (
@@ -532,6 +746,202 @@ def test_compression_mode_pins_real_calls_and_final_provider_input(
             {"role": item["role"], "content": item["content"]}
             for item in structured_selection.mandatory_bounded_raw
         ]
+
+
+@pytest.mark.parametrize("enforcement_enabled", [False, True])
+def test_graph_passes_recent_completed_question_ids_to_selection(
+    monkeypatch,
+    enforcement_enabled,
+):
+    import app.graphs.durable_interview_graph as durable_interview_graph
+    from app.services.context_selection import (
+        ContextSelectionStats,
+        InterviewContextSelection,
+    )
+
+    messages = [
+        {"role": "interviewer", "content": "q1", "question_id": "q1"},
+        {"role": "candidate", "content": "a1", "question_id": "q1"},
+        {"role": "interviewer", "content": "q2", "question_id": "q2"},
+        {"role": "interviewer", "content": "q3", "question_id": "q3"},
+        {"role": "candidate", "content": "a3", "question_id": "q3"},
+        {"role": "interviewer", "content": "q4", "question_id": "q4"},
+        {"role": "candidate", "content": "a4", "question_id": "q4"},
+        {"role": "interviewer", "content": "q5", "question_id": "q5"},
+        {"role": "candidate", "content": "a5", "question_id": "q5"},
+    ]
+    state = _provider_state(messages, workflow_engine="langgraph-v2")
+    state["plan_snapshot"] = {
+        "questions": [
+            {"id": question_id, "focus": question_id, "kind": "technical"}
+            for question_id in ("q1", "q2", "q3", "q4", "q5")
+        ]
+    }
+    state["current_index"] = 4
+    captured = []
+
+    def capture_selection(source_messages, **kwargs):
+        captured.append((deepcopy(source_messages), kwargs))
+        return InterviewContextSelection(
+            provider_messages=(),
+            mandatory_bounded_raw=(),
+            compressible_conversation_sources=(),
+            evidence_sources=(),
+            stats=ContextSelectionStats(),
+        )
+
+    monkeypatch.setattr(
+        durable_interview_graph,
+        "context_enforcement_enabled",
+        lambda _operation: enforcement_enabled,
+    )
+    monkeypatch.setattr(
+        durable_interview_graph,
+        "build_interview_context_selection",
+        capture_selection,
+    )
+
+    durable_interview_graph._build_examiner_context_plan(
+        state,
+        None,
+        _lossy_context_runtime(),
+        exact_recent_questions=2,
+    )
+
+    assert len(captured) == 1
+    assert captured[0][1]["exact_recent_question_ids"] == ("q3", "q4")
+
+
+@pytest.mark.parametrize(
+    "exact_deduplication_mode",
+    ["disabled", "shadow", "enforce"],
+)
+def test_enforcement_off_marks_full_state_mandatory_before_legacy_last_four(
+    monkeypatch,
+    exact_deduplication_mode,
+):
+    import app.graphs.durable_interview_graph as durable_interview_graph
+
+    monkeypatch.setattr(
+        durable_interview_graph,
+        "context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    messages = [
+        {
+            "role": "candidate",
+            "content": "global latest candidate",
+            "question_id": "q3",
+        },
+        *[
+            {
+                "role": "interviewer",
+                "content": f"current question continuation {index}",
+                "question_id": "q3",
+            }
+            for index in range(5)
+        ],
+    ]
+    state = _provider_state(messages, workflow_engine="langgraph-v2")
+    state["plan_snapshot"] = {
+        "questions": [
+            {"id": question_id, "focus": question_id, "kind": "technical"}
+            for question_id in ("q1", "q2", "q3")
+        ]
+    }
+    state["current_index"] = 2
+    runtime = _lossy_context_runtime()
+    runtime = replace(
+        runtime,
+        model_profile=replace(
+            runtime.model_profile,
+            context_window_tokens=8_000,
+        ),
+    )
+    identity_config = replace(
+        runtime.source_identity_config,
+        exact_deduplication_mode=exact_deduplication_mode,
+    )
+
+    selection = durable_interview_graph._recent_conversation_plan(
+        state,
+        runtime,
+        identity_config,
+        (),
+    )
+
+    expected = [message["content"] for message in messages]
+    assert [message["content"] for message in selection.provider_messages] == expected
+    assert [
+        message["content"] for message in selection.mandatory_bounded_raw
+    ] == expected
+    assert selection.stats.dropped_message_count == 0
+
+
+def test_mandatory_overflow_stops_before_compressor_and_examiner(monkeypatch):
+    import app.graphs.durable_interview_graph as durable_interview_graph
+    from app.services.context_selection import MandatoryBoundedRawOverflow
+
+    class OverflowGenerationStore(CharacterizationGenerationStore):
+        def __init__(self):
+            super().__init__()
+            self.failed = []
+
+        def fail_attempt(self, *args, **kwargs):
+            self.failed.append((args, kwargs))
+
+    class NeverCalledCoordinator:
+        def __init__(self):
+            self.calls = 0
+
+        def build_context(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("overflow must stop before compressor coordination")
+
+    overflow = MandatoryBoundedRawOverflow(
+        required_tokens=2,
+        available_tokens=1,
+        mandatory_unit_count=1,
+    )
+
+    def raise_overflow(*_args, **_kwargs):
+        raise overflow
+
+    monkeypatch.setattr(
+        durable_interview_graph,
+        "_build_examiner_context_plan",
+        raise_overflow,
+    )
+    generation_store = OverflowGenerationStore()
+    examiner = CapturingProviderExaminer()
+    coordinator = NeverCalledCoordinator()
+    deps = DurableInterviewGraphDependencies(
+        workflow_store=FakeWorkflowStore(),
+        generation_store=generation_store,
+        examiner=examiner,
+        context_artifact_coordinator=coordinator,
+        question_memory_coordinator=coordinator,
+        coalescer_factory=CharacterizationCoalescer,
+        generation_heartbeat_factory=CharacterizationHeartbeat,
+    )
+    state = _provider_state(
+        _characterization_messages(),
+        workflow_engine="langgraph-v2",
+    )
+
+    result = generate_followup(state, deps)
+
+    assert result == {
+        "generation_outcome": "terminal",
+        "last_error_code": "mandatory_bounded_raw_overflow",
+    }
+    assert durable_interview_graph.route_generation({**state, **result}) == (
+        "terminate_followup_generation"
+    )
+    assert examiner.contexts == []
+    assert coordinator.calls == 0
+    assert len(generation_store.failed) == 1
+    assert generation_store.failed[0][0][2] == "mandatory_bounded_raw_overflow"
 
 
 def test_graph_initializes_then_waits_for_answer():

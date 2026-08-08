@@ -33,6 +33,39 @@ _REPRESENTATIONS = frozenset(
 _EXACT_DEDUPLICATION_MODES = frozenset({"disabled", "shadow", "enforce"})
 
 
+def canonical_conversation_sequence_pair(
+    *,
+    sequence_no: object,
+    sequence_contract: object,
+    state_position: int,
+) -> tuple[int, ConversationSequenceContract]:
+    """Return one canonical, indivisible conversation sequence pair.
+
+    Explicit sequence metadata is authoritative only when both fields are
+    present and valid.  A half-pair is discarded as a whole and reconstructed
+    from the original one-based state position.  A complete but malformed
+    pair is rejected instead of being relabelled as trusted state order.
+    """
+
+    if (
+        not isinstance(state_position, int)
+        or isinstance(state_position, bool)
+        or state_position <= 0
+    ):
+        raise ValueError("state_position must be a positive integer")
+    if sequence_no is None or sequence_contract is None:
+        return state_position, "state-order-v1"
+    if (
+        not isinstance(sequence_no, int)
+        or isinstance(sequence_no, bool)
+        or sequence_no <= 0
+    ):
+        raise ValueError("sequence_no must be a positive integer")
+    if sequence_contract not in _SEQUENCE_CONTRACTS:
+        raise ValueError("conversation sequence contract is unsupported")
+    return sequence_no, sequence_contract  # type: ignore[return-value]
+
+
 @dataclass(frozen=True)
 class ContextSourceIdentityConfig:
     exact_deduplication_mode: ExactDeduplicationMode = "disabled"
