@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.services.followup_provider_preflight import (
     DeepSeekDiscoverySnapshot,
@@ -13,6 +17,11 @@ from app.services.followup_provider_preflight import (
 )
 from app.services.interview_quality_provider_authorization import (
     load_provider_authorization,
+)
+from app.services import independent_review_handoff
+from app.services.independent_review_handoff import (
+    DetachedSignatureEvidence,
+    canonical_sha256,
 )
 from app.services.report_eval_artifacts import EvaluationArtifactStore
 from app.services.report_calibration_dataset import load_calibration_dataset
@@ -124,6 +133,113 @@ def test_report_cli_refuses_existing_run_dir(tmp_path):
     assert evaluate_t65_report_scoring.main(_blocked_cli_args(tmp_path, "existing")) == 2
     assert marker.read_text(encoding="utf-8") == "preserve"
     assert not (run_dir / "manifest.json").exists()
+
+
+def test_forged_execution_manifest_cannot_release_blind_before_discovery(
+    tmp_path, monkeypatch
+):
+    forged = json.loads(
+        evaluate_t65_report_scoring.DEFAULT_EXECUTION_MANIFEST.read_text(
+            encoding="utf-8"
+        )
+    )
+    forged.setdefault("task_status", {})["T26"] = "PASS"
+    forged.setdefault("t26", {})["review_status"] = "PASS"
+    execution_path = tmp_path / "forged-execution.json"
+    execution_path.write_text(json.dumps(forged), encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        evaluate_t65_report_scoring,
+        "discover_deepseek_provider",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("untrusted blind release must stop before discovery")
+        ),
+    )
+    argv = _blocked_cli_args(tmp_path, "forged-blind-release")
+    argv[argv.index("dev")] = "blind-test"
+    argv.extend(["--execution-manifest", str(execution_path)])
+
+    assert evaluate_t65_report_scoring.main(argv) == 2
+    manifest = json.loads(
+        (tmp_path / "forged-blind-release" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["blind_release_authority_verified"] is False
+    assert "BLIND_PARTITION_NOT_RELEASED" in manifest["hard_stop_conditions"]
+    assert manifest["provider_called"] is False
+    assert manifest["discovery_requests"] == 0
+    assert manifest["first_data_request_sent"] is False
+
+
+def test_blind_release_accepts_only_signature_from_frozen_trust_anchor(
+    tmp_path, monkeypatch
+):
+    execution_path = tmp_path / "execution.json"
+    execution_payload = {
+        "task_status": {"T26": "PASS"},
+        "t26": {"review_status": "PASS"},
+    }
+    execution_path.write_text(json.dumps(execution_payload), encoding="utf-8")
+    execution_sha = hashlib.sha256(execution_path.read_bytes()).hexdigest()
+    key = Ed25519PrivateKey.generate()
+    public_raw = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    public_pem = key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    public_sha = hashlib.sha256(public_raw).hexdigest()
+    signature_payload = {
+        "schema_version": "detached-signature-evidence-v1",
+        "signature_id": "t27-blind-release-test",
+        "signer_authority_id": "external-t27-authority-test",
+        "signed_artifact_sha256": execution_sha,
+        "algorithm": "ed25519-sha256-binding-v1",
+        "public_key_sha256": public_sha,
+        "signature_base64": base64.b64encode(
+            key.sign(bytes.fromhex(execution_sha))
+        ).decode("ascii"),
+        "signed_at": datetime.now(timezone.utc),
+        "synthetic_fixture": False,
+    }
+    signature_payload["signature_record_sha256"] = canonical_sha256(
+        signature_payload
+    )
+    signature = DetachedSignatureEvidence.model_validate(signature_payload)
+    signature_path = tmp_path / "execution.signature.json"
+    signature_path.write_text(signature.model_dump_json(), encoding="utf-8")
+    public_key_path = tmp_path / "authority.pem"
+    public_key_path.write_bytes(public_pem)
+
+    assert (
+        evaluate_t65_report_scoring._trusted_blind_partition_release(
+            execution_path=execution_path,
+            execution_manifest=execution_payload,
+            signature_path=signature_path,
+            public_key_path=public_key_path,
+            authority_id="external-t27-authority-test",
+        )
+        is False
+    )
+    monkeypatch.setattr(
+        independent_review_handoff,
+        "TRUSTED_GATE_AUTHORITY_PUBLIC_KEY_SHA256",
+        frozenset({public_sha}),
+    )
+    assert (
+        evaluate_t65_report_scoring._trusted_blind_partition_release(
+            execution_path=execution_path,
+            execution_manifest=execution_payload,
+            signature_path=signature_path,
+            public_key_path=public_key_path,
+            authority_id="external-t27-authority-test",
+        )
+        is True
+    )
 
 
 def test_usage_builder_keeps_missing_cost_null_and_blocks(tmp_path, monkeypatch):

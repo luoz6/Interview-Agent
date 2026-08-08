@@ -20,7 +20,10 @@ def rescore_run(
     dataset_path: Path,
     output_dir: Path | None = None,
 ) -> dict:
-    source_store = EvaluationArtifactStore.open(run_dir)
+    source_store = EvaluationArtifactStore.open(
+        root=run_dir.parent,
+        run_id=run_dir.name,
+    )
     dataset = load_evaluation_dataset(dataset_path)
     cases = {case.case_id: case for case in dataset.cases}
     target_dir = output_dir or run_dir.with_name(

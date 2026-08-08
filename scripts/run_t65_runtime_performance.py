@@ -28,6 +28,7 @@ from app.services.interview_quality_gate import evaluate_metric, load_gate_confi
 from app.services.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
+from app.services.report_eval_artifacts import resolve_evaluation_run_dir
 from app.services.t65_runtime_performance import (
     CapturedTimingBoundaries,
     RuntimeEvidenceBuildResult,
@@ -132,7 +133,10 @@ def main(
     run_id = args.run_id or datetime.now(timezone.utc).strftime(
         "t65-runtime-%Y%m%dT%H%M%SZ"
     )
-    run_dir = args.out.resolve() / run_id
+    try:
+        run_dir = resolve_evaluation_run_dir(args.out, run_id)
+    except ValueError as exc:
+        raise SystemExit(f"invalid --run-id: {exc}") from exc
     if run_dir.exists() and any(run_dir.iterdir()):
         raise SystemExit(f"run directory already exists: {run_dir}")
     run_dir.mkdir(parents=True, exist_ok=True)

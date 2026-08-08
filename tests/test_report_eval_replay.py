@@ -61,7 +61,10 @@ def test_rescore_run_uses_saved_evidence_without_mutating_source(tmp_path):
         dataset_path=dataset_path,
         output_dir=output_dir,
     )
-    replay_store = EvaluationArtifactStore.open(output_dir)
+    replay_store = EvaluationArtifactStore.open(
+        root=output_dir.parent,
+        run_id=output_dir.name,
+    )
 
     assert store.load_normalized_attempts()[0]["score"] == 0
     assert replay_store.load_normalized_attempts()[0]["score"] > 0

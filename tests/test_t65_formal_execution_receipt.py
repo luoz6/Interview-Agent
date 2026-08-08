@@ -107,7 +107,7 @@ def _receipt(**updates) -> T65FormalExecutionReceipt:
                 success_count=1,
                 error_count=0,
                 sequence_first=1,
-                sequence_last=2,
+                sequence_last=1,
                 provider_response_id_sha256s=(response_id,),
             ),
         ),
@@ -300,9 +300,9 @@ def test_missing_or_incomplete_provider_ledger_is_rejected():
 
 @pytest.mark.parametrize(
     ("sequence_first", "sequence_last"),
-    [(1, 1), (1, 3), (2, 4)],
+    [(1, 2), (1, 3), (2, 2)],
 )
-def test_provider_ledger_sequence_span_must_equal_start_and_finish_events(
+def test_provider_ledger_sequence_span_must_equal_attempted_requests(
     sequence_first, sequence_last
 ):
     ledger = _receipt().provider_ledgers[0].model_dump()
@@ -310,6 +310,14 @@ def test_provider_ledger_sequence_span_must_equal_start_and_finish_events(
         {"sequence_first": sequence_first, "sequence_last": sequence_last}
     )
     with pytest.raises(ValidationError, match="sequence span"):
+        T65FormalProviderLedgerReceipt(**ledger)
+
+
+def test_event_count_pseudo_v1_receipt_is_intentionally_fail_closed():
+    ledger = _receipt().provider_ledgers[0].model_dump()
+    ledger["sequence_last"] = ledger["start_count"] + ledger["finish_count"]
+
+    with pytest.raises(ValidationError, match="pseudo-v1 receipts are intentionally rejected"):
         T65FormalProviderLedgerReceipt(**ledger)
 
 

@@ -32,6 +32,44 @@ from app.services.t65_runtime_performance import (
 SHA = "a" * 64
 
 
+@pytest.mark.parametrize(
+    "run_id",
+    ["..", "../outside", r"C:\outside\run", r"\\server\share\run"],
+)
+def test_t65_runtime_cli_rejects_unsafe_run_id_before_provider_or_write(
+    monkeypatch, tmp_path, run_id
+):
+    plan_path, execution_path = _write_cli_inputs(tmp_path)
+    output_root = tmp_path / "safe"
+
+    with pytest.raises(SystemExit, match="invalid --run-id"):
+        runtime_cli.main(
+            [
+                "--capture-plan",
+                str(plan_path),
+                "--execution-manifest",
+                str(execution_path),
+                "--context-window-tokens",
+                "128000",
+                "--out",
+                str(output_root),
+                "--run-id",
+                run_id,
+            ],
+            capture_executor=lambda *_args, **_kwargs: pytest.fail(
+                "unsafe run-id must stop before capture"
+            ),
+            provider_sender=lambda *_args, **_kwargs: pytest.fail(
+                "unsafe run-id must stop before Provider"
+            ),
+            discovery_executor=lambda **_kwargs: pytest.fail(
+                "unsafe run-id must stop before discovery"
+            ),
+        )
+
+    assert not output_root.exists()
+
+
 def _cohort(
     policy: str,
     path: str,

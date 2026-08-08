@@ -23,6 +23,9 @@ from app.services.t65_provider_http_transport import (
     install_t65_provider_http_clients,
     verify_t65_provider_attempt_ledger,
 )
+from app.services.t65_formal_execution_receipt import (
+    T65FormalProviderLedgerReceipt,
+)
 import app.services.t65_provider_http_transport as controlled_transport
 
 
@@ -154,6 +157,10 @@ def test_sync_transport_fsyncs_start_before_delegate_and_writes_safe_finish(
     assert receipt.start_count == receipt.finish_count == receipt.success_count == 1
     assert receipt.error_count == 0
     assert receipt.sequence_first == receipt.sequence_last == 1
+    formal_receipt = T65FormalProviderLedgerReceipt.model_validate(
+        receipt.as_dict()
+    )
+    assert formal_receipt.sequence_first == formal_receipt.sequence_last == 1
     assert receipt.provider_response_id_sha256s == (
         sha256(b"provider-response-id-plaintext").hexdigest(),
     )

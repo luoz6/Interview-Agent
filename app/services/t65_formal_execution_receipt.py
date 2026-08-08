@@ -274,9 +274,20 @@ class T65FormalProviderLedgerReceipt(_FrozenModel):
             raise ValueError("ledger terminal outcome counts must balance")
         if self.sequence_last < self.sequence_first:
             raise ValueError("ledger sequence range is reversed")
-        expected_event_count = self.start_count + self.finish_count
-        if self.sequence_last - self.sequence_first + 1 != expected_event_count:
-            raise ValueError("ledger sequence span must equal start and finish events")
+        # Compatibility policy: transport wire v1 has always assigned one
+        # stable sequence to an attempt and repeated it on that attempt's START
+        # and FINISH events.  An earlier formal-receipt validator accidentally
+        # accepted event-count spans as pseudo-v1 receipts.  Corrected validation
+        # intentionally fails closed for those artifacts; the wire schema did
+        # not change and the incorrectly accepted shape is not migrated.
+        if (
+            self.sequence_first != 1
+            or self.sequence_last - self.sequence_first + 1 != self.start_count
+        ):
+            raise ValueError(
+                "ledger sequence span must equal attempted requests; "
+                "event-count pseudo-v1 receipts are intentionally rejected"
+            )
         if len(self.provider_response_id_sha256s) != self.success_count:
             raise ValueError("every successful Provider call requires a response id")
         if len(set(self.provider_response_id_sha256s)) != len(

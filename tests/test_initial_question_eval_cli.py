@@ -16,6 +16,48 @@ from app.services.interview_plan_revision import v2_plan_to_legacy
 from app.services.t65_provider_evidence import build_t65_usage_cost_ledger
 
 
+@pytest.mark.parametrize(
+    "run_id",
+    ["..", "../outside", r"C:\outside\run", r"\\server\share\run"],
+)
+def test_t57_cli_rejects_unsafe_run_id_before_discovery_provider_or_write(
+    monkeypatch, tmp_path, run_id
+):
+    output_root = tmp_path / "safe"
+    monkeypatch.setattr(
+        cli,
+        "discover_deepseek_provider",
+        lambda **_kwargs: pytest.fail("unsafe run-id must stop before discovery"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "OpenAIInterviewLLM",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unsafe run-id must stop before Provider construction"
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="invalid --run-id"):
+        cli.main(
+            [
+                "--mode",
+                "provider",
+                "--scope",
+                "smoke",
+                "--purpose",
+                "evaluation",
+                "--partition",
+                "all",
+                "--out",
+                str(output_root),
+                "--run-id",
+                run_id,
+            ]
+        )
+
+    assert not output_root.exists()
+
+
 def test_fixture_cli_writes_full_evidence_and_returns_blocked_not_pass(tmp_path):
     code = cli.main(
         [

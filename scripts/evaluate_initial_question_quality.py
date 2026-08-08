@@ -59,7 +59,10 @@ from app.services.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )
-from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.report_eval_artifacts import (
+    EvaluationArtifactStore,
+    resolve_evaluation_run_dir,
+)
 from app.services.t65_formal_execution_receipt import validate_t65_formal_route
 
 
@@ -148,7 +151,10 @@ def main(argv: list[str] | None = None) -> int:
     run_id = args.run_id or datetime.now(timezone.utc).strftime(
         "initial-question-t57-%Y%m%dT%H%M%SZ"
     )
-    run_dir = args.out.resolve() / run_id
+    try:
+        run_dir = resolve_evaluation_run_dir(args.out, run_id)
+    except ValueError as exc:
+        raise SystemExit(f"invalid --run-id: {exc}") from exc
     if run_dir.exists() and any(run_dir.iterdir()):
         raise SystemExit(f"run directory already exists: {run_dir}")
     # Formal eligibility is owned by the formal verifier, not inferred from

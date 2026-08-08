@@ -24,7 +24,10 @@ from app.services.interview_quality_gate import load_gate_config
 from app.services.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
-from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.report_eval_artifacts import (
+    EvaluationArtifactStore,
+    resolve_evaluation_run_dir,
+)
 
 
 DEFAULT_GATE = ROOT / "config" / "interview_quality_v1_gate.json"
@@ -76,7 +79,10 @@ def main(argv: list[str] | None = None) -> int:
         "followup-t37-%Y%m%dT%H%M%SZ"
     )
     output_root = args.out.resolve()
-    run_dir = output_root / run_id
+    try:
+        run_dir = resolve_evaluation_run_dir(output_root, run_id)
+    except ValueError as exc:
+        raise SystemExit(f"invalid --run-id: {exc}") from exc
     if run_dir.exists() and any(run_dir.iterdir()):
         raise SystemExit(
             f"run directory already exists; choose a new --run-id: {run_dir}"

@@ -25,6 +25,10 @@ from app.services.interview_quality_gate import load_gate_config
 from app.services.interview_quality_provider_authorization import (
     load_provider_authorization,
 )
+from app.services.independent_review_handoff import (
+    DetachedSignatureEvidence,
+    verify_detached_signature,
+)
 from app.services.llm import (
     LLMConfig,
     OpenAIInterviewLLM,
@@ -35,7 +39,10 @@ from app.services.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
 )
-from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.report_eval_artifacts import (
+    EvaluationArtifactStore,
+    resolve_evaluation_run_dir,
+)
 from app.services.report_eval_metrics import (
     AttemptResult,
     calculate_metrics,
@@ -96,6 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--execution-manifest", type=Path, default=DEFAULT_EXECUTION_MANIFEST
     )
+    parser.add_argument("--execution-signature", type=Path)
+    parser.add_argument("--execution-public-key", type=Path)
+    parser.add_argument("--execution-authority-id")
     parser.add_argument("--responses", type=Path)
     parser.add_argument("--case-id", action="append", default=[])
     parser.add_argument("--smoke-case-count", type=int, default=4)
@@ -128,7 +138,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     runs_per_case = 1 if args.scope == "smoke" else args.runs_per_case
     run_id = args.run_id or _default_run_id()
-    run_dir = args.out.resolve() / run_id
+    try:
+        run_dir = resolve_evaluation_run_dir(args.out, run_id)
+    except ValueError:
+        print(_status_json("BLOCKED", "EVIDENCE_PERSISTENCE_UNAVAILABLE"))
+        return 2
     if run_dir.exists():
         print(_status_json("BLOCKED", "EVIDENCE_PERSISTENCE_UNAVAILABLE"))
         return 2
@@ -138,7 +152,17 @@ def main(argv: list[str] | None = None) -> int:
     formal_route_verified = validate_t65_formal_route(
         route="builtin_candidate", receipt=None
     )
-    blind_released = _blind_partition_released(execution_payload)
+    blind_release_authority_verified = _trusted_blind_partition_release(
+        execution_path=execution_path,
+        execution_manifest=execution_payload,
+        signature_path=args.execution_signature,
+        public_key_path=args.execution_public_key,
+        authority_id=args.execution_authority_id,
+    )
+    blind_released = (
+        _blind_partition_released(execution_payload)
+        and blind_release_authority_verified
+    )
     context_window = args.context_window_tokens or 128_000
     api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
     prompt_sha256 = _prompt_sha256()
@@ -168,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         "gate_config_sha256": _sha256(gate_path),
         "authorization_sha256": _sha256(authorization_path),
         "execution_manifest_sha256": _sha256(execution_path),
+        "blind_release_authority_verified": blind_release_authority_verified,
         "prompt_version": REPORT_EVIDENCE_PROMPT_VERSION,
         "prompt_sha256": prompt_sha256,
         "rubric_version": REPORT_SCORING_RUBRIC_VERSION,
@@ -201,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         store = EvaluationArtifactStore.create(
             root=args.out.resolve(), run_id=run_id, manifest=manifest
         )
-    except OSError:
+    except (OSError, ValueError):
         print(_status_json("BLOCKED", "EVIDENCE_PERSISTENCE_UNAVAILABLE"))
         return 2
 
@@ -1090,6 +1115,36 @@ def _blind_partition_released(execution_manifest: dict[str, Any]) -> bool:
         execution_manifest.get("task_status", {}).get("T26") == "PASS"
         and execution_manifest.get("t26", {}).get("review_status") == "PASS"
     )
+
+
+def _trusted_blind_partition_release(
+    *,
+    execution_path: Path,
+    execution_manifest: dict[str, Any],
+    signature_path: Path | None,
+    public_key_path: Path | None,
+    authority_id: str | None,
+) -> bool:
+    if not _blind_partition_released(execution_manifest):
+        return False
+    if signature_path is None or public_key_path is None or not authority_id:
+        return False
+    try:
+        signature = DetachedSignatureEvidence.model_validate_json(
+            signature_path.read_text(encoding="utf-8")
+        )
+        if signature.synthetic_fixture:
+            return False
+        verify_detached_signature(
+            signature,
+            public_key_pem=public_key_path.read_bytes(),
+            expected_artifact_sha256=_sha256(execution_path),
+            expected_authority_id=authority_id,
+            require_gate_trust=True,
+        )
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def _prompt_sha256() -> str:

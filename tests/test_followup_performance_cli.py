@@ -8,6 +8,29 @@ from app.services.followup_performance import (
     build_synthetic_performance_artifact,
 )
 from scripts.evaluate_followup_performance import main
+from scripts import evaluate_followup_performance as followup_cli
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    ["..", "../outside", r"C:\outside\run", r"\\server\share\run"],
+)
+def test_t37_cli_rejects_unsafe_run_id_before_artifact_or_write(
+    monkeypatch, tmp_path, run_id
+):
+    output_root = tmp_path / "safe"
+    monkeypatch.setattr(
+        followup_cli,
+        "build_synthetic_performance_artifact",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unsafe run-id must stop before downstream artifact work"
+        ),
+    )
+
+    with pytest.raises(SystemExit, match="invalid --run-id"):
+        main(["--out", str(output_root), "--run-id", run_id])
+
+    assert not output_root.exists()
 
 
 def test_fixture_cli_writes_reproducible_blocked_quality_artifacts(tmp_path, capsys):

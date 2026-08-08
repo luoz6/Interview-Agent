@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -6,6 +7,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -17,7 +19,16 @@ from app.services.llm import (
     REPORT_EVIDENCE_PROMPT_VERSION,
 )
 from app.services.report import ReportOutputFormatError
-from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.interview_quality_provider_authorization import (
+    ProviderRunRequest,
+    load_provider_authorization,
+    validate_provider_run,
+)
+from app.services.report_eval_artifacts import (
+    EvaluationArtifactStore,
+    EvaluationRunLockUnavailable,
+    resolve_evaluation_run_dir,
+)
 from app.services.report_eval_case_builder import build_report_evaluation_input
 from app.services.report_eval_dataset import EvaluationDataset, load_evaluation_dataset
 from app.services.report_eval_metrics import AttemptResult, calculate_metrics
@@ -34,17 +45,35 @@ class ProviderInvocationBudgetExhausted(RuntimeError):
     pass
 
 
+DEFAULT_AUTHORIZATION = (
+    ROOT / "config" / "interview_quality_v1_provider_authorization.json"
+)
+RUN_MANIFEST_SCHEMA = "report-quality-evaluation-run-v2"
+PROVIDER_TASK = "T27"
+FROZEN_REPORT_DATASET_SHA256 = (
+    "31b5116500b990d2ec2f35c048a9ec221a8e76fcab0175123183d5e2a9991c12"
+)
+PROVIDER_DATA_CATEGORIES = (
+    "public_technical_material",
+    "synthetic_candidate_answers",
+)
+
+
 class ProviderInvocationBudget:
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, *, prior_used: int = 0) -> None:
         if limit <= 0:
             raise ValueError("provider invocation limit must be positive")
+        if prior_used < 0:
+            raise ValueError("prior provider invocation usage cannot be negative")
         self.limit = limit
+        self.prior_used = prior_used
         self.used = 0
 
     def consume(self) -> None:
-        if self.used >= self.limit:
+        if self.prior_used + self.used >= self.limit:
             raise ProviderInvocationBudgetExhausted(
-                f"provider invocation budget exhausted: {self.used}/{self.limit}"
+                "provider invocation budget exhausted: "
+                f"{self.prior_used + self.used}/{self.limit} cumulative"
             )
         self.used += 1
 
@@ -142,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--runs-per-case", type=int, default=2)
     parser.add_argument("--provider", default="deepseek")
+    parser.add_argument("--authorization", type=Path, default=DEFAULT_AUTHORIZATION)
     parser.add_argument("--out", type=Path, default=Path("reports/stage40"))
     parser.add_argument("--run-id")
     parser.add_argument("--resume", action="store_true")
@@ -216,6 +246,13 @@ def render_markdown(metrics: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.resume and not args.run_id:
+        raise SystemExit("--resume requires --run-id")
+    run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        run_dir = resolve_evaluation_run_dir(args.out, run_id)
+    except ValueError as exc:
+        raise SystemExit(f"invalid --run-id: {exc}") from exc
     _load_local_env(Path(".env"))
     if args.case_id and args.group_id:
         raise SystemExit("--case-id and --group-id are mutually exclusive")
@@ -228,36 +265,106 @@ def main(argv: list[str] | None = None) -> int:
     )
     expected_attempts = dataset.target_attempt_count(runs_per_case=args.runs_per_case)
     dataset_digest = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+    authorization_path = args.authorization.resolve()
+    authorization = load_provider_authorization(authorization_path)
+    authorization_sha256 = hashlib.sha256(
+        authorization_path.read_bytes()
+    ).hexdigest()
     config = LLMConfig.from_env()
+    if config.base_url is None:
+        config = replace(config, base_url=authorization.provider.base_url)
+    if (
+        args.provider.casefold() != authorization.provider.name.casefold()
+        or config.model != authorization.provider.model_id
+        or config.base_url.rstrip("/")
+        != authorization.provider.base_url.rstrip("/")
+    ):
+        raise SystemExit("Provider configuration is outside the frozen authorization")
+    base_url_host = urlparse(config.base_url).hostname or ""
+    redaction_preflight_passed = (
+        dataset_path
+        == (ROOT / "tests/golden/report_quality_v1.json").resolve()
+        and dataset_digest == FROZEN_REPORT_DATASET_SHA256
+        and dataset.version == "report-quality-v1"
+    )
+    provider_request = ProviderRunRequest(
+        task=PROVIDER_TASK,
+        provider_name=authorization.provider.name,
+        base_url=config.base_url,
+        model_id=config.model,
+        data_categories=set(PROVIDER_DATA_CATEGORIES),
+        redaction_preflight_passed=redaction_preflight_passed,
+        usage_metering_available=True,
+        evidence_persistence_available=_evidence_persistence_available(
+            run_dir
+        ),
+    )
+    authorization_stops = list(
+        validate_provider_run(authorization, provider_request)
+    )
+    if not redaction_preflight_passed:
+        authorization_stops.append("GATE_CONFIG_OR_DATASET_DRIFT")
+    authorization_stops = list(dict.fromkeys(authorization_stops))
+    authorization_receipt = {
+        "schema_version": "report-quality-provider-authorization-receipt-v1",
+        "task": PROVIDER_TASK,
+        "authorization_id": authorization.authorization_id,
+        "authorization_sha256": authorization_sha256,
+        "provider": authorization.provider.name,
+        "model": config.model,
+        "base_url_host": base_url_host,
+        "data_categories": list(PROVIDER_DATA_CATEGORIES),
+        "data_scope": {
+            "dataset_sha256": dataset_digest,
+            "dataset_version": dataset.version,
+            "case_ids": [case.case_id for case in dataset.cases],
+            "runs_per_case": args.runs_per_case,
+        },
+        "redaction_preflight_passed": redaction_preflight_passed,
+        "usage_metering_available": True,
+        "usage_metering_mode": "provider_invocation_budget",
+        "evidence_persistence_available": (
+            provider_request.evidence_persistence_available
+        ),
+        "max_provider_invocations": args.max_provider_invocations,
+        "stops": authorization_stops,
+        "passed": not authorization_stops,
+    }
+    authorization_receipt_sha256 = _canonical_sha256(
+        authorization_receipt
+    )
+    if authorization_stops:
+        raise SystemExit(
+            "Provider authorization preflight blocked: "
+            + ", ".join(authorization_stops)
+        )
 
     if args.resume:
-        if not args.run_id:
-            raise SystemExit("--resume requires --run-id")
-        store = EvaluationArtifactStore.open(args.out / args.run_id)
-        manifest = store.read_manifest()
-        _validate_resume_manifest(
-            manifest,
-            dataset_digest=dataset_digest,
-            case_ids=[case.case_id for case in dataset.cases],
-            runs_per_case=args.runs_per_case,
-        )
+        store = EvaluationArtifactStore.open(root=args.out, run_id=run_id)
     else:
-        run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         store = EvaluationArtifactStore.create(
             root=args.out,
             run_id=run_id,
             manifest={
+                "schema_version": RUN_MANIFEST_SCHEMA,
                 "run_id": run_id,
                 "created_at": _utc_now(),
-                "dataset_path": str(args.dataset),
+                "dataset_path": str(dataset_path),
                 "dataset_version": dataset.version,
                 "dataset_sha256": dataset_digest,
                 "case_ids": [case.case_id for case in dataset.cases],
                 "runs_per_case": args.runs_per_case,
                 "target_attempts": expected_attempts,
-                "provider": args.provider,
+                "provider": authorization.provider.name,
                 "model": config.model,
                 "base_url": config.base_url or "",
+                "authorization_id": authorization.authorization_id,
+                "authorization_sha256": authorization_sha256,
+                "authorization_receipt": authorization_receipt,
+                "authorization_receipt_sha256": (
+                    authorization_receipt_sha256
+                ),
+                "max_provider_invocations": args.max_provider_invocations,
                 "prompt_version": REPORT_EVIDENCE_PROMPT_VERSION,
                 "rubric_version": REPORT_SCORING_RUBRIC_VERSION,
                 "rubric_sha256": REPORT_SCORING_RUBRIC_SHA256,
@@ -265,9 +372,65 @@ def main(argv: list[str] | None = None) -> int:
                 "provider_invocations": 0,
             },
         )
-        manifest = store.read_manifest()
+    try:
+        with store.exclusive_run_lock():
+            manifest = store.read_manifest()
+            if args.resume:
+                _validate_resume_manifest(
+                    manifest,
+                    run_id=run_id,
+                    dataset_digest=dataset_digest,
+                    dataset_version=dataset.version,
+                    case_ids=[case.case_id for case in dataset.cases],
+                    runs_per_case=args.runs_per_case,
+                    provider=authorization.provider.name,
+                    model=config.model,
+                    base_url_host=base_url_host,
+                    authorization_id=authorization.authorization_id,
+                    authorization_sha256=authorization_sha256,
+                    authorization_receipt=authorization_receipt,
+                    authorization_receipt_sha256=(
+                        authorization_receipt_sha256
+                    ),
+                    max_provider_invocations=args.max_provider_invocations,
+                )
+            prior_used = manifest.get("provider_invocations", 0)
+            if (
+                isinstance(prior_used, bool)
+                or not isinstance(prior_used, int)
+                or prior_used < 0
+            ):
+                raise SystemExit("resume manifest provider_invocations is invalid")
+            pending = store.pending_attempts(
+                [case.case_id for case in dataset.cases],
+                runs_per_case=args.runs_per_case,
+            )
+            if pending and prior_used >= args.max_provider_invocations:
+                raise SystemExit(
+                    "cumulative provider invocation budget exhausted before "
+                    "pending attempts"
+                )
+            return _run_evaluation_locked(
+                args=args,
+                dataset=dataset,
+                expected_attempts=expected_attempts,
+                store=store,
+                manifest=manifest,
+                config=config,
+                prior_used=prior_used,
+            )
+    except EvaluationRunLockUnavailable as exc:
+        raise SystemExit(
+            "evaluation run is locked by another process; Provider not called"
+        ) from exc
 
-    budget = ProviderInvocationBudget(args.max_provider_invocations)
+
+def _run_evaluation_locked(
+    *, args, dataset, expected_attempts, store, manifest, config, prior_used: int
+) -> int:
+    budget = ProviderInvocationBudget(
+        args.max_provider_invocations, prior_used=prior_used
+    )
     real_model = OpenAIInterviewLLM._build_chat_model(config)
     evaluator = DeepSeekCaseEvaluator(
         chat_model=BudgetedChatModel(real_model, budget),
@@ -297,8 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         {
             "updated_at": _utc_now(),
             "completed_attempts": len(attempts),
-            "provider_invocations": int(manifest.get("provider_invocations", 0))
-            + budget.used,
+            "provider_invocations": prior_used + budget.used,
             "last_command_provider_invocations": budget.used,
             "decision": (
                 "INCOMPLETE"
@@ -311,7 +473,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"run_id={manifest['run_id']}")
     print(f"run_dir={store.run_dir}")
     print(f"completed_attempts={len(attempts)}/{expected_attempts}")
-    print(f"provider_invocations={budget.used}/{budget.limit}")
+    print(f"provider_invocations_this_run={budget.used}/{budget.limit}")
+    print(
+        "provider_invocations_cumulative="
+        f"{prior_used + budget.used}/{budget.limit}"
+    )
 
     if budget_exhausted and len(attempts) < expected_attempts:
         return 2
@@ -365,18 +531,60 @@ class _DatasetSelection:
 def _validate_resume_manifest(
     manifest: dict,
     *,
+    run_id: str,
     dataset_digest: str,
+    dataset_version: str,
     case_ids: list[str],
     runs_per_case: int,
+    provider: str,
+    model: str,
+    base_url_host: str,
+    authorization_id: str,
+    authorization_sha256: str,
+    authorization_receipt: dict,
+    authorization_receipt_sha256: str,
+    max_provider_invocations: int,
 ) -> None:
+    # v1 manifests did not bind enough execution semantics to authorize a
+    # resumed Provider run. They are deliberately rejected rather than treated
+    # as backward-compatible authorization receipts.
     expected = {
+        "schema_version": RUN_MANIFEST_SCHEMA,
+        "run_id": run_id,
         "dataset_sha256": dataset_digest,
+        "dataset_version": dataset_version,
         "case_ids": case_ids,
         "runs_per_case": runs_per_case,
+        "provider": provider,
+        "model": model,
+        "base_url_host": base_url_host,
+        "prompt_version": REPORT_EVIDENCE_PROMPT_VERSION,
+        "rubric_version": REPORT_SCORING_RUBRIC_VERSION,
+        "rubric_sha256": REPORT_SCORING_RUBRIC_SHA256,
+        "authorization_id": authorization_id,
+        "authorization_sha256": authorization_sha256,
+        "authorization_receipt": authorization_receipt,
+        "authorization_receipt_sha256": authorization_receipt_sha256,
+        "max_provider_invocations": max_provider_invocations,
     }
     for key, value in expected.items():
         if manifest.get(key) != value:
             raise SystemExit(f"resume manifest mismatch for {key}")
+
+
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _evidence_persistence_available(run_dir: Path) -> bool:
+    candidate = run_dir.parent.resolve()
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    return candidate.is_dir() and os.access(candidate, os.W_OK)
 
 
 def _load_local_env(path: Path) -> None:
