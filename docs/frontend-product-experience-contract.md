@@ -1,11 +1,11 @@
 # Interview-Agent 产品体验与跨端契约
 
 > 文档类型：Reference
-> 
+>
 > 目标读者：前后端维护者、测试维护者和执行优化计划的工程 Agent
-> 
+>
 > 目标：把 Gate 0B 的产品不变量、PrepPlan、启动幂等、草稿、V15、报告可靠性和进度字段冻结为可实现、可测试的契约。
-> 
+>
 > 适用基线：`codex/frontend-optimization-v031`，Gate 0A 提交 `6ee7830`，父代码基线 `81ff57ce2284`。
 
 ## 1. 术语和权威性
