@@ -63,14 +63,15 @@ class LLMConfig:
     tokenizer_family: str | None = None
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
-        from app.services.memory_config import load_effective_memory_config
-
+    def from_env(cls, *, memory=None) -> "LLMConfig":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise MissingLLMConfigError("OPENAI_API_KEY is required")
 
-        memory = load_effective_memory_config().model
+        if memory is None:
+            from app.services.memory_config import load_effective_memory_config
+
+            memory = load_effective_memory_config().model
         return cls(
             api_key=api_key,
             model=memory.model,

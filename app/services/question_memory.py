@@ -49,17 +49,25 @@ class QuestionMemoryCoordinator:
         context_runtime,
         index_store,
         deployment_scope: str,
-        max_memory_units: int = 4,
-        max_memory_tokens: int = 2500,
+        exact_recent_questions: int,
+        max_memory_units: int,
+        max_memory_tokens: int,
         scope_resolver=None,
         clock=None,
     ) -> None:
+        if exact_recent_questions < 1:
+            raise ValueError("exact_recent_questions must be positive")
+        if max_memory_units < 1:
+            raise ValueError("max_memory_units must be positive")
+        if max_memory_tokens < 1:
+            raise ValueError("max_memory_tokens must be positive")
         self.runner = runner
         self.compressor_agent = compressor_agent
         self.compressor_config = compressor_config
         self.context_runtime = context_runtime
         self.index_store = index_store
         self.deployment_scope = deployment_scope
+        self.exact_recent_questions = exact_recent_questions
         self.max_memory_units = max_memory_units
         self.max_memory_tokens = max_memory_tokens
         self.scope_resolver = (

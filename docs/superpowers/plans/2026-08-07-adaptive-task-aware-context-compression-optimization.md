@@ -584,9 +584,10 @@ Rules:
    status projections, and artifacts but must not change business-provider
    input. Deduplication shadow/enforcement is controlled independently by
    `exact_deduplication_mode`.
-4. Provider-circuit and validation-quarantine thresholds/cooldowns are separate,
-   positive, and bounded. The failure-state lease is shorter than both
-   cooldowns and follows the runtime heartbeat/fencing contract.
+4. Provider-circuit and validation-quarantine thresholds are separate integers
+   in `1..100`; both cooldowns are separate integer seconds in `1..86400`.
+   The positive failure-state lease is shorter than both cooldowns and follows
+   the runtime heartbeat/fencing contract.
 5. Dynamic target tiers must be strictly increasing, contain no duplicates,
    include the configured
    floor, and never exceed the policy hard cap.
@@ -704,8 +705,9 @@ of leaving it as documentation-only configuration.
 1. Inject `max_memory_units` and `max_memory_tokens` exclusively from
    `EffectiveMemoryConfig.selection`; remove duplicated constructor defaults
    from runtime composition where safe.
-2. Pass `exact_recent_questions` to deterministic selection and Question
-   Memory coordination.
+2. Inject `exact_recent_questions` into the runtime-composed Question Memory /
+   selection policy boundary. Task 6 owns mandatory exact-recent
+   classification and Provider-context preservation behavior.
 3. Pass `eligibility_utilization_basis_points` to the eligibility policy.
 4. Validate all values during effective-config loading.
 5. Add the v1.2.1 configuration fields from Section 5, including the

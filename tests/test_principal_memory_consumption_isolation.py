@@ -85,4 +85,8 @@ def test_consumer_is_wired_only_to_durable_interview_followup():
     assert graph.index("principal_memory_consumer.finalize") < graph.index(
         "examiner.stream_followup_attempt"
     )
-    assert "principal_memory_consumer=get_principal_memory_consume_service()" in runtime
+    assert (
+        "principal_memory_consumer=get_principal_memory_consume_service("
+        in runtime
+    )
+    assert "config=effective_memory" in runtime

@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.graphs.interview_state import SUPPORTED_INTERVIEW_GRAPH_VERSIONS
 from app.services.model_capabilities import ModelCapabilityRegistry
@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 _DEPLOYMENT_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _warned_legacy_variables: set[str] = set()
+MAX_COMPRESSION_FAILURE_THRESHOLD = 100
+MAX_COMPRESSION_FAILURE_COOLDOWN_SECONDS = 86_400
+MAX_DYNAMIC_TARGET_TOKENS = 2_000
 
 
 class FrozenMemoryModel(BaseModel):
@@ -66,6 +69,51 @@ class CompressionMemoryConfig(FrozenMemoryModel):
     evidence: bool = False
     prep: bool = False
     review: bool = False
+    task_intent_enabled: bool = False
+    status_projection_enabled: bool = False
+    provider_circuit_threshold: int = Field(
+        default=3,
+        ge=1,
+        le=MAX_COMPRESSION_FAILURE_THRESHOLD,
+    )
+    provider_circuit_cooldown_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=MAX_COMPRESSION_FAILURE_COOLDOWN_SECONDS,
+    )
+    validation_quarantine_threshold: int = Field(
+        default=2,
+        ge=1,
+        le=MAX_COMPRESSION_FAILURE_THRESHOLD,
+    )
+    validation_quarantine_cooldown_seconds: int = Field(
+        default=3_600,
+        ge=1,
+        le=MAX_COMPRESSION_FAILURE_COOLDOWN_SECONDS,
+    )
+    failure_state_lease_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=MAX_COMPRESSION_FAILURE_COOLDOWN_SECONDS,
+    )
+
+    @model_validator(mode="after")
+    def validate_failure_state_timing(self):
+        if (
+            self.failure_state_lease_seconds
+            >= self.provider_circuit_cooldown_seconds
+        ):
+            raise ValueError(
+                "failure-state lease must be shorter than provider-circuit cooldown"
+            )
+        if (
+            self.failure_state_lease_seconds
+            >= self.validation_quarantine_cooldown_seconds
+        ):
+            raise ValueError(
+                "failure-state lease must be shorter than validation-quarantine cooldown"
+            )
+        return self
 
 
 class SelectionMemoryConfig(FrozenMemoryModel):
@@ -77,6 +125,47 @@ class SelectionMemoryConfig(FrozenMemoryModel):
         ge=1,
         le=10_000,
     )
+    exact_deduplication_mode: Literal[
+        "disabled",
+        "shadow",
+        "enforce",
+    ] = "disabled"
+    dynamic_target_floor_tokens: int = Field(
+        default=256,
+        ge=1,
+        le=MAX_DYNAMIC_TARGET_TOKENS,
+    )
+    dynamic_target_source_ratio_basis_points: int = Field(
+        default=2_500,
+        ge=1,
+        le=10_000,
+    )
+    dynamic_target_allowed_tokens: tuple[int, ...] = (
+        256,
+        512,
+        1024,
+        1536,
+        2000,
+    )
+
+    @model_validator(mode="after")
+    def validate_dynamic_target_tiers(self):
+        tiers = self.dynamic_target_allowed_tokens
+        if not tiers:
+            raise ValueError("dynamic target tiers must not be empty")
+        if any(value < 1 for value in tiers):
+            raise ValueError("dynamic target tiers must be positive")
+        if len(set(tiers)) != len(tiers):
+            raise ValueError("dynamic target tiers must not contain duplicates")
+        if tuple(sorted(tiers)) != tiers:
+            raise ValueError("dynamic target tiers must be strictly increasing")
+        if self.dynamic_target_floor_tokens not in tiers:
+            raise ValueError("dynamic target tiers must contain the configured floor")
+        if tiers[-1] > MAX_DYNAMIC_TARGET_TOKENS:
+            raise ValueError(
+                "dynamic target tiers must not exceed the policy hard cap"
+            )
+        return self
 
 
 class RetentionMemoryConfig(FrozenMemoryModel):
@@ -383,6 +472,85 @@ def load_effective_memory_config(
             evidence=compression_evidence,
             prep=compression_prep,
             review=compression_review,
+            task_intent_enabled=_new_bool(
+                env,
+                "MEMORY_COMPRESSION_TASK_INTENT_ENABLED",
+                False,
+            ),
+            status_projection_enabled=_new_bool(
+                env,
+                "MEMORY_COMPRESSION_STATUS_PROJECTION_ENABLED",
+                False,
+            ),
+            provider_circuit_threshold=_new_positive(
+                env,
+                "MEMORY_COMPRESSION_PROVIDER_CIRCUIT_THRESHOLD",
+                3,
+            ),
+            provider_circuit_cooldown_seconds=_new_positive(
+                env,
+                "MEMORY_COMPRESSION_PROVIDER_CIRCUIT_COOLDOWN_SECONDS",
+                300,
+            ),
+            validation_quarantine_threshold=_new_positive(
+                env,
+                "MEMORY_COMPRESSION_VALIDATION_QUARANTINE_THRESHOLD",
+                2,
+            ),
+            validation_quarantine_cooldown_seconds=_new_positive(
+                env,
+                "MEMORY_COMPRESSION_VALIDATION_QUARANTINE_COOLDOWN_SECONDS",
+                3_600,
+            ),
+            failure_state_lease_seconds=_new_positive(
+                env,
+                "MEMORY_COMPRESSION_FAILURE_STATE_LEASE_SECONDS",
+                60,
+            ),
+        ),
+        selection=SelectionMemoryConfig(
+            exact_recent_questions=_new_positive(
+                env,
+                "MEMORY_SELECTION_EXACT_RECENT_QUESTIONS",
+                1,
+            ),
+            max_memory_units=_new_positive(
+                env,
+                "MEMORY_SELECTION_MAX_MEMORY_UNITS",
+                4,
+            ),
+            max_memory_tokens=_new_positive(
+                env,
+                "MEMORY_SELECTION_MAX_MEMORY_TOKENS",
+                2_500,
+            ),
+            eligibility_utilization_basis_points=_new_positive(
+                env,
+                "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS",
+                8_000,
+            ),
+            exact_deduplication_mode=_resolve_new_only(
+                env,
+                "MEMORY_SELECTION_EXACT_DEDUPLICATION_MODE",
+                _parse_exact_deduplication_mode,
+                "disabled",
+            ),
+            dynamic_target_floor_tokens=_new_positive(
+                env,
+                "MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS",
+                256,
+            ),
+            dynamic_target_source_ratio_basis_points=_new_positive(
+                env,
+                "MEMORY_SELECTION_DYNAMIC_TARGET_SOURCE_RATIO_BASIS_POINTS",
+                2_500,
+            ),
+            dynamic_target_allowed_tokens=_resolve_new_only(
+                env,
+                "MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS",
+                _parse_positive_int_tuple,
+                (256, 512, 1024, 1536, 2_000),
+            ),
         ),
         retention=RetentionMemoryConfig(
             artifact_unreferenced_hours=resolve(
@@ -542,6 +710,43 @@ def memory_readiness_payload(config: EffectiveMemoryConfig) -> dict:
         "configuration_valid": True,
         "budget_mode": config.budget.mode,
         "compression_mode": config.compression.mode,
+        "task_intent_enabled": config.compression.task_intent_enabled,
+        "status_projection_enabled": (
+            config.compression.status_projection_enabled
+        ),
+        "provider_circuit_threshold": (
+            config.compression.provider_circuit_threshold
+        ),
+        "provider_circuit_cooldown_seconds": (
+            config.compression.provider_circuit_cooldown_seconds
+        ),
+        "validation_quarantine_threshold": (
+            config.compression.validation_quarantine_threshold
+        ),
+        "validation_quarantine_cooldown_seconds": (
+            config.compression.validation_quarantine_cooldown_seconds
+        ),
+        "failure_state_lease_seconds": (
+            config.compression.failure_state_lease_seconds
+        ),
+        "exact_recent_questions": config.selection.exact_recent_questions,
+        "max_memory_units": config.selection.max_memory_units,
+        "max_memory_tokens": config.selection.max_memory_tokens,
+        "eligibility_utilization_basis_points": (
+            config.selection.eligibility_utilization_basis_points
+        ),
+        "exact_deduplication_mode": (
+            config.selection.exact_deduplication_mode
+        ),
+        "dynamic_target_floor_tokens": (
+            config.selection.dynamic_target_floor_tokens
+        ),
+        "dynamic_target_source_ratio_basis_points": (
+            config.selection.dynamic_target_source_ratio_basis_points
+        ),
+        "dynamic_target_allowed_tokens": list(
+            config.selection.dynamic_target_allowed_tokens
+        ),
         "long_term_mode": config.long_term.mode,
         "local_principal_enabled": config.long_term.local_principal_enabled,
         "local_consumption_enabled": (
@@ -747,6 +952,25 @@ def _parse_compression_mode(name: str, raw: str) -> str:
     if value not in {"disabled", "shadow", "consume"}:
         raise ValueError(f"{name} must be disabled, shadow, or consume")
     return value
+
+
+def _parse_exact_deduplication_mode(name: str, raw: str) -> str:
+    value = raw.strip().lower()
+    if value not in {"disabled", "shadow", "enforce"}:
+        raise ValueError(f"{name} must be disabled, shadow, or enforce")
+    return value
+
+
+def _parse_positive_int_tuple(name: str, raw: str) -> tuple[int, ...]:
+    parts = tuple(item.strip() for item in raw.split(","))
+    if not parts or any(not item for item in parts):
+        raise ValueError(
+            f"{name} must be a comma-separated list of positive integers"
+        )
+    return tuple(
+        _parse_positive_int(f"{name}[{index}]", item)
+        for index, item in enumerate(parts)
+    )
 
 
 def _parse_long_term_mode(name: str, raw: str) -> str:

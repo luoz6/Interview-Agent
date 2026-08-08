@@ -114,13 +114,15 @@ _context_runtime: ContextRuntime | None = None
 _context_runtime_lock = Lock()
 
 
-def get_context_runtime() -> ContextRuntime:
+def get_context_runtime(
+    config: ContextRuntimeConfig | None = None,
+) -> ContextRuntime:
     global _context_runtime
     if _context_runtime is not None:
         return _context_runtime
     with _context_runtime_lock:
         if _context_runtime is None:
-            _context_runtime = build_context_runtime()
+            _context_runtime = build_context_runtime(config)
     return _context_runtime
 
 

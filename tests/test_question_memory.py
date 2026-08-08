@@ -8,6 +8,7 @@ from app.services.in_memory_context_artifact_store import (
 from app.services.in_memory_question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
+from app.services.memory_config import load_effective_memory_config
 from app.services.question_memory import QuestionMemoryCoordinator
 from app.services.token_estimation import ConservativeUtf8TokenEstimator
 
@@ -90,7 +91,8 @@ def make_state():
     }
 
 
-def make_coordinator(agent, index_store=None):
+def make_coordinator(agent, index_store=None, selection_config=None):
+    selection = selection_config or load_effective_memory_config({}).selection
     return QuestionMemoryCoordinator(
         runner=ContextCompressionRunner(
             InMemoryContextArtifactStore(),
@@ -116,6 +118,9 @@ def make_coordinator(agent, index_store=None):
         ),
         index_store=index_store or InMemoryQuestionMemoryIndexStore(),
         deployment_scope="single-tenant-test",
+        exact_recent_questions=selection.exact_recent_questions,
+        max_memory_units=selection.max_memory_units,
+        max_memory_tokens=selection.max_memory_tokens,
     )
 
 
@@ -222,3 +227,36 @@ def test_current_question_is_never_replaced_by_question_memory_summary():
 
     assert result.route == "deterministic"
     assert agent.calls == 0
+
+
+def test_loaded_exact_recent_and_memory_limits_are_injected_without_task6_projection():
+    selection = load_effective_memory_config(
+        {
+            "MEMORY_SELECTION_EXACT_RECENT_QUESTIONS": "2",
+            "MEMORY_SELECTION_MAX_MEMORY_UNITS": "1",
+            "MEMORY_SELECTION_MAX_MEMORY_TOKENS": "2400",
+        }
+    ).selection
+    agent = CompressorAgent()
+    coordinator = make_coordinator(
+        agent,
+        selection_config=selection,
+    )
+
+    result = coordinator.build_context(
+        state=make_state(),
+        deterministic_context=deterministic_context(),
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert coordinator.exact_recent_questions == 2
+    assert coordinator.max_memory_units == 1
+    assert coordinator.max_memory_tokens == 2_400
+    # Task 1 wires policy only. Task 6 will make exact-recent questions a
+    # mandatory bounded-raw projection; the current question-memory route stays
+    # byte-compatible until then.
+    assert result.route == "artifact_created"
+    assert result.context_messages[0]["role"] == "conversation_summary"
+    assert "old cache question" not in {
+        item["content"] for item in result.context_messages
+    }
