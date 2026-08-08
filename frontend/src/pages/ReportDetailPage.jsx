@@ -32,6 +32,8 @@ import {
 } from "../reportContract";
 import "../styles/report-detail-app.css";
 
+const REPORT_UPDATE_POLL_MS = 2000;
+
 const dimensionLabels = {
   breadth: "知识广度",
   depth: "技术深度",
@@ -295,6 +297,7 @@ export function ReportDetailPage() {
   const [reloadGeneration, setReloadGeneration] = useState(0);
   const [diagnosticsReloadGeneration, setDiagnosticsReloadGeneration] = useState(0);
   const [diagnosticsRefreshing, setDiagnosticsRefreshing] = useState(false);
+  const reportUpdating = ["queued", "running", "retrying"].includes(latestJob?.status);
 
   useEffect(() => {
     if (!sessionId) {
@@ -349,6 +352,91 @@ export function ReportDetailPage() {
     });
     return () => controller.abort();
   }, [reloadGeneration, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !reportUpdating) return undefined;
+    const controller = new AbortController();
+    let timer = null;
+    let inFlight = false;
+    let refreshQueued = false;
+    let keepPolling = true;
+
+    const schedule = () => {
+      if (controller.signal.aborted || !keepPolling) return;
+      timer = window.setTimeout(refresh, REPORT_UPDATE_POLL_MS);
+    };
+
+    const refresh = async () => {
+      if (controller.signal.aborted) return;
+      if (inFlight) {
+        refreshQueued = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        const [reportPayload, revisionPayload] = await Promise.all([
+          getJson(`/api/interviews/${encodeURIComponent(sessionId)}/report`, { cache: "no-store", signal: controller.signal }),
+          getJson(`/api/interviews/${encodeURIComponent(sessionId)}/reports`, { cache: "no-store", signal: controller.signal }).catch((error) => {
+            if (error.name === "AbortError") throw error;
+            return { items: [], __unavailable: true };
+          }),
+        ]);
+        if (controller.signal.aborted) return;
+        const detail = reportDetailData(reportPayload);
+        if (reportPayload.status === "processing" || (!detail.report && detail.updating)) {
+          window.location.replace(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
+          keepPolling = false;
+          return;
+        }
+        if (!detail.report) throw new Error("当前没有可读取的 active 报告版本。");
+        setReport(detail.report);
+        setArtifact(detail.artifact);
+        setLatestJob(detail.latestJob);
+        if (!revisionPayload.__unavailable) {
+          setRevisionHistory(revisionPayload.items || []);
+          setAuxiliaryStatus((current) => ({ ...current, revisions: "ready" }));
+        }
+        setState(detail.report.is_fallback || detail.report.generation_status === "degraded" ? "fallback" : "completed");
+        keepPolling = detail.updating;
+        if (detail.updateFailed) {
+          setNotice({ tone: "warning", title: "重评分失败，旧报告仍有效", text: `正在显示 ${reportRevisionLabel(detail.artifact)}；失败的重评分没有覆盖或使这份 active 报告失效。` });
+        } else if (detail.updating) {
+          setNotice({ tone: "info", title: "新版本正在生成", text: `当前继续显示 ${reportRevisionLabel(detail.artifact)}，新版本完成前不会遮挡本报告。` });
+        } else {
+          setNotice((current) => current?.title === "新版本正在生成" ? null : current);
+        }
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        // Keep the active report visible and retry the transient refresh later.
+      } finally {
+        inFlight = false;
+        if (!controller.signal.aborted && keepPolling) {
+          if (refreshQueued) {
+            refreshQueued = false;
+            void refresh();
+          } else {
+            schedule();
+          }
+        }
+      }
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      void refresh();
+    };
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    schedule();
+    return () => {
+      keepPolling = false;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      controller.abort();
+    };
+  }, [reportUpdating, sessionId]);
 
   useEffect(() => {
     if (!sessionId || diagnosticsReloadGeneration === 0) return undefined;

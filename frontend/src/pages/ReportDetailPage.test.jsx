@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { downloadFile, getJson } from "../api/client";
@@ -124,7 +124,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("ReportDetailPage candidate information architecture", () => {
   it("keeps six candidate sections primary and diagnostics folded", async () => {
@@ -164,6 +167,69 @@ describe("ReportDetailPage candidate information architecture", () => {
     expect(screen.getByLabelText("系统设计 未评估")).toBeInTheDocument();
     expect(screen.getByText("数字结果只覆盖已评估题目；未评估题目和维度不会按 0 分处理。")).toBeInTheDocument();
     expect(screen.queryByText("未评分")).not.toBeInTheDocument();
+  });
+
+  it("polls an updating active report and switches to the completed revision", async () => {
+    vi.useFakeTimers();
+    const updating = structuredClone(reportResponse);
+    updating.active_artifact.payload.summary = "revision-two-active";
+    updating.latest_job = { job_id: "job-rescore-3", status: "running", job_kind: "rescore" };
+    const completed = structuredClone(updating);
+    Object.assign(completed.active_artifact, {
+      report_id: "report-3",
+      revision: 3,
+      source_job_id: "job-rescore-3",
+    });
+    completed.active_artifact.payload.summary = "revision-three-complete";
+    completed.latest_job = { job_id: "job-rescore-3", status: "completed", job_kind: "rescore" };
+    let reportRequests = 0;
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) {
+        reportRequests += 1;
+        return Promise.resolve(reportRequests === 1 ? updating : completed);
+      }
+      if (path.endsWith("/reports")) {
+        return Promise.resolve({ items: [reportRequests === 1 ? updating.active_artifact : completed.active_artifact] });
+      }
+      return Promise.resolve({ items: [] });
+    });
+
+    render(<ReportDetailPage />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("revision-two-active")).toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+
+    expect(screen.getByText("revision-three-complete")).toBeInTheDocument();
+    expect(screen.queryByText("revision-two-active")).not.toBeInTheDocument();
+    expect(reportRequests).toBe(2);
+  });
+
+  it("refreshes on visibility and aborts an in-flight update refresh on cleanup", async () => {
+    const updating = structuredClone(reportResponse);
+    updating.active_artifact.payload.summary = "revision-two-visible";
+    updating.latest_job = { job_id: "job-rescore-3", status: "running", job_kind: "rescore" };
+    let reportRequests = 0;
+    let refreshSignal;
+    getJson.mockImplementation((path, options = {}) => {
+      if (path.endsWith("/report")) {
+        reportRequests += 1;
+        if (reportRequests === 1) return Promise.resolve(updating);
+        refreshSignal = options.signal;
+        return new Promise(() => {});
+      }
+      if (path.endsWith("/reports")) return Promise.resolve({ items: [updating.active_artifact] });
+      return Promise.resolve({ items: [] });
+    });
+    const { unmount } = render(<ReportDetailPage />);
+    expect(await screen.findByText("revision-two-visible")).toBeInTheDocument();
+
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(refreshSignal).toBeInstanceOf(AbortSignal));
+    expect(refreshSignal.aborted).toBe(false);
+
+    unmount();
+    expect(refreshSignal.aborted).toBe(true);
   });
 
   it("retries optional diagnostics without hiding the active report", async () => {

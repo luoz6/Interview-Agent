@@ -80,6 +80,42 @@ function draftKey(sessionId, questionId) {
   return `interview-agent:answer:${sessionId}:${questionId || "unknown"}`;
 }
 
+function readLocalStorage(key) {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorage(key, value) {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    // Draft and acknowledgement persistence are optional browser conveniences.
+  }
+}
+
+function removeLocalStorage(key) {
+  try {
+    globalThis.localStorage?.removeItem(key);
+  } catch {
+    // The server-backed interview must remain usable when storage is denied.
+  }
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  if (typeof signal.throwIfAborted === "function") signal.throwIfAborted();
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
+function defaultReportProcessingNavigation(sessionId) {
+  window.location.replace(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
+}
+
 function snapshotQuestionCounts(snapshot) {
   const questions = snapshot?.questions || [];
   const countState = (state) => questions.filter((question) => question.state === state).length;
@@ -222,7 +258,7 @@ function StatusBarItem({ icon: ItemIcon, label, value, state = "idle", current =
   );
 }
 
-export function InterviewPage() {
+export function InterviewPage({ navigateToReportProcessing = defaultReportProcessingNavigation } = {}) {
   usePageMeta({
     title: "模拟面试",
     description: "支持流式追问、草稿恢复和逐题评审的本地技术模拟面试。",
@@ -249,28 +285,48 @@ export function InterviewPage() {
   const assistanceNoticeAnnouncedRef = useRef(null);
   const focusModeTriggerRef = useRef(null);
 
-  async function loadSnapshot({ updateTurnState = true } = {}) {
+  async function loadSnapshot({ updateTurnState = true, deferActivation = false, signal } = {}) {
     if (!sessionId) return;
-    const data = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}`);
-    setSnapshot(data);
-    if (updateTurnState) setTurnState(snapshotTurnState(data));
-    if (data.user_notice_required && data.assistance_mode === "basic") {
-      const acknowledgementKey = `interview-agent:assistance-notice:${sessionId}:${data.policy_version || "unknown"}:basic`;
-      const acknowledged = localStorage.getItem(acknowledgementKey) === "1";
-      const announcedInThisPage = assistanceNoticeAnnouncedRef.current === acknowledgementKey;
-      setAnnounceAssistanceNotice(!acknowledged || announcedInThisPage);
-      if (!acknowledged) {
-        assistanceNoticeAnnouncedRef.current = acknowledgementKey;
-        localStorage.setItem(acknowledgementKey, "1");
+    throwIfAborted(signal);
+    const requestOptions = signal ? { signal } : {};
+    const data = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}`, requestOptions);
+    throwIfAborted(signal);
+
+    const commitSnapshot = () => {
+      throwIfAborted(signal);
+      setSnapshot(data);
+      if (updateTurnState) setTurnState(snapshotTurnState(data));
+      if (data.user_notice_required && data.assistance_mode === "basic") {
+        const acknowledgementKey = `interview-agent:assistance-notice:${sessionId}:${data.policy_version || "unknown"}:basic`;
+        const acknowledged = readLocalStorage(acknowledgementKey) === "1";
+        const announcedInThisPage = assistanceNoticeAnnouncedRef.current === acknowledgementKey;
+        setAnnounceAssistanceNotice(!acknowledged || announcedInThisPage);
+        if (!acknowledged) {
+          assistanceNoticeAnnouncedRef.current = acknowledgementKey;
+          writeLocalStorage(acknowledgementKey, "1");
+        }
+      } else {
+        setAnnounceAssistanceNotice(false);
       }
-    } else {
-      setAnnounceAssistanceNotice(false);
-    }
-    setStatus(data.status === "finished" ? "finished" : "active");
-    if (data.status === "finished") {
-      window.location.replace(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
-    }
-    const evaluations = await getJson(`/api/interviews/${encodeURIComponent(sessionId)}/question-evaluations`).catch(() => ({ items: [] }));
+      if (!deferActivation) {
+        setStatus(data.status === "finished" ? "finished" : "active");
+        if (data.status === "finished") {
+          throwIfAborted(signal);
+          navigateToReportProcessing(sessionId);
+        }
+      }
+    };
+
+    if (!deferActivation) commitSnapshot();
+    const evaluations = await getJson(
+      `/api/interviews/${encodeURIComponent(sessionId)}/question-evaluations`,
+      requestOptions,
+    ).catch((error) => {
+      if (signal?.aborted || error.name === "AbortError") throw error;
+      return { items: [] };
+    });
+    throwIfAborted(signal);
+    if (deferActivation) commitSnapshot();
     setReviewCount((evaluations.items || []).filter((item) => ["completed", "failed"].includes(item.status)).length);
     return data;
   }
@@ -281,62 +337,123 @@ export function InterviewPage() {
       setNotice({ tone: "danger", text: "缺少 session_id，无法加载面试。" });
       return;
     }
-    loadSnapshot().catch((error) => {
+    const controller = new AbortController();
+    loadSnapshot({ signal: controller.signal }).catch((error) => {
+      if (controller.signal.aborted || error.name === "AbortError") return;
       setStatus("error");
       setNotice({ tone: "danger", text: error.message });
     });
+    return () => controller.abort();
   }, [sessionId]);
 
   useEffect(() => {
     const streamUrl = snapshot?.active_stream_url;
     const commandId = snapshot?.active_command_id;
-    if (!streamUrl || !commandId || resumedCommandRef.current === commandId) return;
-    resumedCommandRef.current = commandId;
+    const recoveryKey = sessionId && commandId ? `${sessionId}:${commandId}` : null;
+    if (!streamUrl || !commandId || resumedCommandRef.current === recoveryKey) return undefined;
+    const controller = new AbortController();
+    const { signal } = controller;
+    let terminalSettled = false;
+    resumedCommandRef.current = recoveryKey;
     setStatus("submitting");
     setTurnState(interviewTurnStates.recovery);
     setStreamingText("");
     let resumeBuffer = "";
     const handlers = {
       status: () => {
+        if (signal.aborted) return;
         setTurnState((current) => reduceTurnState(current, "status"));
       },
       generation_reset: () => {
+        if (signal.aborted) return;
         resumeBuffer = "";
         setStreamingText("");
         setTurnState((current) => reduceTurnState(current, "generation_reset"));
       },
       chunk: (data) => {
+        if (signal.aborted) return;
         resumeBuffer += data.delta || "";
         setStreamingText(resumeBuffer);
         setTurnState((current) => reduceTurnState(current, "chunk"));
       },
     };
-    fetch(apiUrl(streamUrl))
+    fetch(apiUrl(streamUrl), { signal })
       .then(async (response) => {
+        throwIfAborted(signal);
         try {
           return await readSse(response, handlers);
         } catch (error) {
           if (error.lastEventId) {
-            return followReconnect(commandId, error.lastEventId, handlers);
+            return followReconnect(commandId, error.lastEventId, handlers, signal);
           }
           throw error;
         }
       })
       .then(async (terminal) => {
+        throwIfAborted(signal);
+        let resolvedTerminal = terminal;
         if (terminal.type === "reconnect") {
-          await followReconnect(commandId, terminal.data.last_event_id, handlers);
+          resolvedTerminal = await followReconnect(commandId, terminal.data.last_event_id, handlers, signal);
+        }
+        throwIfAborted(signal);
+        terminalSettled = true;
+        if (["conflict", "error"].includes(resolvedTerminal.type)) {
+          const recoveryError = resolvedTerminal.type === "conflict"
+            ? new HttpError("面试状态已更新，请重试。", { status: 409, body: resolvedTerminal.data })
+            : new Error(resolvedTerminal.data.detail || resolvedTerminal.data.code || "恢复失败");
+          const recoveryNotice = `流式回答恢复失败：${recoveryError.message}`;
+          setStatus("error");
+          setStreamingText("");
+          setTurnState(snapshotTurnState({
+            ...snapshot,
+            active_command_id: null,
+            active_stream_url: null,
+          }));
+          setNotice({ tone: "warning", text: recoveryNotice });
+          try {
+            const nextSnapshot = await loadSnapshot({
+              updateTurnState: false,
+              deferActivation: true,
+              signal,
+            });
+            throwIfAborted(signal);
+            setTurnState(snapshotTurnState(nextSnapshot));
+            if (nextSnapshot?.active_command_id === commandId) {
+              setStatus("error");
+              setNotice({ tone: "warning", text: `${recoveryNotice}；最新会话仍在处理中，请稍后刷新页面。` });
+              return;
+            }
+            setStatus(nextSnapshot?.status === "finished" ? "finished" : "active");
+            if (nextSnapshot?.status === "finished") {
+              throwIfAborted(signal);
+              navigateToReportProcessing(sessionId);
+            }
+          } catch (snapshotError) {
+            if (signal.aborted || snapshotError.name === "AbortError") return;
+            setStatus("error");
+            setNotice({ tone: "danger", text: `${recoveryNotice}；无法加载最新会话状态：${snapshotError.message}` });
+          }
+          return;
         }
         const previousQuestionId = snapshot?.current_question?.id;
         setRecoveredText(resumeBuffer);
         setStreamingText("");
-        const nextSnapshot = await loadSnapshot({ updateTurnState: false });
+        const nextSnapshot = await loadSnapshot({ updateTurnState: false, signal });
+        throwIfAborted(signal);
         setTurnState(completionTurnState(previousQuestionId, nextSnapshot));
       })
       .catch((error) => {
+        if (signal.aborted || error.name === "AbortError") return;
         setStatus("error");
         setNotice({ tone: "warning", text: `流式回答恢复失败：${error.message}` });
       });
-  }, [snapshot?.active_stream_url, snapshot?.active_command_id]);
+    return () => {
+      controller.abort();
+      if (!terminalSettled && resumedCommandRef.current === recoveryKey) {
+        resumedCommandRef.current = null;
+      }
+    };
+  }, [sessionId, snapshot?.active_stream_url, snapshot?.active_command_id]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -358,7 +475,7 @@ export function InterviewPage() {
   useEffect(() => {
     const questionId = snapshot?.current_question?.id;
     if (!sessionId || !questionId) return;
-    setAnswer(localStorage.getItem(draftKey(sessionId, questionId)) || "");
+    setAnswer(readLocalStorage(draftKey(sessionId, questionId)) || "");
   }, [sessionId, snapshot?.current_question?.id]);
 
   useLayoutEffect(() => {
@@ -391,15 +508,20 @@ export function InterviewPage() {
     ...extra,
   });
 
-  async function followReconnect(commandId, lastEventId, handlers) {
+  async function followReconnect(commandId, lastEventId, handlers, signal) {
+    throwIfAborted(signal);
     setTurnState((current) => reduceTurnState(current, "reconnect"));
     const response = await fetch(apiUrl(`/api/interviews/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(commandId)}/stream`), {
       headers: lastEventId ? { "Last-Event-ID": lastEventId } : {},
+      ...(signal ? { signal } : {}),
     });
+    throwIfAborted(signal);
     const terminal = await readSse(response, handlers);
+    throwIfAborted(signal);
     if (terminal.type === "reconnect") {
       await new Promise((resolve) => setTimeout(resolve, terminal.data.retry_after_ms || 200));
-      return followReconnect(commandId, terminal.data.last_event_id || lastEventId, handlers);
+      throwIfAborted(signal);
+      return followReconnect(commandId, terminal.data.last_event_id || lastEventId, handlers, signal);
     }
     return terminal;
   }
@@ -446,7 +568,7 @@ export function InterviewPage() {
       }
       if (terminal.type === "conflict") throw new HttpError("面试状态已更新，请重试。", { status: 409 });
       if (terminal.type === "error") throw new Error(terminal.data.detail || terminal.data.code || "提交失败");
-      localStorage.removeItem(draftKey(sessionId, questionId));
+      removeLocalStorage(draftKey(sessionId, questionId));
       setAnswer("");
       setStreamingText("");
       const nextSnapshot = await loadSnapshot({ updateTurnState: false });
@@ -468,7 +590,7 @@ export function InterviewPage() {
         window.location.assign(`/report-processing?session_id=${encodeURIComponent(sessionId)}`);
       } else {
         const questionId = snapshot?.current_question?.id;
-        localStorage.removeItem(draftKey(sessionId, questionId));
+        removeLocalStorage(draftKey(sessionId, questionId));
         setAnswer("");
         await loadSnapshot();
       }
@@ -549,7 +671,7 @@ export function InterviewPage() {
     setAnswer(value);
     if (value.trim() && notice?.text?.startsWith("回答不能为空")) setNotice(null);
     const questionId = snapshot?.current_question?.id;
-    if (sessionId && questionId) localStorage.setItem(draftKey(sessionId, questionId), value);
+    if (sessionId && questionId) writeLocalStorage(draftKey(sessionId, questionId), value);
   }
 
   const tags = snapshot?.job_tags || [];
@@ -560,7 +682,7 @@ export function InterviewPage() {
   const completedQuestions = questionCounts.answered + questionCounts.skipped;
   const recoveredAlreadyPersisted = recoveredText && messages.some((message) => message.content?.includes(recoveredText));
   const progress = totalQuestions ? Math.round((completedQuestions / totalQuestions) * 100) : 0;
-  const disabled = ["loading", "submitting", "finishing"].includes(status);
+  const disabled = ["loading", "submitting", "finishing", "error"].includes(status);
   const shellClass = focusMode ? "interview-workspace is-focus-mode" : "interview-workspace";
   const question = snapshot?.current_question;
   const currentQuestionIndex = useMemo(
