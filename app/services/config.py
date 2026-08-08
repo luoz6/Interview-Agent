@@ -97,6 +97,13 @@ def get_prep_plan_consumed_retention_seconds() -> int:
     return _positive_int("PREP_PLAN_CONSUMED_RETENTION_SECONDS", 7 * 24 * 60 * 60)
 
 
+def get_report_artifact_read_mode() -> str:
+    mode = os.getenv("REPORT_ARTIFACT_READ_MODE", "artifact_first").strip().lower()
+    if mode not in {"artifact_first", "legacy"}:
+        raise ValueError("REPORT_ARTIFACT_READ_MODE must be artifact_first or legacy")
+    return mode
+
+
 def get_report_runtime_profile() -> ReportRuntimeProfile:
     runtime_store = get_runtime_store()
     explicit_name = os.getenv("REPORT_RUNTIME_PROFILE", "").strip().lower()

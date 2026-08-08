@@ -87,6 +87,7 @@ class InterviewEventStreamService:
         started_at = self._clock()
         last_keepalive_at = started_at
         poll_seconds = self.min_poll_seconds
+        announced_generation_id = None
         while True:
             now = self._clock()
             if now - started_at >= self.max_stream_seconds:
@@ -100,6 +101,22 @@ class InterviewEventStreamService:
                 )
                 return
             emitted = False
+            generation = self.generation_store.get_by_source_command(
+                session_id, command_id
+            )
+            if (
+                generation is not None
+                and generation.generation_id != announced_generation_id
+            ):
+                announced_generation_id = generation.generation_id
+                yield _format_sse(
+                    "status",
+                    {
+                        "stage": "generation_pending",
+                        "generation_id": generation.generation_id,
+                    },
+                )
+                emitted = True
             for event in self.iter_command_events(
                 session_id,
                 command_id,

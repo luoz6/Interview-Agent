@@ -4,7 +4,11 @@ from app.graphs.interview_state import build_initial_state
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.prep import KnowledgeBindingSnapshot, PrepContext
 from app.services.question_evaluations import QuestionEvaluationRecord
-from app.services.report import FeedbackReference, InterviewReport
+from app.services.report import (
+    FeedbackReference,
+    InterviewReport,
+    ReportGenerationTimeout,
+)
 from app.services.report_microbatch import (
     MicrobatchReportUnavailable,
     build_report_coach_items_from_question_evaluations,
@@ -119,6 +123,12 @@ class CapturingReportLLM:
                 for item in evaluation_items
             ],
         )
+
+
+class FailingSummaryReportLLM(CapturingReportLLM):
+    def generate_report(self, plan, evaluation_items: list[dict], session_id: str):
+        self.evaluation_items = evaluation_items
+        raise ReportGenerationTimeout("report summary timed out")
 
 
 class CapturingRecorder:
@@ -439,7 +449,7 @@ def test_generate_microbatch_report_reports_reuse_stats():
         reviewer_factory=FakeReviewer,
     )
 
-    assert report.overall_score == 80
+    assert report.overall_score == 81
     assert FakeReviewer.calls == ["q2"]
     assert len(captured_stats) == 1
     stats = captured_stats[0]
@@ -451,6 +461,44 @@ def test_generate_microbatch_report_reports_reuse_stats():
     assert stats.rerun_question_ids == ["q2"]
     assert stats.to_metadata()["report_path"] == "microbatch"
     assert stats.to_metadata()["microbatch_rerun_questions"] == 1
+
+
+def test_generate_microbatch_report_uses_safe_scored_degraded_path_when_coach_fails():
+    state = make_state()
+    store = FakeStore(
+        state,
+        [
+            completed_record("s1", "q1", 78),
+            completed_record("s1", "q2", 82),
+        ],
+    )
+    llm = FailingSummaryReportLLM()
+    progress_updates = []
+
+    report = generate_microbatch_report(
+        state,
+        store=store,
+        llm=llm,
+        vector_store=object(),
+        on_progress=progress_updates.append,
+        reviewer_factory=FakeReviewer,
+    )
+
+    assert report.generation_status == "degraded"
+    assert report.generation_reason_code == "summary_generation_failed"
+    assert report.score_status == "scored"
+    assert report.overall_score == 80
+    assert [item.score for item in report.feedbacks] == [78, 82]
+    assert report.technical_appendix.metadata["degraded_source_failure_code"] == (
+        "provider_timeout"
+    )
+    assert "未生成：模型总结不可用" in report.summary
+    assert [progress.stage for progress in progress_updates] == [
+        "retrieving",
+        "analyzing",
+        "aggregating",
+        "completed",
+    ]
 
 
 def test_generate_microbatch_report_reports_failed_stats_before_raising():

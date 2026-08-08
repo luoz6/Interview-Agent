@@ -1,0 +1,31 @@
+{
+  "cases_with_saved_v1_rejection_reasons": 22,
+  "cases_with_saved_v2_rejection_reasons": 0,
+  "covered_scenarios": [
+    "action_provider_failure",
+    "counterfactual",
+    "high_quality_style_variation",
+    "insufficient_evidence",
+    "legacy",
+    "mixed_strengths",
+    "negation_context",
+    "no_knowledge_reference_scorable",
+    "numeric_claim",
+    "partial",
+    "partial_skip",
+    "polished_technically_incorrect",
+    "project_experience",
+    "prompt_injection",
+    "summary_provider_failure",
+    "technically_correct_plain_expression",
+    "unscored"
+  ],
+  "critical_case_count": 20,
+  "dataset_id": "report-semantic-blind-test-v1",
+  "issue_codes": [],
+  "missing_scenarios": [],
+  "publish_count": 22,
+  "publish_degraded_count": 2,
+  "sample_size": 24,
+  "status": "PASS"
+}

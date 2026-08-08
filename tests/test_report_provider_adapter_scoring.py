@@ -2,7 +2,7 @@ from app.services.report import DimensionScores
 from app.services.report_provider_adapter import normalize_provider_payload
 
 
-def test_normalize_provider_payload_does_not_trust_scores_without_evidence():
+def test_normalize_provider_payload_rejects_provider_score_but_scores_deterministic_non_answer():
     result = normalize_provider_payload(
         {
             "question_results": [
@@ -34,10 +34,12 @@ def test_normalize_provider_payload_does_not_trust_scores_without_evidence():
     assert feedback.dimension_scores == DimensionScores(
         breadth=0,
         depth=0,
-        architecture=0,
+        architecture=None,
         engineering=0,
         communication=0,
     )
+    assert feedback.evaluation_status == "evaluated"
+    assert feedback.evaluation_reason_code == "deterministic_low_quality_answer"
     assert feedback.applicable_dimensions == [
         "depth",
         "engineering",

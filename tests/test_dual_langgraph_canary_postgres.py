@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,6 +21,10 @@ from app.services.interview_generation_store import (
     ChunkCoalescer,
     PostgresInterviewGenerationStore,
 )
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
+from app.services.postgres_decision_store import PostgresDecisionStore
 from app.services.interview_workflow import InterviewWorkflowService
 from app.services.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
@@ -159,6 +164,16 @@ class FailAfterReportEnqueue:
         return job
 
 
+def _claim_eventually(job_store, *, worker_id: str, timeout_seconds: float = 2):
+    """Model the worker's bounded polling without weakening job identity."""
+    deadline = monotonic() + timeout_seconds
+    while True:
+        claimed = job_store.claim_next(worker_id=worker_id)
+        if claimed is not None or monotonic() >= deadline:
+            return claimed
+        sleep(0.02)
+
+
 def _build_interview_service(
     *,
     session_store,
@@ -172,6 +187,13 @@ def _build_interview_service(
         DurableInterviewGraphDependencies(
             workflow_store=workflow_store,
             generation_store=generation_store,
+            decision_service=FollowupDecisionExecutionService(
+                store=PostgresDecisionStore(
+                    dsn=require_postgres_dsn(),
+                    table_prefix=generation_store.table_prefix,
+                ),
+                provider=None,
+            ),
             examiner=StableExaminer(),
             report_job_queue=report_queue,
             coalescer_factory=lambda: ChunkCoalescer(
@@ -455,9 +477,11 @@ def test_local_one_percent_joint_assignment_resumes_after_rollout_zero(
             == "langgraph-review-v1"
         )
 
-        claimed = resumed_jobs.claim_next(
-            worker_id="local-canary-review-worker"
+        claimed = _claim_eventually(
+            resumed_jobs,
+            worker_id="local-canary-review-worker",
         )
+        assert claimed is not None
         assert claimed["job_id"] == job_id
         review_store = PostgresReviewWorkflowStore(
             dsn=dsn, table_prefix=prefix

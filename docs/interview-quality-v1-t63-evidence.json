@@ -1,0 +1,159 @@
+{
+  "schema_version": "interview-quality-v1-t63-evidence-v1",
+  "task": "T63",
+  "generated_at": "2026-08-07T02:03:03.5884706+08:00",
+  "implementation_revision": "c7a29f79ce32c2335e3767fa1d034107c952e127",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED",
+  "overall_status": "BLOCKED",
+  "classification": "ENGINEERING_PASS_QUALITY_BLOCKED",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_substitution_used": false,
+  "screenshots": 0,
+  "open_engineering_findings": 0,
+  "quality_blockers": [
+    "ACTUAL_PROVIDER_USAGE_ARTIFACT_MISSING",
+    "BLOCKED_MODEL_VERSION_DRIFT",
+    "INSUFFICIENT_BASELINE",
+    "UBUNTU_MEASUREMENT_NOT_RUN"
+  ],
+  "acceptance": {
+    "path": "tests/golden/interview_quality_v1/t63-performance-acceptance-v1.json",
+    "schema_version": "interview-quality-v1-t63-performance-acceptance-v1",
+    "acceptance_id": "t63-performance-acceptance-v1",
+    "canonical_sha256": "7244ab7c01e08c23173442827f2c694190e839262f3a9fe997f949bbabe1c147",
+    "file_sha256": "9eace5bbee8f4fc36d8ef7261905f70123792941a30015a586a5fb17fccc73fb",
+    "file_bytes": 11613,
+    "builder": "scripts/build_t63_performance_acceptance.py",
+    "runner": "scripts/run_t63_performance_gate.py",
+    "skip_policy": "forbidden",
+    "requirement_count": 22,
+    "unique_test_node_count": 20,
+    "planned_scenario_count": 432
+  },
+  "requirements": [
+    {"id": "T63-M01", "status": "PASS_ENGINEERING", "evidence": "prep_plan_generation measured"},
+    {"id": "T63-M02", "status": "PASS_ENGINEERING", "evidence": "plan revision read/write measured"},
+    {"id": "T63-M03", "status": "PASS_ENGINEERING", "evidence": "session start measured with zero Provider calls"},
+    {"id": "T63-M04", "status": "PASS_ENGINEERING_FIXTURE", "evidence": "Decision p50/p95 and no fabricated fixed baseline"},
+    {"id": "T63-M05", "status": "PASS_ENGINEERING_FIXTURE", "evidence": "Generation TTFT and completion remain separate"},
+    {"id": "T63-M06", "status": "PASS_ENGINEERING_FIXTURE", "evidence": "SSE recovery uses cursor and zero duplicate calls"},
+    {"id": "T63-M07", "status": "BLOCKED_QUALITY_INSUFFICIENT_BASELINE", "evidence": "repository commit measured; comparable Provider report baseline absent"},
+    {"id": "T63-M08", "status": "PASS_ENGINEERING", "evidence": "Artifact list/get/PDF paths measured"},
+    {"id": "T63-M09", "status": "PASS_ENGINEERING", "evidence": "four-domain PostgreSQL capacity evidence"},
+    {"id": "T63-M10", "status": "BLOCKED_QUALITY_PROVIDER_ARTIFACT", "evidence": "actual usage Artifact is required and absent"},
+    {"id": "T63-M11", "status": "PASS_ENGINEERING_FIXTURE", "evidence": "retry amplification measured at 1.0"},
+    {"id": "T63-S01", "status": "PASS", "evidence": "question counts 3/5/8/10 in 432-scenario matrix"},
+    {"id": "T63-S02", "status": "PASS", "evidence": "follow-up counts 0/1/2 in matrix"},
+    {"id": "T63-S03", "status": "PASS", "evidence": "scored/partial/unscored in matrix"},
+    {"id": "T63-S04", "status": "PASS", "evidence": "Artifact histories 1/5/20 measured"},
+    {"id": "T63-S05", "status": "PASS", "evidence": "cold and warm cohorts kept separate"},
+    {"id": "T63-S06", "status": "BLOCKED_QUALITY_UBUNTU", "evidence": "Windows measured; Ubuntu explicitly NOT_RUN"},
+    {"id": "T63-A01", "status": "PASS_FAIL_CLOSED", "evidence": "all §5.6 gates evaluated without missing-evidence PASS"},
+    {"id": "T63-A02", "status": "PASS_ENGINEERING", "evidence": "active get does not call list_jobs"},
+    {"id": "T63-A03", "status": "PASS_ENGINEERING", "evidence": "20-history active get p95 and index contract pass"},
+    {"id": "T63-A04", "status": "PASS_FAIL_CLOSED", "evidence": "Provider PASS requires bound path/SHA/tokens/cost/session usage"},
+    {"id": "T63-A05", "status": "PASS_FAIL_CLOSED", "evidence": "engineering failure or boundary drift cannot become Quality PASS"}
+  ],
+  "final_run": {
+    "run_id": "t63-final-windows-20260807-v1",
+    "run_dir": "tmp/interview-quality-v1-provider-runs/t63-final-windows-20260807-v1",
+    "source_revision": "c7a29f79ce32c2335e3767fa1d034107c952e127",
+    "platform": "windows-11-x64",
+    "sample_count": 318,
+    "scenario_count": 432,
+    "capacity_status": "ELIGIBLE_FOR_CAPACITY_CANARY",
+    "provider_calls": 0,
+    "tests_collected": 20,
+    "tests_passed": 20,
+    "tests_failed": 0,
+    "tests_skipped": 0,
+    "warnings": 1,
+    "artifact_files": {
+      "manifest.json": {"bytes": 931, "sha256": "6f411532c1d83cce164365dcdf3c8b4817ecd9c689d065c191907ce3e82f94f6"},
+      "metrics.json": {"bytes": 2940, "sha256": "c48f39811c69c24352a5f4e292d2974d498bff95f0a26c6b6161f48838c86ea8"},
+      "performance-artifact.json": {"bytes": 322068, "sha256": "32679e87aedbbd6aef398b508d7313518347f91f88441c2ce1bcc85a5cc2ac96"},
+      "postgres-capacity.json": {"bytes": 1554, "sha256": "ac317e08d59f2c712f009e4fdb18d5cf18bd3111bfd540fc9691b80bc09cee73"},
+      "scenario-matrix.json": {"bytes": 106349, "sha256": "2986e4293dfaab1f77fe4ffffd38c9d092d9308eb7d8e6b4f40680daa81523e7"}
+    }
+  },
+  "operation_summaries": [
+    {"operation": "prep_plan_generation", "sample_count": 40, "p50_seconds": 0.0000590, "p95_seconds": 0.0000826, "max_seconds": 0.0002298},
+    {"operation": "plan_revision_write", "sample_count": 8, "p50_seconds": 0.0335213, "p95_seconds": 0.0348493, "max_seconds": 0.0348493},
+    {"operation": "plan_revision_read", "sample_count": 40, "p50_seconds": 0.0310379, "p95_seconds": 0.0327181, "max_seconds": 0.0330944},
+    {"operation": "session_start", "sample_count": 24, "p50_seconds": 0.0308084, "p95_seconds": 0.0329424, "max_seconds": 0.0432049},
+    {"operation": "report_job_repository_commit", "sample_count": 26, "p50_seconds": 0.0938205, "p95_seconds": 0.1018760, "max_seconds": 0.1032247},
+    {"operation": "artifact_list", "sample_count": 30, "p50_seconds": 0.0265009, "p95_seconds": 0.0316234, "max_seconds": 0.0343731},
+    {"operation": "artifact_get", "sample_count": 30, "p50_seconds": 0.0296611, "p95_seconds": 0.0315005, "max_seconds": 0.0321793},
+    {"operation": "artifact_pdf", "sample_count": 30, "p50_seconds": 0.0055203, "p95_seconds": 0.0060634, "max_seconds": 0.0072940},
+    {"operation": "active_report_get", "sample_count": 90, "p50_seconds": 0.0799810, "p95_seconds": 0.0943095, "max_seconds": 0.0954268}
+  ],
+  "active_get_history_cohorts": [
+    {"history_count": 1, "sample_count": 30, "p50_seconds": 0.0798012, "p95_seconds": 0.0946718, "max_seconds": 0.0954268, "database_query_count": 3, "database_rows_materialized": 3},
+    {"history_count": 5, "sample_count": 30, "p50_seconds": 0.0787925, "p95_seconds": 0.0939017, "max_seconds": 0.0940078, "database_query_count": 3, "database_rows_materialized": 3},
+    {"history_count": 20, "sample_count": 30, "p50_seconds": 0.0927791, "p95_seconds": 0.0943095, "max_seconds": 0.0944830, "database_query_count": 3, "database_rows_materialized": 3}
+  ],
+  "postgres_capacity": {
+    "status": "ELIGIBLE_FOR_CAPACITY_CANARY",
+    "business_peak": 12,
+    "telemetry_peak": 4,
+    "advisory_lock_peak": 4,
+    "checkpointer_peak": 2,
+    "simultaneous_application_connections": 22,
+    "observed_advisory_locks": 4,
+    "timeouts": 0,
+    "privacy_violations": 0,
+    "production_observation": "NOT_RUN"
+  },
+  "quality_evidence": {
+    "provider": "DeepSeek",
+    "authorized_model": "deepseek-chat",
+    "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "provider_called": false,
+    "first_data_request_sent": false,
+    "actual_usage_artifact_available": false,
+    "automatic_model_substitution_used": false,
+    "report_completion_status": "INSUFFICIENT_BASELINE",
+    "report_comparable_cohort": false,
+    "report_sample_count": 0,
+    "report_baseline_sample_count": 0,
+    "ubuntu_status": "NOT_RUN"
+  },
+  "verification": {
+    "builder_check": "PASS",
+    "contract_tests": {"passed": 15, "failed": 0, "skipped": 0},
+    "expanded_adjacent_regression": {"passed": 109, "failed": 0, "skipped": 0, "warnings": 1},
+    "official_gate": {"passed": 20, "failed": 0, "skipped": 0, "warnings": 1, "exit_code": 0},
+    "artifact_re_evaluation": "PASS",
+    "diff_check": "PASS"
+  },
+  "diagnostic_attempts_not_accepted_as_pass": [
+    {"run_id": "t63-local-windows-20260807-v1", "status": "FAIL", "reason": "capacity subrunner used wrong default runtime prefix"},
+    {"run_id": "t63-local-windows-20260807-v2", "status": "SUPERSEDED", "reason": "before final Provider/report/index contract hardening"},
+    {"run_id": "t63-local-windows-20260807-v3", "status": "SUPERSEDED", "reason": "before final Provider/report contract hardening"},
+    {"run_id": "t63-local-windows-20260807-v4", "status": "DIAGNOSTIC_ONLY", "reason": "validated while worktree was dirty; not clean-revision evidence"}
+  ],
+  "automatic_review_findings_closed": [
+    "active report no longer materializes all historical jobs",
+    "isolated capacity subprocess uses the migrated T63 prefix",
+    "latest-job and artifact-history index plans are required",
+    "Provider usage PASS requires bound actual artifact and metering",
+    "report completion PASS requires comparable 30/30 cohorts",
+    "Ubuntu measured claims require actual Ubuntu samples",
+    "formal Gate binds manifest and performance artifact to requested run-id and clean HEAD"
+  ],
+  "phase_boundaries": {
+    "t63_complete": true,
+    "next_task": "T64",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "No real Provider request was sent because authorized deepseek-chat was unavailable without prohibited substitution.",
+    "No real Provider usage artifact, comparable report baseline, or Ubuntu measurement was fabricated.",
+    "Local timings and synthetic follow-up fixture are Engineering evidence only.",
+    "No screenshot, image operation, browser trace, DSN, candidate text, session ID, or backup data was committed."
+  ]
+}

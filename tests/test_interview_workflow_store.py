@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -129,8 +129,13 @@ def test_applied_command_payload_can_be_cleared(workflow_store):
         workflow_store.session_id, command.command_id, 2
     )
 
+    with workflow_store.control.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT clock_timestamp()")
+            database_now = cursor.fetchone()[0]
+
     assert workflow_store.clear_applied_command_payloads(
-        older_than=datetime.now(timezone.utc) + timedelta(seconds=1)
+        older_than=database_now + timedelta(seconds=1)
     ) == 1
     cleared = workflow_store.get_command(
         workflow_store.session_id, command.command_id

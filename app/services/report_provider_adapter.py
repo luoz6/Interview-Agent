@@ -174,13 +174,18 @@ def _normalize_question_result(
         user_answer=_build_user_answer(evaluation_item),
         score=score,
         dimension_scores=dimension_scores,
+        evaluation_status=scoring.evaluation_status,
+        evaluation_reason_code=scoring.evaluation_reason_code,
+        evidence_count=scoring.evidence_count,
         applicable_dimensions=applicable_dimensions,
         dimension_evidence=[evidence.model_dump() for evidence in evidence_items],
         rationale=item.get("rationale") or _build_rationale(item),
         critique=item.get("critique") or _build_critique(item),
-        better_answer=item.get("better_answer")
-        or item.get("suggested_improvements")
-        or _build_better_answer(reference_chunk_ids, reference_lookup),
+        better_answer=str(
+            item.get("better_answer")
+            or item.get("suggested_improvements")
+            or ""
+        ).strip(),
         reference_chunk_ids=reference_chunk_ids,
         highlights=highlights,
     )
@@ -281,24 +286,6 @@ def _build_critique(item: dict[str, Any]) -> str:
     if critique:
         return critique
     return "模型输出未提供明确问题点。"
-
-
-def _build_better_answer(
-    reference_chunk_ids: list[str],
-    reference_lookup: dict[str, dict[str, str]],
-) -> str:
-    for chunk_id in reference_chunk_ids:
-        reference = reference_lookup.get(chunk_id, {})
-        if str(reference.get("source_type") or "").strip() != "answer":
-            continue
-        excerpt = str(reference.get("excerpt") or "").strip()
-        if excerpt:
-            return excerpt
-    for chunk_id in reference_chunk_ids:
-        excerpt = str(reference_lookup.get(chunk_id, {}).get("excerpt") or "").strip()
-        if excerpt:
-            return excerpt
-    return "补充回退策略、一致性取舍和风险缓解细节。"
 
 
 def _normalize_reference(reference: dict[str, Any]) -> dict[str, str] | None:

@@ -1,5 +1,6 @@
 const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const DEFAULT_TIMEOUT_MS = 20000;
+const volatileRequestIds = new Map();
 
 const statusMessages = {
   400: "请求内容不完整或格式不正确，请检查后重试。",
@@ -40,6 +41,37 @@ export function apiUrl(path) {
   return `${configuredBase}${path}`;
 }
 
+export function stableRequestId(scope) {
+  const storageKey = `interview-agent:request-id:${scope}`;
+  const volatile = volatileRequestIds.get(storageKey);
+  if (volatile) return volatile;
+  try {
+    const existing = globalThis.sessionStorage?.getItem(storageKey);
+    if (existing) return existing;
+  } catch {
+    // Storage may be unavailable in privacy-restricted browser contexts.
+  }
+  const generated = globalThis.crypto?.randomUUID?.()
+    || `request-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  volatileRequestIds.set(storageKey, generated);
+  try {
+    globalThis.sessionStorage?.setItem(storageKey, generated);
+  } catch {
+    // The module-local value still makes retries within this page lifetime safe.
+  }
+  return generated;
+}
+
+export function clearStableRequestId(scope) {
+  const storageKey = `interview-agent:request-id:${scope}`;
+  volatileRequestIds.delete(storageKey);
+  try {
+    globalThis.sessionStorage?.removeItem(storageKey);
+  } catch {
+    // A completed request no longer needs browser-backed replay state.
+  }
+}
+
 function publicMessage(status, body) {
   const detail = body?.detail;
   const explicitlyPublic = body?.code || (detail && typeof detail === "object" && detail.code);
@@ -51,18 +83,28 @@ function publicMessage(status, body) {
 }
 
 async function readBody(response) {
-  const text = await response.text();
-  if (!text) return { body: {}, validJson: true };
-  try {
-    return { body: JSON.parse(text), validJson: true };
-  } catch {
-    return { body: {}, validJson: false };
+  if (typeof response.text === "function") {
+    const text = await response.text();
+    if (!text) return { body: {}, validJson: true };
+    try {
+      return { body: JSON.parse(text), validJson: true };
+    } catch {
+      return { body: {}, validJson: false };
+    }
   }
+  if (typeof response.json === "function") {
+    try {
+      return { body: await response.json(), validJson: true };
+    } catch {
+      return { body: {}, validJson: false };
+    }
+  }
+  return { body: {}, validJson: false };
 }
 
 async function parseResponse(response) {
   const { body, validJson } = await readBody(response);
-  const requestId = response.headers.get("x-request-id") || null;
+  const requestId = response.headers?.get?.("x-request-id") || null;
   if (!response.ok) {
     throw new HttpError(publicMessage(response.status, body), {
       status: response.status,

@@ -15,6 +15,7 @@ class SessionDeletionWorker:
         question_memory_index=None,
         context_artifact_store=None,
         report_job_store=None,
+        report_artifact_store=None,
         tombstone_store=None,
         principal_memory_store=None,
         principal_memory_control_store=None,
@@ -28,6 +29,7 @@ class SessionDeletionWorker:
         self.question_memory_index = question_memory_index
         self.context_artifact_store = context_artifact_store
         self.report_job_store = report_job_store
+        self.report_artifact_store = report_artifact_store
         self.tombstone_store = tombstone_store
         self.principal_memory_store = principal_memory_store
         self.principal_memory_control_store = principal_memory_control_store
@@ -47,6 +49,7 @@ class SessionDeletionWorker:
             "workflow_rows": 0,
             "question_memory_rows": 0,
             "artifact_owner_refs": 0,
+            "report_history_rows": 0,
             "business_sessions": 0,
             "principal_memory_rows": 0,
             "principal_memory_control_rows": 0,
@@ -71,18 +74,48 @@ class SessionDeletionWorker:
                         owner_key=job.session_id,
                     )
                 )
+                review_job_ids = set()
                 if self.report_job_store is not None:
                     report_job = self.report_job_store.get_job_by_session(
                         job.session_id
                     )
                     if report_job is not None and report_job.get("job_id"):
-                        counts["artifact_owner_refs"] += (
-                            self.context_artifact_store.delete_owner_refs(
-                                owner_type="review_job",
-                                owner_key=report_job["job_id"],
-                            )
+                        review_job_ids.add(str(report_job["job_id"]))
+                if self.report_artifact_store is not None:
+                    list_report_jobs = getattr(
+                        self.report_artifact_store,
+                        "list_jobs",
+                        None,
+                    )
+                    if list_report_jobs is not None:
+                        review_job_ids.update(
+                            str(report_job.job_id)
+                            for report_job in list_report_jobs(job.session_id)
                         )
+                for review_job_id in review_job_ids:
+                    counts["artifact_owner_refs"] += (
+                        self.context_artifact_store.delete_owner_refs(
+                            owner_type="review_job",
+                            owner_key=review_job_id,
+                        )
+                    )
             self._inject("after_artifact_ref_purge", job)
+            if self.report_artifact_store is not None:
+                counts["report_history_rows"] += (
+                    self.report_artifact_store.delete_session_history(
+                        job.session_id
+                    )
+                )
+            delete_legacy_history = getattr(
+                self.report_job_store,
+                "delete_session_history",
+                None,
+            )
+            if delete_legacy_history is not None:
+                counts["report_history_rows"] += delete_legacy_history(
+                    job.session_id
+                )
+            self._inject("after_report_history_purge", job)
             if self.principal_memory_store is not None:
                 counts["principal_memory_rows"] = (
                     self.principal_memory_store.purge_by_session(job.session_id)

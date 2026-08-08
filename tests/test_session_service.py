@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE
@@ -87,6 +89,26 @@ def test_start_session_returns_first_question():
     assert session.status == "active"
 
 
+def test_duplicate_server_session_identity_is_thread_safe():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+
+    def start_duplicate(_index):
+        return store.start(
+            make_plan(),
+            job_description="Backend role using Python and Redis.",
+            resume_text="Built a Python API with Redis.",
+            job_tags=["python", "redis"],
+            session_id="stable-session-start-id",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        turns = list(executor.map(start_duplicate, range(8)))
+
+    assert {turn.session_id for turn in turns} == {"stable-session-start-id"}
+    assert {turn.current_question.id for turn in turns} == {"q1"}
+    assert list(store._sessions) == ["stable-session-start-id"]
+
+
 def test_start_session_records_job_context_in_store():
     store = InterviewSessionStore(llm=FakeInterviewLLM())
 
@@ -123,7 +145,10 @@ def test_submit_answer_uses_llm_context_to_generate_followup():
         "You mentioned caching. Please explain how you protect the database "
         "when the cache becomes invalid."
     )
-    assert llm.last_context == [
+    assert llm.last_context[0]["role"] == "system"
+    assert "[FOLLOWUP_DECISION_TARGET]" in llm.last_context[0]["content"]
+    assert '"gap_type":"clarification"' in llm.last_context[0]["content"]
+    assert llm.last_context[1:] == [
         {"role": "interviewer", "content": "Introduce one project."},
         {
             "role": "candidate",
@@ -400,6 +425,30 @@ def test_session_snapshot_includes_progress_tags_questions_and_messages():
     assert snapshot["questions"][1]["state"] == "pending"
     assert snapshot["messages"][0]["role"] == "interviewer"
     assert snapshot["job_tags"] == ["python", "redis"]
+    assert snapshot["followup_policy_version"] == "fixed_v1"
+    assert snapshot["current_followup_count"] == 0
+    assert snapshot["followup_ui_state"] == "idle"
+    assert "gap_summary" not in snapshot
+    assert "decision_confidence" not in snapshot
+    assert "reason_code" not in snapshot
+
+
+def test_session_snapshot_bounds_followup_progress_and_exposes_only_degraded_semantics():
+    store = InterviewSessionStore(llm=FakeInterviewLLM())
+    session = start_session(store)
+    state = store.get(session.session_id)
+    state["current_followup_count"] = 99
+    state["termination_reason_code"] = "provider_unavailable"
+    state["gap_summary"] = "internal gap detail"
+    state["decision_confidence"] = "low"
+
+    snapshot = store.snapshot(session.session_id)
+
+    assert snapshot["current_followup_count"] == 2
+    assert snapshot["followup_ui_state"] == "degraded"
+    assert "termination_reason_code" not in snapshot
+    assert "gap_summary" not in snapshot
+    assert "decision_confidence" not in snapshot
 
 
 def test_session_snapshot_marks_completed_question_after_advance():

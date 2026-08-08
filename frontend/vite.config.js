@@ -31,5 +31,11 @@ export default defineConfig(({ mode }) => {
       sourcemap: true,
       manifest: true,
     },
+    test: {
+      environment: "jsdom",
+      setupFiles: "./src/test/setup.js",
+      restoreMocks: true,
+      clearMocks: true,
+    },
   };
 });

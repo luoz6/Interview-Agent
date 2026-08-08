@@ -1,0 +1,260 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T57",
+  "generated_at": "2026-08-06T21:52:15+08:00",
+  "implementation_revision_base": "91d1341f41cf32c9b29b6e5b039deb68a1744042",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED",
+  "overall_status": "ENGINEERING_PASS_QUALITY_BLOCKED",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "dataset": {
+    "frozen_v1_fixture": {
+      "path": "tests/golden/interview_quality_v1/initial-question-quality-v1.json",
+      "sha256": "68287ac738e0749a2810c6d537997ab15278b45b777c2d37646bcf77297c7388",
+      "preserved_unchanged": true,
+      "fixture_only": true
+    },
+    "t57_v2": {
+      "path": "tests/golden/interview_quality_v1/initial-question-quality-v2.json",
+      "dataset_id": "initial-question-quality-v2",
+      "sha256": "b8af1283ebe719085009fbe4ad9b9ab04b87216793385ced1409f7d30715d148",
+      "fixture_only": false,
+      "case_count": 12,
+      "runs_per_case": 2,
+      "planned_attempt_count": 24,
+      "gate_eligible_case_count": 0,
+      "independent_review_pending_case_count": 12,
+      "deterministic_rebuild": true,
+      "source_data": "synthetic_jd_resume_plus_public_technical_topic",
+      "real_candidate_data": false,
+      "principal_memory": false,
+      "coverage": {
+        "domains": {
+          "backend": 2,
+          "frontend": 2,
+          "data": 2,
+          "platform": 2,
+          "general_project": 2,
+          "system_design": 2
+        },
+        "difficulties": {
+          "foundation": 4,
+          "intermediate": 4,
+          "advanced": 4
+        },
+        "focus_presets": {
+          "technical_depth": 3,
+          "system_design": 3,
+          "project_review": 3,
+          "balanced": 3
+        },
+        "durations": {
+          "15": 3,
+          "30": 3,
+          "45": 3,
+          "60": 3
+        },
+        "partitions": {
+          "train": 4,
+          "dev": 4,
+          "blind-test": 4
+        },
+        "languages": {
+          "zh-Hans": 10,
+          "en": 2
+        }
+      }
+    },
+    "file_manifest_entry_match": true,
+    "followup_builder_preserves_v2_entry": true
+  },
+  "runner_contract": {
+    "script": "scripts/evaluate_initial_question_quality.py",
+    "modes": [
+      "fixture-replay",
+      "saved-replay",
+      "provider"
+    ],
+    "development_blind_test_access": false,
+    "nonempty_run_directory_reuse": false,
+    "exact_case_run_coverage_required": true,
+    "partial_dataset_can_quality_pass": false,
+    "saved_replay_binds_dataset_id_and_hash": true,
+    "saved_replay_makes_provider_calls": false,
+    "hard_stopped_capture_replayable_as_complete": false,
+    "raw_provider_output_in_git": false,
+    "pending_review_reviewer_kind": "unassigned"
+  },
+  "offline_fixture_result": {
+    "run_id": "t57-offline-full-20260806-v3",
+    "manifest_sha256": "7a09dc7004043e918b9a7ee8a147ec05c00ad006b1e4033ccf5a02ffd96a4093",
+    "metrics_file_sha256": "563f3b86167472a032962e011c2122c63504f72bcacd88c6f67ec6a359cc973d",
+    "canonical_metrics_sha256": "29ba99afefe3b661b443d6b42b6ac52cb6b464c2c0d8f079f7cc04560e1227fc",
+    "synthetic_fixture_replay_sha256": "65a6b7e41173578588db5f06d8121e2e3baff4399263f37376785d85f1b6d555",
+    "automated_status": "PASS",
+    "quality_status": "BLOCKED_SYNTHETIC_FIXTURE_ONLY",
+    "attempt_count": 24,
+    "question_count": 144,
+    "provider_calls": 0,
+    "metrics": {
+      "jd_resume_relevance_rate": 1.0,
+      "configured_focus_coverage_rate": 1.0,
+      "within_plan_duplicate_rate": 0.0,
+      "difficulty_fit_rate": 1.0,
+      "single_clear_answerable_rate": 1.0,
+      "reference_or_internal_evidence_leak_count": 0,
+      "preview_session_plan_hash_match_rate": 1.0,
+      "answerable_within_budget_rate": 1.0,
+      "non_definition_only_plan_rate": 1.0,
+      "case_quality_stability_rate": 1.0,
+      "cross_run_exact_duplicate_case_count": 0
+    },
+    "plan_budget_gate": {
+      "version": "interview-plan-duration-budget-v1",
+      "status": "PASS",
+      "exact_pass_count": 24,
+      "question_count_match_rate": 1.0,
+      "estimated_duration_fit_rate": 1.0,
+      "warning_count": 0,
+      "blocking_count": 0
+    },
+    "context_and_grounding_gate": {
+      "status": "PASS",
+      "context_budget_no_regression_rate": 1.0,
+      "grounding_context_retention_rate": 1.0,
+      "maximum_budget_utilization": 0.009125
+    }
+  },
+  "saved_replay_result": {
+    "run_id": "t57-saved-replay-20260806-v3",
+    "manifest_sha256": "4f5eb7435f61d06841f3c7d3a71e942dfa8cec762959ccdca9ed63b1a054690c",
+    "normalized_metrics_equal_to_fixture": true,
+    "canonical_metrics_sha256": "29ba99afefe3b661b443d6b42b6ac52cb6b464c2c0d8f079f7cc04560e1227fc",
+    "provider_calls_during_replay": 0
+  },
+  "provider_preflight": {
+    "run_id": "t57-provider-smoke-20260806-v3",
+    "manifest_sha256": "9429fee5241333de9fc43b1fdc670a39c10fb420ad59cfff04c9361d8aa32695",
+    "observed_at": "2026-08-06T13:35:34.901490Z",
+    "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "authorization_sha256": "ca6c10bcdd9d95d213d56b553bd889dc261cbe678a0fc405027c072899dbf5ac",
+    "gate_config_sha256": "2b650efab1242c00d8e501046fba985ad6a6db191d6043058be0671f9f851535",
+    "dataset_sha256": "b8af1283ebe719085009fbe4ad9b9ab04b87216793385ced1409f7d30715d148",
+    "authorization_manifest_match": true,
+    "gate_config_manifest_match": true,
+    "dataset_manifest_match": true,
+    "redaction_preflight_passed": true,
+    "credential_present": true,
+    "evidence_persistence_available": true,
+    "environment_model_ignored": true,
+    "provider": "DeepSeek",
+    "authorized_model": "deepseek-chat",
+    "available_models": [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro"
+    ],
+    "priced_models": [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro"
+    ],
+    "hard_stop_conditions": [
+      "MODEL_VERSION_DRIFT"
+    ],
+    "provider_called": false,
+    "first_data_request_sent": false,
+    "fallback_used": false
+  },
+  "provider_metering_contract": {
+    "structured_plan_include_raw_preferred": true,
+    "attempt_count_separate": true,
+    "metered_attempt_count_separate": true,
+    "unmetered_attempt_count_separate": true,
+    "later_metered_response_can_hide_prior_unmetered_attempt": false,
+    "artifact_outbound_attempt_count_separate_from_completed_attempts": true,
+    "complete_real_capture_requires_all_requests_metered": true,
+    "plan_knowledge_candidate_count_recorded": true,
+    "plan_knowledge_retained_count_recorded": true
+  },
+  "automatic_review_findings_closed": [
+    "The frozen v1 schema fixture was initially expanded in place; v1 and its original hash are now preserved and T57 uses a new v2 dataset.",
+    "Structured plan parsing could discard raw usage and model metadata; production now prefers include_raw and publishes only safe metering metadata.",
+    "A later metered response could hide an earlier unmetered request; metered and unmetered attempts are now counted separately and complete real runs require equality.",
+    "Pending semantic review was conflated with insufficient sample and could carry a synthetic reviewer label; it now remains explicitly pending with reviewer_kind=unassigned.",
+    "One English regression fixture emitted Chinese questions; every English fixture now emits English-only questions.",
+    "Grounding retention accepted any nonzero retained subset; it now requires exact candidate/retained equality.",
+    "Saved replay could include attempts outside the selected partition and a partial run could theoretically claim full Quality PASS; coverage is filtered and only the full frozen dataset is eligible.",
+    "A failed first Provider request could be absent from completed attempts and misreported as not sent; top-level outbound attempted and metered counters now preserve the truth.",
+    "The T35 builder did not know the new initial-question v2 manifest entry; it now preserves that entry on rebuild.",
+    "Non-empty run directories are rejected so stale evidence cannot be mixed into a new run."
+  ],
+  "verification": {
+    "t57_focused_passed": 25,
+    "t57_focused_failed": 0,
+    "adjacent_regression_passed": 430,
+    "adjacent_regression_failed": 0,
+    "adjacent_regression_warnings": 1,
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "dataset_rebuild_stability": "PASS",
+    "dataset_manifest_hashes": "PASS",
+    "fixture_saved_metrics_equality": "PASS",
+    "secret_risk_scan": "PASS_NO_MATCHES",
+    "ruff": "TOOLING_MISSING",
+    "pyflakes": "TOOLING_MISSING",
+    "black": "TOOLING_MISSING",
+    "broad_regression": {
+      "passed": 2878,
+      "failed": 10,
+      "skipped": 3,
+      "warnings": 1,
+      "t56_passed": 2857,
+      "t56_failed": 9,
+      "t56_skipped": 3,
+      "new_t57_test_count": 21,
+      "new_t57_related_failures": 0,
+      "additional_intermittent_failure": "tests/test_report_jobs.py::test_terminal_transitions_are_fenced_against_reclaimed_worker",
+      "additional_failure_isolated_rerun": "1 passed",
+      "measured_postgres_ahead_of_python_seconds": 5.274179
+    }
+  },
+  "known_full_suite_failures": [
+    "agent runtime hardening old perf_counter mock ticks exhausted",
+    "context artifact failed cleanup cross-clock behavior",
+    "context artifact concurrent cleanup cross-clock behavior",
+    "completed generation chunk cleanup cross-clock behavior",
+    "interview graph old next_question expectation differs from current finish terminal state",
+    "applied workflow command payload cleanup cross-clock behavior",
+    "historical publication allowlist differs from the quality branch",
+    "PostgreSQL session deletion old latest migration expects followup_decision_v1",
+    "existing dependency lock hash drift",
+    "one full-suite report-job lease fencing race that passed on isolated rerun"
+  ],
+  "blockers": [
+    {
+      "kind": "MODEL_VERSION_DRIFT",
+      "detail": "The authorized deepseek-chat model is absent from both the official model list and official pricing table; v4 substitution is prohibited."
+    },
+    {
+      "kind": "PENDING_INDEPENDENT_REVIEW",
+      "detail": "All 12 v2 construction cases remain pending and gate_eligible=false; synthetic fixture reviews cannot establish real Provider quality."
+    }
+  ],
+  "phase_boundaries": {
+    "t56_configuration_ui_complete": true,
+    "t57_engineering_complete": true,
+    "t57_provider_quality_complete": false,
+    "t58_complete": false,
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "The offline PASS belongs to synthetic fixture arithmetic, budget, context, and replay behavior only.",
+    "No JD, resume, or question-generation request was sent to the real Provider in T57.",
+    "No real Provider token, cost, latency, semantic quality, or Quality PASS is claimed.",
+    "The ten full-suite failures, three skips, one warning, intermittent isolated rerun, and missing Python lint/format tools remain visible.",
+    "T57 Engineering completion does not imply T57 Quality, T58, or T72 completion; the goal remains active."
+  ]
+}

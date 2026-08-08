@@ -10,11 +10,22 @@ const viewports = [
   { width: 768, prepColumns: 2, inspectorBelow: true, interviewColumns: 2 },
   { width: 1024, prepColumns: 2, inspectorBelow: true, interviewColumns: 3 },
   { width: 1280, prepColumns: 3, inspectorBelow: false, interviewColumns: 3 },
+  { width: 1440, prepColumns: 3, inspectorBelow: false, interviewColumns: 3 },
 ];
 
 async function createSession(request) {
-  const response = await request.post("/api/interviews", {
+  const prep = await request.post("/api/prep", {
     data: { job_description: jobDescription, resume_text: resumeText },
+  });
+  expect(prep.status()).toBe(200);
+  const revision = await prep.json();
+  const response = await request.post("/api/interviews", {
+    data: {
+      plan_revision_id: revision.plan_revision_id,
+      expected_revision: revision.revision,
+      plan_sha256: revision.plan_sha256,
+      request_id: "reference-ui-geometry-start",
+    },
   });
   expect(response.status()).toBe(200);
   return (await response.json()).session_id;

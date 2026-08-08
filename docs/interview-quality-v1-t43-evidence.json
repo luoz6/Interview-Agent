@@ -1,0 +1,42 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T43",
+  "implementation_revision_base": "4c8e9a6d5ba46153720dc0fcc9a62b53af6d33f7",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED_HUMAN_REVIEW_NOT_RUN",
+  "provider_calls": 0,
+  "adversarial_fixture": {
+    "path": "tests/fixtures/report_fact_boundary_v1.json",
+    "sample_size": 6,
+    "coverage_types": [
+      "company",
+      "scale",
+      "responsibility",
+      "metric",
+      "money",
+      "latency",
+      "result",
+      "knowledge_boundary",
+      "memory_boundary"
+    ],
+    "automatic_new_experience_fact_observed_count": 0,
+    "human_observed_count": null,
+    "human_review_status": "NOT_RUN",
+    "limitation": "The frozen set is intentionally small and does not prove open-domain semantic non-fabrication."
+  },
+  "verification": {
+    "focused_passed": 52,
+    "report_regression_passed": 364,
+    "better_answer_regression_passed": 342,
+    "streaming_recovery_passed": 5
+  },
+  "invariants": [
+    "provider_better_answer_not_published",
+    "structure_template_uses_explicit_fact_placeholders",
+    "technical_points_derive_from_grounded_observations",
+    "example_rewrite_requires_same_question_candidate_answer_evidence",
+    "reference_evidence_cannot_support_candidate_experience_rewrite",
+    "principal_memory_markers_cannot_enter_example_rewrite"
+  ]
+}

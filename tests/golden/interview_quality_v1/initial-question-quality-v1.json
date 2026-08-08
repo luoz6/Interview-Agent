@@ -1,0 +1,28 @@
+{
+  "schema_version": "interview-quality-dataset-contract-v1",
+  "dataset_id": "initial-question-quality-v1",
+  "dataset_version": "initial-question-quality-v1",
+  "description": "Synthetic schema fixture for an initial technical question.",
+  "fixture_only": true,
+  "cases": [
+    {
+      "case_id": "initial-redis-cache-zh-dev-001",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "technical",
+      "difficulty": "intermediate",
+      "quality_label": "strong",
+      "partition": "dev",
+      "source_boundary": {"classification": "synthetic", "description": "Synthetic backend role and experience summary with no person or employer identity.", "contains_real_candidate_data": false, "contains_employer_confidential_data": false, "contains_principal_memory": false},
+      "input": {"job_description": "负责高并发服务的缓存一致性与故障恢复。", "resume_summary": "有合成的 Redis 缓存和数据库事务项目经验。", "focus": "technical_depth"},
+      "expectation": {"action": "accept_question", "score_range": null},
+      "must_have_evidence": ["问题同时关联缓存一致性和故障恢复"],
+      "forbidden_inference": ["不得推断候选人服务过任何真实公司"],
+      "annotation": {"annotator_id": "synthetic-fixture-author-v1", "reviewer_id": null, "review_status": "pending", "dispute_status": "none", "resolution": null},
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {"algorithm": "sha256-canonical-json-v1", "source_sha256": "92ee12bfdd59f95663a898487c6a741de3a09afed6d979d16fec0dc234d368d7", "content_sha256": "9b94f24e3b7f58d1dc7a355c71f5614a96c19e4464b091b6496d7b2358a98662"}
+    }
+  ]
+}

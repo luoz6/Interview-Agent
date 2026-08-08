@@ -29,7 +29,8 @@ def test_golden_dataset_cases(case: dict):
     assert feedback.references[0].chunk_id == case["expected_reference_chunk"]
     assert feedback.answer_state == expected_answer_state
     if expected_answer_state != "answered":
-        assert feedback.score == 0
+        assert feedback.score is None
+        assert feedback.evaluation_status == "not_evaluated"
     for term in case.get("required_rationale_terms", []):
         assert contains_term(feedback.rationale.lower(), term)
     for term in case.get("required_critique_terms", []):

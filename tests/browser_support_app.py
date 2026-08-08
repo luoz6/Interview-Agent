@@ -24,6 +24,8 @@ from app.services.prep import (
     PrepContext,
     PrepKnowledgeTopic,
     PrepQuestionHint,
+    bind_prepared_plan_revision,
+    validate_generation_configuration,
 )
 from app.services.prep_question_regeneration import PrepQuestionRegenerator
 from app.services.report import (
@@ -595,8 +597,17 @@ def prepare_browser_interview(
     job_description,
     resume_text,
     llm=None,
+    knowledge_store=None,
     execution_runner=None,
+    configuration=None,
+    allow_fallback=True,
 ):
+    del knowledge_store, allow_fallback
+    effective_configuration = (
+        validate_generation_configuration(configuration)
+        if configuration is not None
+        else None
+    )
     prep_run_id = f"browser-{uuid4().hex}"
     runner = execution_runner or AgentExecutionRunner()
     return runner.run(
@@ -606,11 +617,14 @@ def prepare_browser_interview(
             operation="generate_plan",
             phase="prep",
         ),
-        lambda: _build_browser_interview(
-            job_description,
-            resume_text,
-            llm=llm,
-            prep_run_id=prep_run_id,
+        lambda: bind_prepared_plan_revision(
+            _build_browser_interview(
+                job_description,
+                resume_text,
+                llm=llm,
+                prep_run_id=prep_run_id,
+            ),
+            effective_configuration,
         ),
         metadata=lambda plan: {
             "question_count": len(plan.questions),

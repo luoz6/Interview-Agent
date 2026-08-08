@@ -734,6 +734,355 @@ RUNTIME_SCHEMA_V15_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V15_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V16+ adds the interview-quality schema contract. Keep these registry changes
+# below the immutable V15 checksum boundary so V1-V15 remain byte-compatible.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_sessions"]
+    | frozenset({"plan_binding_json"})
+)
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.update(
+    {
+        "_generations": frozenset(
+            {
+                "generation_id",
+                "session_id",
+                "source_command_id",
+                "question_id",
+                "source_decision_id",
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+                "generation_prompt_version",
+                "generation_prompt_sha256",
+                "status",
+                "active_attempt",
+            }
+        ),
+        "_plan_sources": frozenset(
+            {
+                "source_id",
+                "plan_family_id",
+                "source_sha256",
+                "protected_payload",
+                "retention_policy",
+                "tombstoned_at",
+                "tombstone_reason",
+            }
+        ),
+        "_plan_source_refs": frozenset(
+            {"source_id", "owner_type", "owner_id", "created_at"}
+        ),
+        "_plan_revisions": frozenset(
+            {
+                "plan_revision_id",
+                "plan_family_id",
+                "revision",
+                "parent_revision_id",
+                "source_id",
+                "source_sha256",
+                "configuration_snapshot_json",
+                "plan_json",
+                "plan_sha256",
+                "generator_version",
+                "created_reason",
+                "audit_json",
+                "request_id",
+                "request_sha256",
+            }
+        ),
+        "_report_jobs": RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_report_jobs"]
+        | frozenset(
+            {
+                "job_id",
+                "session_id",
+                "job_kind",
+                "parent_job_id",
+                "source_report_id",
+                "activate_on_success",
+                "idempotency_key",
+                "fencing_version",
+                "report_id",
+                "created_at",
+            }
+        ),
+        "_report_artifacts": frozenset(
+            {
+                "report_id",
+                "session_id",
+                "revision",
+                "schema_version",
+                "payload_json",
+                "artifact_sha256",
+                "source_job_id",
+            }
+        ),
+        "_report_heads": frozenset(
+            {"session_id", "active_report_id", "latest_job_id", "updated_at"}
+        ),
+        "_followup_decisions": frozenset(
+            {
+                "decision_id",
+                "session_id",
+                "source_command_id",
+                "input_sha256",
+                "max_attempts",
+                "status",
+                "final_decision_json",
+                "decision_sha256",
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+            }
+        ),
+        "_decision_attempts": frozenset(
+            {
+                "attempt_id",
+                "decision_id",
+                "attempt_number",
+                "status",
+                "lease_owner",
+                "lease_token",
+                "lease_expires_at",
+                "fencing_version",
+                "duration_ms",
+                "input_tokens",
+                "output_tokens",
+                "cached_input_tokens",
+                "provider_response_id_sha256",
+                "provider_invocations",
+            }
+        ),
+    }
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX.update(
+    {
+        "_generations": (
+            frozenset({"unique", "session_id", "source_command_id"}),
+            frozenset({"unique", "source_decision_id", "where"}),
+        ),
+        "_plan_source_refs": (frozenset({"owner_type", "owner_id"}),),
+        "_plan_revisions": (
+            frozenset({"plan_family_id", "revision"}),
+            frozenset({"unique", "plan_family_id", "revision"}),
+            frozenset({"unique", "plan_family_id", "request_id", "where"}),
+        ),
+        "_report_jobs": RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX["_report_jobs"]
+        + (
+            frozenset({"unique", "session_id", "where", "queued", "running"}),
+            frozenset({"session_id", "created_at"}),
+        ),
+        "_report_artifacts": (
+            frozenset({"unique", "session_id", "revision"}),
+            frozenset({"unique", "source_job_id"}),
+        ),
+    }
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX["_decision_attempts"] = (
+    frozenset(
+        {
+            "duration_ms",
+            "input_tokens",
+            "output_tokens",
+            "provider_invocations",
+        }
+    ),
+    frozenset(
+        {
+            "cached_input_tokens",
+            "input_tokens",
+            "cached_input_tokens<=input_tokens",
+            "provider_response_id_sha256",
+            "provider_response_id_sha256~^[0-9a-f]{64}$",
+        }
+    ),
+)
+
+RUNTIME_SCHEMA_V16_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V15_CHECKSUM,
+        "interview_plan_revision": {
+            "schema_version": "interview-plan-v2",
+            "relations": [
+                "_plan_sources",
+                "_plan_source_refs",
+                "_plan_revisions",
+            ],
+            "immutability": "database-update-trigger-v1",
+            "source_storage": "family-single-copy-with-tombstone-v1",
+            "concurrency": "family-row-lock-and-expected-revision-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V16_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V16_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V17_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V16_CHECKSUM,
+        "session_plan_binding": {
+            "column": "_sessions.plan_binding_json",
+            "schema_version": "session-plan-binding-v1",
+            "legacy_origin": "legacy_session_snapshot",
+            "revision_origin": "plan_revision",
+            "snapshot_write": "atomic-with-session-row",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V17_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V17_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V18_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V17_CHECKSUM,
+        "report_artifacts": {
+            "schema_version": "report-artifact-v2",
+            "immutability": "database-update-trigger-v1",
+            "source_job_unique": True,
+            "session_revision_unique": True,
+        },
+        "report_heads": {
+            "active_report_id": "published-artifact-only",
+            "latest_job_id": "job-history-pointer",
+        },
+        "report_jobs": {
+            "session_id_unique": False,
+            "active_session_partial_unique": True,
+            "job_kinds": ["initial", "rescore"],
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V18_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V18_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V19_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V18_CHECKSUM,
+        "followup_decisions": {
+            "unique_command": ["session_id", "source_command_id"],
+            "final_payload": "immutable-after-completion",
+            "max_attempts": "frozen-at-prepare",
+        },
+        "decision_attempts": {
+            "lease": True,
+            "fencing": True,
+            "bounded_attempts": True,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V19_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V19_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V20_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V19_CHECKSUM,
+        "decision_attempt_observability": {
+            "duration_ms": "nullable-non-negative",
+            "input_tokens": "nullable-non-negative",
+            "output_tokens": "nullable-non-negative",
+            "provider_invocations": "zero-or-one-per-attempt",
+            "raw_provider_error_persisted": False,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V20_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V20_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V21_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V20_CHECKSUM,
+        "decision_generation_link": {
+            "generation_column": "source_decision_id",
+            "decision_cardinality": "zero-or-one-generation-per-decision",
+            "command_identity_preserved": True,
+            "foreign_key": "followup_decisions.decision_id",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V21_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V21_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V22_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V21_CHECKSUM,
+        "followup_prompt_lineage": {
+            "decision_artifact": [
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+            ],
+            "generation_artifact": [
+                "decision_prompt_version",
+                "decision_prompt_sha256",
+                "generation_prompt_version",
+                "generation_prompt_sha256",
+            ],
+            "prompt_roles": "decision-and-generation-independent",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V22_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V22_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V23_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V22_CHECKSUM,
+        "report_history_session_deletion": {
+            "artifact_delete_authorization": "owning-session-deleting-only",
+            "artifact_update_authorization": "never",
+            "delete_order": ["report_heads", "report_artifacts", "report_jobs"],
+            "enqueue_publish_session_guard": "active-session-row-lock",
+            "retry_semantics": "idempotent",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V23_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V23_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_SCHEMA_V24_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V23_CHECKSUM,
+        "decision_attempt_usage_trace": {
+            "cached_input_tokens": "nullable-non-negative-not-greater-than-input",
+            "provider_response_id_sha256": "nullable-lowercase-sha256",
+            "raw_provider_response_id_persisted": False,
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V24_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V24_MANIFEST.encode("utf-8")
+).hexdigest()
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -808,6 +1157,51 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="frontend_product_experience_v15",
         checksum=RUNTIME_SCHEMA_V15_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="interview_plan_revision_v2",
+        checksum=RUNTIME_SCHEMA_V16_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="session_plan_binding_v1",
+        checksum=RUNTIME_SCHEMA_V17_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="report_artifact_v2",
+        checksum=RUNTIME_SCHEMA_V18_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_v1",
+        checksum=RUNTIME_SCHEMA_V19_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_attempt_observability_v2",
+        checksum=RUNTIME_SCHEMA_V20_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_generation_link_v1",
+        checksum=RUNTIME_SCHEMA_V21_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_prompt_lineage_v1",
+        checksum=RUNTIME_SCHEMA_V22_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="report_history_session_deletion_v1",
+        checksum=RUNTIME_SCHEMA_V23_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="followup_decision_attempt_usage_trace_v3",
+        checksum=RUNTIME_SCHEMA_V24_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

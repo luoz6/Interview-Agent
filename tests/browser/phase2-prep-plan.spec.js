@@ -15,7 +15,7 @@ async function fillSources(page, jd = jobDescription, resume = resumeText) {
 async function generatePlan(page, jd = jobDescription) {
   await page.goto("/prep");
   await fillSources(page, jd);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.locator(".start-plan-editor")).toBeVisible();
   await expect(page.locator(".start-plan-question[data-enabled='true']")).toHaveCount(5);
 }
@@ -49,11 +49,11 @@ test("preparation uses one pane state model and makes the plan authoritative", a
   await expect(page.locator(".start-prep-status-bar")).toBeVisible();
 
   await fillSources(page);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.getByRole("heading", { name: "检查面试蓝图" })).toBeVisible();
   await expect(page.locator(".start-plan-editor")).toBeVisible();
   await expect(page.locator(".start-prep-launch-bar")).toContainText("版本 1");
-  await expect(page.getByRole("button", { name: "确认版本并开始面试" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ })).toBeVisible();
 });
 
 test("plan editor presents a compact ledger with integrated metadata and controls", async ({ page }) => {
@@ -250,7 +250,7 @@ test("retryable plan generation exposes one page-owned retry action", async ({ p
 
   await page.goto("/prep");
   await fillSources(page);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.getByRole("button", { name: "重试生成" })).toBeVisible();
   await page.getByRole("button", { name: "重试生成" }).click();
   await expect(page.locator(".start-plan-editor")).toBeVisible();
@@ -386,7 +386,7 @@ test("prep geometry is bounded at the frozen Phase 2 widths", async ({ page }, t
 test("prep motion and focus honor accessibility preferences", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/prep");
-  const action = page.getByRole("button", { name: /生成并检查面试计划/ });
+  const action = page.getByRole("button", { name: /生成(?:并检查)?面试计划/ });
   await action.focus();
   await expect(action).toBeFocused();
   const state = await action.evaluate((element) => ({

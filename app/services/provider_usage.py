@@ -12,6 +12,11 @@ _provider_context_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
     "provider_context_metadata",
     default=None,
 )
+_REQUIRED_USAGE_KEYS = (
+    "provider_input_tokens",
+    "provider_output_tokens",
+    "provider_cached_input_tokens",
+)
 
 
 def reset_provider_context_metadata() -> None:
@@ -48,14 +53,44 @@ def begin_provider_attempt() -> None:
     _provider_context_metadata.set(metadata)
 
 
+def publish_plan_context_selection(
+    *,
+    candidate_count: int,
+    retained_count: int,
+) -> None:
+    if candidate_count < 0 or retained_count < 0:
+        raise ValueError("plan context counts must be non-negative")
+    if retained_count > candidate_count:
+        raise ValueError("retained plan context cannot exceed candidates")
+    metadata = dict(_provider_context_metadata.get() or {})
+    metadata["plan_knowledge_candidate_count"] = candidate_count
+    metadata["plan_knowledge_retained_count"] = retained_count
+    _provider_context_metadata.set(metadata)
+
+
 def publish_provider_response(response: Any) -> None:
     metadata = dict(_provider_context_metadata.get() or {})
-    usage = _extract_usage(response)
+    response_metadata = getattr(response, "response_metadata", None)
+    if isinstance(response_metadata, Mapping):
+        model = response_metadata.get("model_name") or response_metadata.get("model")
+        if isinstance(model, str) and model:
+            metadata["provider_model"] = model
+    usage = extract_provider_usage(response)
     if usage is None:
-        metadata.setdefault("provider_usage_available", False)
+        metadata["provider_unmetered_attempt_count"] = int(
+            metadata.get("provider_unmetered_attempt_count", 0)
+        ) + 1
+        metadata["provider_usage_available"] = False
         _provider_context_metadata.set(metadata)
         return
-    metadata["provider_usage_available"] = True
+    metadata["provider_metered_attempt_count"] = int(
+        metadata.get("provider_metered_attempt_count", 0)
+    ) + 1
+    metadata["provider_usage_available"] = (
+        int(metadata.get("provider_unmetered_attempt_count", 0)) == 0
+        and int(metadata.get("provider_metered_attempt_count", 0))
+        == int(metadata.get("provider_attempt_count", 0))
+    )
     for key, value in usage.items():
         metadata[key] = int(metadata.get(key, 0)) + value
     estimated = metadata.get("estimated_input_tokens")
@@ -85,20 +120,23 @@ def consume_provider_context_metadata() -> dict[str, Any]:
     return metadata
 
 
-def _extract_usage(response: Any) -> dict[str, int] | None:
+def extract_provider_usage(response: Any) -> dict[str, int] | None:
+    """Normalize complete Provider usage from supported response metadata shapes."""
+
+    candidates: list[Mapping[str, Any]] = []
     usage_metadata = getattr(response, "usage_metadata", None)
     if isinstance(usage_metadata, Mapping):
-        normalized = _normalize_usage(usage_metadata)
-        if normalized:
-            return normalized
+        candidates.append(usage_metadata)
     response_metadata = getattr(response, "response_metadata", None)
     if isinstance(response_metadata, Mapping):
         for key in ("token_usage", "usage"):
             candidate = response_metadata.get(key)
             if isinstance(candidate, Mapping):
-                normalized = _normalize_usage(candidate)
-                if normalized:
-                    return normalized
+                candidates.append(candidate)
+    for candidate in candidates:
+        normalized = _normalize_usage(candidate)
+        if all(key in normalized for key in _REQUIRED_USAGE_KEYS):
+            return normalized
     return None
 
 
@@ -115,6 +153,21 @@ def _normalize_usage(usage: Mapping[str, Any]) -> dict[str, int]:
             if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                 result[target] = value
                 break
+    cached_sources = (
+        (usage, ("cached_input_tokens", "prompt_cache_hit_tokens")),
+        (usage.get("input_token_details"), ("cache_read", "cached_tokens")),
+        (usage.get("prompt_tokens_details"), ("cached_tokens",)),
+    )
+    for container, sources in cached_sources:
+        if not isinstance(container, Mapping):
+            continue
+        for source in sources:
+            value = container.get(source)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                result["provider_cached_input_tokens"] = value
+                break
+        if "provider_cached_input_tokens" in result:
+            break
     if (
         "provider_total_tokens" not in result
         and "provider_input_tokens" in result

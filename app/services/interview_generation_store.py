@@ -27,6 +27,10 @@ class GenerationLeaseConflict(RuntimeError):
     pass
 
 
+class GenerationInputConflict(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class InterviewGeneration:
     generation_id: str
@@ -36,6 +40,11 @@ class InterviewGeneration:
     status: str
     active_attempt: int
     final_text: str | None
+    source_decision_id: str | None = None
+    decision_prompt_version: str | None = None
+    decision_prompt_sha256: str | None = None
+    generation_prompt_version: str | None = None
+    generation_prompt_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,7 @@ class PostgresInterviewGenerationStore:
         self.table_prefix = table_prefix
         self.sessions_table = f"{table_prefix}_sessions"
         self.generations_table = f"{table_prefix}_generations"
+        self.decisions_table = f"{table_prefix}_followup_decisions"
         self.attempts_table = f"{table_prefix}_generation_attempts"
         self.chunks_table = f"{table_prefix}_generation_chunks"
         self.schema_mode = resolve_schema_mode(
@@ -104,6 +114,11 @@ class PostgresInterviewGenerationStore:
         session_id: str,
         source_command_id: str,
         question_id: str,
+        source_decision_id: str | None = None,
+        decision_prompt_version: str | None = None,
+        decision_prompt_sha256: str | None = None,
+        generation_prompt_version: str | None = None,
+        generation_prompt_sha256: str | None = None,
     ) -> InterviewGeneration:
         generation_id = "generation-" + hashlib.sha256(
             f"{session_id}:{source_command_id}".encode("utf-8")
@@ -115,19 +130,38 @@ class PostgresInterviewGenerationStore:
                         """
                         INSERT INTO {generations} (
                             generation_id, session_id, source_command_id,
-                            question_id, status, active_attempt
+                            question_id, status, active_attempt,
+                            source_decision_id, decision_prompt_version,
+                            decision_prompt_sha256, generation_prompt_version,
+                            generation_prompt_sha256
                         )
-                        VALUES (%s, %s, %s, %s, 'pending', 1)
+                        VALUES (
+                            %s, %s, %s, %s, 'pending', 1, %s::uuid,
+                            %s, %s, %s, %s
+                        )
                         ON CONFLICT (session_id, source_command_id) DO NOTHING
                         """
                     ),
-                    (generation_id, session_id, source_command_id, question_id),
+                    (
+                        generation_id,
+                        session_id,
+                        source_command_id,
+                        question_id,
+                        source_decision_id,
+                        decision_prompt_version,
+                        decision_prompt_sha256,
+                        generation_prompt_version,
+                        generation_prompt_sha256,
+                    ),
                 )
                 cursor.execute(
                     self._sql(
                         """
                         SELECT generation_id, session_id, source_command_id,
-                               question_id, status, active_attempt, final_text
+                               question_id, status, active_attempt, final_text,
+                               source_decision_id, decision_prompt_version,
+                               decision_prompt_sha256, generation_prompt_version,
+                               generation_prompt_sha256
                         FROM {generations}
                         WHERE session_id = %s AND source_command_id = %s
                         """
@@ -135,6 +169,21 @@ class PostgresInterviewGenerationStore:
                     (session_id, source_command_id),
                 )
                 row = cursor.fetchone()
+                stored_decision_id = str(row[7]) if row[7] is not None else None
+                expected_prompt_metadata = (
+                    decision_prompt_version,
+                    decision_prompt_sha256,
+                    generation_prompt_version,
+                    generation_prompt_sha256,
+                )
+                if (
+                    row[3] != question_id
+                    or stored_decision_id != source_decision_id
+                    or tuple(row[8:12]) != expected_prompt_metadata
+                ):
+                    raise GenerationInputConflict(
+                        "source command generation input conflicts"
+                    )
                 cursor.execute(
                     self._sql(
                         """
@@ -147,7 +196,7 @@ class PostgresInterviewGenerationStore:
                     ),
                     (row[0],),
                 )
-        return InterviewGeneration(*row)
+        return self._generation_from_row(row)
 
     def start_attempt(
         self,
@@ -609,7 +658,10 @@ class PostgresInterviewGenerationStore:
                     self._sql(
                         """
                         SELECT generation_id, session_id, source_command_id,
-                               question_id, status, active_attempt, final_text
+                               question_id, status, active_attempt, final_text,
+                               source_decision_id, decision_prompt_version,
+                               decision_prompt_sha256, generation_prompt_version,
+                               generation_prompt_sha256
                         FROM {generations}
                         WHERE session_id = %s AND source_command_id = %s
                         """
@@ -617,7 +669,7 @@ class PostgresInterviewGenerationStore:
                     (session_id, source_command_id),
                 )
                 row = cursor.fetchone()
-        return InterviewGeneration(*row) if row is not None else None
+        return self._generation_from_row(row) if row is not None else None
 
     def get_by_id(self, generation_id: str) -> InterviewGeneration:
         with self._connection() as connection:
@@ -626,7 +678,10 @@ class PostgresInterviewGenerationStore:
                     self._sql(
                         """
                         SELECT generation_id, session_id, source_command_id,
-                               question_id, status, active_attempt, final_text
+                               question_id, status, active_attempt, final_text,
+                               source_decision_id, decision_prompt_version,
+                               decision_prompt_sha256, generation_prompt_version,
+                               generation_prompt_sha256
                         FROM {generations}
                         WHERE generation_id = %s
                         """
@@ -636,7 +691,24 @@ class PostgresInterviewGenerationStore:
                 row = cursor.fetchone()
         if row is None:
             raise ValueError("generation not found")
-        return InterviewGeneration(*row)
+        return self._generation_from_row(row)
+
+    @staticmethod
+    def _generation_from_row(row) -> InterviewGeneration:
+        return InterviewGeneration(
+            generation_id=row[0],
+            session_id=row[1],
+            source_command_id=row[2],
+            question_id=row[3],
+            status=row[4],
+            active_attempt=int(row[5]),
+            final_text=row[6],
+            source_decision_id=str(row[7]) if row[7] is not None else None,
+            decision_prompt_version=row[8],
+            decision_prompt_sha256=row[9],
+            generation_prompt_version=row[10],
+            generation_prompt_sha256=row[11],
+        )
 
     def cleanup_completed_chunks(self, *, older_than: datetime) -> int:
         with self._connection() as connection:
@@ -779,6 +851,11 @@ class PostgresInterviewGenerationStore:
                             ),
                             active_attempt INTEGER NOT NULL DEFAULT 1,
                             final_text TEXT,
+                            source_decision_id UUID,
+                            decision_prompt_version TEXT,
+                            decision_prompt_sha256 TEXT,
+                            generation_prompt_version TEXT,
+                            generation_prompt_sha256 TEXT,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             completed_at TIMESTAMPTZ,
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -787,6 +864,69 @@ class PostgresInterviewGenerationStore:
                         """
                     )
                 )
+                cursor.execute(
+                    self._sql(
+                        """
+                        ALTER TABLE {generations}
+                        ADD COLUMN IF NOT EXISTS source_decision_id UUID
+                        """
+                    )
+                )
+                for prompt_column in (
+                    "decision_prompt_version TEXT",
+                    "decision_prompt_sha256 TEXT",
+                    "generation_prompt_version TEXT",
+                    "generation_prompt_sha256 TEXT",
+                ):
+                    cursor.execute(
+                        self._sql(
+                            "ALTER TABLE {generations} ADD COLUMN IF NOT EXISTS "
+                            + prompt_column
+                        )
+                    )
+                source_decision_index = runtime_schema_identifier(
+                    self.table_prefix, "generations_source_decision_unique"
+                )
+                from psycopg2 import sql
+
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS {index} "
+                        "ON {generations}(source_decision_id) "
+                        "WHERE source_decision_id IS NOT NULL"
+                    ).format(
+                        index=sql.Identifier(source_decision_index),
+                        generations=sql.Identifier(self.generations_table),
+                    )
+                )
+                cursor.execute(
+                    "SELECT to_regclass(%s)",
+                    (f"public.{self.decisions_table}",),
+                )
+                if cursor.fetchone()[0] is not None:
+                    decision_fk = runtime_schema_identifier(
+                        self.table_prefix, "generations_source_decision_fk"
+                    )
+                    cursor.execute(
+                        "SELECT 1 FROM pg_constraint "
+                        "WHERE conrelid=to_regclass(%s) AND conname=%s",
+                        (f"public.{self.generations_table}", decision_fk),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            sql.SQL(
+                                "ALTER TABLE {generations} "
+                                "ADD CONSTRAINT {constraint} "
+                                "FOREIGN KEY (source_decision_id) "
+                                "REFERENCES {decisions}(decision_id)"
+                            ).format(
+                                generations=sql.Identifier(
+                                    self.generations_table
+                                ),
+                                constraint=sql.Identifier(decision_fk),
+                                decisions=sql.Identifier(self.decisions_table),
+                            )
+                        )
                 cursor.execute(
                     self._sql(
                         """
@@ -856,8 +996,6 @@ class PostgresInterviewGenerationStore:
                         """
                     )
                 )
-                from psycopg2 import sql
-
                 # UNIQUE(session_id, source_command_id) and the chunks primary
                 # key already own equivalent B-tree indexes. Remove the older
                 # duplicate indexes from existing runtime schemas as well as
@@ -887,6 +1025,7 @@ class PostgresInterviewGenerationStore:
             generations=sql.Identifier(self.generations_table),
             attempts=sql.Identifier(self.attempts_table),
             chunks=sql.Identifier(self.chunks_table),
+            decisions=sql.Identifier(self.decisions_table),
         )
 
 

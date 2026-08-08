@@ -1,0 +1,28 @@
+{
+  "schema_version": "interview-quality-dataset-contract-v1",
+  "dataset_id": "followup-decision-quality-v1",
+  "dataset_version": "followup-decision-quality-v1",
+  "description": "Synthetic schema fixture for a follow-up decision.",
+  "fixture_only": true,
+  "cases": [
+    {
+      "case_id": "followup-transaction-gap-zh-dev-001",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "followup_decision",
+      "question_type": "technical",
+      "difficulty": "intermediate",
+      "quality_label": "partial",
+      "partition": "dev",
+      "source_boundary": {"classification": "synthetic", "description": "Synthetic question and answer about transaction boundaries.", "contains_real_candidate_data": false, "contains_employer_confidential_data": false, "contains_principal_memory": false},
+      "input": {"question": "缓存删除失败时如何处理？", "latest_answer": "我会在数据库提交后删除缓存。", "followup_count_before": 0},
+      "expectation": {"action": "follow_up", "score_range": null},
+      "must_have_evidence": ["回答没有说明删除失败后的补偿机制"],
+      "forbidden_inference": ["不得声称候选人已经实现消息补偿"],
+      "annotation": {"annotator_id": "synthetic-fixture-author-v1", "reviewer_id": null, "review_status": "pending", "dispute_status": "none", "resolution": null},
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {"algorithm": "sha256-canonical-json-v1", "source_sha256": "87d98ead6971b456f9b827032260e849ae69dfc91c3b8b1fa6012d6e33616c49", "content_sha256": "7dba12e664570fe4da6e27c0624ef2a86f9f4c2b85e57fa42000cf53952c4329"}
+    }
+  ]
+}

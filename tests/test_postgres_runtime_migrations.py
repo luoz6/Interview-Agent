@@ -17,9 +17,83 @@ from app.services.postgres_schema_contract import required_columns_for_relation
 from app.services.embedding_providers import DisabledEmbeddingProvider
 from app.services.postgres_identifiers import runtime_schema_identifier
 from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.services.postgres_session import PostgresInterviewSessionStore
+from app.services.prep import InterviewPlan, InterviewQuestion
 from tests.postgres_support import make_runtime_table_prefix
 from tests.test_postgres_principal_memory import NOW, make_active_language
 from scripts.postgres_runtime_migrate import main
+
+
+@pytest.mark.pg_runtime
+def test_session_plan_binding_backfill_marks_legacy_snapshot(postgres_dsn):
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = make_runtime_table_prefix("plan_binding")
+    store = PostgresInterviewSessionStore(
+        dsn=postgres_dsn,
+        table_prefix=prefix,
+        schema_mode="migrate",
+    )
+    turn = store.start(
+        InterviewPlan(
+            title="Legacy plan",
+            questions=[
+                InterviewQuestion(
+                    id="q1",
+                    kind="technical",
+                    prompt="Explain caching.",
+                    focus="cache",
+                )
+            ],
+        ),
+        job_description="Backend role",
+        resume_text="Built APIs",
+        job_tags=["backend"],
+    )
+    try:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {sessions} SET plan_binding_json=NULL WHERE session_id=%s"
+                    ).format(sessions=sql.Identifier(store.sessions_table)),
+                    (turn.session_id,),
+                )
+            migrations._upgrade_session_plan_bindings(
+                connection,
+                table_prefix=prefix,
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT plan_binding_json FROM {sessions} WHERE session_id=%s"
+                    ).format(sessions=sql.Identifier(store.sessions_table)),
+                    (turn.session_id,),
+                )
+                binding = cursor.fetchone()[0]
+
+        assert binding["plan_origin"] == "legacy_session_snapshot"
+        assert binding["plan_revision_id"] is None
+        assert binding["plan_snapshot"]["title"] == "Legacy plan"
+        assert len(binding["plan_sha256"]) == 64
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                for table in (
+                    store.question_evaluations_table,
+                    store.reports_table,
+                    store.messages_table,
+                    store.sessions_table,
+                    f"{prefix}_runtime_outbox",
+                    f"{prefix}_runtime_event_receipts",
+                    f"{prefix}_agent_runs",
+                ):
+                    cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                            table=sql.Identifier(table)
+                        )
+                    )
 
 
 class FakeCursor:
@@ -83,6 +157,103 @@ class FakeConnection:
         self.closed = True
 
 
+class PersistentMigrationDatabase:
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.connections = []
+
+    def connect(self, dsn):
+        connection = PersistentMigrationConnection(self)
+        self.connections.append(connection)
+        return connection
+
+
+class PersistentMigrationConnection:
+    def __init__(self, database):
+        self.database = database
+        self.calls = []
+        self.lock_calls = 0
+        self.autocommit = True
+        self.closed = False
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self):
+        return PersistentMigrationCursor(self)
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+    def close(self):
+        self.closed = True
+
+
+class PersistentMigrationCursor:
+    def __init__(self, connection):
+        self.connection = connection
+        self.row = None
+        self.result_rows = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, statement, params=None):
+        statement_text = str(statement)
+        self.connection.calls.append((statement, params))
+        self.row = None
+        self.result_rows = []
+        if "current_schema" in statement_text:
+            self.row = ("public",)
+        elif (
+            "SELECT checksum FROM" in statement_text
+            and params == (migrations.RUNTIME_MIGRATION_ID,)
+        ):
+            matching = next(
+                (
+                    row
+                    for row in self.connection.database.rows
+                    if row[0] == migrations.RUNTIME_MIGRATION_ID
+                ),
+                None,
+            )
+            self.row = None if matching is None else (matching[1],)
+        elif "SELECT migration_id, checksum, transaction_mode" in statement_text:
+            requested_ids = set(params[0])
+            self.result_rows = [
+                row
+                for row in self.connection.database.rows
+                if row[0] in requested_ids
+            ]
+        elif (
+            "INSERT INTO" in statement_text
+            and params is not None
+            and len(params) == 3
+            and params[0]
+            in {spec.migration_id for spec in migrations.RUNTIME_MIGRATIONS}
+        ):
+            if not any(
+                row[0] == params[0] for row in self.connection.database.rows
+            ):
+                self.connection.database.rows.append(tuple(params))
+        elif params and len(params) == 1 and isinstance(params[0], int):
+            self.connection.lock_calls += 1
+            self.row = (
+                (True,) if self.connection.lock_calls > 1 else None
+            )
+
+    def fetchone(self):
+        return self.row
+
+    def fetchall(self):
+        return self.result_rows
+
+
 def _patch_schema_owners(monkeypatch, seen):
     def owner(**kwargs):
         provider = kwargs["connection_provider"]
@@ -123,6 +294,192 @@ def _patch_schema_owners(monkeypatch, seen):
             ("exclusive_scope_upgrade", connection)
         ),
     )
+
+
+def _patch_full_schema_owners(monkeypatch, seen):
+    def owner(label):
+        def build(**kwargs):
+            provider = kwargs["connection_provider"]
+            assert isinstance(provider, BorrowedMigrationConnectionProvider)
+            seen.append(label)
+            return SimpleNamespace()
+
+        return build
+
+    for attribute in (
+        "PostgresInterviewSessionStore",
+        "PostgresInterviewWorkflowStore",
+        "PostgresReportJobStore",
+        "PostgresReviewWorkflowStore",
+        "PostgresRuntimeSignalStore",
+        "PostgresContextArtifactStore",
+        "PostgresMemoryMetricStore",
+        "PostgresPrincipalMemoryConsentStore",
+        "PostgresPrincipalMemoryFactStore",
+        "PostgresPrincipalMemoryControlStore",
+        "PostgresPrincipalMemoryExportStore",
+        "PostgresPrincipalMemoryDeletionTombstoneStore",
+        "PostgresPrincipalMemorySafeRefStore",
+        "PostgresPrincipalMemoryLedgerWatermarkStore",
+    ):
+        monkeypatch.setattr(migrations, attribute, owner(attribute))
+
+    monkeypatch.setattr(
+        migrations,
+        "PostgresInterviewGenerationStore",
+        owner("PostgresInterviewGenerationStore"),
+    )
+    monkeypatch.setattr(
+        migrations,
+        "PgVectorKnowledgeStore",
+        lambda **kwargs: SimpleNamespace(ensure_schema=lambda: seen.append("vector")),
+    )
+    for attribute in (
+        "_upgrade_principal_memory_exclusive_scope",
+        "_upgrade_session_plan_bindings",
+        "_upgrade_interview_workflow_engine_constraint",
+        "_upgrade_interview_memory_policy_constraint",
+    ):
+        monkeypatch.setattr(
+            migrations,
+            attribute,
+            lambda connection, *, table_prefix, _attribute=attribute: seen.append(
+                _attribute
+            ),
+        )
+
+    local_owners = (
+        ("app.services.postgres_question_memory_index", "PostgresQuestionMemoryIndexStore"),
+        ("app.services.postgres_session_deletion", "PostgresSessionDeletionJobStore"),
+        (
+            "app.services.postgres_session_deletion_tombstones",
+            "PostgresSessionDeletionTombstoneStore",
+        ),
+        ("app.services.postgres_draft_store", "PostgresDraftStore"),
+        ("app.services.postgres_prep_plan_store", "PostgresPrepPlanStore"),
+        (
+            "app.services.postgres_interview_launch_repository",
+            "PostgresInterviewLaunchRepository",
+        ),
+        (
+            "app.services.postgres_report_artifact_store",
+            "PostgresReportArtifactStore",
+        ),
+        ("app.services.postgres_decision_store", "PostgresDecisionStore"),
+        (
+            "app.services.postgres_plan_revision_store",
+            "PostgresInterviewPlanRevisionStore",
+        ),
+    )
+    for module_name, attribute in local_owners:
+        monkeypatch.setattr(f"{module_name}.{attribute}", owner(attribute))
+
+
+def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
+    database = PersistentMigrationDatabase([])
+    schema_owners = []
+    _patch_full_schema_owners(monkeypatch, schema_owners)
+    monkeypatch.setattr(migrations, "_setup_langgraph_checkpointer", lambda dsn: None)
+
+    result = migrate_postgres_runtime(
+        dsn="private-dsn",
+        table_prefix="test_runtime",
+        pgvector_table="knowledge_chunks",
+        embedding_provider=object(),
+        connect=database.connect,
+        run_checkpointer_setup=False,
+    )
+
+    assert result.applied is True
+    assert database.rows == [
+        (spec.migration_id, spec.checksum, spec.transaction_mode)
+        for spec in RUNTIME_MIGRATIONS
+    ]
+    assert len(database.rows) == 24
+    assert len({row[0] for row in database.rows}) == 24
+    assert {
+        "PostgresInterviewPlanRevisionStore",
+        "PostgresReportArtifactStore",
+        "PostgresDecisionStore",
+        "PostgresInterviewGenerationStore",
+        "_upgrade_session_plan_bindings",
+    }.issubset(schema_owners)
+
+
+def test_v15_upgrade_preserves_history_and_appends_v16_through_v24(monkeypatch):
+    expected_context_history = (
+        ("stage48_runtime_schema_v1", "84b2fae3965237b69fb98c8f72c97f9e572c8bf09d93321d91b909cd307fd5b1"),
+        ("stage48_runtime_schema_v2_contract", "6602195b698364d335b207d783fefd260d2757e9b8ef79ade84d705bd23d9185"),
+        ("stage50_context_artifacts_and_interview_v2", "6650d4055da546ed273663fa14e694c182087a3668161055085ae097975dd8b4"),
+        ("memory_session_policy_v1", "f0ce85d19bc1ded2c9568af7a83949855de53ea6a68080798033af2357abb92a"),
+        ("question_memory_index_v1", "a08664e58a20c94b0fcad29bad8edd662d0eebc645006d58da4838974d58287c"),
+        ("session_deletion_v1", "b95dc781234f4e9403d1b296515b9ccecd052773eb334304e403c650a7a76363"),
+        ("session_deletion_tombstone_v1", "95854e4b64060dff1df149a14e6bfd976bc3e10f2eb8b739e79c25ed45cd9594"),
+        ("memory_metric_bucket_v1", "b28ed7fc4c2c1a13282e72aa8ba84859682b909e0f4a89587d7612c9bf10bd62"),
+        ("principal_memory_v1", "0d13632d37bb1b9e7cfa6453ecbef5e6d54fb9bb16c8fdb4d4a49c0fc523e90e"),
+        ("report_job_heartbeat_v1", "923d4fd88b9538233d80075bbb1ba9e453893814fe63fd463fa5ed7c6d18e974"),
+        ("principal_memory_local_rights_v1", "61c8036ae35e1fbf028096843072a4895cfee6d156794078df3da42626221fad"),
+        ("principal_memory_integrity_v2", "57b3795ff43fc771dbd5ec1297ea8e6949ef1c285ab52489d4dfc81def8b1009"),
+        ("principal_memory_exclusive_scope_v3", "a15edf0da09848d0732a8cafacb02a63391cc38c4a3abb8b3a540a3c2231fa0c"),
+        ("principal_memory_ledger_watermark_v4", "e6f4844bbb88e165fb1b05347c27d1fc47ef0242fefa38560ac69e8994ac5b98"),
+        ("frontend_product_experience_v15", "e611aad12ce1929d323249c5adb2c90b33a057bc313fd834d7fbf3fcf95cc52e"),
+    )
+    initial_rows = [
+        (migration_id, checksum, RUNTIME_MIGRATIONS[index].transaction_mode)
+        for index, (migration_id, checksum) in enumerate(expected_context_history)
+    ]
+    assert [
+        (spec.migration_id, spec.checksum)
+        for spec in RUNTIME_MIGRATIONS[:15]
+    ] == list(expected_context_history)
+
+    database = PersistentMigrationDatabase(initial_rows)
+    schema_owners = []
+    _patch_full_schema_owners(monkeypatch, schema_owners)
+    monkeypatch.setattr(migrations, "_setup_langgraph_checkpointer", lambda dsn: None)
+
+    first = migrate_postgres_runtime(
+        dsn="private-dsn",
+        table_prefix="test_runtime",
+        pgvector_table="knowledge_chunks",
+        embedding_provider=object(),
+        connect=database.connect,
+        run_checkpointer_setup=False,
+    )
+
+    expected_rows = [
+        (spec.migration_id, spec.checksum, spec.transaction_mode)
+        for spec in RUNTIME_MIGRATIONS
+    ]
+    assert first.applied is True
+    assert database.rows[:15] == initial_rows
+    assert database.rows == expected_rows
+    assert [row[0] for row in database.rows[15:]] == [
+        spec.migration_id for spec in RUNTIME_MIGRATIONS[15:]
+    ]
+    assert {
+        "PostgresInterviewPlanRevisionStore",
+        "PostgresReportArtifactStore",
+        "PostgresDecisionStore",
+        "PostgresInterviewGenerationStore",
+        "_upgrade_session_plan_bindings",
+    }.issubset(schema_owners)
+
+    owner_calls_after_first = list(schema_owners)
+    second = migrate_postgres_runtime(
+        dsn="private-dsn",
+        table_prefix="test_runtime",
+        pgvector_table="knowledge_chunks",
+        embedding_provider=object(),
+        connect=database.connect,
+        run_checkpointer_setup=False,
+    )
+
+    assert second.applied is False
+    assert database.rows == expected_rows
+    assert schema_owners == owner_calls_after_first
+    assert len(database.connections) == 2
+    assert all(connection.closed for connection in database.connections)
 
 
 def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
@@ -371,6 +728,35 @@ def test_ledger_watermark_contract_owns_columns_and_database_checks():
     assert any("schema_version" in tokens for tokens in checks)
 
 
+def test_decision_attempt_contract_requires_usage_and_trace_checks():
+    from app.services.postgres_schema_contract import (
+        required_check_tokens_for_relation,
+        required_columns_for_relation,
+    )
+
+    relation = "interview_decision_attempts"
+    assert {
+        "cached_input_tokens",
+        "provider_response_id_sha256",
+    }.issubset(required_columns_for_relation(relation))
+    checks = required_check_tokens_for_relation(relation)
+    assert any(
+        {"duration_ms", "input_tokens", "output_tokens", "provider_invocations"}
+        .issubset(tokens)
+        for tokens in checks
+    )
+    assert any(
+        {
+            "cached_input_tokens",
+            "input_tokens",
+            "cached_input_tokens<=input_tokens",
+            "provider_response_id_sha256",
+            "provider_response_id_sha256~^[0-9a-f]{64}$",
+        }.issubset(tokens)
+        for tokens in checks
+    )
+
+
 def test_schema_validation_rejects_missing_latest_migration_row():
     table = "test_schema_migrations"
     columns = [
@@ -406,6 +792,7 @@ def test_schema_validation_accepts_latest_migration_contract():
 def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
     import psycopg2
     from psycopg2 import sql
+    from app.services.postgres_decision_store import PostgresDecisionStore
 
     prefix = make_runtime_table_prefix("report_heartbeat")
     vector = make_runtime_table_prefix("report_vector")
@@ -444,6 +831,71 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
                 columns = {row[0] for row in cursor.fetchall()}
                 cursor.execute(
                     """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_generations",),
+                )
+                generation_columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_followup_decisions",),
+                )
+                decision_columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = %s
+                    """,
+                    (f"{prefix}_decision_attempts",),
+                )
+                decision_attempt_columns = {row[0] for row in cursor.fetchall()}
+                cursor.execute(
+                    """
+                    SELECT conname, pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid = to_regclass(%s)
+                      AND contype = 'c'
+                    """,
+                    (f"public.{prefix}_decision_attempts",),
+                )
+                decision_attempt_checks = {
+                    row[0]: row[1].casefold() for row in cursor.fetchall()
+                }
+                cursor.execute(
+                    """
+                    SELECT pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid = to_regclass(%s)
+                    """,
+                    (f"public.{prefix}_generations",),
+                )
+                generation_constraints = "\n".join(
+                    row[0].casefold() for row in cursor.fetchall()
+                )
+                cursor.execute(
+                    """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE schemaname = current_schema()
+                      AND tablename = %s
+                    """,
+                    (f"{prefix}_generations",),
+                )
+                generation_indexes = "\n".join(
+                    row[0].casefold() for row in cursor.fetchall()
+                )
+                cursor.execute(
+                    """
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema = current_schema()
@@ -461,9 +913,131 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "frontend_product_experience_v15"
+        assert first.migration_id == "followup_decision_attempt_usage_trace_v3"
+        assert any(
+            spec.migration_id == "frontend_product_experience_v15"
+            for spec in RUNTIME_MIGRATIONS
+        )
         assert "heartbeat_at" in columns
         assert "lease_expires_at" in columns
+        assert "source_decision_id" in generation_columns
+        assert {
+            "decision_prompt_version",
+            "decision_prompt_sha256",
+            "generation_prompt_version",
+            "generation_prompt_sha256",
+        } <= generation_columns
+        assert {
+            "decision_prompt_version",
+            "decision_prompt_sha256",
+        } <= decision_columns
+        assert {
+            "cached_input_tokens",
+            "provider_response_id_sha256",
+        } <= decision_attempt_columns
+        metrics_check = runtime_schema_identifier(
+            prefix, "decision_attempt_metrics_check"
+        )
+        trace_check = runtime_schema_identifier(
+            prefix, "decision_attempt_usage_trace_check"
+        )
+        assert metrics_check in decision_attempt_checks
+        assert {
+            "duration_ms",
+            "input_tokens",
+            "output_tokens",
+            "provider_invocations",
+        } <= set(
+            decision_attempt_checks[metrics_check]
+            .replace("(", " ")
+            .replace(")", " ")
+            .replace(",", " ")
+            .split()
+        )
+        assert trace_check in decision_attempt_checks
+        assert "cached_input_tokens" in decision_attempt_checks[trace_check]
+        assert "provider_response_id_sha256" in decision_attempt_checks[trace_check]
+        assert "cached_input_tokens <= input_tokens" in decision_attempt_checks[
+            trace_check
+        ]
+        assert "^[0-9a-f]{64}$" in decision_attempt_checks[trace_check]
+        PostgresDecisionStore(
+            dsn=postgres_dsn,
+            table_prefix=prefix,
+            schema_mode="validate",
+        )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("ALTER TABLE {attempts} DROP CONSTRAINT {constraint}").format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+        with pytest.raises(PostgresSchemaNotReady, match="checks are incompatible"):
+            PostgresDecisionStore(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                schema_mode="validate",
+            )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {attempts} ADD CONSTRAINT {constraint} "
+                        "CHECK ((cached_input_tokens IS NULL OR cached_input_tokens >= 0) "
+                        "AND (input_tokens IS NULL OR cached_input_tokens IS NULL "
+                        "OR cached_input_tokens >= input_tokens) "
+                        "AND (duration_ms IS NULL OR duration_ms < 999999) "
+                        "AND (provider_response_id_sha256 IS NULL "
+                        "OR provider_response_id_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                    ).format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+        with pytest.raises(PostgresSchemaNotReady, match="checks are incompatible"):
+            PostgresDecisionStore(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                schema_mode="validate",
+            )
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {attempts} DROP CONSTRAINT {constraint}"
+                    ).format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {attempts} ADD CONSTRAINT {constraint} "
+                        "CHECK ((cached_input_tokens IS NULL OR cached_input_tokens >= 0) "
+                        "AND (input_tokens IS NULL OR cached_input_tokens IS NULL "
+                        "OR cached_input_tokens <= input_tokens) "
+                        "AND (provider_response_id_sha256 IS NULL "
+                        "OR provider_response_id_sha256 ~ '^[0-9a-f]+$') "
+                        "AND (output_sha256 IS NULL "
+                        "OR output_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                    ).format(
+                        attempts=sql.Identifier(f"{prefix}_decision_attempts"),
+                        constraint=sql.Identifier(trace_check),
+                    )
+                )
+        with pytest.raises(PostgresSchemaNotReady, match="checks are incompatible"):
+            PostgresDecisionStore(
+                dsn=postgres_dsn,
+                table_prefix=prefix,
+                schema_mode="validate",
+            )
+        assert "foreign key (source_decision_id)" in generation_constraints
+        assert f"{prefix}_followup_decisions" in generation_constraints
+        assert "unique index" in generation_indexes
+        assert "source_decision_id" in generation_indexes
+        assert "where (source_decision_id is not null)" in generation_indexes
         assert local_rights_tables == {
             f"{prefix}_principal_memory_controls",
             f"{prefix}_principal_memory_exports",
@@ -536,7 +1110,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "frontend_product_experience_v15"
+        assert result.migration_id == "followup_decision_attempt_usage_trace_v3"
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -706,7 +1280,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "frontend_product_experience_v15"
+        assert result.migration_id == "followup_decision_attempt_usage_trace_v3"
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

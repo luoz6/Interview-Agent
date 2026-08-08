@@ -37,13 +37,13 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V15_MANIFEST,
+    RUNTIME_SCHEMA_V24_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V15_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V24_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -154,12 +154,6 @@ def migrate_postgres_runtime(
                 dsn=dsn,
                 connection_provider=provider,
                 agent_run_connection_provider=provider,
-                table_prefix=table_prefix,
-                schema_mode="migrate",
-            )
-            PostgresInterviewGenerationStore(
-                dsn=dsn,
-                connection_provider=provider,
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
@@ -280,6 +274,13 @@ def migrate_postgres_runtime(
             from app.services.postgres_interview_launch_repository import (
                 PostgresInterviewLaunchRepository,
             )
+            from app.services.postgres_report_artifact_store import (
+                PostgresReportArtifactStore,
+            )
+            from app.services.postgres_decision_store import PostgresDecisionStore
+            from app.services.postgres_plan_revision_store import (
+                PostgresInterviewPlanRevisionStore,
+            )
 
             PostgresDraftStore(
                 dsn=dsn,
@@ -294,6 +295,37 @@ def migrate_postgres_runtime(
                 schema_mode="migrate",
             )
             PostgresInterviewLaunchRepository(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            PostgresReportArtifactStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            PostgresDecisionStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            # Generation is installed after Decision so the durable
+            # Generation→Decision foreign key is present on both fresh and
+            # upgraded runtime schemas.
+            PostgresInterviewGenerationStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            _upgrade_session_plan_bindings(
+                connection,
+                table_prefix=table_prefix,
+            )
+            PostgresInterviewPlanRevisionStore(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,
@@ -323,21 +355,23 @@ def migrate_postgres_runtime(
             with connection.cursor() as cursor:
                 from psycopg2 import sql
 
-                cursor.execute(
-                    sql.SQL(
-                        """
-                        INSERT INTO {migrations} (
-                            migration_id, checksum, transaction_mode
-                        ) VALUES (%s, %s, %s)
-                        ON CONFLICT (migration_id) DO NOTHING
-                        """
-                    ).format(migrations=sql.Identifier(migrations_table)),
-                    (
-                        RUNTIME_MIGRATION_ID,
-                        RUNTIME_MIGRATION_CHECKSUM,
-                        LATEST_RUNTIME_MIGRATION.transaction_mode,
-                    ),
-                )
+                insert_migration = sql.SQL(
+                    """
+                    INSERT INTO {migrations} (
+                        migration_id, checksum, transaction_mode
+                    ) VALUES (%s, %s, %s)
+                    ON CONFLICT (migration_id) DO NOTHING
+                    """
+                ).format(migrations=sql.Identifier(migrations_table))
+                for spec in RUNTIME_MIGRATIONS:
+                    cursor.execute(
+                        insert_migration,
+                        (
+                            spec.migration_id,
+                            spec.checksum,
+                            spec.transaction_mode,
+                        ),
+                    )
             connection.commit()
             applied = True
         elif run_checkpointer_setup:
@@ -624,3 +658,44 @@ def _upgrade_interview_memory_policy_constraint(
                 "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET DEFAULT 'deterministic-v1'"
             ).format(sessions=sql.Identifier(sessions_table))
         )
+
+
+def _upgrade_session_plan_bindings(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Backfill legacy session provenance without consulting Plan Revisions."""
+
+    import json
+
+    from psycopg2 import sql
+
+    from app.services.interview_plan_revision import canonical_sha256
+
+    sessions_table = f"{table_prefix}_sessions"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "SELECT session_id,plan_json FROM {sessions} "
+                "WHERE plan_binding_json IS NULL"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        rows = cursor.fetchall()
+        for session_id, plan_json in rows:
+            binding = {
+                "plan_origin": "legacy_session_snapshot",
+                "plan_revision_id": None,
+                "plan_family_id": None,
+                "revision": None,
+                "plan_sha256": canonical_sha256(plan_json),
+                "configuration_snapshot": None,
+                "plan_snapshot": plan_json,
+            }
+            cursor.execute(
+                sql.SQL(
+                    "UPDATE {sessions} SET plan_binding_json=%s::jsonb "
+                    "WHERE session_id=%s AND plan_binding_json IS NULL"
+                ).format(sessions=sql.Identifier(sessions_table)),
+                (json.dumps(binding, ensure_ascii=False), session_id),
+            )

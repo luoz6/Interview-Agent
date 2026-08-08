@@ -18,8 +18,13 @@ def main() -> int:
         type=Path,
         default=Path("tests/golden/report_quality_v1.json"),
     )
+    parser.add_argument("--out", type=Path)
     args = parser.parse_args()
-    metrics = rescore_run(run_dir=args.run_dir, dataset_path=args.dataset)
+    metrics = rescore_run(
+        run_dir=args.run_dir,
+        dataset_path=args.dataset,
+        output_dir=args.out,
+    )
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
     return 0 if metrics["passed"] else 1
 

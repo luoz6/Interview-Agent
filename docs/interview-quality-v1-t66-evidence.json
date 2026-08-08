@@ -1,0 +1,157 @@
+{
+  "schema_version": "interview-quality-v1-t66-evidence-v1",
+  "task": "T66",
+  "generated_at": "2026-08-07T13:46:56.7352554+08:00",
+  "implementation_revision_base": "e011c071b7a7daf6b2eb0ef1551706f270fa8ea1",
+  "implementation_tree_base": "72d3078dbaa57da72d3666080b3fa3a09bb985bb",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED_DETERMINISTIC_ENGINEERING",
+  "overall_status": "PASS",
+  "requirement_coverage": "10/10",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "real_candidate_data_used": false,
+  "screenshots": 0,
+  "traces": 0,
+  "secret_leaks": 0,
+  "temporary_postgres_tables": 0,
+  "temporary_postgres_functions": 0,
+  "open_findings": 0,
+  "focused_test_file": {
+    "path": "tests/test_interview_quality_t66_security.py",
+    "sha256": "0277d7722c6a3e0e2cc8124f3119204346f4fbadcb705a879808164e150f114b",
+    "bytes": 28838,
+    "test_nodes": 10
+  },
+  "requirements": [
+    {
+      "id": "T66-R01",
+      "plan_requirement": "报告/评分函数签名不接受 Principal Memory",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_report_and_scoring_signatures_accept_no_principal_memory"
+    },
+    {
+      "id": "T66-R02",
+      "plan_requirement": "report artifacts 不包含 Memory payload",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_report_artifact_models_reject_nested_memory_payloads"
+    },
+    {
+      "id": "T66-R03",
+      "plan_requirement": "Prompt injection 不能泄露系统/知识参考答案",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_prompt_injection_output_is_terminal_and_never_persisted"
+    },
+    {
+      "id": "T66-R04",
+      "plan_requirement": "logs/metrics 不记录完整简历、答案、Prompt 或密钥",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_logs_metrics_and_agent_metadata_reject_free_text_and_secrets"
+    },
+    {
+      "id": "T66-R05",
+      "plan_requirement": "family 级 PlanSourceRecord 引用、tombstone、删除/保留、禁止 regenerate 符合 T05，revision 不重复保存完整简历",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_plan_source_is_family_single_copy_and_tombstone_is_causal"
+    },
+    {
+      "id": "T66-R06",
+      "plan_requirement": "report history 删除和会话删除行为明确",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_session_deletion_removes_report_history_and_is_replay_safe; tests/test_interview_quality_t66_security.py::test_t66_postgres_report_history_delete_is_authorized_and_idempotent"
+    },
+    {
+      "id": "T66-R07",
+      "plan_requirement": "PDF 不包含技术内部敏感字段",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_pdf_omits_prompt_lineage_provider_ids_database_and_secrets"
+    },
+    {
+      "id": "T66-R08",
+      "plan_requirement": "API 不能跨 session 读取 report ID",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_report_id_and_hash_do_not_authorize_cross_session_reads"
+    },
+    {
+      "id": "T66-R09",
+      "plan_requirement": "hash 不作为访问控制",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_report_id_and_hash_do_not_authorize_cross_session_reads"
+    },
+    {
+      "id": "T66-R10",
+      "plan_requirement": "error response 不暴露数据库或 Provider secret",
+      "status": "PASS",
+      "evidence": "tests/test_interview_quality_t66_security.py::test_t66_report_error_responses_never_echo_database_or_provider_secrets"
+    }
+  ],
+  "automatic_review_findings_closed": [
+    "Legacy InMemoryReportJobStore 的 _session_jobs 索引会在会话删除后残留；删除路径现同步清理该索引。",
+    "Artifact-first API 会回传原始 ReportJobV2.error_code；所有公开响应现映射为稳定、脱敏的公开错误码。",
+    "ReportProgress.metadata 原可透传任意内部字段；现改为显式公开 allowlist。",
+    "会话删除只清理部分 review job 的 context Artifact owner refs；现覆盖全部 v2 与 legacy review jobs。",
+    "PostgreSQL 聚焦测试会残留临时表和零参数 trigger functions；fixture 现同时清理两类对象，复测残留为零。"
+  ],
+  "verification": {
+    "focused_t66_full_stack": {
+      "tests_passed": 10,
+      "tests_failed": 0,
+      "warnings": 1,
+      "warning_detail": "Existing Starlette TestClient/httpx deprecation warning"
+    },
+    "focused_t66_postgresql": {
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_deselected": 9,
+      "warnings": 1
+    },
+    "adjacent_non_postgresql": {
+      "tests_passed": 264,
+      "tests_failed": 0,
+      "tests_deselected_postgresql": 6,
+      "warnings": 1
+    },
+    "postgres_report_artifact_and_runtime_migration": {
+      "tests_passed": 30,
+      "tests_failed": 0,
+      "warnings": 1
+    },
+    "additional_successful_regressions": [
+      "PostgreSQL report Artifact store: 12 passed",
+      "PostgreSQL session deletion contract: 3 passed",
+      "PostgreSQL runtime migrations: 18 passed",
+      "PostgreSQL PlanSource store: 5 passed",
+      "session deletion and tombstone replay: 17 passed"
+    ],
+    "py_compile": "PASS",
+    "git_diff_check": "PASS",
+    "ruff": "NOT_RUN_MODULE_UNAVAILABLE",
+    "ruff_acceptance_gate": false,
+    "credential_environment_values_detected": 3,
+    "credential_environment_values_in_diff": 0,
+    "image_or_zip_changes": 0,
+    "temporary_postgres_tables_after_cleanup": 0,
+    "temporary_postgres_functions_after_cleanup": 0
+  },
+  "latest_migration": {
+    "migration_id": "report_history_session_deletion_v1",
+    "checksum": "ce772763ca6db4de38fc63a1ff5a549b254891e875d335e25449ec4aef55fda7",
+    "history_rewritten": false
+  },
+  "truthfulness_limits": [
+    "T66 is deterministic Engineering work and made no Provider calls.",
+    "No real candidate data, screenshots, traces, image work, or browser runs were used.",
+    "Ruff is unavailable in the environment and is not reported as passing; it is not an existing T66 acceptance gate.",
+    "T65 Quality remains BLOCKED_MODEL_VERSION_DRIFT and T66 does not convert it or Gate 2-5 Quality to PASS."
+  ],
+  "t65_quality_status_preserved": "BLOCKED_MODEL_VERSION_DRIFT",
+  "provider_candidate_revision_preserved": "214a70646df9f23f38874a2854b9a334a10c269f",
+  "provider_candidate_tree_preserved": "83d01ae72a483fb181b435dea4628843aa40c809",
+  "phase_boundaries": {
+    "t66_complete": true,
+    "next_task": "T67",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T51",
+  "generated_at": "2026-08-06T17:48:40+08:00",
+  "implementation_revision_base": "89b30c0637c413d412775c6f1ce1ac0f47ace9cf",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "provider_calls": 0,
+  "budget_policy": {
+    "budget_version": "interview-plan-duration-budget-v1",
+    "formula_version": "main-answer-plus-followups-plus-transitions-v1",
+    "canonical_sha256": "4f7213f4dd010032c75c61fa6ee7adf9941868912dbbf35f0deb75e4b3ca3b8b",
+    "safe_main_question_count_min": 1,
+    "safe_main_question_count_max": 10,
+    "followup_minutes_each": 2,
+    "transition_minutes_each": 1,
+    "max_followups_per_question": 2,
+    "target_is_exact_time_sla": false
+  },
+  "profiles": [
+    {
+      "target_duration_minutes": 15,
+      "recommended_main_questions_min": 3,
+      "recommended_main_questions_max": 4,
+      "acceptable_estimated_minutes_min": 12,
+      "acceptable_estimated_minutes_max": 20
+    },
+    {
+      "target_duration_minutes": 30,
+      "recommended_main_questions_min": 5,
+      "recommended_main_questions_max": 6,
+      "acceptable_estimated_minutes_min": 24,
+      "acceptable_estimated_minutes_max": 36
+    },
+    {
+      "target_duration_minutes": 45,
+      "recommended_main_questions_min": 7,
+      "recommended_main_questions_max": 8,
+      "acceptable_estimated_minutes_min": 36,
+      "acceptable_estimated_minutes_max": 54
+    },
+    {
+      "target_duration_minutes": 60,
+      "recommended_main_questions_min": 9,
+      "recommended_main_questions_max": 10,
+      "acceptable_estimated_minutes_min": 48,
+      "acceptable_estimated_minutes_max": 72
+    }
+  ],
+  "estimate_formula": {
+    "main_answer_minutes": "sum(question.expected_minutes)",
+    "expected_followup_minutes": "sum(question.expected_followups) * 2",
+    "transition_minutes": "max(0, question_count - 1) * 1",
+    "frontend_reimplements_formula": false,
+    "api_returns_formula_inputs_and_result": true
+  },
+  "warning_codes": [
+    "below_recommended_question_count",
+    "above_recommended_question_count",
+    "estimated_duration_below_acceptable",
+    "estimated_duration_above_acceptable",
+    "question_type_budget_drift",
+    "expected_followup_budget_drift"
+  ],
+  "blocking_codes": [
+    "no_valid_questions",
+    "above_safe_question_count"
+  ],
+  "behavior": {
+    "manual_delete_to_one_allowed": true,
+    "manual_delete_last_rejected": true,
+    "manual_add_to_ten_allowed": true,
+    "manual_add_eleventh_rejected": true,
+    "duration_deviation_blocks_launch": false,
+    "api_recalculates_after_each_revision": true,
+    "configured_fallback_exact_question_type_counts": true,
+    "configured_fallback_distinguishes_difficulty_and_focus": true,
+    "sixty_minute_nine_or_ten_questions_allowed": true,
+    "legacy_without_configuration_retains_three_to_five": true
+  },
+  "fail_closed": {
+    "strict_integer_estimate_inputs": true,
+    "per_question_expected_followups_max_two": true,
+    "assessment_arithmetic_revalidated": true,
+    "assessment_status_revalidated": true,
+    "model_copy_bypass_revalidated": true,
+    "policy_hash_drift_rejected": true
+  },
+  "automatic_review_fixes": [
+    "replaced permissive int coercion with strict bounded integer validation",
+    "revalidated assessment questions and configuration after model_copy",
+    "revalidated configured fallback and launch inputs",
+    "froze profiles formula constants and safe range with canonical SHA-256",
+    "enforced estimate arithmetic and assessment status consistency",
+    "updated editor and API safety tests from unconditional 3-to-5 to 1-to-10",
+    "proved the frontend does not duplicate duration arithmetic"
+  ],
+  "verification": {
+    "t51_dedicated_cases": 25,
+    "adjacent_regression_passed": 170,
+    "adjacent_regression_skipped": 0,
+    "postgres_dsn": "postgresql://postgres@127.0.0.1:55432/interview",
+    "frontend_vitest_passed": 28,
+    "frontend_build": "PASS",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS_ZERO_MATCHES",
+    "frontend_duplicate_formula_scan": "PASS_ZERO_MATCHES",
+    "provider_calls": 0,
+    "broad_regression": {
+      "passed": 2577,
+      "failed": 9,
+      "skipped": 3,
+      "postgres_failures_passing_on_isolated_rerun": 4,
+      "persistent_preexisting_non_t51_failures": 5,
+      "used_as_t51_acceptance_gate": false
+    }
+  },
+  "phase_boundaries": {
+    "t51_budget_model_complete": true,
+    "t51_configured_fallback_complete": true,
+    "t52_provider_prompt_budget_integration_complete": false,
+    "t52_provider_over_under_budget_enforcement_complete": false,
+    "t54_final_user_warning_ui_complete": false
+  },
+  "truthfulness_limits": [
+    "No Provider was called by T51.",
+    "T51 does not claim Provider prompt budget integration or Provider quality results.",
+    "T51 does not claim the final T54 user-facing warning interaction is complete.",
+    "The broad-suite failures and skips are reported and are not relabeled as PASS.",
+    "Engineering PASS does not change any Provider or human Quality status."
+  ]
+}

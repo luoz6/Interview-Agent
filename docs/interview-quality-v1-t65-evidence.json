@@ -1,0 +1,159 @@
+{
+  "schema_version": "interview-quality-v1-t65-evidence-v1",
+  "task": "T65",
+  "generated_at": "2026-08-07T12:48:01.9092524+08:00",
+  "provider_candidate_revision": "214a70646df9f23f38874a2854b9a334a10c269f",
+  "provider_candidate_tree": "83d01ae72a483fb181b435dea4628843aa40c809",
+  "execution_control_status": "PASS_FAIL_CLOSED",
+  "automatic_review": "PASS",
+  "quality_status": "BLOCKED",
+  "overall_status": "BLOCKED",
+  "primary_blocker": "MODEL_VERSION_DRIFT",
+  "quality_dimensions_run": 0,
+  "quality_dimensions_required": 6,
+  "provider_inference_calls": 0,
+  "provider_data_requests": 0,
+  "first_data_request_sent": false,
+  "fallback_models_used": [],
+  "input_tokens": null,
+  "output_tokens": null,
+  "provider_cost": null,
+  "screenshots": 0,
+  "traces": 0,
+  "secret_leaks": 0,
+  "open_engineering_findings": 0,
+  "authorization": {
+    "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+    "status": "GRANTED",
+    "provider": "DeepSeek",
+    "protocol": "openai-compatible",
+    "base_url": "https://api.deepseek.com",
+    "authorized_model": "deepseek-chat",
+    "allowed_fallback_models": [],
+    "automatic_model_substitution": false,
+    "budget": "unlimited",
+    "requests": "unlimited",
+    "tokens": "unlimited",
+    "data_scope": "synthetic_public_or_redacted_only"
+  },
+  "formal_preflight": {
+    "orchestration_task": "T65",
+    "constituent_runner_task": "T57",
+    "run_id": "t65-provider-preflight-20260807-v1",
+    "platform": "windows-11-x64",
+    "artifact_path": "tmp/t65/formal/214a706/windows/t65-provider-preflight-20260807-v1/manifest.json",
+    "artifact_bytes": 3236,
+    "artifact_sha256": "ab6f49cd79e6c00afa2a5cb4c10bdf4163a097e3fadb4accb9a54cc9b1237085",
+    "runner_exit_code": 2,
+    "decision": "BLOCKED",
+    "hard_stop_conditions": ["MODEL_VERSION_DRIFT"],
+    "selected_smoke_case_count": 2,
+    "credential_present": true,
+    "redaction_preflight_passed": true,
+    "dataset_manifest_match": true,
+    "gate_config_manifest_match": true,
+    "authorization_manifest_match": true,
+    "evidence_persistence_available": true,
+    "environment_model_ignored": true,
+    "provider_called": false,
+    "first_data_request_sent": false,
+    "discovery": {
+      "observed_at": "2026-08-07T04:43:11.079716Z",
+      "models_endpoint": "https://api.deepseek.com/models",
+      "models_endpoint_ok": true,
+      "model_request_attempts": 1,
+      "model_ids": ["deepseek-v4-flash", "deepseek-v4-pro"],
+      "pricing_source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+      "pricing_page_ok": true,
+      "pricing_request_attempts": 1,
+      "priced_model_ids": ["deepseek-v4-flash", "deepseek-v4-pro"],
+      "authorized_model_available": false,
+      "authorized_model_priced": false,
+      "error_code": null
+    }
+  },
+  "dimensions": [
+    {"id": "initial_question_quality", "status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT", "provider_calls": 0},
+    {"id": "followup_decision", "status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT", "provider_calls": 0},
+    {"id": "followup_question_text", "status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT", "provider_calls": 0},
+    {"id": "report_scoring", "status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT", "provider_calls": 0},
+    {"id": "report_semantic", "status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT", "provider_calls": 0},
+    {"id": "latency_calls_cost", "status": "NOT_RUN_BLOCKED_MODEL_VERSION_DRIFT", "provider_calls": 0}
+  ],
+  "frozen_inputs": {
+    "gate_config": {"path": "config/interview_quality_v1_gate.json", "bytes": 10426, "sha256": "2b650efab1242c00d8e501046fba985ad6a6db191d6043058be0671f9f851535"},
+    "provider_authorization": {"path": "config/interview_quality_v1_provider_authorization.json", "bytes": 2150, "sha256": "ca6c10bcdd9d95d213d56b553bd889dc261cbe678a0fc405027c072899dbf5ac"},
+    "initial_question_dataset": {"path": "tests/golden/interview_quality_v1/initial-question-quality-v2.json", "dataset_id": "initial-question-quality-v2", "case_count": 12, "bytes": 44127, "sha256": "f1d1b45fbdaa9ccf703e151c0998cb619c33de2b62ec752bb711dbc89a330877"},
+    "followup_dataset": {"path": "tests/golden/interview_quality_v1/followup-decision-quality-v2.json", "dataset_id": "followup-decision-quality-v2", "case_count": 100, "bytes": 345479, "sha256": "ba4d5882618970e6e780729f07055e82b186e81f5c5f805ba383d472c078e517"},
+    "report_scoring_dataset": {"path": "tests/golden/report_quality_v1.json", "dataset_version": "report-quality-v1", "case_count": 20, "bytes": 33930, "sha256": "31b5116500b990d2ec2f35c048a9ec221a8e76fcab0175123183d5e2a9991c12"},
+    "report_semantic_dataset": {"path": "tests/fixtures/report_semantic_blind_test_v1.json", "dataset_id": "report-semantic-blind-test-v1", "dataset_version": "2026-08-06.1", "pair_count": 24, "bytes": 38115, "sha256": "39bde7b72e3cfbf381645965cae48fcb01c6935a0b45cfa55503cf3d4634a62c"},
+    "plan_generation_policy": {"path": "config/interview_plan_generation_policy_v1.json", "bytes": 4937, "sha256": "ba32a024507d8cb21da293b6601ee03d0ef0d6947444aeb69cf66f90f066f6b0"}
+  },
+  "prompts_and_rubric": {
+    "followup_decision": {"version": "followup-decision-v1", "sha256": "597b101710677eef34cf7912cdb6b4108807baac23d2b0c3c16ca23e116d1025"},
+    "followup_generation": {"version": "followup-generation-v1", "sha256": "3ef238cf8c8cfabe5261b08ad7dc71e182685d1322c39af80e16e428c26f1e53"},
+    "report_evidence": {"version": "stage40-evidence-v1", "implementation_file_sha256": "cf5488c1292e4e3ed9e4cc803a7cd0f7079af8ec4cb701cdaec6039bda7d2cc0"},
+    "report_scoring_rubric": {"version": "interview-quality-rubric-v3.3-candidate", "sha256": "913d673fad8bfbde134788e2a48d96acfafe92936abded090bb3b9d5de514c03"},
+    "report_summary": {"version": "report-cross-question-summary-v1", "sha256": "686fc6ba0f04e5ceeba83ce80ab9a89295e3871a1801bb41fd7d6c8448ae4051"}
+  },
+  "offline_control_tests": {
+    "initial_question_decision_followup_text": {"passed": 109, "failed": 0},
+    "report_scoring_and_semantic": {"passed": 93, "failed": 0},
+    "authorization_gate_and_performance": {"passed": 31, "failed": 0},
+    "total": {"passed": 233, "failed": 0}
+  },
+  "diagnostic_attempts_not_accepted_as_quality_evidence": [
+    {
+      "candidate_revision": "820328c8b0428c31d134e9bc991759dd64611fa2",
+      "status": "INVALIDATED_BEFORE_PROVIDER_DATA",
+      "reason": "fresh Windows checkout exposed frozen config CRLF hash drift; candidate was superseded and T64 rerun"
+    },
+    {
+      "candidate_revision": "214a70646df9f23f38874a2854b9a334a10c269f",
+      "platform": "ubuntu-24.04-x64",
+      "artifact_path": "tmp/t65/formal/214a706/ubuntu-network-diagnostic-v1/manifest.json",
+      "artifact_bytes": 3103,
+      "artifact_sha256": "cc32c1e7191e4c710e23fb9f35a2fa476082a44cc87f210a2c5ae21d35e3de19",
+      "status": "BLOCKED_REPEATED_PROVIDER_FAILURE",
+      "reason": "models endpoint returned invalid responses for three attempts; no data request was sent"
+    }
+  ],
+  "automatic_review_findings": [
+    "The exact T64 provider candidate was used; the later documentation HEAD was not substituted.",
+    "Environment model drift was ignored and could not override the authorization manifest.",
+    "The authorized model is absent from both the reachable official model list and pricing table.",
+    "No available v4 model was used as a fallback.",
+    "All six quality dimensions remain independently NOT_RUN/BLOCKED.",
+    "Offline control tests pass but are not reported as real Provider quality evidence.",
+    "Discovery HTTP requests are reported separately from zero inference/data requests.",
+    "Artifacts contain no credential value, raw candidate input, screenshot, or trace."
+  ],
+  "privacy_and_persistence": {
+    "files_scanned": 2,
+    "secret_value_found": false,
+    "raw_candidate_input_files": 0,
+    "real_candidate_data_used": false,
+    "principal_memory_used": false,
+    "png_files": 0,
+    "trace_zip_files": 0,
+    "external_evaluation_platform_used": false
+  },
+  "quality_blockers": [
+    "MODEL_VERSION_DRIFT",
+    "FULL_REAL_PROVIDER_BENCHMARK_NOT_RUN",
+    "REQUIRED_INDEPENDENT_REVIEW_NOT_RUN"
+  ],
+  "phase_boundaries": {
+    "t65_attempted": true,
+    "t65_complete": false,
+    "next_task": "T66",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "No real Provider quality dimension ran and none is reported PASS.",
+    "No token, cost, or model latency result exists because no inference request was sent.",
+    "The two formal discovery requests carried no candidate data and are not counted as inference calls.",
+    "Unlimited authorization does not waive model identity, metering, data, persistence, or retry hard stops."
+  ]
+}

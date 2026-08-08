@@ -1,0 +1,10 @@
+{
+  "schema_version": "report-score-calibration-manifest-v1",
+  "dataset_file": "report-score-calibration-v1.json",
+  "dataset_sha256": "e7ec214126be36bc13468f4e56533b55b5975f19faa9c98f0a03a2ce1b2053a6",
+  "case_count": 80,
+  "dev_case_count": 60,
+  "blind_case_count": 20,
+  "review_status": "PENDING_INDEPENDENT_REVIEW",
+  "gate_eligible": false
+}

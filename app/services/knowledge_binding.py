@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from app.services.interview_plan_knowledge import (
+    parse_question_knowledge_binding,
+)
 from app.services.prep import InterviewPlan
 from app.services.prep_context import (
     build_question_prep_context_messages,
@@ -50,6 +53,36 @@ class KnowledgeBindingResolver:
                         "legacy_prep_hint" if messages else "legacy_no_context"
                     ),
                     degraded_reason="legacy_plan" if context is None else None,
+                )
+            )
+
+        binding_payload = context.question_bindings.get(question_id or "")
+        if binding_payload is not None:
+            binding = parse_question_knowledge_binding(binding_payload)
+            if binding.status != "valid":
+                return self._degraded(
+                    plan,
+                    question_id,
+                    binding.reason_code,
+                )
+            resolution = self.resolve_bound_evidence(
+                evidence_ids=list(binding.evidence_ids),
+                expected_hashes=dict(binding.evidence_content_sha256),
+                expected_manifest_sha256=binding.corpus_manifest_sha256,
+            )
+            if resolution.retrieval_path != "bound_evidence_ids":
+                return self._degraded(
+                    plan,
+                    question_id,
+                    resolution.degraded_reason or "knowledge_unavailable",
+                )
+            guidance = build_question_prep_context_messages(plan, question_id)
+            return self._remember(
+                KnowledgeBindingResolution(
+                    messages=[*guidance, *resolution.messages],
+                    evidence_ids=resolution.evidence_ids,
+                    references=resolution.references,
+                    retrieval_path="bound_evidence_ids",
                 )
             )
 

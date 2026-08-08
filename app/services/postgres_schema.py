@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from app.services.postgres_connections import (
@@ -169,6 +170,21 @@ def validate_relations(
                         .replace("=", " ")
                         .split()
                     }
+                    tokens.update(
+                        re.sub(r"\s+", "", comparison)
+                        for comparison in re.findall(
+                            r"\b[a-z_][a-z0-9_]*\s*(?:<=|>=|<>|=|~)\s*"
+                            r"[a-z_][a-z0-9_]*\b",
+                            normalized,
+                        )
+                    )
+                    tokens.update(
+                        re.sub(r"\s+", "", comparison)
+                        for comparison in re.findall(
+                            r"\b[a-z_][a-z0-9_]*\s*~\s*\^\[[^\s]+\$",
+                            normalized,
+                        )
+                    )
                     definitions.setdefault(table_name, []).append(tokens)
                 for table_name, requirements in check_requirements.items():
                     for required_tokens in requirements:

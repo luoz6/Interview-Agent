@@ -73,6 +73,7 @@ def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states()
         "@media (prefers-reduced-motion: reduce)",
     ):
         assert state in css
+    prep_system = "\n".join((prep, prep_inspector))
     for behavior in (
         "function RuntimeStatus",
         "function DraftSaveState",
@@ -82,8 +83,14 @@ def test_prep_detail_system_uses_one_icon_family_and_explicit_component_states()
         "useDelayedPendingOperation",
         'role="tablist"',
         'data-document="jd"',
+        "knowledgeStatus",
+        'onClick={requestClearWorkspace}',
+        'title: "清空当前画布？"',
+        'idPrefix="plan-confirm"',
+        'aria-controls="inspector-panel"',
+        'role="tabpanel"',
     ):
-        assert behavior in prep
+        assert behavior in prep_system
     assert 'data-state={clearArmed ? "confirm" : undefined}' in prep_inspector
     production_prep = "\n".join((prep, plan_editor, plan_question, prep_css))
     assert not re.search(r'className=(?:["`]plan-|\{`plan-)', production_prep)

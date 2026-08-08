@@ -27,8 +27,24 @@ from app.services.context_budget import (
 )
 from app.services.context_selection import build_interview_context
 from app.services.context_runtime import ContextRuntime, get_context_runtime
+from app.services.session_plan_binding import SessionPlanBinding
+from app.services.decision_store import InMemoryDecisionStore
+from app.services.followup_diagnostics import (
+    FollowupDiagnosticInput,
+    FollowupPolicySnapshot,
+    is_duplicate_followup_text,
+    stable_followup_fingerprint,
+)
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
+from app.services.followup_prompts import (
+    build_followup_decision_provider_for_llm,
+    generation_context_for_decision,
+)
 
 INTERVIEW_FINISHED_MESSAGE = "本次模拟面试已结束。"
+MAX_LEGACY_FOLLOWUP_STREAM_EVENTS = 128
 
 
 class InterviewGraphRunner:
@@ -39,6 +55,7 @@ class InterviewGraphRunner:
         knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
         execution_runner: AgentExecutionRunner | None = None,
         context_runtime: ContextRuntime | None = None,
+        decision_service=None,
     ) -> None:
         self._llm = llm
         self._examiner = examiner or ExaminerAgent(
@@ -56,6 +73,18 @@ class InterviewGraphRunner:
             "context_runtime",
             None,
         )
+        decision_provider = (
+            build_followup_decision_provider_for_llm(llm)
+            if llm is not None and hasattr(llm, "chat_model")
+            else None
+        )
+        self._decision_service = (
+            decision_service
+            or FollowupDecisionExecutionService(
+                store=InMemoryDecisionStore(),
+                provider=decision_provider,
+            )
+        )
 
     def start(
         self,
@@ -65,6 +94,7 @@ class InterviewGraphRunner:
         resume_text: str,
         job_tags: list[str],
         memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewState:
         return build_initial_state(
             session_id=session_id,
@@ -73,6 +103,7 @@ class InterviewGraphRunner:
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
 
     def submit_answer(
@@ -90,6 +121,7 @@ class InterviewGraphRunner:
             knowledge_binding_resolver=self._knowledge_binding_resolver,
             context_runtime=self._context_runtime,
             command_id=command_id,
+            decision_service=self._decision_service,
         )
         return speaker_node(next_state)
 
@@ -109,6 +141,7 @@ class InterviewGraphRunner:
             context_runtime=self._context_runtime,
             generate_followup_text=False,
             command_id=command_id,
+            decision_service=self._decision_service,
         )
 
     def finalize_prepared_answer(
@@ -125,7 +158,7 @@ class InterviewGraphRunner:
     def stream_followup(self, state: InterviewState):
         question = get_current_question(state)
         focus = question.focus if question is not None else "current question"
-        yield from _stream_examiner_followup(
+        for index, chunk in enumerate(_stream_examiner_followup(
             self._examiner,
             context=_build_followup_context(
                 state,
@@ -134,7 +167,10 @@ class InterviewGraphRunner:
             ),
             focus=focus,
             execution_context=_examiner_execution_context(state),
-        )
+        ), start=1):
+            if index > MAX_LEGACY_FOLLOWUP_STREAM_EVENTS:
+                raise RuntimeError("event_limit_reached")
+            yield chunk
 
 
 def brain_node(
@@ -146,6 +182,7 @@ def brain_node(
     context_runtime: ContextRuntime | None = None,
     generate_followup_text: bool = True,
     command_id: str | None = None,
+    decision_service=None,
 ) -> InterviewState:
     question = get_current_question(state)
     if question is None:
@@ -156,33 +193,38 @@ def brain_node(
         }
         return state
 
-    answer_count = count_candidate_answers_for_question(state, question.id)
-    if answer_count >= 2:
-        next_index = state["current_index"] + 1
-        if next_index >= len(state["plan"].questions):
-            state["decision"] = {
-                "action": "finish",
-                "follow_up": None,
-                "reason": "all_questions_completed",
-            }
-        else:
-            state["decision"] = {
-                "action": "next_question",
-                "follow_up": None,
-                "reason": "question_completed",
-            }
-        return state
-
+    resolved_decision_service = decision_service or FollowupDecisionExecutionService(
+        store=InMemoryDecisionStore(),
+        provider=None,
+    )
+    request = _build_followup_diagnostic_input(state, question)
+    effective_command_id = command_id or (
+        state.get("last_command_id")
+        or f"legacy-answer-{state['state_version']}-{question.id}-"
+        f"{len(request.candidate_answers)}"
+    )
+    result = resolved_decision_service.execute(
+        request,
+        source_command_id=effective_command_id,
+        worker_id="legacy-interview-worker",
+    )
+    if result.decision is None:
+        raise RuntimeError("legacy Decision execution did not complete")
+    contract = result.decision
     follow_up = None
-    if generate_followup_text:
+    if generate_followup_text and contract.action == "follow_up":
         resolved_examiner = examiner or ExaminerAgent(llm=llm)
-        follow_up = _generate_examiner_followup(
-            resolved_examiner,
-            context=_build_followup_context(
+        generation_context = generation_context_for_decision(
+            _build_followup_context(
                 state,
                 knowledge_binding_resolver,
                 context_runtime=context_runtime,
             ),
+            contract,
+        )
+        follow_up = _generate_examiner_followup(
+            resolved_examiner,
+            context=generation_context,
             focus=question.focus,
             execution_context=_examiner_execution_context(
                 state,
@@ -190,11 +232,30 @@ def brain_node(
             ),
         )
 
+    effective_action = contract.action
+    if (
+        contract.action == "next_question"
+        and state["current_index"] + 1 >= len(state["plan"].questions)
+    ):
+        effective_action = "finish"
     state["decision"] = {
-        "action": "follow_up",
+        "action": effective_action,
         "follow_up": follow_up,
-        "reason": "candidate_answer_needs_depth",
+        "reason": contract.reason_code,
     }
+    state["decision_id"] = result.decision_id
+    state["decision_action"] = effective_action
+    state["decision_reason_code"] = contract.reason_code
+    state["decision_gap_type"] = contract.gap_type
+    state["decision_gap_summary"] = contract.gap_summary
+    state["followup_policy_version"] = contract.policy_version
+    state["closed_gap_ids"] = list(contract.closed_gap_ids)
+    state["active_gap_id"] = (
+        stable_followup_fingerprint(contract.gap_summary)
+        if effective_action == "follow_up"
+        else None
+    )
+    state["current_followup_count"] = len(request.asked_followups)
     return state
 
 
@@ -210,14 +271,51 @@ def speaker_node(state: InterviewState) -> InterviewState:
 
     if action == "follow_up" and question is not None:
         output = decision.get("follow_up") or fallback_followup(question.focus)
-        state["pending_output"] = output
-        state["messages"].append(
-            {"role": "interviewer", "content": output, "question_id": question.id}
-        )
-        return state
+        prior_questions = [
+            message["content"]
+            for message in state["messages"]
+            if message["role"] == "interviewer"
+            and message.get("question_id") == question.id
+        ]
+        if is_duplicate_followup_text(output, prior_questions):
+            state["decision"] = {
+                "action": "next_question",
+                "follow_up": None,
+                "reason": "duplicate_question",
+            }
+            state["decision_action"] = "next_question"
+            state["decision_reason_code"] = "duplicate_question"
+            state["decision_gap_type"] = "none"
+            state["decision_gap_summary"] = ""
+            state["active_gap_id"] = None
+            state["termination_reason_code"] = "duplicate_question"
+            state["termination_diagnostic"] = {
+                "event_type": "followup_terminated",
+                "reason_code": "duplicate_question",
+                "question_id": question.id,
+                "state_version": state.get("state_version"),
+                "followup_count": state.get("current_followup_count"),
+            }
+            action = "next_question"
+        else:
+            state["pending_output"] = output
+            state["messages"].append(
+                {
+                    "role": "interviewer",
+                    "content": output,
+                    "question_id": question.id,
+                }
+            )
+            state["current_followup_count"] = (
+                state.get("current_followup_count", 0) + 1
+            )
+            return state
 
     if action == "next_question":
         state["current_index"] += 1
+        state["current_followup_count"] = 0
+        state["closed_gap_ids"] = []
+        state["active_gap_id"] = None
         next_question = get_current_question(state)
         if next_question is None:
             state["status"] = "finished"
@@ -252,6 +350,8 @@ def fallback_followup(focus: str) -> str:
 
 def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewState:
     next_state = deepcopy(state)
+    next_state["termination_reason_code"] = None
+    next_state["termination_diagnostic"] = None
     question = get_current_question(next_state)
     if question is None:
         next_state["status"] = "finished"
@@ -271,6 +371,49 @@ def _append_candidate_answer(state: InterviewState, answer: str) -> InterviewSta
         }
     )
     return next_state
+
+
+def _build_followup_diagnostic_input(
+    state: InterviewState,
+    question,
+) -> FollowupDiagnosticInput:
+    question_messages = [
+        message
+        for message in state["messages"]
+        if message.get("question_id") == question.id
+    ]
+    candidate_answers = [
+        message["content"]
+        for message in question_messages
+        if message["role"] == "candidate"
+    ]
+    interviewer_messages = [
+        message["content"]
+        for message in question_messages
+        if message["role"] == "interviewer"
+    ]
+    asked_followups = interviewer_messages[1:]
+    configuration = state.get("configuration_snapshot") or {}
+    policy_version = configuration.get("followup_policy_version", "fixed_v1")
+    return FollowupDiagnosticInput(
+        session_status=(
+            "finished" if state["status"] == "finished" else "active"
+        ),
+        session_id=state["session_id"],
+        question_id=question.id,
+        question_text=question.prompt,
+        focus=question.focus,
+        candidate_answers=candidate_answers,
+        asked_followups=asked_followups,
+        followup_count=len(asked_followups),
+        closed_gap_ids=list(state.get("closed_gap_ids") or []),
+        open_gap_id=state.get("active_gap_id"),
+        public_knowledge_summary="",
+        policy=FollowupPolicySnapshot(
+            policy_version=policy_version,
+            max_followups=1 if policy_version == "fixed_v1" else 2,
+        ),
+    )
 
 
 def _build_followup_context(

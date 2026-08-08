@@ -25,11 +25,11 @@ test("runtime diagnostics follow the explicit build capability", async ({ page, 
   await page.goto(`/report-detail?session_id=${completed}`);
   await expect(page.locator(".report-detail-score-mark")).toBeVisible();
   if (diagnosticsEnabled) {
-    await expect(page.locator("#runtime-trace")).toBeVisible();
-    await expect(page.locator(".report-detail-evaluation-ledger")).toBeVisible();
+    await expect(page.getByRole("region", { name: "运行轨迹" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "逐题评审链路" })).toBeVisible();
     expect(diagnosticRequests).toBeGreaterThanOrEqual(3);
   } else {
-    await expect(page.locator("#runtime-trace, .report-detail-evaluation-ledger")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: /^(运行轨迹|逐题评审链路)$/ })).toHaveCount(0);
     expect(diagnosticRequests).toBe(0);
   }
 
@@ -41,5 +41,6 @@ test("runtime diagnostics follow the explicit build capability", async ({ page, 
   } else {
     await expect(page.locator(".processing-diagnostics")).toHaveCount(0);
     await expect(page.locator("body")).not.toContainText("任务 ID");
+    expect(diagnosticRequests).toBe(0);
   }
 });

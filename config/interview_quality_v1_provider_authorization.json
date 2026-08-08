@@ -1,0 +1,69 @@
+{
+  "schema_version": "provider-authorization-manifest-v2",
+  "authorization_id": "interview-quality-v1-20260807-unlimited-02",
+  "supersedes_authorization_id": "interview-quality-v1-20260805-unlimited-01",
+  "status": "GRANTED",
+  "authorized_by": "user",
+  "authorized_at": "2026-08-07",
+  "valid_until": null,
+  "allowed_tasks": ["T27", "T36", "T57", "T65"],
+  "provider": {
+    "protocol": "openai-compatible",
+    "name": "DeepSeek",
+    "base_url": "https://api.deepseek.com",
+    "model_id": "deepseek-v4-pro",
+    "allowed_fallback_models": [],
+    "allow_automatic_model_substitution": false
+  },
+  "data_policy": {
+    "allowed": [
+      "synthetic_job_descriptions",
+      "synthetic_resumes",
+      "synthetic_candidate_answers",
+      "public_technical_material",
+      "manually_or_deterministically_redacted_cases",
+      "saved_redacted_provider_responses"
+    ],
+    "prohibited": [
+      "real_candidate_identity_or_contact_data",
+      "unredacted_real_resumes",
+      "unredacted_real_interview_answers",
+      "employer_confidential_material",
+      "production_database_exports",
+      "principal_memory",
+      "credentials_or_secrets"
+    ],
+    "require_preflight_redaction": true,
+    "allow_provider_training": false,
+    "allow_external_evaluation_platforms": false
+  },
+  "limits": {
+    "total_budget": "unlimited",
+    "total_outbound_requests": "unlimited",
+    "total_input_tokens": "unlimited",
+    "total_output_tokens": "unlimited",
+    "per_task_budget": "unlimited",
+    "per_task_requests": "unlimited",
+    "expiration": "none"
+  },
+  "evidence_policy": {
+    "usage_and_cost_accounting_required": true,
+    "raw_response_storage": "local_redacted_only",
+    "allow_raw_responses_in_git": false,
+    "publish_aggregated_or_redacted_evidence_only": true
+  },
+  "hard_stop_conditions": [
+    "PROVIDER_OR_MODEL_MISMATCH",
+    "UNAPPROVED_MODEL_FALLBACK",
+    "MODEL_VERSION_DRIFT",
+    "DATA_POLICY_VIOLATION",
+    "REDACTION_PREFLIGHT_FAILED",
+    "CREDENTIAL_UNAVAILABLE",
+    "USAGE_METERING_UNAVAILABLE",
+    "EVIDENCE_PERSISTENCE_UNAVAILABLE",
+    "RETRY_AMPLIFICATION_EXCEEDED",
+    "REPEATED_PROVIDER_FAILURE",
+    "GATE_CONFIG_OR_DATASET_DRIFT",
+    "USER_REVOKED_AUTHORIZATION"
+  ]
+}

@@ -83,7 +83,7 @@ def test_assembled_report_snapshot_keeps_reference_order_and_summary_shape():
 
     assert report_snapshot(report) == {
         "overall_score": 76,
-        "summary": "说明了主流程。",
+            "summary": "本轮最明确的改进信号是量化指标与验证不足；该信号仅来自题目q1，不扩展为整体能力判断。",
         "highlights": ["说明了主流程。"],
         "feedback": {
             "question_id": "q1",
@@ -100,7 +100,7 @@ def test_assembled_report_snapshot_keeps_reference_order_and_summary_shape():
             },
             "rationale": "回答说明了主流程，但还缺少竞争窗口处理。",
             "critique": "没有解释回退读取和延迟双删。",
-            "better_answer": "补充回退读取、双删和监控指标。",
+            "better_answer": "按背景、动作、取舍、验证四段组织回答；只复述原回答中已出现的经历事实。缺失内容保留为[真实背景]、[实际动作]、[实际取舍]、[实际指标值]，不要把参考资料写成自己的经历。 需要补充的通用技术点：补充基线、指标、观察窗口和验收条件；未知数字使用[实际指标值]。 当前事实不足，本轮不生成自由经历改写。",
         },
         "reference_ids": ["redis-1", "redis-2"],
     }

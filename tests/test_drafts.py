@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from app.services.drafts import AnonymousDraftStore
+from app.services.interview_plan_revision import PlanSourcePayload, source_payload_sha256
 
 
 def test_save_draft_creates_id_timestamps_and_tags():
@@ -24,6 +25,9 @@ def test_save_draft_creates_id_timestamps_and_tags():
     assert draft["durability"] == "memory"
     assert draft["expires_at"]
     assert len(draft["draft_id"].removeprefix("draft_")) == 36
+    assert draft["plan_status"] == "no_plan"
+    assert draft["plan_family_id"] is None
+    assert draft["latest_plan_revision_id"] is None
 
 
 def test_save_draft_updates_existing_id():
@@ -75,6 +79,41 @@ def test_get_missing_draft_raises_value_error():
 
     with pytest.raises(ValueError, match="draft not found"):
         store.get("missing")
+
+
+def test_draft_preserves_revision_and_marks_it_stale_after_source_edit():
+    store = AnonymousDraftStore()
+    job_description = "Backend role using Python."
+    resume_text = "Built APIs."
+    tags = ["python"]
+    source_sha256 = source_payload_sha256(
+        PlanSourcePayload(
+            job_description=job_description,
+            resume_text=resume_text,
+            job_tags=tags,
+        )
+    )
+    created = store.save(
+        job_description=job_description,
+        resume_text=resume_text,
+        job_tags=tags,
+        plan_family_id="family-1",
+        latest_plan_revision_id="revision-1",
+        plan_source_sha256=source_sha256,
+    )
+    refreshed = store.get(created["draft_id"])
+    edited = store.save(
+        draft_id=created["draft_id"],
+        job_description="Backend role using Python and PostgreSQL.",
+        resume_text=resume_text,
+        job_tags=["python", "postgresql"],
+    )
+
+    assert created["plan_status"] == refreshed["plan_status"] == "active"
+    assert refreshed["latest_plan_revision_id"] == "revision-1"
+    assert edited["plan_status"] == "stale"
+    assert edited["plan_family_id"] == "family-1"
+    assert edited["latest_plan_revision_id"] == "revision-1"
 
 
 def test_clear_removes_all_drafts():

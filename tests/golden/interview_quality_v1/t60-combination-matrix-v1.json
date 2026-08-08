@@ -1,0 +1,1266 @@
+{
+  "schema_version": "interview-quality-v1-t60-combination-matrix-v1",
+  "dataset_id": "t60-combination-matrix-v1",
+  "builder_version": "risk-pairwise-greedy-v1",
+  "generation_is_deterministic": true,
+  "full_cartesian_product_required": false,
+  "axes": {
+    "interview_graph": [
+      "legacy",
+      "durable_v1",
+      "durable_v2"
+    ],
+    "followup_policy": [
+      "fixed_v1",
+      "adaptive_v1"
+    ],
+    "plan_state": [
+      "legacy_snapshot",
+      "revision_v2",
+      "edited",
+      "stale",
+      "conflict"
+    ],
+    "report_job_state": [
+      "queued",
+      "running",
+      "completed",
+      "failed"
+    ],
+    "report_artifact": [
+      "scored",
+      "partial",
+      "unscored",
+      "degraded",
+      "legacy"
+    ],
+    "report_version_state": [
+      "single",
+      "active_history",
+      "rescore_success",
+      "rescore_fail"
+    ],
+    "knowledge_retrieval": [
+      "normal",
+      "empty",
+      "degraded"
+    ],
+    "answer_type": [
+      "strong",
+      "partial",
+      "incorrect",
+      "off_topic",
+      "empty",
+      "skipped"
+    ],
+    "provider_behavior": [
+      "normal",
+      "timeout",
+      "invalid_json",
+      "retry",
+      "exhausted"
+    ],
+    "runtime_exception": [
+      "sse_interrupt",
+      "checkpoint_recovery",
+      "lease_expired",
+      "stale_worker"
+    ],
+    "memory_mode": [
+      "disabled"
+    ]
+  },
+  "risk_pair_families": [
+    [
+      "interview_graph",
+      "followup_policy"
+    ],
+    [
+      "plan_state",
+      "report_job_state"
+    ],
+    [
+      "report_artifact",
+      "report_version_state"
+    ],
+    [
+      "answer_type",
+      "report_artifact"
+    ],
+    [
+      "provider_behavior",
+      "runtime_exception"
+    ],
+    [
+      "knowledge_retrieval",
+      "provider_behavior"
+    ]
+  ],
+  "required_risk_pair_count": 111,
+  "covered_risk_pair_count": 111,
+  "scenario_count": 30,
+  "manual_p0_scenario_count": 4,
+  "unique_test_node_count": 44,
+  "unique_test_nodes": [
+    "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+    "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+    "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+    "tests/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
+    "tests/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next",
+    "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+    "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+    "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+    "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+    "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+    "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+    "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+    "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+    "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+    "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+    "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+    "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+    "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+    "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+    "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+    "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+    "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+    "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+    "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+    "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+    "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+    "tests/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
+    "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+    "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+    "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+    "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+    "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
+    "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+    "tests/test_report_jobs.py::test_claim_marks_job_running",
+    "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+    "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+    "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+    "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped",
+    "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level",
+    "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback",
+    "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence",
+    "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
+    "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]",
+    "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+  ],
+  "scenarios": [
+    {
+      "id": "p0-01-durable-v2-checkpoint-report-commit",
+      "title": "durable v2 adaptive recovery commits one immutable scored report",
+      "axes": {
+        "interview_graph": "durable_v2",
+        "followup_policy": "adaptive_v1",
+        "plan_state": "revision_v2",
+        "report_job_state": "completed",
+        "report_artifact": "scored",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "strong",
+        "provider_behavior": "normal",
+        "runtime_exception": "checkpoint_recovery",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "recovery routes only from the persisted decision",
+        "the revision snapshot remains immutable",
+        "artifact publication is idempotent and monotonic",
+        "scoring and report paths do not construct Principal Memory dependencies"
+      ],
+      "cross_state_test_nodes": [
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies"
+      ],
+      "priority": "P0",
+      "selection_kind": "manual_state_machine_cross",
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+      ]
+    },
+    {
+      "id": "p0-02-edited-plan-lease-reclaim-rescore",
+      "title": "edited grounded plan survives generation lease reclaim and successful rescore",
+      "axes": {
+        "interview_graph": "durable_v2",
+        "followup_policy": "adaptive_v1",
+        "plan_state": "edited",
+        "report_job_state": "running",
+        "report_artifact": "partial",
+        "report_version_state": "rescore_success",
+        "knowledge_retrieval": "degraded",
+        "answer_type": "partial",
+        "provider_behavior": "retry",
+        "runtime_exception": "lease_expired",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "content edits invalidate stale knowledge bindings and expose only hashes in audit",
+        "an expired generation attempt emits reset before replacement chunks",
+        "partial coverage keeps its numerator and denominator",
+        "successful rescore adds history and moves active only after commit"
+      ],
+      "cross_state_test_nodes": [
+        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success"
+      ],
+      "priority": "P0",
+      "selection_kind": "manual_state_machine_cross",
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+      ]
+    },
+    {
+      "id": "p0-03-conflict-stale-worker-failed-rescore",
+      "title": "plan conflict and stale worker cannot overwrite the winning revision or active report",
+      "axes": {
+        "interview_graph": "durable_v1",
+        "followup_policy": "fixed_v1",
+        "plan_state": "conflict",
+        "report_job_state": "failed",
+        "report_artifact": "degraded",
+        "report_version_state": "rescore_fail",
+        "knowledge_retrieval": "empty",
+        "answer_type": "off_topic",
+        "provider_behavior": "exhausted",
+        "runtime_exception": "stale_worker",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "the losing revision write returns current winner metadata without overwrite",
+        "stale report workers are token fenced",
+        "failed rescore retains the previous active artifact and reuses the job on retry",
+        "repeated Provider failure for an off-topic answer advances through the safe bounded path"
+      ],
+      "cross_state_test_nodes": [
+        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next"
+      ],
+      "priority": "P0",
+      "selection_kind": "manual_state_machine_cross",
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
+        "tests/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next",
+        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+      ]
+    },
+    {
+      "id": "p0-04-stale-plan-sse-skip-unscored",
+      "title": "stale plan and SSE interruption cannot fabricate progress or a score for skipped answers",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "stale",
+        "report_job_state": "queued",
+        "report_artifact": "unscored",
+        "report_version_state": "active_history",
+        "knowledge_retrieval": "empty",
+        "answer_type": "skipped",
+        "provider_behavior": "timeout",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "historical revision start is rejected with the latest winner",
+        "SSE timeout retains a reconnect cursor",
+        "all-skipped coverage is unscored and never zero",
+        "report enqueue creates exactly one queued job and processing projection"
+      ],
+      "cross_state_test_nodes": [
+        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report"
+      ],
+      "priority": "P0",
+      "selection_kind": "manual_state_machine_cross",
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
+        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+      ]
+    },
+    {
+      "id": "pw-01",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "adaptive_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "scored",
+        "report_version_state": "active_history",
+        "knowledge_retrieval": "normal",
+        "answer_type": "partial",
+        "provider_behavior": "timeout",
+        "runtime_exception": "checkpoint_recovery",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+      ]
+    },
+    {
+      "id": "pw-02",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "durable_v1",
+        "followup_policy": "adaptive_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "running",
+        "report_artifact": "scored",
+        "report_version_state": "rescore_success",
+        "knowledge_retrieval": "normal",
+        "answer_type": "incorrect",
+        "provider_behavior": "invalid_json",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+      ]
+    },
+    {
+      "id": "pw-03",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "durable_v2",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "completed",
+        "report_artifact": "scored",
+        "report_version_state": "rescore_fail",
+        "knowledge_retrieval": "normal",
+        "answer_type": "off_topic",
+        "provider_behavior": "retry",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+      ]
+    },
+    {
+      "id": "pw-04",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "failed",
+        "report_artifact": "partial",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "strong",
+        "provider_behavior": "exhausted",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+      ]
+    },
+    {
+      "id": "pw-05",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "revision_v2",
+        "report_job_state": "queued",
+        "report_artifact": "partial",
+        "report_version_state": "active_history",
+        "knowledge_retrieval": "empty",
+        "answer_type": "incorrect",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+      ]
+    },
+    {
+      "id": "pw-06",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "revision_v2",
+        "report_job_state": "running",
+        "report_artifact": "partial",
+        "report_version_state": "rescore_fail",
+        "knowledge_retrieval": "empty",
+        "answer_type": "off_topic",
+        "provider_behavior": "invalid_json",
+        "runtime_exception": "checkpoint_recovery",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+      ]
+    },
+    {
+      "id": "pw-07",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "revision_v2",
+        "report_job_state": "failed",
+        "report_artifact": "unscored",
+        "report_version_state": "single",
+        "knowledge_retrieval": "empty",
+        "answer_type": "strong",
+        "provider_behavior": "retry",
+        "runtime_exception": "checkpoint_recovery",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+      ]
+    },
+    {
+      "id": "pw-08",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "edited",
+        "report_job_state": "queued",
+        "report_artifact": "unscored",
+        "report_version_state": "rescore_success",
+        "knowledge_retrieval": "degraded",
+        "answer_type": "partial",
+        "provider_behavior": "normal",
+        "runtime_exception": "lease_expired",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+      ]
+    },
+    {
+      "id": "pw-09",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "edited",
+        "report_job_state": "completed",
+        "report_artifact": "unscored",
+        "report_version_state": "rescore_fail",
+        "knowledge_retrieval": "degraded",
+        "answer_type": "incorrect",
+        "provider_behavior": "timeout",
+        "runtime_exception": "lease_expired",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+      ]
+    },
+    {
+      "id": "pw-10",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "edited",
+        "report_job_state": "failed",
+        "report_artifact": "degraded",
+        "report_version_state": "single",
+        "knowledge_retrieval": "degraded",
+        "answer_type": "strong",
+        "provider_behavior": "invalid_json",
+        "runtime_exception": "lease_expired",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+      ]
+    },
+    {
+      "id": "pw-11",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "stale",
+        "report_job_state": "running",
+        "report_artifact": "degraded",
+        "report_version_state": "active_history",
+        "knowledge_retrieval": "degraded",
+        "answer_type": "partial",
+        "provider_behavior": "exhausted",
+        "runtime_exception": "checkpoint_recovery",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+      ]
+    },
+    {
+      "id": "pw-12",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "stale",
+        "report_job_state": "completed",
+        "report_artifact": "degraded",
+        "report_version_state": "rescore_success",
+        "knowledge_retrieval": "normal",
+        "answer_type": "incorrect",
+        "provider_behavior": "normal",
+        "runtime_exception": "stale_worker",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+      ]
+    },
+    {
+      "id": "pw-13",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "stale",
+        "report_job_state": "failed",
+        "report_artifact": "legacy",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "strong",
+        "provider_behavior": "timeout",
+        "runtime_exception": "stale_worker",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback",
+        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+      ]
+    },
+    {
+      "id": "pw-14",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "conflict",
+        "report_job_state": "queued",
+        "report_artifact": "legacy",
+        "report_version_state": "active_history",
+        "knowledge_retrieval": "normal",
+        "answer_type": "partial",
+        "provider_behavior": "invalid_json",
+        "runtime_exception": "stale_worker",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level",
+        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+      ]
+    },
+    {
+      "id": "pw-15",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "conflict",
+        "report_job_state": "running",
+        "report_artifact": "legacy",
+        "report_version_state": "rescore_success",
+        "knowledge_retrieval": "normal",
+        "answer_type": "incorrect",
+        "provider_behavior": "retry",
+        "runtime_exception": "stale_worker",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence",
+        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+      ]
+    },
+    {
+      "id": "pw-16",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "conflict",
+        "report_job_state": "completed",
+        "report_artifact": "legacy",
+        "report_version_state": "rescore_fail",
+        "knowledge_retrieval": "normal",
+        "answer_type": "off_topic",
+        "provider_behavior": "exhausted",
+        "runtime_exception": "lease_expired",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped",
+        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+      ]
+    },
+    {
+      "id": "pw-17",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "scored",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "empty",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+      ]
+    },
+    {
+      "id": "pw-18",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "scored",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "skipped",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+      ]
+    },
+    {
+      "id": "pw-19",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "partial",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "empty",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+      ]
+    },
+    {
+      "id": "pw-20",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "partial",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "skipped",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+      ]
+    },
+    {
+      "id": "pw-21",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "unscored",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "off_topic",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+      ]
+    },
+    {
+      "id": "pw-22",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "unscored",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "empty",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+      ]
+    },
+    {
+      "id": "pw-23",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "degraded",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "empty",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+      ]
+    },
+    {
+      "id": "pw-24",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "degraded",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "skipped",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+      ]
+    },
+    {
+      "id": "pw-25",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "legacy",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "empty",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+      ]
+    },
+    {
+      "id": "pw-26",
+      "title": "deterministic greedy risk-pair coverage row",
+      "priority": "P1",
+      "selection_kind": "risk_pairwise_greedy",
+      "axes": {
+        "interview_graph": "legacy",
+        "followup_policy": "fixed_v1",
+        "plan_state": "legacy_snapshot",
+        "report_job_state": "queued",
+        "report_artifact": "legacy",
+        "report_version_state": "single",
+        "knowledge_retrieval": "normal",
+        "answer_type": "skipped",
+        "provider_behavior": "normal",
+        "runtime_exception": "sse_interrupt",
+        "memory_mode": "disabled"
+      },
+      "expected_invariants": [
+        "all selected axis-value contracts retain their independently executable regression nodes"
+      ],
+      "cross_state_test_nodes": [],
+      "test_nodes": [
+        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
+        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+      ]
+    }
+  ],
+  "canonical_sha256": "d9bbafdfa70e49c183d29f0be1d6496ecfbc1aef3c032d598ef49c75f27759a0"
+}

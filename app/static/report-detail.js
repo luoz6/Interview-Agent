@@ -92,7 +92,7 @@ function setNodeText(node, value) {
 }
 
 function normalizeScore(value) {
-  return Math.max(0, Math.min(100, Number(value) || 0));
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
 }
 
 function renderDimensions(scores) {
@@ -107,32 +107,37 @@ function renderDimensions(scores) {
     const row = createEl("div", "dimension-bar-row");
     const label = createEl("div", "dimension-bar-label");
     label.appendChild(createEl("span", "", toDimensionLabel(name)));
-    label.appendChild(createEl("strong", "", String(score)));
-    const progress = createEl("progress", "");
-    progress.max = 100;
-    progress.value = score;
-    progress.setAttribute("aria-label", toDimensionLabel(name));
+    label.appendChild(createEl("strong", "", score === null ? "未评估" : String(score)));
     row.appendChild(label);
-    row.appendChild(progress);
+    if (score !== null) {
+      const progress = createEl("progress", "");
+      progress.max = 100;
+      progress.value = score;
+      progress.setAttribute("aria-label", toDimensionLabel(name));
+      row.appendChild(progress);
+    }
     dimensionScores.appendChild(row);
   }
 }
 
 function renderTopDimensionCards(scores) {
   const safeScores = scores || {};
-  setNodeText(reportTechnicalScore, safeScores.depth ?? 0);
-  setNodeText(reportArchitectureScore, safeScores.architecture ?? 0);
-  setNodeText(reportCommunicationScore, safeScores.communication ?? 0);
-  setNodeText(reportEngineeringScore, safeScores.engineering ?? 0);
+  setNodeText(reportTechnicalScore, safeScores.depth);
+  setNodeText(reportArchitectureScore, safeScores.architecture);
+  setNodeText(reportCommunicationScore, safeScores.communication);
+  setNodeText(reportEngineeringScore, safeScores.engineering);
 }
 
 function renderScoreSummary(score) {
   const safeScore = normalizeScore(score);
   if (reportScoreHint) {
-    reportScoreHint.textContent = "基于本次面试回答";
+    reportScoreHint.textContent = safeScore === null ? "证据不足，未发布数字" : "基于本次面试回答证据";
   }
   if (!reportScoreBadge) return;
-  if (safeScore >= 80) {
+  if (safeScore === null) {
+    reportScoreBadge.dataset.tone = "neutral";
+    reportScoreBadge.textContent = "未形成评分";
+  } else if (safeScore >= 80) {
     reportScoreBadge.dataset.tone = "success";
     reportScoreBadge.textContent = "表现良好";
   } else if (safeScore >= 60) {
@@ -220,8 +225,9 @@ function renderScoringEvidence(feedback) {
 
   for (const evidence of evidenceItems) {
     const section = createEl("section", "scoring-evidence-item");
-    const score = feedback.dimension_scores?.[evidence.dimension] ?? 0;
-    section.appendChild(createEl("h4", "", `${toDimensionLabel(evidence.dimension)} ${score}/100`));
+    const score = feedback.dimension_scores?.[evidence.dimension];
+    const scoreText = Number.isFinite(score) ? `${score}/100` : "未评估";
+    section.appendChild(createEl("h4", "", `${toDimensionLabel(evidence.dimension)} ${scoreText}`));
     section.appendChild(renderEvidenceList("命中证据", evidence.observed));
     section.appendChild(renderEvidenceList("缺失项", evidence.missing));
     section.appendChild(renderEvidenceList("评分信号", evidence.quality_signals));
@@ -281,11 +287,12 @@ function renderReport(report) {
   renderTopDimensionCards(report.overall_dimension_scores || {});
   renderHighlights(report.highlights || []);
   renderFeedbacks(feedbacks);
-  setText("reportHighScoreCount", String(feedbacks.filter((item) => Number(item.score) >= 80).length));
-  setText("reportImprovementCount", String(feedbacks.filter((item) => Number(item.score) < 80).length));
+  const scoredFeedbacks = feedbacks.filter((item) => Number.isFinite(item.score));
+  setText("reportHighScoreCount", String(scoredFeedbacks.filter((item) => item.score >= 80).length));
+  setText("reportImprovementCount", String(scoredFeedbacks.filter((item) => item.score < 80).length));
   renderTextList(byId("reportStrengths"), report.highlights || [], "暂无优势总结");
-  const risks = [...feedbacks]
-    .sort((left, right) => Number(left.score || 0) - Number(right.score || 0))
+  const risks = [...scoredFeedbacks]
+    .sort((left, right) => left.score - right.score)
     .slice(0, 3)
     .map((item) => item.critique || item.better_answer)
     .filter(Boolean);

@@ -98,21 +98,25 @@ test.afterAll(() => {
   terminateProcessTree(webServer);
 });
 
-test("fresh provider preserves Stage 42 evidence through report and PDF", async ({ page, request }, testInfo) => {
+test("fresh provider preserves Stage 42 evidence through report and PDF", {
+  tag: "@real_llm",
+}, async ({ page, request }, testInfo) => {
   test.skip(process.env.RUN_REAL_BROWSER_SMOKE !== "1", "explicit provider opt-in required");
 
   await page.goto("/prep");
-  await page.locator("#jobDescription").fill(
+  await page.getByLabel("岗位 JD").fill(
     "Backend engineer using Python, FastAPI, Redis, PostgreSQL, queues, and observability.",
   );
-  await page.locator("#resumeText").fill(
+  await page.getByRole("tab", { name: /候选人经历/ }).click();
+  await page.getByLabel("简历内容").fill(
     "Built FastAPI services with Redis cache-aside, PostgreSQL indexes, async jobs, and incident reviews.",
   );
-  await page.locator("#prepButton").click();
-  await expect(page.locator("#startButton")).toBeEnabled({ timeout: 90_000 });
-  await expect.poll(() => page.locator("#planQuestions li").count()).toBeGreaterThanOrEqual(3);
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
+  await expect(page.locator(".start-plan-question")).toHaveCount(5, { timeout: 90_000 });
+  const start = page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ });
+  await expect(start).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath("stage42-real-prep.png"), fullPage: true });
-  await page.locator("#startButton").click();
+  await start.click();
   await expect(page).toHaveURL(/\/interview\?session_id=/, { timeout: 30_000 });
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   const initialSnapshot = await (await request.get(`/api/interviews/${sessionId}`)).json();
@@ -129,9 +133,10 @@ test("fresh provider preserves Stage 42 evidence through report and PDF", async 
     "For PostgreSQL I used composite indexes based on query predicates and verified plans with EXPLAIN ANALYZE.",
     "I monitored lock waits and slow queries, then used bounded retries only for transient serialization failures.",
   ]) {
-    await page.locator("#answerInput").fill(answer);
-    await page.locator("#sendAnswerButton").click();
-    await expect(page.locator("#sendAnswerButton")).toBeEnabled({ timeout: 90_000 });
+    await page.getByLabel("你的回答").fill(answer);
+    const submit = page.getByRole("button", { name: /^(提交回答|正在提交)$/ });
+    await submit.click();
+    await expect(page.getByRole("button", { name: "提交回答" })).toBeEnabled({ timeout: 90_000 });
   }
 
   const answeredSnapshot = await (await request.get(`/api/interviews/${sessionId}`)).json();
@@ -145,9 +150,10 @@ test("fresh provider preserves Stage 42 evidence through report and PDF", async 
   expect(new Set(candidateMessages.map((item) => item.question_id)).size).toBeGreaterThanOrEqual(2);
   expect(Object.values(interviewerCounts).some((count) => count > 1)).toBe(true);
 
-  await page.locator("#finishInterviewButton").click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", { name: "结束并生成报告" }).click();
+  await page.getByRole("button", { name: "结束面试" }).click();
+  const finishDialog = page.getByRole("dialog", { name: "结束面试并生成报告？" });
+  await expect(finishDialog).toBeVisible();
+  await finishDialog.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 600_000 });
   await expect(page.locator("body")).toContainText(/\b[0-9]{1,3}\b/);
   await page.screenshot({ path: testInfo.outputPath("stage42-real-report.png"), fullPage: true });

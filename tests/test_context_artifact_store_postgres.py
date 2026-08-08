@@ -1,6 +1,6 @@
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from threading import Barrier
 
 import pytest
@@ -46,6 +46,14 @@ def make_payload():
         "unresolved_topics": [],
         "source_message_count": 1,
     }
+
+
+def database_clock(store):
+    """Return a cutoff in the same clock domain as PostgreSQL row timestamps."""
+    with store._connection_provider.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT clock_timestamp()")
+            return cursor.fetchone()[0]
 
 
 @pytest.fixture
@@ -127,7 +135,7 @@ def test_failed_artifact_reclaims_and_cleanup_uses_one_global_batch(store):
     current = store.claim(identity, worker_id="worker-2", lease_seconds=30)
     store.fail(current, error_code="provider_timeout")
 
-    now = datetime.now(timezone.utc)
+    now = database_clock(store)
     result = store.cleanup(
         ContextArtifactCleanupPolicy(
             completed_before=now + timedelta(seconds=1),
@@ -284,12 +292,11 @@ def test_concurrent_cleanup_uses_skip_locked_without_double_deletion(store):
         store.fail(claim, error_code="provider_timeout")
 
     barrier = Barrier(2)
+    cutoff = database_clock(store) + timedelta(seconds=1)
     policy = ContextArtifactCleanupPolicy(
-        completed_before=datetime.now(timezone.utc) + timedelta(seconds=1),
-        failed_before=datetime.now(timezone.utc) + timedelta(seconds=1),
-        prep_ref_expires_before=(
-            datetime.now(timezone.utc) + timedelta(seconds=1)
-        ),
+        completed_before=cutoff,
+        failed_before=cutoff,
+        prep_ref_expires_before=cutoff,
         batch_size=2,
     )
 

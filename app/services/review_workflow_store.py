@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Event, Lock, Thread
 from uuid import uuid4
@@ -23,6 +24,15 @@ from app.services.workflow_thread_lock import (
     ReviewEffectConflict,
     ReviewEffectLeaseLost,
 )
+
+
+class _BorrowedReviewCommitConnectionProvider:
+    def __init__(self, connection) -> None:
+        self.connection_object = connection
+
+    @contextmanager
+    def connection(self):
+        yield self.connection_object
 
 
 @dataclass(frozen=True)
@@ -231,12 +241,38 @@ class PostgresReviewWorkflowStore:
                 row = cursor.fetchone()
                 if row is None:
                     raise ValueError("session not found")
-                state_version = int(row[0]) + 1
-                cursor.execute(self._sql("""
-                    UPDATE {sessions} SET phase = 'review', phase_status = 'completed', review_status = 'completed',
-                        state_version = %s, checkpoint_version = %s, updated_at = NOW()
-                    WHERE session_id = %s
-                """), (state_version, state_version, run.session_id))
+                from app.services.postgres_report_artifact_store import (
+                    PostgresReportArtifactStore,
+                )
+                from app.services.report_artifact import PublishReportArtifact
+
+                artifact_store = PostgresReportArtifactStore(
+                    connection_provider=_BorrowedReviewCommitConnectionProvider(connection),
+                    table_prefix=self.table_prefix,
+                    schema_mode=self.schema_mode,
+                )
+                artifact_store.publish(
+                    job_id,
+                    PublishReportArtifact(
+                        schema_version="report-artifact-v2",
+                        scoring_rubric_version=report.scoring_rubric_version,
+                        generation_status=report.generation_status,
+                        generation_reason_code=report.generation_reason_code,
+                        score_status=report.score_status,
+                        score_reason_code=report.score_reason_code,
+                        coverage_status=report.coverage_status,
+                        report_path=report.report_path,
+                        payload=report_json,
+                    ),
+                    worker_id=lease.worker_id,
+                )
+                cursor.execute(
+                    self._sql("SELECT state_version FROM {sessions} WHERE session_id = %s"),
+                    (run.session_id,),
+                )
+                state_version = int(cursor.fetchone()[0])
+                # Keep the legacy single-row report as a compatibility shadow.
+                # The immutable Artifact/Head transaction above is authoritative.
                 cursor.execute(self._sql("""
                     UPDATE {reports} SET status = 'completed', report_json = %s::jsonb, error = NULL,
                         completed_at = NOW(), failed_at = NULL, updated_at = NOW()
@@ -244,24 +280,6 @@ class PostgresReviewWorkflowStore:
                 """), (json.dumps(report_json, ensure_ascii=False), run.session_id))
                 if cursor.rowcount != 1:
                     raise ValueError("report record not found")
-                cursor.execute(self._sql("""
-                    UPDATE {jobs} SET status = 'completed', lease_owner = NULL,
-                        lease_token = NULL, lease_expires_at = NULL,
-                        finished_at = NOW(), updated_at = NOW()
-                    WHERE job_id = %s::uuid
-                      AND status = 'running'
-                      AND lease_owner = %s
-                      AND lease_token = %s::uuid
-                      AND lease_expires_at > NOW()
-                """), (job_id, lease.worker_id, lease.lease_token))
-                if cursor.rowcount != 1:
-                    raise ReportLeaseLost(
-                        "report job lease was lost before final commit"
-                    )
-                cursor.execute(self._sql("""
-                    UPDATE {runs} SET status = 'completed', result_sha256 = %s, error_code = NULL,
-                        completed_at = NOW(), updated_at = NOW() WHERE job_id = %s::uuid
-                """), (digest, job_id))
                 return state_version
 
     def save_report_artifact(self, *, job_id: str, report) -> dict:

@@ -9,7 +9,12 @@ from app.main import app
 from app.services.drafts import AnonymousDraftStore
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.event_publisher import NoopRuntimeEventPublisher
+from app.services.interview_plan_revision_store import (
+    InMemoryInterviewPlanRevisionStore,
+)
+from app.services.interview_plan_revision import legacy_plan_to_v2
 from app.services.prep import (
+    fallback_interview_plan,
     InterviewPlan,
     InterviewQuestion,
     KnowledgeBindingSnapshot,
@@ -65,6 +70,14 @@ class FakeApiLLM:
 
 _api_draft_store = AnonymousDraftStore()
 _api_prep_plan_store = InMemoryPrepPlanStore()
+
+
+@pytest.fixture(autouse=True)
+def isolate_plan_revision_store():
+    store = InMemoryInterviewPlanRevisionStore()
+    app.dependency_overrides[route_module.get_plan_revision_store] = lambda: store
+    yield store
+    app.dependency_overrides.pop(route_module.get_plan_revision_store, None)
 
 
 def make_client(control_store=None):
@@ -152,15 +165,46 @@ def test_health_endpoint():
 
 
 def start_runtime_api_session(client):
-    response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Redis.",
-            "resume_text": "Built Redis-backed APIs.",
-        },
+    response = start_test_interview(
+        client,
+        job_description="Backend role using Redis.",
+        resume_text="Built Redis-backed APIs.",
     )
     assert response.status_code == 200
     return response.json()["session_id"]
+
+
+def start_test_interview(
+    client,
+    *,
+    job_description="Backend role using Python and Redis.",
+    resume_text="Built a Python API with Redis.",
+    plan=None,
+):
+    revision_store = app.dependency_overrides[route_module.get_plan_revision_store]()
+    generated_plan = plan or FakeApiLLM().generate_plan(job_description, resume_text)
+    revision = revision_store.create_initial(
+        source_payload={
+            "job_description": job_description,
+            "resume_text": resume_text,
+            "job_tags": route_module.extract_job_tags(job_description),
+        },
+        plan=legacy_plan_to_v2(
+            generated_plan,
+            generator_version="plan-generator-v2-test",
+        ),
+        retention_policy="test-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    return client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": revision.plan_revision_id,
+            "expected_revision": revision.revision,
+            "plan_sha256": revision.plan_sha256,
+            "request_id": "test-api-start",
+        },
+    )
 
 
 class DurableV2WorkflowSpy:
@@ -381,10 +425,10 @@ def test_prepare_endpoint_returns_questions(monkeypatch):
     monkeypatch.setattr(
         route_module,
         "prepare_interview",
-        lambda job_description, resume_text, execution_runner=None: FakeApiLLM().generate_plan(
-            job_description,
-            resume_text,
-        ),
+        lambda job_description,
+        resume_text,
+        execution_runner=None,
+        configuration=None: fallback_interview_plan(configuration),
     )
     client = make_client()
     response = client.post(
@@ -479,10 +523,14 @@ def test_prepare_endpoint_returns_job_tags_without_session_store(monkeypatch):
     monkeypatch.setattr(
         route_module,
         "prepare_interview",
-        lambda job_description, resume_text, execution_runner=None: prepare_interview_service(
+        lambda job_description,
+        resume_text,
+        execution_runner=None,
+        configuration=None: prepare_interview_service(
             job_description,
             resume_text,
             llm=FakeApiLLM(),
+            configuration=configuration,
         ),
     )
     client = TestClient(app)
@@ -507,19 +555,17 @@ def test_prepare_endpoint_returns_job_tags_without_session_store(monkeypatch):
 
 def test_start_interview_persists_plan_prep_context_in_session_snapshot():
     client = make_client()
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python, FastAPI, Redis, and PostgreSQL.",
-            "resume_text": "Built a FastAPI service with Redis cache.",
-        },
+    started = start_test_interview(
+        client,
+        job_description="Backend role using Python, FastAPI, Redis, and PostgreSQL.",
+        resume_text="Built a FastAPI service with Redis cache.",
     ).json()
 
     response = client.get(f"/api/interviews/{started['session_id']}")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["questions"][1]["id"] == "q2"
+    assert body["questions"][1]["id"] == body["plan_snapshot"]["questions"][1]["question_id"]
     assert body["messages"][0]["role"] == "interviewer"
 
 
@@ -579,9 +625,11 @@ def test_session_snapshot_restores_safe_public_evidence_binding(monkeypatch):
     monkeypatch.setattr(route_module, "prepare_interview", lambda *_args, **_kwargs: plan)
     client = make_client()
 
-    started = client.post(
-        "/api/interviews",
-        json={"job_description": "Redis role", "resume_text": "Redis project"},
+    started = start_test_interview(
+        client,
+        job_description="Redis role",
+        resume_text="Redis project",
+        plan=plan,
     ).json()
     response = client.get(f"/api/interviews/{started['session_id']}")
 
@@ -668,19 +716,10 @@ def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
         resume_text: str,
         llm=None,
         execution_runner=None,
+        configuration=None,
     ):
         assert llm is None
-        return InterviewPlan(
-            title="Preview plan",
-            questions=[
-                InterviewQuestion(
-                    id="q1",
-                    kind="technical",
-                    prompt="Explain caching.",
-                    focus="cache",
-                )
-            ],
-        )
+        return fallback_interview_plan(configuration)
 
     app.dependency_overrides[get_session_store] = fail_session_store
     app.dependency_overrides[route_module.get_prep_plan_store] = lambda: _api_prep_plan_store
@@ -696,7 +735,8 @@ def test_prepare_endpoint_does_not_require_session_store(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["title"] == "Preview plan"
+    assert response.json()["title"] == "30 分钟intermediate 模拟面试"
+    assert len(response.json()["questions"]) == 5
 
 
 def test_create_interview_draft_returns_anonymous_draft():
@@ -808,13 +848,7 @@ def test_create_interview_draft_rejects_blank_fields():
 
 def test_interview_answer_flow():
     client = make_client()
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
 
     assert start_response.status_code == 200
     started = start_response.json()
@@ -834,12 +868,9 @@ def test_interview_answer_flow():
 
 def test_get_interview_session_returns_snapshot():
     client = make_client()
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python, FastAPI, Redis, and PostgreSQL.",
-            "resume_text": "Built a Python API with Redis.",
-        },
+    start_response = start_test_interview(
+        client,
+        job_description="Backend role using Python, FastAPI, Redis, and PostgreSQL.",
     )
     started = start_response.json()
 
@@ -853,8 +884,7 @@ def test_get_interview_session_returns_snapshot():
     assert body["total_questions"] == 3
     assert body["completed_questions"] == 0
     assert body["job_tags"] == ["python", "fastapi", "redis", "postgresql"]
-    assert body["current_question"]["id"] == "q1"
-    assert body["questions"][0]["id"] == "q1"
+    assert body["current_question"]["id"] == body["questions"][0]["id"]
     assert [question["state"] for question in body["questions"]] == [
         "current",
         "pending",
@@ -865,13 +895,7 @@ def test_get_interview_session_returns_snapshot():
 
 def test_get_interview_session_returns_resume_metadata():
     client = make_client()
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    ).json()
+    started = start_test_interview(client).json()
 
     response = client.get(f"/api/interviews/{started['session_id']}")
 
@@ -888,13 +912,7 @@ def test_get_interview_session_returns_resume_metadata():
 
 def test_get_interview_session_returns_skip_and_timing_metadata():
     client = make_client()
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
 
     client.post(f"/api/interviews/{session_id}/skip")
@@ -923,21 +941,16 @@ def test_get_interview_session_missing_returns_404():
 
 def test_skip_endpoint_advances_question():
     client = make_client()
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
+    first_question_id = start_response.json()["current_question"]["id"]
 
     response = client.post(f"/api/interviews/{session_id}/skip")
 
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "active"
-    assert body["current_question"]["id"] == "q2"
+    assert body["current_question"]["id"] != first_question_id
     assert body["follow_up"] is None
 
 
@@ -955,13 +968,7 @@ def test_answer_missing_session_returns_404():
 
 def test_answer_route_returns_409_for_version_conflict():
     client = make_client()
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    ).json()
+    started = start_test_interview(client).json()
 
     response = client.post(
         f"/api/interviews/{started['session_id']}/answer",
@@ -982,13 +989,7 @@ def test_answer_route_returns_409_for_version_conflict():
 
 def test_interview_answer_stream_flow():
     client = make_client()
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     started = start_response.json()
 
     with client.stream(
@@ -1027,13 +1028,7 @@ def test_interview_answer_stream_retry_reuses_command_without_duplicate_answer()
         yield "follow-up"
 
     store._runner.stream_followup = flaky_stream
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    ).json()
+    started = start_test_interview(client).json()
     payload = {
         "answer": "I used Redis to cache frequently requested records.",
         "expected_version": 1,
@@ -1061,13 +1056,7 @@ def test_interview_answer_stream_retry_reuses_command_without_duplicate_answer()
 
 def test_interview_moves_to_next_question_after_followup_answer():
     client = make_client()
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     started = start_response.json()
 
     first_answer = client.post(
@@ -1081,7 +1070,7 @@ def test_interview_moves_to_next_question_after_followup_answer():
 
     assert first_answer["follow_up"] == "请继续说明缓存失效时如何保护数据库。"
     assert second_answer["follow_up"] is None
-    assert second_answer["current_question"]["id"] == "q2"
+    assert second_answer["current_question"]["id"] != started["current_question"]["id"]
     assert second_answer["status"] == "active"
 
 
@@ -1095,13 +1084,7 @@ def test_answer_route_publishes_round_closed_event_only_when_question_closes():
     app.dependency_overrides[route_module.get_event_publisher] = lambda: FakePublisher()
     client = make_client()
 
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
 
     first = client.post(
@@ -1125,7 +1108,7 @@ def test_answer_route_publishes_round_closed_event_only_when_question_closes():
     assert first.status_code == 200
     assert second.status_code == 200
     assert len(published) == 1
-    assert published[0].question_id == "q1"
+    assert published[0].question_id == start_response.json()["current_question"]["id"]
     assert published[0].answer_state == "answered"
     assert published[0].state_version == snapshot["state_version"]
     assert published[0].causation_id == "cmd-close"
@@ -1141,13 +1124,7 @@ def test_skip_route_publishes_round_closed_event():
     app.dependency_overrides[route_module.get_event_publisher] = lambda: FakePublisher()
     client = make_client()
 
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
 
     response = client.post(
@@ -1158,7 +1135,7 @@ def test_skip_route_publishes_round_closed_event():
 
     assert response.status_code == 200
     assert len(published) == 1
-    assert published[0].question_id == "q1"
+    assert published[0].question_id == start_response.json()["current_question"]["id"]
     assert published[0].answer_state == "skipped"
     assert published[0].state_version == snapshot["state_version"]
     assert published[0].causation_id == "cmd-skip"
@@ -1216,13 +1193,7 @@ def test_answer_route_succeeds_when_round_closed_publish_fails():
     )
     client = make_client()
 
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
 
     first = client.post(
@@ -1236,7 +1207,7 @@ def test_answer_route_succeeds_when_round_closed_publish_fails():
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert second.json()["current_question"]["id"] == "q2"
+    assert second.json()["current_question"]["id"] != start_response.json()["current_question"]["id"]
     assert len(attempts) == 1
 
 
@@ -1253,13 +1224,7 @@ def test_answer_stream_returns_done_when_round_closed_publish_fails():
     )
     client = make_client()
 
-    start_response = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    )
+    start_response = start_test_interview(client)
     session_id = start_response.json()["session_id"]
 
     client.post(
@@ -1289,13 +1254,8 @@ def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_
     app.dependency_overrides[route_module.get_event_publisher] = lambda: FakePublisher()
     client = make_client()
 
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role using Python and Redis.",
-            "resume_text": "Built a Python API with Redis.",
-        },
-    ).json()
+    started_response = start_test_interview(client)
+    started = started_response.json()
 
     client.post(
         f"/api/interviews/{started['session_id']}/answer",
@@ -1319,7 +1279,7 @@ def test_answer_stream_publishes_round_closed_event_when_streamed_answer_closes_
 
     assert "event: done" in body
     assert len(published) == 1
-    assert published[0].question_id == "q1"
+    assert published[0].question_id == started["current_question"]["id"]
     assert published[0].answer_state == "answered"
     snapshot = client.get(
         f"/api/interviews/{started['session_id']}"

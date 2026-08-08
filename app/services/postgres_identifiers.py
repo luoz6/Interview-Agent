@@ -63,6 +63,13 @@ _RUNTIME_TABLE_SUFFIXES = (
     "prep_plan_versions",
     "prep_plan_launch_commands",
     "prep_plan_session_question_mappings",
+    "plan_sources",
+    "plan_source_refs",
+    "plan_revisions",
+    "report_artifacts",
+    "report_heads",
+    "followup_decisions",
+    "decision_attempts",
     "schema_migrations",
 )
 
@@ -103,6 +110,11 @@ _RUNTIME_DERIVED_SUFFIXES = (
     "principal_memory_tombs_principal_requested_idx",
     "interview_drafts_expires_idx",
     "prep_plans_state_expiry_idx",
+    "plan_revisions_family_revision_idx",
+    "plan_source_refs_owner_idx",
+    "reject_plan_revision_update",
+    "plan_revisions_immutable_trigger",
+    "plan_revisions_request_uq",
 )
 
 _RUNTIME_IDENTIFIER_SUFFIXES = (

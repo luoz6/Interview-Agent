@@ -26,13 +26,20 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     await expectGeometry(page);
 
     const detail = await page.evaluate(() => {
-      const shell = document.querySelector(".report-detail-shell");
-      const workspace = document.querySelector(".report-detail-workspace");
-      const inspector = document.querySelector(".report-detail-inspector");
-      const overview = document.querySelector(".report-detail-overview");
-      const score = document.querySelector(".report-detail-score-mark");
-      const title = document.querySelector("#report-detail-title");
-      const referencePanel = document.querySelector(".report-detail-dimension-panel");
+      const required = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing required report element: ${selector}`);
+        return element;
+      };
+      const shell = required(".report-detail-shell");
+      const workspace = required(".report-detail-workspace");
+      const inspector = required(".report-detail-inspector");
+      const overview = required(".report-detail-overview");
+      const score = required(".report-detail-score-mark");
+      const title = required("#report-detail-title");
+      const referencePanel = required(".report-detail-dimension-panel");
+      const scoreTrack = document.querySelector(".report-detail-score-track > span");
+      const dimensionTrack = document.querySelector(".report-detail-dimension-track > span");
       const workspaceRect = workspace.getBoundingClientRect();
       const inspectorRect = inspector.getBoundingClientRect();
       return {
@@ -45,9 +52,9 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         overviewBackground: getComputedStyle(overview).backgroundColor,
         scoreBackground: getComputedStyle(score).backgroundImage,
         scoreWidth: score.getBoundingClientRect().width,
-        scoreTrackAnimation: getComputedStyle(
-          document.querySelector(".report-detail-score-track > span"),
-        ).animationName,
+        scoreLabel: score.getAttribute("aria-label"),
+        scoreTrackCount: document.querySelectorAll(".report-detail-score-track > span").length,
+        scoreTrackAnimation: scoreTrack ? getComputedStyle(scoreTrack).animationName : "none",
         scoreOrbitCount: document.querySelectorAll(
           ".report-detail-score-orbit, .report-detail-head-score",
         ).length,
@@ -72,9 +79,11 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           ".report-detail-section-icon svg",
         ).length,
         scoreAnimations: getComputedStyle(score).animationName,
-        dimensionAnimation: getComputedStyle(
-          document.querySelector(".report-detail-dimension-track > span"),
-        ).animationName,
+        dimensionTrackCount: document.querySelectorAll(".report-detail-dimension-track > span").length,
+        dimensionProgressCount: document.querySelectorAll(
+          '.report-detail-dimension-track[role="progressbar"]',
+        ).length,
+        dimensionAnimation: dimensionTrack ? getComputedStyle(dimensionTrack).animationName : "none",
         referencePanelBackground: getComputedStyle(referencePanel).backgroundColor,
         workspaceColor: getComputedStyle(workspace).color,
         reliabilityVisible: Boolean(document.querySelector(".report-detail-reliability")),
@@ -97,7 +106,7 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           ".report-detail-inspector-actions button",
         )].map((button) => button.getBoundingClientRect().height),
         workspaceOverflow: getComputedStyle(
-          document.querySelector(".report-detail-workspace-scroll"),
+          required(".report-detail-workspace-scroll"),
         ).overflowY,
         oldPosterScoreCount: document.querySelectorAll(
           ".overall-score, .score-overview, .highlight-field",
@@ -111,7 +120,9 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.scoreBackground).toBe("none");
     expect(detail.scoreWidth).toBeGreaterThanOrEqual(180);
     expect(detail.scoreWidth).toBeLessThanOrEqual(320);
-    expect(detail.scoreTrackAnimation).toBe("report-detail-score-fill");
+    expect(detail.scoreLabel).toContain("综合评分未发布");
+    expect(detail.scoreTrackCount).toBe(0);
+    expect(detail.scoreTrackAnimation).toBe("none");
     expect(detail.scoreOrbitCount).toBe(0);
     expect(detail.dimensionRows).toBe(5);
     expect(detail.introRevealCount).toBe(4);
@@ -120,6 +131,8 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.railIconCount).toBe(5);
     expect(detail.sectionIconCount).toBe(7);
     expect(detail.scoreAnimations).toContain("report-detail-score-enter");
+    expect(detail.dimensionTrackCount).toBe(5);
+    expect(detail.dimensionProgressCount).toBe(0);
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
     expect(detail.referencePanelBackground).not.toBe("");
     expect(detail.workspaceColor).not.toBe("");
@@ -226,6 +239,7 @@ test("report detail motion and focus states remain accessible", async ({
   await page.goto("/report-detail?session_id=" + sessionId);
 
   const download = page.getByRole("button", { name: "下载完整报告" });
+  await expect(download).toBeEnabled();
   await download.focus();
   const focus = await download.evaluate((button) => {
     const style = getComputedStyle(button);

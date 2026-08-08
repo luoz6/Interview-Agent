@@ -1,0 +1,147 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T61",
+  "generated_at": "2026-08-07T00:52:56.6585787+08:00",
+  "implementation_revision_base": "16d36ff8d236d6a99133eabae63b1c1d00c58ed0",
+  "implementation_tree_base": "157d428088e80223a3a87240116b93cd8ef9770a",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED_DETERMINISTIC_ENGINEERING",
+  "overall_status": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "screenshots": 0,
+  "playwright_trace": "off",
+  "open_findings": 0,
+  "acceptance": {
+    "path": "tests/golden/interview_quality_v1/t61-recovery-acceptance-v1.json",
+    "schema_version": "interview-quality-v1-t61-recovery-acceptance-v1",
+    "acceptance_id": "t61-recovery-acceptance-v1",
+    "canonical_sha256": "e251c592b8836840df83496b635f2e6b7a3fc09c2662d9ba762ba5accafebe52",
+    "file_sha256": "319dfe37eb64452ff38d28b247cd3f01aa16d2768237841dcb8085e1f9ae300d",
+    "file_bytes": 16104,
+    "builder": "scripts/build_t61_recovery_acceptance.py",
+    "runner": "scripts/run_t61_recovery_acceptance.py",
+    "postgresql_required": true,
+    "skip_policy": "forbidden",
+    "requirement_count": 17,
+    "acceptance_invariant_count": 4,
+    "unique_test_node_count": 44,
+    "collected_test_count": 54
+  },
+  "requirements": [
+    {"id": "T61-R01", "status": "PASS", "evidence": "plan revision concurrent writer fencing"},
+    {"id": "T61-R02", "status": "PASS", "evidence": "session start same-request replay, restart replay, concurrent replay and payload conflict"},
+    {"id": "T61-R03", "status": "PASS", "evidence": "decision lease stale completion fencing and bounded retry"},
+    {"id": "T61-R04", "status": "PASS", "evidence": "generation lease fencing, reset ordering and SSE cursor"},
+    {"id": "T61-R05", "status": "PASS", "evidence": "report lease fenced through transactional artifact commit"},
+    {"id": "T61-R06", "status": "PASS", "evidence": "before_artifact rollback"},
+    {"id": "T61-R07", "status": "PASS", "evidence": "artifact-before-head rollback"},
+    {"id": "T61-R08", "status": "PASS", "evidence": "head-before-job rollback"},
+    {"id": "T61-R09", "status": "PASS", "evidence": "job/review-run/session/outbox rollback"},
+    {"id": "T61-R10", "status": "PASS", "evidence": "response-loss replay by source_job_id and artifact hash"},
+    {"id": "T61-R11", "status": "PASS", "evidence": "failed rescore preserves active artifact"},
+    {"id": "T61-R12", "status": "PASS", "evidence": "active artifact and latest failed job coexist in API"},
+    {"id": "T61-R13", "status": "PASS", "evidence": "three-revision history and one-active-job partial unique constraint"},
+    {"id": "T61-R14", "status": "PASS", "evidence": "orphan report projection and repair"},
+    {"id": "T61-R15", "status": "PASS", "evidence": "command and session-start replay after store/service restart"},
+    {"id": "T61-R16", "status": "PASS", "evidence": "generation and report maximum retry safe termination"},
+    {"id": "T61-R17", "status": "PASS", "evidence": "bounded node/provider/progress/checkpoint/stream guards"}
+  ],
+  "acceptance_invariants": [
+    {"id": "T61-A01", "status": "PASS", "invariant": "same command has at most one business side effect"},
+    {"id": "T61-A02", "status": "PASS", "invariant": "same source job has at most one artifact revision"},
+    {"id": "T61-A03", "status": "PASS", "invariant": "stale worker cannot overwrite a new result"},
+    {"id": "T61-A04", "status": "PASS", "invariant": "every recovery path has stable coded evidence"}
+  ],
+  "automatic_review_findings_closed": [
+    "Session start lacked an idempotency identity; a required request_id now derives a stable server session identity and replays across concurrency and store reconstruction.",
+    "Frontend production start paths did not all send the immutable revision contract and stable request identity; React and static clients now retain the identity on failure and clear it after success.",
+    "Artifact failure before insert was collapsed with failure after insert; before_artifact and artifact are now distinct rollback windows.",
+    "PostgreSQL evidence did not explicitly cover response loss or multiple rescore history with the active-job partial unique constraint; both scenarios are now covered.",
+    "Initial idempotent replay returned before validating expected_revision and plan_sha256; changed replay payloads now fail closed with session_start_request_conflict.",
+    "Acceptance could otherwise pass with unavailable PostgreSQL or skipped tests; the runner now preflights PostgreSQL and fails closed on any skip."
+  ],
+  "verification": {
+    "official_acceptance": {
+      "tests_collected": 54,
+      "tests_passed": 54,
+      "tests_failed": 0,
+      "tests_skipped": 0,
+      "warnings": 1,
+      "warning_detail": "Starlette TestClient/httpx deprecation",
+      "exit_code": 0,
+      "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+      "pgvector_version": "0.8.6"
+    },
+    "expanded_adjacent_regression_after_final_fix": {
+      "tests_passed": 291,
+      "tests_failed": 0,
+      "warnings": 1
+    },
+    "full_frontend": {
+      "test_files_passed": 8,
+      "tests_passed": 67,
+      "tests_failed": 0
+    },
+    "focused_frontend": {
+      "tests_passed": 19,
+      "tests_failed": 0
+    },
+    "production_build": {
+      "status": "PASS",
+      "modules_transformed": 4596,
+      "javascript_chunk_kb": 542.28,
+      "javascript_gzip_kb": 147.42,
+      "chunk_warning_over_500kb": true
+    },
+    "postgres_fail_closed_preflight": {
+      "missing_dsn_status": "BLOCKED_POSTGRES_UNAVAILABLE",
+      "missing_dsn_exit_code": 3,
+      "provider_calls": 0
+    },
+    "builder_check": "PASS",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "full_pytest_with_postgres": {
+      "tests_passed": 2898,
+      "tests_failed": 10,
+      "tests_skipped": 3,
+      "warnings": 1,
+      "errors": 2,
+      "duration_seconds": 860.69,
+      "accepted_as_t61_gate": false,
+      "concurrent_run_interference_detected": true
+    },
+    "serial_failure_attribution": {
+      "database_clock_delta_seconds": -0.170858,
+      "time_and_cleanup_nodes_passed": 3,
+      "ddl_and_restart_nodes_passed": 4,
+      "persistent_known_failures": 4,
+      "t61_related_persistent_failures": 0
+    }
+  },
+  "diagnostic_attempts_not_accepted_as_pass": [
+    "A reconstructed temporary PostgreSQL fixture initially used schema_mode=validate and correctly raised PostgresSchemaNotReady because the fixture lacks the full production schema contract; the fixture's idempotent schema_mode=migrate was used for the restart-replay acceptance.",
+    "An all-suite run overlapped a pytest process left after a sibling PowerShell parser failure; its DDL deadlocks and cleanup races were isolated and re-run serially rather than treated as product failures or as passing evidence."
+  ],
+  "known_full_suite_failures": [
+    "tests/test_agent_runtime_hardening.py::test_stream_latency_clock_starts_at_first_next - old perf_counter mock ticks are exhausted",
+    "tests/test_local_v1_hardening_publication_contract.py::test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged - historical publication allowlist rejects accumulated quality-branch changes",
+    "tests/test_postgres_session_deletion.py::test_latest_migration_contract_requires_deletion_lease_and_indexes - old latest migration expectation is followup_decision_v1",
+    "tests/test_reproducibility_preflight.py::test_dependency_source_generator_and_lock_metadata_are_bound - existing lock hash differs from metadata"
+  ],
+  "phase_boundaries": {
+    "t61_complete": true,
+    "next_task": "T62",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "No real Provider was called and no first data request was sent.",
+    "The official T61 PostgreSQL acceptance has zero skips; the full-suite diagnostic is not substituted for that gate.",
+    "No screenshot, image operation, or Playwright trace was produced.",
+    "T61 Engineering PASS does not establish blocked Gate 2-5 Quality status or overall Plan completion."
+  ]
+}

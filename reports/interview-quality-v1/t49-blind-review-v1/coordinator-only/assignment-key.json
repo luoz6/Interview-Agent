@@ -1,0 +1,131 @@
+{
+  "assignment_commitment_sha256": "fe73c264bc8c51ae7c666500e77e8436c08830321c5f7a0ace1750b60318bb34",
+  "assignments": [
+    {
+      "pair_id": "t49-style-high-quality",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-technically-correct-plain",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-polished-incorrect-technical",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-mixed-no-reference",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-distributed-incorrect-experience",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-partial-skip",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-insufficient-evidence",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-summary-provider-failure",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-action-provider-failure",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-project-experience",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-numeric-claim",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-negation-context",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-counterfactual",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-prompt-injection",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-legacy-boundary",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-partial-coverage",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-unscored",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-money-boundary",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-latency-boundary",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-responsibility-boundary",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    },
+    {
+      "pair_id": "t49-reference-boundary",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-memory-boundary",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-role-title-boundary",
+      "variant_a_version": "v2",
+      "variant_b_version": "v1"
+    },
+    {
+      "pair_id": "t49-production-result-boundary",
+      "variant_a_version": "v1",
+      "variant_b_version": "v2"
+    }
+  ],
+  "dataset_id": "report-semantic-blind-test-v1",
+  "dataset_sha256": "c974a5e97e543a54e29a322c06353e4c816227de6556d807799569a096a6b6a9",
+  "packet_sha256": "c174e36df9eaa84b2841a4d6682bda6ae572079b225402bdb7fcb88066abd1c5",
+  "protocol_version": "report-semantic-blind-review-v1",
+  "randomization_seed": "t49-semantic-review-frozen-seed-2026-08-06",
+  "seed_commitment_sha256": "81d90f2470438edd4b82dd9790909cf6332cd92ae2a993f6c3aa1f6d0e7eed23"
+}

@@ -1,0 +1,63 @@
+{
+  "schema_version": "interview-quality-gate-evidence-v1",
+  "gate": "Gate 1",
+  "generated_at": "2026-08-05T18:58:00+08:00",
+  "engineering_status": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "automatic_review": "PASS",
+  "open_findings": 0,
+  "blocking_skips": 0,
+  "tasks": {
+    "T10": "PASS",
+    "T11": "PASS",
+    "T12": "PASS",
+    "T13": "PASS",
+    "T14": "PASS",
+    "T15": "PASS",
+    "T16": "PASS",
+    "T17": "PASS",
+    "T18": "PASS"
+  },
+  "verification": {
+    "backend_main": {
+      "passed": 2278,
+      "failed": 0,
+      "skipped": 2,
+      "classification": [
+        "real Provider smoke is outside Gate 1 and remains NOT_RUN",
+        "POSIX-only path contract is not applicable on Windows"
+      ]
+    },
+    "durable_recovery": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "gate_targeted": {
+      "passed": 108,
+      "failed": 0,
+      "skipped": 0
+    },
+    "frontend_unit": {
+      "passed": 5,
+      "failed": 0
+    },
+    "frontend_clean_install": "PASS",
+    "frontend_build": "PASS",
+    "postgresql": "16.14",
+    "pgvector": "0.8.6"
+  },
+  "non_applicable_historical_guards": [
+    {
+      "test": "test_publication_diff_is_allowlisted_and_implementation_tree_is_unchanged",
+      "reason": "The historical Local V1 publication lock intentionally rejects every implementation change on a development branch."
+    },
+    {
+      "test": "test_dependency_source_generator_and_lock_metadata_are_bound",
+      "reason": "The Windows worktree uses core.autocrlf=true while the historical metadata hashes LF bytes; dependency sources and lock contents were not changed by Gate 1."
+    }
+  ],
+  "provider_calls": 0,
+  "candidate_data_used": false,
+  "destructive_database_changes": false
+}

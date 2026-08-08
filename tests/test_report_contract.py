@@ -103,9 +103,9 @@ def test_assemble_interview_report_averages_scores_and_resolves_references():
     assert report.is_fallback is False
     assert report.overall_score == 80
     assert report.overall_dimension_scores == DimensionScores(
-        breadth=40,
+        breadth=80,
         depth=70,
-        architecture=35,
+        architecture=70,
         engineering=78,
         communication=82,
     )
@@ -134,7 +134,10 @@ def test_assemble_interview_report_uses_explicit_highlights_not_rationale():
     assert "should not become a highlight" not in " ".join(
         report.highlights
     ).lower()
-    assert "cache-aside" in report.summary.lower()
+    assert report.summary != "Covered cache-aside tradeoffs"
+    assert "本轮" in report.summary
+    assert report.technical_appendix.summary_prompt_version
+    assert report.technical_appendix.summary_prompt_sha256
 
 
 def test_assemble_interview_report_falls_back_to_short_critique_snippets():

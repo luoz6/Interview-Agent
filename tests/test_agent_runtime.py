@@ -209,6 +209,29 @@ def test_stream_runner_records_degraded_fallback():
     assert recorder.records[0].safe_metadata == {"emitted_chunks": 1}
 
 
+def test_stream_runner_records_first_provider_item_latency_once():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    assert list(runner.stream(make_context(), lambda: iter(["one", "two"]))) == [
+        "one",
+        "two",
+    ]
+
+    metadata = recorder.records[0].safe_metadata
+    assert metadata["emitted_chunks"] == 2
+    assert metadata["first_item_latency_ms"] >= 0
+
+
+def test_stream_runner_does_not_fabricate_ttft_for_empty_stream():
+    recorder = CapturingRecorder()
+    runner = AgentExecutionRunner(recorder=recorder)
+
+    assert list(runner.stream(make_context(), lambda: iter(()))) == []
+
+    assert recorder.records[0].safe_metadata == {"emitted_chunks": 0}
+
+
 def test_stream_runner_records_cancelled_consumer():
     recorder = CapturingRecorder()
     runner = AgentExecutionRunner(recorder=recorder)

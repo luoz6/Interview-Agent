@@ -43,7 +43,7 @@ from app.services.agent_recorders import (
 )
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.agent_trace import AgentTraceRecorder
-from app.services.in_memory_draft_store import InMemoryDraftStore
+from app.services.drafts import AnonymousDraftStore
 from app.services.postgres_draft_store import PostgresDraftStore
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
@@ -54,6 +54,7 @@ from app.services.llm import InterviewLLM, OpenAIInterviewLLM
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.memory_report_jobs import InMemoryReportJobStore
+from app.services.report_artifact_store import InMemoryReportArtifactStore
 from app.services.runtime_outbox_dispatcher import (
     CeleryRuntimeEventSink,
     LocalRuntimeEventSink,
@@ -74,11 +75,14 @@ class ReportExecutor:
 
 _session_store = None
 _report_job_store = None
+_report_artifact_store = None
+_decision_store = None
 _report_executor = None
 _draft_store = None
 _prep_plan_store = None
 _interview_launch_repository = None
 _interview_launch_coordinator = None
+_plan_revision_store = None
 _event_publisher = None
 _runtime_control_store = None
 _runtime_outbox_service = None
@@ -604,11 +608,8 @@ def get_session_deletion_worker():
             ),
             question_memory_index=get_question_memory_index_store(),
             context_artifact_store=get_context_artifact_store(),
-            report_job_store=(
-                get_report_job_store()
-                if get_runtime_store() == "postgres"
-                else None
-            ),
+            report_job_store=get_report_job_store(),
+            report_artifact_store=get_report_artifact_store(),
             tombstone_store=service.tombstone_store,
             principal_memory_store=get_principal_memory_fact_store(),
             principal_memory_control_store=get_principal_memory_control_store(),
@@ -661,10 +662,46 @@ def build_report_job_store():
     )
 
 
+def build_report_artifact_store():
+    if get_runtime_store() == "memory":
+        return InMemoryReportArtifactStore()
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_report_artifact_store import (
+            PostgresReportArtifactStore,
+        )
+
+        domains = get_postgres_connection_domains()
+        return PostgresReportArtifactStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=domains.business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+
+
+def build_decision_store():
+    if get_runtime_store() == "memory":
+        from app.services.decision_store import InMemoryDecisionStore
+
+        return InMemoryDecisionStore()
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_decision_store import PostgresDecisionStore
+
+        domains = get_postgres_connection_domains()
+        return PostgresDecisionStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=domains.business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+
+
 def build_draft_store():
     ttl = timedelta(seconds=get_interview_draft_ttl_seconds())
     if get_runtime_store() == "memory":
-        return InMemoryDraftStore(ttl=ttl)
+        return AnonymousDraftStore(ttl=ttl)
     domains = get_postgres_connection_domains()
     return PostgresDraftStore(
         dsn=get_postgres_dsn(),
@@ -718,6 +755,27 @@ def build_interview_launch_coordinator():
             else None
         ),
     )
+
+
+def build_plan_revision_store():
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_plan_revision_store import (
+            PostgresInterviewPlanRevisionStore,
+        )
+
+        return PostgresInterviewPlanRevisionStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=get_postgres_connection_domains().business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    if get_runtime_store() == "memory":
+        from app.services.interview_plan_revision_store import (
+            InMemoryInterviewPlanRevisionStore,
+        )
+
+        return InMemoryInterviewPlanRevisionStore()
+    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
 
 
 def build_event_publisher():
@@ -785,6 +843,20 @@ def get_report_job_store():
     return _report_job_store
 
 
+def get_report_artifact_store():
+    global _report_artifact_store
+    if _report_artifact_store is None:
+        _report_artifact_store = build_report_artifact_store()
+    return _report_artifact_store
+
+
+def get_decision_store():
+    global _decision_store
+    if _decision_store is None:
+        _decision_store = build_decision_store()
+    return _decision_store
+
+
 def get_draft_store():
     global _draft_store
     if _draft_store is None:
@@ -811,6 +883,13 @@ def get_interview_launch_coordinator():
     if _interview_launch_coordinator is None:
         _interview_launch_coordinator = build_interview_launch_coordinator()
     return _interview_launch_coordinator
+
+
+def get_plan_revision_store():
+    global _plan_revision_store
+    if _plan_revision_store is None:
+        _plan_revision_store = build_plan_revision_store()
+    return _plan_revision_store
 
 
 def get_event_publisher():
@@ -1000,6 +1079,17 @@ def get_runtime_signal_store():
     return _runtime_signal_store
 
 
+def build_runtime_followup_decision_provider(store):
+    from app.services.followup_prompts import (
+        build_followup_decision_provider_for_llm,
+    )
+
+    llm = store.llm
+    if llm is None or not hasattr(llm, "chat_model"):
+        return None
+    return build_followup_decision_provider_for_llm(llm)
+
+
 def build_interview_workflow_service():
     from app.agents.examiner import ExaminerAgent
     from app.graphs.durable_interview_graph import (
@@ -1012,6 +1102,9 @@ def build_interview_workflow_service():
         PostgresInterviewGenerationStore,
     )
     from app.services.interview_workflow import InterviewWorkflowService
+    from app.services.followup_decision_service import (
+        FollowupDecisionExecutionService,
+    )
     from app.services.interview_workflow_store import (
         PostgresInterviewWorkflowStore,
     )
@@ -1042,9 +1135,14 @@ def build_interview_workflow_service():
         table_prefix=prefix,
         schema_mode="validate",
     )
+    decision_provider = build_runtime_followup_decision_provider(store)
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
+        decision_service=FollowupDecisionExecutionService(
+            store=get_decision_store(),
+            provider=decision_provider,
+        ),
         examiner=ExaminerAgent(
             llm=store.llm,
             execution_runner=get_agent_execution_runner(),
@@ -1223,6 +1321,10 @@ def build_review_workflow_service():
     )
     from app.services.agent_runtime import AgentExecutionContext, correlation_id_from_plan
     from app.services.report_microbatch import build_report_coach_items_from_question_evaluations
+    from app.services.report_degraded import (
+        build_degraded_report_from_feedbacks,
+        completed_feedbacks_in_manifest_order,
+    )
     from app.services.question_evaluations import QuestionEvaluationRecord
     from app.services.report import InterviewReport
     from app.services.report_runtime_quality import evaluate_runtime_report_quality
@@ -1364,14 +1466,91 @@ def build_review_workflow_service():
             "report_sha256": effect["output_sha256"],
         }
 
-    def validate_report(graph_state):
-        report = InterviewReport.model_validate(
-            workflow_store.load_effect_payload(
-                graph_state["report_ref"].removeprefix("review-effect:")
-            )
+    def generate_degraded_report(graph_state, source_failure_code):
+        operation_key = (
+            f"report-degraded:{graph_state['job_id']}:"
+            f"{graph_state['review_input_manifest']['input_sha256']}:"
+            f"{graph_state['provider_attempt']}"
         )
-        expected = len(graph_state["review_input_manifest"]["questions"])
-        result = evaluate_runtime_report_quality(report, expected_question_count=expected)
+
+        def build_safe_report(effect_ownership):
+            effect_ownership.ensure_owned()
+            state = store.get(graph_state["session_id"])
+            records = store.list_question_evaluations(state["session_id"])
+            expected_ids = [
+                question["question_id"]
+                for question in graph_state["review_input_manifest"]["questions"]
+            ]
+            feedbacks = completed_feedbacks_in_manifest_order(
+                records,
+                expected_question_ids=expected_ids,
+            )
+            report = build_degraded_report_from_feedbacks(
+                session_id=state["session_id"],
+                feedbacks=feedbacks,
+                failed_components=["summary"],
+                source_failure_code=source_failure_code,
+                report_path="microbatch",
+            )
+            return report.model_dump(mode="json")
+
+        effect = workflow_store.run_effect(
+            operation_key=operation_key,
+            job_id=graph_state["job_id"],
+            effect_type="report_degraded_fallback",
+            graph_schema_version=graph_state["review_graph_schema_version"],
+            input_sha256=graph_state["review_input_manifest"]["input_sha256"],
+            provider=build_safe_report,
+        )
+        return {
+            "report_ref": f"review-effect:{operation_key}",
+            "report_sha256": effect["output_sha256"],
+        }
+
+    def validate_report(graph_state):
+        raw_payload = workflow_store.load_effect_payload(
+            graph_state["report_ref"].removeprefix("review-effect:")
+        )
+        try:
+            report = InterviewReport.model_validate(raw_payload)
+        except Exception:
+            return (
+                "failed",
+                [
+                    {
+                        "code": "report_schema_invalid",
+                        "description": (
+                            "report payload failed deterministic schema validation"
+                        ),
+                        "question_id": None,
+                    }
+                ],
+            )
+        manifest = graph_state["review_input_manifest"]
+        expected_questions = list(manifest["questions"])
+        session_state = store.get(graph_state["session_id"])
+        expected_candidate_answers = {
+            question["question_id"]: " ".join(
+                message["content"].strip()
+                for message in session_state.get("messages", [])
+                if message.get("role") == "candidate"
+                and message.get("question_id") == question["question_id"]
+                and message.get("content", "").strip()
+            )
+            for question in expected_questions
+            if question.get("answer_state") == "answered"
+        }
+        result = evaluate_runtime_report_quality(
+            report,
+            expected_question_count=len(expected_questions),
+            expected_questions=expected_questions,
+            expected_session_id=graph_state["session_id"],
+            expected_report_sha256=graph_state["report_sha256"],
+            artifact_schema_version="report-artifact-v2",
+            raw_payload=raw_payload,
+            review_input_manifest=manifest,
+            expected_candidate_answers=expected_candidate_answers,
+        )
         return (
             "passed" if not result.blocking_issues else "failed",
             [asdict(item) for item in result.structured_blocking_issues],
@@ -1435,6 +1614,7 @@ def build_review_workflow_service():
         workflow_store=workflow_store,
         review_question=review_question,
         generate_report=generate_report,
+        generate_degraded_report=generate_degraded_report,
         repair_report=repair_report,
         validate_report=validate_report,
         commit_report=commit_report,
@@ -1604,9 +1784,11 @@ def shutdown_runtime(*, wait: bool = True) -> None:
 
 
 def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
-    global _session_store, _report_job_store, _report_executor, _draft_store
+    global _session_store, _report_job_store, _report_artifact_store
+    global _decision_store, _report_executor, _draft_store
     global _prep_plan_store, _interview_launch_repository
     global _interview_launch_coordinator
+    global _plan_revision_store
     global _event_publisher, _runtime_control_store, _runtime_outbox_service
     global _agent_execution_runner, _agent_composite_recorder
     global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
@@ -1649,11 +1831,14 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _shutdown_cached_publisher(_event_publisher, wait=wait)
     _session_store = None
     _report_job_store = None
+    _report_artifact_store = None
+    _decision_store = None
     _report_executor = None
     _draft_store = None
     _prep_plan_store = None
     _interview_launch_repository = None
     _interview_launch_coordinator = None
+    _plan_revision_store = None
     _event_publisher = None
     _runtime_control_store = None
     _runtime_outbox_service = None

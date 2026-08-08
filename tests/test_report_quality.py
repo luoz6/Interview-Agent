@@ -99,7 +99,7 @@ def test_report_quality_rejects_nonzero_score_for_non_answered_feedback():
 
     issues = collect_report_quality_issues(report, expected_question_count=1)
 
-    assert "feedback[q1].score must be 0 when answer_state is skipped" in issues
+    assert "feedback[q1].score must be null when answer_state is skipped" in issues
 
 
 def test_report_quality_accepts_valid_chinese_report():

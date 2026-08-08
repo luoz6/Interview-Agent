@@ -15,10 +15,12 @@ from app.services.report import (
     ReportProgress,
 )
 from app.services.session import InterviewSessionStore
+from app.services.interview_plan_revision_store import InMemoryInterviewPlanRevisionStore
 from app.services.vector_store import KnowledgeChunk
 
 
 _ORIGINAL_GET_REPORT_JOB_STORE = route_module.get_report_job_store
+_ORIGINAL_PREPARE_INTERVIEW = route_module.prepare_interview
 
 
 class ReportApiLLM:
@@ -222,12 +224,21 @@ def make_client():
     job_store = FakeReportJobStore(store)
     prep_plan_store = InMemoryPrepPlanStore()
     launch_repository = InMemoryInterviewLaunchRepository()
+    revision_store = InMemoryInterviewPlanRevisionStore()
     app.dependency_overrides[get_session_store] = lambda: store
     app.dependency_overrides[route_module.get_prep_plan_store] = lambda: prep_plan_store
+    app.dependency_overrides[route_module.get_plan_revision_store] = (
+        lambda: revision_store
+    )
     app.dependency_overrides[route_module.get_interview_launch_repository] = (
         lambda: launch_repository
     )
     route_module.get_report_job_store = lambda: job_store
+    route_module.prepare_interview = (
+        lambda job_description, resume_text, **_kwargs: llm.generate_plan(
+            job_description, resume_text
+        )
+    )
     client = TestClient(app)
     client.practice_plan_store = prep_plan_store
     client.practice_launch_repository = launch_repository
@@ -237,6 +248,7 @@ def make_client():
 def teardown_function():
     app.dependency_overrides.clear()
     route_module.get_report_job_store = _ORIGINAL_GET_REPORT_JOB_STORE
+    route_module.prepare_interview = _ORIGINAL_PREPARE_INTERVIEW
 
 
 def test_public_report_error_fallback_only_classifies_explicit_queue_failure():
@@ -257,6 +269,29 @@ def test_retry_exhaustion_is_explicitly_terminal_even_with_frontend_guidance():
 
 
 def start_interview(client: TestClient) -> str:
+    prepared = client.post(
+        "/api/prep",
+        json={
+            "job_description": "Backend role using Python and Redis.",
+            "resume_text": "Built a Python API with Redis.",
+        },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    response = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": revision["plan_revision_id"],
+            "expected_revision": revision["revision"],
+            "plan_sha256": revision["plan_sha256"],
+            "request_id": "report-api-start",
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["session_id"]
+
+
+def start_legacy_interview(client: TestClient) -> str:
     response = client.post(
         "/api/interviews",
         json={
@@ -395,7 +430,7 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     ]
     assert body["items"][0]["overall_score"] is None
     assert body["items"][0]["report_pdf_url"] is None
-    assert body["items"][1]["error"] == "llm timeout"
+    assert body["items"][1]["error"] == "Report generation timed out."
     assert body["items"][2]["overall_score"] == 81
     assert body["items"][2]["summary"] == "Completed summary."
     assert body["items"][2]["answered_question_count"] == 1
@@ -596,7 +631,7 @@ def test_completed_report_endpoint_returns_authoritative_reliability_object():
 
 def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
     client, store, _, _ = make_client()
-    session_id = start_interview(client)
+    session_id = start_legacy_interview(client)
     responses = answer_all_questions(client, session_id)
     assert all(response.status_code == 200 for response in responses)
     report = make_report_model(session_id)
@@ -658,7 +693,7 @@ def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
 
 def test_practice_plan_endpoint_rejects_unfinished_report_without_creating_plan():
     client, _, _, _ = make_client()
-    session_id = start_interview(client)
+    session_id = start_legacy_interview(client)
 
     response = client.post(
         f"/api/interviews/{session_id}/practice-plan",
@@ -716,7 +751,7 @@ def test_practice_plan_endpoint_returns_stable_semantic_validation_errors(
     expected_code,
 ):
     client, store, _, _ = make_client()
-    session_id = start_interview(client)
+    session_id = start_legacy_interview(client)
     responses = answer_all_questions(client, session_id)
     assert all(response.status_code == 200 for response in responses)
     report = make_report_model(session_id)
@@ -1166,7 +1201,7 @@ def test_finished_answer_fails_report_without_process_coupled_fallback_when_job_
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
     assert report_response.status_code == 500
-    assert report_response.json()["detail"] == "report queue unavailable"
+    assert report_response.json()["detail"] == "Report queue is unavailable."
 
 
 def test_report_endpoint_returns_500_for_failed_report():
@@ -1179,7 +1214,7 @@ def test_report_endpoint_returns_500_for_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "report generation timed out"
+    assert response.json()["detail"] == "Report generation timed out."
 
 
 def test_report_pdf_endpoint_rejects_failed_report():
@@ -1192,7 +1227,7 @@ def test_report_pdf_endpoint_rejects_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report.pdf")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "report generation timed out"
+    assert response.json()["detail"] == "Report generation timed out."
 
 
 def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
@@ -1205,7 +1240,7 @@ def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "pgvector knowledge store is unavailable"
+    assert response.json()["detail"] == "Report knowledge retrieval is unavailable."
 
 
 def test_report_endpoint_returns_quality_failure_detail():
@@ -1221,10 +1256,7 @@ def test_report_endpoint_returns_quality_failure_detail():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert (
-        response.json()["detail"]
-        == "runtime report quality check failed: summary must include Simplified Chinese text"
-    )
+    assert response.json()["detail"] == "Report generation failed."
 
 
 def test_report_endpoint_returns_fallback_report_for_evidence_insufficient():

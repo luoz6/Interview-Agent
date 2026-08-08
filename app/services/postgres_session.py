@@ -35,6 +35,7 @@ from app.services.session import (
     _should_stream_follow_up,
 )
 from app.services.session_errors import SessionVersionConflict
+from app.services.session_plan_binding import SessionPlanBinding
 from app.services.runtime_domain_events import RoundClosedEvent
 from app.services.session_serialization import (
     message_to_row,
@@ -164,6 +165,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_tags: list[str],
         session_id: str | None = None,
         memory_policy_version: str = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewTurn:
         session_id = session_id or str(uuid4())
         state = self._runner.start(
@@ -173,6 +175,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         self._insert_state(state)
         return self._to_turn(state, follow_up=None)
@@ -187,6 +190,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_tags: list[str],
         graph_version: str = "langgraph-v1",
         memory_policy_version: str = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> None:
         from app.graphs.interview_state import build_initial_state
 
@@ -197,6 +201,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         if graph_version not in {"langgraph-v1", "langgraph-v2"}:
             raise ValueError("unsupported durable interview graph version")
@@ -272,7 +277,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                                checkpoint_version, last_checkpoint_at, last_command_id,
                                workflow_engine, graph_schema_version,
                                memory_policy_version, projection_sha256,
-                               deletion_status
+                               deletion_status, plan_binding_json
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -1061,6 +1066,11 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 )
                 cursor.execute(
                     sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS plan_binding_json JSONB"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
                         "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS "
                         "deletion_status TEXT NOT NULL DEFAULT 'active' "
                         "CHECK (deletion_status IN ('active','deleting'))"
@@ -1186,7 +1196,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     checkpoint_version, last_checkpoint_at, last_command_id,
                     workflow_engine, graph_schema_version,
                     memory_policy_version, projection_sha256,
-                    deletion_status
+                    deletion_status, plan_binding_json
                 )
                 VALUES (
                     %s, %s::jsonb, %s, %s,
@@ -1195,7 +1205,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                     %s::jsonb, %s, %s::jsonb,
                     %s, %s, %s,
                     %s, %s, %s,
-                    %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s::jsonb
                 )
                 """
             ).format(sessions=sql.Identifier(self.sessions_table)),
@@ -1226,6 +1236,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
                 session_row["memory_policy_version"],
                 session_row["projection_sha256"],
                 session_row["deletion_status"],
+                json.dumps(session_row["plan_binding_json"], ensure_ascii=False),
             ),
         )
         for index, message in enumerate(state["messages"], start=1):
@@ -1579,6 +1590,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             "memory_policy_version": row[21],
             "projection_sha256": row[22],
             "deletion_status": row[23],
+            "plan_binding_json": row[24],
         }
 
     @staticmethod

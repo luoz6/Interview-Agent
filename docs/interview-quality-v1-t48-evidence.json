@@ -1,0 +1,68 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T48",
+  "implementation_revision_base": "751cacc1636dcfb4679c7808ec5c146f12806f13",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "provider_calls": 0,
+  "pdf_identity_contract": {
+    "report_id_embedded": true,
+    "revision_embedded": true,
+    "created_at_embedded": true,
+    "versioned_filename": true,
+    "artifact_specific_endpoint": "/api/reports/{report_id}.pdf",
+    "session_endpoint_artifact_first": true
+  },
+  "semantic_parity": {
+    "summary_field": "report.summary",
+    "action_field": "report.priority_actions",
+    "evidence_fields": [
+      "report.evidence_refs",
+      "feedback.references"
+    ],
+    "answer_guidance_field": "feedback.better_answer",
+    "limitations_field": "report.limitations",
+    "technical_appendix_last": true
+  },
+  "score_truth_table": {
+    "scored": "numeric overall and evaluated dimensions",
+    "partial": "numeric overall plus evaluated_count/total_eligible_count",
+    "unscored": "no numeric overall or dimension score",
+    "degraded_generation_independent": true
+  },
+  "history_and_failure": {
+    "historical_download_uses_own_report_id": true,
+    "historical_download_unchanged_after_active_pointer_move": true,
+    "session_download_resolves_current_active_artifact": true,
+    "export_failure_mutates_artifact": false,
+    "export_failure_mutates_head": false,
+    "export_failure_mutates_jobs": false
+  },
+  "automatic_review_fixes": [
+    "replaced legacy-only PDF story with the shared v2 summary/action/evidence/limitation fields",
+    "bound current and historical frontend downloads to immutable report IDs",
+    "made the session compatibility endpoint artifact-first",
+    "proved renderer failure leaves Artifact, job history, and active head unchanged",
+    "escaped all dynamic PDF text before ReportLab paragraph parsing"
+  ],
+  "verification": {
+    "pdf_api_focused_passed": 62,
+    "report_regression_passed": 409,
+    "report_regression_skipped": 0,
+    "frontend_focused_passed": 15,
+    "frontend_full_vitest_passed": 28,
+    "frontend_build": "PASS",
+    "compileall": "PASS",
+    "pypdf_reopen": "PASS",
+    "pdfplumber_text_extraction": "PASS",
+    "pdf_visual_png_review": "NOT_RUN_TASK_IMAGE_RESTRICTION",
+    "diff_check": "PASS",
+    "secret_scan": "PASS"
+  },
+  "truthfulness_limits": [
+    "No Provider was called by T48.",
+    "No PNG rendering or pixel-level visual QA was performed because the task prohibits unrequested image work.",
+    "T48 does not establish T49 independent human review or Gate 4 Quality PASS.",
+    "No v2-over-v1 preference or human fabrication observed_count is claimed."
+  ]
+}

@@ -1,12 +1,23 @@
 const { test, expect } = require("@playwright/test");
+const { randomUUID } = require("crypto");
 
 const jobDescription = "Backend engineer with Python, Redis, and PostgreSQL.";
 const resumeText = "Built and operated a resilient FastAPI platform.";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function createSession(request) {
-  const response = await request.post("/api/interviews", {
+  const prep = await request.post("/api/prep", {
     data: { job_description: jobDescription, resume_text: resumeText },
+  });
+  expect(prep.status()).toBe(200);
+  const revision = await prep.json();
+  const response = await request.post("/api/interviews", {
+    data: {
+      plan_revision_id: revision.plan_revision_id,
+      expected_revision: revision.revision,
+      plan_sha256: revision.plan_sha256,
+      request_id: randomUUID(),
+    },
   });
   expect(response.status()).toBe(200);
   return (await response.json()).session_id;
@@ -28,7 +39,7 @@ async function preparePlan(page) {
   const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
   if (await resumeTab.isVisible()) await resumeTab.click();
   await page.getByLabel("简历内容").fill(resumeText);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.locator(".start-plan-question")).toHaveCount(5);
 }
 
@@ -63,11 +74,10 @@ test("skip requires a second action before one authoritative request", async ({ 
   });
 
   await page.getByRole("button", { name: "跳过此题" }).click();
-  await page.waitForTimeout(150);
+  await expect(page.getByRole("button", { name: "确认跳过此题" })).toBeVisible();
   expect(writes).toHaveLength(0);
-  await expect(page.getByRole("button", { name: "确认跳过" })).toBeVisible();
 
-  await page.getByRole("button", { name: "确认跳过" }).click();
+  await page.getByRole("button", { name: "确认跳过此题" }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].expected_version).toEqual(expect.any(Number));
   expect(writes[0].command_id).toMatch(uuidPattern);
@@ -83,14 +93,17 @@ test("finish dialog sends no request until confirmed and restores focus on Escap
   const finishButton = page.getByRole("button", { name: "结束面试" });
 
   await finishButton.click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
+  const finishDialog = page.getByRole("dialog", { name: "结束面试并生成报告？" });
+  await expect(finishDialog).toBeVisible();
   expect(writes).toHaveLength(0);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(finishDialog).toHaveCount(0);
   await expect(finishButton).toBeFocused();
 
   await finishButton.click();
-  await page.getByRole("button", { name: "结束并生成报告" }).click();
+  await page.getByRole("dialog", { name: "结束面试并生成报告？" })
+    .getByRole("button", { name: "确认结束面试" })
+    .click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].expected_version).toEqual(expect.any(Number));
   expect(writes[0].command_id).toMatch(uuidPattern);
@@ -105,9 +118,10 @@ test("leave and continue preserves the active session without finishing it", asy
   });
 
   await page.locator('a[href="/reports"]:visible').first().click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
+  const leaveDialog = page.getByRole("dialog", { name: "离开并稍后继续？" });
+  await expect(leaveDialog).toBeVisible();
   expect(finishWrites).toBe(0);
-  await page.getByRole("button", { name: "离开并稍后继续" }).click();
+  await leaveDialog.getByRole("button", { name: "离开并稍后继续" }).click();
   await expect(page).toHaveURL(/\/reports$/);
 
   const snapshot = await (await request.get(`/api/interviews/${sessionId}`)).json();
@@ -149,7 +163,7 @@ test("bootstrap recovery retries with the same pending start command", async ({ 
     });
   });
 
-  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
+  await page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ }).click();
   await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(3);
   expect(new Set(attempts.map((item) => item.command_id)).size).toBe(1);
   expect(attempts[0].command_id.replace(/^start_/, "")).toMatch(uuidPattern);

@@ -175,6 +175,8 @@ def test_generate_report_prompt_requests_evidence_not_scores():
     assert "Do not merge evidence for several dimensions" in prompt
     assert "short continuous excerpt copied from the candidate answer" in prompt
     assert "Do not put evaluator judgments" in prompt
+    assert "Do not return better_answer" in prompt
+    assert '"better_answer":' not in prompt
 
 
 class FailingStructuredModel:
@@ -244,7 +246,11 @@ class FallbackReportChatModel:
 
 def test_generate_report_falls_back_to_json_prompt_when_structured_output_is_unavailable():
     chat_model = FallbackReportChatModel()
-    llm = OpenAIInterviewLLM(chat_model=chat_model)
+    durable_attempts = []
+    llm = OpenAIInterviewLLM(
+        chat_model=chat_model,
+        provider_attempt_hook=lambda: durable_attempts.append(len(durable_attempts) + 1),
+    )
     plan = make_plan()
 
     report = llm.generate_report(
@@ -258,6 +264,7 @@ def test_generate_report_falls_back_to_json_prompt_when_structured_output_is_una
     assert chat_model.method == "json_schema"
     assert "Return valid JSON only" in chat_model.last_prompt
     assert report.feedbacks[0].references[0].chunk_id == "redis-1"
+    assert durable_attempts == [1, 2]
 
 
 class ProseWrappedJsonChatModel:
@@ -578,7 +585,7 @@ def test_generate_report_ignores_provider_scores_and_uses_rule_evidence():
     assert report.feedbacks[0].dimension_scores.engineering == 65
     assert report.feedbacks[0].dimension_scores.breadth == 40
     assert report.feedbacks[0].dimension_scores.communication == 45
-    assert report.feedbacks[0].dimension_scores.architecture == 0
+    assert report.feedbacks[0].dimension_scores.architecture is None
     assert report.feedbacks[0].applicable_dimensions == [
         "depth",
         "engineering",
@@ -637,16 +644,17 @@ def test_generate_report_normalizes_deepseek_adjacent_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.summary == "Explained delete-after-write but missed race-window handling."
-    assert report.overall_score == 0
-    assert report.overall_dimension_scores.depth == 0
+    assert "本轮证据不足" in report.summary
+    assert report.summary != " ".join(report.highlights)
+    assert report.overall_score is None
+    assert report.overall_dimension_scores.depth is None
+    assert report.score_status == "unscored"
     assert report.feedbacks[0].user_answer == "I delete cache after database writes."
-    assert report.feedbacks[0].dimension_scores.engineering == 0
+    assert report.feedbacks[0].dimension_scores.engineering is None
     assert report.feedbacks[0].critique == "模型输出未提供明确问题点。"
-    assert (
-        report.feedbacks[0].better_answer
-        == "Use delayed double delete or binlog-driven invalidation to reduce stale-read windows."
-    )
+    assert "当前事实不足" in report.feedbacks[0].better_answer
+    assert report.feedbacks[0].example_rewrite is None
+    assert "binlog-driven invalidation" not in report.feedbacks[0].better_answer
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",
@@ -665,15 +673,16 @@ def test_generate_report_normalizes_sparse_deepseek_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 0
-    assert report.summary == "Measured latency improvement with Redis cache-aside."
-    assert report.feedbacks[0].score == 0
+    assert report.overall_score is None
+    assert "本轮证据不足" in report.summary
+    assert report.summary != " ".join(report.highlights)
+    assert report.feedbacks[0].score is None
+    assert report.feedbacks[0].evaluation_status == "insufficient_evidence"
     assert "cache-aside pattern" in report.feedbacks[0].rationale
     assert report.feedbacks[0].critique == "No cache invalidation race-window mitigation."
-    assert (
-        report.feedbacks[0].better_answer
-        == "Explain delete-after-write ordering and delayed double delete."
-    )
+    assert "当前事实不足" in report.feedbacks[0].better_answer
+    assert report.feedbacks[0].example_rewrite is None
+    assert "delayed double delete" not in report.feedbacks[0].better_answer
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",
@@ -691,15 +700,16 @@ def test_generate_report_normalizes_evaluation_results_raw_json():
 
     assert isinstance(report, InterviewReport)
     assert report.is_fallback is False
-    assert report.overall_score == 0
-    assert report.overall_dimension_scores.engineering == 0
-    assert report.summary == "Mentioned p95 latency reduction. Described update-then-delete pattern."
+    assert report.overall_score is None
+    assert report.overall_dimension_scores.engineering is None
+    assert "本轮证据不足" in report.summary
+    assert report.summary != " ".join(report.highlights)
     assert report.highlights == [
         "Mentioned p95 latency reduction.",
         "Described update-then-delete pattern.",
     ]
-    assert report.feedbacks[0].score == 0
-    assert report.feedbacks[0].dimension_scores.depth == 0
+    assert report.feedbacks[0].score is None
+    assert report.feedbacks[0].dimension_scores.depth is None
     assert [reference.chunk_id for reference in report.feedbacks[0].references] == [
         "redis-1",
         "redis-2",
