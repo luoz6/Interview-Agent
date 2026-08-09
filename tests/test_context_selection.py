@@ -285,7 +285,7 @@ def evidence_replay(
     return item
 
 
-def test_context_selection_stats_dedup_fields_default_to_zero():
+def test_context_selection_stats_pre_loss_measurements_default_to_absent():
     from app.services.context_selection import ContextSelectionStats
 
     stats = ContextSelectionStats()
@@ -293,11 +293,24 @@ def test_context_selection_stats_dedup_fields_default_to_zero():
     assert stats.deduplicated_message_count == 0
     assert stats.deduplicated_evidence_count == 0
     assert stats.deduplicated_unit_count == 0
-    assert stats.duplicate_removed_tokens == 0
+    assert stats.source_demand_tokens is None
+    assert stats.duplicate_removed_tokens is None
+    assert stats.post_dedup_demand_tokens is None
+    assert stats.mandatory_bounded_raw_tokens is None
+    assert stats.compressible_history_tokens is None
+    assert stats.pre_dedup_required_tokens is None
+    assert stats.post_dedup_required_tokens is None
+    assert stats.business_pre_loss_required_tokens is None
+    assert stats.shadow_post_dedup_required_tokens is None
+    assert stats.selectable_content_tokens is None
+    assert stats.business_utilization_basis_points is None
+    assert stats.shadow_post_dedup_utilization_basis_points is None
+    assert stats.compressible_complete_history_unit_count is None
+    assert stats.retained_required_tokens is None
     assert stats.shadow_deduplicated_message_count == 0
     assert stats.shadow_deduplicated_evidence_count == 0
     assert stats.shadow_deduplicated_unit_count == 0
-    assert stats.shadow_duplicate_removed_tokens == 0
+    assert stats.shadow_duplicate_removed_tokens is None
 
 
 def test_disabled_mode_is_a_complete_selection_bypass():
@@ -1221,3 +1234,212 @@ def test_conversation_and_evidence_share_one_mandatory_overflow_contract():
     assert exc_info.value.available_tokens == 20
     assert exc_info.value.required_tokens > 20
     assert exc_info.value.mandatory_unit_count == 2
+
+
+def test_pre_loss_demand_uses_one_message_framing_path_before_bounding_and_drop():
+    estimator = ConservativeUtf8TokenEstimator()
+    messages = [
+        replay_message(
+            "old question",
+            question_id="q1",
+            sequence_no=1,
+            role="interviewer",
+        ),
+        replay_message("old answer", question_id="q1", sequence_no=2),
+        replay_message(
+            "current question",
+            question_id="q2",
+            sequence_no=3,
+            role="interviewer",
+        ),
+        replay_message("C" * 1_000, question_id="q2", sequence_no=4),
+    ]
+    evidence_messages = [evidence("bounded evidence " * 20)]
+    selection_budget = ContextSelectionBudget(
+        available_input_tokens=400,
+        fixed_prompt_reserve_tokens=0,
+        mandatory_content_floor_tokens=1,
+    )
+
+    selection = build_interview_context_selection(
+        messages,
+        current_question_id="q2",
+        evidence_messages=evidence_messages,
+        policy=replace(
+            FOLLOWUP_CONTEXT_POLICY,
+            max_single_message_tokens=120,
+            max_evidence_item_tokens=80,
+        ),
+        selection_budget=selection_budget,
+        estimator=estimator,
+        model="unknown",
+        owner_scope="interview-session:session-1",
+        exact_deduplication_mode="disabled",
+    )
+
+    pre_dedup_messages = [
+        {"role": item["role"], "content": item["content"]}
+        for item in [*messages, *evidence_messages]
+    ]
+    mandatory_raw = [
+        {"role": item["role"], "content": item["content"]}
+        for item in messages[2:]
+    ]
+    compressible_raw = [
+        {"role": item["role"], "content": item["content"]}
+        for item in messages[:2]
+    ]
+    expected_pre_dedup = estimator.estimate_messages(
+        pre_dedup_messages,
+        model="unknown",
+    )
+    expected_retained = estimator.estimate_messages(
+        selection.provider_messages,
+        model="unknown",
+    )
+
+    assert selection.stats.source_demand_tokens == expected_pre_dedup
+    assert selection.stats.pre_dedup_required_tokens == expected_pre_dedup
+    assert (
+        selection.stats.business_pre_loss_required_tokens
+        == expected_pre_dedup
+    )
+    assert selection.stats.mandatory_bounded_raw_tokens == estimator.estimate_messages(
+        mandatory_raw,
+        model="unknown",
+    )
+    assert selection.stats.compressible_history_tokens == estimator.estimate_messages(
+        compressible_raw,
+        model="unknown",
+    )
+    assert selection.stats.selectable_content_tokens == 400
+    assert selection.stats.compressible_complete_history_unit_count == 1
+    assert selection.stats.retained_required_tokens == expected_retained
+    assert expected_pre_dedup > expected_retained
+    assert selection.stats.post_dedup_required_tokens is None
+    assert selection.stats.post_dedup_demand_tokens is None
+    assert selection.stats.duplicate_removed_tokens is None
+    assert selection.stats.shadow_post_dedup_required_tokens is None
+    assert selection.stats.shadow_post_dedup_utilization_basis_points is None
+
+
+def _duplicate_heavy_selection(mode):
+    estimator = ConservativeUtf8TokenEstimator()
+    repeated = "D" * 3_000
+    messages = [
+        replay_message(
+            "old question",
+            question_id="q1",
+            sequence_no=1,
+            role="interviewer",
+        ),
+        replay_message(repeated, question_id="q1", sequence_no=2),
+        replay_message(repeated, question_id="q1", sequence_no=2),
+        replay_message(
+            "current question",
+            question_id="q2",
+            sequence_no=3,
+            role="interviewer",
+        ),
+        replay_message("current answer", question_id="q2", sequence_no=4),
+    ]
+    selection = build_interview_context_selection(
+        messages,
+        current_question_id="q2",
+        policy=FOLLOWUP_CONTEXT_POLICY,
+        selection_budget=ContextSelectionBudget(
+            available_input_tokens=7_000,
+            fixed_prompt_reserve_tokens=0,
+            mandatory_content_floor_tokens=1,
+        ),
+        estimator=estimator,
+        model="unknown",
+        owner_scope="interview-session:session-1",
+        exact_deduplication_mode=mode,
+    )
+    return selection, estimator
+
+
+def test_dedup_modes_keep_business_and_counterfactual_pre_loss_measurements_separate():
+    disabled, estimator = _duplicate_heavy_selection("disabled")
+    shadow, _ = _duplicate_heavy_selection("shadow")
+    enforce, _ = _duplicate_heavy_selection("enforce")
+
+    assert disabled.provider_messages == shadow.provider_messages
+    assert disabled.mandatory_bounded_raw == shadow.mandatory_bounded_raw
+    assert (
+        disabled.compressible_conversation_sources
+        == shadow.compressible_conversation_sources
+    )
+    for field_name in (
+        "source_demand_tokens",
+        "mandatory_bounded_raw_tokens",
+        "compressible_history_tokens",
+        "pre_dedup_required_tokens",
+        "business_pre_loss_required_tokens",
+        "selectable_content_tokens",
+        "business_utilization_basis_points",
+        "compressible_complete_history_unit_count",
+        "retained_required_tokens",
+    ):
+        assert getattr(shadow.stats, field_name) == getattr(
+            disabled.stats,
+            field_name,
+        )
+
+    assert disabled.stats.post_dedup_required_tokens is None
+    assert disabled.stats.post_dedup_demand_tokens is None
+    assert disabled.stats.duplicate_removed_tokens is None
+    assert disabled.stats.shadow_post_dedup_required_tokens is None
+    assert shadow.stats.post_dedup_required_tokens < (
+        shadow.stats.pre_dedup_required_tokens
+    )
+    assert shadow.stats.post_dedup_demand_tokens == (
+        shadow.stats.post_dedup_required_tokens
+    )
+    assert shadow.stats.duplicate_removed_tokens == (
+        shadow.stats.pre_dedup_required_tokens
+        - shadow.stats.post_dedup_required_tokens
+    )
+    assert shadow.stats.shadow_post_dedup_required_tokens == (
+        shadow.stats.post_dedup_required_tokens
+    )
+    assert shadow.stats.shadow_post_dedup_utilization_basis_points == round(
+        shadow.stats.post_dedup_required_tokens * 10_000 / 7_000
+    )
+
+    assert enforce.stats.pre_dedup_required_tokens == (
+        shadow.stats.pre_dedup_required_tokens
+    )
+    assert enforce.stats.post_dedup_required_tokens == (
+        shadow.stats.post_dedup_required_tokens
+    )
+    assert enforce.stats.business_pre_loss_required_tokens == (
+        enforce.stats.post_dedup_required_tokens
+    )
+    assert enforce.stats.business_utilization_basis_points == round(
+        enforce.stats.post_dedup_required_tokens * 10_000 / 7_000
+    )
+    assert enforce.stats.shadow_post_dedup_required_tokens is None
+    assert enforce.stats.shadow_post_dedup_utilization_basis_points is None
+    assert enforce.stats.compressible_complete_history_unit_count == 1
+
+    assert (
+        disabled.stats.business_pre_loss_required_tokens * 10_000
+        >= 7_000 * 8_000
+    )
+    assert (
+        shadow.stats.business_pre_loss_required_tokens * 10_000
+        >= 7_000 * 8_000
+    )
+    assert (
+        enforce.stats.business_pre_loss_required_tokens * 10_000
+        < 7_000 * 8_000
+    )
+    assert estimator.estimate_messages(
+        disabled.provider_messages,
+        model="unknown",
+    ) > estimator.estimate_messages(
+        enforce.provider_messages,
+        model="unknown",
+    )

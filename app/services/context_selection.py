@@ -76,11 +76,24 @@ class ContextSelectionStats:
     deduplicated_message_count: int = 0
     deduplicated_evidence_count: int = 0
     deduplicated_unit_count: int = 0
-    duplicate_removed_tokens: int = 0
+    source_demand_tokens: int | None = None
+    duplicate_removed_tokens: int | None = None
+    post_dedup_demand_tokens: int | None = None
+    mandatory_bounded_raw_tokens: int | None = None
+    compressible_history_tokens: int | None = None
+    pre_dedup_required_tokens: int | None = None
+    post_dedup_required_tokens: int | None = None
+    business_pre_loss_required_tokens: int | None = None
+    shadow_post_dedup_required_tokens: int | None = None
+    selectable_content_tokens: int | None = None
+    business_utilization_basis_points: int | None = None
+    shadow_post_dedup_utilization_basis_points: int | None = None
+    compressible_complete_history_unit_count: int | None = None
+    retained_required_tokens: int | None = None
     shadow_deduplicated_message_count: int = 0
     shadow_deduplicated_evidence_count: int = 0
     shadow_deduplicated_unit_count: int = 0
-    shadow_duplicate_removed_tokens: int = 0
+    shadow_duplicate_removed_tokens: int | None = None
     exact_recent_message_count: int = 0
     exact_recent_truncated_message_count: int = 0
 
@@ -142,6 +155,7 @@ def build_interview_context_selection(
     exact_recent_question_ids: Sequence[str] = (),
 ) -> InterviewContextSelection:
     total_budget = selection_budget.selectable_content_tokens
+    mode = _validated_mode(exact_deduplication_mode)
     conversation_sources: list[dict[str, Any]] = []
     evidence_sources: list[dict[str, Any]] = []
     exact_recent_ids = _validated_exact_recent_question_ids(
@@ -155,13 +169,15 @@ def build_interview_context_selection(
     business_conversation_sources: Sequence[Mapping[str, Any]] = (
         normalized_messages
     )
-    if exact_deduplication_mode == "enforce":
-        business_conversation_sources = deduplicate_conversation_replays(
+    conversation_deduplication = None
+    if mode != "disabled":
+        conversation_deduplication = deduplicate_conversation_replays(
             normalized_messages,
             current_question_id=current_question_id,
             owner_scope=owner_scope,
-        ).items
-    mode = _validated_mode(exact_deduplication_mode)
+        )
+        if mode == "enforce":
+            business_conversation_sources = conversation_deduplication.items
     business_evidence_sources: Sequence[Mapping[str, Any]] = evidence_messages
     evidence_deduplication = None
     if mode != "disabled":
@@ -171,6 +187,62 @@ def build_interview_context_selection(
         )
         if mode == "enforce":
             business_evidence_sources = evidence_deduplication.items
+
+    pre_dedup_candidate = [
+        *(_provider_projection(item) for item in normalized_messages),
+        *(_provider_projection(item) for item in evidence_messages),
+    ]
+    pre_dedup_required_tokens = estimator.estimate_messages(
+        pre_dedup_candidate,
+        model=model,
+    )
+    post_dedup_required_tokens = None
+    if mode != "disabled":
+        post_dedup_candidate = [
+            *(
+                _provider_projection(item)
+                for item in conversation_deduplication.items
+            ),
+            *(
+                _provider_projection(item)
+                for item in evidence_deduplication.items
+            ),
+        ]
+        post_dedup_required_tokens = estimator.estimate_messages(
+            post_dedup_candidate,
+            model=model,
+        )
+    business_pre_loss_required_tokens = (
+        post_dedup_required_tokens
+        if mode == "enforce"
+        else pre_dedup_required_tokens
+    )
+    pre_dedup_units = group_conversation_units(normalized_messages)
+    raw_mandatory_messages = [
+        _provider_projection(message)
+        for unit in pre_dedup_units
+        if _unit_is_mandatory(unit)
+        for message in unit.messages
+    ]
+    raw_compressible_messages = [
+        _provider_projection(message)
+        for unit in pre_dedup_units
+        if not _unit_is_mandatory(unit)
+        for message in unit.messages
+    ]
+    mandatory_bounded_raw_tokens = estimator.estimate_messages(
+        raw_mandatory_messages,
+        model=model,
+    )
+    compressible_history_tokens = estimator.estimate_messages(
+        raw_compressible_messages,
+        model=model,
+    )
+    compressible_complete_history_unit_count = sum(
+        1
+        for unit in group_conversation_units(business_conversation_sources)
+        if not _unit_is_mandatory(unit) and unit.is_complete_turn
+    )
 
     indexed_units = list(enumerate(group_conversation_units(
         business_conversation_sources
@@ -218,6 +290,12 @@ def build_interview_context_selection(
         estimator=estimator,
         model=model,
     )
+    provider_messages = tuple([*conversation, *evidence])
+    duplicate_removed_tokens = (
+        max(0, pre_dedup_required_tokens - post_dedup_required_tokens)
+        if post_dedup_required_tokens is not None
+        else None
+    )
     stats = ContextSelectionStats(
         source_message_count=conversation_stats.source_message_count,
         selected_message_count=conversation_stats.selected_message_count,
@@ -235,9 +313,34 @@ def build_interview_context_selection(
             conversation_stats.deduplicated_unit_count
             + evidence_stats.deduplicated_unit_count
         ),
-        duplicate_removed_tokens=(
-            conversation_stats.duplicate_removed_tokens
-            + evidence_stats.duplicate_removed_tokens
+        source_demand_tokens=pre_dedup_required_tokens,
+        duplicate_removed_tokens=duplicate_removed_tokens,
+        post_dedup_demand_tokens=post_dedup_required_tokens,
+        mandatory_bounded_raw_tokens=mandatory_bounded_raw_tokens,
+        compressible_history_tokens=compressible_history_tokens,
+        pre_dedup_required_tokens=pre_dedup_required_tokens,
+        post_dedup_required_tokens=post_dedup_required_tokens,
+        business_pre_loss_required_tokens=(
+            business_pre_loss_required_tokens
+        ),
+        shadow_post_dedup_required_tokens=(
+            post_dedup_required_tokens if mode == "shadow" else None
+        ),
+        selectable_content_tokens=total_budget,
+        business_utilization_basis_points=round(
+            business_pre_loss_required_tokens * 10_000 / total_budget
+        ),
+        shadow_post_dedup_utilization_basis_points=(
+            round(post_dedup_required_tokens * 10_000 / total_budget)
+            if mode == "shadow" and post_dedup_required_tokens is not None
+            else None
+        ),
+        compressible_complete_history_unit_count=(
+            compressible_complete_history_unit_count
+        ),
+        retained_required_tokens=estimator.estimate_messages(
+            provider_messages,
+            model=model,
         ),
         shadow_deduplicated_message_count=(
             conversation_stats.shadow_deduplicated_message_count
@@ -250,8 +353,7 @@ def build_interview_context_selection(
             + evidence_stats.shadow_deduplicated_unit_count
         ),
         shadow_duplicate_removed_tokens=(
-            conversation_stats.shadow_duplicate_removed_tokens
-            + evidence_stats.shadow_duplicate_removed_tokens
+            duplicate_removed_tokens if mode == "shadow" else None
         ),
         exact_recent_message_count=(
             conversation_stats.exact_recent_message_count
@@ -276,7 +378,7 @@ def build_interview_context_selection(
         exact_recent_question_ids=exact_recent_ids,
     )
     return InterviewContextSelection(
-        provider_messages=tuple([*conversation, *evidence]),
+        provider_messages=provider_messages,
         mandatory_bounded_raw=tuple(mandatory),
         compressible_conversation_sources=tuple(compressible),
         evidence_sources=tuple(evidence_sources),

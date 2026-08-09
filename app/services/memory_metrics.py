@@ -63,6 +63,7 @@ class MemoryMetricDimensions(BaseModel):
     route: MemoryRoute | None = None
     outcome: MemoryOutcome | None = None
     reason: Literal[
+        "approaching_operation_budget",
         "older_complete_turn_would_drop",
         "older_complete_turn_excessively_truncated",
         "unresolved_topic_coverage_loss",

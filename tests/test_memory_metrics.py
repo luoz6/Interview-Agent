@@ -15,6 +15,23 @@ from app.services.memory_metrics import (
 )
 
 
+def test_compression_eligibility_metric_accepts_approaching_budget_reason():
+    event = MemoryMetricEvent(
+        metric_code="compression_eligibility",
+        dimensions=MemoryMetricDimensions(
+            operation="followup",
+            outcome="eligible",
+            reason="approaching_operation_budget",
+            policy_version="context-compression-eligibility-v1",
+        ),
+        values=MemoryMetricValues(
+            estimated_input_tokens=9_088,
+        ),
+    )
+
+    assert event.dimensions.reason == "approaching_operation_budget"
+
+
 def test_metric_contract_rejects_content_ids_credentials_and_unknown_fields():
     forbidden = (
         "prompt",

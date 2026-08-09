@@ -47,10 +47,13 @@ from app.services.context_selection import (
     ContextSelectionStats,
     InterviewContextSelection,
     MandatoryBoundedRawOverflow,
+    _classify_conversation_sources,
     _mark_mandatory_conversation_sources,
+    _merge_selected_provider_sidecars,
     build_interview_context_selection,
     deduplicate_conversation_replays,
     deduplicate_evidence_replays,
+    select_interview_messages,
 )
 from app.services.context_source_identity import (
     ContextSourceIdentityConfig,
@@ -1269,23 +1272,6 @@ def _recent_conversation_plan(
             )
             if identity_config.exact_deduplication_mode == "enforce":
                 business = list(deduplicated.items)
-        legacy_start = max(0, len(business) - 4)
-        selected_sources = [
-            dict(item)
-            for index, item in enumerate(business)
-            if item.get("mandatory_bounded_raw") is True
-            or index >= legacy_start
-        ]
-        duplicate_count = deduplicated.duplicate_count if deduplicated else 0
-        before_tokens = estimator.estimate_messages(
-            [_provider_message(item) for item in normalized],
-            model=model,
-        )
-        after_tokens = estimator.estimate_messages(
-            [_provider_message(item) for item in (deduplicated.items if deduplicated else normalized)],
-            model=model,
-        )
-        removed_tokens = max(0, before_tokens - after_tokens)
         budget = runtime.budget_resolver.resolve(
             profile=runtime.model_profile,
             policy=FOLLOWUP_CONTEXT_POLICY,
@@ -1294,8 +1280,8 @@ def _recent_conversation_plan(
             budget=budget,
             policy=FOLLOWUP_CONTEXT_POLICY,
         )
-        selection = build_interview_context_selection(
-            selected_sources,
+        structured_selection = build_interview_context_selection(
+            normalized,
             current_question_id=question_id,
             policy=FOLLOWUP_CONTEXT_POLICY,
             selection_budget=selection_budget,
@@ -1305,45 +1291,65 @@ def _recent_conversation_plan(
             exact_deduplication_mode=identity_config.exact_deduplication_mode,
             exact_recent_question_ids=exact_recent_question_ids,
         )
+        legacy_start = max(0, len(business) - 4)
+        selected_sources = [
+            dict(item)
+            for index, item in enumerate(business)
+            if item.get("mandatory_bounded_raw") is True
+            or index >= legacy_start
+        ]
+        legacy_selected_sidecars: list[dict[str, Any]] = []
+        provider_messages, legacy_stats = select_interview_messages(
+            selected_sources,
+            current_question_id=question_id,
+            token_budget=selection_budget.selectable_content_tokens,
+            max_single_message_tokens=(
+                FOLLOWUP_CONTEXT_POLICY.max_single_message_tokens
+            ),
+            estimator=estimator,
+            model=model,
+            owner_scope=_interview_owner_scope(state),
+            exact_deduplication_mode=identity_config.exact_deduplication_mode,
+            exact_recent_question_ids=exact_recent_question_ids,
+            _selected_sources=legacy_selected_sidecars,
+        )
+        business_sidecars = _merge_selected_provider_sidecars(
+            business,
+            selected_sources=legacy_selected_sidecars,
+            owner_scope=_interview_owner_scope(state),
+        )
+        mandatory, compressible = _classify_conversation_sources(
+            business_sidecars,
+            current_question_id=question_id,
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
         stats = replace(
-            selection.stats,
+            structured_selection.stats,
             source_message_count=len(normalized),
+            selected_message_count=legacy_stats.selected_message_count,
             dropped_message_count=max(
                 0,
-                len(normalized) - selection.stats.selected_message_count,
+                len(normalized) - legacy_stats.selected_message_count,
             ),
-            deduplicated_message_count=(
-                duplicate_count
-                if identity_config.exact_deduplication_mode == "enforce"
-                else 0
+            truncated_message_count=legacy_stats.truncated_message_count,
+            exact_recent_message_count=(
+                legacy_stats.exact_recent_message_count
             ),
-            deduplicated_unit_count=(
-                duplicate_count
-                if identity_config.exact_deduplication_mode == "enforce"
-                else 0
+            exact_recent_truncated_message_count=(
+                legacy_stats.exact_recent_truncated_message_count
             ),
-            duplicate_removed_tokens=(
-                removed_tokens
-                if identity_config.exact_deduplication_mode == "enforce"
-                else 0
-            ),
-            shadow_deduplicated_message_count=(
-                duplicate_count
-                if identity_config.exact_deduplication_mode == "shadow"
-                else 0
-            ),
-            shadow_deduplicated_unit_count=(
-                duplicate_count
-                if identity_config.exact_deduplication_mode == "shadow"
-                else 0
-            ),
-            shadow_duplicate_removed_tokens=(
-                removed_tokens
-                if identity_config.exact_deduplication_mode == "shadow"
-                else 0
+            retained_required_tokens=estimator.estimate_messages(
+                provider_messages,
+                model=model,
             ),
         )
-        return replace(selection, stats=stats)
+        return InterviewContextSelection(
+            provider_messages=tuple(provider_messages),
+            mandatory_bounded_raw=tuple(mandatory),
+            compressible_conversation_sources=tuple(compressible),
+            evidence_sources=structured_selection.evidence_sources,
+            stats=stats,
+        )
     budget = runtime.budget_resolver.resolve(
         profile=runtime.model_profile,
         policy=FOLLOWUP_CONTEXT_POLICY,
@@ -1447,71 +1453,66 @@ def _build_examiner_context_plan(
             )
             if identity_config.exact_deduplication_mode == "enforce":
                 business_evidence = list(evidence_deduplication.items)
-        duplicate_count = (
-            evidence_deduplication.duplicate_count
-            if evidence_deduplication is not None
-            else 0
+        estimator = runtime.estimator_resolution.estimator
+        model = runtime.model_profile.model
+        budget = runtime.budget_resolver.resolve(
+            profile=runtime.model_profile,
+            policy=FOLLOWUP_CONTEXT_POLICY,
         )
-        before_tokens = runtime.estimator_resolution.estimator.estimate_messages(
-            [_provider_message(item) for item in evidence_messages],
-            model=runtime.model_profile.model,
+        selection_budget = runtime.budget_resolver.resolve_selection_budget(
+            budget=budget,
+            policy=FOLLOWUP_CONTEXT_POLICY,
         )
-        after_tokens = runtime.estimator_resolution.estimator.estimate_messages(
-            [
-                _provider_message(item)
-                for item in (
-                    evidence_deduplication.items
-                    if evidence_deduplication is not None
-                    else evidence_messages
-                )
-            ],
-            model=runtime.model_profile.model,
-        )
-        removed_tokens = max(0, before_tokens - after_tokens)
-        enforce = identity_config.exact_deduplication_mode == "enforce"
-        shadow = identity_config.exact_deduplication_mode == "shadow"
-        return InterviewContextSelection(
-            provider_messages=tuple(
-                [
-                    *recent.provider_messages,
-                    *(_provider_message(item) for item in business_evidence),
-                ]
+        structured_selection = build_interview_context_selection(
+            state["messages"],
+            current_question_id=question["id"],
+            evidence_messages=evidence_messages,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+            selection_budget=selection_budget,
+            estimator=estimator,
+            model=model,
+            owner_scope=_interview_owner_scope(state),
+            exact_deduplication_mode=(
+                identity_config.exact_deduplication_mode
             ),
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
+        provider_messages = tuple(
+            [
+                *recent.provider_messages,
+                *(_provider_message(item) for item in business_evidence),
+            ]
+        )
+        return InterviewContextSelection(
+            provider_messages=provider_messages,
             mandatory_bounded_raw=recent.mandatory_bounded_raw,
             compressible_conversation_sources=(
                 recent.compressible_conversation_sources
             ),
             evidence_sources=tuple(dict(item) for item in business_evidence),
-            stats=ContextSelectionStats(
-                **{
-                    **recent.stats.__dict__,
-                    "source_evidence_count": len(evidence_messages),
-                    "selected_evidence_count": len(business_evidence),
-                    "dropped_evidence_count": max(
-                        0,
-                        len(evidence_messages) - len(business_evidence),
-                    ),
-                    "deduplicated_evidence_count": duplicate_count if enforce else 0,
-                    "deduplicated_unit_count": (
-                        recent.stats.deduplicated_unit_count
-                        + (duplicate_count if enforce else 0)
-                    ),
-                    "duplicate_removed_tokens": (
-                        recent.stats.duplicate_removed_tokens
-                        + (removed_tokens if enforce else 0)
-                    ),
-                    "shadow_deduplicated_evidence_count": (
-                        duplicate_count if shadow else 0
-                    ),
-                    "shadow_deduplicated_unit_count": (
-                        recent.stats.shadow_deduplicated_unit_count
-                        + (duplicate_count if shadow else 0)
-                    ),
-                    "shadow_duplicate_removed_tokens": (
-                        recent.stats.shadow_duplicate_removed_tokens
-                        + (removed_tokens if shadow else 0)
-                    ),
-                }
+            stats=replace(
+                structured_selection.stats,
+                source_message_count=recent.stats.source_message_count,
+                selected_message_count=recent.stats.selected_message_count,
+                dropped_message_count=recent.stats.dropped_message_count,
+                truncated_message_count=recent.stats.truncated_message_count,
+                source_evidence_count=len(evidence_messages),
+                selected_evidence_count=len(business_evidence),
+                dropped_evidence_count=max(
+                    0,
+                    len(evidence_messages) - len(business_evidence),
+                ),
+                truncated_evidence_count=0,
+                exact_recent_message_count=(
+                    recent.stats.exact_recent_message_count
+                ),
+                exact_recent_truncated_message_count=(
+                    recent.stats.exact_recent_truncated_message_count
+                ),
+                retained_required_tokens=estimator.estimate_messages(
+                    provider_messages,
+                    model=model,
+                ),
             ),
         )
     runtime = context_runtime or get_context_runtime()

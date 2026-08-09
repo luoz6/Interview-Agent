@@ -9,6 +9,7 @@ from app.services.memory_metrics import MemoryMetricDimensions, MemoryMetricEven
 
 
 class CompressionEligibilityReason(StrEnum):
+    APPROACHING_OPERATION_BUDGET = "approaching_operation_budget"
     OLDER_COMPLETE_TURN_WOULD_DROP = "older_complete_turn_would_drop"
     OLDER_COMPLETE_TURN_EXCESSIVELY_TRUNCATED = (
         "older_complete_turn_excessively_truncated"
@@ -101,6 +102,24 @@ class ContextCompressionEligibilityPolicy:
                 dropped = selection_stats.dropped_message_count
                 truncated = selection_stats.truncated_message_count
                 reason = CompressionEligibilityReason.REVIEW_CONTINUITY_WOULD_DROP
+            if (
+                reason is None
+                and target_artifact_type == "question_conversation"
+                and selection_stats.business_pre_loss_required_tokens
+                is not None
+                and selection_stats.selectable_content_tokens is not None
+                and selection_stats.selectable_content_tokens > 0
+                and selection_stats.compressible_complete_history_unit_count
+                is not None
+                and selection_stats.compressible_complete_history_unit_count
+                > 0
+                and selection_stats.business_pre_loss_required_tokens * 10_000
+                >= selection_stats.selectable_content_tokens
+                * self.eligibility_utilization_basis_points
+            ):
+                reason = (
+                    CompressionEligibilityReason.APPROACHING_OPERATION_BUDGET
+                )
         result = ContextCompressionEligibility(
             eligible=reason is not None and source_unit_count > 0,
             reason=reason,

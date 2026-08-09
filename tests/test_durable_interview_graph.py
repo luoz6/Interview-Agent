@@ -878,6 +878,85 @@ def test_enforcement_off_marks_full_state_mandatory_before_legacy_last_four(
     assert selection.stats.dropped_message_count == 0
 
 
+def test_enforcement_off_preserves_provider_input_but_keeps_full_pre_loss_plan(
+    monkeypatch,
+):
+    import app.graphs.durable_interview_graph as durable_interview_graph
+
+    class CapturingSelectionCoordinator:
+        def __init__(self):
+            self.selections = []
+
+        def build_context(
+            self,
+            *,
+            deterministic_context,
+            selection,
+            **_kwargs,
+        ):
+            self.selections.append(selection)
+            return SimpleNamespace(
+                context_messages=deterministic_context,
+                artifact_ref=None,
+                artifact_sha256=None,
+                artifact_type=None,
+                policy_version=None,
+                route="deterministic",
+            )
+
+    monkeypatch.setattr(
+        durable_interview_graph,
+        "context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    messages = _characterization_messages()
+    state = _provider_state(messages, workflow_engine="langgraph-v2")
+    state["plan_snapshot"] = {
+        "questions": [
+            {"id": question_id, "focus": question_id, "kind": "technical"}
+            for question_id in ("q1", "q2", "q3")
+        ]
+    }
+    state["current_index"] = 2
+    runtime = _lossy_context_runtime()
+    coordinator = CapturingSelectionCoordinator()
+
+    provider_context = _run_provider_characterization(
+        state,
+        context_runtime=runtime,
+        context_artifact_coordinator=coordinator,
+    )
+
+    assert provider_context == [
+        _characterization_target_instruction(),
+        *[
+            {"role": item["role"], "content": item["content"]}
+            for item in messages[2:]
+        ],
+    ]
+    assert len(coordinator.selections) == 1
+    selection = coordinator.selections[0]
+    full_state_demand = runtime.estimator_resolution.estimator.estimate_messages(
+        [
+            {"role": item["role"], "content": item["content"]}
+            for item in messages
+        ],
+        model=runtime.model_profile.model,
+    )
+    assert selection.stats.source_demand_tokens == full_state_demand
+    assert selection.stats.pre_dedup_required_tokens == full_state_demand
+    assert (
+        selection.stats.business_pre_loss_required_tokens
+        == full_state_demand
+    )
+    assert [
+        item["content"]
+        for item in selection.compressible_conversation_sources
+        if item["question_id"] == "q1"
+    ] == ["old question", "old answer"]
+    assert selection.stats.compressible_complete_history_unit_count == 1
+
+
 def test_mandatory_overflow_stops_before_compressor_and_examiner(monkeypatch):
     import app.graphs.durable_interview_graph as durable_interview_graph
     from app.services.context_selection import MandatoryBoundedRawOverflow
