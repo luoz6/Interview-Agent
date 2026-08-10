@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Sequence
+from typing import Any
 
 from app.services.context_artifacts import (
-    CompressionSourceSegment,
     ContextCompressorConfig,
     ContextCompressionPolicy,
     EvidenceCompressionArtifact,
@@ -19,9 +18,9 @@ from app.services.context_budget import (
 )
 from app.services.context_language import classify_context_language
 from app.services.context_compression_intent import (
-    CompressionIntent,
     canonical_compression_intent_payload,
 )
+from app.services.context_compression_request import ResolvedCompressionRequest
 from app.services.context_runtime import (
     ContextRuntime,
     ContextRuntimeConfig,
@@ -113,22 +112,27 @@ class OpenAIContextCompressor:
     def compress(
         self,
         *,
-        policy: ContextCompressionPolicy,
-        source_segments: Sequence[CompressionSourceSegment],
+        request: ResolvedCompressionRequest,
         expected_question_id_sha256: str | None = None,
         expected_evidence_content_sha256: str | None = None,
         expected_session_scope_sha256: str | None = None,
         expected_question_focus_sha256: str | None = None,
         expected_source_manifest_sha256: str | None = None,
-        intent: CompressionIntent | None = None,
     ) -> dict[str, Any]:
+        if not isinstance(request, ResolvedCompressionRequest):
+            raise TypeError("request must be a ResolvedCompressionRequest")
+        policy = request.policy
+        resolved_target_output_tokens = (
+            request.resolved_target_output_tokens
+        )
         compression_intent_json = None
-        if intent is not None:
-            compression_intent_json = canonical_compression_intent_payload(intent)
+        if request.intent is not None:
+            compression_intent_json = canonical_compression_intent_payload(
+                request.intent
+            )
         schema = _SCHEMAS[policy.artifact_type]
         prompt = self._build_prompt(
-            policy=policy,
-            source_segments=source_segments,
+            request=request,
             compression_intent_json=compression_intent_json,
             expected_question_id_sha256=expected_question_id_sha256,
             expected_evidence_content_sha256=(
@@ -141,7 +145,7 @@ class OpenAIContextCompressor:
         operation_policy = OperationContextPolicy(
             operation=policy.compressor_operation,
             input_cap_tokens=policy.compressor_input_cap_tokens,
-            max_output_tokens=policy.target_output_tokens,
+            max_output_tokens=resolved_target_output_tokens,
             context_policy_version=policy.policy_version,
         )
         budget = self._budget_resolver.resolve(
@@ -163,7 +167,7 @@ class OpenAIContextCompressor:
         )
         if hasattr(structured_model, "bind"):
             structured_model = structured_model.bind(
-                max_tokens=policy.target_output_tokens
+                max_tokens=resolved_target_output_tokens
             )
         begin_provider_attempt()
         result = structured_model.invoke(prompt)
@@ -174,8 +178,7 @@ class OpenAIContextCompressor:
     @staticmethod
     def _build_prompt(
         *,
-        policy: ContextCompressionPolicy,
-        source_segments: Sequence[CompressionSourceSegment],
+        request: ResolvedCompressionRequest,
         compression_intent_json: str | None,
         expected_question_id_sha256: str | None,
         expected_evidence_content_sha256: str | None,
@@ -183,6 +186,7 @@ class OpenAIContextCompressor:
         expected_question_focus_sha256: str | None,
         expected_source_manifest_sha256: str | None,
     ) -> str:
+        policy = request.policy
         identity_fields = {
             "question_id_sha256": expected_question_id_sha256,
             "evidence_content_sha256": expected_evidence_content_sha256,
@@ -197,7 +201,7 @@ class OpenAIContextCompressor:
                 "content_sha256": source.content_sha256,
                 "content": source.content,
             }
-            for source in source_segments
+            for source in request.source_segments
         ]
         return (
             "You are a deterministic context compressor.\n"
@@ -215,7 +219,8 @@ class OpenAIContextCompressor:
             "Keep fixed field names and identity digests exactly unchanged.\n"
             f"artifact_type={policy.artifact_type}\n"
             f"output_schema_version={policy.output_schema_version}\n"
-            f"target_output_tokens={policy.target_output_tokens}\n"
+            "target_output_tokens="
+            f"{request.resolved_target_output_tokens}\n"
             "compression_intent_json="
             f"{compression_intent_json if compression_intent_json is not None else 'null'}\n"
             "identity_fields="

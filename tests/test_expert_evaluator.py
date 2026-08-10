@@ -1,9 +1,18 @@
+from dataclasses import is_dataclass
+
 import pytest
 
 from app.graphs.interview_state import build_initial_state
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.agent_runtime import AgentExecutionRunner
+from app.services.context_budget import (
+    ContextBudgetResolver,
+    QUESTION_REVIEW_CONTEXT_POLICY,
+    REPORT_CONTEXT_POLICY,
+)
+from app.services.context_runtime import ContextRuntime
 from app.services.evaluator_ext import ExpertShadowEvaluator
+from app.services.model_capabilities import ModelRuntimeProfile
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -22,6 +31,7 @@ from app.services.report import (
     ReportOutputFormatError,
     ReportProgress,
 )
+from app.services.token_estimation import TokenEstimatorResolution
 
 
 def make_plan() -> InterviewPlan:
@@ -271,7 +281,8 @@ def test_reference_transform_changes_only_provider_context_not_provenance():
     llm = FakeExpertLLM()
     calls = []
 
-    def transform(*, state, chunk, references):
+    def transform(*, state, chunk, references, budget_context=None):
+        del budget_context
         calls.append((state["session_id"], chunk.question_id, references))
         return [
             {
@@ -304,6 +315,261 @@ def test_reference_transform_changes_only_provider_context_not_provenance():
     assert evaluator.last_retrieval_by_question["q1"]["retrieval_path"] == (
         "legacy_semantic_search"
     )
+
+
+def test_single_question_transform_receives_bounded_effective_budget_context(
+    monkeypatch,
+):
+    events = []
+
+    class CharacterEstimator:
+        @staticmethod
+        def estimate_text(text, *, model):
+            del model
+            return len(text)
+
+        @staticmethod
+        def estimate_messages(messages, *, model):
+            del model
+            return sum(len(str(item.get("content", ""))) for item in messages)
+
+    class RecordingBudgetResolver(ContextBudgetResolver):
+        def resolve(self, *, profile, policy):
+            events.append(("resolve", policy.operation))
+            return super().resolve(profile=profile, policy=policy)
+
+    long_reference = "R" * 6_000
+
+    class LongReferenceStore(FakeVectorStore):
+        def search(self, *args, **kwargs):
+            references = super().search(*args, **kwargs)
+            references[0]["content"] = long_reference
+            return references
+
+    estimator = CharacterEstimator()
+    profile = ModelRuntimeProfile(
+        provider="test",
+        model="review-budget-model",
+        context_window_tokens=20_000,
+        protocol_reserve_tokens=0,
+        structured_output_reserve_tokens=0,
+        safety_margin_tokens=0,
+    )
+    runtime = ContextRuntime(
+        model_profile=profile,
+        estimator_resolution=TokenEstimatorResolution(
+            estimator=estimator,
+            estimator_path="exact_model",
+            fallback_used=False,
+        ),
+        budget_resolver=RecordingBudgetResolver(),
+    )
+    state = make_state()
+    original_candidate = "C" * 8_000
+    next(
+        message
+        for message in state["messages"]
+        if message["role"] == "candidate"
+    )["content"] = original_candidate
+    captured = {}
+
+    def transform(*, state, chunk, references, budget_context):
+        del state
+        events.append("transform")
+        captured.update(
+            chunk=chunk,
+            references=references,
+            budget_context=budget_context,
+        )
+        return [
+            {
+                "context_artifact_projection": True,
+                "chunk_id": references[0]["chunk_id"],
+                "authority": "non_authoritative",
+                "candidate_exact_quote": False,
+                "authoritative_scoring_evidence": False,
+                "content": "Bounded Redis consistency guidance.",
+            }
+        ]
+
+    monkeypatch.setattr(
+        "app.services.evaluator_ext.context_enforcement_enabled",
+        lambda _operation: True,
+    )
+    llm = FakeExpertLLM()
+
+    ExpertShadowEvaluator(
+        llm=llm,
+        vector_store=LongReferenceStore(),
+        context_runtime=runtime,
+        reference_transform=transform,
+    ).evaluate(state)
+
+    transform_index = events.index("transform")
+    assert events[:transform_index].count(
+        ("resolve", QUESTION_REVIEW_CONTEXT_POLICY.operation)
+    ) == 1
+    assert events[:transform_index].count(
+        ("resolve", REPORT_CONTEXT_POLICY.operation)
+    ) == 1
+
+    bounded_chunk = captured["chunk"]
+    bounded_references = captured["references"]
+    assert bounded_chunk.messages == llm.last_items[0]["messages"]
+    assert len(
+        next(
+            message["content"]
+            for message in bounded_chunk.messages
+            if message["role"] == "candidate"
+        )
+    ) < len(original_candidate)
+    assert estimator.estimate_text(
+        bounded_references[0]["content"],
+        model=profile.model,
+    ) <= QUESTION_REVIEW_CONTEXT_POLICY.max_evidence_item_tokens
+
+    plain_resolver = ContextBudgetResolver()
+    effective_available = min(
+        plain_resolver.resolve(
+            profile=profile,
+            policy=QUESTION_REVIEW_CONTEXT_POLICY,
+        ).available_input_tokens,
+        plain_resolver.resolve(
+            profile=profile,
+            policy=REPORT_CONTEXT_POLICY,
+        ).available_input_tokens,
+    )
+    retained_tokens = estimator.estimate_messages(
+        bounded_chunk.messages,
+        model=profile.model,
+    )
+    budget_context = captured["budget_context"]
+    assert budget_context.remaining_business_budget_tokens == max(
+        0,
+        effective_available
+        - QUESTION_REVIEW_CONTEXT_POLICY.fixed_prompt_reserve_tokens
+        - retained_tokens,
+    )
+    assert is_dataclass(budget_context)
+    assert budget_context.__dataclass_params__.frozen is True
+
+
+def test_shadow_budget_aware_transform_is_counterfactual_when_enforcement_is_off(
+    monkeypatch,
+):
+    events = []
+
+    class CharacterEstimator:
+        @staticmethod
+        def estimate_text(text, *, model):
+            del model
+            return len(text)
+
+        @staticmethod
+        def estimate_messages(messages, *, model):
+            del model
+            return sum(len(str(item.get("content", ""))) for item in messages)
+
+    class RecordingBudgetResolver(ContextBudgetResolver):
+        def resolve(self, *, profile, policy):
+            events.append(("resolve", policy.operation))
+            return super().resolve(profile=profile, policy=policy)
+
+    class LongReferenceStore(FakeVectorStore):
+        def search(self, *args, **kwargs):
+            references = super().search(*args, **kwargs)
+            references[0]["content"] = "R" * 6_000
+            return references
+
+    class CountingExpertLLM(FakeExpertLLM):
+        def __init__(self):
+            super().__init__()
+            self.report_calls = 0
+
+        def generate_report(self, plan, evaluation_items, session_id):
+            self.report_calls += 1
+            return super().generate_report(plan, evaluation_items, session_id)
+
+    monkeypatch.setattr(
+        "app.services.evaluator_ext.context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    state = make_state()
+    next(
+        message
+        for message in state["messages"]
+        if message["role"] == "candidate"
+    )["content"] = "C" * 8_000
+
+    legacy_llm = CountingExpertLLM()
+    ExpertShadowEvaluator(
+        llm=legacy_llm,
+        vector_store=LongReferenceStore(),
+    ).evaluate(state)
+    legacy_item = legacy_llm.last_items[0]
+
+    estimator = CharacterEstimator()
+    profile = ModelRuntimeProfile(
+        provider="test",
+        model="shadow-review-budget-model",
+        context_window_tokens=20_000,
+        protocol_reserve_tokens=0,
+        structured_output_reserve_tokens=0,
+        safety_margin_tokens=0,
+    )
+    runtime = ContextRuntime(
+        model_profile=profile,
+        estimator_resolution=TokenEstimatorResolution(
+            estimator=estimator,
+            estimator_path="exact_model",
+            fallback_used=False,
+        ),
+        budget_resolver=RecordingBudgetResolver(),
+    )
+    captured = {}
+
+    def transform(*, state, chunk, references, budget_context):
+        del state
+        events.append("transform")
+        captured.update(
+            chunk=chunk,
+            references=references,
+            budget_context=budget_context,
+        )
+        return [
+            {
+                "context_artifact_projection": True,
+                "chunk_id": references[0]["chunk_id"],
+                "authority": "non_authoritative",
+                "candidate_exact_quote": False,
+                "authoritative_scoring_evidence": False,
+                "content": "COUNTERFACTUAL ONLY",
+            }
+        ]
+
+    shadow_llm = CountingExpertLLM()
+    ExpertShadowEvaluator(
+        llm=shadow_llm,
+        vector_store=LongReferenceStore(),
+        context_runtime=runtime,
+        reference_transform=transform,
+    ).evaluate(state)
+
+    transform_index = events.index("transform")
+    assert events[:transform_index] == [
+        ("resolve", QUESTION_REVIEW_CONTEXT_POLICY.operation),
+        ("resolve", REPORT_CONTEXT_POLICY.operation),
+    ]
+    assert len(captured["chunk"].messages) == len(legacy_item["messages"])
+    assert captured["chunk"].messages != legacy_item["messages"]
+    assert captured["references"] != legacy_item["scoring_references"]
+    assert is_dataclass(captured["budget_context"])
+    assert captured["budget_context"].__dataclass_params__.frozen is True
+
+    assert shadow_llm.report_calls == 1
+    assert shadow_llm.last_items[0] == legacy_item
+    assert "non_authoritative_reference_context" not in shadow_llm.last_items[0]
+    assert "COUNTERFACTUAL ONLY" not in str(shadow_llm.last_items[0])
 
 
 def test_expert_evaluator_accepts_round_review_state_without_version_metadata():

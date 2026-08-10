@@ -1,4 +1,5 @@
 from hashlib import sha256
+from inspect import signature
 import json
 
 import pytest
@@ -10,7 +11,10 @@ from app.services.context_artifacts import (
     ContextCompressionPolicy,
     compressor_settings_sha256,
 )
-from app.services.context_budget import ContextBudgetExceeded
+from app.services.context_budget import (
+    ContextBudgetExceeded,
+    DynamicCompressionTargetPolicy,
+)
 from app.services.context_compression import (
     OpenAIContextCompressor,
     QUESTION_MEMORY_COMPRESSION_POLICY,
@@ -21,6 +25,7 @@ from app.services.context_compression_intent import (
     canonical_compression_intent_payload,
     compression_intent_sha256,
 )
+from app.services.context_compression_request import ResolvedCompressionRequest
 from app.services.context_artifacts import QuestionMemoryArtifact
 from app.services.llm import LLMConfig
 
@@ -54,7 +59,7 @@ class Recorder:
         self.records.append(record)
 
 
-def make_contract(*, input_cap=2048):
+def make_contract(*, input_cap=16_000):
     content = "Candidate used idempotency for retry safety."
     digest = sha256(content.encode("utf-8")).hexdigest()
     source = CompressionSourceSegment(
@@ -70,7 +75,7 @@ def make_contract(*, input_cap=2048):
         output_schema_version="question-conversation-v1",
         compressor_operation="context_compressor.question_conversation",
         compressor_input_cap_tokens=input_cap,
-        target_output_tokens=256,
+        target_output_tokens=2_000,
         max_output_units=4,
         max_supporting_excerpt_tokens=64,
     )
@@ -83,6 +88,30 @@ def make_contract(*, input_cap=2048):
         "source_message_count": 1,
     }
     return policy, [source], question_digest, payload
+
+
+def dynamic_request(policy, sources, *, intent=None, target=512):
+    return ResolvedCompressionRequest(
+        policy=policy,
+        intent=intent,
+        source_segments=tuple(sources),
+        resolved_target_output_tokens=target,
+        target_policy=DynamicCompressionTargetPolicy(
+            floor_tokens=256,
+            source_ratio_basis_points=2_500,
+            allowed_target_tokens=(256, 512, 1_024, 1_536, 2_000),
+        ),
+    )
+
+
+def fixed_request(policy, sources, *, intent=None):
+    return ResolvedCompressionRequest(
+        policy=policy,
+        intent=intent,
+        source_segments=tuple(sources),
+        resolved_target_output_tokens=policy.target_output_tokens,
+        target_policy=None,
+    )
 
 
 def make_provider(chat_model, *, context_window=8192):
@@ -116,19 +145,43 @@ def test_compressor_config_identity_is_non_secret_and_behavior_complete():
     assert "secret-key" not in compressor_settings_sha256(config)
 
 
-def test_structured_compressor_keeps_fixed_instructions_first_and_binds_output():
+def test_compressor_public_apis_accept_one_request_without_parallel_contract_fields():
+    for callable_ in (
+        ContextCompressorAgent.compress,
+        OpenAIContextCompressor.compress,
+    ):
+        parameters = signature(callable_).parameters
+        assert "request" in parameters
+        assert "policy" not in parameters
+        assert "source_segments" not in parameters
+        assert "intent" not in parameters
+
+
+def test_structured_compressor_binds_one_512_target_to_prompt_budget_and_provider():
     policy, sources, question_digest, payload = make_contract()
+    request = dynamic_request(policy, sources, target=512)
     chat = FakeStructuredModel(payload)
     provider = make_provider(chat)
+    resolved_operation_policies = []
+    delegate = provider._budget_resolver
+
+    class CapturingBudgetResolver:
+        def resolve(self, *, profile, policy):
+            resolved_operation_policies.append(policy)
+            return delegate.resolve(profile=profile, policy=policy)
+
+    provider._budget_resolver = CapturingBudgetResolver()
 
     result = provider.compress(
-        policy=policy,
-        source_segments=sources,
+        request=request,
         expected_question_id_sha256=question_digest,
     )
 
     assert result == payload
-    assert chat.max_tokens == policy.target_output_tokens
+    assert chat.max_tokens == 512
+    assert resolved_operation_policies[0].max_output_tokens == 512
+    assert "target_output_tokens=512" in chat.prompts[0].splitlines()
+    assert "target_output_tokens=2000" not in chat.prompts[0]
     assert chat.prompts[0].startswith(
         "You are a deterministic context compressor."
     )
@@ -139,13 +192,13 @@ def test_structured_compressor_keeps_fixed_instructions_first_and_binds_output()
 
 def test_final_rendered_prompt_overflow_fails_before_provider_call():
     policy, sources, question_digest, payload = make_contract(input_cap=1)
+    request = dynamic_request(policy, sources, target=512)
     chat = FakeStructuredModel(payload)
     provider = make_provider(chat)
 
     with pytest.raises(ContextBudgetExceeded):
         provider.compress(
-            policy=policy,
-            source_segments=sources,
+            request=request,
             expected_question_id_sha256=question_digest,
         )
 
@@ -180,11 +233,10 @@ def test_agent_has_no_business_fallback_and_emits_only_safe_metadata():
             "identity_inference",
         ],
     )
+    request = dynamic_request(policy, sources, intent=intent, target=512)
 
     result = agent.compress(
-        policy=policy,
-        source_segments=sources,
-        intent=intent,
+        request=request,
         expected_question_id_sha256=question_digest,
         execution_context=AgentExecutionContext(
             correlation_id="correlation-1",
@@ -200,7 +252,10 @@ def test_agent_has_no_business_fallback_and_emits_only_safe_metadata():
     assert metadata["artifact_type"] == "question_conversation"
     assert metadata["context_policy_version"] == "conversation-v1"
     assert metadata["source_segment_count"] == 1
-    assert metadata["target_output_tokens"] == 256
+    assert metadata["target_output_tokens"] == 512
+    assert metadata["available_input_tokens"] == 4_096
+    assert chat.max_tokens == 512
+    assert "target_output_tokens=512" in chat.prompts[0].splitlines()
     assert metadata["provider_attempt_count"] == 1
     assert metadata["provider_usage_available"] is False
     intent_line = "compression_intent_json=" + canonical_compression_intent_payload(
@@ -268,10 +323,10 @@ def test_question_memory_compressor_binds_non_authoritative_schema_and_identity(
     }
     chat = FakeStructuredModel(payload)
     provider = make_provider(chat)
+    request = fixed_request(QUESTION_MEMORY_COMPRESSION_POLICY, [source])
 
     result = provider.compress(
-        policy=QUESTION_MEMORY_COMPRESSION_POLICY,
-        source_segments=[source],
+        request=request,
         expected_session_scope_sha256="1" * 64,
         expected_question_id_sha256="2" * 64,
         expected_question_focus_sha256="3" * 64,
@@ -279,6 +334,8 @@ def test_question_memory_compressor_binds_non_authoritative_schema_and_identity(
     )
 
     assert result["authority"] == "non_authoritative"
+    assert request.resolved_target_output_tokens == 2_000
+    assert chat.max_tokens == 2_000
     assert chat.schema is QuestionMemoryArtifact
     assert "authority must be exactly non_authoritative" in chat.prompts[0]
     assert '"source_manifest_sha256":"' in chat.prompts[0]

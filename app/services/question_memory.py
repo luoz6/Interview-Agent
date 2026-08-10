@@ -10,6 +10,10 @@ from app.services.context_artifact_scope import (
     StableContextArtifactPrivacyScopeResolver,
     privacy_scope_sha256,
 )
+from app.services.context_budget import (
+    DynamicCompressionTargetPolicy,
+    allocate_dynamic_compression_target,
+)
 from app.services.context_artifacts import (
     CompressionSourceSegment,
     ContextArtifactBusy,
@@ -28,6 +32,10 @@ from app.services.context_compression_intent import (
     CONVERSATION_PRESERVATION_RULES,
     CompressionIntent,
     compression_intent_sha256,
+)
+from app.services.context_compression_request import (
+    ResolvedCompressionRequest,
+    _resolved_compression_request_from_persisted_target,
 )
 from app.services.question_memory_index import (
     QUESTION_MEMORY_TAXONOMY,
@@ -122,7 +130,7 @@ class QuestionMemoryCoordinator:
                 selection=selection,
                 deterministic_context=deterministic_context,
             )
-            closed = self._closed_question_sources(
+            closed = self._closed_question_source_candidates(
                 state,
                 validated_selection=validated_selection,
             )
@@ -221,73 +229,127 @@ class QuestionMemoryCoordinator:
                 item["question"]["id"],
             ),
         )
+        creation_source = next(
+            (
+                source
+                for source in ordered_closed
+                if (
+                    (entry := entry_by_question.get(source["question"]["id"]))
+                    is None
+                    or entry.source_manifest_sha256
+                    != source["manifest"].sha256
+                )
+            ),
+            None,
+        )
+        creation_request = None
+        if creation_source is not None:
+            try:
+                creation_request = self._new_source_request(
+                    source=creation_source,
+                    selection=selection,
+                    validated_selection=validated_selection,
+                )
+            except (AttributeError, TypeError, ValueError):
+                publish_memory_route(
+                    operation="followup",
+                    route="deterministic",
+                )
+                return self._deterministic(deterministic_context)
+            if creation_request is None:
+                publish_memory_route(
+                    operation="followup",
+                    route="deterministic",
+                )
+                return self._deterministic(deterministic_context)
+
+        session_scope_sha256 = None
+
+        def scoped_source(source):
+            nonlocal session_scope_sha256
+            if session_scope_sha256 is None:
+                session_scope_sha256 = self._question_memory_scope_sha256(
+                    state
+                )
+            return {
+                **source,
+                "session_scope_sha256": session_scope_sha256,
+            }
+
         payloads: list[dict[str, Any]] = []
-        created_resolution = None
         for source in ordered_closed:
             entry = entry_by_question.get(source["question"]["id"])
             if entry is None or entry.source_manifest_sha256 != source["manifest"].sha256:
-                if created_resolution is None:
-                    try:
-                        created_resolution, created_entry = self._create(
-                            state=state,
-                            source=source,
-                            parent_ownership=parent_ownership,
-                        )
-                    except (
-                        ContextArtifactBusy,
-                        ContextArtifactProviderFailed,
-                    ):
-                        continue
-                    except ContextArtifactValidationFailed:
-                        publish_memory_route(
-                            operation="followup",
-                            route="deterministic",
-                        )
-                        return self._deterministic(deterministic_context)
-                    except (TypeError, ValueError):
-                        publish_memory_route(
-                            operation="followup",
-                            route="deterministic",
-                        )
-                        return self._deterministic(deterministic_context)
-                    try:
-                        represented_ids = self._validated_represented_source_ids(
-                            state=state,
-                            source=source,
-                            resolution=created_resolution,
-                            entry=created_entry,
-                        )
-                    except (AttributeError, TypeError, ValueError):
-                        publish_memory_route(
-                            operation="followup",
-                            route="deterministic",
-                        )
-                        return self._deterministic(deterministic_context)
-                    payloads.append(
-                        {
-                            "payload": created_resolution.payload,
-                            "source": source,
-                            "entry": created_entry,
-                            "resolution": created_resolution,
-                            "represented_source_ids": represented_ids,
-                            "created": (
-                                created_resolution.route == "artifact_created"
-                            ),
-                        }
+                if source is not creation_source or creation_request is None:
+                    continue
+                try:
+                    source = scoped_source(source)
+                    created_resolution, created_entry = self._create(
+                        state=state,
+                        source=source,
+                        request=creation_request,
+                        parent_ownership=parent_ownership,
                     )
+                except (
+                    ContextArtifactBusy,
+                    ContextArtifactProviderFailed,
+                ):
+                    continue
+                except ContextArtifactValidationFailed:
+                    publish_memory_route(
+                        operation="followup",
+                        route="deterministic",
+                    )
+                    return self._deterministic(deterministic_context)
+                except (AttributeError, TypeError, ValueError):
+                    publish_memory_route(
+                        operation="followup",
+                        route="deterministic",
+                    )
+                    return self._deterministic(deterministic_context)
+                try:
+                    represented_ids = self._validated_represented_source_ids(
+                        state=state,
+                        source=source,
+                        resolution=created_resolution,
+                        entry=created_entry,
+                    )
+                except (AttributeError, TypeError, ValueError):
+                    publish_memory_route(
+                        operation="followup",
+                        route="deterministic",
+                    )
+                    return self._deterministic(deterministic_context)
+                payloads.append(
+                    {
+                        "payload": created_resolution.payload,
+                        "source": source,
+                        "entry": created_entry,
+                        "resolution": created_resolution,
+                        "represented_source_ids": represented_ids,
+                        "created": (
+                            created_resolution.route == "artifact_created"
+                        ),
+                    }
+                )
                 continue
             if not self._entry_source_complete(entry, source=source):
                 publish_memory_route(operation="followup", route="deterministic")
                 return self._deterministic(deterministic_context)
             try:
+                source = scoped_source(source)
                 resolution = self._reuse(
                     state=state,
                     source=source,
+                    entry=entry,
                     parent_ownership=parent_ownership,
                 )
             except ContextArtifactProviderFailed:
                 continue
             except ContextArtifactValidationFailed:
+                publish_memory_route(operation="followup", route="deterministic")
+                return self._deterministic(deterministic_context)
+            except (AttributeError, TypeError, ValueError):
                 publish_memory_route(operation="followup", route="deterministic")
                 return self._deterministic(deterministic_context)
             try:
@@ -377,15 +439,140 @@ class QuestionMemoryCoordinator:
             memory_unit_count=len(selected_units),
         )
 
-    def _create(self, *, state, source, parent_ownership):
+    def _new_source_request(
+        self,
+        *,
+        source,
+        selection,
+        validated_selection,
+    ) -> ResolvedCompressionRequest | None:
+        resolved_target_output_tokens = (
+            QUESTION_MEMORY_COMPRESSION_POLICY.target_output_tokens
+        )
+        request_target_policy = None
+        selection_stats = getattr(selection, "stats", None)
+        selectable_content_tokens = getattr(
+            selection_stats,
+            "selectable_content_tokens",
+            None,
+        )
+        dynamic_target_policy = getattr(
+            self.context_runtime,
+            "dynamic_compression_target_policy",
+            None,
+        )
+        if (
+            dynamic_target_policy is not None
+            and selectable_content_tokens is not None
+        ):
+            estimator = self.context_runtime.estimator_resolution.estimator
+            model = self.context_runtime.model_profile.model
+            source_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": message["role"],
+                        "content": message["content"],
+                    }
+                    for message in source["messages"]
+                ],
+                model=model,
+            )
+            represented_source_ids = set(
+                source["represented_source_identity_sha256"]
+            )
+            retained_messages = [
+                {
+                    "role": message["role"],
+                    "content": message["provider_content"],
+                }
+                for message in validated_selection["selected_conversation"]
+                if message["source_identity_sha256"]
+                not in represented_source_ids
+            ]
+            retained_messages.extend(
+                dict(message)
+                for message in validated_selection["evidence_context"]
+            )
+            retained_tokens = estimator.estimate_messages(
+                retained_messages,
+                model=model,
+            )
+            dynamic_target = allocate_dynamic_compression_target(
+                source_tokens=source_tokens,
+                policy=dynamic_target_policy,
+                policy_hard_cap_tokens=(
+                    QUESTION_MEMORY_COMPRESSION_POLICY.target_output_tokens
+                ),
+                remaining_business_budget_tokens=max(
+                    0,
+                    selectable_content_tokens - retained_tokens,
+                ),
+            )
+            if dynamic_target is None:
+                return None
+            resolved_target_output_tokens = dynamic_target
+            request_target_policy = dynamic_target_policy
+        return ResolvedCompressionRequest(
+            policy=QUESTION_MEMORY_COMPRESSION_POLICY,
+            intent=self._compression_intent(source),
+            source_segments=tuple(source["segments"]),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
+
+    def _persisted_source_request(
+        self,
+        *,
+        source,
+        entry,
+    ) -> ResolvedCompressionRequest:
+        persisted_target = entry.resolved_target_output_tokens
+        if persisted_target is None:
+            resolved_target_output_tokens = (
+                QUESTION_MEMORY_COMPRESSION_POLICY.target_output_tokens
+            )
+            request_target_policy = None
+        else:
+            resolved_target_output_tokens = persisted_target
+            current_target_policy = getattr(
+                self.context_runtime,
+                "dynamic_compression_target_policy",
+                None,
+            )
+            request_target_policy = (
+                current_target_policy
+                if (
+                    isinstance(
+                        current_target_policy,
+                        DynamicCompressionTargetPolicy,
+                    )
+                    and persisted_target
+                    in current_target_policy.allowed_target_tokens
+                    and persisted_target >= current_target_policy.floor_tokens
+                )
+                else None
+            )
+        request_factory = (
+            ResolvedCompressionRequest
+            if persisted_target is None
+            else _resolved_compression_request_from_persisted_target
+        )
+        return request_factory(
+            policy=QUESTION_MEMORY_COMPRESSION_POLICY,
+            intent=self._compression_intent(source),
+            source_segments=tuple(source["segments"]),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
+
+    def _create(self, *, state, source, request, parent_ownership):
         resolution = self._resolve(
             state=state,
             source=source,
+            request=request,
             parent_ownership=parent_ownership,
-            compressor=lambda intent: self.compressor_agent.compress(
-                policy=QUESTION_MEMORY_COMPRESSION_POLICY,
-                source_segments=source["segments"],
-                intent=intent,
+            compressor=lambda resolved_request: self.compressor_agent.compress(
+                request=resolved_request,
                 expected_session_scope_sha256=source["session_scope_sha256"],
                 expected_question_id_sha256=source["question_id_sha256"],
                 expected_question_focus_sha256=source["focus_sha256"],
@@ -432,30 +619,58 @@ class QuestionMemoryCoordinator:
             source_message_count=len(source["messages"]),
             source_max_sequence_no=source["max_sequence_no"],
             created_at=self.clock(),
+            resolved_target_output_tokens=(
+                request.resolved_target_output_tokens
+            ),
         )
         return resolution, self.index_store.activate(entry)
 
-    def _reuse(self, *, state, source, parent_ownership):
+    def _reuse(self, *, state, source, entry, parent_ownership):
+        request = self._persisted_source_request(
+            source=source,
+            entry=entry,
+        )
         return self._resolve(
             state=state,
             source=source,
+            request=request,
             parent_ownership=parent_ownership,
-            compressor=lambda _intent: (_ for _ in ()).throw(
+            compressor=lambda _request: (_ for _ in ()).throw(
                 ContextArtifactProviderFailed(
                     "indexed question memory artifact is missing"
                 )
             ),
         )
 
-    def _resolve(self, *, state, source, parent_ownership, compressor):
-        intent = self._compression_intent(source)
+    def _resolve(
+        self,
+        *,
+        state,
+        source,
+        request,
+        parent_ownership,
+        compressor,
+    ):
+        if request.policy != QUESTION_MEMORY_COMPRESSION_POLICY:
+            raise ValueError("question memory request policy is invalid")
+        request_segments = tuple(
+            segment.model_dump(mode="python")
+            for segment in request.source_segments
+        )
+        source_segments = tuple(
+            segment.model_dump(mode="python")
+            for segment in source["segments"]
+        )
+        if request_segments != source_segments:
+            raise ValueError("question memory request source is invalid")
+        if request.intent != self._compression_intent(source):
+            raise ValueError("question memory request intent is invalid")
         return self.runner.resolve(
-            identity_material=self._identity(source, intent=intent),
-            policy=QUESTION_MEMORY_COMPRESSION_POLICY,
-            source_segments=source["segments"],
+            identity_material=self._identity(source, intent=request.intent),
+            request=request,
             estimator=self.context_runtime.estimator_resolution.estimator,
             model=self.context_runtime.model_profile.model,
-            compressor=lambda: compressor(intent),
+            compressor=compressor,
             worker_id=parent_ownership.worker_id,
             owner_type="interview_session",
             owner_key=state["session_id"],
@@ -465,7 +680,6 @@ class QuestionMemoryCoordinator:
             expected_question_id_sha256=source["question_id_sha256"],
             expected_question_focus_sha256=source["focus_sha256"],
             expected_source_manifest_sha256=source["manifest"].sha256,
-            intent=intent,
         )
 
     def _identity(self, source, *, intent=None):
@@ -691,6 +905,27 @@ class QuestionMemoryCoordinator:
         *,
         validated_selection,
     ):
+        candidates = self._closed_question_source_candidates(
+            state,
+            validated_selection=validated_selection,
+        )
+        if not candidates:
+            return []
+        session_scope_sha256 = self._question_memory_scope_sha256(state)
+        return [
+            {
+                **source,
+                "session_scope_sha256": session_scope_sha256,
+            }
+            for source in candidates
+        ]
+
+    def _closed_question_source_candidates(
+        self,
+        state,
+        *,
+        validated_selection,
+    ):
         questions = state["plan_snapshot"]["questions"][: state["current_index"]]
         compressible_by_question: dict[str, list[dict[str, Any]]] = {}
         for source in validated_selection["compressible"]:
@@ -707,10 +942,6 @@ class QuestionMemoryCoordinator:
                 source["question_id"],
                 set(),
             ).add(source["source_identity_sha256"])
-        scope = self.scope_resolver.for_interview(
-            deployment_scope=self.deployment_scope,
-            session_id=state["session_id"],
-        )
         result = []
         for question in questions:
             question_id = question["id"]
@@ -769,7 +1000,6 @@ class QuestionMemoryCoordinator:
                     "max_sequence_no": max(
                         message["sequence_no"] for message in messages
                     ),
-                    "session_scope_sha256": privacy_scope_sha256(scope),
                     "question_id_sha256": sha256(
                         question_id.encode()
                     ).hexdigest(),
@@ -779,6 +1009,13 @@ class QuestionMemoryCoordinator:
                 }
             )
         return result
+
+    def _question_memory_scope_sha256(self, state) -> str:
+        scope = self.scope_resolver.for_interview(
+            deployment_scope=self.deployment_scope,
+            session_id=state["session_id"],
+        )
+        return privacy_scope_sha256(scope)
 
     def _entry_owner_and_question_valid(self, entry, *, state, source) -> bool:
         return (

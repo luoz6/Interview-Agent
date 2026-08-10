@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from threading import Lock
 
-from app.services.context_budget import ContextBudgetResolver
+from app.services.context_budget import (
+    ContextBudgetResolver,
+    DynamicCompressionTargetPolicy,
+)
 from app.services.model_capabilities import (
+    ContextConfigurationError,
     ModelCapabilityRegistry,
     ModelRuntimeProfile,
 )
@@ -28,6 +32,7 @@ class ContextRuntimeConfig:
     source_identity_config: ContextSourceIdentityConfig = field(
         default_factory=ContextSourceIdentityConfig
     )
+    dynamic_compression_target_policy: DynamicCompressionTargetPolicy | None = None
 
     @classmethod
     def from_env(cls) -> "ContextRuntimeConfig":
@@ -35,6 +40,7 @@ class ContextRuntimeConfig:
 
         effective = load_effective_memory_config()
         memory = effective.model
+        selection = effective.selection
         return cls(
             provider=memory.provider,
             model=memory.model,
@@ -48,8 +54,17 @@ class ContextRuntimeConfig:
             tokenizer_family=memory.tokenizer_family,
             source_identity_config=ContextSourceIdentityConfig(
                 exact_deduplication_mode=(
-                    effective.selection.exact_deduplication_mode
+                    selection.exact_deduplication_mode
                 )
+            ),
+            dynamic_compression_target_policy=DynamicCompressionTargetPolicy(
+                floor_tokens=selection.dynamic_target_floor_tokens,
+                source_ratio_basis_points=(
+                    selection.dynamic_target_source_ratio_basis_points
+                ),
+                allowed_target_tokens=(
+                    selection.dynamic_target_allowed_tokens
+                ),
             ),
         )
 
@@ -62,6 +77,7 @@ class ContextRuntime:
     source_identity_config: ContextSourceIdentityConfig = field(
         default_factory=ContextSourceIdentityConfig
     )
+    dynamic_compression_target_policy: DynamicCompressionTargetPolicy | None = None
 
 
 @dataclass(frozen=True)
@@ -121,26 +137,43 @@ def build_context_runtime(
         estimator_resolution=estimator,
         budget_resolver=ContextBudgetResolver(),
         source_identity_config=config.source_identity_config,
+        dynamic_compression_target_policy=(
+            config.dynamic_compression_target_policy
+        ),
     )
 
 
 _context_runtime: ContextRuntime | None = None
+_context_runtime_config: ContextRuntimeConfig | None = None
 _context_runtime_lock = Lock()
 
 
 def get_context_runtime(
     config: ContextRuntimeConfig | None = None,
 ) -> ContextRuntime:
-    global _context_runtime
-    if _context_runtime is not None:
-        return _context_runtime
+    global _context_runtime, _context_runtime_config
     with _context_runtime_lock:
         if _context_runtime is None:
-            _context_runtime = build_context_runtime(config)
-    return _context_runtime
+            resolved_config = (
+                config
+                if config is not None
+                else ContextRuntimeConfig.from_env()
+            )
+            runtime = build_context_runtime(resolved_config)
+            _context_runtime_config = resolved_config
+            _context_runtime = runtime
+        elif (
+            config is not None
+            and config != _context_runtime_config
+        ):
+            raise ContextConfigurationError(
+                "context runtime singleton configuration conflict"
+            )
+        return _context_runtime
 
 
 def reset_context_runtime_for_tests() -> None:
-    global _context_runtime
+    global _context_runtime, _context_runtime_config
     with _context_runtime_lock:
         _context_runtime = None
+        _context_runtime_config = None

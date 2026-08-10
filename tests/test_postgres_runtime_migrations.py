@@ -167,8 +167,9 @@ def test_v16_context_artifact_identity_contract_requires_versioned_columns():
         in RUNTIME_SCHEMA_V16_MANIFEST
     )
     assert RUNTIME_MIGRATIONS[15].migration_id == "context_artifact_identity_v1_v16"
+    assert RUNTIME_MIGRATIONS[15].checksum == RUNTIME_SCHEMA_V16_CHECKSUM
     assert LATEST_RUNTIME_MIGRATION.migration_id == (
-        "followup_decision_attempt_usage_trace_v3"
+        "question_memory_resolved_target_v1_v27"
     )
 
 
@@ -600,8 +601,8 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
         (spec.migration_id, spec.checksum, spec.transaction_mode)
         for spec in RUNTIME_MIGRATIONS
     ]
-    assert len(database.rows) == 26
-    assert len({row[0] for row in database.rows}) == 26
+    assert len(database.rows) == 27
+    assert len({row[0] for row in database.rows}) == 27
     assert {
         "PostgresInterviewPlanRevisionStore",
         "_upgrade_interview_draft_plan_binding",
@@ -722,6 +723,16 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     connection = FakeConnection()
     seen = []
     _patch_schema_owners(monkeypatch, seen)
+    resolved_target_upgrades = []
+    monkeypatch.setattr(
+        migrations,
+        "_upgrade_question_memory_resolved_target_v1",
+        lambda upgraded_connection, *, table_prefix: (
+            resolved_target_upgrades.append(
+                (upgraded_connection, table_prefix)
+            )
+        ),
+    )
     setup = []
     monkeypatch.setattr(migrations, "_setup_langgraph_checkpointer", setup.append)
 
@@ -737,6 +748,7 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     assert len([item for item in seen if item[0] == "migrate"]) == 15
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
     assert ("context_artifact_identity_v1_upgrade", connection) in seen
+    assert resolved_target_upgrades == [(connection, "test_runtime")]
     assert setup == ["private-dsn"]
     assert connection.commits >= 2
     assert connection.closed is True
@@ -1227,7 +1239,7 @@ def test_actual_migration_installs_heartbeat_and_is_idempotent(postgres_dsn):
 
         assert first.applied is True
         assert second.applied is False
-        assert first.migration_id == "followup_decision_attempt_usage_trace_v3"
+        assert first.migration_id == LATEST_RUNTIME_MIGRATION.migration_id
         assert any(
             spec.migration_id == "frontend_product_experience_v15"
             for spec in RUNTIME_MIGRATIONS
@@ -1424,7 +1436,7 @@ def test_actual_migration_upgrades_v10_and_runtime_factories_are_durable(
             run_checkpointer_setup=False,
         )
         assert result.applied is True
-        assert result.migration_id == "followup_decision_attempt_usage_trace_v3"
+        assert result.migration_id == LATEST_RUNTIME_MIGRATION.migration_id
 
         runtime.reset_runtime_for_tests()
         monkeypatch.setenv("POSTGRES_DSN", postgres_dsn)
@@ -1594,7 +1606,7 @@ def test_dirty_exclusive_facts_block_migration_until_explicit_resolution(
             run_checkpointer_setup=False,
         )
 
-        assert result.migration_id == "followup_decision_attempt_usage_trace_v3"
+        assert result.migration_id == LATEST_RUNTIME_MIGRATION.migration_id
         stored = store.list_by_principal(
             deployment_id="single-tenant-local",
             principal_id="local-owner",

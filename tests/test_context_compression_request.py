@@ -1,5 +1,6 @@
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, asdict, fields, replace
 from hashlib import sha256
+import inspect
 import json
 
 import pytest
@@ -197,6 +198,91 @@ def test_fixed_request_rejects_targets_below_the_policy_hard_cap(target):
             target_policy=None,
             resolved_target_output_tokens=target,
         )
+
+
+def test_public_request_constructor_cannot_claim_persisted_index_authority():
+    request_type, _identity_helper = request_api()
+
+    assert "resolved_target_authority" not in inspect.signature(request_type).parameters
+    with pytest.raises(TypeError, match="resolved_target_authority"):
+        resolved_request(
+            target_policy=None,
+            resolved_target_output_tokens=512,
+            resolved_target_authority="persisted_index",
+        )
+    with pytest.raises(TypeError, match="_persisted"):
+        resolved_request(
+            target_policy=None,
+            resolved_target_output_tokens=512,
+            _persisted_authority=object(),
+        )
+
+
+def test_private_persisted_factory_recovers_a_removed_target_tier():
+    import app.services.context_compression_request as request_module
+
+    factory = (
+        request_module._resolved_compression_request_from_persisted_target
+    )
+
+    request = factory(
+        policy=compression_policy(),
+        intent=None,
+        source_segments=(source_segment(),),
+        resolved_target_output_tokens=512,
+        target_policy=None,
+    )
+
+    assert request.resolved_target_output_tokens == 512
+    assert request.target_policy is None
+    assert request.resolved_target_authority == "persisted_index"
+    assert "resolved_target_authority" not in {
+        field.name for field in fields(request)
+    }
+    assert "resolved_target_authority" not in asdict(request)
+    assert "persisted_index" not in repr(request)
+    assert all(
+        value is not request_module._PERSISTED_TARGET_AUTHORITY
+        for value in vars(request).values()
+    )
+
+
+@pytest.mark.parametrize("target", (0, -1, True, 512.0, "512", 2_001))
+def test_private_persisted_factory_enforces_strict_positive_policy_cap(target):
+    from app.services.context_compression_request import (
+        _resolved_compression_request_from_persisted_target,
+    )
+
+    with pytest.raises((TypeError, ValueError), match="resolved_target"):
+        _resolved_compression_request_from_persisted_target(
+            policy=compression_policy(),
+            intent=None,
+            source_segments=(source_segment(),),
+            target_policy=None,
+            resolved_target_output_tokens=target,
+        )
+
+
+def test_persisted_authority_is_read_only_and_excluded_from_request_equality():
+    from app.services.context_compression_request import (
+        _resolved_compression_request_from_persisted_target,
+    )
+
+    ordinary = resolved_request()
+    persisted = _resolved_compression_request_from_persisted_target(
+        policy=ordinary.policy,
+        intent=ordinary.intent,
+        source_segments=ordinary.source_segments,
+        resolved_target_output_tokens=ordinary.resolved_target_output_tokens,
+        target_policy=ordinary.target_policy,
+    )
+
+    assert ordinary == persisted
+    assert hash(ordinary) == hash(persisted)
+    assert ordinary.resolved_target_authority == "policy_resolution"
+    assert persisted.resolved_target_authority == "persisted_index"
+    with pytest.raises(FrozenInstanceError):
+        persisted.resolved_target_authority = "policy_resolution"
 
 
 @pytest.mark.parametrize(

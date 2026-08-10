@@ -2,6 +2,7 @@ import logging
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from inspect import Parameter, signature
 
 from app.graphs.interview_state import InterviewState
 from app.services.agent_runtime import (
@@ -26,6 +27,7 @@ from app.services.report import (
 from app.services.vector_store import KnowledgeChunk, KnowledgeSearchStore
 from app.services.context_budget import (
     QUESTION_REVIEW_CONTEXT_POLICY,
+    REPORT_CONTEXT_POLICY,
     context_enforcement_enabled,
 )
 from app.services.context_selection import (
@@ -42,6 +44,17 @@ class ReviewerReferenceResolution:
     references: list[KnowledgeChunk | dict] = field(default_factory=list)
     retrieval_path: str = "legacy_semantic_search"
     degraded_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class QuestionReviewBudgetContext:
+    remaining_business_budget_tokens: int
+
+    def __post_init__(self) -> None:
+        if self.remaining_business_budget_tokens < 0:
+            raise ValueError(
+                "remaining question-review business budget must not be negative"
+            )
 
 
 def resolve_reviewer_references(
@@ -106,6 +119,12 @@ class ExpertShadowEvaluator:
         on_progress: Callable[[ReportProgress], None] | None = None,
     ) -> InterviewReport:
         chunks = build_evaluation_chunks(state)
+        review_enforcement_enabled = context_enforcement_enabled(
+            QUESTION_REVIEW_CONTEXT_POLICY.operation
+        )
+        transform_budget_parameter = _budget_context_parameter(
+            self._reference_transform
+        )
         if on_progress is not None:
             on_progress(
                 ReportProgress(
@@ -131,15 +150,57 @@ class ExpertShadowEvaluator:
                 self._reference_to_dict(reference)
                 for reference in retrieval.references
             ]
-            effective_reference_dicts = (
-                self._reference_transform(
+            dynamic_budget_context = None
+            prebounded_messages = None
+            if (
+                self._reference_transform is not None
+                and len(chunks) == 1
+                and transform_budget_parameter is not None
+                and (
+                    review_enforcement_enabled
+                    or transform_budget_parameter.default is Parameter.empty
+                )
+            ):
+                runtime = self._context_runtime or get_context_runtime()
+                (
+                    bounded_chunk,
+                    bounded_source_references,
+                    dynamic_budget_context,
+                ) = _prepare_question_review_transform_input(
+                    chunk,
+                    reference_dicts,
+                    context_runtime=runtime,
+                )
+                transformed_reference_dicts = self._reference_transform(
+                    state=state,
+                    chunk=bounded_chunk,
+                    references=bounded_source_references,
+                    budget_context=dynamic_budget_context,
+                )
+                if review_enforcement_enabled:
+                    effective_reference_dicts = transformed_reference_dicts
+                    prebounded_messages = bounded_chunk.model_dump()["messages"]
+                else:
+                    # A required budget-aware transform still runs in shadow
+                    # mode so the counterfactual artifact target can be
+                    # measured. Its projection must not affect legacy
+                    # business messages, references, or provider input.
+                    effective_reference_dicts = reference_dicts
+            elif self._reference_transform is not None and (
+                transform_budget_parameter is None
+                or transform_budget_parameter.default is not Parameter.empty
+            ):
+                # Preserve legacy/generic callback behavior. Budget-aware
+                # transforms with a required context are deliberately skipped
+                # for multi-question full-session evaluation so independent
+                # artifacts cannot each spend the same report budget.
+                effective_reference_dicts = self._reference_transform(
                     state=state,
                     chunk=chunk,
                     references=reference_dicts,
                 )
-                if self._reference_transform is not None
-                else reference_dicts
-            )
+            else:
+                effective_reference_dicts = reference_dicts
             non_authoritative_context = (
                 effective_reference_dicts
                 if _is_non_authoritative_reference_context(
@@ -147,7 +208,17 @@ class ExpertShadowEvaluator:
                 )
                 else None
             )
-            if context_enforcement_enabled(QUESTION_REVIEW_CONTEXT_POLICY.operation):
+            if review_enforcement_enabled and prebounded_messages is not None:
+                bounded_messages = prebounded_messages
+                bounded_references = _bound_question_review_references(
+                    non_authoritative_context or effective_reference_dicts,
+                    token_budget=min(
+                        QUESTION_REVIEW_CONTEXT_POLICY.max_total_evidence_tokens,
+                        dynamic_budget_context.remaining_business_budget_tokens,
+                    ),
+                    context_runtime=runtime,
+                )
+            elif review_enforcement_enabled:
                 bounded_messages, bounded_references = _budget_question_review_input(
                     chunk,
                     non_authoritative_context or effective_reference_dicts,
@@ -306,20 +377,106 @@ def _budget_question_review_input(
     context_runtime: ContextRuntime | None = None,
 ):
     runtime = context_runtime or get_context_runtime()
-    model = runtime.model_profile.model
+    messages = _bound_question_review_messages(
+        chunk,
+        token_budget=9_000,
+        context_runtime=runtime,
+    )
+    selected_references = _bound_question_review_references(
+        reference_dicts,
+        token_budget=QUESTION_REVIEW_CONTEXT_POLICY.max_total_evidence_tokens,
+        context_runtime=runtime,
+    )
+    return messages, selected_references
+
+
+def _prepare_question_review_transform_input(
+    chunk,
+    reference_dicts: list[dict],
+    *,
+    context_runtime: ContextRuntime,
+):
+    runtime = context_runtime
+    question_review_budget = runtime.budget_resolver.resolve(
+        profile=runtime.model_profile,
+        policy=QUESTION_REVIEW_CONTEXT_POLICY,
+    )
+    report_budget = runtime.budget_resolver.resolve(
+        profile=runtime.model_profile,
+        policy=REPORT_CONTEXT_POLICY,
+    )
+    effective_available_input_tokens = min(
+        question_review_budget.available_input_tokens,
+        report_budget.available_input_tokens,
+    )
+    selectable_content_tokens = max(
+        0,
+        effective_available_input_tokens
+        - QUESTION_REVIEW_CONTEXT_POLICY.fixed_prompt_reserve_tokens,
+    )
+    bounded_messages = _bound_question_review_messages(
+        chunk,
+        token_budget=min(9_000, selectable_content_tokens),
+        context_runtime=runtime,
+    )
     estimator = runtime.estimator_resolution.estimator
+    model = runtime.model_profile.model
+    retained_message_tokens = estimator.estimate_messages(
+        bounded_messages,
+        model=model,
+    )
+    remaining_business_budget_tokens = max(
+        0,
+        selectable_content_tokens - retained_message_tokens,
+    )
+    bounded_references = _bound_question_review_references(
+        reference_dicts,
+        token_budget=min(
+            QUESTION_REVIEW_CONTEXT_POLICY.max_total_evidence_tokens,
+            remaining_business_budget_tokens,
+        ),
+        context_runtime=runtime,
+    )
+    return (
+        chunk.model_copy(update={"messages": bounded_messages}),
+        bounded_references,
+        QuestionReviewBudgetContext(
+            remaining_business_budget_tokens=remaining_business_budget_tokens
+        ),
+    )
+
+
+def _bound_question_review_messages(
+    chunk,
+    *,
+    token_budget: int,
+    context_runtime: ContextRuntime,
+) -> list[dict[str, str]]:
+    runtime = context_runtime
     messages, _ = select_interview_messages(
         chunk.messages,
         current_question_id=chunk.question_id,
-        token_budget=9_000,
+        token_budget=max(0, token_budget),
         max_single_message_tokens=(
             QUESTION_REVIEW_CONTEXT_POLICY.max_single_message_tokens
         ),
-        estimator=estimator,
-        model=model,
+        estimator=runtime.estimator_resolution.estimator,
+        model=runtime.model_profile.model,
     )
+    return messages
+
+
+def _bound_question_review_references(
+    reference_dicts: list[dict],
+    *,
+    token_budget: int,
+    context_runtime: ContextRuntime | None,
+) -> list[dict]:
+    runtime = context_runtime or get_context_runtime()
+    model = runtime.model_profile.model
+    estimator = runtime.estimator_resolution.estimator
     selected_references: list[dict] = []
-    remaining = QUESTION_REVIEW_CONTEXT_POLICY.max_total_evidence_tokens
+    remaining = max(0, token_budget)
     for reference in reference_dicts[: QUESTION_REVIEW_CONTEXT_POLICY.max_evidence_items]:
         bounded = dict(reference)
         content = str(bounded.get("content", ""))
@@ -342,7 +499,22 @@ def _budget_question_review_input(
             break
         selected_references.append(bounded)
         remaining -= cost
-    return messages, selected_references
+    return selected_references
+
+
+def _budget_context_parameter(transform: Callable | None):
+    if transform is None:
+        return None
+    try:
+        parameter = signature(transform).parameters.get("budget_context")
+    except (TypeError, ValueError):
+        return None
+    if parameter is None or parameter.kind not in {
+        Parameter.POSITIONAL_OR_KEYWORD,
+        Parameter.KEYWORD_ONLY,
+    }:
+        return None
+    return parameter
 
 
 def _is_non_authoritative_reference_context(references: list[dict]) -> bool:

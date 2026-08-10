@@ -1,17 +1,30 @@
 from concurrent.futures import ThreadPoolExecutor
+from inspect import getclosurevars
 from threading import Barrier
-from types import SimpleNamespace
+from types import CodeType, SimpleNamespace
+
+import pytest
 
 import app.services.runtime as runtime
+from app.services.context_budget import DynamicCompressionTargetPolicy
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_runtime import ContextRuntimeConfig
 from app.services.context_source_identity import ContextSourceIdentityConfig
 from app.services.memory_config import load_effective_memory_config
+from app.services.model_capabilities import ContextConfigurationError
 
 
 class FakeControlStore:
     def __init__(self, table_prefix):
         self.table_prefix = table_prefix
+
+
+def make_openai_llm_stub(*, context_runtime):
+    llm = object.__new__(runtime.OpenAIInterviewLLM)
+    llm.config = object()
+    llm.chat_model = object()
+    llm.context_runtime = context_runtime
+    return llm
 
 
 def setup_function():
@@ -87,6 +100,376 @@ def test_reset_clears_registered_prefixes():
     assert len(runtime._agent_composite_recorder._recorders) == 2
 
 
+def test_composed_workflow_llm_reuses_one_authority_and_rejects_conflicts(
+    monkeypatch,
+):
+    context_runtime = object()
+    stale_runtime = object()
+    existing = make_openai_llm_stub(context_runtime=context_runtime)
+
+    with pytest.raises(
+        ContextConfigurationError,
+        match="existing workflow LLM context runtime conflict",
+    ):
+        runtime._build_composed_workflow_llm(
+            store=SimpleNamespace(
+                llm=make_openai_llm_stub(context_runtime=stale_runtime)
+            ),
+            model_config=object(),
+            context_runtime=context_runtime,
+        )
+
+    forbidden_build_calls = []
+
+    def forbidden_config_build(_cls, *, memory):
+        forbidden_build_calls.append(memory)
+        raise AssertionError("existing LLM must not be rebuilt")
+
+    monkeypatch.setattr(
+        runtime.LLMConfig,
+        "from_env",
+        classmethod(forbidden_config_build),
+    )
+    assert runtime._build_composed_workflow_llm(
+        store=SimpleNamespace(llm=existing),
+        model_config=object(),
+        context_runtime=context_runtime,
+    ) is existing
+    custom_with_stale_runtime = SimpleNamespace(
+        context_runtime=stale_runtime
+    )
+    with pytest.raises(
+        ContextConfigurationError,
+        match="existing workflow LLM context runtime conflict",
+    ):
+        runtime._build_composed_workflow_llm(
+            store=SimpleNamespace(llm=custom_with_stale_runtime),
+            model_config=object(),
+            context_runtime=context_runtime,
+        )
+    custom_llm = object()
+    assert runtime._build_composed_workflow_llm(
+        store=SimpleNamespace(llm=custom_llm),
+        model_config=object(),
+        context_runtime=context_runtime,
+    ) is custom_llm
+    custom_without_runtime_authority = SimpleNamespace(
+        context_runtime=None
+    )
+    assert runtime._build_composed_workflow_llm(
+        store=SimpleNamespace(llm=custom_without_runtime_authority),
+        model_config=object(),
+        context_runtime=context_runtime,
+    ) is custom_without_runtime_authority
+    assert forbidden_build_calls == []
+
+    model_config = load_effective_memory_config().model
+    equal_model_config = model_config.model_copy()
+    different_model_config = model_config.model_copy(
+        update={
+            "safety_margin_tokens": model_config.safety_margin_tokens + 1
+        }
+    )
+    config_marker = object()
+    config_calls = []
+    llm_build_calls = []
+
+    def build_config(_cls, *, memory):
+        config_calls.append(memory)
+        return config_marker
+
+    def build_llm(*, config, context_runtime):
+        llm_build_calls.append(
+            {"config": config, "context_runtime": context_runtime}
+        )
+        return object()
+
+    monkeypatch.setattr(
+        runtime.LLMConfig,
+        "from_env",
+        classmethod(build_config),
+    )
+    monkeypatch.setattr(runtime, "OpenAIInterviewLLM", build_llm)
+    empty_store = SimpleNamespace(llm=None)
+
+    first = runtime._build_composed_workflow_llm(
+        store=empty_store,
+        model_config=model_config,
+        context_runtime=context_runtime,
+    )
+
+    assert runtime._build_composed_workflow_llm(
+        store=empty_store,
+        model_config=equal_model_config,
+        context_runtime=context_runtime,
+    ) is first
+    assert config_calls == [model_config]
+    assert llm_build_calls == [
+        {"config": config_marker, "context_runtime": context_runtime}
+    ]
+    with pytest.raises(
+        ContextConfigurationError,
+        match="composed workflow LLM authority conflict",
+    ):
+        runtime._build_composed_workflow_llm(
+            store=empty_store,
+            model_config=model_config,
+            context_runtime=object(),
+        )
+    with pytest.raises(
+        ContextConfigurationError,
+        match="composed workflow LLM authority conflict",
+    ):
+        runtime._build_composed_workflow_llm(
+            store=empty_store,
+            model_config=different_model_config,
+            context_runtime=context_runtime,
+        )
+    assert config_calls == [model_config]
+
+    runtime.shutdown_runtime(wait=False)
+
+    assert runtime._composed_workflow_llm is None
+    assert runtime._composed_workflow_llm_authority is None
+    replacement = runtime._build_composed_workflow_llm(
+        store=empty_store,
+        model_config=different_model_config,
+        context_runtime=stale_runtime,
+    )
+    assert replacement is not first
+    assert config_calls == [model_config, different_model_config]
+
+
+def test_context_compressor_agent_preserves_runtime_and_fails_closed_on_conflict(
+    monkeypatch,
+):
+    import app.agents.context_compressor as agent_module
+    import app.services.context_compression as compression_module
+
+    provider_calls = []
+    agent_calls = []
+    execution_runner = object()
+
+    class CapturingProvider:
+        def __init__(
+            self,
+            *,
+            llm_config=None,
+            chat_model=None,
+            context_runtime=None,
+        ):
+            self.config = SimpleNamespace()
+            self.context_runtime = context_runtime
+            provider_calls.append(
+                {
+                    "llm_config": llm_config,
+                    "chat_model": chat_model,
+                    "context_runtime": context_runtime,
+                }
+            )
+
+    class CapturingAgent:
+        def __init__(self, *, provider, execution_runner):
+            self.provider = provider
+            agent_calls.append(
+                {
+                    "provider": provider,
+                    "execution_runner": execution_runner,
+                }
+            )
+
+    monkeypatch.setattr(
+        compression_module,
+        "OpenAIContextCompressor",
+        CapturingProvider,
+    )
+    monkeypatch.setattr(
+        agent_module,
+        "ContextCompressorAgent",
+        CapturingAgent,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "get_agent_execution_runner",
+        lambda: execution_runner,
+    )
+
+    explicit_runtime = object()
+    llm_runtime = object()
+    llm = make_openai_llm_stub(context_runtime=llm_runtime)
+    session_store = SimpleNamespace(llm=llm)
+    monkeypatch.setattr(runtime, "get_session_store", lambda: session_store)
+    model_config = load_effective_memory_config().model
+    equal_model_config = model_config.model_copy()
+
+    first = runtime.get_context_compressor_agent(
+        context_runtime=explicit_runtime,
+        model_config=model_config,
+        llm=llm,
+    )
+
+    assert first.provider.context_runtime is explicit_runtime
+    assert first is runtime.get_context_compressor_agent(
+        context_runtime=explicit_runtime,
+        model_config=equal_model_config,
+        llm=llm,
+    )
+    assert len(provider_calls) == 1
+    assert agent_calls[0]["execution_runner"] is execution_runner
+
+    with pytest.raises(
+        ContextConfigurationError,
+        match="context compressor singleton authority conflict",
+    ):
+        runtime.get_context_compressor_agent(
+            context_runtime=explicit_runtime,
+            model_config=model_config,
+            llm=make_openai_llm_stub(context_runtime=explicit_runtime),
+        )
+    with pytest.raises(
+        ContextConfigurationError,
+        match="context compressor singleton authority conflict",
+    ):
+        runtime.get_context_compressor_agent(
+            context_runtime=object(),
+            model_config=model_config,
+            llm=llm,
+        )
+    with pytest.raises(
+        ContextConfigurationError,
+        match="context compressor singleton authority conflict",
+    ):
+        runtime.get_context_compressor_agent(
+            context_runtime=explicit_runtime,
+            model_config=model_config.model_copy(
+                update={
+                    "safety_margin_tokens": (
+                        model_config.safety_margin_tokens + 1
+                    )
+                }
+            ),
+            llm=llm,
+        )
+    assert len(provider_calls) == 1
+
+    runtime.shutdown_runtime(wait=False)
+
+    assert runtime._context_compressor_agent is None
+    assert runtime._context_compressor_authority is None
+    custom_llm = object()
+    session_store.llm = custom_llm
+    custom_runtime = object()
+    config_marker = object()
+    monkeypatch.setattr(
+        runtime.LLMConfig,
+        "from_env",
+        classmethod(lambda _cls, *, memory: config_marker),
+    )
+
+    custom_agent = runtime.get_context_compressor_agent(
+        context_runtime=custom_runtime,
+        model_config=model_config,
+        llm=custom_llm,
+    )
+
+    assert custom_agent.provider.context_runtime is custom_runtime
+    assert provider_calls[-1]["llm_config"] is config_marker
+
+
+def test_interview_then_review_reuses_business_llm_and_compressor_authority(
+    monkeypatch,
+):
+    import app.agents.context_compressor as agent_module
+    import app.services.context_compression as compression_module
+
+    llm_config_calls = []
+    llm_init_calls = []
+    provider_calls = []
+    agent_calls = []
+    context_runtime = object()
+    llm_config = object()
+    store = SimpleNamespace(llm=None)
+    model_config = load_effective_memory_config().model
+    equal_model_config = model_config.model_copy()
+
+    def build_llm_config(_cls, *, memory):
+        llm_config_calls.append(memory)
+        return llm_config
+
+    def initialize_llm(self, *, config, context_runtime):
+        self.config = config
+        self.context_runtime = context_runtime
+        self.chat_model = object()
+        llm_init_calls.append(
+            {"config": config, "context_runtime": context_runtime}
+        )
+
+    class CapturingProvider:
+        def __init__(self, **kwargs):
+            self.config = SimpleNamespace()
+            self.context_runtime = kwargs["context_runtime"]
+            provider_calls.append(kwargs)
+
+    class CapturingAgent:
+        def __init__(self, *, provider, execution_runner):
+            self.provider = provider
+            agent_calls.append((provider, execution_runner))
+
+    monkeypatch.setattr(
+        runtime.LLMConfig,
+        "from_env",
+        classmethod(build_llm_config),
+    )
+    monkeypatch.setattr(
+        runtime.OpenAIInterviewLLM,
+        "__init__",
+        initialize_llm,
+    )
+    monkeypatch.setattr(
+        compression_module,
+        "OpenAIContextCompressor",
+        CapturingProvider,
+    )
+    monkeypatch.setattr(
+        agent_module,
+        "ContextCompressorAgent",
+        CapturingAgent,
+    )
+    monkeypatch.setattr(runtime, "get_session_store", lambda: store)
+    monkeypatch.setattr(runtime, "get_agent_execution_runner", object)
+
+    interview_llm = runtime._build_composed_workflow_llm(
+        store=store,
+        model_config=model_config,
+        context_runtime=context_runtime,
+    )
+    interview_compressor = runtime.get_context_compressor_agent(
+        context_runtime=context_runtime,
+        model_config=model_config,
+        llm=interview_llm,
+    )
+    review_llm = runtime._build_composed_workflow_llm(
+        store=store,
+        model_config=equal_model_config,
+        context_runtime=context_runtime,
+    )
+    review_compressor = runtime.get_context_compressor_agent(
+        context_runtime=context_runtime,
+        model_config=equal_model_config,
+        llm=review_llm,
+    )
+
+    assert review_llm is interview_llm
+    assert review_compressor is interview_compressor
+    assert llm_config_calls == [model_config]
+    assert llm_init_calls == [
+        {"config": llm_config, "context_runtime": context_runtime}
+    ]
+    assert len(provider_calls) == 1
+    assert provider_calls[0]["context_runtime"] is context_runtime
+    assert len(agent_calls) == 1
+
+
 def test_interview_composition_uses_one_effective_snapshot_and_injects_selection(
     monkeypatch,
 ):
@@ -111,6 +494,11 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             "MEMORY_SELECTION_MAX_MEMORY_TOKENS": "1777",
             "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": "4321",
             "MEMORY_SELECTION_EXACT_DEDUPLICATION_MODE": "shadow",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS": "384",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_SOURCE_RATIO_BASIS_POINTS": "3333",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": (
+                "384, 768, 1536, 2000"
+            ),
         }
     )
     load_calls = []
@@ -197,10 +585,16 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     question_memory_calls = []
     interview_artifact_calls = []
     evidence_artifact_calls = []
+    business_llm_calls = []
+    business_llm_config_calls = []
+    examiner_calls = []
     service_calls = []
     service_marker = object()
-    context_runtime_marker = object()
+    context_runtime_marker = SimpleNamespace()
     decision_store_marker = object()
+    business_llm_marker = object()
+    business_llm_config_marker = object()
+    session_store = SimpleNamespace(llm=None)
 
     def build_service(**kwargs):
         service_calls.append(kwargs)
@@ -208,6 +602,9 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
 
     def get_context_runtime(config):
         context_runtime_calls.append(config)
+        context_runtime_marker.dynamic_compression_target_policy = (
+            config.dynamic_compression_target_policy
+        )
         return context_runtime_marker
 
     def get_principal_shadow(*, config):
@@ -230,6 +627,20 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
         compressor_agent_calls.append(kwargs)
         return SimpleNamespace(provider=SimpleNamespace(config=object()))
 
+    def build_business_llm_config(_cls, *, memory):
+        business_llm_config_calls.append(memory)
+        return business_llm_config_marker
+
+    def build_business_llm(*, config, context_runtime):
+        business_llm_calls.append(
+            {"config": config, "context_runtime": context_runtime}
+        )
+        return business_llm_marker
+
+    def build_examiner(**kwargs):
+        examiner_calls.append(kwargs)
+        return object()
+
     monkeypatch.setattr(runtime, "get_runtime_store", lambda: "postgres")
     monkeypatch.setattr(
         runtime,
@@ -239,8 +650,14 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     monkeypatch.setattr(
         runtime,
         "get_session_store",
-        lambda: SimpleNamespace(llm=object()),
+        lambda: session_store,
     )
+    monkeypatch.setattr(
+        runtime.LLMConfig,
+        "from_env",
+        classmethod(build_business_llm_config),
+    )
+    monkeypatch.setattr(runtime, "OpenAIInterviewLLM", build_business_llm)
     monkeypatch.setattr(runtime, "get_postgres_dsn", lambda: "fake-dsn")
     monkeypatch.setattr(runtime, "get_runtime_table_prefix", lambda: "fake")
     monkeypatch.setattr(
@@ -285,7 +702,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     )
     monkeypatch.setattr(
         "app.agents.examiner.ExaminerAgent",
-        lambda **_kwargs: object(),
+        build_examiner,
     )
     monkeypatch.setattr(
         "app.graphs.durable_interview_graph.DurableInterviewGraphDependencies",
@@ -339,10 +756,20 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     assert forbidden_calls == []
     assert checkpointer_calls == [False]
     assert compression_runner_calls == [73]
+    assert business_llm_config_calls == [snapshot.model]
+    assert business_llm_calls == [
+        {
+            "config": business_llm_config_marker,
+            "context_runtime": context_runtime_marker,
+        }
+    ]
+    assert len(examiner_calls) == 1
+    assert examiner_calls[0]["llm"] is business_llm_marker
     assert compressor_agent_calls == [
         {
             "context_runtime": context_runtime_marker,
             "model_config": snapshot.model,
+            "llm": business_llm_marker,
         }
     ]
     assert compressor_agent_calls[0]["model_config"] is snapshot.model
@@ -358,6 +785,11 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             tokenizer_family="composition-tokenizer",
             source_identity_config=ContextSourceIdentityConfig(
                 exact_deduplication_mode="shadow"
+            ),
+            dynamic_compression_target_policy=DynamicCompressionTargetPolicy(
+                floor_tokens=384,
+                source_ratio_basis_points=3_333,
+                allowed_target_tokens=(384, 768, 1_536, 2_000),
             ),
         )
     ]
@@ -426,6 +858,20 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     assert service_calls[0]["runtime_enabled"] is False
     assert service_calls[0]["rollout_percent"] == 0
     assert service_calls[0]["default_graph_version"] == "langgraph-v2"
+    runtime_target_policy = (
+        context_runtime_calls[0].dynamic_compression_target_policy
+    )
+    assert context_runtime_marker.dynamic_compression_target_policy is (
+        runtime_target_policy
+    )
+    assert all(
+        call["context_runtime"].dynamic_compression_target_policy
+        is runtime_target_policy
+        for call in (
+            interview_artifact_calls[0],
+            evidence_artifact_calls[0],
+        )
+    )
 
 
 def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
@@ -439,6 +885,12 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
             "MEMORY_ARTIFACT_LEASE_SECONDS": "83",
             "MEMORY_PRIVACY_DEPLOYMENT_ID": "review-composition",
             "MEMORY_SELECTION_ELIGIBILITY_UTILIZATION_BASIS_POINTS": "3456",
+            "MEMORY_SELECTION_EXACT_DEDUPLICATION_MODE": "shadow",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_FLOOR_TOKENS": "320",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_SOURCE_RATIO_BASIS_POINTS": "3750",
+            "MEMORY_SELECTION_DYNAMIC_TARGET_ALLOWED_TOKENS": (
+                "320, 640, 1280, 2000"
+            ),
         }
     )
     load_calls = []
@@ -446,11 +898,18 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     checkpointer_calls = []
     compression_runner_calls = []
     compressor_agent_calls = []
+    context_runtime_calls = []
     eligibility_calls = []
     evidence_calls = []
+    business_llm_calls = []
+    business_llm_config_calls = []
+    review_dependency_calls = []
     service_calls = []
     service_marker = object()
-    provider_runtime = object()
+    context_runtime_marker = SimpleNamespace()
+    business_llm_marker = object()
+    business_llm_config_marker = object()
+    session_store = SimpleNamespace(llm=None)
 
     def load_snapshot_once():
         load_calls.append("load")
@@ -492,17 +951,50 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         return SimpleNamespace(
             provider=SimpleNamespace(
                 config=object(),
-                context_runtime=provider_runtime,
+                context_runtime=object(),
             )
         )
+
+    def get_context_runtime(config):
+        context_runtime_calls.append(config)
+        context_runtime_marker.dynamic_compression_target_policy = (
+            config.dynamic_compression_target_policy
+        )
+        return context_runtime_marker
+
+    def build_business_llm_config(_cls, *, memory):
+        business_llm_config_calls.append(memory)
+        return business_llm_config_marker
+
+    def build_business_llm(*, config, context_runtime):
+        business_llm_calls.append(
+            {"config": config, "context_runtime": context_runtime}
+        )
+        return business_llm_marker
+
+    def capture_review_dependencies(**kwargs):
+        dependencies = SimpleNamespace(**kwargs)
+        review_dependency_calls.append(dependencies)
+        return dependencies
 
     def build_service(**kwargs):
         service_calls.append(kwargs)
         return service_marker
 
+    def nested_code_objects(code):
+        for constant in code.co_consts:
+            if isinstance(constant, CodeType):
+                yield constant
+                yield from nested_code_objects(constant)
+
     monkeypatch.setattr(
         "app.services.memory_config.load_effective_memory_config",
         load_snapshot_once,
+    )
+    monkeypatch.setattr(
+        ContextRuntimeConfig,
+        "from_env",
+        classmethod(lambda _cls: forbidden_legacy_getter()),
     )
     monkeypatch.setattr(
         ContextCompressionGates,
@@ -531,8 +1023,14 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     monkeypatch.setattr(
         runtime,
         "get_session_store",
-        lambda: SimpleNamespace(),
+        lambda: session_store,
     )
+    monkeypatch.setattr(
+        runtime.LLMConfig,
+        "from_env",
+        classmethod(build_business_llm_config),
+    )
+    monkeypatch.setattr(runtime, "OpenAIInterviewLLM", build_business_llm)
     monkeypatch.setattr(runtime, "get_postgres_dsn", lambda: "fake-dsn")
     monkeypatch.setattr(runtime, "get_runtime_table_prefix", lambda: "fake")
     monkeypatch.setattr(
@@ -546,6 +1044,10 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         runtime,
         "get_context_compressor_agent",
         get_compressor_agent,
+    )
+    monkeypatch.setattr(
+        "app.services.context_runtime.get_context_runtime",
+        get_context_runtime,
     )
     monkeypatch.setattr(
         runtime,
@@ -580,7 +1082,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     )
     monkeypatch.setattr(
         "app.graphs.durable_review_graph.DurableReviewGraphDependencies",
-        lambda **kwargs: SimpleNamespace(**kwargs),
+        capture_review_dependencies,
     )
     monkeypatch.setattr(
         "app.graphs.durable_review_graph.build_durable_review_graph",
@@ -610,13 +1112,79 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     assert forbidden_calls == []
     assert checkpointer_calls == [False]
     assert compression_runner_calls == [83]
-    assert compressor_agent_calls == [{"model_config": snapshot.model}]
+    assert business_llm_config_calls == [snapshot.model]
+    assert business_llm_calls == [
+        {
+            "config": business_llm_config_marker,
+            "context_runtime": context_runtime_marker,
+        }
+    ]
+    assert len(context_runtime_calls) == 1
+    assert context_runtime_calls[0].source_identity_config == (
+        ContextSourceIdentityConfig(exact_deduplication_mode="shadow")
+    )
+    assert context_runtime_calls[0].dynamic_compression_target_policy == (
+        DynamicCompressionTargetPolicy(
+            floor_tokens=320,
+            source_ratio_basis_points=3_750,
+            allowed_target_tokens=(320, 640, 1_280, 2_000),
+        )
+    )
+    runtime_target_policy = (
+        context_runtime_calls[0].dynamic_compression_target_policy
+    )
+    assert context_runtime_marker.dynamic_compression_target_policy is (
+        runtime_target_policy
+    )
+    assert compressor_agent_calls == [
+        {
+            "context_runtime": context_runtime_marker,
+            "model_config": snapshot.model,
+            "llm": business_llm_marker,
+        }
+    ]
     assert compressor_agent_calls[0]["model_config"] is snapshot.model
     assert eligibility_calls == [
         {"eligibility_utilization_basis_points": 3_456}
     ]
     assert len(evidence_calls) == 1
     assert evidence_calls[0]["deployment_scope"] == "review-composition"
-    assert evidence_calls[0]["context_runtime"] is provider_runtime
+    assert evidence_calls[0]["context_runtime"] is context_runtime_marker
+    assert (
+        evidence_calls[0]["context_runtime"].dynamic_compression_target_policy
+        is runtime_target_policy
+    )
     assert evidence_calls[0]["task_intent_enabled"] is True
     assert len(service_calls) == 1
+    assert len(review_dependency_calls) == 1
+    for callback_name in (
+        "review_question",
+        "generate_report",
+        "repair_report",
+    ):
+        callback = getattr(review_dependency_calls[0], callback_name)
+        assert getclosurevars(callback).nonlocals["business_llm"] is (
+            business_llm_marker
+        )
+    reference_transform_code = next(
+        code
+        for code in nested_code_objects(
+            review_dependency_calls[0].review_question.__code__
+        )
+        if code.co_name == "<lambda>"
+        and "transform_review_references" in code.co_names
+    )
+    argument_count = (
+        reference_transform_code.co_argcount
+        + reference_transform_code.co_kwonlyargcount
+    )
+    assert reference_transform_code.co_varnames[:argument_count] == (
+        "state",
+        "chunk",
+        "references",
+        "budget_context",
+    )
+    assert any(
+        isinstance(constant, tuple) and "budget_context" in constant
+        for constant in reference_transform_code.co_consts
+    )

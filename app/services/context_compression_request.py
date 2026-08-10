@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from app.services.context_artifacts import (
     CompressionSourceSegment,
@@ -9,6 +10,9 @@ from app.services.context_artifacts import (
 )
 from app.services.context_budget import DynamicCompressionTargetPolicy
 from app.services.context_compression_intent import CompressionIntent
+
+
+_PERSISTED_TARGET_AUTHORITY = object()
 
 
 class _ResolvedCompressionSourceSegment(CompressionSourceSegment):
@@ -24,6 +28,16 @@ class ResolvedCompressionRequest:
     source_segments: tuple[CompressionSourceSegment, ...]
     resolved_target_output_tokens: int
     target_policy: DynamicCompressionTargetPolicy | None = None
+
+    @property
+    def resolved_target_authority(
+        self,
+    ) -> Literal["policy_resolution", "persisted_index"]:
+        return getattr(
+            self,
+            "_resolved_target_authority",
+            "policy_resolution",
+        )
 
     def __post_init__(self) -> None:
         if not isinstance(self.policy, ContextCompressionPolicy):
@@ -68,8 +82,12 @@ class ResolvedCompressionRequest:
                 "resolved_target_output_tokens exceeds policy hard cap"
             )
 
+        authority = self.resolved_target_authority
         if self.target_policy is None:
-            if target != self.policy.target_output_tokens:
+            if (
+                authority == "policy_resolution"
+                and target != self.policy.target_output_tokens
+            ):
                 raise ValueError(
                     "resolved_target_output_tokens must equal policy hard cap "
                     "when target_policy is None"
@@ -90,6 +108,52 @@ class ResolvedCompressionRequest:
             raise ValueError(
                 "resolved_target_output_tokens must be at or above floor"
             )
+
+
+def _resolved_compression_request_from_persisted_target(
+    *,
+    policy: ContextCompressionPolicy,
+    intent: CompressionIntent | None,
+    source_segments: tuple[CompressionSourceSegment, ...],
+    resolved_target_output_tokens: int,
+    target_policy: DynamicCompressionTargetPolicy | None = None,
+) -> ResolvedCompressionRequest:
+    return _construct_resolved_compression_request(
+        policy=policy,
+        intent=intent,
+        source_segments=source_segments,
+        resolved_target_output_tokens=resolved_target_output_tokens,
+        target_policy=target_policy,
+        _authority_capability=_PERSISTED_TARGET_AUTHORITY,
+    )
+
+
+def _construct_resolved_compression_request(
+    *,
+    policy: ContextCompressionPolicy,
+    intent: CompressionIntent | None,
+    source_segments: tuple[CompressionSourceSegment, ...],
+    resolved_target_output_tokens: int,
+    target_policy: DynamicCompressionTargetPolicy | None,
+    _authority_capability: object,
+) -> ResolvedCompressionRequest:
+    if _authority_capability is not _PERSISTED_TARGET_AUTHORITY:
+        raise TypeError("persisted target authority is invalid")
+    request = object.__new__(ResolvedCompressionRequest)
+    object.__setattr__(
+        request,
+        "_resolved_target_authority",
+        "persisted_index",
+    )
+    ResolvedCompressionRequest.__init__(
+        request,
+        policy=policy,
+        intent=intent,
+        source_segments=source_segments,
+        resolved_target_output_tokens=resolved_target_output_tokens,
+        target_policy=target_policy,
+    )
+    return request
 
 
 def bind_resolved_target_to_identity(

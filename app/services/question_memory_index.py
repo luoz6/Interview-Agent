@@ -59,6 +59,11 @@ class QuestionMemoryIndexEntry(BaseModel):
     created_at: datetime
     superseded_at: datetime | None = None
     deleted_at: datetime | None = None
+    resolved_target_output_tokens: int | None = Field(
+        default=None,
+        gt=0,
+        strict=True,
+    )
 
     @field_validator(
         "focus_tags",

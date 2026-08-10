@@ -18,10 +18,10 @@ class BlockingCompressorAgent(CompressorAgent):
         self.started = Event()
         self.release = Event()
 
-    def compress(self, **kwargs):
+    def compress(self, *, request, **kwargs):
         self.started.set()
         assert self.release.wait(timeout=5)
-        return super().compress(**kwargs)
+        return super().compress(request=request, **kwargs)
 
 
 def test_concurrent_generation_attempts_create_one_artifact_and_one_active_index():
@@ -100,3 +100,38 @@ def test_parent_ownership_loss_happens_before_question_memory_provider_call():
         raise AssertionError("ownership loss must fail closed")
 
     assert agent.calls == 0
+
+
+class FailingScopeResolver:
+    def for_interview(self, *, deployment_scope, session_id):
+        raise ValueError("scope resolution failed")
+
+
+def test_scope_resolution_failure_returns_original_context_without_effects():
+    agent = CompressorAgent()
+    index = InMemoryQuestionMemoryIndexStore()
+    coordinator = make_coordinator(agent, index)
+    coordinator.scope_resolver = FailingScopeResolver()
+    state = make_state()
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+    deterministic = list(selection.provider_messages)
+
+    result = coordinator.build_context(
+        state=state,
+        deterministic_context=deterministic,
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.route == "deterministic"
+    assert result.context_messages is deterministic
+    assert agent.calls == 0
+    assert index.list_active(
+        session_id=state["session_id"],
+        policy_version="question-memory-v1",
+        limit=10,
+    ) == []

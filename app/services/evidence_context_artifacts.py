@@ -19,6 +19,7 @@ from app.services.context_artifacts import (
     canonical_json,
     compressor_settings_sha256,
 )
+from app.services.context_budget import allocate_dynamic_compression_target
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_compression_intent import (
     ALL_PROHIBITED_AUTHORITY_UPGRADES,
@@ -29,6 +30,7 @@ from app.services.context_compression_intent import (
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
+from app.services.context_compression_request import ResolvedCompressionRequest
 from app.services.context_selection import (
     ContextSelectionStats,
     InterviewContextSelection,
@@ -87,6 +89,9 @@ class EvidenceContextArtifactCoordinator:
         self.compressor_agent = compressor_agent
         self.compressor_config = compressor_config
         self.context_runtime = context_runtime
+        self.dynamic_compression_target_policy = (
+            context_runtime.dynamic_compression_target_policy
+        )
         self.gates = gates
         self.deployment_scope = deployment_scope
         self.scope_resolver = (
@@ -164,6 +169,61 @@ class EvidenceContextArtifactCoordinator:
         )
         if not eligibility.eligible:
             return self._deterministic(context_messages)
+        resolved_target_output_tokens = (
+            EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+        )
+        request_target_policy = None
+        selectable_content_tokens = (
+            selection_stats.selectable_content_tokens
+            if selection_stats is not None
+            else None
+        )
+        if (
+            self.dynamic_compression_target_policy is not None
+            and selection is not None
+            and selectable_content_tokens is not None
+        ):
+            estimator = self.context_runtime.estimator_resolution.estimator
+            model = self.context_runtime.model_profile.model
+            source_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": item["role"],
+                        "content": item["content"],
+                    }
+                    for item in selection.evidence_sources
+                ],
+                model=model,
+            )
+            retained_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": item["role"],
+                        "content": item["content"],
+                    }
+                    for item in context_messages
+                    if item.get("role") != "knowledge_evidence"
+                ],
+                model=model,
+            )
+            remaining_business_budget_tokens = max(
+                0,
+                selectable_content_tokens - retained_tokens,
+            )
+            dynamic_target = allocate_dynamic_compression_target(
+                source_tokens=source_tokens,
+                policy=self.dynamic_compression_target_policy,
+                policy_hard_cap_tokens=(
+                    EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+                ),
+                remaining_business_budget_tokens=(
+                    remaining_business_budget_tokens
+                ),
+            )
+            if dynamic_target is None:
+                return self._deterministic(context_messages)
+            resolved_target_output_tokens = dynamic_target
+            request_target_policy = self.dynamic_compression_target_policy
         question = state["plan_snapshot"]["questions"][state["current_index"]]
         intent = self._interview_compression_intent(question)
         identity = self._identity_material(
@@ -174,18 +234,22 @@ class EvidenceContextArtifactCoordinator:
             source_identity_sha256=source_identity_sha256,
             intent=intent,
         )
+        request = ResolvedCompressionRequest(
+            policy=EVIDENCE_COMPRESSION_POLICY,
+            intent=intent,
+            source_segments=tuple(sources),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity,
-                policy=EVIDENCE_COMPRESSION_POLICY,
-                source_segments=sources,
+                request=request,
                 estimator=self.context_runtime.estimator_resolution.estimator,
                 model=self.context_runtime.model_profile.model,
-                compressor=lambda: self.compressor_agent.compress(
-                    policy=EVIDENCE_COMPRESSION_POLICY,
-                    source_segments=sources,
+                compressor=lambda resolved_request: self.compressor_agent.compress(
+                    request=resolved_request,
                     expected_evidence_content_sha256=evidence_digest,
-                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         causation_id=state.get("active_command_id"),
@@ -205,7 +269,6 @@ class EvidenceContextArtifactCoordinator:
                 purpose="interview_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
-                intent=intent,
             )
         except (
             ContextArtifactBusy,
@@ -273,6 +336,8 @@ class EvidenceContextArtifactCoordinator:
         question_id: str,
         focus: str,
         references: list[dict],
+        remaining_business_budget_tokens: int | None = None,
+        budget_context: Any | None = None,
         job_id: str,
         attempt_number: int,
         parent_ownership: ContextCompressionParentOwnership,
@@ -283,14 +348,6 @@ class EvidenceContextArtifactCoordinator:
         )
         if not references or not should_create:
             return references
-        parent_worker_id = self._parent_worker_id(
-            parent_ownership,
-            fallback=worker_id,
-        )
-        if parent_worker_id != worker_id:
-            raise ValueError(
-                "evidence artifact worker must match parent review owner"
-            )
         sources = [
             self._reference_source_segment(index, reference)
             for index, reference in enumerate(references)
@@ -301,6 +358,66 @@ class EvidenceContextArtifactCoordinator:
         if len({source.content_sha256 for source in sources}) != len(sources):
             return references
         evidence_digest = self._evidence_digest(sources)
+        resolved_target_output_tokens = (
+            EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+        )
+        request_target_policy = None
+        resolved_remaining_budget = remaining_business_budget_tokens
+        if budget_context is not None:
+            context_remaining_budget = getattr(
+                budget_context,
+                "remaining_business_budget_tokens",
+                None,
+            )
+            if context_remaining_budget is None:
+                raise TypeError(
+                    "budget_context must expose "
+                    "remaining_business_budget_tokens"
+                )
+            if (
+                resolved_remaining_budget is not None
+                and resolved_remaining_budget != context_remaining_budget
+            ):
+                raise ValueError(
+                    "remaining business budget disagrees with budget_context"
+                )
+            resolved_remaining_budget = context_remaining_budget
+        if (
+            self.dynamic_compression_target_policy is not None
+            and resolved_remaining_budget is not None
+        ):
+            estimator = self.context_runtime.estimator_resolution.estimator
+            model = self.context_runtime.model_profile.model
+            source_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": "knowledge_evidence",
+                        "content": source.content,
+                    }
+                    for source in sources
+                ],
+                model=model,
+            )
+            dynamic_target = allocate_dynamic_compression_target(
+                source_tokens=source_tokens,
+                policy=self.dynamic_compression_target_policy,
+                policy_hard_cap_tokens=(
+                    EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+                ),
+                remaining_business_budget_tokens=resolved_remaining_budget,
+            )
+            if dynamic_target is None:
+                return references
+            resolved_target_output_tokens = dynamic_target
+            request_target_policy = self.dynamic_compression_target_policy
+        parent_worker_id = self._parent_worker_id(
+            parent_ownership,
+            fallback=worker_id,
+        )
+        if parent_worker_id != worker_id:
+            raise ValueError(
+                "evidence artifact worker must match parent review owner"
+            )
         scope_material = self.scope_resolver.for_review(
             deployment_scope=self.deployment_scope,
             session_id=state["session_id"],
@@ -315,18 +432,22 @@ class EvidenceContextArtifactCoordinator:
             corpus_manifest_sha256=self._corpus_manifest_sha256(state),
             intent=intent,
         )
+        request = ResolvedCompressionRequest(
+            policy=EVIDENCE_COMPRESSION_POLICY,
+            intent=intent,
+            source_segments=tuple(sources),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity,
-                policy=EVIDENCE_COMPRESSION_POLICY,
-                source_segments=sources,
+                request=request,
                 estimator=self.context_runtime.estimator_resolution.estimator,
                 model=self.context_runtime.model_profile.model,
-                compressor=lambda: self.compressor_agent.compress(
-                    policy=EVIDENCE_COMPRESSION_POLICY,
-                    source_segments=sources,
+                compressor=lambda resolved_request: self.compressor_agent.compress(
+                    request=resolved_request,
                     expected_evidence_content_sha256=evidence_digest,
-                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         agent="context_compressor",
@@ -344,7 +465,6 @@ class EvidenceContextArtifactCoordinator:
                 purpose="review_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
-                intent=intent,
             )
         except (
             ContextArtifactBusy,

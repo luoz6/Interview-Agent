@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Literal, Protocol, Sequence
+from typing import Any, Callable, Literal, Protocol
 
 from app.ports.context_artifacts import ContextArtifactStore
 from app.services.context_artifacts import (
     ArtifactPurpose,
     ArtifactPayload,
-    CompressionSourceSegment,
     ContextArtifactClaim,
     ContextArtifactConflict,
     ContextArtifactIdentity,
@@ -19,8 +18,11 @@ from app.services.context_artifacts import (
     ContextArtifactProviderFailed,
     ContextArtifactRecord,
     ContextArtifactRef,
-    ContextCompressionPolicy,
     OwnerType,
+)
+from app.services.context_compression_request import (
+    ResolvedCompressionRequest,
+    bind_resolved_target_to_identity,
 )
 from app.services.context_compression_validation import (
     CompressionValidationStats,
@@ -155,11 +157,10 @@ class ContextCompressionRunner:
         self,
         *,
         identity_material: ContextArtifactIdentityMaterial,
-        policy: ContextCompressionPolicy,
-        source_segments: Sequence[CompressionSourceSegment],
+        request: ResolvedCompressionRequest,
         estimator: TokenEstimator,
         model: str,
-        compressor: Callable[[], dict[str, Any]],
+        compressor: Callable[[ResolvedCompressionRequest], dict[str, Any]],
         worker_id: str,
         owner_type: OwnerType,
         owner_key: str,
@@ -171,13 +172,23 @@ class ContextCompressionRunner:
         expected_session_scope_sha256: str | None = None,
         expected_question_focus_sha256: str | None = None,
         expected_source_manifest_sha256: str | None = None,
-        intent: CompressionIntent | None = None,
     ) -> ContextCompressionResolution:
+        if not isinstance(request, ResolvedCompressionRequest):
+            raise TypeError("request must be a ResolvedCompressionRequest")
+        try:
+            bound_identity_material = bind_resolved_target_to_identity(
+                identity_material,
+                request,
+            )
+        except ValueError as exc:
+            raise ContextArtifactConflict(str(exc)) from exc
         self._validate_intent_identity(
-            intent=intent,
-            identity_material=identity_material,
+            intent=request.intent,
+            identity_material=bound_identity_material,
         )
-        identity = ContextArtifactIdentity.from_material(identity_material)
+        identity = ContextArtifactIdentity.from_material(
+            bound_identity_material
+        )
         claim = self.store.claim(
             identity,
             worker_id=worker_id,
@@ -186,8 +197,7 @@ class ContextCompressionRunner:
         if claim.status == "completed":
             return self._reuse_completed(
                 identity=identity,
-                policy=policy,
-                source_segments=source_segments,
+                request=request,
                 estimator=estimator,
                 model=model,
                 owner_type=owner_type,
@@ -202,7 +212,6 @@ class ContextCompressionRunner:
                 expected_session_scope_sha256=expected_session_scope_sha256,
                 expected_question_focus_sha256=expected_question_focus_sha256,
                 expected_source_manifest_sha256=expected_source_manifest_sha256,
-                intent=intent,
             )
 
         try:
@@ -213,7 +222,7 @@ class ContextCompressionRunner:
             ) as heartbeat:
                 self._ensure_parent(parent_ownership)
                 try:
-                    raw_payload = compressor()
+                    raw_payload = compressor(request)
                 except ContextArtifactProviderFailed:
                     raise
                 except Exception as exc:
@@ -221,9 +230,8 @@ class ContextCompressionRunner:
                         "context artifact provider failed"
                     ) from exc
                 validated = self._validate(
-                    policy=policy,
+                    request=request,
                     payload=raw_payload,
-                    source_segments=source_segments,
                     estimator=estimator,
                     model=model,
                     expected_question_id_sha256=expected_question_id_sha256,
@@ -233,7 +241,6 @@ class ContextCompressionRunner:
                     expected_session_scope_sha256=expected_session_scope_sha256,
                     expected_question_focus_sha256=expected_question_focus_sha256,
                     expected_source_manifest_sha256=expected_source_manifest_sha256,
-                    intent=intent,
                 )
                 heartbeat.ensure_owned()
                 self._ensure_parent(parent_ownership)
@@ -245,8 +252,7 @@ class ContextCompressionRunner:
             if isinstance(exc, ContextArtifactLeaseLost):
                 recovered = self._recover_completed(
                     identity=identity,
-                    policy=policy,
-                    source_segments=source_segments,
+                    request=request,
                     estimator=estimator,
                     model=model,
                     owner_type=owner_type,
@@ -261,7 +267,6 @@ class ContextCompressionRunner:
                     expected_session_scope_sha256=expected_session_scope_sha256,
                     expected_question_focus_sha256=expected_question_focus_sha256,
                     expected_source_manifest_sha256=expected_source_manifest_sha256,
-                    intent=intent,
                 )
                 if recovered is not None:
                     return recovered
@@ -274,8 +279,7 @@ class ContextCompressionRunner:
             except ContextArtifactLeaseLost:
                 recovered = self._recover_completed(
                     identity=identity,
-                    policy=policy,
-                    source_segments=source_segments,
+                    request=request,
                     estimator=estimator,
                     model=model,
                     owner_type=owner_type,
@@ -290,7 +294,6 @@ class ContextCompressionRunner:
                     expected_session_scope_sha256=expected_session_scope_sha256,
                     expected_question_focus_sha256=expected_question_focus_sha256,
                     expected_source_manifest_sha256=expected_source_manifest_sha256,
-                    intent=intent,
                 )
                 if recovered is not None:
                     return recovered
@@ -327,8 +330,7 @@ class ContextCompressionRunner:
         self,
         *,
         identity: ContextArtifactIdentity,
-        policy: ContextCompressionPolicy,
-        source_segments: Sequence[CompressionSourceSegment],
+        request: ResolvedCompressionRequest,
         estimator: TokenEstimator,
         model: str,
         owner_type: OwnerType,
@@ -341,7 +343,6 @@ class ContextCompressionRunner:
         expected_session_scope_sha256: str | None,
         expected_question_focus_sha256: str | None,
         expected_source_manifest_sha256: str | None,
-        intent: CompressionIntent | None,
     ) -> ContextCompressionResolution:
         record = self.store.get_terminal_by_key(identity.artifact_key)
         if record is None:
@@ -351,9 +352,8 @@ class ContextCompressionRunner:
                 "context artifact completed claim conflicts with stored state"
             )
         validated = self._validate(
-            policy=policy,
+            request=request,
             payload=record.payload or {},
-            source_segments=source_segments,
             estimator=estimator,
             model=model,
             expected_question_id_sha256=expected_question_id_sha256,
@@ -361,7 +361,6 @@ class ContextCompressionRunner:
             expected_session_scope_sha256=expected_session_scope_sha256,
             expected_question_focus_sha256=expected_question_focus_sha256,
             expected_source_manifest_sha256=expected_source_manifest_sha256,
-            intent=intent,
         )
         ref = self.store.create_owner_ref(
             record,

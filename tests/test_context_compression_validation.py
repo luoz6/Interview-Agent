@@ -1,5 +1,6 @@
 from copy import deepcopy
 from hashlib import sha256
+from inspect import signature
 
 import pytest
 
@@ -12,6 +13,8 @@ from app.services.context_compression_validation import (
     validate_compression_artifact,
 )
 from app.services.context_compression_intent import CompressionIntent
+from app.services.context_budget import DynamicCompressionTargetPolicy
+from app.services.context_compression_request import ResolvedCompressionRequest
 
 
 class CharacterEstimator:
@@ -21,6 +24,15 @@ class CharacterEstimator:
 
     def estimate_messages(self, messages, *, model):
         return self.estimate_text(str(messages), model=model)
+
+
+class FixedEstimator:
+    def __init__(self, token_count):
+        self.token_count = token_count
+
+    def estimate_text(self, text, *, model):
+        del text, model
+        return self.token_count
 
 
 def make_segment(content="Use idempotency_key with retry count 3."):
@@ -40,7 +52,7 @@ def make_policy(**changes):
         "output_schema_version": "question-conversation-v1",
         "compressor_operation": "context_compressor.question_conversation",
         "compressor_input_cap_tokens": 2000,
-        "target_output_tokens": 500,
+        "target_output_tokens": 2_000,
         "max_output_units": 4,
         "max_supporting_excerpt_tokens": 100,
     }
@@ -82,16 +94,53 @@ def make_intent(*preserve):
     )
 
 
+def make_request(policy, segments, *, intent=None, target=512):
+    return ResolvedCompressionRequest(
+        policy=policy,
+        intent=intent,
+        source_segments=tuple(segments),
+        resolved_target_output_tokens=target,
+        target_policy=DynamicCompressionTargetPolicy(
+            floor_tokens=256,
+            source_ratio_basis_points=2_500,
+            allowed_target_tokens=(256, 512, 1_024, 1_536, 2_000),
+        ),
+    )
+
+
+def fixed_request(policy, segments, *, intent=None):
+    return ResolvedCompressionRequest(
+        policy=policy,
+        intent=intent,
+        source_segments=tuple(segments),
+        resolved_target_output_tokens=policy.target_output_tokens,
+        target_policy=None,
+    )
+
+
 def validate(payload, segment, *, policy=None, intent=None):
+    policy = policy or make_policy()
+    request = (
+        make_request(policy, [segment], intent=intent)
+        if policy.target_output_tokens >= 512
+        else fixed_request(policy, [segment], intent=intent)
+    )
     return validate_compression_artifact(
-        policy=policy or make_policy(),
+        request=request,
         payload=payload,
-        source_segments=[segment],
         estimator=CharacterEstimator(),
         model="test-model",
         expected_question_id_sha256="1" * 64,
-        intent=intent,
     )
+
+
+def test_validation_public_api_accepts_request_without_parallel_contract_fields():
+    parameters = signature(validate_compression_artifact).parameters
+
+    assert "request" in parameters
+    assert "policy" not in parameters
+    assert "source_segments" not in parameters
+    assert "intent" not in parameters
 
 
 def test_validated_artifact_is_grounded_bounded_and_input_immutable():
@@ -107,6 +156,65 @@ def test_validated_artifact_is_grounded_bounded_and_input_immutable():
     assert result.stats.supporting_excerpt_count == 1
     assert result.stats.estimated_output_tokens > 0
     assert payload == original
+
+
+@pytest.mark.parametrize(
+    ("estimated_output_tokens", "should_pass"),
+    ((512, True), (513, False)),
+)
+def test_validation_uses_resolved_512_target_instead_of_2000_policy_hard_cap(
+    estimated_output_tokens,
+    should_pass,
+):
+    segment = make_segment()
+    policy = make_policy(
+        target_output_tokens=2_000,
+        max_supporting_excerpt_tokens=1_000,
+    )
+    request = make_request(policy, [segment], target=512)
+    kwargs = {
+        "request": request,
+        "payload": make_payload(segment),
+        "estimator": FixedEstimator(estimated_output_tokens),
+        "model": "test-model",
+        "expected_question_id_sha256": "1" * 64,
+    }
+
+    if should_pass:
+        result = validate_compression_artifact(**kwargs)
+        assert result.stats.estimated_output_tokens == 512
+    else:
+        with pytest.raises(ContextArtifactValidationFailed, match="output budget"):
+            validate_compression_artifact(**kwargs)
+
+    assert request.policy.target_output_tokens == 2_000
+    assert request.resolved_target_output_tokens == 512
+
+
+def test_validation_reads_the_request_owned_frozen_source_snapshot():
+    original_source = make_segment()
+    policy = make_policy()
+    request = make_request(policy, [original_source])
+    snapshot = request.source_segments[0]
+    payload = make_payload(snapshot)
+
+    original_source.content = "mutated outside the resolved request"
+    original_source.content_sha256 = sha256(
+        original_source.content.encode("utf-8")
+    ).hexdigest()
+
+    result = validate_compression_artifact(
+        request=request,
+        payload=payload,
+        estimator=CharacterEstimator(),
+        model="test-model",
+        expected_question_id_sha256="1" * 64,
+    )
+
+    assert result.payload.units[0].source_segment_sha256 == [
+        snapshot.content_sha256
+    ]
+    assert snapshot.content == "Use idempotency_key with retry count 3."
 
 
 def test_unknown_anchor_and_non_contiguous_excerpt_fail_without_leaking_content():
@@ -213,15 +321,19 @@ def test_summary_and_supporting_excerpt_may_use_different_cited_sources():
         "supporting_excerpts": ["retry count was 3"],
     }
     payload["source_message_count"] = 2
+    intent = make_intent("candidate_claims")
+    request = make_request(
+        make_policy(),
+        [summary_source, excerpt_source],
+        intent=intent,
+    )
 
     result = validate_compression_artifact(
-        policy=make_policy(),
+        request=request,
         payload=payload,
-        source_segments=[summary_source, excerpt_source],
         estimator=CharacterEstimator(),
         model="test-model",
         expected_question_id_sha256="1" * 64,
-        intent=make_intent("candidate_claims"),
     )
 
     assert result.payload.units[0].summary == payload["units"][0]["summary"]
@@ -276,12 +388,12 @@ def test_summary_grounding_is_scoped_to_the_units_own_anchors():
     payload = make_payload(first)
     payload["units"][0]["summary"] = "Use foreign_identifier with retry count 3."
     payload["source_message_count"] = 2
+    request = make_request(make_policy(), [first, second])
 
     with pytest.raises(ContextArtifactValidationFailed, match="grounding"):
         validate_compression_artifact(
-            policy=make_policy(),
+            request=request,
             payload=payload,
-            source_segments=[first, second],
             estimator=CharacterEstimator(),
             model="test-model",
             expected_question_id_sha256="1" * 64,
@@ -324,7 +436,7 @@ def test_question_memory_validation_preserves_non_authoritative_semantic_boundar
         policy_version="question-memory-v1",
         prompt_contract_version="question-memory-prompt-v1",
         output_schema_version="question-memory-v1",
-        target_output_tokens=5_000,
+        target_output_tokens=2_000,
     )
     payload = {
         "schema_version": "question-memory-v1",
@@ -348,11 +460,11 @@ def test_question_memory_validation_preserves_non_authoritative_semantic_boundar
         ],
         "unresolved_topics": [],
     }
+    request = fixed_request(policy, [segment])
 
     result = validate_compression_artifact(
-        policy=policy,
+        request=request,
         payload=payload,
-        source_segments=[segment],
         estimator=CharacterEstimator(),
         model="test-model",
         expected_session_scope_sha256="2" * 64,
@@ -380,7 +492,7 @@ def test_question_memory_identity_digests_fail_closed(field, expected, message):
     policy = make_policy(
         artifact_type="question_memory",
         output_schema_version="question-memory-v1",
-        target_output_tokens=5_000,
+        target_output_tokens=2_000,
     )
     payload = {
         "schema_version": "question-memory-v1",
@@ -400,12 +512,12 @@ def test_question_memory_identity_digests_fail_closed(field, expected, message):
         "expected_source_manifest_sha256": "4" * 64,
     }
     kwargs[f"expected_{field}"] = expected
+    request = fixed_request(policy, [segment])
 
     with pytest.raises(ContextArtifactValidationFailed, match=message):
         validate_compression_artifact(
-            policy=policy,
+            request=request,
             payload=payload,
-            source_segments=[segment],
             estimator=CharacterEstimator(),
             model="test-model",
             **kwargs,

@@ -19,6 +19,7 @@ from app.services.context_artifacts import (
     canonical_json,
     compressor_settings_sha256,
 )
+from app.services.context_budget import allocate_dynamic_compression_target
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_compression_intent import (
     ALL_PROHIBITED_AUTHORITY_UPGRADES,
@@ -29,6 +30,7 @@ from app.services.context_compression_intent import (
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
+from app.services.context_compression_request import ResolvedCompressionRequest
 from app.services.context_selection import (
     ContextSelectionStats,
     InterviewContextSelection,
@@ -105,6 +107,9 @@ class InterviewContextArtifactCoordinator:
         self.compressor_agent = compressor_agent
         self.compressor_config = compressor_config
         self.context_runtime = context_runtime
+        self.dynamic_compression_target_policy = (
+            context_runtime.dynamic_compression_target_policy
+        )
         self.gates = gates
         self.deployment_scope = deployment_scope
         self.scope_resolver = (
@@ -181,6 +186,63 @@ class InterviewContextArtifactCoordinator:
         )
         if not eligibility.eligible:
             return self._deterministic(deterministic_context)
+        resolved_target_output_tokens = (
+            QUESTION_CONVERSATION_COMPRESSION_POLICY.target_output_tokens
+        )
+        request_target_policy = None
+        selectable_content_tokens = (
+            selection_stats.selectable_content_tokens
+            if selection_stats is not None
+            else None
+        )
+        if (
+            self.dynamic_compression_target_policy is not None
+            and selection is not None
+            and selectable_content_tokens is not None
+        ):
+            estimator = self.context_runtime.estimator_resolution.estimator
+            model = self.context_runtime.model_profile.model
+            source_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": item["role"],
+                        "content": item["content"],
+                    }
+                    for item in selection.compressible_conversation_sources
+                ],
+                model=model,
+            )
+            retained_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": item["role"],
+                        "content": item["content"],
+                    }
+                    for item in (
+                        *selection.mandatory_bounded_raw,
+                        *selection.evidence_sources,
+                    )
+                ],
+                model=model,
+            )
+            remaining_business_budget_tokens = max(
+                0,
+                selectable_content_tokens - retained_tokens,
+            )
+            dynamic_target = allocate_dynamic_compression_target(
+                source_tokens=source_tokens,
+                policy=self.dynamic_compression_target_policy,
+                policy_hard_cap_tokens=(
+                    QUESTION_CONVERSATION_COMPRESSION_POLICY.target_output_tokens
+                ),
+                remaining_business_budget_tokens=(
+                    remaining_business_budget_tokens
+                ),
+            )
+            if dynamic_target is None:
+                return self._deterministic(deterministic_context)
+            resolved_target_output_tokens = dynamic_target
+            request_target_policy = self.dynamic_compression_target_policy
         question = state["plan_snapshot"]["questions"][state["current_index"]]
         question_digest = sha256(question["id"].encode("utf-8")).hexdigest()
         intent = self._compression_intent(question)
@@ -191,18 +253,22 @@ class InterviewContextArtifactCoordinator:
             source_identity_sha256=source_identity_sha256,
             intent=intent,
         )
+        request = ResolvedCompressionRequest(
+            policy=QUESTION_CONVERSATION_COMPRESSION_POLICY,
+            intent=intent,
+            source_segments=tuple(sources),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity_material,
-                policy=QUESTION_CONVERSATION_COMPRESSION_POLICY,
-                source_segments=sources,
+                request=request,
                 estimator=self.context_runtime.estimator_resolution.estimator,
                 model=self.context_runtime.model_profile.model,
-                compressor=lambda: self.compressor_agent.compress(
-                    policy=QUESTION_CONVERSATION_COMPRESSION_POLICY,
-                    source_segments=sources,
+                compressor=lambda resolved_request: self.compressor_agent.compress(
+                    request=resolved_request,
                     expected_question_id_sha256=question_digest,
-                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         causation_id=state.get("active_command_id"),
@@ -224,7 +290,6 @@ class InterviewContextArtifactCoordinator:
                 purpose="interview_conversation_context",
                 parent_ownership=parent_ownership,
                 expected_question_id_sha256=question_digest,
-                intent=intent,
             )
         except (
             ContextArtifactBusy,

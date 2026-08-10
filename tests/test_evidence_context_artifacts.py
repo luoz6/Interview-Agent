@@ -12,6 +12,7 @@ from app.services.context_artifacts import (
     ContextCompressorConfig,
     EvidenceCompressionArtifact,
 )
+from app.services.context_budget import DynamicCompressionTargetPolicy
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_compression_intent import compression_intent_sha256
 from app.services.context_compression_eligibility import (
@@ -51,14 +52,16 @@ class FakeCompressorAgent:
     def compress(
         self,
         *,
-        policy,
-        source_segments,
+        request,
         expected_evidence_content_sha256,
         execution_context,
-        intent=None,
     ):
+        policy = request.policy
+        source_segments = request.source_segments
+        intent = request.intent
         self.calls.append(
             {
+                "request": request,
                 "policy": policy,
                 "sources": source_segments,
                 "expected_digest": expected_evidence_content_sha256,
@@ -100,7 +103,7 @@ class CapturingRunner:
         self.calls.append(kwargs)
         kwargs["parent_ownership"].ensure_owned()
         payload = EvidenceCompressionArtifact.model_validate(
-            kwargs["compressor"]()
+            kwargs["compressor"](kwargs["request"])
         )
         kwargs["parent_ownership"].ensure_owned()
         return SimpleNamespace(
@@ -115,17 +118,41 @@ class CapturingRunner:
         )
 
 
+class ExactFramingEstimator:
+    def __init__(self, frame_tokens):
+        self.frame_tokens = dict(frame_tokens)
+        self.message_calls = []
+        self.text_calls = []
+
+    def estimate_messages(self, messages, *, model):
+        frame = tuple(
+            (str(item.get("role", "")), str(item.get("content", "")))
+            for item in messages
+        )
+        self.message_calls.append((frame, model))
+        if frame not in self.frame_tokens:
+            raise AssertionError(f"unexpected Provider message frame: {frame!r}")
+        return self.frame_tokens[frame]
+
+    def estimate_text(self, text, *, model):
+        self.text_calls.append((text, model))
+        raise AssertionError(
+            "dynamic target sizing must use Provider message framing"
+        )
+
+
 class AlwaysEligiblePolicy:
     def evaluate(self, **_kwargs):
         return SimpleNamespace(eligible=True)
 
 
-def make_context_runtime():
+def make_context_runtime(*, estimator=None, target_policy=None):
     return SimpleNamespace(
         estimator_resolution=SimpleNamespace(
-            estimator=ConservativeUtf8TokenEstimator()
+            estimator=estimator or ConservativeUtf8TokenEstimator()
         ),
         model_profile=SimpleNamespace(model="gpt-4o"),
+        dynamic_compression_target_policy=target_policy,
     )
 
 
@@ -183,17 +210,167 @@ def make_coordinator(
     eligibility_policy=None,
     task_intent_enabled=False,
     source_identity_config=None,
+    context_runtime=None,
 ):
     return EvidenceContextArtifactCoordinator(
         runner=runner or CapturingRunner(),
         compressor_agent=agent or FakeCompressorAgent(),
         compressor_config=make_config(),
-        context_runtime=make_context_runtime(),
+        context_runtime=context_runtime or make_context_runtime(),
         gates=gates,
         deployment_scope="single-tenant-test",
         eligibility_policy=eligibility_policy or AlwaysEligiblePolicy(),
         task_intent_enabled=task_intent_enabled,
         source_identity_config=source_identity_config,
+    )
+
+
+def dynamic_target_policy():
+    return DynamicCompressionTargetPolicy(
+        floor_tokens=256,
+        source_ratio_basis_points=2_500,
+        allowed_target_tokens=(256, 512, 1_024, 1_536, 2_000),
+    )
+
+
+def dynamic_evidence_selection(
+    *,
+    evidence_content=(
+        "Bound interview evidence [id=e1] [source=theory]: "
+        "cache invalidation protects consistency"
+    ),
+    selectable_content_tokens=2_000,
+):
+    evidence = {
+        "role": "knowledge_evidence",
+        "content": evidence_content,
+        "evidence_id": "e1",
+        "chunk_id": "e1",
+        "provenance": "theory",
+        "content_sha256": "c" * 64,
+        "corpus_manifest_sha256": "a" * 64,
+        "mandatory_bounded_raw": True,
+        "representation": "bounded_raw",
+    }
+    return InterviewContextSelection(
+        provider_messages=(
+            {"role": "knowledge_evidence", "content": evidence_content},
+        ),
+        mandatory_bounded_raw=(),
+        compressible_conversation_sources=(),
+        evidence_sources=(evidence,),
+        stats=ContextSelectionStats(
+            source_evidence_count=1,
+            selected_evidence_count=1,
+            dropped_evidence_count=1,
+            selectable_content_tokens=selectable_content_tokens,
+        ),
+    )
+
+
+def resolve_dynamic_interview_evidence(
+    *,
+    non_evidence,
+    retained_tokens,
+    source_tokens=3_000,
+    selectable_tokens=2_000,
+    target_policy=None,
+):
+    selection = dynamic_evidence_selection(
+        selectable_content_tokens=selectable_tokens
+    )
+    evidence_content = selection.evidence_sources[0]["content"]
+    source_frame = (("knowledge_evidence", evidence_content),)
+    retained_frame = tuple(
+        (item["role"], item["content"]) for item in non_evidence
+    )
+    estimator = ExactFramingEstimator(
+        {source_frame: source_tokens, retained_frame: retained_tokens}
+    )
+    target_policy = target_policy or dynamic_target_policy()
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(shadow_enabled=True),
+        runner=runner,
+        agent=agent,
+        context_runtime=make_context_runtime(
+            estimator=estimator,
+            target_policy=target_policy,
+        ),
+    )
+    original_context = [
+        *non_evidence,
+        {"role": "knowledge_evidence", "content": evidence_content},
+    ]
+    result = coordinator.build_interview_context(
+        state=make_state(),
+        context_messages=original_context,
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+    assert estimator.message_calls == [
+        (source_frame, "gpt-4o"),
+        (retained_frame, "gpt-4o"),
+    ]
+    assert estimator.text_calls == []
+    assert result.context_messages is original_context
+    assert result.route == "deterministic"
+    return SimpleNamespace(
+        agent=agent,
+        coordinator=coordinator,
+        original_context=original_context,
+        result=result,
+        runner=runner,
+        source_frame=source_frame,
+        target_policy=target_policy,
+    )
+
+
+def resolve_dynamic_review_evidence(
+    *,
+    remaining_business_budget_tokens,
+    source_tokens=3_000,
+    target_policy,
+):
+    references = make_review_references()
+    source_frame = tuple(
+        ("knowledge_evidence", reference["content"])
+        for reference in references
+    )
+    estimator = ExactFramingEstimator({source_frame: source_tokens})
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(shadow_enabled=True),
+        runner=runner,
+        agent=agent,
+        context_runtime=make_context_runtime(
+            estimator=estimator,
+            target_policy=target_policy,
+        ),
+    )
+    result = coordinator.transform_review_references(
+        state=make_state(),
+        question_id="q1",
+        focus="cache consistency",
+        references=references,
+        remaining_business_budget_tokens=remaining_business_budget_tokens,
+        job_id="job-1",
+        attempt_number=1,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+    return SimpleNamespace(
+        agent=agent,
+        coordinator=coordinator,
+        estimator=estimator,
+        references=references,
+        result=result,
+        runner=runner,
+        source_frame=source_frame,
+        target_policy=target_policy,
     )
 
 
@@ -252,7 +429,10 @@ def test_structured_evidence_provenance_changes_artifact_identity_not_input():
             runner.calls[0]["identity_material"].source_manifest_sha256
         )
         compressor_inputs.append(
-            [item.content for item in agent.calls[0]["sources"]]
+            [
+                item.content
+                for item in agent.calls[0]["request"].source_segments
+            ]
         )
 
     assert identities[0] != identities[1]
@@ -276,7 +456,7 @@ def test_interview_evidence_intent_binds_current_focus_to_identity_v1():
         worker_id="worker-1",
     )
 
-    intent = agent.calls[0]["intent"]
+    intent = agent.calls[0]["request"].intent
     identity = runner.calls[0]["identity_material"]
     assert intent.consumer_operation == "followup"
     assert intent.phase == "interview"
@@ -289,7 +469,7 @@ def test_interview_evidence_intent_binds_current_focus_to_identity_v1():
         "new_fact",
         "identity_inference",
     )
-    assert runner.calls[0]["intent"] is intent
+    assert runner.calls[0]["request"].intent is intent
     assert identity.identity_schema_version == "identity-v1"
     assert identity.compression_intent_sha256 == compression_intent_sha256(intent)
 
@@ -315,14 +495,14 @@ def test_review_evidence_intent_binds_review_focus_to_identity_v1():
         worker_id="worker-1",
     )
 
-    intent = agent.calls[0]["intent"]
+    intent = agent.calls[0]["request"].intent
     identity = runner.calls[0]["identity_material"]
     assert intent.consumer_operation == "question_review"
     assert intent.phase == "review"
     assert intent.source_focus == "cache consistency"
     assert intent.current_focus == "cache consistency"
     assert intent.preserve == ("numbers", "identifiers", "evidence_provenance")
-    assert runner.calls[0]["intent"] is intent
+    assert runner.calls[0]["request"].intent is intent
     assert identity.compression_intent_sha256 == compression_intent_sha256(intent)
 
 
@@ -434,6 +614,9 @@ def test_enabled_evidence_consumes_only_grounded_output_and_returns_bounded_ref(
 
     assert runner.calls[0]["parent_ownership"] is parent
     assert runner.calls[0]["worker_id"] == parent.worker_id
+    source_digest = (
+        runner.calls[0]["request"].source_segments[0].content_sha256
+    )
     assert result.context_messages == [
         {"role": "candidate", "content": "I use a cache."},
         {
@@ -442,7 +625,7 @@ def test_enabled_evidence_consumes_only_grounded_output_and_returns_bounded_ref(
                 "[context_artifact_projection authority=non_authoritative "
                 "candidate_exact_quote=false "
                 "authoritative_scoring_evidence=false "
-                f"source_segment_sha256={runner.calls[0]['source_segments'][0].content_sha256}]\n"
+                f"source_segment_sha256={source_digest}]\n"
                 "cache invalidation\n"
                 "[/context_artifact_projection]"
             ),
@@ -534,12 +717,15 @@ def test_interview_multi_source_summary_envelope_uses_only_matching_digest():
         def compress(
             self,
             *,
-            source_segments,
+            request,
             expected_evidence_content_sha256,
             **_kwargs,
         ):
+            policy = request.policy
+            source_segments = request.source_segments
+            _intent = request.intent
             return {
-                "schema_version": "evidence-compression-v1",
+                "schema_version": policy.output_schema_version,
                 "evidence_content_sha256": expected_evidence_content_sha256,
                 "units": [
                     {
@@ -582,8 +768,8 @@ def test_interview_multi_source_summary_envelope_uses_only_matching_digest():
         worker_id="worker-1",
     )
 
-    first_digest = runner.calls[0]["source_segments"][0].content_sha256
-    second_digest = runner.calls[0]["source_segments"][1].content_sha256
+    first_digest = runner.calls[0]["request"].source_segments[0].content_sha256
+    second_digest = runner.calls[0]["request"].source_segments[1].content_sha256
     envelope = result.context_messages[1]["content"]
     assert result.context_messages[1]["role"] == "evidence_compression_projection"
     assert f"source_segment_sha256={second_digest}]" in envelope
@@ -732,7 +918,7 @@ def test_review_evidence_flag_is_independent_and_preserves_uncompressed_referenc
                 "authoritative_scoring_evidence",
             ],
             "source_segment_sha256": [
-                runner.calls[0]["source_segments"][0].content_sha256
+                runner.calls[0]["request"].source_segments[0].content_sha256
             ],
             "content": "cache invalidation",
         }
@@ -768,12 +954,15 @@ def test_review_multi_source_summary_traces_the_anchor_that_contains_it():
         def compress(
             self,
             *,
-            source_segments,
+            request,
             expected_evidence_content_sha256,
             **_kwargs,
         ):
+            policy = request.policy
+            source_segments = request.source_segments
+            _intent = request.intent
             return {
-                "schema_version": "evidence-compression-v1",
+                "schema_version": policy.output_schema_version,
                 "evidence_content_sha256": expected_evidence_content_sha256,
                 "units": [
                     {
@@ -812,7 +1001,7 @@ def test_review_multi_source_summary_traces_the_anchor_that_contains_it():
         worker_id="worker-1",
     )
 
-    second_digest = runner.calls[0]["source_segments"][1].content_sha256
+    second_digest = runner.calls[0]["request"].source_segments[1].content_sha256
     assert result == [
         {
             "context_artifact_projection": True,
@@ -1001,3 +1190,136 @@ def test_review_parent_worker_is_read_from_effect_claim():
             parent_ownership=ReviewOwnership(),
             worker_id="wrong-worker",
         )
+
+
+@pytest.mark.parametrize(
+    ("non_evidence", "retained_tokens", "expected_target"),
+    (
+        (
+            [{"role": "candidate", "content": "short-conversation"}],
+            500,
+            1_024,
+        ),
+        (
+            [
+                {
+                    "role": "conversation_summary",
+                    "content": "larger-preceding-conversation",
+                },
+                {"role": "candidate", "content": "short-conversation"},
+            ],
+            1_300,
+            512,
+        ),
+    ),
+)
+def test_dynamic_interview_evidence_uses_actual_source_and_retained_context_framing(
+    non_evidence,
+    retained_tokens,
+    expected_target,
+):
+    resolved = resolve_dynamic_interview_evidence(
+        non_evidence=non_evidence,
+        retained_tokens=retained_tokens,
+    )
+    assert resolved.coordinator.dynamic_compression_target_policy is (
+        resolved.target_policy
+    )
+    request = resolved.runner.calls[0]["request"]
+    assert request.target_policy is resolved.target_policy
+    assert request.resolved_target_output_tokens == expected_target
+    assert resolved.agent.calls[0]["request"] is request
+    assert resolved.source_frame[0][0] == "knowledge_evidence"
+    assert all(
+        item["role"] != "knowledge_evidence" for item in non_evidence
+    )
+
+
+def test_dynamic_interview_evidence_has_zero_calls_when_actual_context_leaves_no_floor_tier():
+    resolved = resolve_dynamic_interview_evidence(
+        non_evidence=[
+            {"role": "candidate", "content": "budget-filling-conversation"}
+        ],
+        retained_tokens=745,
+        source_tokens=1_000,
+        selectable_tokens=1_000,
+    )
+    assert resolved.runner.calls == []
+    assert resolved.agent.calls == []
+    assert resolved.result.context_messages is resolved.original_context
+
+
+@pytest.mark.parametrize(
+    ("target_policy", "expected_target", "expected_sizing_calls"),
+    (
+        (dynamic_target_policy(), 1_024, 1),
+        (None, 2_000, 0),
+    ),
+)
+def test_review_evidence_target_policy_and_shadow_business_input_matrix(
+    target_policy,
+    expected_target,
+    expected_sizing_calls,
+):
+    resolved = resolve_dynamic_review_evidence(
+        remaining_business_budget_tokens=1_200,
+        target_policy=target_policy,
+    )
+
+    assert resolved.result is resolved.references
+    assert resolved.coordinator.dynamic_compression_target_policy is (
+        target_policy
+    )
+    request = resolved.runner.calls[0]["request"]
+    assert request.target_policy is target_policy
+    assert request.resolved_target_output_tokens == expected_target
+    assert resolved.agent.calls[0]["request"] is request
+    assert all(role == "knowledge_evidence" for role, _ in resolved.source_frame)
+    assert len(resolved.estimator.message_calls) == expected_sizing_calls
+    assert resolved.estimator.text_calls == []
+
+
+def test_dynamic_review_evidence_no_tier_returns_before_identity_runner_and_agent():
+    references = make_review_references()
+    source_frame = tuple(
+        ("knowledge_evidence", reference["content"])
+        for reference in references
+    )
+    estimator = ExactFramingEstimator({source_frame: 1_000})
+    runner = CapturingRunner()
+    agent = FakeCompressorAgent()
+    coordinator = make_coordinator(
+        gates=ContextCompressionGates(
+            review_enabled=True,
+            evidence_enabled=True,
+        ),
+        runner=runner,
+        agent=agent,
+        context_runtime=make_context_runtime(
+            estimator=estimator,
+            target_policy=dynamic_target_policy(),
+        ),
+    )
+
+    def fail_identity(**_kwargs):
+        raise AssertionError("no-tier review must return before Artifact identity")
+
+    coordinator._review_identity_material = fail_identity
+
+    result = coordinator.transform_review_references(
+        state=make_state(),
+        question_id="q1",
+        focus="cache consistency",
+        references=references,
+        remaining_business_budget_tokens=255,
+        job_id="job-1",
+        attempt_number=1,
+        parent_ownership=ParentOwnership(),
+        worker_id="worker-1",
+    )
+
+    assert result is references
+    assert estimator.message_calls == [(source_frame, "gpt-4o")]
+    assert estimator.text_calls == []
+    assert runner.calls == []
+    assert agent.calls == []

@@ -26,23 +26,27 @@ class ParentOwnership:
 class CompressorAgent:
     def __init__(self):
         self.calls = 0
+        self.requests = []
         self.intents = []
 
     def compress(
         self,
         *,
-        source_segments,
+        request,
         expected_session_scope_sha256,
         expected_question_id_sha256,
         expected_question_focus_sha256,
         expected_source_manifest_sha256,
-        intent=None,
         **_kwargs,
     ):
+        policy = request.policy
+        source_segments = request.source_segments
+        intent = request.intent
         self.calls += 1
+        self.requests.append(request)
         self.intents.append(intent)
         return {
-            "schema_version": "question-memory-v1",
+            "schema_version": policy.output_schema_version,
             "authority": "non_authoritative",
             "session_scope_sha256": expected_session_scope_sha256,
             "question_id_sha256": expected_question_id_sha256,
@@ -226,8 +230,9 @@ def state_with_questions(*, questions, messages, current_index):
 
 
 class MultiUnitCompressorAgent(CompressorAgent):
-    def compress(self, *, source_segments, **kwargs):
-        payload = super().compress(source_segments=source_segments, **kwargs)
+    def compress(self, *, request, **kwargs):
+        source_segments = request.source_segments
+        payload = super().compress(request=request, **kwargs)
         candidate = source_segments[-1].content
         large = "H" * 600
         assert large in candidate
@@ -275,7 +280,7 @@ def test_question_memory_intent_is_archival_and_never_binds_future_question():
         parent_ownership=ParentOwnership(),
     )
 
-    intent = agent.intents[0]
+    intent = agent.requests[0].intent
     identity = runner_calls[0]["identity_material"]
     assert intent.consumer_operation == "followup"
     assert intent.phase == "interview"
@@ -296,7 +301,7 @@ def test_question_memory_intent_is_archival_and_never_binds_future_question():
         "new_fact",
         "identity_inference",
     )
-    assert runner_calls[0]["intent"] is intent
+    assert runner_calls[0]["request"].intent is intent
     assert identity.identity_schema_version == "identity-v1"
     assert identity.compression_intent_sha256 == compression_intent_sha256(intent)
 
@@ -326,7 +331,7 @@ def test_disabled_question_memory_intent_keeps_identity_v0():
         parent_ownership=ParentOwnership(),
     )
 
-    assert agent.intents == [None]
+    assert [request.intent for request in agent.requests] == [None]
     assert runner_calls[0]["identity_material"].identity_schema_version is None
 
 
@@ -392,8 +397,8 @@ def test_sequence_contract_replay_rekeys_manifest_artifact_index_and_reuse():
     from app.services.context_artifacts import ContextArtifactIdentity
 
     class VersionedCompressorAgent(CompressorAgent):
-        def compress(self, **kwargs):
-            payload = super().compress(**kwargs)
+        def compress(self, *, request, **kwargs):
+            payload = super().compress(request=request, **kwargs)
             payload["claims"][0]["summary"] = (
                 "First replay-safe summary."
                 if self.calls == 1
@@ -929,9 +934,9 @@ def test_coordinator_uses_independent_controlled_current_ranking_signals(
 
 def test_created_entry_separates_focus_skill_and_artifact_proven_advisory_codes():
     class AdvisoryCompressorAgent(CompressorAgent):
-        def compress(self, **kwargs):
-            payload = super().compress(**kwargs)
-            source = kwargs["source_segments"][-1]
+        def compress(self, *, request, **kwargs):
+            payload = super().compress(request=request, **kwargs)
+            source = request.source_segments[-1]
             payload["unresolved_topics"] = [
                 {
                     "claim_type": "unresolved",
@@ -1138,9 +1143,9 @@ def test_memory_projection_uses_source_sequence_slots_not_summary_prefix():
 
 def test_two_artifact_interleaved_projection_is_stable_with_reversed_index_order():
     class NamedCompressorAgent(CompressorAgent):
-        def compress(self, **kwargs):
-            payload = super().compress(**kwargs)
-            source = kwargs["source_segments"][0]
+        def compress(self, *, request, **kwargs):
+            payload = super().compress(request=request, **kwargs)
+            source = request.source_segments[0]
             payload["claims"][0]["summary"] = f"{source.content} summary"
             return payload
 

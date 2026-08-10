@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Iterable, Sequence
+from typing import Iterable
 
 from pydantic import ValidationError
 
@@ -11,7 +11,6 @@ from app.services.context_artifacts import (
     ArtifactPayload,
     CompressionSourceSegment,
     ContextArtifactValidationFailed,
-    ContextCompressionPolicy,
     EvidenceCompressionArtifact,
     PrepContextArtifact,
     QuestionConversationArtifact,
@@ -20,6 +19,7 @@ from app.services.context_artifacts import (
     parse_artifact_payload,
 )
 from app.services.context_compression_intent import CompressionIntent
+from app.services.context_compression_request import ResolvedCompressionRequest
 from app.services.token_estimation import TokenEstimator
 
 
@@ -46,9 +46,8 @@ class ValidatedCompressionArtifact:
 
 def validate_compression_artifact(
     *,
-    policy: ContextCompressionPolicy,
+    request: ResolvedCompressionRequest,
     payload: dict,
-    source_segments: Sequence[CompressionSourceSegment],
     estimator: TokenEstimator,
     model: str,
     expected_question_id_sha256: str | None = None,
@@ -56,9 +55,13 @@ def validate_compression_artifact(
     expected_session_scope_sha256: str | None = None,
     expected_question_focus_sha256: str | None = None,
     expected_source_manifest_sha256: str | None = None,
-    intent: CompressionIntent | None = None,
 ) -> ValidatedCompressionArtifact:
-    """Validate one provider payload against authoritative in-memory sources."""
+    """Validate one payload against one authoritative resolved request."""
+
+    if not isinstance(request, ResolvedCompressionRequest):
+        raise TypeError("request must be a ResolvedCompressionRequest")
+    policy = request.policy
+    source_segments = request.source_segments
 
     try:
         validated = parse_artifact_payload(policy.artifact_type, payload)
@@ -67,9 +70,11 @@ def validate_compression_artifact(
             "context artifact payload schema is invalid"
         ) from exc
     resolved_intent = None
-    if intent is not None:
+    if request.intent is not None:
         try:
-            resolved_intent = CompressionIntent.model_validate(intent)
+            resolved_intent = CompressionIntent.model_validate(
+                request.intent
+            )
         except (ValidationError, TypeError, ValueError) as exc:
             raise ContextArtifactValidationFailed(
                 "context artifact compression intent is invalid"
@@ -245,7 +250,10 @@ def validate_compression_artifact(
         canonical_json(validated),
         model=model,
     )
-    if estimated_output_tokens > policy.target_output_tokens:
+    if (
+        estimated_output_tokens
+        > request.resolved_target_output_tokens
+    ):
         raise ContextArtifactValidationFailed(
             "context artifact exceeds the output budget"
         )
