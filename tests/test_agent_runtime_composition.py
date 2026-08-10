@@ -470,8 +470,18 @@ def test_interview_then_review_reuses_business_llm_and_compressor_authority(
     assert len(agent_calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("compression_mode", "status_projection_enabled", "expected_status_mode"),
+    (
+        ("shadow", "true", "shadow"),
+        ("consume", "false", "disabled"),
+    ),
+)
 def test_interview_composition_uses_one_effective_snapshot_and_injects_selection(
     monkeypatch,
+    compression_mode,
+    status_projection_enabled,
+    expected_status_mode,
 ):
     snapshot = load_effective_memory_config(
         {
@@ -485,8 +495,12 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
             "MEMORY_MODEL_STRUCTURED_OUTPUT_RESERVE_TOKENS": "654",
             "MEMORY_MODEL_SAFETY_MARGIN_TOKENS": "987",
             "MEMORY_MODEL_TOKENIZER_FAMILY": "composition-tokenizer",
-            "MEMORY_COMPRESSION_MODE": "shadow",
+            "MEMORY_COMPRESSION_MODE": compression_mode,
+            "MEMORY_BUDGET_ENFORCEMENT_INTERVIEW": "true",
             "MEMORY_COMPRESSION_TASK_INTENT_ENABLED": "true",
+            "MEMORY_COMPRESSION_STATUS_PROJECTION_ENABLED": (
+                status_projection_enabled
+            ),
             "MEMORY_ARTIFACT_LEASE_SECONDS": "73",
             "MEMORY_PRIVACY_DEPLOYMENT_ID": "single-tenant-composition",
             "MEMORY_SELECTION_EXACT_RECENT_QUESTIONS": "2",
@@ -594,7 +608,10 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     decision_store_marker = object()
     business_llm_marker = object()
     business_llm_config_marker = object()
-    session_store = SimpleNamespace(llm=None)
+    session_store = SimpleNamespace(
+        llm=None,
+        list_question_evaluations=lambda _session_id: [],
+    )
 
     def build_service(**kwargs):
         service_calls.append(kwargs)
@@ -807,6 +824,8 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     assert isinstance(decision_service, FollowupDecisionExecutionService)
     assert decision_service.store is decision_store_marker
     assert dependency_calls[0]["exact_recent_questions"] == 2
+    assert dependency_calls[0]["status_projection_mode"] == expected_status_mode
+    assert dependency_calls[0]["question_evaluation_reader"] is session_store
     source_identity_config = context_runtime_calls[0].source_identity_config
     assert dependency_calls[0]["source_identity_config"] is source_identity_config
     assert interview_artifact_calls[0]["source_identity_config"] is (

@@ -6,7 +6,7 @@ from functools import partial
 import hashlib
 import json
 from threading import Event, Lock, Thread
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
@@ -61,6 +61,10 @@ from app.services.context_source_identity import (
 )
 from app.services.context_runtime import ContextRuntime, get_context_runtime
 from app.services.model_capabilities import ContextConfigurationError
+from app.services.interview_status_projection import (
+    build_interview_status_projection,
+    render_interview_status_message,
+)
 
 
 class GenerationLeaseHeartbeat:
@@ -165,6 +169,10 @@ class DurableInterviewGraphDependencies:
     context_artifact_coordinator: Any | None = None
     evidence_artifact_coordinator: Any | None = None
     question_memory_coordinator: Any | None = None
+    status_projection_mode: Literal["disabled", "shadow", "consume"] = (
+        "disabled"
+    )
+    question_evaluation_reader: Any | None = None
     principal_memory_shadow: Any | None = None
     principal_memory_consumer: Any | None = None
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
@@ -178,6 +186,12 @@ class DurableInterviewGraphDependencies:
     )
 
     def __post_init__(self) -> None:
+        if self.status_projection_mode not in {
+            "disabled",
+            "shadow",
+            "consume",
+        }:
+            raise ValueError("status projection mode is invalid")
         if (
             isinstance(self.exact_recent_questions, bool)
             or not isinstance(self.exact_recent_questions, int)
@@ -491,6 +505,7 @@ def generate_followup(state, deps) -> dict:
     is_v2 = state.get("workflow_engine") == "langgraph-v2"
     context = None
     artifact_context = None
+    status_advisory_codes: tuple[str, ...] = ()
     parent_ownership = None
     try:
         if (
@@ -575,6 +590,13 @@ def generate_followup(state, deps) -> dict:
                     if conversation_artifact_enabled
                     else None
                 )
+                status_advisory_codes = tuple(
+                    getattr(
+                        artifact_context,
+                        "advisory_unresolved_topic_codes",
+                        (),
+                    )
+                )
                 context = (
                     artifact_context.context_messages
                     if artifact_context is not None
@@ -657,6 +679,16 @@ def generate_followup(state, deps) -> dict:
                         pass
                 except Exception:
                     context = consume_base_context
+            status_message = _render_measured_status_message(
+                state=state,
+                deps=deps,
+                advisory_unresolved_topic_codes=status_advisory_codes,
+            )
+            if (
+                status_message is not None
+                and deps.status_projection_mode == "consume"
+            ):
+                context = [status_message, *[dict(item) for item in (context or [])]]
             context = generation_context_for_target(
                 context or [],
                 gap_type=state["decision_gap_type"],
@@ -791,6 +823,40 @@ def generate_followup(state, deps) -> dict:
             "last_error_code": code,
             "command_provider_invocations": provider_invocations,
         }
+
+
+def _render_measured_status_message(
+    *,
+    state,
+    deps,
+    advisory_unresolved_topic_codes,
+) -> dict[str, str] | None:
+    if (
+        state.get("workflow_engine") != "langgraph-v2"
+        or deps.status_projection_mode == "disabled"
+        or deps.question_evaluation_reader is None
+        or deps.context_runtime is None
+    ):
+        return None
+    try:
+        review_records = deps.question_evaluation_reader.list_question_evaluations(
+            state["session_id"]
+        )
+        projection = build_interview_status_projection(
+            state,
+            review_records=review_records,
+            advisory_unresolved_topic_codes=(
+                advisory_unresolved_topic_codes
+            ),
+        )
+        message = render_interview_status_message(projection)
+        deps.context_runtime.estimator_resolution.estimator.estimate_messages(
+            [message],
+            model=deps.context_runtime.model_profile.model,
+        )
+        return message
+    except Exception:
+        return None
 
 
 def enqueue_retry(state, deps) -> dict:

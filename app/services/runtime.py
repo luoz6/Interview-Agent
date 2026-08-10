@@ -1253,6 +1253,9 @@ def build_interview_workflow_service():
         load_effective_memory_config,
         memory_readiness_payload,
     )
+    from app.services.interview_status_projection import (
+        resolve_status_projection_mode,
+    )
 
     effective_memory = load_effective_memory_config()
     memory_readiness = memory_readiness_payload(effective_memory)
@@ -1261,6 +1264,12 @@ def build_interview_workflow_service():
     selection_config = effective_memory.selection
     deployment_scope = effective_memory.privacy.deployment_id
     compression_gates = ContextCompressionGates.from_config(compression_config)
+    status_projection_mode = resolve_status_projection_mode(
+        status_projection_enabled=(
+            compression_config.status_projection_enabled
+        ),
+        compression_mode=compression_config.mode,
+    )
     eligibility_policy = ContextCompressionEligibilityPolicy(
         eligibility_utilization_basis_points=(
             selection_config.eligibility_utilization_basis_points
@@ -1344,6 +1353,8 @@ def build_interview_workflow_service():
         context_runtime=context_runtime,
         source_identity_config=source_identity_config,
         exact_recent_questions=selection_config.exact_recent_questions,
+        status_projection_mode=status_projection_mode,
+        question_evaluation_reader=store,
         knowledge_repository=get_knowledge_store(
             connection_provider=domains.business,
             schema_mode="validate",

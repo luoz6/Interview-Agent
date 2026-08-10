@@ -31,6 +31,10 @@ from app.services.context_runtime import (
 )
 from app.services.context_language import classify_context_language
 from app.services.model_capabilities import ContextConfigurationError
+from app.services.interview_status_projection import (
+    INTERVIEW_STATUS_ROLE,
+    is_valid_interview_status_message,
+)
 from app.services.principal_memory_sink_policy import (
     ASSISTANCE_CONTEXT_KIND,
     FOLLOWUP_GENERATION_SINK,
@@ -821,11 +825,21 @@ class OpenAIInterviewLLM:
         ]
         if len(assistance) != 1:
             assistance = []
+        status_candidates = [
+            dict(item)
+            for item in context
+            if item.get("role") == INTERVIEW_STATUS_ROLE
+            and is_valid_interview_status_message(item)
+        ]
+        status_message = (
+            status_candidates[0] if len(status_candidates) == 1 else None
+        )
         conversation = [
             dict(item)
             for item in context
             if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
             and item.get("context_kind") != ASSISTANCE_CONTEXT_KIND
+            and item.get("role") != INTERVIEW_STATUS_ROLE
         ]
         evidence = [
             dict(item)
@@ -892,7 +906,73 @@ class OpenAIInterviewLLM:
                 )
                 if cost <= selection_budget.selectable_content_tokens:
                     selected = with_assistance
+        if status_message is not None:
+            return self._fit_status_prefixed_followup_context(
+                status_message=status_message,
+                selected=selected,
+                available_input_tokens=budget.available_input_tokens,
+            )
         return selected
+
+    def _fit_status_prefixed_followup_context(
+        self,
+        *,
+        status_message: dict[str, str],
+        selected: list[dict[str, str]],
+        available_input_tokens: int,
+    ) -> list[dict[str, str]]:
+        fitted = [dict(status_message), *[dict(item) for item in selected]]
+        estimator = self.token_estimator.estimator
+        model = self.model_profile.model
+
+        def fits(items):
+            return estimator.estimate_text(
+                _build_followup_prompt(items),
+                model=model,
+            ) <= available_input_tokens
+
+        if fits(fitted):
+            return fitted
+        latest_candidate = next(
+            (
+                index
+                for index in range(len(selected) - 1, -1, -1)
+                if selected[index].get("role") == "candidate"
+            ),
+            None,
+        )
+        current_interviewer = (
+            next(
+                (
+                    index
+                    for index in range(latest_candidate - 1, -1, -1)
+                    if selected[index].get("role") == "interviewer"
+                ),
+                None,
+            )
+            if latest_candidate is not None
+            else None
+        )
+        mandatory_indexes = {latest_candidate, current_interviewer} - {None}
+        retained = [
+            (index, dict(item)) for index, item in enumerate(selected)
+        ]
+        for index in range(len(selected)):
+            if index in mandatory_indexes:
+                continue
+            retained = [item for item in retained if item[0] != index]
+            candidate = [
+                dict(status_message),
+                *[item for _source_index, item in retained],
+            ]
+            if fits(candidate):
+                return candidate
+        # Status is optional relative to the Task-7-preexisting mandatory
+        # business context. If the minimum status-prefixed business set cannot
+        # fit, omit status and preserve the exact prior fitted context. The
+        # existing rendered prompt guard remains authoritative when the
+        # business context itself cannot fit.
+        return [dict(item) for item in selected]
 
     def _fit_plan_inputs(
         self,

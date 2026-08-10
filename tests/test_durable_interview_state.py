@@ -3,6 +3,7 @@ from app.graphs.interview_state import (
     choose_workflow_engine,
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
+from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
 import json
 from app.services.prep import InterviewPlan, InterviewQuestion
 
@@ -71,3 +72,18 @@ def test_state_has_no_pending_action_or_raw_source_documents():
         runtime_enabled=False,
         rollout_percent=100,
     ) == "legacy"
+
+
+def test_v2_initial_state_does_not_persist_status_projection():
+    kwargs = make_start_kwargs()
+    state = make_durable_initial_state_v2(
+        kwargs["session_id"],
+        kwargs["plan"],
+    )
+
+    # Existing checkpoints have neither a rendered semantic message nor a
+    # Task-7 mode field. Their effective behavior must remain disabled.
+    assert state.get("interview_semantic_status") is None
+    assert state.get("status_projection_mode", "disabled") == "disabled"
+    serialized = json.dumps(state, ensure_ascii=False, sort_keys=True)
+    assert "interview_semantic_status" not in serialized

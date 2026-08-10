@@ -39,6 +39,7 @@ from app.services.context_compression_request import (
 )
 from app.services.question_memory_index import (
     QUESTION_MEMORY_TAXONOMY,
+    QUESTION_MEMORY_UNRESOLVED_TOPIC_CODES,
     QuestionMemoryIndexEntry,
 )
 from app.services.question_memory_retrieval import rank_question_memory_entries
@@ -50,9 +51,7 @@ from app.services.context_source_identity import (
 )
 
 
-_UNRESOLVED_TOPIC_CODES = frozenset(
-    {"missing_boundary", "missing_tradeoff"}
-)
+_UNRESOLVED_TOPIC_CODES = QUESTION_MEMORY_UNRESOLVED_TOPIC_CODES
 
 
 @dataclass(frozen=True)
@@ -64,6 +63,7 @@ class QuestionMemoryContext:
     policy_version: str | None
     route: str
     memory_unit_count: int
+    advisory_unresolved_topic_codes: tuple[str, ...] = ()
 
 
 class QuestionMemoryCoordinator:
@@ -398,6 +398,7 @@ class QuestionMemoryCoordinator:
                 selected_units.append(
                     {
                         **record,
+                        "unit": unit,
                         "message": message,
                         "artifact_rank": artifact_rank,
                         "unit_index": unit_index,
@@ -437,6 +438,11 @@ class QuestionMemoryCoordinator:
             policy_version=QUESTION_MEMORY_COMPRESSION_POLICY.policy_version,
             route=route,
             memory_unit_count=len(selected_units),
+            advisory_unresolved_topic_codes=(
+                self._selected_advisory_unresolved_topic_codes(
+                    selected_units
+                )
+            ),
         )
 
     def _new_source_request(
@@ -1129,6 +1135,38 @@ class QuestionMemoryCoordinator:
         ]
 
     @staticmethod
+    def _selected_advisory_unresolved_topic_codes(
+        selected_units,
+    ) -> tuple[str, ...]:
+        selected_by_artifact: dict[str, list[Any]] = {}
+        for item in selected_units:
+            selected_by_artifact.setdefault(
+                item["entry"].artifact_ref,
+                [],
+            ).append(item)
+        proven_codes = set()
+        for artifact_units in selected_by_artifact.values():
+            record = artifact_units[0]
+            selected_unresolved_count = sum(
+                item["unit"].claim_type == "unresolved"
+                for item in artifact_units
+            )
+            total_unresolved_count = len(
+                record["payload"].unresolved_topics
+            )
+            if (
+                total_unresolved_count == 0
+                or selected_unresolved_count != total_unresolved_count
+            ):
+                continue
+            proven_codes.update(
+                code
+                for code in record["entry"].unresolved_topic_codes
+                if code in _UNRESOLVED_TOPIC_CODES
+            )
+        return tuple(sorted(proven_codes))
+
+    @staticmethod
     def _owner_scope(state) -> str:
         session_id = state.get("session_id")
         if not isinstance(session_id, str) or not session_id.strip():
@@ -1224,4 +1262,5 @@ class QuestionMemoryCoordinator:
             policy_version=None,
             route="deterministic",
             memory_unit_count=0,
+            advisory_unresolved_topic_codes=(),
         )

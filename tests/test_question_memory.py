@@ -69,6 +69,42 @@ class CompressorAgent:
         }
 
 
+class AdvisoryQuestionMemoryCompressor(CompressorAgent):
+    def compress(self, *, request, **kwargs):
+        payload = super().compress(request=request, **kwargs)
+        source = request.source_segments[-1]
+        payload["unresolved_topics"] = [
+            {
+                "claim_type": "unresolved",
+                "summary": "Missing boundary remains unresolved.",
+                "polarity": "uncertain",
+                "source_segment_sha256": [source.content_sha256],
+                "supporting_excerpts": [source.content],
+                "confidence": "medium",
+            }
+        ]
+        return payload
+
+
+class AmbiguousAdvisoryQuestionMemoryCompressor(
+    AdvisoryQuestionMemoryCompressor
+):
+    def compress(self, *, request, **kwargs):
+        payload = super().compress(request=request, **kwargs)
+        source = request.source_segments[-1]
+        payload["unresolved_topics"].append(
+            {
+                "claim_type": "unresolved",
+                "summary": "Missing tradeoff remains unresolved.",
+                "polarity": "uncertain",
+                "source_segment_sha256": [source.content_sha256],
+                "supporting_excerpts": [source.content],
+                "confidence": "medium",
+            }
+        )
+        return payload
+
+
 def make_state():
     return {
         "session_id": "session-1",
@@ -933,22 +969,6 @@ def test_coordinator_uses_independent_controlled_current_ranking_signals(
 
 
 def test_created_entry_separates_focus_skill_and_artifact_proven_advisory_codes():
-    class AdvisoryCompressorAgent(CompressorAgent):
-        def compress(self, *, request, **kwargs):
-            payload = super().compress(request=request, **kwargs)
-            source = request.source_segments[-1]
-            payload["unresolved_topics"] = [
-                {
-                    "claim_type": "unresolved",
-                    "summary": "Missing boundary remains unresolved.",
-                    "polarity": "uncertain",
-                    "source_segment_sha256": [source.content_sha256],
-                    "supporting_excerpts": [source.content],
-                    "confidence": "medium",
-                }
-            ]
-            return payload
-
     state = make_state()
     state["job_tags"] = ["testing", "python"]
     state["plan_snapshot"]["questions"][0].update(
@@ -967,7 +987,9 @@ def test_created_entry_separates_focus_skill_and_artifact_proven_advisory_codes(
     )
     index = InMemoryQuestionMemoryIndexStore()
 
-    make_coordinator(AdvisoryCompressorAgent(), index).build_context(
+    result = make_coordinator(
+        AdvisoryQuestionMemoryCompressor(), index
+    ).build_context(
         state=state,
         deterministic_context=list(selection.provider_messages),
         selection=selection,
@@ -982,6 +1004,236 @@ def test_created_entry_separates_focus_skill_and_artifact_proven_advisory_codes(
     assert entry.focus_tags == ["cache_consistency"]
     assert entry.skill_tags == ["security", "testing"]
     assert entry.unresolved_topic_codes == ["missing_boundary"]
+    assert result.advisory_unresolved_topic_codes == ("missing_boundary",)
+
+
+def test_reused_validated_artifact_preserves_advisory_without_provider_recall():
+    state = make_state()
+    state["plan_snapshot"]["questions"][0][
+        "advisory_unresolved_topic_codes"
+    ] = ["missing_boundary"]
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+    index = InMemoryQuestionMemoryIndexStore()
+    agent = AdvisoryQuestionMemoryCompressor()
+    coordinator = make_coordinator(agent, index)
+
+    created = coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+    reused = coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert created.advisory_unresolved_topic_codes == ("missing_boundary",)
+    assert reused.route == "memory_index_retrieved"
+    assert reused.advisory_unresolved_topic_codes == ("missing_boundary",)
+    assert agent.calls == 1
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("session_id", "source", "identity"),
+)
+def test_reused_advisory_fails_empty_on_owner_source_or_identity_mismatch(
+    corruption,
+):
+    state = make_state()
+    state["plan_snapshot"]["questions"][0][
+        "advisory_unresolved_topic_codes"
+    ] = ["missing_boundary"]
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+    index = InMemoryQuestionMemoryIndexStore()
+    coordinator = make_coordinator(AdvisoryQuestionMemoryCompressor(), index)
+    deterministic = list(selection.provider_messages)
+    coordinator.build_context(
+        state=state,
+        deterministic_context=deterministic,
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+    entry = index.get_active(
+        session_id="session-1",
+        question_id="q1",
+        policy_version="question-memory-v1",
+    )
+    updates = {
+        "session_id": {"session_id": "another-session"},
+        "source": {"source_message_count": entry.source_message_count + 1},
+        "identity": {"artifact_sha256": "b" * 64},
+    }[corruption]
+
+    class CorruptedReadIndex:
+        def get_active(self, **_kwargs):
+            return entry.model_copy(update=updates)
+
+        def __getattr__(self, name):
+            return getattr(index, name)
+
+    coordinator.index_store = CorruptedReadIndex()
+    result = coordinator.build_context(
+        state=state,
+        deterministic_context=deterministic,
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.context_messages == deterministic
+    assert result.advisory_unresolved_topic_codes == ()
+    assert coordinator.compressor_agent.calls == 1
+
+
+def test_unresolved_advisory_is_not_exposed_when_unit_cap_drops_that_unit():
+    state = make_state()
+    state["plan_snapshot"]["questions"][0][
+        "advisory_unresolved_topic_codes"
+    ] = ["missing_boundary"]
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+    coordinator = make_coordinator(
+        AdvisoryQuestionMemoryCompressor(),
+        selection_config=SimpleNamespace(
+            exact_recent_questions=1,
+            max_memory_units=1,
+            max_memory_tokens=2_500,
+        ),
+    )
+
+    result = coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.memory_unit_count == 1
+    assert "Missing boundary remains unresolved." not in {
+        item["content"] for item in result.context_messages
+    }
+    assert result.advisory_unresolved_topic_codes == ()
+
+
+def test_unresolved_advisory_is_not_exposed_when_token_cap_drops_that_unit():
+    state = make_state()
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+    estimator = ConservativeUtf8TokenEstimator()
+    claim_message = {
+        "role": "conversation_summary",
+        "content": "Candidate explained cache consistency tradeoffs.",
+    }
+    unresolved_message = {
+        "role": "conversation_summary",
+        "content": "Missing boundary remains unresolved.",
+    }
+    claim_cost = estimator.estimate_messages([claim_message], model="gpt-4o")
+    combined_cost = estimator.estimate_messages(
+        [claim_message, unresolved_message],
+        model="gpt-4o",
+    )
+    token_cap = (claim_cost + combined_cost) // 2
+    assert claim_cost <= token_cap < combined_cost
+    coordinator = make_coordinator(
+        AdvisoryQuestionMemoryCompressor(),
+        selection_config=SimpleNamespace(
+            exact_recent_questions=1,
+            max_memory_units=4,
+            max_memory_tokens=token_cap,
+        ),
+    )
+
+    result = coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.memory_unit_count == 1
+    assert "Candidate explained cache consistency tradeoffs." in {
+        item["content"] for item in result.context_messages
+    }
+    assert "Missing boundary remains unresolved." not in {
+        item["content"] for item in result.context_messages
+    }
+    assert result.advisory_unresolved_topic_codes == ()
+
+
+def test_entry_wide_advisory_codes_fail_empty_when_only_one_unresolved_unit_selected():
+    state = make_state()
+    state["plan_snapshot"]["questions"][0][
+        "advisory_unresolved_topic_codes"
+    ] = ["missing_boundary", "missing_tradeoff"]
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+    coordinator = make_coordinator(
+        AmbiguousAdvisoryQuestionMemoryCompressor(),
+        selection_config=SimpleNamespace(
+            exact_recent_questions=1,
+            # Claim + first unresolved are selected; the second unresolved
+            # is dropped, while the index entry only has entry-wide codes.
+            max_memory_units=2,
+            max_memory_tokens=2_500,
+        ),
+    )
+
+    result = coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.memory_unit_count == 2
+    assert "Missing boundary remains unresolved." in {
+        item["content"] for item in result.context_messages
+    }
+    assert "Missing tradeoff remains unresolved." not in {
+        item["content"] for item in result.context_messages
+    }
+    assert result.advisory_unresolved_topic_codes == ()
+
+
+def test_unvalidated_state_advisory_never_reaches_question_memory_context():
+    state = make_state()
+    state["memory_policy_version"] = "question-conversation-v1"
+    state["advisory_unresolved_topic_codes"] = ["missing_boundary"]
+    state["current_advisory"] = {
+        "unresolved_topic_codes": ["missing_tradeoff"]
+    }
+    deterministic = deterministic_context()
+
+    result = make_coordinator(CompressorAgent()).build_context(
+        state=state,
+        deterministic_context=deterministic,
+        selection=None,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.context_messages == deterministic
+    assert result.advisory_unresolved_topic_codes == ()
 
 
 def test_coordinator_ranks_all_closed_questions_before_memory_unit_cap():
