@@ -115,7 +115,8 @@ _workflow_thread_lock = None
 _runtime_signal_store = None
 _postgres_connection_domains = None
 _context_artifact_store = None
-_context_compression_runner = None
+_context_compression_runners = {}
+_context_compression_failure_store = None
 _context_compressor_agent = None
 _context_compressor_authority: _ContextCompressorAuthority | None = None
 _composed_workflow_llm = None
@@ -612,8 +613,10 @@ def get_session_deletion_worker():
     global _session_deletion_worker
     if _session_deletion_worker is None:
         from app.services.session_deletion_worker import SessionDeletionWorker
+        from app.services.memory_config import load_effective_memory_config
 
         service = get_session_deletion_service()
+        memory_config = load_effective_memory_config()
         _session_deletion_worker = SessionDeletionWorker(
             job_store=service.job_store,
             session_store=get_session_store(),
@@ -627,6 +630,10 @@ def get_session_deletion_worker():
             report_job_store=get_report_job_store(),
             report_artifact_store=get_report_artifact_store(),
             tombstone_store=service.tombstone_store,
+            failure_state_store=get_context_compression_failure_store(),
+            failure_state_deployment_scope=(
+                memory_config.privacy.deployment_id
+            ),
             principal_memory_store=get_principal_memory_fact_store(),
             principal_memory_control_store=get_principal_memory_control_store(),
         )
@@ -1001,23 +1008,94 @@ def get_context_artifact_store():
         return _context_artifact_store
 
 
-def get_context_compression_runner(*, lease_seconds: int | None = None):
-    global _context_compression_runner
+def get_context_compression_failure_store():
+    global _context_compression_failure_store
     with _context_compression_lock:
-        if _context_compression_runner is None:
+        if _context_compression_failure_store is None:
+            runtime_store = get_runtime_store()
+            if runtime_store == "postgres":
+                from app.services.context_compression_failure_store import (
+                    PostgresContextCompressionFailureStore,
+                )
+
+                _context_compression_failure_store = (
+                    PostgresContextCompressionFailureStore(
+                        dsn=get_postgres_dsn(),
+                        connection_provider=(
+                            get_postgres_connection_domains().business
+                        ),
+                        table_prefix=get_runtime_table_prefix(),
+                        schema_mode="validate",
+                    )
+                )
+            elif runtime_store == "memory":
+                from app.services.in_memory_context_compression_failure_store import (
+                    InMemoryContextCompressionFailureStore,
+                )
+
+                _context_compression_failure_store = (
+                    InMemoryContextCompressionFailureStore()
+                )
+            else:
+                raise RuntimeError(
+                    "context compression failure state requires postgres or memory runtime"
+                )
+        return _context_compression_failure_store
+
+
+def get_context_compression_runner(
+    *,
+    workflow: str = "interview",
+    lease_seconds: int | None = None,
+):
+    global _context_compression_runners
+    if workflow not in {"interview", "review", "prep"}:
+        raise ValueError("workflow must be interview, review, or prep")
+    with _context_compression_lock:
+        if workflow not in _context_compression_runners:
             from app.services.context_compression_runner import (
                 ContextCompressionRunner,
             )
 
-            _context_compression_runner = ContextCompressionRunner(
+            failure_containment = None
+            if workflow == "interview":
+                from app.services.context_compression_failure_containment import (
+                    ContextCompressionFailureContainment,
+                    FailureContainmentConfig,
+                )
+                from app.services.memory_config import load_effective_memory_config
+
+                compression = load_effective_memory_config().compression
+                failure_containment = ContextCompressionFailureContainment(
+                    store=get_context_compression_failure_store(),
+                    config=FailureContainmentConfig(
+                        provider_circuit_threshold=(
+                            compression.provider_circuit_threshold
+                        ),
+                        provider_circuit_cooldown_seconds=(
+                            compression.provider_circuit_cooldown_seconds
+                        ),
+                        validation_quarantine_threshold=(
+                            compression.validation_quarantine_threshold
+                        ),
+                        validation_quarantine_cooldown_seconds=(
+                            compression.validation_quarantine_cooldown_seconds
+                        ),
+                        failure_state_lease_seconds=(
+                            compression.failure_state_lease_seconds
+                        ),
+                    ),
+                )
+            _context_compression_runners[workflow] = ContextCompressionRunner(
                 get_context_artifact_store(),
                 lease_seconds=(
                     lease_seconds
                     if lease_seconds is not None
                     else get_context_artifact_lease_seconds()
                 ),
+                failure_containment=failure_containment,
             )
-        return _context_compression_runner
+        return _context_compression_runners[workflow]
 
 
 def get_context_compressor_agent(
@@ -1153,6 +1231,7 @@ def build_durable_workflow_maintenance_service():
         ),
         signal_store=get_runtime_signal_store(),
         context_artifact_store=get_context_artifact_store(),
+        failure_state_store=get_context_compression_failure_store(),
         retention_hours=get_interview_chunk_retention_hours(),
         signal_retention_hours=(
             get_langgraph_canary_signal_retention_hours()
@@ -1167,6 +1246,12 @@ def build_durable_workflow_maintenance_service():
             get_context_artifact_prep_ref_retention_hours()
         ),
         context_artifact_cleanup_batch_size=(
+            get_context_artifact_cleanup_batch_size()
+        ),
+        failure_state_retention_hours=(
+            get_context_artifact_failed_retention_hours()
+        ),
+        failure_state_cleanup_batch_size=(
             get_context_artifact_cleanup_batch_size()
         ),
         interval_seconds=get_durable_workflow_maintenance_seconds(),
@@ -1383,6 +1468,7 @@ def build_interview_workflow_service():
             llm=business_llm,
         )
         compression_runner = get_context_compression_runner(
+            workflow="interview",
             lease_seconds=effective_memory.artifact.lease_seconds
         )
         deps.context_artifact_coordinator = InterviewContextArtifactCoordinator(
@@ -1649,6 +1735,7 @@ def build_review_workflow_service():
             llm=business_llm,
         )
         compression_runner = get_context_compression_runner(
+            workflow="review",
             lease_seconds=effective_memory.artifact.lease_seconds
         )
         review_evidence_coordinator = EvidenceContextArtifactCoordinator(
@@ -2093,7 +2180,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _workflow_thread_lock
     global _runtime_signal_store
     global _postgres_connection_domains
-    global _context_artifact_store, _context_compression_runner
+    global _context_artifact_store, _context_compression_runners
+    global _context_compression_failure_store
     global _context_compressor_agent, _context_compressor_authority
     global _composed_workflow_llm, _composed_workflow_llm_authority
     global _question_memory_index_store
@@ -2149,7 +2237,8 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _runtime_signal_store = None
     _postgres_connection_domains = None
     _context_artifact_store = None
-    _context_compression_runner = None
+    _context_compression_runners = {}
+    _context_compression_failure_store = None
     _context_compressor_agent = None
     _context_compressor_authority = None
     _composed_workflow_llm = None

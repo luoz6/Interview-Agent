@@ -636,8 +636,8 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
         checkpointer_calls.append(interview_runtime_enabled)
         return FakeCheckpointer()
 
-    def get_compression_runner(*, lease_seconds):
-        compression_runner_calls.append(lease_seconds)
+    def get_compression_runner(*, workflow, lease_seconds):
+        compression_runner_calls.append((workflow, lease_seconds))
         return object()
 
     def get_compressor_agent(**kwargs):
@@ -772,7 +772,7 @@ def test_interview_composition_uses_one_effective_snapshot_and_injects_selection
     assert load_calls == ["load"]
     assert forbidden_calls == []
     assert checkpointer_calls == [False]
-    assert compression_runner_calls == [73]
+    assert compression_runner_calls == [("interview", 73)]
     assert business_llm_config_calls == [snapshot.model]
     assert business_llm_calls == [
         {
@@ -961,8 +961,8 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
         checkpointer_calls.append(interview_runtime_enabled)
         return FakeCheckpointer()
 
-    def get_compression_runner(*, lease_seconds):
-        compression_runner_calls.append(lease_seconds)
+    def get_compression_runner(*, workflow, lease_seconds):
+        compression_runner_calls.append((workflow, lease_seconds))
         return object()
 
     def get_compressor_agent(**kwargs):
@@ -1130,7 +1130,7 @@ def test_review_composition_uses_one_effective_snapshot_for_gates_and_policy(
     assert load_calls == ["load"]
     assert forbidden_calls == []
     assert checkpointer_calls == [False]
-    assert compression_runner_calls == [83]
+    assert compression_runner_calls == [("review", 83)]
     assert business_llm_config_calls == [snapshot.model]
     assert business_llm_calls == [
         {

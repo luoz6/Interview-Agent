@@ -1231,6 +1231,89 @@ RUNTIME_SCHEMA_V27_MANIFEST = json.dumps(
 RUNTIME_SCHEMA_V27_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V27_MANIFEST.encode("utf-8")
 ).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = frozenset(
+    {
+        "state_key_sha256",
+        "kind",
+        "privacy_scope_sha256",
+        "owner_type",
+        "owner_key_sha256",
+        "provider",
+        "model",
+        "artifact_type",
+        "policy_version",
+        "source_manifest_sha256",
+        "compression_intent_sha256",
+        "prompt_contract_version",
+        "output_schema_version",
+        "consecutive_failure_count",
+        "state",
+        "open_until",
+        "probe_owner_sha256",
+        "probe_token",
+        "probe_lease_until",
+        "fencing_version",
+        "state_version",
+        "last_failure_code",
+        "created_at",
+        "updated_at",
+    }
+)
+RUNTIME_REQUIRED_NULLABLE_COLUMNS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = frozenset(
+    {
+        "source_manifest_sha256",
+        "compression_intent_sha256",
+        "prompt_contract_version",
+        "output_schema_version",
+        "open_until",
+        "probe_owner_sha256",
+        "probe_token",
+        "probe_lease_until",
+        "last_failure_code",
+    }
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = (
+    frozenset({"kind", "provider_circuit", "validation_quarantine"}),
+    frozenset({"state", "closed", "open", "half_open"}),
+    frozenset({"state_version", "fencing_version"}),
+    frozenset({"probe_owner_sha256", "probe_token", "probe_lease_until"}),
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = (
+    frozenset(
+        {"privacy_scope_sha256", "owner_type", "owner_key_sha256"}
+    ),
+    frozenset({"open_until", "probe_lease_until", "updated_at"}),
+)
+RUNTIME_SCHEMA_V28_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V27_CHECKSUM,
+        "context_compression_failure_state": {
+            "relation_suffix": "_context_compression_failure_states",
+            "identity": "privacy-owner-scoped-canonical-sha256-v1",
+            "states": ["closed", "open", "half_open"],
+            "kinds": ["provider_circuit", "validation_quarantine"],
+            "mutation_contract": "atomic-state-version-fencing-v1",
+            "dual_key_contract": "sorted-single-transaction-v1",
+            "retention": "bounded-live-probe-preserving-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V28_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V28_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1365,6 +1448,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="question_memory_resolved_target_v1_v27",
         checksum=RUNTIME_SCHEMA_V27_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="context_compression_failure_state_v1_v28",
+        checksum=RUNTIME_SCHEMA_V28_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

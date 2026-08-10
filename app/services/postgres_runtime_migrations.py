@@ -6,6 +6,9 @@ from typing import Any, Iterator
 
 from app.services.config import derive_pgvector_table_names
 from app.services.context_artifact_store import PostgresContextArtifactStore
+from app.services.context_compression_failure_store import (
+    PostgresContextCompressionFailureStore,
+)
 from app.services.interview_generation_store import PostgresInterviewGenerationStore
 from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
 from app.services.postgres_identifiers import (
@@ -37,14 +40,14 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V27_MANIFEST,
+    RUNTIME_SCHEMA_V28_MANIFEST,
     is_strict_positive_when_present_check,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V27_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V28_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -205,6 +208,12 @@ def migrate_postgres_runtime(
             _upgrade_question_memory_resolved_target_v1(
                 connection,
                 table_prefix=table_prefix,
+            )
+            PostgresContextCompressionFailureStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
             )
             from app.services.postgres_session_deletion import (
                 PostgresSessionDeletionJobStore,

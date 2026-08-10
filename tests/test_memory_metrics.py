@@ -49,6 +49,12 @@ def test_metric_contract_rejects_content_ids_credentials_and_unknown_fields():
         "normalized_fact",
         "source_manifest_sha256",
         "source_excerpt_sha256",
+        "state_key_sha256",
+        "privacy_scope_sha256",
+        "owner_key_sha256",
+        "probe_owner_sha256",
+        "probe_token",
+        "failure_state_record",
     )
     for key in forbidden:
         with pytest.raises(ValidationError, match="extra_forbidden"):

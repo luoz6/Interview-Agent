@@ -69,9 +69,27 @@ class ContextArtifactMissing(RuntimeError):
 class ContextArtifactValidationFailed(ValueError):
     """A compressed payload failed a stable, content-free validation rule."""
 
+    def __init__(
+        self,
+        message: str = "context artifact validation failed",
+        *,
+        failure_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+
 
 class ContextArtifactProviderFailed(RuntimeError):
     """The dedicated Context Compressor provider failed."""
+
+    def __init__(
+        self,
+        message: str = "context artifact provider failed",
+        *,
+        failure_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
 
 
 def _require_nonempty(value: str, *, field_name: str) -> None:

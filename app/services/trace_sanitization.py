@@ -17,10 +17,17 @@ AGENT_TRACE_BLOCKED_KEYS = {
     "job_description",
     "password",
     "prompt",
+    "provider_error",
     "provider_response",
     "principal_id",
     "fact_id",
+    "failure_state_record",
     "normalized_fact",
+    "owner_key_sha256",
+    "privacy_scope_sha256",
+    "probe_owner_sha256",
+    "probe_token",
+    "state_key_sha256",
     "source_manifest_sha256",
     "source_excerpt_sha256",
     "consent_record",
@@ -32,6 +39,7 @@ AGENT_TRACE_BLOCKED_KEYS = {
     "summary",
     "token",
     "user_answer",
+    "validation_payload",
 }
 
 KNOWLEDGE_TRACE_BLOCKED_KEY_PARTS = (
@@ -89,7 +97,9 @@ AGENT_SAFE_METADATA_STRING_KEYS = frozenset(
         "estimator_path",
         "estimator_error_direction",
         "provider_model",
+        "failure_code",
         "report_path",
+        "store_outcome",
     }
 )
 AGENT_CONTEXT_NUMERIC_METADATA_KEYS = frozenset(

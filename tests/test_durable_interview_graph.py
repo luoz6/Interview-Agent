@@ -1523,6 +1523,107 @@ def test_mandatory_overflow_stops_before_compressor_and_examiner(monkeypatch):
     assert generation_store.failed[0][0][2] == "mandatory_bounded_raw_overflow"
 
 
+class AuthoritativeOpenFailureStateCoordinator:
+    def __init__(self, failure_store):
+        self.failure_store = failure_store
+        self.calls = 0
+        self.compressor_calls = 0
+
+    def build_context(self, *, state, deterministic_context, **_kwargs):
+        self.calls += 1
+        self.failure_store["queries"] += 1
+        if state["session_id"] not in self.failure_store["open_owners"]:
+            self.compressor_calls += 1
+            raise AssertionError("fixture expects an authoritative open state")
+        return SimpleNamespace(
+            context_messages=deterministic_context,
+            advisory_unresolved_topic_codes=(),
+            artifact_ref=None,
+            artifact_sha256=None,
+            artifact_type=None,
+            policy_version="question-memory-v1",
+            route="artifact_fallback",
+            memory_unit_count=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("workflow_engine", "expected_queries"),
+    (
+        ("langgraph-v1", 0),
+        ("langgraph-v2", 1),
+    ),
+)
+def test_task8_failure_containment_is_interview_v2_only(
+    monkeypatch,
+    workflow_engine,
+    expected_queries,
+):
+    monkeypatch.setattr(
+        "app.graphs.durable_interview_graph.context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    authoritative = {"open_owners": {"s1"}, "queries": 0}
+    coordinator = AuthoritativeOpenFailureStateCoordinator(authoritative)
+    state = _provider_state(
+        _characterization_messages(),
+        workflow_engine=workflow_engine,
+    )
+    if workflow_engine == "langgraph-v2":
+        state["memory_policy_version"] = "question-memory-v1"
+
+    provider_context = _run_provider_characterization(
+        state,
+        context_runtime=_lossy_context_runtime(),
+        question_memory_coordinator=coordinator,
+    )
+
+    assert authoritative["queries"] == expected_queries
+    assert coordinator.calls == expected_queries
+    assert coordinator.compressor_calls == 0
+    assert provider_context
+
+
+def test_v2_checkpoint_tampering_and_worker_replacement_cannot_reset_open_state(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.graphs.durable_interview_graph.context_enforcement_enabled",
+        lambda _operation: False,
+    )
+    authoritative = {"open_owners": {"s1"}, "queries": 0}
+    state = _provider_state(
+        _characterization_messages(),
+        workflow_engine="langgraph-v2",
+    )
+    state.update(
+        {
+            "memory_policy_version": "question-memory-v1",
+            "provider_failure_count": 0,
+            "validation_failure_count": 0,
+            "provider_circuit_record": {"state": "closed"},
+            "validation_quarantine_record": {"state": "closed"},
+        }
+    )
+    first = AuthoritativeOpenFailureStateCoordinator(authoritative)
+    replacement = AuthoritativeOpenFailureStateCoordinator(authoritative)
+
+    first_context = _run_provider_characterization(
+        deepcopy(state),
+        context_runtime=_lossy_context_runtime(),
+        question_memory_coordinator=first,
+    )
+    replay_context = _run_provider_characterization(
+        deepcopy(state),
+        context_runtime=_lossy_context_runtime(),
+        question_memory_coordinator=replacement,
+    )
+
+    assert first_context == replay_context
+    assert authoritative["queries"] == 2
+    assert first.compressor_calls == replacement.compressor_calls == 0
+
+
 def test_graph_initializes_then_waits_for_answer():
     graph, config, _ = make_graph()
 

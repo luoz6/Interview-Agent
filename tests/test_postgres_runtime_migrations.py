@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -168,8 +169,11 @@ def test_v16_context_artifact_identity_contract_requires_versioned_columns():
     )
     assert RUNTIME_MIGRATIONS[15].migration_id == "context_artifact_identity_v1_v16"
     assert RUNTIME_MIGRATIONS[15].checksum == RUNTIME_SCHEMA_V16_CHECKSUM
-    assert LATEST_RUNTIME_MIGRATION.migration_id == (
+    assert RUNTIME_MIGRATIONS[26].migration_id == (
         "question_memory_resolved_target_v1_v27"
+    )
+    assert LATEST_RUNTIME_MIGRATION.migration_id == (
+        "context_compression_failure_state_v1_v28"
     )
 
 
@@ -467,6 +471,7 @@ def _patch_schema_owners(monkeypatch, seen):
         "PostgresPrincipalMemoryDeletionTombstoneStore",
         "PostgresPrincipalMemorySafeRefStore",
         "PostgresPrincipalMemoryLedgerWatermarkStore",
+        "PostgresContextCompressionFailureStore",
     ):
         monkeypatch.setattr(migrations, name, owner)
 
@@ -601,8 +606,8 @@ def test_fresh_install_records_full_registry_and_quality_schema(monkeypatch):
         (spec.migration_id, spec.checksum, spec.transaction_mode)
         for spec in RUNTIME_MIGRATIONS
     ]
-    assert len(database.rows) == 27
-    assert len({row[0] for row in database.rows}) == 27
+    assert len(database.rows) == 28
+    assert len({row[0] for row in database.rows}) == 28
     assert {
         "PostgresInterviewPlanRevisionStore",
         "_upgrade_interview_draft_plan_binding",
@@ -745,13 +750,83 @@ def test_migration_uses_one_borrowed_transaction_connection(monkeypatch):
     )
 
     assert result.applied is True
-    assert len([item for item in seen if item[0] == "migrate"]) == 15
+    assert len([item for item in seen if item[0] == "migrate"]) == 16
     assert all(item[1] is connection for item in seen if item[0] == "migrate")
     assert ("context_artifact_identity_v1_upgrade", connection) in seen
     assert resolved_target_upgrades == [(connection, "test_runtime")]
     assert setup == ["private-dsn"]
     assert connection.commits >= 2
     assert connection.closed is True
+
+
+def test_v28_failure_state_manifest_is_append_only_and_canonical():
+    from app.services.postgres_schema_contract import (
+        RUNTIME_SCHEMA_V16_CHECKSUM,
+        RUNTIME_SCHEMA_V27_CHECKSUM,
+        RUNTIME_SCHEMA_V28_CHECKSUM,
+        RUNTIME_SCHEMA_V28_MANIFEST,
+    )
+
+    assert RUNTIME_SCHEMA_V16_CHECKSUM == (
+        "f0381a784430bca592cc33ecf5d96ad4d989f9ab9ac7c50d14d4693fa2e3c8b6"
+    )
+    assert sha256(RUNTIME_SCHEMA_V28_MANIFEST.encode("utf-8")).hexdigest() == (
+        RUNTIME_SCHEMA_V28_CHECKSUM
+    )
+    assert (
+        f'"base_schema_checksum":"{RUNTIME_SCHEMA_V27_CHECKSUM}"'
+        in RUNTIME_SCHEMA_V28_MANIFEST
+    )
+    assert '"relation_suffix":"_context_compression_failure_states"' in (
+        RUNTIME_SCHEMA_V28_MANIFEST
+    )
+    assert RUNTIME_MIGRATIONS[-2].migration_id == (
+        "question_memory_resolved_target_v1_v27"
+    )
+    assert LATEST_RUNTIME_MIGRATION.migration_id == (
+        "context_compression_failure_state_v1_v28"
+    )
+    assert LATEST_RUNTIME_MIGRATION.checksum == RUNTIME_SCHEMA_V28_CHECKSUM
+
+
+def test_migration_invokes_failure_state_schema_owner_on_borrowed_connection(
+    monkeypatch,
+):
+    assert hasattr(migrations, "PostgresContextCompressionFailureStore")
+    connection = FakeConnection()
+    seen = []
+    _patch_schema_owners(monkeypatch, seen)
+    monkeypatch.setattr(
+        migrations,
+        "PostgresContextCompressionFailureStore",
+        lambda **kwargs: seen.append(
+            (
+                "failure_state_owner",
+                kwargs["schema_mode"],
+                kwargs["connection_provider"].connection_object,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        migrations,
+        "_upgrade_question_memory_resolved_target_v1",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        migrations,
+        "_setup_langgraph_checkpointer",
+        lambda dsn: None,
+    )
+
+    migrate_postgres_runtime(
+        dsn="private-dsn",
+        table_prefix="test_runtime",
+        pgvector_table="knowledge_chunks",
+        embedding_provider=object(),
+        connect=lambda dsn: connection,
+    )
+
+    assert seen.count(("failure_state_owner", "migrate", connection)) == 1
 
 
 def test_migration_checksum_divergence_fails_closed(monkeypatch):

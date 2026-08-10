@@ -71,9 +71,13 @@ def test_latest_migration_contract_requires_deletion_lease_and_indexes():
         migration.migration_id == "context_artifact_identity_v1_v16"
         for migration in RUNTIME_MIGRATIONS
     )
+    assert any(
+        migration.migration_id == "question_memory_resolved_target_v1_v27"
+        for migration in RUNTIME_MIGRATIONS
+    )
     assert (
         LATEST_RUNTIME_MIGRATION.migration_id
-        == "question_memory_resolved_target_v1_v27"
+        == "context_compression_failure_state_v1_v28"
     )
     assert LATEST_RUNTIME_MIGRATION == RUNTIME_MIGRATIONS[-1]
     columns = required_columns_for_relation(

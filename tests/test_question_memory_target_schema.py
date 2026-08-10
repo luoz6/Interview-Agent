@@ -98,9 +98,9 @@ def test_v27_migration_is_append_only_and_preserves_v1_to_v26_checksums():
         _V1_TO_V26_MIGRATION_IDS
     )
     assert tuple(spec.checksum for spec in specs[:26]) == _V1_TO_V26_CHECKSUMS
-    assert len(specs) == 27
+    assert len(specs) == 28
     assert specs[26].migration_id == "question_memory_resolved_target_v1_v27"
-    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[26]
+    assert schema_contract.LATEST_RUNTIME_MIGRATION is specs[27]
 
     manifest = getattr(schema_contract, "RUNTIME_SCHEMA_V27_MANIFEST", None)
     checksum = getattr(schema_contract, "RUNTIME_SCHEMA_V27_CHECKSUM", None)
@@ -121,15 +121,22 @@ def test_v27_migration_is_append_only_and_preserves_v1_to_v26_checksums():
     }
 
 
-def test_runtime_migration_entry_uses_v27_manifest_and_runs_target_upgrade():
+def test_v27_target_migration_precedes_v28_runtime_and_runs_target_upgrade():
     manifest = getattr(schema_contract, "RUNTIME_SCHEMA_V27_MANIFEST", None)
     checksum = getattr(schema_contract, "RUNTIME_SCHEMA_V27_CHECKSUM", None)
 
-    assert migrations.RUNTIME_MIGRATION_ID == (
-        "question_memory_resolved_target_v1_v27"
+    v27 = schema_contract.RUNTIME_MIGRATIONS[26]
+    assert v27.migration_id == "question_memory_resolved_target_v1_v27"
+    assert v27.checksum == checksum
+    latest = schema_contract.LATEST_RUNTIME_MIGRATION
+    assert migrations.RUNTIME_MIGRATION_ID == latest.migration_id
+    assert migrations.RUNTIME_MIGRATION_MANIFEST == (
+        schema_contract.RUNTIME_SCHEMA_V28_MANIFEST
     )
-    assert migrations.RUNTIME_MIGRATION_MANIFEST == manifest
-    assert migrations.RUNTIME_MIGRATION_CHECKSUM == checksum
+    assert migrations.RUNTIME_MIGRATION_CHECKSUM == latest.checksum
+    assert json.loads(manifest)["base_schema_checksum"] == (
+        _V1_TO_V26_CHECKSUMS[-1]
+    )
     assert "_upgrade_question_memory_resolved_target_v1(" in inspect.getsource(
         migrations.migrate_postgres_runtime
     )

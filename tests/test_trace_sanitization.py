@@ -59,3 +59,28 @@ def test_followup_performance_metadata_is_safe_but_payloads_remain_blocked():
     }
     assert result.rejected_count == 4
     assert marker not in repr(result)
+
+
+def test_failure_containment_capabilities_and_digests_are_blocked():
+    marker = "PRIVATE-FAILURE-STATE-779"
+    private = {
+        "state_key_sha256": marker,
+        "privacy_scope_sha256": marker,
+        "owner_key_sha256": marker,
+        "probe_owner_sha256": marker,
+        "probe_token": marker,
+        "failure_state_record": {"raw_error": marker},
+        "provider_error": marker,
+        "validation_payload": marker,
+        "failure_code": "provider_timeout",
+        "store_outcome": "opened",
+    }
+
+    result = sanitize_agent_safe_metadata(private)
+
+    assert result.value == {
+        "failure_code": "provider_timeout",
+        "store_outcome": "opened",
+    }
+    assert marker not in repr(result)
+    assert result.rejected_count == 8

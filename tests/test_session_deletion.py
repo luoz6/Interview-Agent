@@ -111,6 +111,7 @@ def test_worker_purge_is_replay_safe_and_returns_only_safe_counts():
         "question_memory_rows": 0,
         "artifact_owner_refs": 0,
         "report_history_rows": 0,
+        "failure_state_rows": 0,
         "principal_memory_rows": 0,
         "principal_memory_control_rows": 0,
         "business_sessions": 1,

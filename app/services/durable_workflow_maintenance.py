@@ -17,6 +17,7 @@ class MaintenanceResult:
     deleted_context_artifact_refs: int = 0
     deleted_completed_context_artifacts: int = 0
     deleted_failed_context_artifacts: int = 0
+    deleted_context_compression_failure_states: int = 0
 
 
 class DurableWorkflowMaintenanceService:
@@ -33,6 +34,9 @@ class DurableWorkflowMaintenanceService:
         context_artifact_failed_retention_hours: int = 24,
         context_artifact_prep_ref_retention_hours: int = 168,
         context_artifact_cleanup_batch_size: int = 200,
+        failure_state_store=None,
+        failure_state_retention_hours: int = 48,
+        failure_state_cleanup_batch_size: int = 200,
         interval_seconds: int,
     ) -> None:
         if retention_hours < 1:
@@ -43,6 +47,7 @@ class DurableWorkflowMaintenanceService:
         self.generation_store = generation_store
         self.signal_store = signal_store
         self.context_artifact_store = context_artifact_store
+        self.failure_state_store = failure_state_store
         self.retention_hours = retention_hours
         self.signal_retention_hours = (
             retention_hours
@@ -71,6 +76,14 @@ class DurableWorkflowMaintenanceService:
         self.context_artifact_cleanup_batch_size = (
             context_artifact_cleanup_batch_size
         )
+        failure_state_bounds = (
+            failure_state_retention_hours,
+            failure_state_cleanup_batch_size,
+        )
+        if any(value < 1 for value in failure_state_bounds):
+            raise ValueError("failure-state maintenance bounds must be positive")
+        self.failure_state_retention_hours = failure_state_retention_hours
+        self.failure_state_cleanup_batch_size = failure_state_cleanup_batch_size
         self.interval_seconds = interval_seconds
         self._stop = Event()
         self._run_lock = Lock()
@@ -100,6 +113,7 @@ class DurableWorkflowMaintenanceService:
             return None
         try:
             artifact_cleanup = self._cleanup_context_artifacts()
+            deleted_failure_states = self._cleanup_failure_states()
             result = MaintenanceResult(
                 cleared_command_payloads=(
                     self.workflow_store.clear_applied_command_payloads_older_than(
@@ -133,6 +147,9 @@ class DurableWorkflowMaintenanceService:
                     if artifact_cleanup is not None
                     else 0
                 ),
+                deleted_context_compression_failure_states=(
+                    deleted_failure_states
+                ),
             )
             self.last_result = result
             self.last_error_code = None
@@ -147,6 +164,9 @@ class DurableWorkflowMaintenanceService:
                     ),
                     "deleted_runtime_signal_bucket_count": (
                         result.deleted_runtime_signal_buckets
+                    ),
+                    "deleted_context_compression_failure_state_count": (
+                        result.deleted_context_compression_failure_states
                     ),
                 },
             )
@@ -186,3 +206,13 @@ class DurableWorkflowMaintenanceService:
     def _run(self) -> None:
         while not self._stop.wait(self.interval_seconds):
             self.run_once()
+
+    def _cleanup_failure_states(self) -> int:
+        if self.failure_state_store is None:
+            return 0
+        now = datetime.now(timezone.utc)
+        return self.failure_state_store.cleanup_expired(
+            before=now - timedelta(hours=self.failure_state_retention_hours),
+            now=now,
+            batch_size=self.failure_state_cleanup_batch_size,
+        )
