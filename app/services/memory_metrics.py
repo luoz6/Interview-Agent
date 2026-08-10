@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 MemoryMetricCode = Literal[
@@ -16,6 +16,7 @@ MemoryMetricCode = Literal[
     "budget_shadow",
     "principal_read_shadow",
     "principal_local_consume",
+    "context_compression",
 ]
 MemoryRoute = Literal[
     "deterministic",
@@ -25,6 +26,10 @@ MemoryRoute = Literal[
     "artifact_fallback",
     "memory_index_retrieved",
     "memory_index_empty",
+    "compression_eligible",
+    "compression_bypassed",
+    "provider_circuit_blocked",
+    "validation_quarantine_blocked",
 ]
 MemoryOperation = Literal[
     "prep",
@@ -44,6 +49,96 @@ MemoryOutcome = Literal[
     "insufficient_sample",
     "observing",
     "stopped",
+]
+
+CompressionWorkflow = Literal["interview", "review", "prep"]
+CompressionMeasurementPath = Literal["business", "counterfactual"]
+CompressionOperation = Literal[
+    "question_conversation",
+    "evidence_compression",
+    "prep_context",
+    "review_context",
+]
+CompressionTokenBucket = Literal[
+    "unknown",
+    "0",
+    "1_256",
+    "257_512",
+    "513_1024",
+    "1025_2048",
+    "2049_4096",
+    "4097_8192",
+    "8193_16384",
+    "16385_32768",
+    "32769_plus",
+]
+CompressionRatioBucket = Literal[
+    "unknown",
+    "0_2500_bp",
+    "2501_5000_bp",
+    "5001_7500_bp",
+    "7501_10000_bp",
+    "10001_plus_bp",
+]
+CompressionLatencyBucket = Literal[
+    "unknown",
+    "0_99_ms",
+    "100_499_ms",
+    "500_999_ms",
+    "1000_2499_ms",
+    "2500_4999_ms",
+    "5000_9999_ms",
+    "10000_plus_ms",
+]
+CompressionEligibilityReason = Literal[
+    "none",
+    "below_threshold",
+    "approaching_operation_budget",
+    "older_complete_turn_would_drop",
+    "older_complete_turn_excessively_truncated",
+    "unresolved_topic_coverage_loss",
+    "evidence_representation_excessive_truncation",
+    "prep_section_coverage_loss",
+    "review_continuity_would_drop",
+]
+CompressionValidationOutcome = Literal[
+    "not_run",
+    "valid",
+    "invalid_json",
+    "invalid_schema",
+    "grounding_failed",
+    "unsupported_excerpt",
+    "numeric_literal_changed",
+    "lease_lost",
+    "unavailable",
+]
+CompressionFallbackOutcome = Literal[
+    "not_used",
+    "deterministic",
+    "provider_failure",
+    "validation_failure",
+    "lease_loss",
+    "circuit_blocked",
+    "quarantine_blocked",
+]
+CompressionFailureState = Literal[
+    "not_configured",
+    "closed",
+    "half_open",
+    "open",
+    "unavailable",
+    "unknown",
+]
+CompressionFailureStoreOutcome = Literal[
+    "not_configured",
+    "not_queried",
+    "available",
+    "authorized",
+    "blocked",
+    "heartbeat_lost",
+    "finish_committed",
+    "abort_requested",
+    "unavailable",
 ]
 
 PrincipalLocalConsumeReason = Literal[
@@ -92,6 +187,49 @@ class MemoryMetricDimensions(BaseModel):
     language_bucket: MemoryLanguageBucket | None = None
     shadow_mode: bool = False
     consumption_enabled: bool = False
+    workflow: CompressionWorkflow | None = None
+    measurement_path: CompressionMeasurementPath | None = None
+    intent_schema_version: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9][a-z0-9.-]{0,127}$",
+    )
+    eligibility_reason: CompressionEligibilityReason | None = None
+    source_token_bucket: CompressionTokenBucket | None = None
+    target_token_bucket: CompressionTokenBucket | None = None
+    result_token_bucket: CompressionTokenBucket | None = None
+    compression_ratio_bucket: CompressionRatioBucket | None = None
+    source_demand_token_bucket: CompressionTokenBucket | None = None
+    duplicate_removed_token_bucket: CompressionTokenBucket | None = None
+    post_dedup_demand_token_bucket: CompressionTokenBucket | None = None
+    mandatory_bounded_raw_token_bucket: CompressionTokenBucket | None = None
+    pre_dedup_required_token_bucket: CompressionTokenBucket | None = None
+    post_dedup_required_token_bucket: CompressionTokenBucket | None = None
+    business_pre_loss_required_token_bucket: CompressionTokenBucket | None = None
+    shadow_post_dedup_required_token_bucket: CompressionTokenBucket | None = None
+    business_utilization_basis_points: int | None = Field(
+        default=None,
+        ge=0,
+        le=100_000,
+    )
+    shadow_post_dedup_utilization_basis_points: int | None = Field(
+        default=None,
+        ge=0,
+        le=100_000,
+    )
+    estimator_error_basis_points: int | None = Field(
+        default=None,
+        ge=0,
+        le=100_000,
+    )
+    exact_recent_preserved: bool | None = None
+    current_answer_preserved: bool | None = None
+    provider_usage_available: bool | None = None
+    validation_outcome: CompressionValidationOutcome | None = None
+    fallback_outcome: CompressionFallbackOutcome | None = None
+    provider_circuit_state: CompressionFailureState | None = None
+    validation_quarantine_state: CompressionFailureState | None = None
+    failure_state_store_outcome: CompressionFailureStoreOutcome | None = None
+    latency_bucket: CompressionLatencyBucket | None = None
 
 
 class MemoryMetricValues(BaseModel):
@@ -124,6 +262,66 @@ class MemoryMetricEvent(BaseModel):
     observed_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+
+class CompressionObservation(BaseModel):
+    """Strict, content-free input for bounded compression telemetry."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    measurement_path: CompressionMeasurementPath
+    operation: CompressionOperation
+    workflow: CompressionWorkflow
+    policy_version: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]{0,127}$")
+    intent_schema_version: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9.-]{0,127}$"
+    )
+    eligibility_reason: CompressionEligibilityReason
+    route: MemoryRoute
+    source_token_bucket: CompressionTokenBucket
+    target_token_bucket: CompressionTokenBucket
+    result_token_bucket: CompressionTokenBucket
+    compression_ratio_bucket: CompressionRatioBucket
+    estimated_input_tokens: int = Field(ge=0)
+    provider_input_tokens_when_available: int | None = Field(default=None, ge=0)
+    provider_usage_available: bool
+    estimator_error_basis_points: int = Field(ge=0, le=100_000)
+    source_demand_token_bucket: CompressionTokenBucket
+    duplicate_removed_token_bucket: CompressionTokenBucket
+    post_dedup_demand_token_bucket: CompressionTokenBucket
+    mandatory_bounded_raw_token_bucket: CompressionTokenBucket
+    pre_dedup_required_token_bucket: CompressionTokenBucket
+    post_dedup_required_token_bucket: CompressionTokenBucket
+    business_pre_loss_required_token_bucket: CompressionTokenBucket
+    shadow_post_dedup_required_token_bucket: CompressionTokenBucket
+    business_utilization_basis_points: int | None = Field(
+        default=None, ge=0, le=100_000
+    )
+    shadow_post_dedup_utilization_basis_points: int | None = Field(
+        default=None, ge=0, le=100_000
+    )
+    selected_unit_count: int = Field(ge=0)
+    dropped_unit_count: int = Field(ge=0)
+    truncated_unit_count: int = Field(ge=0)
+    deduplicated_unit_count: int = Field(ge=0)
+    exact_recent_preserved: bool
+    current_answer_preserved: bool
+    validation_outcome: CompressionValidationOutcome
+    fallback_outcome: CompressionFallbackOutcome
+    provider_circuit_state: CompressionFailureState
+    validation_quarantine_state: CompressionFailureState
+    failure_state_store_outcome: CompressionFailureStoreOutcome
+    latency_bucket: CompressionLatencyBucket
+    language_bucket: MemoryLanguageBucket
+
+    @model_validator(mode="after")
+    def _validate_provider_usage(self) -> "CompressionObservation":
+        actual = self.provider_input_tokens_when_available
+        if self.provider_usage_available and actual is None:
+            raise ValueError("available provider usage requires input tokens")
+        if not self.provider_usage_available and actual is not None:
+            raise ValueError("unavailable provider usage cannot include input tokens")
+        return self
 
 
 class InMemoryMemoryMetricStore:
@@ -182,7 +380,7 @@ class InMemoryMemoryMetricStore:
             ),
             default=None,
         )
-        return {
+        return project_memory_metric_aggregate({
             "schema_version": "memory-metrics-v1",
             "window_minutes": window_minutes,
             "observed_since": observed_since.isoformat(),
@@ -190,7 +388,7 @@ class InMemoryMemoryMetricStore:
             "data_complete": False,
             "latest_bucket_at": latest.isoformat() if latest else None,
             "items": items,
-        }
+        })
 
     def rollup(self, *, batch_size: int = 1000) -> int:
         if batch_size < 1:
@@ -247,7 +445,7 @@ class ResilientMemoryMetricStore:
         try:
             result = self.primary.aggregate(window_minutes=window_minutes)
             self._primary_available = True
-            return result
+            return project_memory_metric_aggregate(result)
         except ValueError:
             raise
         except Exception:
@@ -255,7 +453,7 @@ class ResilientMemoryMetricStore:
             result = self.fallback.aggregate(window_minutes=window_minutes)
             result["data_complete"] = False
             result["durable_store_kind"] = self.store_kind
-            return result
+            return project_memory_metric_aggregate(result)
 
     def rollup(self, *, batch_size: int = 1000) -> int:
         try:
@@ -331,6 +529,166 @@ def reset_memory_metric_store() -> None:
     _memory_metric_store = _process_local_memory_metric_store
 
 
+def project_memory_metric_aggregate(result: dict) -> dict:
+    """Add stable logical aliases without changing the PostgreSQL schema."""
+
+    for item in result.get("items", ()):
+        dimensions = item.get("dimensions", {})
+        values = item.get("values", {})
+        if dimensions.get("provider_usage_available") is True:
+            values["provider_input_tokens_when_available"] = values.get(
+                "provider_input_tokens", 0
+            )
+        if item.get("metric_code") != "context_compression":
+            continue
+        values["selected_unit_count"] = values.get("selected_count", 0)
+        values["dropped_unit_count"] = values.get("dropped_count", 0)
+        values["truncated_unit_count"] = values.get("truncated_count", 0)
+        values["deduplicated_unit_count"] = values.get("source_count", 0)
+        values.setdefault("provider_input_tokens_when_available", None)
+    return result
+
+
+def publish_compression_observation(
+    observation: CompressionObservation | dict,
+) -> None:
+    """Publish one bounded observation; telemetry failures are non-authoritative."""
+
+    validated = CompressionObservation.model_validate(observation)
+    operation: MemoryOperation = {
+        "question_conversation": "followup",
+        "evidence_compression": "evaluate",
+        "prep_context": "prep",
+        "review_context": "report",
+    }[validated.operation]
+    dimensions = MemoryMetricDimensions(
+        operation=operation,
+        route=validated.route,
+        policy_version=validated.policy_version,
+        language_bucket=validated.language_bucket,
+        shadow_mode=validated.measurement_path == "counterfactual",
+        consumption_enabled=validated.measurement_path == "business",
+        workflow=validated.workflow,
+        measurement_path=validated.measurement_path,
+        intent_schema_version=validated.intent_schema_version,
+        eligibility_reason=validated.eligibility_reason,
+        source_token_bucket=validated.source_token_bucket,
+        target_token_bucket=validated.target_token_bucket,
+        result_token_bucket=validated.result_token_bucket,
+        compression_ratio_bucket=validated.compression_ratio_bucket,
+        source_demand_token_bucket=validated.source_demand_token_bucket,
+        duplicate_removed_token_bucket=validated.duplicate_removed_token_bucket,
+        post_dedup_demand_token_bucket=validated.post_dedup_demand_token_bucket,
+        mandatory_bounded_raw_token_bucket=(
+            validated.mandatory_bounded_raw_token_bucket
+        ),
+        pre_dedup_required_token_bucket=(
+            validated.pre_dedup_required_token_bucket
+        ),
+        post_dedup_required_token_bucket=(
+            validated.post_dedup_required_token_bucket
+        ),
+        business_pre_loss_required_token_bucket=(
+            validated.business_pre_loss_required_token_bucket
+        ),
+        shadow_post_dedup_required_token_bucket=(
+            validated.shadow_post_dedup_required_token_bucket
+        ),
+        business_utilization_basis_points=(
+            validated.business_utilization_basis_points
+        ),
+        shadow_post_dedup_utilization_basis_points=(
+            validated.shadow_post_dedup_utilization_basis_points
+        ),
+        estimator_error_basis_points=validated.estimator_error_basis_points,
+        exact_recent_preserved=validated.exact_recent_preserved,
+        current_answer_preserved=validated.current_answer_preserved,
+        provider_usage_available=validated.provider_usage_available,
+        validation_outcome=validated.validation_outcome,
+        fallback_outcome=validated.fallback_outcome,
+        provider_circuit_state=validated.provider_circuit_state,
+        validation_quarantine_state=validated.validation_quarantine_state,
+        failure_state_store_outcome=validated.failure_state_store_outcome,
+        latency_bucket=validated.latency_bucket,
+    )
+    event = MemoryMetricEvent(
+        metric_code="context_compression",
+        dimensions=dimensions,
+        values=MemoryMetricValues(
+            source_count=validated.deduplicated_unit_count,
+            selected_count=validated.selected_unit_count,
+            dropped_count=validated.dropped_unit_count,
+            truncated_count=validated.truncated_unit_count,
+            estimated_input_tokens=validated.estimated_input_tokens,
+            provider_input_tokens=(
+                validated.provider_input_tokens_when_available or 0
+            ),
+        ),
+    )
+    try:
+        get_memory_metric_store().publish(event)
+    except Exception:
+        return
+
+
+def compression_token_bucket(value: int | None) -> CompressionTokenBucket:
+    if value is None:
+        return "unknown"
+    if value < 0:
+        raise ValueError("token measurement must not be negative")
+    boundaries = (
+        (0, "0"),
+        (256, "1_256"),
+        (512, "257_512"),
+        (1_024, "513_1024"),
+        (2_048, "1025_2048"),
+        (4_096, "2049_4096"),
+        (8_192, "4097_8192"),
+        (16_384, "8193_16384"),
+        (32_768, "16385_32768"),
+    )
+    for upper, bucket in boundaries:
+        if value <= upper:
+            return bucket
+    return "32769_plus"
+
+
+def compression_ratio_bucket(
+    *, source_tokens: int | None, result_tokens: int | None
+) -> CompressionRatioBucket:
+    if source_tokens is None or result_tokens is None or source_tokens <= 0:
+        return "unknown"
+    basis_points = result_tokens * 10_000 // source_tokens
+    if basis_points <= 2_500:
+        return "0_2500_bp"
+    if basis_points <= 5_000:
+        return "2501_5000_bp"
+    if basis_points <= 7_500:
+        return "5001_7500_bp"
+    if basis_points <= 10_000:
+        return "7501_10000_bp"
+    return "10001_plus_bp"
+
+
+def compression_latency_bucket(value_ms: int | None) -> CompressionLatencyBucket:
+    if value_ms is None:
+        return "unknown"
+    if value_ms < 0:
+        raise ValueError("latency must not be negative")
+    boundaries = (
+        (99, "0_99_ms"),
+        (499, "100_499_ms"),
+        (999, "500_999_ms"),
+        (2_499, "1000_2499_ms"),
+        (4_999, "2500_4999_ms"),
+        (9_999, "5000_9999_ms"),
+    )
+    for upper, bucket in boundaries:
+        if value_ms <= upper:
+            return bucket
+    return "10000_plus_ms"
+
+
 def publish_memory_route(
     *,
     operation: MemoryOperation,
@@ -375,13 +733,25 @@ def publish_provider_usage_metric(
     estimated_input_tokens: int,
     provider_input_tokens: int,
     provider_output_tokens: int,
+    estimator_error_basis_points: int = 0,
+    operation: MemoryOperation = "provider",
+    workflow: CompressionWorkflow | None = None,
+    policy_version: str | None = None,
+    intent_schema_version: str | None = None,
+    measurement_path: CompressionMeasurementPath | None = None,
 ) -> None:
     get_memory_metric_store().publish(
         MemoryMetricEvent(
             metric_code="provider_usage",
             dimensions=MemoryMetricDimensions(
-                operation="provider",
+                operation=operation,
                 language_bucket=language_bucket,
+                workflow=workflow,
+                policy_version=policy_version,
+                intent_schema_version=intent_schema_version,
+                measurement_path=measurement_path,
+                provider_usage_available=True,
+                estimator_error_basis_points=estimator_error_basis_points,
             ),
             values=MemoryMetricValues(
                 estimated_input_tokens=estimated_input_tokens,

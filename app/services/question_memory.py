@@ -43,7 +43,11 @@ from app.services.question_memory_index import (
     QuestionMemoryIndexEntry,
 )
 from app.services.question_memory_retrieval import rank_question_memory_entries
-from app.services.memory_metrics import publish_memory_route
+from app.services.memory_metrics import (
+    CompressionObservation,
+    publish_compression_observation,
+    publish_memory_route,
+)
 from app.services.context_source_identity import (
     ConversationSourceIdentity,
     canonical_conversation_sequence_pair,
@@ -119,11 +123,17 @@ class QuestionMemoryCoordinator:
         selection=None,
     ) -> QuestionMemoryContext:
         if state.get("memory_policy_version") != "question-memory-v1":
-            publish_memory_route(operation="followup", route="deterministic")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="deterministic",
+                fallback_outcome="deterministic",
+            )
         if selection is None:
-            publish_memory_route(operation="followup", route="deterministic")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="deterministic",
+                fallback_outcome="deterministic",
+            )
         try:
             validated_selection = self._validated_selection_sources(
                 state,
@@ -135,11 +145,17 @@ class QuestionMemoryCoordinator:
                 validated_selection=validated_selection,
             )
         except (AttributeError, TypeError, ValueError):
-            publish_memory_route(operation="followup", route="deterministic")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="deterministic",
+                fallback_outcome="deterministic",
+            )
         if not closed:
-            publish_memory_route(operation="followup", route="memory_index_empty")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="memory_index_empty",
+                fallback_outcome="deterministic",
+            )
         current = state["plan_snapshot"]["questions"][state["current_index"]]
         current_focus_tags = self._focus_taxonomy(current)
         current_skill_tags = self._skill_taxonomy(state, current)
@@ -162,8 +178,11 @@ class QuestionMemoryCoordinator:
                 is not None
             ]
         except Exception:
-            publish_memory_route(operation="followup", route="deterministic")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="deterministic",
+                fallback_outcome="deterministic",
+            )
         try:
             source_by_question = {
                 source["question"]["id"]: source for source in closed
@@ -207,8 +226,11 @@ class QuestionMemoryCoordinator:
                 source_completeness_by_artifact_ref=completeness,
             )
         except (AttributeError, TypeError, ValueError):
-            publish_memory_route(operation="followup", route="deterministic")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="deterministic",
+                fallback_outcome="deterministic",
+            )
         entry_by_question = {}
         entry_rank = {}
         for index, entry in enumerate(ranked_entries):
@@ -251,17 +273,17 @@ class QuestionMemoryCoordinator:
                     validated_selection=validated_selection,
                 )
             except (AttributeError, TypeError, ValueError):
-                publish_memory_route(
-                    operation="followup",
-                    route="deterministic",
+                return self._finish_context(
+                    self._deterministic(deterministic_context),
+                    observed_route="deterministic",
+                    fallback_outcome="deterministic",
                 )
-                return self._deterministic(deterministic_context)
             if creation_request is None:
-                publish_memory_route(
-                    operation="followup",
-                    route="deterministic",
+                return self._finish_context(
+                    self._deterministic(deterministic_context),
+                    observed_route="deterministic",
+                    fallback_outcome="deterministic",
                 )
-                return self._deterministic(deterministic_context)
 
         session_scope_sha256 = None
 
@@ -296,17 +318,18 @@ class QuestionMemoryCoordinator:
                 ):
                     continue
                 except ContextArtifactValidationFailed:
-                    publish_memory_route(
-                        operation="followup",
-                        route="deterministic",
+                    return self._finish_context(
+                        self._deterministic(deterministic_context),
+                        observed_route="deterministic",
+                        fallback_outcome="validation_failure",
+                        validation_outcome="grounding_failed",
                     )
-                    return self._deterministic(deterministic_context)
                 except (AttributeError, TypeError, ValueError):
-                    publish_memory_route(
-                        operation="followup",
-                        route="deterministic",
+                    return self._finish_context(
+                        self._deterministic(deterministic_context),
+                        observed_route="deterministic",
+                        fallback_outcome="deterministic",
                     )
-                    return self._deterministic(deterministic_context)
                 try:
                     represented_ids = self._validated_represented_source_ids(
                         state=state,
@@ -315,11 +338,12 @@ class QuestionMemoryCoordinator:
                         entry=created_entry,
                     )
                 except (AttributeError, TypeError, ValueError):
-                    publish_memory_route(
-                        operation="followup",
-                        route="deterministic",
+                    return self._finish_context(
+                        self._deterministic(deterministic_context),
+                        observed_route="deterministic",
+                        fallback_outcome="validation_failure",
+                        validation_outcome="grounding_failed",
                     )
-                    return self._deterministic(deterministic_context)
                 payloads.append(
                     {
                         "payload": created_resolution.payload,
@@ -334,8 +358,12 @@ class QuestionMemoryCoordinator:
                 )
                 continue
             if not self._entry_source_complete(entry, source=source):
-                publish_memory_route(operation="followup", route="deterministic")
-                return self._deterministic(deterministic_context)
+                return self._finish_context(
+                    self._deterministic(deterministic_context),
+                    observed_route="deterministic",
+                    fallback_outcome="validation_failure",
+                    validation_outcome="grounding_failed",
+                )
             try:
                 source = scoped_source(source)
                 resolution = self._reuse(
@@ -347,11 +375,18 @@ class QuestionMemoryCoordinator:
             except ContextArtifactProviderFailed:
                 continue
             except ContextArtifactValidationFailed:
-                publish_memory_route(operation="followup", route="deterministic")
-                return self._deterministic(deterministic_context)
+                return self._finish_context(
+                    self._deterministic(deterministic_context),
+                    observed_route="deterministic",
+                    fallback_outcome="validation_failure",
+                    validation_outcome="grounding_failed",
+                )
             except (AttributeError, TypeError, ValueError):
-                publish_memory_route(operation="followup", route="deterministic")
-                return self._deterministic(deterministic_context)
+                return self._finish_context(
+                    self._deterministic(deterministic_context),
+                    observed_route="deterministic",
+                    fallback_outcome="deterministic",
+                )
             try:
                 represented_ids = self._validated_represented_source_ids(
                     state=state,
@@ -360,8 +395,12 @@ class QuestionMemoryCoordinator:
                     entry=entry,
                 )
             except (AttributeError, TypeError, ValueError):
-                publish_memory_route(operation="followup", route="deterministic")
-                return self._deterministic(deterministic_context)
+                return self._finish_context(
+                    self._deterministic(deterministic_context),
+                    observed_route="deterministic",
+                    fallback_outcome="validation_failure",
+                    validation_outcome="grounding_failed",
+                )
             payloads.append(
                 {
                     "payload": resolution.payload,
@@ -408,29 +447,30 @@ class QuestionMemoryCoordinator:
                 break
 
         if not selected_units:
-            publish_memory_route(operation="followup", route="memory_index_empty")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="memory_index_empty",
+                fallback_outcome="deterministic",
+            )
         try:
             projected_context = self._project_selected_units(
                 validated_selection=validated_selection,
                 selected_units=selected_units,
             )
         except (AttributeError, TypeError, ValueError):
-            publish_memory_route(operation="followup", route="deterministic")
-            return self._deterministic(deterministic_context)
+            return self._finish_context(
+                self._deterministic(deterministic_context),
+                observed_route="deterministic",
+                fallback_outcome="validation_failure",
+                validation_outcome="grounding_failed",
+            )
         created_unit = next(
             (item for item in selected_units if item["created"]),
             None,
         )
         resolution = created_unit["resolution"] if created_unit else None
         route = "artifact_created" if created_unit else "memory_index_retrieved"
-        publish_memory_route(
-            operation="followup",
-            route=route,
-            policy_version=QUESTION_MEMORY_COMPRESSION_POLICY.policy_version,
-            source_count=len(selected_units),
-        )
-        return QuestionMemoryContext(
+        result = QuestionMemoryContext(
             context_messages=projected_context,
             artifact_ref=(resolution.ref.artifact_ref if resolution else None),
             artifact_sha256=(resolution.ref.artifact_sha256 if resolution else None),
@@ -443,6 +483,12 @@ class QuestionMemoryCoordinator:
                     selected_units
                 )
             ),
+        )
+        return self._finish_context(
+            result,
+            observed_route=route,
+            fallback_outcome="not_used",
+            validation_outcome="valid",
         )
 
     def _new_source_request(
@@ -1251,6 +1297,79 @@ class QuestionMemoryCoordinator:
         if not payload.unresolved_topics:
             return []
         return cls._advisory_codes_from(question)
+
+    def _finish_context(
+        self,
+        result: QuestionMemoryContext,
+        *,
+        observed_route: str,
+        fallback_outcome: str,
+        validation_outcome: str = "not_run",
+    ) -> QuestionMemoryContext:
+        """Publish one bounded consumption observation without affecting output."""
+
+        try:
+            publish_memory_route(
+                operation="followup",
+                route=observed_route,
+                policy_version=(
+                    QUESTION_MEMORY_COMPRESSION_POLICY.policy_version
+                    if result.policy_version is not None
+                    else None
+                ),
+                source_count=result.memory_unit_count,
+            )
+            publish_compression_observation(
+                CompressionObservation(
+                    measurement_path="business",
+                    operation="question_conversation",
+                    workflow="interview",
+                    policy_version=(
+                        QUESTION_MEMORY_COMPRESSION_POLICY.policy_version
+                    ),
+                    intent_schema_version=(
+                        "compression-intent-v1"
+                        if self.task_intent_enabled
+                        else "none"
+                    ),
+                    eligibility_reason="none",
+                    route=observed_route,
+                    source_token_bucket="unknown",
+                    target_token_bucket="unknown",
+                    result_token_bucket="unknown",
+                    compression_ratio_bucket="unknown",
+                    estimated_input_tokens=0,
+                    provider_input_tokens_when_available=None,
+                    provider_usage_available=False,
+                    estimator_error_basis_points=0,
+                    source_demand_token_bucket="unknown",
+                    duplicate_removed_token_bucket="unknown",
+                    post_dedup_demand_token_bucket="unknown",
+                    mandatory_bounded_raw_token_bucket="unknown",
+                    pre_dedup_required_token_bucket="unknown",
+                    post_dedup_required_token_bucket="unknown",
+                    business_pre_loss_required_token_bucket="unknown",
+                    shadow_post_dedup_required_token_bucket="unknown",
+                    business_utilization_basis_points=None,
+                    shadow_post_dedup_utilization_basis_points=None,
+                    selected_unit_count=result.memory_unit_count,
+                    dropped_unit_count=0,
+                    truncated_unit_count=0,
+                    deduplicated_unit_count=0,
+                    exact_recent_preserved=True,
+                    current_answer_preserved=True,
+                    validation_outcome=validation_outcome,
+                    fallback_outcome=fallback_outcome,
+                    provider_circuit_state="not_configured",
+                    validation_quarantine_state="not_configured",
+                    failure_state_store_outcome="not_configured",
+                    latency_bucket="unknown",
+                    language_bucket="unknown",
+                )
+            )
+        except Exception:
+            pass
+        return result
 
     @staticmethod
     def _deterministic(context):

@@ -1460,3 +1460,74 @@ def test_two_artifact_interleaved_projection_is_stable_with_reversed_index_order
         {"role": "candidate", "content": "current answer"},
         {"role": "knowledge_evidence", "content": "evidence tail"},
     ]
+
+
+def test_question_memory_publishes_bounded_created_and_retrieved_observations(
+    monkeypatch,
+):
+    from app.services import question_memory as question_memory_module
+
+    observations = []
+    monkeypatch.setattr(
+        question_memory_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+    agent = CompressorAgent()
+    index = InMemoryQuestionMemoryIndexStore()
+    coordinator = make_coordinator(agent, index)
+    state = make_state()
+    selection = make_structured_selection(
+        state,
+        mandatory_question_ids=("q2",),
+        selected_compressible_question_ids=("q1",),
+    )
+
+    coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+    coordinator.build_context(
+        state=state,
+        deterministic_context=list(selection.provider_messages),
+        selection=selection,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert [item["route"] for item in observations] == [
+        "artifact_created",
+        "memory_index_retrieved",
+    ]
+    assert all(item["measurement_path"] == "business" for item in observations)
+    assert all(item["selected_unit_count"] == 1 for item in observations)
+    assert all(item["exact_recent_preserved"] is True for item in observations)
+    assert all(item["current_answer_preserved"] is True for item in observations)
+    assert all("artifact_ref" not in repr(item) for item in observations)
+    assert all("session_id" not in repr(item) for item in observations)
+
+
+def test_question_memory_metric_failure_is_fail_open(monkeypatch):
+    from app.services import question_memory as question_memory_module
+
+    def fail_metric(**_fields):
+        raise RuntimeError("metrics unavailable")
+
+    monkeypatch.setattr(
+        question_memory_module,
+        "publish_memory_route",
+        fail_metric,
+    )
+    coordinator = make_coordinator(CompressorAgent())
+    context = [{"role": "candidate", "content": "authoritative answer"}]
+
+    result = coordinator.build_context(
+        state={"memory_policy_version": "disabled"},
+        deterministic_context=context,
+        selection=None,
+        parent_ownership=ParentOwnership(),
+    )
+
+    assert result.route == "deterministic"
+    assert result.context_messages == context

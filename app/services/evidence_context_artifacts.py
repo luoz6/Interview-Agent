@@ -241,6 +241,10 @@ class EvidenceContextArtifactCoordinator:
             resolved_target_output_tokens=resolved_target_output_tokens,
             target_policy=request_target_policy,
         )
+        consumption_enabled = self.gates.consumption_enabled(
+            workflow="interview",
+            artifact_type="evidence_compression",
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity,
@@ -269,6 +273,9 @@ class EvidenceContextArtifactCoordinator:
                 purpose="interview_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
+                measurement_path=(
+                    "business" if consumption_enabled else "counterfactual"
+                ),
             )
         except (
             ContextArtifactBusy,
@@ -276,10 +283,7 @@ class EvidenceContextArtifactCoordinator:
             ContextArtifactValidationFailed,
         ):
             return self._fallback(context_messages)
-        if not self.gates.consumption_enabled(
-            workflow="interview",
-            artifact_type="evidence_compression",
-        ):
+        if not consumption_enabled:
             return self._deterministic(context_messages)
 
         compressed = []
@@ -439,6 +443,10 @@ class EvidenceContextArtifactCoordinator:
             resolved_target_output_tokens=resolved_target_output_tokens,
             target_policy=request_target_policy,
         )
+        consumption_enabled = self.gates.consumption_enabled(
+            workflow="review",
+            artifact_type="evidence_compression",
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity,
@@ -465,6 +473,9 @@ class EvidenceContextArtifactCoordinator:
                 purpose="review_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
+                measurement_path=(
+                    "business" if consumption_enabled else "counterfactual"
+                ),
             )
         except (
             ContextArtifactBusy,
@@ -472,10 +483,7 @@ class EvidenceContextArtifactCoordinator:
             ContextArtifactValidationFailed,
         ):
             return references
-        if not self.gates.consumption_enabled(
-            workflow="review",
-            artifact_type="evidence_compression",
-        ):
+        if not consumption_enabled:
             return references
 
         source_reference_by_digest = {

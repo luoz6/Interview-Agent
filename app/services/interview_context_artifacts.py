@@ -260,6 +260,10 @@ class InterviewContextArtifactCoordinator:
             resolved_target_output_tokens=resolved_target_output_tokens,
             target_policy=request_target_policy,
         )
+        consumption_enabled = self.gates.consumption_enabled(
+            workflow="interview",
+            artifact_type="question_conversation",
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity_material,
@@ -290,6 +294,9 @@ class InterviewContextArtifactCoordinator:
                 purpose="interview_conversation_context",
                 parent_ownership=parent_ownership,
                 expected_question_id_sha256=question_digest,
+                measurement_path=(
+                    "business" if consumption_enabled else "counterfactual"
+                ),
             )
         except (
             ContextArtifactBusy,
@@ -297,10 +304,7 @@ class InterviewContextArtifactCoordinator:
             ContextArtifactValidationFailed,
         ):
             return self._fallback(deterministic_context)
-        if not self.gates.consumption_enabled(
-            workflow="interview",
-            artifact_type="question_conversation",
-        ):
+        if not consumption_enabled:
             return self._deterministic(deterministic_context)
 
         summary_messages = []

@@ -1,5 +1,6 @@
 import pytest
 
+from app.services import context_compression_eligibility as eligibility_module
 from app.services.context_compression_eligibility import (
     CompressionEligibilityReason,
     ContextCompressionEligibilityPolicy,
@@ -255,3 +256,129 @@ def test_loaded_eligibility_threshold_controls_proactive_logic():
         CompressionEligibilityReason.APPROACHING_OPERATION_BUDGET,
         None,
     ]
+
+
+def test_business_and_counterfactual_observations_remain_separate(monkeypatch):
+    observations = []
+    monkeypatch.setattr(
+        eligibility_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+    stats = demand_stats(
+        required_tokens=8_200,
+        selectable_tokens=10_000,
+        pre_dedup_required_tokens=8_200,
+        post_dedup_required_tokens=7_400,
+        shadow_post_dedup_required_tokens=7_400,
+    )
+
+    result = evaluate(stats)
+
+    assert result.eligible is True
+    assert [item["measurement_path"] for item in observations] == [
+        "business",
+        "counterfactual",
+    ]
+    business, counterfactual = observations
+    assert business["business_utilization_basis_points"] == 8_200
+    assert business["shadow_post_dedup_utilization_basis_points"] is None
+    assert counterfactual["business_utilization_basis_points"] is None
+    assert (
+        counterfactual["shadow_post_dedup_utilization_basis_points"] == 7_400
+    )
+    assert business["route"] == "compression_eligible"
+    assert counterfactual["route"] == "compression_bypassed"
+    assert counterfactual["eligibility_reason"] == "below_threshold"
+    assert "source_manifest_sha256" not in repr(observations)
+    assert "a" * 64 not in repr(observations)
+
+
+def test_metric_store_failure_cannot_change_eligibility_result(monkeypatch):
+    class FailingMetricStore:
+        def publish(self, _event):
+            raise RuntimeError("metrics unavailable")
+
+    monkeypatch.setattr(
+        eligibility_module,
+        "get_memory_metric_store",
+        lambda: FailingMetricStore(),
+    )
+    monkeypatch.setattr(
+        eligibility_module,
+        "publish_compression_observation",
+        lambda _observation: None,
+    )
+
+    result = evaluate(
+        demand_stats(required_tokens=8_000, selectable_tokens=10_000)
+    )
+
+    assert result.eligible is True
+    assert result.reason is (
+        CompressionEligibilityReason.APPROACHING_OPERATION_BUDGET
+    )
+
+
+def test_bypassed_observation_has_stable_below_threshold_reason(monkeypatch):
+    observations = []
+    monkeypatch.setattr(
+        eligibility_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+
+    result = evaluate(
+        demand_stats(required_tokens=1_000, selectable_tokens=10_000)
+    )
+
+    assert result.eligible is False
+    assert observations[0]["route"] == "compression_bypassed"
+    assert observations[0]["eligibility_reason"] == "below_threshold"
+
+
+def test_over_capacity_utilization_is_bounded_and_never_breaks_business(
+    monkeypatch,
+):
+    observations = []
+    monkeypatch.setattr(
+        eligibility_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+
+    result = evaluate(
+        demand_stats(required_tokens=20_000, selectable_tokens=1_000)
+    )
+
+    assert result.eligible is True
+    assert observations[0]["business_utilization_basis_points"] == 100_000
+
+
+def test_counterfactual_does_not_reuse_business_drop_or_truncation_reason(
+    monkeypatch,
+):
+    observations = []
+    monkeypatch.setattr(
+        eligibility_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+    stats = demand_stats(
+        required_tokens=12_000,
+        selectable_tokens=10_000,
+        shadow_post_dedup_required_tokens=5_000,
+        dropped_message_count=2,
+        truncated_message_count=1,
+    )
+
+    result = evaluate(stats)
+
+    assert result.reason is (
+        CompressionEligibilityReason.OLDER_COMPLETE_TURN_WOULD_DROP
+    )
+    business, counterfactual = observations
+    assert business["eligibility_reason"] == "older_complete_turn_would_drop"
+    assert business["route"] == "compression_eligible"
+    assert counterfactual["eligibility_reason"] == "below_threshold"
+    assert counterfactual["route"] == "compression_bypassed"

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from asyncio import CancelledError
+from contextlib import nullcontext
 from datetime import datetime
 from hashlib import sha256
 from threading import Event, Lock, Thread
+from time import monotonic
 from typing import Any, Callable, Literal, Protocol
 
 from app.ports.context_artifacts import ContextArtifactStore
@@ -35,6 +37,13 @@ from app.services.context_compression_validation import (
 from app.services.context_compression_intent import (
     CompressionIntent,
     validate_compression_intent_digest,
+)
+from app.services.memory_metrics import (
+    CompressionObservation,
+    compression_latency_bucket,
+    compression_ratio_bucket,
+    compression_token_bucket,
+    publish_compression_observation,
 )
 from app.services.token_estimation import TokenEstimator
 
@@ -191,6 +200,7 @@ class ContextCompressionRunner:
             ContextArtifactHeartbeat
         ),
         failure_containment=None,
+        monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
@@ -198,6 +208,7 @@ class ContextCompressionRunner:
         self.lease_seconds = lease_seconds
         self.heartbeat_factory = heartbeat_factory
         self.failure_containment = failure_containment
+        self.monotonic_clock = monotonic_clock
 
     def resolve(
         self,
@@ -218,9 +229,11 @@ class ContextCompressionRunner:
         expected_session_scope_sha256: str | None = None,
         expected_question_focus_sha256: str | None = None,
         expected_source_manifest_sha256: str | None = None,
+        measurement_path: Literal["business", "counterfactual"] = "business",
     ) -> ContextCompressionResolution:
         if not isinstance(request, ResolvedCompressionRequest):
             raise TypeError("request must be a ResolvedCompressionRequest")
+        started_at = self.monotonic_clock()
         heartbeat = None
         artifact_completed = False
         try:
@@ -252,6 +265,8 @@ class ContextCompressionRunner:
             "expected_session_scope_sha256": expected_session_scope_sha256,
             "expected_question_focus_sha256": expected_question_focus_sha256,
             "expected_source_manifest_sha256": expected_source_manifest_sha256,
+            "started_at": started_at,
+            "measurement_path": measurement_path,
         }
 
         # Completed, immutable Artifacts remain authoritative even while a
@@ -273,16 +288,61 @@ class ContextCompressionRunner:
                     worker_id=worker_id,
                 )
             except Exception as exc:
+                self._publish_observation(
+                    request=request,
+                    estimator=estimator,
+                    model=model,
+                    owner_type=owner_type,
+                    started_at=started_at,
+                    measurement_path=measurement_path,
+                    route="artifact_fallback",
+                    validation_outcome="not_run",
+                    fallback_outcome="provider_failure",
+                    failure_state_store_outcome="unavailable",
+                    provider_circuit_state="unavailable",
+                    validation_quarantine_state="unavailable",
+                )
                 raise ContextArtifactProviderFailed(
                     "context compression failure state is unavailable",
                     failure_code="failure_state_unavailable",
                 ) from exc
             if not getattr(authorization, "allow_provider_call", False):
                 reason = getattr(authorization, "reason", "failure_state_blocked")
+                validation_blocked = str(reason).startswith(
+                    "validation_quarantine"
+                )
                 error_type = (
                     ContextArtifactValidationFailed
-                    if str(reason).startswith("validation_quarantine")
+                    if validation_blocked
                     else ContextArtifactProviderFailed
+                )
+                self._publish_observation(
+                    request=request,
+                    estimator=estimator,
+                    model=model,
+                    owner_type=owner_type,
+                    started_at=started_at,
+                    measurement_path=measurement_path,
+                    route=(
+                        "validation_quarantine_blocked"
+                        if validation_blocked
+                        else "provider_circuit_blocked"
+                    ),
+                    validation_outcome=(
+                        "unavailable" if validation_blocked else "not_run"
+                    ),
+                    fallback_outcome=(
+                        "quarantine_blocked"
+                        if validation_blocked
+                        else "circuit_blocked"
+                    ),
+                    failure_state_store_outcome="blocked",
+                    provider_circuit_state=(
+                        "closed" if validation_blocked else "open"
+                    ),
+                    validation_quarantine_state=(
+                        "open" if validation_blocked else "closed"
+                    ),
                 )
                 raise error_type(
                     "context compression is temporarily unavailable",
@@ -328,7 +388,28 @@ class ContextCompressionRunner:
                     containment_finished = authorization is not None
                     raise
                 try:
-                    raw_payload = compressor(request)
+                    from app.services.provider_usage import (
+                        compression_provider_usage_scope,
+                    )
+
+                    try:
+                        usage_scope = compression_provider_usage_scope(
+                            operation=self._metric_operation(
+                                request.policy.artifact_type
+                            ),
+                            workflow=self._metric_workflow(owner_type),
+                            policy_version=request.policy.policy_version,
+                            intent_schema_version=(
+                                request.intent.schema_version
+                                if request.intent is not None
+                                else "none"
+                            ),
+                            measurement_path=measurement_path,
+                        )
+                    except (TypeError, ValueError):
+                        usage_scope = nullcontext()
+                    with usage_scope:
+                        raw_payload = compressor(request)
                 except CancelledError:
                     authorization = self._detach_failure_authorization(
                         heartbeat,
@@ -351,6 +432,26 @@ class ContextCompressionRunner:
                             outcome="provider_failed",
                             failure_code=failure_code,
                         )
+                    self._publish_observation(
+                        request=request,
+                        estimator=estimator,
+                        model=model,
+                        owner_type=owner_type,
+                        started_at=started_at,
+                        measurement_path=measurement_path,
+                        route="artifact_fallback",
+                        validation_outcome="not_run",
+                        fallback_outcome="provider_failure",
+                        failure_state_store_outcome=(
+                            "not_configured"
+                            if authorization is None
+                            else (
+                                "abort_requested"
+                                if failure_code is None
+                                else "finish_committed"
+                            )
+                        ),
+                    )
                     containment_finished = authorization is not None
                     raise ContextArtifactProviderFailed(
                         "context artifact provider failed",
@@ -388,6 +489,22 @@ class ContextCompressionRunner:
                         outcome="validation_failed",
                         failure_code=failure_code,
                     )
+                    self._publish_observation(
+                        request=request,
+                        estimator=estimator,
+                        model=model,
+                        owner_type=owner_type,
+                        started_at=started_at,
+                        measurement_path=measurement_path,
+                        route="artifact_fallback",
+                        validation_outcome=failure_code,
+                        fallback_outcome="validation_failure",
+                        failure_state_store_outcome=(
+                            "finish_committed"
+                            if authorization is not None
+                            else "not_configured"
+                        ),
+                    )
                     containment_finished = authorization is not None
                     raise
                 heartbeat.ensure_owned()
@@ -424,6 +541,22 @@ class ContextCompressionRunner:
                 recovered = self._recover_completed(**reuse_kwargs)
                 if recovered is not None:
                     return recovered
+                self._publish_observation(
+                    request=request,
+                    estimator=estimator,
+                    model=model,
+                    owner_type=owner_type,
+                    started_at=started_at,
+                    measurement_path=measurement_path,
+                    route="artifact_fallback",
+                    validation_outcome="lease_lost",
+                    fallback_outcome="lease_loss",
+                    failure_state_store_outcome=(
+                        "heartbeat_lost"
+                        if self.failure_containment is not None
+                        else "not_configured"
+                    ),
+                )
                 raise
             try:
                 self.store.fail(
@@ -453,6 +586,23 @@ class ContextCompressionRunner:
             expected_identity=identity,
         )
         self._ensure_parent(parent_ownership)
+        self._publish_observation(
+            request=request,
+            estimator=estimator,
+            model=model,
+            owner_type=owner_type,
+            started_at=started_at,
+            measurement_path=measurement_path,
+            route="artifact_created",
+            validation_outcome="valid",
+            fallback_outcome="not_used",
+            failure_state_store_outcome=(
+                "finish_committed"
+                if self.failure_containment is not None
+                else "not_configured"
+            ),
+            stats=validated.stats,
+        )
         return ContextCompressionResolution(
             route="artifact_created",
             ref=ref,
@@ -478,6 +628,8 @@ class ContextCompressionRunner:
         expected_session_scope_sha256: str | None,
         expected_question_focus_sha256: str | None,
         expected_source_manifest_sha256: str | None,
+        started_at: float,
+        measurement_path: Literal["business", "counterfactual"],
     ) -> ContextCompressionResolution:
         record = self.store.get_terminal_by_key(identity.artifact_key)
         if record is None:
@@ -512,6 +664,19 @@ class ContextCompressionRunner:
             expected_identity=identity,
         )
         self._ensure_parent(parent_ownership)
+        self._publish_observation(
+            request=request,
+            estimator=estimator,
+            model=model,
+            owner_type=owner_type,
+            started_at=started_at,
+            measurement_path=measurement_path,
+            route="artifact_reused",
+            validation_outcome="valid",
+            fallback_outcome="not_used",
+            failure_state_store_outcome="not_queried",
+            stats=validated.stats,
+        )
         return ContextCompressionResolution(
             route="artifact_reused",
             ref=ref,
@@ -632,6 +797,139 @@ class ContextCompressionRunner:
                 return code
             return "provider_unavailable"
         return None
+
+    @staticmethod
+    def _metric_workflow(owner_type: OwnerType) -> str:
+        return {
+            "interview_session": "interview",
+            "review_job": "review",
+            "prep_run": "prep",
+        }[owner_type]
+
+    @staticmethod
+    def _metric_operation(artifact_type: str) -> str:
+        if artifact_type == "question_conversation":
+            return "followup"
+        if artifact_type == "prep_context":
+            return "prep"
+        if artifact_type == "review_context":
+            return "report"
+        return "evaluate"
+
+    @staticmethod
+    def _compression_operation(artifact_type: str) -> str:
+        return {
+            "question_conversation": "question_conversation",
+            "question_memory": "question_conversation",
+            "evidence_compression": "evidence_compression",
+            "prep_context": "prep_context",
+            "review_context": "review_context",
+        }[artifact_type]
+
+    def _publish_observation(
+        self,
+        *,
+        request: ResolvedCompressionRequest,
+        estimator: TokenEstimator,
+        model: str,
+        owner_type: OwnerType,
+        started_at: float,
+        measurement_path: Literal["business", "counterfactual"],
+        route: str,
+        validation_outcome: str,
+        fallback_outcome: str,
+        failure_state_store_outcome: str,
+        stats: CompressionValidationStats | None = None,
+        provider_circuit_state: str | None = None,
+        validation_quarantine_state: str | None = None,
+    ) -> None:
+        """Publish one content-free terminal lifecycle observation, fail open."""
+
+        try:
+            source_tokens = sum(
+                estimator.estimate_text(segment.content, model=model)
+                for segment in request.source_segments
+            )
+            result_tokens = (
+                stats.estimated_output_tokens if stats is not None else None
+            )
+            containment_state = (
+                "not_configured"
+                if self.failure_containment is None
+                else "closed"
+            )
+            publish_compression_observation(
+                CompressionObservation(
+                    measurement_path=measurement_path,
+                    operation=self._compression_operation(
+                        request.policy.artifact_type
+                    ),
+                    workflow=self._metric_workflow(owner_type),
+                    policy_version=request.policy.policy_version,
+                    intent_schema_version=(
+                        request.intent.schema_version
+                        if request.intent is not None
+                        else "none"
+                    ),
+                    eligibility_reason="none",
+                    route=route,
+                    source_token_bucket=compression_token_bucket(source_tokens),
+                    target_token_bucket=compression_token_bucket(
+                        request.resolved_target_output_tokens
+                    ),
+                    result_token_bucket=compression_token_bucket(result_tokens),
+                    compression_ratio_bucket=compression_ratio_bucket(
+                        source_tokens=source_tokens,
+                        result_tokens=result_tokens,
+                    ),
+                    estimated_input_tokens=source_tokens,
+                    provider_input_tokens_when_available=None,
+                    provider_usage_available=False,
+                    estimator_error_basis_points=0,
+                    source_demand_token_bucket=compression_token_bucket(
+                        source_tokens
+                    ),
+                    duplicate_removed_token_bucket="unknown",
+                    post_dedup_demand_token_bucket="unknown",
+                    mandatory_bounded_raw_token_bucket="unknown",
+                    pre_dedup_required_token_bucket="unknown",
+                    post_dedup_required_token_bucket="unknown",
+                    business_pre_loss_required_token_bucket="unknown",
+                    shadow_post_dedup_required_token_bucket="unknown",
+                    business_utilization_basis_points=None,
+                    shadow_post_dedup_utilization_basis_points=None,
+                    selected_unit_count=(
+                        stats.output_unit_count if stats is not None else 0
+                    ),
+                    dropped_unit_count=0,
+                    truncated_unit_count=0,
+                    deduplicated_unit_count=0,
+                    exact_recent_preserved=True,
+                    current_answer_preserved=True,
+                    validation_outcome=validation_outcome,
+                    fallback_outcome=fallback_outcome,
+                    provider_circuit_state=(
+                        provider_circuit_state or containment_state
+                    ),
+                    validation_quarantine_state=(
+                        validation_quarantine_state or containment_state
+                    ),
+                    failure_state_store_outcome=(
+                        failure_state_store_outcome
+                    ),
+                    latency_bucket=compression_latency_bucket(
+                        max(
+                            0,
+                            round(
+                                (self.monotonic_clock() - started_at) * 1_000
+                            ),
+                        )
+                    ),
+                    language_bucket="unknown",
+                )
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _validation_failure_code(

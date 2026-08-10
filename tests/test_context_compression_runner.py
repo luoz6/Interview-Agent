@@ -122,7 +122,14 @@ def make_request(policy, sources, *, intent=None, target=512):
     )
 
 
-def resolve(runner, *, compressor, parent=None, request=None):
+def resolve(
+    runner,
+    *,
+    compressor,
+    parent=None,
+    request=None,
+    measurement_path="business",
+):
     material, policy, sources, _, question_digest = make_contract()
     request = request or make_request(policy, sources)
     return runner.resolve(
@@ -137,6 +144,7 @@ def resolve(runner, *, compressor, parent=None, request=None):
         purpose="interview_conversation_context",
         parent_ownership=parent,
         expected_question_id_sha256=question_digest,
+        measurement_path=measurement_path,
     )
 
 
@@ -1597,3 +1605,126 @@ def test_permit_abort_clears_all_probes_without_incrementing_streak(
     assert containment.finish_calls == []
     assert containment.streak_updates == 0
     assert provider_calls == []
+
+
+def test_runner_publishes_bounded_created_reused_and_circuit_observations(
+    monkeypatch,
+):
+    from app.services import context_compression_runner as runner_module
+
+    observations = []
+    monkeypatch.setattr(
+        runner_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+    _, _, containment = make_failure_containment(
+        provider_circuit_threshold=1
+    )
+    runner = ContextCompressionRunner(
+        InMemoryContextArtifactStore(),
+        lease_seconds=30,
+        failure_containment=containment,
+    )
+    _, _, _, payload, _ = make_contract()
+
+    created = resolve(runner, compressor=lambda _request: payload)
+    reused = resolve(
+        runner,
+        compressor=lambda _request: pytest.fail("provider must not rerun"),
+    )
+
+    assert created.route == "artifact_created"
+    assert reused.route == "artifact_reused"
+    assert [item["route"] for item in observations] == [
+        "artifact_created",
+        "artifact_reused",
+    ]
+    assert observations[0]["failure_state_store_outcome"] == "finish_committed"
+    assert observations[1]["failure_state_store_outcome"] == "not_queried"
+    assert all(item["selected_unit_count"] == 1 for item in observations)
+    assert all("owner_key" not in repr(item) for item in observations)
+    assert all("artifact_ref" not in repr(item) for item in observations)
+    assert all("source_manifest" not in repr(item) for item in observations)
+
+    blocked_runner = ContextCompressionRunner(
+        InMemoryContextArtifactStore(),
+        lease_seconds=30,
+        failure_containment=make_failure_containment(
+            provider_circuit_threshold=1
+        )[2],
+    )
+    with pytest.raises(ContextArtifactProviderFailed):
+        resolve(
+            blocked_runner,
+            compressor=lambda _request: (_ for _ in ()).throw(
+                TimeoutError("PRIVATE PROVIDER ERROR")
+            ),
+        )
+    with pytest.raises(ContextArtifactProviderFailed):
+        resolve(
+            blocked_runner,
+            compressor=lambda _request: pytest.fail("provider must be blocked"),
+        )
+
+    assert observations[-2]["route"] == "artifact_fallback"
+    assert observations[-2]["fallback_outcome"] == "provider_failure"
+    assert observations[-1]["route"] == "provider_circuit_blocked"
+    assert observations[-1]["fallback_outcome"] == "circuit_blocked"
+    assert "PRIVATE PROVIDER ERROR" not in repr(observations)
+
+
+def test_unexportable_metric_scope_never_blocks_authoritative_compression():
+    material, policy, sources, payload, question_digest = make_contract()
+    policy = replace(policy, policy_version="PRIVATE VERSION")
+    material = replace(
+        material,
+        compression_policy_version=policy.policy_version,
+    )
+    runner = ContextCompressionRunner(
+        InMemoryContextArtifactStore(),
+        lease_seconds=30,
+    )
+
+    result = runner.resolve(
+        identity_material=material,
+        request=make_request(policy, sources),
+        estimator=Estimator(),
+        model="gpt-4o",
+        compressor=lambda _request: payload,
+        worker_id="worker-1",
+        owner_type="interview_session",
+        owner_key="session-1",
+        purpose="interview_conversation_context",
+        expected_question_id_sha256=question_digest,
+    )
+
+    assert result.route == "artifact_created"
+
+
+def test_runner_observation_uses_injected_monotonic_latency_bucket(monkeypatch):
+    from app.services import context_compression_runner as runner_module
+
+    observations = []
+    monotonic_values = iter((10.0, 10.2))
+    monkeypatch.setattr(
+        runner_module,
+        "publish_compression_observation",
+        lambda observation: observations.append(observation.model_dump()),
+    )
+    runner = ContextCompressionRunner(
+        InMemoryContextArtifactStore(),
+        lease_seconds=30,
+        monotonic_clock=lambda: next(monotonic_values),
+    )
+    _, _, _, payload, _ = make_contract()
+
+    result = resolve(
+        runner,
+        compressor=lambda _request: payload,
+        measurement_path="counterfactual",
+    )
+
+    assert result.route == "artifact_created"
+    assert observations[0]["latency_bucket"] == "100_499_ms"
+    assert observations[0]["measurement_path"] == "counterfactual"

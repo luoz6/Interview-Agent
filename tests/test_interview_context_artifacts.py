@@ -600,6 +600,9 @@ def test_shadow_and_consume_use_the_same_loss_eligibility(gates):
 
     assert len(runner.calls) == 1
     assert runner.calls[0]["identity_material"].source_manifest_sha256
+    assert runner.calls[0]["measurement_path"] == (
+        "business" if gates.interview_enabled else "counterfactual"
+    )
     assert result.route in {"deterministic", "artifact_created"}
 
 

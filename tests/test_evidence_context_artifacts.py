@@ -584,6 +584,7 @@ def test_shadow_creates_and_validates_but_never_consumes_or_persists_ref():
     )
 
     assert len(runner.calls) == 1
+    assert runner.calls[0]["measurement_path"] == "counterfactual"
     assert len(agent.calls) == 1
     assert parent.ensure_calls == 2
     assert result.context_messages is messages
@@ -614,6 +615,7 @@ def test_enabled_evidence_consumes_only_grounded_output_and_returns_bounded_ref(
 
     assert runner.calls[0]["parent_ownership"] is parent
     assert runner.calls[0]["worker_id"] == parent.worker_id
+    assert runner.calls[0]["measurement_path"] == "business"
     source_digest = (
         runner.calls[0]["request"].source_segments[0].content_sha256
     )
@@ -946,6 +948,7 @@ def test_review_shadow_creates_but_does_not_consume_evidence():
     )
 
     assert len(runner.calls) == 1
+    assert runner.calls[0]["measurement_path"] == "counterfactual"
     assert result == references
 
 
