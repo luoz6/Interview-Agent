@@ -1312,8 +1312,9 @@ latency_bucket
 
 **Add or modify:**
 
-- `scripts/memory_system_optimization_acceptance.py`
-- `tests/test_memory_system_optimization_acceptance.py`
+- `scripts/context_compression_repository_acceptance.py`
+- `tests/test_context_compression_repository_acceptance.py`
+- Reuse: `scripts/memory_system_optimization_acceptance.py`
 - `docs/context-compression-optimization-acceptance.md`
 
 **Required matrix:**
@@ -1374,10 +1375,14 @@ python -m pytest `
   tests/test_durable_interview_graph.py `
   tests/test_session_deletion_worker.py `
   tests/test_memory_metrics.py `
-  tests/test_memory_system_optimization_acceptance.py -q
+  tests/test_memory_system_optimization_acceptance.py `
+  tests/test_context_compression_repository_acceptance.py -q
 ```
 
 Then run the repository acceptance entry point with fake providers.
+The versioned entry point is
+`scripts/context_compression_repository_acceptance.py`; the historical memory
+system entry point retains its existing output contract.
 The acceptance runner also validates that every test module declared by Tasks
 0-10 is executed by this fixed suite or listed in an explicit reviewed
 exemption manifest.
