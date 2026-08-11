@@ -85,6 +85,37 @@ def test_identity_v0_canonical_payload_and_key_remain_byte_compatible():
     )
 
 
+def test_identity_v0_existing_2000_token_payload_remains_byte_compatible():
+    expected_payload = (
+        '{"artifact_type":"question_conversation",'
+        '"compression_policy_version":"conversation-v1",'
+        '"compressor_model":"gpt-4o",'
+        '"compressor_provider":"openai-compatible",'
+        '"compressor_settings_sha256":"'
+        + "5" * 64
+        + '","output_schema_version":"question-conversation-v1",'
+        '"privacy_scope_sha256":"'
+        + "1" * 64
+        + '","prompt_contract_version":"compressor-prompt-v1",'
+        '"semantic_focus_sha256":"'
+        + "4" * 64
+        + '","source_manifest_sha256":"'
+        + "3" * 64
+        + '","source_sha256":"'
+        + "2" * 64
+        + '","target_output_tokens":2000}'
+    )
+    material = make_material(target_output_tokens=2_000)
+
+    assert canonical_identity_payload(material).encode("utf-8") == (
+        expected_payload.encode("utf-8")
+    )
+    assert len(expected_payload.encode("utf-8")) == 738
+    assert ContextArtifactIdentity.from_material(material).artifact_key == (
+        "5098cc7d3a0d36efa3ecb8170197d6d4cb81a8cb06e88911dfe9f471bc278181"
+    )
+
+
 def test_semantically_equivalent_compression_intent_has_one_canonical_digest():
     first = CompressionIntent(
         schema_version="compression-intent-v1",

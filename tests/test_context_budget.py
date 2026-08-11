@@ -212,3 +212,220 @@ def test_context_enforcement_defaults_off_and_is_operation_specific(monkeypatch)
     monkeypatch.setenv("CONTEXT_BUDGET_INTERVIEW_ENFORCEMENT", "true")
     assert context_enforcement_enabled("examiner.generate_followup") is True
     assert context_enforcement_enabled("report_coach.generate_report") is False
+
+
+def dynamic_target_api():
+    from app.services.context_budget import (
+        DynamicCompressionTargetPolicy,
+        allocate_dynamic_compression_target,
+    )
+
+    return DynamicCompressionTargetPolicy, allocate_dynamic_compression_target
+
+
+def dynamic_target_policy(**changes):
+    DynamicCompressionTargetPolicy, _allocator = dynamic_target_api()
+    values = {
+        "floor_tokens": 256,
+        "source_ratio_basis_points": 2_500,
+        "allowed_target_tokens": (256, 512, 1_024, 1_536, 2_000),
+    }
+    values.update(changes)
+    return DynamicCompressionTargetPolicy(**values)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    (
+        ({"floor_tokens": 0}, "floor"),
+        ({"source_ratio_basis_points": 0}, "ratio"),
+        ({"source_ratio_basis_points": 10_001}, "ratio"),
+        ({"allowed_target_tokens": ()}, "allowed target tiers"),
+        ({"allowed_target_tokens": (0, 256)}, "positive"),
+        ({"allowed_target_tokens": (256, 512, 512)}, "duplicates"),
+        ({"allowed_target_tokens": (512, 256)}, "strictly increasing"),
+        (
+            {
+                "floor_tokens": 300,
+                "allowed_target_tokens": (256, 512, 1_024),
+            },
+            "floor",
+        ),
+    ),
+)
+def test_dynamic_compression_target_policy_fails_closed(changes, message):
+    with pytest.raises(ValueError, match=message):
+        dynamic_target_policy(**changes)
+
+
+def test_dynamic_target_ratio_uses_integer_ceiling_before_tier_rounding():
+    _policy_type, allocate = dynamic_target_api()
+    policy = dynamic_target_policy(
+        floor_tokens=1,
+        source_ratio_basis_points=3_333,
+        allowed_target_tokens=(1, 512, 513, 1_024),
+    )
+
+    target = allocate(
+        source_tokens=1_537,
+        policy=policy,
+        policy_hard_cap_tokens=1_024,
+        remaining_business_budget_tokens=1_024,
+    )
+
+    assert (1_537 * 3_333 + 9_999) // 10_000 == 513
+    assert target == 513
+
+
+def test_dynamic_target_rounds_required_tokens_up_to_an_allowed_tier():
+    _policy_type, allocate = dynamic_target_api()
+
+    target = allocate(
+        source_tokens=2_049,
+        policy=dynamic_target_policy(),
+        policy_hard_cap_tokens=2_000,
+        remaining_business_budget_tokens=2_000,
+    )
+
+    assert (2_049 * 2_500 + 9_999) // 10_000 == 513
+    assert target == 1_024
+
+
+def test_dynamic_target_never_exceeds_a_non_tier_policy_hard_cap():
+    _policy_type, allocate = dynamic_target_api()
+
+    target = allocate(
+        source_tokens=20_000,
+        policy=dynamic_target_policy(),
+        policy_hard_cap_tokens=1_500,
+        remaining_business_budget_tokens=2_000,
+    )
+
+    assert target == 1_024
+
+
+def test_dynamic_target_clamps_to_largest_tier_that_fits_remaining_budget():
+    _policy_type, allocate = dynamic_target_api()
+
+    target = allocate(
+        source_tokens=8_000,
+        policy=dynamic_target_policy(),
+        policy_hard_cap_tokens=2_000,
+        remaining_business_budget_tokens=1_300,
+    )
+
+    assert target == 1_024
+
+
+def test_dynamic_target_uses_resolved_available_budget_not_operation_cap():
+    _policy_type, allocate = dynamic_target_api()
+    profile = ModelCapabilityRegistry().resolve(
+        model="gpt-4o",
+        configured_context_window_tokens=1_800,
+        protocol_reserve_tokens=0,
+        structured_output_reserve_tokens=0,
+        safety_margin_tokens=0,
+    )
+    operation_policy = OperationContextPolicy(
+        operation="examiner.generate_followup",
+        input_cap_tokens=12_000,
+        max_output_tokens=512,
+    )
+    resolved = ContextBudgetResolver().resolve(
+        profile=profile,
+        policy=operation_policy,
+    )
+
+    target = allocate(
+        source_tokens=20_000,
+        policy=dynamic_target_policy(),
+        policy_hard_cap_tokens=2_000,
+        remaining_business_budget_tokens=resolved.available_input_tokens,
+    )
+
+    assert resolved.available_input_tokens == 1_288
+    assert target == 1_024
+
+
+@pytest.mark.parametrize(
+    ("remaining_business_budget_tokens", "expected"),
+    ((300, None), (512, 512)),
+)
+def test_dynamic_target_never_uses_an_allowed_tier_below_floor(
+    remaining_business_budget_tokens,
+    expected,
+):
+    _policy_type, allocate = dynamic_target_api()
+    policy = dynamic_target_policy(
+        floor_tokens=512,
+        allowed_target_tokens=(256, 512, 1_024),
+    )
+
+    target = allocate(
+        source_tokens=8_000,
+        policy=policy,
+        policy_hard_cap_tokens=2_000,
+        remaining_business_budget_tokens=remaining_business_budget_tokens,
+    )
+
+    assert target == expected
+
+
+@pytest.mark.parametrize(
+    ("policy_hard_cap_tokens", "remaining_tokens"),
+    ((2_000, 0), (2_000, 1), (2_000, 255), (255, 2_000)),
+)
+def test_dynamic_target_returns_none_when_no_floor_tier_fits(
+    policy_hard_cap_tokens,
+    remaining_tokens,
+):
+    _policy_type, allocate = dynamic_target_api()
+
+    target = allocate(
+        source_tokens=8_000,
+        policy=dynamic_target_policy(),
+        policy_hard_cap_tokens=policy_hard_cap_tokens,
+        remaining_business_budget_tokens=remaining_tokens,
+    )
+
+    assert target is None
+
+
+@pytest.mark.parametrize(
+    (
+        "source_tokens",
+        "policy_hard_cap_tokens",
+        "remaining_business_budget_tokens",
+        "expected",
+    ),
+    (
+        (1, 2_000, 2_000, 256),
+        (2_000, 2_000, 2_000, 512),
+        (2_001, 2_000, 2_000, 512),
+        (4_000, 2_000, 2_000, 1_024),
+        (20_000, 2_000, 2_000, 2_000),
+        (20_000, 1_536, 2_000, 1_536),
+        (20_000, 2_000, 600, 512),
+    ),
+)
+def test_dynamic_target_output_invariants(
+    source_tokens,
+    policy_hard_cap_tokens,
+    remaining_business_budget_tokens,
+    expected,
+):
+    _policy_type, allocate = dynamic_target_api()
+    policy = dynamic_target_policy()
+
+    target = allocate(
+        source_tokens=source_tokens,
+        policy=policy,
+        policy_hard_cap_tokens=policy_hard_cap_tokens,
+        remaining_business_budget_tokens=remaining_business_budget_tokens,
+    )
+
+    assert target == expected
+    assert target in policy.allowed_target_tokens
+    assert target >= policy.floor_tokens
+    assert target <= policy_hard_cap_tokens
+    assert target <= remaining_business_budget_tokens

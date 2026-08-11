@@ -10,10 +10,13 @@ from app.services.postgres_connections import (
 from app.services.postgres_identifiers import validate_postgres_identifier
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
+    is_strict_positive_when_present_check,
     required_check_tokens_for_relation,
     required_columns_for_relation,
     required_foreign_key_tokens_for_relation,
     required_index_tokens_for_relation,
+    required_nullable_columns_for_relation,
+    required_strict_positive_columns_for_relation,
 )
 
 
@@ -71,7 +74,7 @@ def validate_relations(
             }
             if required:
                 cursor.execute(
-                    "SELECT table_name, column_name "
+                    "SELECT table_name, column_name, is_nullable "
                     "FROM information_schema.columns "
                     "WHERE table_schema = 'public' "
                     "AND table_name = ANY(%s::text[])",
@@ -80,14 +83,32 @@ def validate_relations(
                 present: dict[str, set[str]] = {
                     name: set() for name in required
                 }
-                for table_name, column_name in cursor.fetchall():
+                nullable: dict[str, set[str]] = {
+                    name: set() for name in required
+                }
+                for row in cursor.fetchall():
+                    table_name, column_name = row[:2]
                     present.setdefault(table_name, set()).add(column_name)
+                    if len(row) >= 3 and str(row[2]).upper() == "YES":
+                        nullable.setdefault(table_name, set()).add(column_name)
                 if any(
                     not columns.issubset(present.get(name, set()))
                     for name, columns in required.items()
                 ):
                     raise PostgresSchemaNotReady(
-                        "PostgreSQL runtime schema is incompatible"
+                        "PostgreSQL runtime columns are incompatible"
+                    )
+                nullable_requirements = {
+                    name: required_nullable_columns_for_relation(name)
+                    for name in required
+                    if required_nullable_columns_for_relation(name)
+                }
+                if any(
+                    not columns.issubset(nullable.get(name, set()))
+                    for name, columns in nullable_requirements.items()
+                ):
+                    raise PostgresSchemaNotReady(
+                        "PostgreSQL runtime columns are incompatible"
                     )
 
             index_requirements = {
@@ -139,7 +160,15 @@ def validate_relations(
                 for name in relation_names
                 if required_check_tokens_for_relation(name)
             }
-            if check_requirements:
+            strict_positive_requirements = {
+                name: required_strict_positive_columns_for_relation(name)
+                for name in relation_names
+                if required_strict_positive_columns_for_relation(name)
+            }
+            checked_relations = set(check_requirements) | set(
+                strict_positive_requirements
+            )
+            if checked_relations:
                 cursor.execute(
                     "SELECT relation.relname, pg_get_constraintdef(rule.oid) "
                     "FROM pg_constraint AS rule "
@@ -148,12 +177,18 @@ def validate_relations(
                     "ON namespace.oid=relation.relnamespace "
                     "WHERE namespace.nspname='public' AND rule.contype='c' "
                     "AND relation.relname = ANY(%s::text[])",
-                    (list(check_requirements),),
+                    (list(checked_relations),),
                 )
                 definitions: dict[str, list[set[str]]] = {
-                    name: [] for name in check_requirements
+                    name: [] for name in checked_relations
+                }
+                raw_definitions: dict[str, list[str]] = {
+                    name: [] for name in checked_relations
                 }
                 for table_name, check_definition in cursor.fetchall():
+                    raw_definitions.setdefault(table_name, []).append(
+                        str(check_definition)
+                    )
                     normalized = (
                         str(check_definition)
                         .lower()
@@ -192,6 +227,23 @@ def validate_relations(
                         if not any(
                             required_tokens.issubset(tokens)
                             for tokens in definitions.get(table_name, [])
+                        ):
+                            raise PostgresSchemaNotReady(
+                                "PostgreSQL runtime checks are incompatible"
+                            )
+                for table_name, columns in (
+                    strict_positive_requirements.items()
+                ):
+                    for column in columns:
+                        if not any(
+                            is_strict_positive_when_present_check(
+                                definition,
+                                column=column,
+                            )
+                            for definition in raw_definitions.get(
+                                table_name,
+                                [],
+                            )
                         ):
                             raise PostgresSchemaNotReady(
                                 "PostgreSQL runtime checks are incompatible"

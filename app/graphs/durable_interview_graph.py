@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
 import json
 from threading import Event, Lock, Thread
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
@@ -45,9 +45,26 @@ from app.services.context_budget import (
 )
 from app.services.context_selection import (
     ContextSelectionStats,
-    build_interview_context,
+    InterviewContextSelection,
+    MandatoryBoundedRawOverflow,
+    _classify_conversation_sources,
+    _mark_mandatory_conversation_sources,
+    _merge_selected_provider_sidecars,
+    build_interview_context_selection,
+    deduplicate_conversation_replays,
+    deduplicate_evidence_replays,
+    select_interview_messages,
+)
+from app.services.context_source_identity import (
+    ContextSourceIdentityConfig,
+    canonical_conversation_sequence_pair,
 )
 from app.services.context_runtime import ContextRuntime, get_context_runtime
+from app.services.model_capabilities import ContextConfigurationError
+from app.services.interview_status_projection import (
+    build_interview_status_projection,
+    render_interview_status_message,
+)
 
 
 class GenerationLeaseHeartbeat:
@@ -142,11 +159,20 @@ class DurableInterviewGraphDependencies:
     examiner: Any | None = None
     knowledge_repository: Any | None = None
     report_job_queue: Any | None = None
-    context_builder: Callable[[DurableInterviewState], list[dict[str, str]]] | None = None
+    context_builder: Callable[
+        [DurableInterviewState],
+        list[dict[str, str]],
+    ] | None = None
     context_runtime: ContextRuntime | None = None
+    source_identity_config: ContextSourceIdentityConfig | None = None
+    exact_recent_questions: int = 1
     context_artifact_coordinator: Any | None = None
     evidence_artifact_coordinator: Any | None = None
     question_memory_coordinator: Any | None = None
+    status_projection_mode: Literal["disabled", "shadow", "consume"] = (
+        "disabled"
+    )
+    question_evaluation_reader: Any | None = None
     principal_memory_shadow: Any | None = None
     principal_memory_consumer: Any | None = None
     coalescer_factory: Callable[[], ChunkCoalescer] = ChunkCoalescer
@@ -158,6 +184,20 @@ class DurableInterviewGraphDependencies:
     generation_heartbeat_factory: Callable[..., Any] = (
         GenerationLeaseHeartbeat
     )
+
+    def __post_init__(self) -> None:
+        if self.status_projection_mode not in {
+            "disabled",
+            "shadow",
+            "consume",
+        }:
+            raise ValueError("status projection mode is invalid")
+        if (
+            isinstance(self.exact_recent_questions, bool)
+            or not isinstance(self.exact_recent_questions, int)
+            or self.exact_recent_questions <= 0
+        ):
+            raise ValueError("exact recent questions must be a positive integer")
 
 
 def initialize_session(state: DurableInterviewState) -> dict:
@@ -410,6 +450,15 @@ def guard_after_retry(state) -> dict:
     )
 
 
+def _custom_context_builder_result(state, deps):
+    result = deps.context_builder(state)
+    if not isinstance(result, list):
+        raise ContextConfigurationError(
+            "custom context builder result is invalid"
+        )
+    return [dict(message) for message in result]
+
+
 def prepare_generation(state, deps) -> dict:
     if state.get("decision_action") != "follow_up" or not state.get(
         "active_decision_id"
@@ -455,19 +504,28 @@ def generate_followup(state, deps) -> dict:
     raw_event_count = 0
     is_v2 = state.get("workflow_engine") == "langgraph-v2"
     context = None
-    if not is_v2:
-        context = (
-            deps.context_builder(state)
-            if deps.context_builder is not None
-            else _build_examiner_context(
-                state,
-                deps.knowledge_repository,
-                deps.context_runtime,
-            )
-        )
     artifact_context = None
+    status_advisory_codes: tuple[str, ...] = ()
     parent_ownership = None
     try:
+        if (
+            deps.context_builder is not None
+            and context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation)
+        ):
+            raise ContextConfigurationError(
+                "custom context builder is disabled when context enforcement "
+                "is enabled"
+            )
+        if not is_v2:
+            if deps.context_builder is not None:
+                context = _custom_context_builder_result(state, deps)
+            else:
+                context = _build_examiner_context(
+                    state,
+                    deps.knowledge_repository,
+                    deps.context_runtime,
+                    exact_recent_questions=deps.exact_recent_questions,
+                )
         heartbeat_context = deps.generation_heartbeat_factory(
             generation_store=deps.generation_store,
             attempt=attempt,
@@ -486,17 +544,25 @@ def generate_followup(state, deps) -> dict:
                     worker_id=deps.worker_id,
                 )
                 if deps.context_builder is not None:
-                    deterministic_context = deps.context_builder(state)
+                    deterministic_context = _custom_context_builder_result(
+                        state,
+                        deps,
+                    )
                     selection_stats = None
+                    context_selection = None
                 else:
-                    (
-                        deterministic_context,
-                        selection_stats,
-                    ) = _build_examiner_context_selection(
+                    context_selection = _build_examiner_context_plan(
                         state,
                         deps.knowledge_repository,
                         deps.context_runtime,
+                        deps.source_identity_config,
+                        exact_recent_questions=deps.exact_recent_questions,
                     )
+                    deterministic_context = [
+                        dict(item)
+                        for item in context_selection.provider_messages
+                    ]
+                    selection_stats = context_selection.stats
                 question_memory_enabled = (
                     state.get("memory_policy_version") == "question-memory-v1"
                     and deps.question_memory_coordinator is not None
@@ -511,6 +577,7 @@ def generate_followup(state, deps) -> dict:
                         state=state,
                         deterministic_context=deterministic_context,
                         parent_ownership=parent_ownership,
+                        selection=context_selection,
                     )
                     if question_memory_enabled
                     else deps.context_artifact_coordinator.build_context(
@@ -518,9 +585,17 @@ def generate_followup(state, deps) -> dict:
                         deterministic_context=deterministic_context,
                         parent_ownership=parent_ownership,
                         selection_stats=selection_stats,
+                        selection=context_selection,
                     )
                     if conversation_artifact_enabled
                     else None
+                )
+                status_advisory_codes = tuple(
+                    getattr(
+                        artifact_context,
+                        "advisory_unresolved_topic_codes",
+                        (),
+                    )
                 )
                 context = (
                     artifact_context.context_messages
@@ -535,6 +610,7 @@ def generate_followup(state, deps) -> dict:
                             parent_ownership=parent_ownership,
                             worker_id=deps.worker_id,
                             selection_stats=selection_stats,
+                            selection=context_selection,
                         )
                     )
                     context = evidence_context.context_messages
@@ -603,6 +679,16 @@ def generate_followup(state, deps) -> dict:
                         pass
                 except Exception:
                     context = consume_base_context
+            status_message = _render_measured_status_message(
+                state=state,
+                deps=deps,
+                advisory_unresolved_topic_codes=status_advisory_codes,
+            )
+            if (
+                status_message is not None
+                and deps.status_projection_mode == "consume"
+            ):
+                context = [status_message, *[dict(item) for item in (context or [])]]
             context = generation_context_for_target(
                 context or [],
                 gap_type=state["decision_gap_type"],
@@ -690,6 +776,20 @@ def generate_followup(state, deps) -> dict:
             "command_provider_invocations": provider_invocations,
             **artifact_updates,
         }
+    except MandatoryBoundedRawOverflow as exc:
+        code = exc.code
+        if attempt is not None:
+            deps.generation_store.fail_attempt(
+                attempt.generation_id,
+                attempt.attempt_number,
+                code,
+                lease_token=attempt.lease_token,
+                fencing_version=attempt.fencing_version,
+            )
+        return {
+            "generation_outcome": "terminal",
+            "last_error_code": code,
+        }
     except Exception as exc:
         failure = (
             RuntimeFailure("duplicate_question", False)
@@ -723,6 +823,40 @@ def generate_followup(state, deps) -> dict:
             "last_error_code": code,
             "command_provider_invocations": provider_invocations,
         }
+
+
+def _render_measured_status_message(
+    *,
+    state,
+    deps,
+    advisory_unresolved_topic_codes,
+) -> dict[str, str] | None:
+    if (
+        state.get("workflow_engine") != "langgraph-v2"
+        or deps.status_projection_mode == "disabled"
+        or deps.question_evaluation_reader is None
+        or deps.context_runtime is None
+    ):
+        return None
+    try:
+        review_records = deps.question_evaluation_reader.list_question_evaluations(
+            state["session_id"]
+        )
+        projection = build_interview_status_projection(
+            state,
+            review_records=review_records,
+            advisory_unresolved_topic_codes=(
+                advisory_unresolved_topic_codes
+            ),
+        )
+        message = render_interview_status_message(projection)
+        deps.context_runtime.estimator_resolution.estimator.estimate_messages(
+            [message],
+            model=deps.context_runtime.model_profile.model,
+        )
+        return message
+    except Exception:
+        return None
 
 
 def enqueue_retry(state, deps) -> dict:
@@ -1118,6 +1252,30 @@ def _decision_state_updates(decision) -> dict:
     }
 
 
+def _recent_completed_question_ids(
+    state,
+    *,
+    limit: int,
+) -> tuple[str, ...]:
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise ValueError("exact recent questions must be a positive integer")
+    candidate_question_ids = {
+        message.get("question_id")
+        for message in state.get("messages", [])
+        if message.get("role") == "candidate"
+    }
+    completed = [
+        question_id
+        for question in state["plan_snapshot"]["questions"][
+            : state["current_index"]
+        ]
+        if isinstance((question_id := question.get("id")), str)
+        and question_id
+        and question_id in candidate_question_ids
+    ]
+    return tuple(completed[-limit:])
+
+
 def _recent_conversation_messages(
     state,
     context_runtime: ContextRuntime | None = None,
@@ -1129,20 +1287,135 @@ def _recent_conversation_selection(
     state,
     context_runtime: ContextRuntime | None = None,
 ) -> tuple[list[dict[str, str]], ContextSelectionStats]:
-    if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
-        selected = [
-            {"role": message["role"], "content": message["content"]}
-            for message in state["messages"][-4:]
-        ]
-        return selected, ContextSelectionStats(
-            source_message_count=len(state["messages"]),
-            selected_message_count=len(selected),
-            dropped_message_count=max(0, len(state["messages"]) - len(selected)),
+    plan = _recent_conversation_plan(state, context_runtime)
+    return [dict(item) for item in plan.provider_messages], plan.stats
+
+
+def _canonical_conversation_state_sources(messages) -> list[dict[str, Any]]:
+    result = []
+    for state_position, message in enumerate(messages, start=1):
+        sequence_no, sequence_contract = canonical_conversation_sequence_pair(
+            sequence_no=message.get("sequence_no"),
+            sequence_contract=message.get("sequence_contract"),
+            state_position=state_position,
         )
+        result.append(
+            {
+                **message,
+                "sequence_no": sequence_no,
+                "sequence_contract": sequence_contract,
+            }
+        )
+    return result
+
+
+def _recent_conversation_plan(
+    state,
+    context_runtime: ContextRuntime | None = None,
+    source_identity_config: ContextSourceIdentityConfig | None = None,
+    exact_recent_question_ids: tuple[str, ...] = (),
+) -> InterviewContextSelection:
     question_id = _current_question(state)["id"]
     runtime = context_runtime or get_context_runtime()
+    identity_config = (
+        source_identity_config or runtime.source_identity_config
+    )
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
+    if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
+        normalized = _mark_mandatory_conversation_sources(
+            _canonical_conversation_state_sources(state["messages"]),
+            current_question_id=question_id,
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
+        deduplicated = None
+        business = normalized
+        if identity_config.exact_deduplication_mode != "disabled":
+            deduplicated = deduplicate_conversation_replays(
+                normalized,
+                current_question_id=question_id,
+                owner_scope=_interview_owner_scope(state),
+            )
+            if identity_config.exact_deduplication_mode == "enforce":
+                business = list(deduplicated.items)
+        budget = runtime.budget_resolver.resolve(
+            profile=runtime.model_profile,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        selection_budget = runtime.budget_resolver.resolve_selection_budget(
+            budget=budget,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        structured_selection = build_interview_context_selection(
+            normalized,
+            current_question_id=question_id,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+            selection_budget=selection_budget,
+            estimator=estimator,
+            model=model,
+            owner_scope=_interview_owner_scope(state),
+            exact_deduplication_mode=identity_config.exact_deduplication_mode,
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
+        legacy_start = max(0, len(business) - 4)
+        selected_sources = [
+            dict(item)
+            for index, item in enumerate(business)
+            if item.get("mandatory_bounded_raw") is True
+            or index >= legacy_start
+        ]
+        legacy_selected_sidecars: list[dict[str, Any]] = []
+        provider_messages, legacy_stats = select_interview_messages(
+            selected_sources,
+            current_question_id=question_id,
+            token_budget=selection_budget.selectable_content_tokens,
+            max_single_message_tokens=(
+                FOLLOWUP_CONTEXT_POLICY.max_single_message_tokens
+            ),
+            estimator=estimator,
+            model=model,
+            owner_scope=_interview_owner_scope(state),
+            exact_deduplication_mode=identity_config.exact_deduplication_mode,
+            exact_recent_question_ids=exact_recent_question_ids,
+            _selected_sources=legacy_selected_sidecars,
+        )
+        business_sidecars = _merge_selected_provider_sidecars(
+            business,
+            selected_sources=legacy_selected_sidecars,
+            owner_scope=_interview_owner_scope(state),
+        )
+        mandatory, compressible = _classify_conversation_sources(
+            business_sidecars,
+            current_question_id=question_id,
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
+        stats = replace(
+            structured_selection.stats,
+            source_message_count=len(normalized),
+            selected_message_count=legacy_stats.selected_message_count,
+            dropped_message_count=max(
+                0,
+                len(normalized) - legacy_stats.selected_message_count,
+            ),
+            truncated_message_count=legacy_stats.truncated_message_count,
+            exact_recent_message_count=(
+                legacy_stats.exact_recent_message_count
+            ),
+            exact_recent_truncated_message_count=(
+                legacy_stats.exact_recent_truncated_message_count
+            ),
+            retained_required_tokens=estimator.estimate_messages(
+                provider_messages,
+                model=model,
+            ),
+        )
+        return InterviewContextSelection(
+            provider_messages=tuple(provider_messages),
+            mandatory_bounded_raw=tuple(mandatory),
+            compressible_conversation_sources=tuple(compressible),
+            evidence_sources=structured_selection.evidence_sources,
+            stats=stats,
+        )
     budget = runtime.budget_resolver.resolve(
         profile=runtime.model_profile,
         policy=FOLLOWUP_CONTEXT_POLICY,
@@ -1151,26 +1424,31 @@ def _recent_conversation_selection(
         budget=budget,
         policy=FOLLOWUP_CONTEXT_POLICY,
     )
-    selected, stats = build_interview_context(
+    return build_interview_context_selection(
         state["messages"],
         current_question_id=question_id,
         policy=FOLLOWUP_CONTEXT_POLICY,
         selection_budget=selection_budget,
         estimator=estimator,
         model=model,
+        owner_scope=_interview_owner_scope(state),
+        exact_deduplication_mode=identity_config.exact_deduplication_mode,
+        exact_recent_question_ids=exact_recent_question_ids,
     )
-    return selected, stats
 
 
 def _build_examiner_context(
     state,
     repository,
     context_runtime: ContextRuntime | None = None,
+    *,
+    exact_recent_questions: int = 1,
 ) -> list[dict[str, str]]:
     return _build_examiner_context_selection(
         state,
         repository,
         context_runtime,
+        exact_recent_questions=exact_recent_questions,
     )[0]
 
 
@@ -1178,11 +1456,39 @@ def _build_examiner_context_selection(
     state,
     repository,
     context_runtime: ContextRuntime | None = None,
+    *,
+    exact_recent_questions: int = 1,
 ) -> tuple[list[dict[str, str]], ContextSelectionStats]:
+    plan = _build_examiner_context_plan(
+        state,
+        repository,
+        context_runtime,
+        exact_recent_questions=exact_recent_questions,
+    )
+    return [dict(item) for item in plan.provider_messages], plan.stats
+
+
+def _build_examiner_context_plan(
+    state,
+    repository,
+    context_runtime: ContextRuntime | None = None,
+    source_identity_config: ContextSourceIdentityConfig | None = None,
+    *,
+    exact_recent_questions: int = 1,
+) -> InterviewContextSelection:
     question = _current_question(state)
+    exact_recent_question_ids = _recent_completed_question_ids(
+        state,
+        limit=exact_recent_questions,
+    )
     evidence_messages = []
     if repository is None:
-        return _recent_conversation_selection(state, context_runtime)
+        return _recent_conversation_plan(
+            state,
+            context_runtime,
+            source_identity_config,
+            exact_recent_question_ids,
+        )
     resolution = resolve_evidence_by_ids(
         repository,
         evidence_ids=question.get("evidence_ids", []),
@@ -1194,16 +1500,89 @@ def _build_examiner_context_selection(
     if resolution.retrieval_path == "bound_evidence_ids":
         evidence_messages = resolution.messages
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
-        recent, stats = _recent_conversation_selection(state, context_runtime)
-        return [*recent, *evidence_messages], ContextSelectionStats(
-            source_message_count=stats.source_message_count,
-            selected_message_count=stats.selected_message_count,
-            dropped_message_count=stats.dropped_message_count,
-            truncated_message_count=stats.truncated_message_count,
-            source_evidence_count=len(evidence_messages),
-            selected_evidence_count=len(evidence_messages),
+        runtime = context_runtime or get_context_runtime()
+        identity_config = (
+            source_identity_config or runtime.source_identity_config
+        )
+        recent = _recent_conversation_plan(
+            state,
+            runtime,
+            identity_config,
+            exact_recent_question_ids,
+        )
+        evidence_deduplication = None
+        business_evidence = evidence_messages
+        if identity_config.exact_deduplication_mode != "disabled":
+            evidence_deduplication = deduplicate_evidence_replays(
+                evidence_messages,
+                owner_scope=_interview_owner_scope(state),
+            )
+            if identity_config.exact_deduplication_mode == "enforce":
+                business_evidence = list(evidence_deduplication.items)
+        estimator = runtime.estimator_resolution.estimator
+        model = runtime.model_profile.model
+        budget = runtime.budget_resolver.resolve(
+            profile=runtime.model_profile,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        selection_budget = runtime.budget_resolver.resolve_selection_budget(
+            budget=budget,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+        )
+        structured_selection = build_interview_context_selection(
+            state["messages"],
+            current_question_id=question["id"],
+            evidence_messages=evidence_messages,
+            policy=FOLLOWUP_CONTEXT_POLICY,
+            selection_budget=selection_budget,
+            estimator=estimator,
+            model=model,
+            owner_scope=_interview_owner_scope(state),
+            exact_deduplication_mode=(
+                identity_config.exact_deduplication_mode
+            ),
+            exact_recent_question_ids=exact_recent_question_ids,
+        )
+        provider_messages = tuple(
+            [
+                *recent.provider_messages,
+                *(_provider_message(item) for item in business_evidence),
+            ]
+        )
+        return InterviewContextSelection(
+            provider_messages=provider_messages,
+            mandatory_bounded_raw=recent.mandatory_bounded_raw,
+            compressible_conversation_sources=(
+                recent.compressible_conversation_sources
+            ),
+            evidence_sources=tuple(dict(item) for item in business_evidence),
+            stats=replace(
+                structured_selection.stats,
+                source_message_count=recent.stats.source_message_count,
+                selected_message_count=recent.stats.selected_message_count,
+                dropped_message_count=recent.stats.dropped_message_count,
+                truncated_message_count=recent.stats.truncated_message_count,
+                source_evidence_count=len(evidence_messages),
+                selected_evidence_count=len(business_evidence),
+                dropped_evidence_count=max(
+                    0,
+                    len(evidence_messages) - len(business_evidence),
+                ),
+                truncated_evidence_count=0,
+                exact_recent_message_count=(
+                    recent.stats.exact_recent_message_count
+                ),
+                exact_recent_truncated_message_count=(
+                    recent.stats.exact_recent_truncated_message_count
+                ),
+                retained_required_tokens=estimator.estimate_messages(
+                    provider_messages,
+                    model=model,
+                ),
+            ),
         )
     runtime = context_runtime or get_context_runtime()
+    identity_config = source_identity_config or runtime.source_identity_config
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
     budget = runtime.budget_resolver.resolve(
@@ -1214,7 +1593,7 @@ def _build_examiner_context_selection(
         budget=budget,
         policy=FOLLOWUP_CONTEXT_POLICY,
     )
-    context, stats = build_interview_context(
+    return build_interview_context_selection(
         state["messages"],
         current_question_id=question["id"],
         evidence_messages=evidence_messages,
@@ -1222,8 +1601,21 @@ def _build_examiner_context_selection(
         selection_budget=selection_budget,
         estimator=estimator,
         model=model,
+        owner_scope=_interview_owner_scope(state),
+        exact_deduplication_mode=identity_config.exact_deduplication_mode,
+        exact_recent_question_ids=exact_recent_question_ids,
     )
-    return context, stats
+
+
+def _provider_message(message) -> dict[str, str]:
+    return {
+        "role": str(message.get("role", "")),
+        "content": str(message.get("content", "")),
+    }
+
+
+def _interview_owner_scope(state) -> str:
+    return f"interview-session:{state.get('session_id', 'legacy-state')}"
 
 
 def build_durable_interview_graph(

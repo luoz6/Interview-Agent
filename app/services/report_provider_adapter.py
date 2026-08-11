@@ -107,13 +107,18 @@ def build_reference_lookup(
     evaluation_items: list[dict[str, Any]],
     provider_reference_ids: list[str],
 ) -> dict[str, dict[str, str]]:
-    lookup: dict[str, dict[str, str]] = {}
+    provider_lookup: dict[str, dict[str, str]] = {}
     for reference in payload.get("references", []):
         if isinstance(reference, dict):
             normalized = _normalize_reference(reference)
             if normalized is not None:
-                lookup[normalized["chunk_id"]] = normalized
+                provider_lookup[normalized["chunk_id"]] = normalized
 
+    has_non_authoritative_context = any(
+        "non_authoritative_reference_context" in item
+        for item in evaluation_items
+    )
+    backend_lookup: dict[str, dict[str, str]] = {}
     for item in evaluation_items:
         for key in ("scoring_references", "answer_references"):
             for reference in item.get(key, []):
@@ -122,11 +127,18 @@ def build_reference_lookup(
                 normalized = _normalize_reference(reference)
                 if normalized is None:
                     continue
-                if provider_reference_ids and normalized["chunk_id"] not in provider_reference_ids:
+                if (
+                    not has_non_authoritative_context
+                    and provider_reference_ids
+                    and normalized["chunk_id"] not in provider_reference_ids
+                ):
                     continue
-                lookup[normalized["chunk_id"]] = normalized
+                backend_lookup[normalized["chunk_id"]] = normalized
 
-    return lookup
+    if has_non_authoritative_context:
+        return backend_lookup
+    provider_lookup.update(backend_lookup)
+    return provider_lookup
 
 
 def _normalize_question_result(
@@ -210,22 +222,26 @@ def _collect_reference_chunk_ids(
     reference_lookup: dict[str, dict[str, str]],
 ) -> list[str]:
     chunk_ids: list[str] = []
+    allowed_chunk_ids = _allowed_reference_chunk_ids(
+        evaluation_item,
+        reference_lookup,
+    )
     for reference in item.get("references", []):
-        if isinstance(reference, str) and reference in reference_lookup and reference not in chunk_ids:
+        if isinstance(reference, str) and reference in allowed_chunk_ids and reference not in chunk_ids:
             chunk_ids.append(reference)
         elif isinstance(reference, dict):
             chunk_id = reference.get("chunk_id")
-            if isinstance(chunk_id, str) and chunk_id in reference_lookup and chunk_id not in chunk_ids:
+            if isinstance(chunk_id, str) and chunk_id in allowed_chunk_ids and chunk_id not in chunk_ids:
                 chunk_ids.append(chunk_id)
 
     for chunk_id in item.get("reference_chunk_ids", []):
-        if isinstance(chunk_id, str) and chunk_id in reference_lookup and chunk_id not in chunk_ids:
+        if isinstance(chunk_id, str) and chunk_id in allowed_chunk_ids and chunk_id not in chunk_ids:
             chunk_ids.append(chunk_id)
 
     for gap in item.get("gaps", []):
         if isinstance(gap, dict):
             chunk_id = gap.get("reference_chunk_id")
-            if isinstance(chunk_id, str) and chunk_id in reference_lookup and chunk_id not in chunk_ids:
+            if isinstance(chunk_id, str) and chunk_id in allowed_chunk_ids and chunk_id not in chunk_ids:
                 chunk_ids.append(chunk_id)
 
     if chunk_ids:
@@ -236,9 +252,34 @@ def _collect_reference_chunk_ids(
             if not isinstance(reference, dict):
                 continue
             chunk_id = reference.get("chunk_id")
-            if isinstance(chunk_id, str) and chunk_id in reference_lookup and chunk_id not in chunk_ids:
+            if isinstance(chunk_id, str) and chunk_id in allowed_chunk_ids and chunk_id not in chunk_ids:
                 chunk_ids.append(chunk_id)
     return chunk_ids
+
+
+def _allowed_reference_chunk_ids(
+    evaluation_item: dict[str, Any],
+    reference_lookup: dict[str, dict[str, str]],
+) -> set[str]:
+    backend_raw = {
+        str(reference.get("chunk_id", ""))
+        for key in ("scoring_references", "answer_references")
+        for reference in evaluation_item.get(key, [])
+        if isinstance(reference, dict)
+        and str(reference.get("chunk_id", ""))
+    }
+    provider_context = evaluation_item.get(
+        "non_authoritative_reference_context"
+    )
+    if not isinstance(provider_context, list):
+        return backend_raw.intersection(reference_lookup)
+    visible = {
+        str(reference.get("chunk_id", ""))
+        for reference in provider_context
+        if isinstance(reference, dict)
+        and str(reference.get("chunk_id", ""))
+    }
+    return visible.intersection(backend_raw, reference_lookup)
 
 
 def _build_user_answer(evaluation_item: dict[str, Any]) -> str:

@@ -48,6 +48,7 @@ from app.services.in_memory_interview_launch_repository import InMemoryInterview
 from app.services.postgres_interview_launch_repository import PostgresInterviewLaunchRepository
 from app.services.interview_launch import InterviewLaunchCoordinator
 from app.services.llm import InterviewLLM, LLMConfig, OpenAIInterviewLLM
+from app.services.model_capabilities import ContextConfigurationError
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.memory_report_jobs import InMemoryReportJobStore
@@ -68,6 +69,19 @@ class ReportExecutor:
     llm: InterviewLLM
     vector_store: PgVectorKnowledgeStore
     execution_runner: AgentExecutionRunner | None = None
+
+
+@dataclass(frozen=True)
+class _ComposedWorkflowLLMAuthority:
+    model_config: object
+    context_runtime: object
+
+
+@dataclass(frozen=True)
+class _ContextCompressorAuthority:
+    llm: object
+    context_runtime: object | None
+    model_config: object | None
 
 
 _session_store = None
@@ -101,8 +115,12 @@ _workflow_thread_lock = None
 _runtime_signal_store = None
 _postgres_connection_domains = None
 _context_artifact_store = None
-_context_compression_runner = None
+_context_compression_runners = {}
+_context_compression_failure_store = None
 _context_compressor_agent = None
+_context_compressor_authority: _ContextCompressorAuthority | None = None
+_composed_workflow_llm = None
+_composed_workflow_llm_authority: _ComposedWorkflowLLMAuthority | None = None
 _question_memory_index_store = None
 _session_deletion_job_store = None
 _session_deletion_tombstone_store = None
@@ -595,8 +613,10 @@ def get_session_deletion_worker():
     global _session_deletion_worker
     if _session_deletion_worker is None:
         from app.services.session_deletion_worker import SessionDeletionWorker
+        from app.services.memory_config import load_effective_memory_config
 
         service = get_session_deletion_service()
+        memory_config = load_effective_memory_config()
         _session_deletion_worker = SessionDeletionWorker(
             job_store=service.job_store,
             session_store=get_session_store(),
@@ -610,6 +630,10 @@ def get_session_deletion_worker():
             report_job_store=get_report_job_store(),
             report_artifact_store=get_report_artifact_store(),
             tombstone_store=service.tombstone_store,
+            failure_state_store=get_context_compression_failure_store(),
+            failure_state_deployment_scope=(
+                memory_config.privacy.deployment_id
+            ),
             principal_memory_store=get_principal_memory_fact_store(),
             principal_memory_control_store=get_principal_memory_control_store(),
         )
@@ -828,6 +852,52 @@ def resolve_runtime_llm(
     return llm or store.llm or OpenAIInterviewLLM()
 
 
+def _build_composed_workflow_llm(
+    *,
+    store: InterviewSessionStore,
+    model_config,
+    context_runtime,
+) -> InterviewLLM:
+    global _composed_workflow_llm, _composed_workflow_llm_authority
+    existing = getattr(store, "llm", None)
+    if existing is not None:
+        existing_context_runtime = getattr(
+            existing,
+            "context_runtime",
+            None,
+        )
+        if (
+            existing_context_runtime is not None
+            and existing_context_runtime is not context_runtime
+        ):
+            raise ContextConfigurationError(
+                "existing workflow LLM context runtime conflict"
+            )
+        return existing
+    with _context_compression_lock:
+        if _composed_workflow_llm is not None:
+            authority = _composed_workflow_llm_authority
+            if (
+                authority is None
+                or authority.context_runtime is not context_runtime
+                or authority.model_config != model_config
+            ):
+                raise ContextConfigurationError(
+                    "composed workflow LLM authority conflict"
+                )
+            return _composed_workflow_llm
+        llm = OpenAIInterviewLLM(
+            config=LLMConfig.from_env(memory=model_config),
+            context_runtime=context_runtime,
+        )
+        _composed_workflow_llm_authority = _ComposedWorkflowLLMAuthority(
+            model_config=model_config,
+            context_runtime=context_runtime,
+        )
+        _composed_workflow_llm = llm
+        return llm
+
+
 def get_session_store():
     global _session_store
     if _session_store is None:
@@ -938,52 +1008,172 @@ def get_context_artifact_store():
         return _context_artifact_store
 
 
-def get_context_compression_runner(*, lease_seconds: int | None = None):
-    global _context_compression_runner
+def get_context_compression_failure_store():
+    global _context_compression_failure_store
     with _context_compression_lock:
-        if _context_compression_runner is None:
+        if _context_compression_failure_store is None:
+            runtime_store = get_runtime_store()
+            if runtime_store == "postgres":
+                from app.services.context_compression_failure_store import (
+                    PostgresContextCompressionFailureStore,
+                )
+
+                _context_compression_failure_store = (
+                    PostgresContextCompressionFailureStore(
+                        dsn=get_postgres_dsn(),
+                        connection_provider=(
+                            get_postgres_connection_domains().business
+                        ),
+                        table_prefix=get_runtime_table_prefix(),
+                        schema_mode="validate",
+                    )
+                )
+            elif runtime_store == "memory":
+                from app.services.in_memory_context_compression_failure_store import (
+                    InMemoryContextCompressionFailureStore,
+                )
+
+                _context_compression_failure_store = (
+                    InMemoryContextCompressionFailureStore()
+                )
+            else:
+                raise RuntimeError(
+                    "context compression failure state requires postgres or memory runtime"
+                )
+        return _context_compression_failure_store
+
+
+def get_context_compression_runner(
+    *,
+    workflow: str = "interview",
+    lease_seconds: int | None = None,
+):
+    global _context_compression_runners
+    if workflow not in {"interview", "review", "prep"}:
+        raise ValueError("workflow must be interview, review, or prep")
+    with _context_compression_lock:
+        if workflow not in _context_compression_runners:
             from app.services.context_compression_runner import (
                 ContextCompressionRunner,
             )
 
-            _context_compression_runner = ContextCompressionRunner(
+            failure_containment = None
+            if workflow == "interview":
+                from app.services.context_compression_failure_containment import (
+                    ContextCompressionFailureContainment,
+                    FailureContainmentConfig,
+                )
+                from app.services.memory_config import load_effective_memory_config
+
+                compression = load_effective_memory_config().compression
+                failure_containment = ContextCompressionFailureContainment(
+                    store=get_context_compression_failure_store(),
+                    config=FailureContainmentConfig(
+                        provider_circuit_threshold=(
+                            compression.provider_circuit_threshold
+                        ),
+                        provider_circuit_cooldown_seconds=(
+                            compression.provider_circuit_cooldown_seconds
+                        ),
+                        validation_quarantine_threshold=(
+                            compression.validation_quarantine_threshold
+                        ),
+                        validation_quarantine_cooldown_seconds=(
+                            compression.validation_quarantine_cooldown_seconds
+                        ),
+                        failure_state_lease_seconds=(
+                            compression.failure_state_lease_seconds
+                        ),
+                    ),
+                )
+            _context_compression_runners[workflow] = ContextCompressionRunner(
                 get_context_artifact_store(),
                 lease_seconds=(
                     lease_seconds
                     if lease_seconds is not None
                     else get_context_artifact_lease_seconds()
                 ),
+                failure_containment=failure_containment,
             )
-        return _context_compression_runner
+        return _context_compression_runners[workflow]
 
 
-def get_context_compressor_agent(*, context_runtime=None, model_config=None):
-    global _context_compressor_agent
+def get_context_compressor_agent(
+    *,
+    context_runtime=None,
+    model_config=None,
+    llm=None,
+):
+    global _context_compressor_agent, _context_compressor_authority
     with _context_compression_lock:
-        if _context_compressor_agent is None:
-            from app.agents.context_compressor import ContextCompressorAgent
-            from app.services.context_compression import OpenAIContextCompressor
+        if (
+            _context_compressor_agent is not None
+            and llm is None
+            and context_runtime is None
+            and model_config is None
+        ):
+            return _context_compressor_agent
 
-            llm = get_session_store().llm
-            if llm is None and model_config is not None:
-                llm = OpenAIInterviewLLM(
-                    config=LLMConfig.from_env(memory=model_config),
-                    context_runtime=context_runtime,
-                )
-            llm = resolve_runtime_llm(get_session_store(), llm)
-            provider = (
-                OpenAIContextCompressor(
-                    llm_config=llm.config,
-                    chat_model=llm.chat_model,
-                    context_runtime=llm.context_runtime,
-                )
-                if isinstance(llm, OpenAIInterviewLLM)
-                else OpenAIContextCompressor()
+        from app.agents.context_compressor import ContextCompressorAgent
+        from app.services.context_compression import OpenAIContextCompressor
+
+        store = get_session_store()
+        resolved_llm = llm if llm is not None else getattr(store, "llm", None)
+        if resolved_llm is None and model_config is not None:
+            resolved_llm = _build_composed_workflow_llm(
+                store=store,
+                model_config=model_config,
+                context_runtime=context_runtime,
             )
-            _context_compressor_agent = ContextCompressorAgent(
-                provider=provider,
-                execution_runner=get_agent_execution_runner(),
+        resolved_llm = resolve_runtime_llm(store, resolved_llm)
+        effective_context_runtime = context_runtime
+        if effective_context_runtime is None:
+            effective_context_runtime = getattr(
+                resolved_llm,
+                "context_runtime",
+                None,
             )
+        requested_authority = _ContextCompressorAuthority(
+            llm=resolved_llm,
+            context_runtime=effective_context_runtime,
+            model_config=model_config,
+        )
+        if _context_compressor_agent is not None:
+            authority = _context_compressor_authority
+            if (
+                authority is None
+                or authority.llm is not requested_authority.llm
+                or authority.context_runtime
+                is not requested_authority.context_runtime
+                or authority.model_config != requested_authority.model_config
+            ):
+                raise ContextConfigurationError(
+                    "context compressor singleton authority conflict"
+                )
+            return _context_compressor_agent
+
+        provider = (
+            OpenAIContextCompressor(
+                llm_config=resolved_llm.config,
+                chat_model=resolved_llm.chat_model,
+                context_runtime=effective_context_runtime,
+            )
+            if isinstance(resolved_llm, OpenAIInterviewLLM)
+            else OpenAIContextCompressor(
+                llm_config=(
+                    LLMConfig.from_env(memory=model_config)
+                    if model_config is not None
+                    else None
+                ),
+                context_runtime=effective_context_runtime,
+            )
+        )
+        agent = ContextCompressorAgent(
+            provider=provider,
+            execution_runner=get_agent_execution_runner(),
+        )
+        _context_compressor_authority = requested_authority
+        _context_compressor_agent = agent
         return _context_compressor_agent
 
 
@@ -1041,6 +1231,7 @@ def build_durable_workflow_maintenance_service():
         ),
         signal_store=get_runtime_signal_store(),
         context_artifact_store=get_context_artifact_store(),
+        failure_state_store=get_context_compression_failure_store(),
         retention_hours=get_interview_chunk_retention_hours(),
         signal_retention_hours=(
             get_langgraph_canary_signal_retention_hours()
@@ -1055,6 +1246,12 @@ def build_durable_workflow_maintenance_service():
             get_context_artifact_prep_ref_retention_hours()
         ),
         context_artifact_cleanup_batch_size=(
+            get_context_artifact_cleanup_batch_size()
+        ),
+        failure_state_retention_hours=(
+            get_context_artifact_failed_retention_hours()
+        ),
+        failure_state_cleanup_batch_size=(
             get_context_artifact_cleanup_batch_size()
         ),
         interval_seconds=get_durable_workflow_maintenance_seconds(),
@@ -1128,16 +1325,21 @@ def build_interview_workflow_service():
         ContextRuntimeConfig,
         get_context_runtime,
     )
+    from app.services.context_source_identity import ContextSourceIdentityConfig
     from app.services.langgraph_runtime import (
         VersionedGraphRegistry,
     )
     from app.services.context_compression_eligibility import (
         ContextCompressionEligibilityPolicy,
     )
+    from app.services.context_budget import DynamicCompressionTargetPolicy
     from app.services.context_compression_gating import ContextCompressionGates
     from app.services.memory_config import (
         load_effective_memory_config,
         memory_readiness_payload,
+    )
+    from app.services.interview_status_projection import (
+        resolve_status_projection_mode,
     )
 
     effective_memory = load_effective_memory_config()
@@ -1147,6 +1349,12 @@ def build_interview_workflow_service():
     selection_config = effective_memory.selection
     deployment_scope = effective_memory.privacy.deployment_id
     compression_gates = ContextCompressionGates.from_config(compression_config)
+    status_projection_mode = resolve_status_projection_mode(
+        status_projection_enabled=(
+            compression_config.status_projection_enabled
+        ),
+        compression_mode=compression_config.mode,
+    )
     eligibility_policy = ContextCompressionEligibilityPolicy(
         eligibility_utilization_basis_points=(
             selection_config.eligibility_utilization_basis_points
@@ -1164,6 +1372,18 @@ def build_interview_workflow_service():
         raise RuntimeError("LangGraph runtime is disabled")
     saver = checkpointer.start()
     model_config = effective_memory.model
+    source_identity_config = ContextSourceIdentityConfig(
+        exact_deduplication_mode=(
+            selection_config.exact_deduplication_mode
+        )
+    )
+    dynamic_compression_target_policy = DynamicCompressionTargetPolicy(
+        floor_tokens=selection_config.dynamic_target_floor_tokens,
+        source_ratio_basis_points=(
+            selection_config.dynamic_target_source_ratio_basis_points
+        ),
+        allowed_target_tokens=selection_config.dynamic_target_allowed_tokens,
+    )
     context_runtime = get_context_runtime(
         ContextRuntimeConfig(
             provider=model_config.provider,
@@ -1176,9 +1396,18 @@ def build_interview_workflow_service():
             ),
             safety_margin_tokens=model_config.safety_margin_tokens,
             tokenizer_family=model_config.tokenizer_family,
+            source_identity_config=source_identity_config,
+            dynamic_compression_target_policy=(
+                dynamic_compression_target_policy
+            ),
         )
     )
     store = get_session_store()
+    business_llm = _build_composed_workflow_llm(
+        store=store,
+        model_config=model_config,
+        context_runtime=context_runtime,
+    )
     dsn = get_postgres_dsn()
     prefix = get_runtime_table_prefix()
     domains = get_postgres_connection_domains()
@@ -1203,10 +1432,14 @@ def build_interview_workflow_service():
             provider=decision_provider,
         ),
         examiner=ExaminerAgent(
-            llm=store.llm,
+            llm=business_llm,
             execution_runner=get_agent_execution_runner(),
         ),
         context_runtime=context_runtime,
+        source_identity_config=source_identity_config,
+        exact_recent_questions=selection_config.exact_recent_questions,
+        status_projection_mode=status_projection_mode,
+        question_evaluation_reader=store,
         knowledge_repository=get_knowledge_store(
             connection_provider=domains.business,
             schema_mode="validate",
@@ -1232,8 +1465,10 @@ def build_interview_workflow_service():
         compressor_agent = get_context_compressor_agent(
             context_runtime=context_runtime,
             model_config=model_config,
+            llm=business_llm,
         )
         compression_runner = get_context_compression_runner(
+            workflow="interview",
             lease_seconds=effective_memory.artifact.lease_seconds
         )
         deps.context_artifact_coordinator = InterviewContextArtifactCoordinator(
@@ -1245,6 +1480,7 @@ def build_interview_workflow_service():
             deployment_scope=deployment_scope,
             eligibility_policy=eligibility_policy,
             task_intent_enabled=compression_config.task_intent_enabled,
+            source_identity_config=source_identity_config,
         )
         from app.services.question_memory import QuestionMemoryCoordinator
 
@@ -1259,6 +1495,7 @@ def build_interview_workflow_service():
             max_memory_units=selection_config.max_memory_units,
             max_memory_tokens=selection_config.max_memory_tokens,
             task_intent_enabled=compression_config.task_intent_enabled,
+            source_identity_config=source_identity_config,
         )
         if compression_gates.shadow_enabled or (
             compression_gates.interview_enabled
@@ -1274,6 +1511,7 @@ def build_interview_workflow_service():
                     deployment_scope=deployment_scope,
                     eligibility_policy=eligibility_policy,
                     task_intent_enabled=compression_config.task_intent_enabled,
+                    source_identity_config=source_identity_config,
                 )
             )
     registry = VersionedGraphRegistry()
@@ -1405,7 +1643,13 @@ def build_review_workflow_service():
     from app.services.context_compression_eligibility import (
         ContextCompressionEligibilityPolicy,
     )
+    from app.services.context_budget import DynamicCompressionTargetPolicy
     from app.services.context_compression_gating import ContextCompressionGates
+    from app.services.context_runtime import (
+        ContextRuntimeConfig,
+        get_context_runtime,
+    )
+    from app.services.context_source_identity import ContextSourceIdentityConfig
     from app.services.memory_config import load_effective_memory_config
 
     effective_memory = load_effective_memory_config()
@@ -1420,6 +1664,37 @@ def build_review_workflow_service():
             selection_config.eligibility_utilization_basis_points
         )
     )
+    model_config = effective_memory.model
+    source_identity_config = ContextSourceIdentityConfig(
+        exact_deduplication_mode=(
+            selection_config.exact_deduplication_mode
+        )
+    )
+    dynamic_compression_target_policy = DynamicCompressionTargetPolicy(
+        floor_tokens=selection_config.dynamic_target_floor_tokens,
+        source_ratio_basis_points=(
+            selection_config.dynamic_target_source_ratio_basis_points
+        ),
+        allowed_target_tokens=selection_config.dynamic_target_allowed_tokens,
+    )
+    review_context_runtime = get_context_runtime(
+        ContextRuntimeConfig(
+            provider=model_config.provider,
+            model=model_config.model,
+            base_url="custom" if model_config.custom_base_url else None,
+            context_window_tokens=model_config.context_window_tokens,
+            protocol_reserve_tokens=model_config.protocol_reserve_tokens,
+            structured_output_reserve_tokens=(
+                model_config.structured_output_reserve_tokens
+            ),
+            safety_margin_tokens=model_config.safety_margin_tokens,
+            tokenizer_family=model_config.tokenizer_family,
+            source_identity_config=source_identity_config,
+            dynamic_compression_target_policy=(
+                dynamic_compression_target_policy
+            ),
+        )
+    )
 
     checkpointer = get_langgraph_checkpointer_runtime(
         interview_runtime_enabled=(
@@ -1429,6 +1704,11 @@ def build_review_workflow_service():
     if checkpointer is None:
         raise RuntimeError("LangGraph runtime is disabled")
     store = get_session_store()
+    business_llm = _build_composed_workflow_llm(
+        store=store,
+        model_config=model_config,
+        context_runtime=review_context_runtime,
+    )
     workflow_store = PostgresReviewWorkflowStore(
         dsn=get_postgres_dsn(),
         connection_provider=get_postgres_connection_domains().business,
@@ -1450,20 +1730,24 @@ def build_review_workflow_service():
         )
 
         compressor_agent = get_context_compressor_agent(
-            model_config=effective_memory.model
+            context_runtime=review_context_runtime,
+            model_config=model_config,
+            llm=business_llm,
         )
         compression_runner = get_context_compression_runner(
+            workflow="review",
             lease_seconds=effective_memory.artifact.lease_seconds
         )
         review_evidence_coordinator = EvidenceContextArtifactCoordinator(
             runner=compression_runner,
             compressor_agent=compressor_agent,
             compressor_config=compressor_agent.provider.config,
-            context_runtime=compressor_agent.provider.context_runtime,
+            context_runtime=review_context_runtime,
             gates=review_compression_gates,
             deployment_scope=deployment_scope,
             eligibility_policy=review_eligibility_policy,
             task_intent_enabled=compression_config.task_intent_enabled,
+            source_identity_config=source_identity_config,
         )
 
     def review_question(graph_state, question_id):
@@ -1483,12 +1767,14 @@ def build_review_workflow_service():
                         llm=llm,
                         vector_store=vector_store,
                         execution_runner=runner,
-                        reference_transform=lambda *, state, chunk, references: (
+                        context_runtime=review_context_runtime,
+                        reference_transform=lambda *, state, chunk, references, budget_context: (
                             review_evidence_coordinator.transform_review_references(
                                 state=state,
                                 question_id=chunk.question_id,
                                 focus=chunk.focus,
                                 references=references,
+                                budget_context=budget_context,
                                 job_id=graph_state["job_id"],
                                 attempt_number=graph_state["provider_attempt"],
                                 parent_ownership=effect_ownership,
@@ -1501,7 +1787,7 @@ def build_review_workflow_service():
                     session_id=state["session_id"], question_id=question_id,
                     answer_state=question["answer_state"], job_tags=list(state["job_tags"]),
                     state_version=state["state_version"],
-                ), state=state, llm=resolve_runtime_llm(store), vector_store=vector_store,
+                ), state=state, llm=business_llm, vector_store=vector_store,
                 reviewer_factory=reviewer_factory,
                 execution_runner=runner, attempt_number=graph_state["provider_attempt"],
             ).model_copy(update={
@@ -1536,7 +1822,7 @@ def build_review_workflow_service():
             effect_ownership.ensure_owned()
             state = store.get(graph_state["session_id"])
             records = store.list_question_evaluations(state["session_id"])
-            report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).generate_report_attempt(
+            report = ReportCoachAgent(llm=business_llm, execution_runner=runner).generate_report_attempt(
                 plan=state["plan"],
                 evaluation_items=build_report_coach_items_from_question_evaluations(records),
                 session_id=state["session_id"],
@@ -1668,7 +1954,7 @@ def build_review_workflow_service():
 
         def call_provider(effect_ownership):
             effect_ownership.ensure_owned()
-            report = ReportCoachAgent(llm=resolve_runtime_llm(store), execution_runner=runner).repair_report_attempt(
+            report = ReportCoachAgent(llm=business_llm, execution_runner=runner).repair_report_attempt(
                 plan=state["plan"],
                 evaluation_items=build_report_coach_items_from_question_evaluations(records),
                 session_id=state["session_id"],
@@ -1894,8 +2180,10 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     global _workflow_thread_lock
     global _runtime_signal_store
     global _postgres_connection_domains
-    global _context_artifact_store, _context_compression_runner
-    global _context_compressor_agent
+    global _context_artifact_store, _context_compression_runners
+    global _context_compression_failure_store
+    global _context_compressor_agent, _context_compressor_authority
+    global _composed_workflow_llm, _composed_workflow_llm_authority
     global _question_memory_index_store
     global _session_deletion_job_store, _session_deletion_tombstone_store
     global _session_deletion_service, _session_deletion_worker
@@ -1949,8 +2237,12 @@ def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
     _runtime_signal_store = None
     _postgres_connection_domains = None
     _context_artifact_store = None
-    _context_compression_runner = None
+    _context_compression_runners = {}
+    _context_compression_failure_store = None
     _context_compressor_agent = None
+    _context_compressor_authority = None
+    _composed_workflow_llm = None
+    _composed_workflow_llm_authority = None
     _question_memory_index_store = None
     _session_deletion_job_store = None
     _session_deletion_tombstone_store = None

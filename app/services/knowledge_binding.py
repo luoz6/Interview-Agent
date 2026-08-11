@@ -26,7 +26,7 @@ RetrievalPath = Literal[
 
 @dataclass(frozen=True)
 class KnowledgeBindingResolution:
-    messages: list[dict[str, str]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
     evidence_ids: list[str] = field(default_factory=list)
     references: list[Any] = field(default_factory=list)
     retrieval_path: RetrievalPath = "legacy_no_context"
@@ -192,6 +192,20 @@ class KnowledgeBindingResolver:
                     f"[source={_chunk_value(found_lookup[evidence_id], 'source_type')}]: "
                     f"{_chunk_value(found_lookup[evidence_id], 'content')}"
                 ),
+                "evidence_id": evidence_id,
+                "chunk_id": evidence_id,
+                "provenance": _chunk_value(
+                    found_lookup[evidence_id],
+                    "source_type",
+                ),
+                "content_sha256": (
+                    _chunk_value(found_lookup[evidence_id], "metadata") or {}
+                ).get("content_sha256"),
+                "corpus_manifest_sha256": (
+                    _chunk_value(found_lookup[evidence_id], "metadata") or {}
+                ).get("corpus_manifest_sha256"),
+                "representation": "authoritative_raw",
+                "mandatory_bounded_raw": True,
             }
             for evidence_id in evidence_ids
         ]

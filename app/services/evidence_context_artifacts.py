@@ -19,6 +19,7 @@ from app.services.context_artifacts import (
     canonical_json,
     compressor_settings_sha256,
 )
+from app.services.context_budget import allocate_dynamic_compression_target
 from app.services.context_compression_gating import ContextCompressionGates
 from app.services.context_compression_intent import (
     ALL_PROHIBITED_AUTHORITY_UPGRADES,
@@ -29,7 +30,16 @@ from app.services.context_compression_intent import (
 from app.services.context_compression_eligibility import (
     ContextCompressionEligibilityPolicy,
 )
-from app.services.context_selection import ContextSelectionStats
+from app.services.context_compression_request import ResolvedCompressionRequest
+from app.services.context_selection import (
+    ContextSelectionStats,
+    InterviewContextSelection,
+)
+from app.services.context_source_identity import (
+    ContextSourceIdentityConfig,
+    EvidenceSourceIdentity,
+    source_value_sha256,
+)
 from app.services.context_compression_runner import (
     ContextCompressionParentOwnership,
     ContextCompressionRunner,
@@ -40,7 +50,7 @@ from app.services.context_runtime import ContextRuntime
 EVIDENCE_COMPRESSION_POLICY = ContextCompressionPolicy(
     artifact_type="evidence_compression",
     policy_version="evidence-compression-v1",
-    prompt_contract_version="evidence-compression-prompt-v1",
+    prompt_contract_version="evidence-compression-prompt-v2",
     output_schema_version="evidence-compression-v1",
     compressor_operation="context_compressor.evidence",
     compressor_input_cap_tokens=16_000,
@@ -73,11 +83,15 @@ class EvidenceContextArtifactCoordinator:
         scope_resolver=None,
         eligibility_policy=None,
         task_intent_enabled: bool = False,
+        source_identity_config=None,
     ) -> None:
         self.runner = runner
         self.compressor_agent = compressor_agent
         self.compressor_config = compressor_config
         self.context_runtime = context_runtime
+        self.dynamic_compression_target_policy = (
+            context_runtime.dynamic_compression_target_policy
+        )
         self.gates = gates
         self.deployment_scope = deployment_scope
         self.scope_resolver = (
@@ -87,6 +101,14 @@ class EvidenceContextArtifactCoordinator:
             eligibility_policy or ContextCompressionEligibilityPolicy()
         )
         self.task_intent_enabled = task_intent_enabled
+        self.source_identity_config = (
+            source_identity_config
+            or getattr(
+                context_runtime,
+                "source_identity_config",
+                ContextSourceIdentityConfig(),
+            )
+        )
 
     def build_interview_context(
         self,
@@ -96,12 +118,17 @@ class EvidenceContextArtifactCoordinator:
         parent_ownership: ContextCompressionParentOwnership,
         worker_id: str,
         selection_stats: ContextSelectionStats | None = None,
+        selection: InterviewContextSelection | None = None,
     ) -> EvidenceArtifactContext:
-        evidence = [
-            item
-            for item in context_messages
-            if item.get("role") == "knowledge_evidence"
-        ]
+        if selection is not None:
+            selection_stats = selection.stats
+            evidence = list(selection.evidence_sources)
+        else:
+            evidence = [
+                item
+                for item in context_messages
+                if item.get("role") == "knowledge_evidence"
+            ]
         should_create = self.gates.shadow_enabled or (
             self.gates.interview_enabled and self.gates.evidence_enabled
         )
@@ -119,6 +146,20 @@ class EvidenceContextArtifactCoordinator:
             self._source_segment(index, message)
             for index, message in enumerate(evidence)
         ]
+        source_identity_sha256 = []
+        identity_mode = self.source_identity_config.exact_deduplication_mode
+        if selection is not None and identity_mode != "disabled":
+            try:
+                source_identity_sha256 = [
+                    self._evidence_source_identity(state, message).sha256
+                    for message in evidence
+                ]
+            except (TypeError, ValueError):
+                if identity_mode == "enforce":
+                    return self._deterministic(context_messages)
+                source_identity_sha256 = []
+        if identity_mode != "enforce":
+            source_identity_sha256 = []
         evidence_digest = self._evidence_digest(sources)
         eligibility = self.eligibility_policy.evaluate(
             selection_stats=selection_stats,
@@ -128,6 +169,61 @@ class EvidenceContextArtifactCoordinator:
         )
         if not eligibility.eligible:
             return self._deterministic(context_messages)
+        resolved_target_output_tokens = (
+            EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+        )
+        request_target_policy = None
+        selectable_content_tokens = (
+            selection_stats.selectable_content_tokens
+            if selection_stats is not None
+            else None
+        )
+        if (
+            self.dynamic_compression_target_policy is not None
+            and selection is not None
+            and selectable_content_tokens is not None
+        ):
+            estimator = self.context_runtime.estimator_resolution.estimator
+            model = self.context_runtime.model_profile.model
+            source_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": item["role"],
+                        "content": item["content"],
+                    }
+                    for item in selection.evidence_sources
+                ],
+                model=model,
+            )
+            retained_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": item["role"],
+                        "content": item["content"],
+                    }
+                    for item in context_messages
+                    if item.get("role") != "knowledge_evidence"
+                ],
+                model=model,
+            )
+            remaining_business_budget_tokens = max(
+                0,
+                selectable_content_tokens - retained_tokens,
+            )
+            dynamic_target = allocate_dynamic_compression_target(
+                source_tokens=source_tokens,
+                policy=self.dynamic_compression_target_policy,
+                policy_hard_cap_tokens=(
+                    EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+                ),
+                remaining_business_budget_tokens=(
+                    remaining_business_budget_tokens
+                ),
+            )
+            if dynamic_target is None:
+                return self._deterministic(context_messages)
+            resolved_target_output_tokens = dynamic_target
+            request_target_policy = self.dynamic_compression_target_policy
         question = state["plan_snapshot"]["questions"][state["current_index"]]
         intent = self._interview_compression_intent(question)
         identity = self._identity_material(
@@ -135,20 +231,29 @@ class EvidenceContextArtifactCoordinator:
             question=question,
             sources=sources,
             evidence_digest=evidence_digest,
+            source_identity_sha256=source_identity_sha256,
             intent=intent,
+        )
+        request = ResolvedCompressionRequest(
+            policy=EVIDENCE_COMPRESSION_POLICY,
+            intent=intent,
+            source_segments=tuple(sources),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
+        consumption_enabled = self.gates.consumption_enabled(
+            workflow="interview",
+            artifact_type="evidence_compression",
         )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity,
-                policy=EVIDENCE_COMPRESSION_POLICY,
-                source_segments=sources,
+                request=request,
                 estimator=self.context_runtime.estimator_resolution.estimator,
                 model=self.context_runtime.model_profile.model,
-                compressor=lambda: self.compressor_agent.compress(
-                    policy=EVIDENCE_COMPRESSION_POLICY,
-                    source_segments=sources,
+                compressor=lambda resolved_request: self.compressor_agent.compress(
+                    request=resolved_request,
                     expected_evidence_content_sha256=evidence_digest,
-                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         causation_id=state.get("active_command_id"),
@@ -168,7 +273,9 @@ class EvidenceContextArtifactCoordinator:
                 purpose="interview_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
-                intent=intent,
+                measurement_path=(
+                    "business" if consumption_enabled else "counterfactual"
+                ),
             )
         except (
             ContextArtifactBusy,
@@ -176,20 +283,39 @@ class EvidenceContextArtifactCoordinator:
             ContextArtifactValidationFailed,
         ):
             return self._fallback(context_messages)
-        if not self.gates.consumption_enabled(
-            workflow="interview",
-            artifact_type="evidence_compression",
-        ):
+        if not consumption_enabled:
             return self._deterministic(context_messages)
 
         compressed = []
         for unit in resolution.payload.units:
+            anchored_digests = set(unit.source_segment_sha256)
+            matching_digests = [
+                source.content_sha256
+                for source in sources
+                if source.content_sha256 in anchored_digests
+                and unit.summary in source.content
+            ]
+            if not matching_digests:
+                continue
             compressed.append(
-                {"role": "knowledge_evidence", "content": unit.summary}
+                self._projection_message(
+                    content=unit.summary,
+                    source_digests=matching_digests,
+                )
             )
         for excerpt in resolution.payload.exact_excerpts:
+            matching_digests = [
+                source.content_sha256
+                for source in sources
+                if excerpt in source.content
+            ]
+            if not matching_digests:
+                continue
             compressed.append(
-                {"role": "knowledge_evidence", "content": excerpt}
+                self._projection_message(
+                    content=excerpt,
+                    source_digests=matching_digests,
+                )
             )
         if not compressed:
             return self._deterministic(context_messages)
@@ -214,6 +340,8 @@ class EvidenceContextArtifactCoordinator:
         question_id: str,
         focus: str,
         references: list[dict],
+        remaining_business_budget_tokens: int | None = None,
+        budget_context: Any | None = None,
         job_id: str,
         attempt_number: int,
         parent_ownership: ContextCompressionParentOwnership,
@@ -224,14 +352,6 @@ class EvidenceContextArtifactCoordinator:
         )
         if not references or not should_create:
             return references
-        parent_worker_id = self._parent_worker_id(
-            parent_ownership,
-            fallback=worker_id,
-        )
-        if parent_worker_id != worker_id:
-            raise ValueError(
-                "evidence artifact worker must match parent review owner"
-            )
         sources = [
             self._reference_source_segment(index, reference)
             for index, reference in enumerate(references)
@@ -242,6 +362,66 @@ class EvidenceContextArtifactCoordinator:
         if len({source.content_sha256 for source in sources}) != len(sources):
             return references
         evidence_digest = self._evidence_digest(sources)
+        resolved_target_output_tokens = (
+            EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+        )
+        request_target_policy = None
+        resolved_remaining_budget = remaining_business_budget_tokens
+        if budget_context is not None:
+            context_remaining_budget = getattr(
+                budget_context,
+                "remaining_business_budget_tokens",
+                None,
+            )
+            if context_remaining_budget is None:
+                raise TypeError(
+                    "budget_context must expose "
+                    "remaining_business_budget_tokens"
+                )
+            if (
+                resolved_remaining_budget is not None
+                and resolved_remaining_budget != context_remaining_budget
+            ):
+                raise ValueError(
+                    "remaining business budget disagrees with budget_context"
+                )
+            resolved_remaining_budget = context_remaining_budget
+        if (
+            self.dynamic_compression_target_policy is not None
+            and resolved_remaining_budget is not None
+        ):
+            estimator = self.context_runtime.estimator_resolution.estimator
+            model = self.context_runtime.model_profile.model
+            source_tokens = estimator.estimate_messages(
+                [
+                    {
+                        "role": "knowledge_evidence",
+                        "content": source.content,
+                    }
+                    for source in sources
+                ],
+                model=model,
+            )
+            dynamic_target = allocate_dynamic_compression_target(
+                source_tokens=source_tokens,
+                policy=self.dynamic_compression_target_policy,
+                policy_hard_cap_tokens=(
+                    EVIDENCE_COMPRESSION_POLICY.target_output_tokens
+                ),
+                remaining_business_budget_tokens=resolved_remaining_budget,
+            )
+            if dynamic_target is None:
+                return references
+            resolved_target_output_tokens = dynamic_target
+            request_target_policy = self.dynamic_compression_target_policy
+        parent_worker_id = self._parent_worker_id(
+            parent_ownership,
+            fallback=worker_id,
+        )
+        if parent_worker_id != worker_id:
+            raise ValueError(
+                "evidence artifact worker must match parent review owner"
+            )
         scope_material = self.scope_resolver.for_review(
             deployment_scope=self.deployment_scope,
             session_id=state["session_id"],
@@ -256,18 +436,26 @@ class EvidenceContextArtifactCoordinator:
             corpus_manifest_sha256=self._corpus_manifest_sha256(state),
             intent=intent,
         )
+        request = ResolvedCompressionRequest(
+            policy=EVIDENCE_COMPRESSION_POLICY,
+            intent=intent,
+            source_segments=tuple(sources),
+            resolved_target_output_tokens=resolved_target_output_tokens,
+            target_policy=request_target_policy,
+        )
+        consumption_enabled = self.gates.consumption_enabled(
+            workflow="review",
+            artifact_type="evidence_compression",
+        )
         try:
             resolution = self.runner.resolve(
                 identity_material=identity,
-                policy=EVIDENCE_COMPRESSION_POLICY,
-                source_segments=sources,
+                request=request,
                 estimator=self.context_runtime.estimator_resolution.estimator,
                 model=self.context_runtime.model_profile.model,
-                compressor=lambda: self.compressor_agent.compress(
-                    policy=EVIDENCE_COMPRESSION_POLICY,
-                    source_segments=sources,
+                compressor=lambda resolved_request: self.compressor_agent.compress(
+                    request=resolved_request,
                     expected_evidence_content_sha256=evidence_digest,
-                    intent=intent,
                     execution_context=AgentExecutionContext(
                         correlation_id=state["session_id"],
                         agent="context_compressor",
@@ -285,7 +473,9 @@ class EvidenceContextArtifactCoordinator:
                 purpose="review_evidence_context",
                 parent_ownership=parent_ownership,
                 expected_evidence_content_sha256=evidence_digest,
-                intent=intent,
+                measurement_path=(
+                    "business" if consumption_enabled else "counterfactual"
+                ),
             )
         except (
             ContextArtifactBusy,
@@ -293,10 +483,7 @@ class EvidenceContextArtifactCoordinator:
             ContextArtifactValidationFailed,
         ):
             return references
-        if not self.gates.consumption_enabled(
-            workflow="review",
-            artifact_type="evidence_compression",
-        ):
+        if not consumption_enabled:
             return references
 
         source_reference_by_digest = {
@@ -304,51 +491,62 @@ class EvidenceContextArtifactCoordinator:
             for reference in references
             if str(reference.get("content", "")).strip()
         }
-        excerpts_by_chunk: dict[str, list[str]] = {}
-        reference_by_chunk: dict[str, dict] = {}
+        projection_parts: dict[str, list[str]] = {}
+        projection_digests: dict[str, list[str]] = {}
         for unit in resolution.payload.units:
-            if len(unit.source_segment_sha256) != 1:
+            matches = [
+                (digest, source_reference_by_digest[digest])
+                for digest in unit.source_segment_sha256
+                if digest in source_reference_by_digest
+                and unit.summary
+                in str(source_reference_by_digest[digest].get("content", ""))
+            ]
+            if len(matches) != 1:
                 continue
-            source_reference = source_reference_by_digest.get(
-                unit.source_segment_sha256[0]
-            )
-            if source_reference is None:
-                continue
+            source_digest, source_reference = matches[0]
             chunk_id = str(source_reference.get("chunk_id", ""))
             if not chunk_id:
                 continue
-            grounded_excerpts = list(unit.supporting_excerpts)
-            if not grounded_excerpts:
-                continue
-            reference_by_chunk[chunk_id] = source_reference
-            excerpts_by_chunk.setdefault(chunk_id, []).extend(
-                grounded_excerpts
-            )
+            projection_parts.setdefault(chunk_id, []).append(unit.summary)
+            projection_digests.setdefault(chunk_id, []).append(source_digest)
         for excerpt in resolution.payload.exact_excerpts:
             matches = [
-                reference
-                for reference in references
+                (digest, reference)
+                for digest, reference in source_reference_by_digest.items()
                 if excerpt in str(reference.get("content", ""))
             ]
             if len(matches) != 1:
                 continue
-            chunk_id = str(matches[0].get("chunk_id", ""))
+            source_digest, source_reference = matches[0]
+            chunk_id = str(source_reference.get("chunk_id", ""))
             if not chunk_id:
                 continue
-            reference_by_chunk[chunk_id] = matches[0]
-            excerpts_by_chunk.setdefault(chunk_id, []).append(excerpt)
-        transformed = []
+            projection_parts.setdefault(chunk_id, []).append(excerpt)
+            projection_digests.setdefault(chunk_id, []).append(source_digest)
+        projections = []
         for reference in references:
             chunk_id = str(reference.get("chunk_id", ""))
-            excerpts = list(dict.fromkeys(excerpts_by_chunk.get(chunk_id, [])))
-            if not excerpts:
-                transformed.append(reference)
+            parts = list(dict.fromkeys(projection_parts.get(chunk_id, [])))
+            if not chunk_id or not parts:
                 continue
-            item = dict(reference_by_chunk[chunk_id])
-            item["content"] = "\n".join(excerpts)
-            item["context_artifact_compressed"] = True
-            transformed.append(item)
-        return transformed
+            projections.append(
+                {
+                    "context_artifact_projection": True,
+                    "chunk_id": chunk_id,
+                    "authority": "non_authoritative",
+                    "candidate_exact_quote": False,
+                    "authoritative_scoring_evidence": False,
+                    "prohibited_uses": [
+                        "candidate_exact_quote",
+                        "authoritative_scoring_evidence",
+                    ],
+                    "source_segment_sha256": list(
+                        dict.fromkeys(projection_digests[chunk_id])
+                    ),
+                    "content": "\n".join(parts),
+                }
+            )
+        return projections or references
 
     def _identity_material(
         self,
@@ -357,18 +555,27 @@ class EvidenceContextArtifactCoordinator:
         question,
         sources,
         evidence_digest,
+        source_identity_sha256=(),
         intent=None,
     ):
+        segments = [
+            {
+                "segment_index": source.segment_index,
+                "segment_type": source.segment_type,
+                "content_sha256": source.content_sha256,
+            }
+            for source in sources
+        ]
+        if source_identity_sha256:
+            for segment, identity_sha256 in zip(
+                segments,
+                source_identity_sha256,
+                strict=True,
+            ):
+                segment["source_identity_sha256"] = identity_sha256
         manifest = {
             "corpus_manifest_sha256": self._corpus_manifest_sha256(state),
-            "segments": [
-                {
-                    "segment_index": source.segment_index,
-                    "segment_type": source.segment_type,
-                    "content_sha256": source.content_sha256,
-                }
-                for source in sources
-            ],
+            "segments": segments,
         }
         scope_material = self.scope_resolver.for_interview(
             deployment_scope=self.deployment_scope,
@@ -454,6 +661,18 @@ class EvidenceContextArtifactCoordinator:
             ),
         )
 
+    @staticmethod
+    def _evidence_source_identity(state, message) -> EvidenceSourceIdentity:
+        evidence_id = message.get("chunk_id") or message.get("evidence_id")
+        return EvidenceSourceIdentity(
+            owner_scope=f"interview-session:{state['session_id']}",
+            provenance=message.get("provenance"),
+            chunk_or_evidence_id_sha256=source_value_sha256(evidence_id),
+            content_sha256=message.get("content_sha256"),
+            corpus_manifest_sha256=message.get("corpus_manifest_sha256"),
+            role=message.get("role", "knowledge_evidence"),
+        )
+
     def _interview_compression_intent(self, question) -> CompressionIntent | None:
         if not self.task_intent_enabled:
             return None
@@ -514,6 +733,22 @@ class EvidenceContextArtifactCoordinator:
             for source in sources
         ]
         return sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _projection_message(*, content: str, source_digests) -> dict[str, str]:
+        trace = ",".join(dict.fromkeys(str(digest) for digest in source_digests))
+        return {
+            "role": "evidence_compression_projection",
+            "content": (
+                "[context_artifact_projection "
+                "authority=non_authoritative "
+                "candidate_exact_quote=false "
+                "authoritative_scoring_evidence=false "
+                f"source_segment_sha256={trace}]\n"
+                f"{content}\n"
+                "[/context_artifact_projection]"
+            ),
+        }
 
     @staticmethod
     def _corpus_manifest_sha256(state: dict[str, Any]) -> str | None:

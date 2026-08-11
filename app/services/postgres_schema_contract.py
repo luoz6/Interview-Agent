@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
 
 
 @dataclass(frozen=True)
@@ -1194,6 +1195,125 @@ RUNTIME_SCHEMA_V26_MANIFEST = json.dumps(
 RUNTIME_SCHEMA_V26_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V26_MANIFEST.encode("utf-8")
 ).hexdigest()
+
+# V27 appends adaptive question-memory target authority after master V26.
+# The V1-V26 manifests and checksums above are immutable compatibility
+# boundaries and must remain byte-identical.
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_question_memory_refs"] = (
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX["_question_memory_refs"]
+    | frozenset({"resolved_target_output_tokens"})
+)
+RUNTIME_REQUIRED_NULLABLE_COLUMNS_BY_SUFFIX = {
+    "_question_memory_refs": frozenset(
+        {"resolved_target_output_tokens"}
+    ),
+}
+RUNTIME_REQUIRED_STRICT_POSITIVE_COLUMNS_BY_SUFFIX = {
+    "_question_memory_refs": frozenset(
+        {"resolved_target_output_tokens"}
+    ),
+}
+RUNTIME_SCHEMA_V27_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V26_CHECKSUM,
+        "question_memory_resolved_target": {
+            "relation_suffix": "_question_memory_refs",
+            "column": "resolved_target_output_tokens",
+            "nullable": True,
+            "backfill": None,
+            "constraint": "positive-when-present-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V27_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V27_MANIFEST.encode("utf-8")
+).hexdigest()
+
+RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = frozenset(
+    {
+        "state_key_sha256",
+        "kind",
+        "privacy_scope_sha256",
+        "owner_type",
+        "owner_key_sha256",
+        "provider",
+        "model",
+        "artifact_type",
+        "policy_version",
+        "source_manifest_sha256",
+        "compression_intent_sha256",
+        "prompt_contract_version",
+        "output_schema_version",
+        "consecutive_failure_count",
+        "state",
+        "open_until",
+        "probe_owner_sha256",
+        "probe_token",
+        "probe_lease_until",
+        "fencing_version",
+        "state_version",
+        "last_failure_code",
+        "created_at",
+        "updated_at",
+    }
+)
+RUNTIME_REQUIRED_NULLABLE_COLUMNS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = frozenset(
+    {
+        "source_manifest_sha256",
+        "compression_intent_sha256",
+        "prompt_contract_version",
+        "output_schema_version",
+        "open_until",
+        "probe_owner_sha256",
+        "probe_token",
+        "probe_lease_until",
+        "last_failure_code",
+    }
+)
+RUNTIME_REQUIRED_CHECK_TOKENS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = (
+    frozenset({"kind", "provider_circuit", "validation_quarantine"}),
+    frozenset({"state", "closed", "open", "half_open"}),
+    frozenset({"state_version", "fencing_version"}),
+    frozenset({"probe_owner_sha256", "probe_token", "probe_lease_until"}),
+)
+RUNTIME_REQUIRED_INDEX_TOKENS_BY_SUFFIX[
+    "_context_compression_failure_states"
+] = (
+    frozenset(
+        {"privacy_scope_sha256", "owner_type", "owner_key_sha256"}
+    ),
+    frozenset({"open_until", "probe_lease_until", "updated_at"}),
+)
+RUNTIME_SCHEMA_V28_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V27_CHECKSUM,
+        "context_compression_failure_state": {
+            "relation_suffix": "_context_compression_failure_states",
+            "identity": "privacy-owner-scoped-canonical-sha256-v1",
+            "states": ["closed", "open", "half_open"],
+            "kinds": ["provider_circuit", "validation_quarantine"],
+            "mutation_contract": "atomic-state-version-fencing-v1",
+            "dual_key_contract": "sorted-single-transaction-v1",
+            "retention": "bounded-live-probe-preserving-v1",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V28_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V28_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1325,6 +1445,16 @@ RUNTIME_MIGRATIONS = (
         checksum=RUNTIME_SCHEMA_V26_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
+    PostgresMigrationSpec(
+        migration_id="question_memory_resolved_target_v1_v27",
+        checksum=RUNTIME_SCHEMA_V27_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="context_compression_failure_state_v1_v28",
+        checksum=RUNTIME_SCHEMA_V28_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
 )
 LATEST_RUNTIME_MIGRATION = RUNTIME_MIGRATIONS[-1]
 
@@ -1377,3 +1507,142 @@ def required_foreign_key_tokens_for_relation(
         if name.endswith(suffix):
             return requirements
     return ()
+
+
+def required_nullable_columns_for_relation(name: str) -> frozenset[str]:
+    return _required_columns_by_suffix(
+        name,
+        RUNTIME_REQUIRED_NULLABLE_COLUMNS_BY_SUFFIX,
+    )
+
+
+def required_strict_positive_columns_for_relation(
+    name: str,
+) -> frozenset[str]:
+    return _required_columns_by_suffix(
+        name,
+        RUNTIME_REQUIRED_STRICT_POSITIVE_COLUMNS_BY_SUFFIX,
+    )
+
+
+def _required_columns_by_suffix(
+    name: str,
+    requirements_by_suffix: dict[str, frozenset[str]],
+) -> frozenset[str]:
+    for suffix, requirements in sorted(
+        requirements_by_suffix.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if name.endswith(suffix):
+            return requirements
+    return frozenset()
+
+
+def is_strict_positive_when_present_check(
+    definition: object,
+    *,
+    column: str,
+) -> bool:
+    if not isinstance(definition, str):
+        return False
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", column):
+        return False
+    match = re.fullmatch(
+        r"\s*check\s*\((?P<expression>.*)\)\s*",
+        definition,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        return False
+    expression = match.group("expression").replace(
+        f'"{column}"',
+        column,
+    )
+    if '"' in expression:
+        return False
+    expression = expression.lower()
+    expression = re.sub(
+        r"\(\s*0\s*\)\s*::\s*(?:pg_catalog\.)?"
+        r"(?:smallint|integer|bigint|int2|int4|int8)",
+        "0",
+        expression,
+    )
+    expression = re.sub(
+        r"\b0\s*::\s*(?:pg_catalog\.)?"
+        r"(?:smallint|integer|bigint|int2|int4|int8)\b",
+        "0",
+        expression,
+    )
+    expression = re.sub(r"\s+", "", expression)
+    expression = _strip_wrapping_parentheses(expression)
+
+    positive_forms = {
+        f"{column}>0",
+        f"0<{column}",
+    }
+    if expression in positive_forms:
+        return True
+
+    alternatives = _split_top_level_or(expression)
+    if alternatives is None:
+        return False
+    left, right = (
+        _strip_wrapping_parentheses(part)
+        for part in alternatives
+    )
+    nullable_form = f"{column}isnull"
+    return (
+        left == nullable_form and right in positive_forms
+    ) or (
+        right == nullable_form and left in positive_forms
+    )
+
+
+def _strip_wrapping_parentheses(expression: str) -> str:
+    while (
+        len(expression) >= 2
+        and expression[0] == "("
+        and expression[-1] == ")"
+    ):
+        depth = 0
+        wraps_entire_expression = True
+        for index, char in enumerate(expression):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth < 0:
+                    return expression
+                if depth == 0 and index != len(expression) - 1:
+                    wraps_entire_expression = False
+                    break
+        if depth != 0 or not wraps_entire_expression:
+            break
+        expression = expression[1:-1]
+    return expression
+
+
+def _split_top_level_or(expression: str) -> tuple[str, str] | None:
+    depth = 0
+    split_at = None
+    for index, char in enumerate(expression):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif (
+            depth == 0
+            and expression[index : index + 2] == "or"
+        ):
+            if split_at is not None:
+                return None
+            split_at = index
+    if depth != 0 or split_at is None:
+        return None
+    return (
+        expression[:split_at],
+        expression[split_at + 2 :],
+    )

@@ -6,6 +6,9 @@ from typing import Any, Iterator
 
 from app.services.config import derive_pgvector_table_names
 from app.services.context_artifact_store import PostgresContextArtifactStore
+from app.services.context_compression_failure_store import (
+    PostgresContextCompressionFailureStore,
+)
 from app.services.interview_generation_store import PostgresInterviewGenerationStore
 from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
 from app.services.postgres_identifiers import (
@@ -37,13 +40,14 @@ from app.services.vector_store import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V26_MANIFEST,
+    RUNTIME_SCHEMA_V28_MANIFEST,
+    is_strict_positive_when_present_check,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V26_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V28_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -196,6 +200,16 @@ def migrate_postgres_runtime(
             )
 
             PostgresQuestionMemoryIndexStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            _upgrade_question_memory_resolved_target_v1(
+                connection,
+                table_prefix=table_prefix,
+            )
+            PostgresContextCompressionFailureStore(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,
@@ -484,6 +498,53 @@ def _upgrade_interview_draft_plan_binding(
         connection,
         table_prefix=table_prefix,
     )
+
+
+def _upgrade_question_memory_resolved_target_v1(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Add nullable persisted target authority without rewriting legacy rows."""
+
+    from psycopg2 import sql
+
+    table = f"{table_prefix}_question_memory_refs"
+    constraint_name = runtime_schema_identifier(
+        table_prefix,
+        "question_memory_resolved_target_check",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "
+                "resolved_target_output_tokens INTEGER"
+            ).format(table=sql.Identifier(table))
+        )
+        cursor.execute(
+            "SELECT pg_get_constraintdef(rule.oid) "
+            "FROM pg_constraint AS rule "
+            "WHERE rule.conname=%s AND rule.conrelid=to_regclass(%s)",
+            (constraint_name, f"public.{table}"),
+        )
+        existing_constraint = cursor.fetchone()
+        if existing_constraint is None:
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {table} ADD CONSTRAINT {constraint} "
+                    "CHECK (resolved_target_output_tokens > 0)"
+                ).format(
+                    table=sql.Identifier(table),
+                    constraint=sql.Identifier(constraint_name),
+                )
+            )
+        elif not is_strict_positive_when_present_check(
+            existing_constraint[0],
+            column="resolved_target_output_tokens",
+        ):
+            raise PostgresMigrationConflict(
+                "question memory resolved target constraint is incompatible"
+            )
 
 
 def _upgrade_principal_memory_exclusive_scope(

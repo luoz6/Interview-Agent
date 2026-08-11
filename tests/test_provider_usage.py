@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
+import pytest
+
+from app.services import provider_usage as provider_usage_module
 from app.services.provider_usage import (
     begin_provider_attempt,
+    compression_provider_usage_scope,
     consume_provider_context_metadata,
     normalize_estimator_error,
     publish_prompt_measurement,
@@ -250,3 +254,148 @@ def test_estimator_error_contract_distinguishes_under_exact_and_over():
         estimated_input_tokens=120,
         provider_input_tokens=100,
     )["estimator_error_direction"] == "over"
+    assert normalize_estimator_error(
+        estimated_input_tokens=100,
+        provider_input_tokens=0,
+    )["estimator_error_basis_points"] == 100_000
+
+
+def test_compression_provider_scope_is_bounded_and_restores_nested_scope(
+    monkeypatch,
+):
+    published = []
+    monkeypatch.setattr(
+        provider_usage_module,
+        "publish_provider_usage_metric",
+        lambda **fields: published.append(fields),
+    )
+
+    with compression_provider_usage_scope(
+        operation="followup",
+        workflow="interview",
+        policy_version="outer-v1",
+        intent_schema_version="compression-intent-v1",
+    ):
+        reset_provider_context_metadata()
+        publish_provider_response(
+            SimpleNamespace(usage_metadata={"input_tokens": 10})
+        )
+        with compression_provider_usage_scope(
+            operation="report",
+            workflow="review",
+            policy_version="inner-v1",
+            intent_schema_version="none",
+            measurement_path="counterfactual",
+        ):
+            reset_provider_context_metadata()
+            publish_provider_response(
+                SimpleNamespace(usage_metadata={"input_tokens": 20})
+            )
+        reset_provider_context_metadata()
+        publish_provider_response(
+            SimpleNamespace(usage_metadata={"input_tokens": 30})
+        )
+
+    assert [item["workflow"] for item in published] == [
+        "interview",
+        "review",
+        "interview",
+    ]
+    assert [item["policy_version"] for item in published] == [
+        "outer-v1",
+        "inner-v1",
+        "outer-v1",
+    ]
+    assert [item["measurement_path"] for item in published] == [
+        "business",
+        "counterfactual",
+        "business",
+    ]
+    assert all("owner_key" not in item for item in published)
+    assert all("source" not in item for item in published)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"operation": "compress"},
+        {"workflow": "unknown"},
+        {"policy_version": "PRIVATE CONTENT"},
+        {"intent_schema_version": "../secret"},
+    ),
+)
+def test_compression_provider_scope_rejects_unbounded_metadata(changes):
+    fields = {
+        "operation": "followup",
+        "workflow": "interview",
+        "policy_version": "policy-v1",
+        "intent_schema_version": "compression-intent-v1",
+        **changes,
+    }
+
+    with pytest.raises(ValueError, match="unsupported"):
+        with compression_provider_usage_scope(**fields):
+            pass
+
+    with pytest.raises(TypeError):
+        with compression_provider_usage_scope(
+            **{
+                **fields,
+                **{
+                    "operation": "followup",
+                    "workflow": "interview",
+                    "policy_version": "policy-v1",
+                    "intent_schema_version": "compression-intent-v1",
+                },
+            },
+            owner_key="private-owner",
+        ):
+            pass
+
+
+def test_compression_provider_usage_exports_estimator_error_by_language_and_operation(
+    monkeypatch,
+):
+    published = []
+    monkeypatch.setattr(
+        provider_usage_module,
+        "publish_provider_usage_metric",
+        lambda **fields: published.append(fields),
+    )
+    reset_provider_context_metadata()
+    publish_prompt_measurement(
+        RenderedPromptMeasurement(
+            estimated_input_tokens=120,
+            available_input_tokens=1_000,
+            budget_utilization_basis_points=1_200,
+            estimator_path="exact_model",
+            estimator_fallback_used=False,
+            prompt_sha256="b" * 64,
+        ),
+        language_bucket="en",
+    )
+
+    with compression_provider_usage_scope(
+        operation="followup",
+        workflow="interview",
+        policy_version="conversation-v1",
+        intent_schema_version="compression-intent-v1",
+    ):
+        publish_provider_response(
+            SimpleNamespace(usage_metadata={"input_tokens": 100})
+        )
+
+    assert published == [
+        {
+            "language_bucket": "en",
+            "estimated_input_tokens": 120,
+            "provider_input_tokens": 100,
+            "provider_output_tokens": 0,
+            "estimator_error_basis_points": 2_000,
+            "operation": "followup",
+            "workflow": "interview",
+            "policy_version": "conversation-v1",
+            "intent_schema_version": "compression-intent-v1",
+            "measurement_path": "business",
+        }
+    ]

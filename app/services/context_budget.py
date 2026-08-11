@@ -140,6 +140,93 @@ class ContextSelectionBudget:
         return self.available_input_tokens - self.fixed_prompt_reserve_tokens
 
 
+@dataclass(frozen=True)
+class DynamicCompressionTargetPolicy:
+    floor_tokens: int
+    source_ratio_basis_points: int
+    allowed_target_tokens: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.floor_tokens, bool)
+            or not isinstance(self.floor_tokens, int)
+            or self.floor_tokens <= 0
+        ):
+            raise ValueError("dynamic target floor must be a positive integer")
+        if (
+            isinstance(self.source_ratio_basis_points, bool)
+            or not isinstance(self.source_ratio_basis_points, int)
+            or not 1 <= self.source_ratio_basis_points <= 10_000
+        ):
+            raise ValueError(
+                "dynamic target source ratio must be between 1 and 10000 "
+                "basis points"
+            )
+        tiers = self.allowed_target_tokens
+        if not isinstance(tiers, tuple) or not tiers:
+            raise ValueError("dynamic allowed target tiers must be a non-empty tuple")
+        if any(
+            isinstance(tier, bool)
+            or not isinstance(tier, int)
+            or tier <= 0
+            for tier in tiers
+        ):
+            raise ValueError("dynamic allowed target tiers must be positive integers")
+        if len(set(tiers)) != len(tiers):
+            raise ValueError("dynamic allowed target tiers must not contain duplicates")
+        if tuple(sorted(tiers)) != tiers:
+            raise ValueError("dynamic allowed target tiers must be strictly increasing")
+        if self.floor_tokens not in tiers:
+            raise ValueError("dynamic target floor must be an allowed target tier")
+
+
+def allocate_dynamic_compression_target(
+    *,
+    source_tokens: int,
+    policy: DynamicCompressionTargetPolicy,
+    policy_hard_cap_tokens: int,
+    remaining_business_budget_tokens: int,
+) -> int | None:
+    if not isinstance(policy, DynamicCompressionTargetPolicy):
+        raise TypeError("dynamic compression target policy is invalid")
+    for field_name, value, allow_zero in (
+        ("source_tokens", source_tokens, True),
+        ("policy_hard_cap_tokens", policy_hard_cap_tokens, True),
+        (
+            "remaining_business_budget_tokens",
+            remaining_business_budget_tokens,
+            True,
+        ),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or (not allow_zero and value == 0)
+        ):
+            raise ValueError(f"{field_name} must be a non-negative integer")
+
+    ratio_required_tokens = (
+        source_tokens * policy.source_ratio_basis_points + 9_999
+    ) // 10_000
+    required_tokens = max(policy.floor_tokens, ratio_required_tokens)
+    effective_ceiling_tokens = min(
+        policy_hard_cap_tokens,
+        remaining_business_budget_tokens,
+    )
+    feasible_tiers = tuple(
+        tier
+        for tier in policy.allowed_target_tokens
+        if policy.floor_tokens <= tier <= effective_ceiling_tokens
+    )
+    if not feasible_tiers:
+        return None
+    return next(
+        (tier for tier in feasible_tiers if tier >= required_tokens),
+        feasible_tiers[-1],
+    )
+
+
 class ContextBudgetResolver:
     def resolve(
         self,

@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import compileall
 import json
-from pathlib import Path
+import os
 import re
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +56,135 @@ FOCUSED_TESTS = (
     "tests/test_react_frontend.py",
     "tests/test_static_memory_assistance.py",
 )
+ADAPTIVE_FOCUSED_TESTS = (
+    "tests/test_memory_config.py",
+    "tests/test_agent_runtime_composition.py",
+    "tests/test_context_budget.py",
+    "tests/test_context_selection.py",
+    "tests/test_context_source_identity.py",
+    "tests/test_context_compression_eligibility.py",
+    "tests/test_context_compressor.py",
+    "tests/test_context_compression_validation.py",
+    "tests/test_context_compression_runner.py",
+    "tests/test_context_artifacts.py",
+    "tests/test_context_artifact_contracts.py",
+    "tests/test_context_artifact_store_postgres.py",
+    "tests/test_interview_context_artifacts.py",
+    "tests/test_evidence_context_artifacts.py",
+    "tests/test_question_memory.py",
+    "tests/test_question_memory_retrieval.py",
+    "tests/test_question_memory_recovery.py",
+    "tests/test_interview_status_projection.py",
+    "tests/test_context_compression_failure_containment.py",
+    "tests/test_context_compression_failure_store_postgres.py",
+    "tests/test_context_compression_shadow_acceptance.py",
+    "tests/test_durable_interview_state.py",
+    "tests/test_durable_interview_graph.py",
+    "tests/test_session_deletion_worker.py",
+    "tests/test_memory_metrics.py",
+    "tests/test_memory_system_optimization_acceptance.py",
+    "tests/test_context_compression_repository_acceptance.py",
+)
+REVIEWED_TEST_EXEMPTIONS: Mapping[str, str] = {}
+SCENARIO_EVIDENCE: Mapping[str, tuple[str, ...]] = {
+    "all_gates_disabled": (
+        "tests/test_memory_config.py",
+        "tests/test_agent_runtime_composition.py",
+    ),
+    "short_shadow_context": ("tests/test_context_compression_eligibility.py",),
+    "follow_up_6687_of_8360_below_threshold": (
+        "tests/test_context_compression_eligibility.py",
+    ),
+    "rounded_8000_bp_cross_product_below_threshold": (
+        "tests/test_context_compression_eligibility.py",
+    ),
+    "pre_loss_80_percent_shadow": (
+        "tests/test_context_compression_eligibility.py",
+        "tests/test_context_compression_runner.py",
+    ),
+    "dedup_shadow": (
+        "tests/test_context_source_identity.py",
+        "tests/test_context_selection.py",
+    ),
+    "business_eligible_shadow_post_dedup_below_threshold": (
+        "tests/test_context_compression_eligibility.py",
+        "tests/test_evidence_context_artifacts.py",
+    ),
+    "dedup_enforce": (
+        "tests/test_context_source_identity.py",
+        "tests/test_context_selection.py",
+    ),
+    "valid_artifact_consume": (
+        "tests/test_context_compression_runner.py",
+        "tests/test_interview_context_artifacts.py",
+    ),
+    "completed_artifact_reuse": (
+        "tests/test_context_artifacts.py",
+        "tests/test_context_compression_runner.py",
+    ),
+    "invalid_compression_fallback": (
+        "tests/test_context_compression_validation.py",
+        "tests/test_context_compression_runner.py",
+    ),
+    "provider_circuit_open": (
+        "tests/test_context_compression_failure_containment.py",
+    ),
+    "validation_source_quarantined": (
+        "tests/test_context_compression_failure_containment.py",
+    ),
+    "same_text_distinct_question_identities": (
+        "tests/test_context_source_identity.py",
+        "tests/test_question_memory.py",
+    ),
+    "oversized_mandatory_bounded_raw_set": (
+        "tests/test_context_budget.py",
+        "tests/test_context_selection.py",
+    ),
+    "identity_v0_reload": (
+        "tests/test_context_artifact_contracts.py",
+        "tests/test_context_artifact_store_postgres.py",
+    ),
+    "identity_v1_reload": (
+        "tests/test_context_artifact_contracts.py",
+        "tests/test_context_artifact_store_postgres.py",
+    ),
+    "quarantined_source_owner_isolation": (
+        "tests/test_context_compression_failure_containment.py",
+        "tests/test_context_compression_failure_store_postgres.py",
+    ),
+    "concurrent_half_open_probes": (
+        "tests/test_context_compression_failure_containment.py",
+        "tests/test_context_compression_failure_store_postgres.py",
+    ),
+    "parent_lease_loss": (
+        "tests/test_context_compression_runner.py",
+        "tests/test_durable_interview_graph.py",
+    ),
+    "digest_conflict": (
+        "tests/test_context_artifact_store_postgres.py",
+        "tests/test_context_compression_runner.py",
+    ),
+    "v1_checkpoint_recovery": ("tests/test_durable_interview_state.py",),
+    "v2_compatibility_checkpoint_recovery": (
+        "tests/test_durable_interview_state.py",
+        "tests/test_durable_interview_graph.py",
+    ),
+    "session_deletion": ("tests/test_session_deletion_worker.py",),
+}
+_SENSITIVE_TEST_ENV_KEYS = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "COHERE_API_KEY",
+        "DATABASE_URL",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "MISTRAL_API_KEY",
+        "OPENAI_API_KEY",
+        "POSTGRES_DSN",
+        "TASK8_PG_FAILURE_STORE_TESTS",
+    }
+)
 BLOCKED_ARTIFACT_KEYS = frozenset(
     {
         "prompt",
@@ -98,6 +229,10 @@ _ADAPTIVE_NORMATIVE_LINE = re.compile(
 _ADAPTIVE_VERIFICATION_LINE = re.compile(
     r"(?m)^-\s+Verification\s+`(MEM-CTX-[A-Z]+-\d{3})`[：:]\s+\S.*$"
 )
+
+
+_TASK_HEADING = re.compile(r"(?m)^## Task (?P<number>\d+):")
+_TEST_MODULE = re.compile(r"tests/[A-Za-z0-9_./-]+\.py")
 
 
 def extract_spec_normative_ids(text: str) -> list[str]:
@@ -234,6 +369,106 @@ def verify_adaptive_context_traceability() -> None:
     )
 
 
+def extract_task_0_to_10_test_modules(plan_text: str) -> set[str]:
+    headings = list(_TASK_HEADING.finditer(plan_text))
+    starts = {int(match.group("number")): match.start() for match in headings}
+    missing_tasks = sorted(set(range(12)) - set(starts))
+    if missing_tasks:
+        raise RuntimeError(
+            "adaptive plan is missing task headings required for coverage audit: "
+            + ", ".join(str(task) for task in missing_tasks)
+        )
+    task_text = plan_text[starts[0] : starts[11]]
+    return set(_TEST_MODULE.findall(task_text))
+
+
+def verify_acceptance_manifest(
+    *,
+    plan_text: str | None = None,
+    focused_tests: Sequence[str] = ADAPTIVE_FOCUSED_TESTS,
+    exemptions: Mapping[str, str] = REVIEWED_TEST_EXEMPTIONS,
+    scenario_evidence: Mapping[str, tuple[str, ...]] = SCENARIO_EVIDENCE,
+) -> None:
+    focused = tuple(focused_tests)
+    if len(focused) != len(set(focused)):
+        raise RuntimeError("fixed acceptance suite contains duplicate test modules")
+
+    missing_files = sorted(
+        test_module for test_module in focused if not (ROOT / test_module).is_file()
+    )
+    if missing_files:
+        raise RuntimeError(
+            "fixed acceptance suite references missing test modules: "
+            + ", ".join(missing_files)
+        )
+
+    invalid_exemptions = sorted(
+        test_module
+        for test_module, review in exemptions.items()
+        if not test_module.startswith("tests/")
+        or not test_module.endswith(".py")
+        or not review.startswith("reviewed:")
+    )
+    if invalid_exemptions:
+        raise RuntimeError(
+            "acceptance exemptions require a test path and reviewed rationale: "
+            + ", ".join(invalid_exemptions)
+        )
+
+    adaptive_plan_text = (
+        ADAPTIVE_CONTEXT_PLAN.read_text(encoding="utf-8")
+        if plan_text is None
+        else plan_text
+    )
+    declared = extract_task_0_to_10_test_modules(adaptive_plan_text)
+    uncovered = sorted(declared - set(focused) - set(exemptions))
+    if uncovered:
+        raise RuntimeError(
+            "Task 0-10 test modules are absent from the fixed suite and reviewed "
+            "exemption manifest: "
+            + ", ".join(uncovered)
+        )
+    unknown_exemptions = sorted(set(exemptions) - declared)
+    if unknown_exemptions:
+        raise RuntimeError(
+            "reviewed exemption manifest contains undeclared test modules: "
+            + ", ".join(unknown_exemptions)
+        )
+
+    if len(scenario_evidence) != 24:
+        raise RuntimeError("Task 10 recovery matrix must contain exactly 24 scenarios")
+    missing_scenario_evidence = sorted(
+        scenario
+        for scenario, modules in scenario_evidence.items()
+        if not modules or set(modules) - set(focused) - set(exemptions)
+    )
+    if missing_scenario_evidence:
+        raise RuntimeError(
+            "Task 10 scenarios lack fixed-suite evidence: "
+            + ", ".join(missing_scenario_evidence)
+        )
+
+
+def sanitized_test_environment(
+    source: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    environment = dict(os.environ if source is None else source)
+    sensitive_keys = {key.casefold() for key in _SENSITIVE_TEST_ENV_KEYS}
+    environment = {
+        key: value
+        for key, value in environment.items()
+        if key.casefold() not in sensitive_keys
+    }
+    environment.update(
+        {
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        }
+    )
+    return environment
+
+
 def verify_safe_defaults() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
     required = (
@@ -287,13 +522,18 @@ def _audit_json(value, source: str) -> None:
             _audit_json(child, source)
 
 
-def run_repository_gates(*, python: str) -> None:
+def run_repository_gates(
+    *,
+    python: str,
+    focused_tests: Sequence[str] = FOCUSED_TESTS,
+) -> None:
+    environment = sanitized_test_environment()
     completed = subprocess.run(
         [
             python,
             "-m",
             "pytest",
-            *FOCUSED_TESTS,
+            *focused_tests,
             "-q",
             "-m",
             "not pg_runtime",
@@ -303,12 +543,14 @@ def run_repository_gates(*, python: str) -> None:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=environment,
+        timeout=1200,
     )
     if completed.returncode:
         raise RuntimeError(
-            "focused memory acceptance tests failed\n"
-            + completed.stdout[-4000:]
-            + completed.stderr[-4000:]
+            "fixed repository acceptance suite failed "
+            f"(exit code {completed.returncode}); captured test output is withheld "
+            "from the readiness channel"
         )
     if not compileall.compile_dir(ROOT / "app", quiet=2):
         raise RuntimeError("application compileall failed")
@@ -336,9 +578,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not args.skip_tests:
         run_repository_gates(python=sys.executable)
-    # Compatibility output for the historical memory-system acceptance
-    # contract. Passing adaptive traceability here is a fail-closed preflight;
-    # it does not declare adaptive Task 10 repository readiness.
     print("READY_FOR_MEMORY_SYSTEM_SHADOW")
     print("PRODUCTION_OBSERVATION=NOT_RUN")
     return 0

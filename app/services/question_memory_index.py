@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 QUESTION_MEMORY_TAXONOMY_VERSION = "question-memory-taxonomy-v1"
+QUESTION_MEMORY_UNRESOLVED_TOPIC_CODES = frozenset(
+    {"missing_boundary", "missing_tradeoff"}
+)
 QUESTION_MEMORY_TAXONOMY = frozenset(
     {
         "api_design",
@@ -15,8 +18,7 @@ QUESTION_MEMORY_TAXONOMY = frozenset(
         "distributed_systems",
         "failure_handling",
         "idempotency",
-        "missing_boundary",
-        "missing_tradeoff",
+        *QUESTION_MEMORY_UNRESOLVED_TOPIC_CODES,
         "observability",
         "performance",
         "reliability",
@@ -59,6 +61,11 @@ class QuestionMemoryIndexEntry(BaseModel):
     created_at: datetime
     superseded_at: datetime | None = None
     deleted_at: datetime | None = None
+    resolved_target_output_tokens: int | None = Field(
+        default=None,
+        gt=0,
+        strict=True,
+    )
 
     @field_validator(
         "focus_tags",

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar
+import re
 from typing import Any, Mapping
 
 from app.services.context_budget import RenderedPromptMeasurement
@@ -17,6 +19,54 @@ _REQUIRED_USAGE_KEYS = (
     "provider_output_tokens",
     "provider_cached_input_tokens",
 )
+_compression_usage_scope: ContextVar[dict[str, str] | None] = ContextVar(
+    "compression_provider_usage_scope",
+    default=None,
+)
+
+
+def compression_provider_usage_scope(
+    *,
+    operation: str,
+    workflow: str,
+    policy_version: str,
+    intent_schema_version: str,
+    measurement_path: str = "business",
+) -> Any:
+    """Bind only allowlisted aggregate metadata around one compressor call."""
+
+    if operation not in {"prep", "followup", "evaluate", "report"}:
+        raise ValueError("unsupported compression provider operation")
+    if workflow not in {"interview", "review", "prep"}:
+        raise ValueError("unsupported compression provider workflow")
+    if measurement_path not in {"business", "counterfactual"}:
+        raise ValueError("unsupported compression provider measurement_path")
+    for name, value in (
+        ("policy_version", policy_version),
+        ("intent_schema_version", intent_schema_version),
+    ):
+        if not isinstance(value, str) or re.fullmatch(
+            r"[a-z0-9][a-z0-9.-]{0,127}", value
+        ) is None:
+            raise ValueError(f"unsupported compression provider {name}")
+    scope = {
+        "operation": operation,
+        "workflow": workflow,
+        "policy_version": policy_version,
+        "intent_schema_version": intent_schema_version,
+        "measurement_path": measurement_path,
+    }
+
+    return _bind_compression_provider_usage_scope(scope)
+
+
+@contextmanager
+def _bind_compression_provider_usage_scope(scope: dict[str, str]):
+    token = _compression_usage_scope.set(scope)
+    try:
+        yield
+    finally:
+        _compression_usage_scope.reset(token)
 
 
 def reset_provider_context_metadata() -> None:
@@ -75,7 +125,10 @@ def publish_provider_response(response: Any) -> None:
         model = response_metadata.get("model_name") or response_metadata.get("model")
         if isinstance(model, str) and model:
             metadata["provider_model"] = model
-    usage = extract_provider_usage(response)
+    usage = extract_provider_usage(
+        response,
+        allow_partial=_compression_usage_scope.get() is not None,
+    )
     if usage is None:
         metadata["provider_unmetered_attempt_count"] = int(
             metadata.get("provider_unmetered_attempt_count", 0)
@@ -105,12 +158,25 @@ def publish_provider_response(response: Any) -> None:
     language_bucket = metadata.get("language_bucket", "unknown")
     if language_bucket not in {"zh_hans", "en", "mixed", "other", "unknown"}:
         language_bucket = "unknown"
-    publish_provider_usage_metric(
-        language_bucket=language_bucket,
-        estimated_input_tokens=(estimated if isinstance(estimated, int) else 0),
-        provider_input_tokens=int(metadata.get("provider_input_tokens", 0)),
-        provider_output_tokens=int(metadata.get("provider_output_tokens", 0)),
-    )
+    try:
+        publish_provider_usage_metric(
+            language_bucket=language_bucket,
+            estimated_input_tokens=(
+                estimated if isinstance(estimated, int) else 0
+            ),
+            provider_input_tokens=int(
+                metadata.get("provider_input_tokens", 0)
+            ),
+            provider_output_tokens=int(
+                metadata.get("provider_output_tokens", 0)
+            ),
+            estimator_error_basis_points=int(
+                metadata.get("estimator_error_basis_points", 0)
+            ),
+            **dict(_compression_usage_scope.get() or {}),
+        )
+    except Exception:
+        pass
     _provider_context_metadata.set(metadata)
 
 
@@ -120,7 +186,11 @@ def consume_provider_context_metadata() -> dict[str, Any]:
     return metadata
 
 
-def extract_provider_usage(response: Any) -> dict[str, int] | None:
+def extract_provider_usage(
+    response: Any,
+    *,
+    allow_partial: bool = False,
+) -> dict[str, int] | None:
     """Normalize complete Provider usage from supported response metadata shapes."""
 
     candidates: list[Mapping[str, Any]] = []
@@ -136,6 +206,15 @@ def extract_provider_usage(response: Any) -> dict[str, int] | None:
     for candidate in candidates:
         normalized = _normalize_usage(candidate)
         if all(key in normalized for key in _REQUIRED_USAGE_KEYS):
+            return normalized
+        if allow_partial and "provider_input_tokens" in normalized:
+            normalized.setdefault("provider_output_tokens", 0)
+            normalized.setdefault("provider_cached_input_tokens", 0)
+            normalized.setdefault(
+                "provider_total_tokens",
+                normalized["provider_input_tokens"]
+                + normalized["provider_output_tokens"],
+            )
             return normalized
     return None
 
@@ -195,6 +274,9 @@ def normalize_estimator_error(
     return {
         "estimator_error_direction": direction,
         "estimator_error_basis_points": round(
-            abs(delta) * 10_000 / max(1, provider_input_tokens)
+            min(
+                100_000,
+                abs(delta) * 10_000 / max(1, provider_input_tokens),
+            )
         ),
     }

@@ -31,6 +31,10 @@ from app.services.context_runtime import (
 )
 from app.services.context_language import classify_context_language
 from app.services.model_capabilities import ContextConfigurationError
+from app.services.interview_status_projection import (
+    INTERVIEW_STATUS_ROLE,
+    is_valid_interview_status_message,
+)
 from app.services.principal_memory_sink_policy import (
     ASSISTANCE_CONTEXT_KIND,
     FOLLOWUP_GENERATION_SINK,
@@ -467,13 +471,16 @@ class OpenAIInterviewLLM:
         from app.services.report import ReportGenerationFailed, ReportOutputFormatError
         from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
 
+        provider_evaluation_items = _provider_visible_report_items(
+            evaluation_items
+        )
         assert_principal_memory_sink(
             operation="report_generation",
-            payload={"plan": plan, "evaluation_items": evaluation_items},
+            payload={"plan": plan, "evaluation_items": provider_evaluation_items},
         )
         prompt = self._build_report_prompt(
             plan=plan,
-            evaluation_items=evaluation_items,
+            evaluation_items=provider_evaluation_items,
             session_id=session_id,
         )
         self._guard_prompt(prompt, REPORT_CONTEXT_POLICY)
@@ -576,7 +583,8 @@ class OpenAIInterviewLLM:
             "Return exactly one question_results item for each evaluation item.\n"
             "All user-facing fields must be written in Simplified Chinese.\n"
             "Keep literal identifiers like Redis, Kafka, MySQL, p95, and API names unchanged when needed.\n"
-            "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
+            "When non_authoritative_reference_context is present, only use reference_chunk_ids listed there; otherwise use ids from the supplied evaluation_items references.\n"
+            "Non-authoritative reference context is guidance only: never treat it as a candidate exact quote or authoritative scoring evidence.\n"
             "Do not invent new chunk ids.\n"
             "The backend computes all numeric scores from evidence.\n"
             "Do not return score or dimension_scores for any question.\n"
@@ -817,11 +825,21 @@ class OpenAIInterviewLLM:
         ]
         if len(assistance) != 1:
             assistance = []
+        status_candidates = [
+            dict(item)
+            for item in context
+            if item.get("role") == INTERVIEW_STATUS_ROLE
+            and is_valid_interview_status_message(item)
+        ]
+        status_message = (
+            status_candidates[0] if len(status_candidates) == 1 else None
+        )
         conversation = [
             dict(item)
             for item in context
             if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
             and item.get("context_kind") != ASSISTANCE_CONTEXT_KIND
+            and item.get("role") != INTERVIEW_STATUS_ROLE
         ]
         evidence = [
             dict(item)
@@ -888,7 +906,73 @@ class OpenAIInterviewLLM:
                 )
                 if cost <= selection_budget.selectable_content_tokens:
                     selected = with_assistance
+        if status_message is not None:
+            return self._fit_status_prefixed_followup_context(
+                status_message=status_message,
+                selected=selected,
+                available_input_tokens=budget.available_input_tokens,
+            )
         return selected
+
+    def _fit_status_prefixed_followup_context(
+        self,
+        *,
+        status_message: dict[str, str],
+        selected: list[dict[str, str]],
+        available_input_tokens: int,
+    ) -> list[dict[str, str]]:
+        fitted = [dict(status_message), *[dict(item) for item in selected]]
+        estimator = self.token_estimator.estimator
+        model = self.model_profile.model
+
+        def fits(items):
+            return estimator.estimate_text(
+                _build_followup_prompt(items),
+                model=model,
+            ) <= available_input_tokens
+
+        if fits(fitted):
+            return fitted
+        latest_candidate = next(
+            (
+                index
+                for index in range(len(selected) - 1, -1, -1)
+                if selected[index].get("role") == "candidate"
+            ),
+            None,
+        )
+        current_interviewer = (
+            next(
+                (
+                    index
+                    for index in range(latest_candidate - 1, -1, -1)
+                    if selected[index].get("role") == "interviewer"
+                ),
+                None,
+            )
+            if latest_candidate is not None
+            else None
+        )
+        mandatory_indexes = {latest_candidate, current_interviewer} - {None}
+        retained = [
+            (index, dict(item)) for index, item in enumerate(selected)
+        ]
+        for index in range(len(selected)):
+            if index in mandatory_indexes:
+                continue
+            retained = [item for item in retained if item[0] != index]
+            candidate = [
+                dict(status_message),
+                *[item for _source_index, item in retained],
+            ]
+            if fits(candidate):
+                return candidate
+        # Status is optional relative to the Task-7-preexisting mandatory
+        # business context. If the minimum status-prefixed business set cannot
+        # fit, omit status and preserve the exact prior fitted context. The
+        # existing rendered prompt guard remains authoritative when the
+        # business context itself cannot fit.
+        return [dict(item) for item in selected]
 
     def _fit_plan_inputs(
         self,
@@ -964,6 +1048,19 @@ class OpenAIInterviewLLM:
         if self._provider_attempt_hook is not None:
             self._provider_attempt_hook()
         begin_provider_attempt()
+
+
+def _provider_visible_report_items(
+    evaluation_items: list[dict],
+) -> list[dict]:
+    provider_items = []
+    for evaluation_item in evaluation_items:
+        provider_item = dict(evaluation_item)
+        if "non_authoritative_reference_context" in provider_item:
+            provider_item.pop("scoring_references", None)
+            provider_item.pop("answer_references", None)
+        provider_items.append(provider_item)
+    return provider_items
 
 
 def _build_followup_prompt(context: list[dict[str, str]]) -> str:
