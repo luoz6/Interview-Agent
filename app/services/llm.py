@@ -1,11 +1,11 @@
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
 
 from pydantic import ValidationError
 
+from app.runtime.config import load_llm_runtime_settings, load_provider_credentials
 from app.services.context_budget import (
     context_enforcement_enabled,
     FOLLOWUP_CONTEXT_POLICY,
@@ -64,22 +64,21 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
-        from app.services.memory_config import load_effective_memory_config
+        from app.runtime.config.memory import load_effective_memory_config
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = load_provider_credentials().openai_api_key
         if not api_key:
             raise MissingLLMConfigError("OPENAI_API_KEY is required")
 
         memory = load_effective_memory_config().model
+        runtime_settings = load_llm_runtime_settings()
         return cls(
             api_key=api_key,
             model=memory.model,
-            base_url=os.getenv("OPENAI_BASE_URL") or None,
-            temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.2")),
-            request_timeout_seconds=float(
-                os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "120")
-            ),
-            max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "1")),
+            base_url=runtime_settings.base_url,
+            temperature=runtime_settings.temperature,
+            request_timeout_seconds=runtime_settings.request_timeout_seconds,
+            max_retries=runtime_settings.max_retries,
             context_window_tokens=memory.context_window_tokens,
             protocol_reserve_tokens=memory.protocol_reserve_tokens,
             structured_output_reserve_tokens=(
@@ -157,9 +156,8 @@ class OpenAIInterviewLLM:
         self._budget_resolver = runtime.budget_resolver
         self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
-        configured_mode = report_output_mode or os.getenv(
-            "OPENAI_REPORT_OUTPUT_MODE",
-            "structured_first",
+        configured_mode = (
+            report_output_mode or load_llm_runtime_settings().report_output_mode
         )
         if configured_mode not in {"structured_first", "raw_only"}:
             raise ValueError(f"unsupported OPENAI_REPORT_OUTPUT_MODE: {configured_mode}")

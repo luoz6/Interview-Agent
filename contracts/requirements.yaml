@@ -1,0 +1,124 @@
+schema_version: "1.0"
+kind: requirements
+authoritative_source: docs/refactoring-plan.md
+items:
+  - id: REQ-ARCH-001
+    title: API 路由保持薄边界
+    category: architecture
+    statement: API Router 只负责请求解析、依赖获取和响应映射，不承载业务流程。
+    verification: Architecture 扫描和 API Contract 共同证明领域 Router 不依赖旧 Facade 或具体 Store。
+    gate_ids: [GATE-STATIC, GATE-PYTHON]
+  - id: REQ-ARCH-002
+    title: Runtime 只有一个组装边界
+    category: architecture
+    statement: Runtime 由 Config、Container、Lifecycle 和 Reliability 组成，不新增 app/domain/runtime 或平行 Singleton。
+    verification: 静态依赖扫描和 Runtime Lifecycle Contract。
+    gate_ids: [GATE-STATIC, GATE-PYTHON]
+  - id: REQ-ARCH-003
+    title: 复用现有 Ports
+    category: architecture
+    statement: 现有 app/ports 是唯一 Port 边界，不建立第二套 repositories、providers 或 jobs Port 树。
+    verification: Port 清单、导入图和 Architecture Contract。
+    gate_ids: [GATE-STATIC]
+  - id: REQ-ARCH-004
+    title: Domain 和 Application 不读取环境
+    category: architecture
+    statement: Domain 与 Application 只接收类型化配置和 Port，不直接读取进程环境变量。
+    verification: AST 静态扫描和 Effective Runtime Config Contract。
+    gate_ids: [GATE-STATIC, GATE-PYTHON]
+  - id: REQ-DATA-001
+    title: Repository 拆分保持原事务边界
+    category: data
+    statement: Session、Message、Outbox、Receipt 与 Evaluation 的组合写入通过同一 UnitOfWork 共享 connection 和 transaction。
+    verification: Fault Injection、真实 PostgreSQL Atomicity 和 CAS/Fencing Contract。
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES]
+  - id: REQ-DATA-002
+    title: Context Artifact 保持字节兼容
+    category: data
+    statement: Context Artifact 的 Key、Identity、Owner、Privacy、Lease、Fencing、Immutability、Replay 和删除语义不得因边界迁移改变。
+    verification: Memory Reference/PostgreSQL Adapter Store Contract 和 Compatibility Matrix。
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES]
+  - id: REQ-REDUNDANCY-001
+    title: Evidence 核心只有一套
+    category: redundancy
+    statement: Common Envelope、Canonical JSON、Receipt、Privacy Scanner 和 Atomic Writer 各自只有一个权威实现，领域 Payload 保持独立严格 Schema。
+    verification: 重复实现扫描和 Evidence Mutation Matrix。
+    gate_ids: [GATE-STATIC, GATE-PYTHON]
+  - id: REQ-REDUNDANCY-002
+    title: PostgreSQL 测试只使用 Owned Scope
+    category: redundancy
+    statement: PostgreSQL 测试和 Acceptance 通过统一 OwnedPostgresScope、Migration Harness 和 Cleanup Audit 访问数据库。
+    verification: PostgreSQL Scope Contract、真实 Permission/Ownership/Cleanup/Residue Gate。
+    gate_ids: [GATE-POSTGRES, GATE-RESIDUE]
+  - id: REQ-REDUNDANCY-003
+    title: Browser 只有十类权威 Suite
+    category: redundancy
+    statement: Browser 行为由 Prep、Interview、Report Center、Report Processing、Report Detail、Memory Center、Recovery、Accessibility、Critical-path E2E 和 Real-model Nightly Smoke 十类 Suite 唯一拥有。
+    verification: Playwright 收集清单和完整 Browser Gate。
+    gate_ids: [GATE-BROWSER]
+  - id: REQ-SAFETY-001
+    title: 不暴露敏感信息
+    category: safety
+    statement: 代码、日志、Evidence 和错误响应不得输出明文 DSN、密码、Provider Key、HMAC Secret、私有 Payload 或完整连接串。
+    verification: 敏感信息扫描、Mutation Contract 和运行时错误测试。
+    gate_ids: [GATE-STATIC, GATE-PYTHON]
+  - id: REQ-SAFETY-002
+    title: 外部资源必须证明所有权
+    category: safety
+    statement: PostgreSQL、Redis、Filesystem 和临时进程的 Mutation 与 Cleanup 必须绑定本次运行的 Ownership，不能删除未证明属于自己的资源。
+    verification: Ownership Contract、Cleanup Receipt 和 Residue Audit。
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES, GATE-RESIDUE]
+  - id: REQ-SAFETY-003
+    title: Rename 和 Copy 双端检查
+    category: safety
+    statement: Release Diff 对 Rename 和 Copy 的 source 与 destination 分别执行 ownership、sensitive-path 和 release-boundary policy。
+    verification: Git porcelain 双路径 Contract。
+    gate_ids: [GATE-PYTHON]
+  - id: REQ-SAFETY-004
+    title: Evidence 严格解析并分离状态
+    category: safety
+    statement: Evidence 拒绝未知字段、字符串布尔值、非整数计数、NaN 和 Infinity；VerificationStatus 与 PromotionDecision 分离，Synthetic Result 不得晋升为 Production Acceptance。
+    verification: Evidence Mutation Matrix 和 Domain Policy Contract。
+    gate_ids: [GATE-PYTHON]
+  - id: REQ-TEST-001
+    title: 测试按风险分层
+    category: testing
+    statement: Unit、Contract、Integration、Architecture、Acceptance 与 Browser 证据按风险分层，定向数量不能相加冒充完整 Suite。
+    verification: 测试清单和最终 Gate Receipt。
+    gate_ids: [GATE-PYTHON, GATE-FRONTEND, GATE-BROWSER]
+  - id: REQ-TEST-002
+    title: Critical Contract 不允许跳过
+    category: testing
+    statement: PostgreSQL Ownership、Permission、Atomicity、Cleanup 和 Residue 等 Critical Contract 必须实际运行且零 skip；可选 Provider 与 Real-model Smoke 单独分类。
+    verification: Skip Classification 和真实 PostgreSQL Gate。
+    gate_ids: [GATE-POSTGRES, GATE-AUDIT]
+  - id: REQ-TEST-003
+    title: 运行资源终态为零
+    category: testing
+    statement: 测试结束后不得保留任务创建的数据库对象、角色、容器、临时文件或后台监听进程。
+    verification: Residue Audit、端口检查和最终 Git 变更清单。
+    gate_ids: [GATE-RESIDUE, GATE-AUDIT]
+  - id: REQ-TEST-004
+    title: Browser Python 身份可复现
+    category: testing
+    statement: Browser Runner 使用单一 Resolver 验证 Python 3.11、realpath、executable identity、FastAPI/Uvicorn 能力和 Runtime Preflight 一致性，并在冲突时 fail closed。
+    verification: Browser Runtime Contract 和 Browser Preflight。
+    gate_ids: [GATE-BROWSER]
+  - id: REQ-COMPLETE-001
+    title: 最终审查逐项追踪
+    category: completion
+    statement: 第 21 节和第 23 节的每个条目都必须在最终审查中记录 PASS、BLOCKED 或有理由的 N/A，并附可复核证据。
+    verification: Requirement Traceability 和最终审查报告。
+    gate_ids: [GATE-AUDIT]
+  - id: REQ-COMPLETE-002
+    title: 审查问题形成修复闭环
+    category: completion
+    statement: 自动审查发现的问题必须修复并重新执行受影响定向测试和全部失效的完整 Gate。
+    verification: 审查报告中的 Finding、Remediation 与 Reverification。
+    gate_ids: [GATE-AUDIT]
+  - id: REQ-COMPLETE-003
+    title: 审查报告是完成必需产物
+    category: completion
+    statement: 所有 Wave 完成且最终 Gate 通过后，必须生成 docs/refactoring-audit.md，计划才可标记完成。
+    verification: Release Contract 和审查报告存在性、完整性校验。
+    gate_ids: [GATE-AUDIT]

@@ -1,12 +1,14 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 from uuid import uuid4
 
+from app.ports.postgres_scope import PostgresCleanupReceipt, PostgresScopeError
 from app.services.agent_runtime import AgentRunRecord
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep import InterviewPlan, InterviewQuestion
@@ -16,7 +18,23 @@ from app.services.runtime_outbox_dispatcher import (
     CeleryRuntimeEventSink,
     RuntimeOutboxDispatcher,
 )
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    Stage43bRecoveryEvidencePayload,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.evidence.status import VerificationStatus
+from contracts.policies import Stage43bRecoveryEvidencePolicy
 from scripts.audit_agent_runtime import audit_runtime_control_payloads
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    approved_postgres_scope,
+    load_receipt_signer,
+    require_environment_value,
+)
 
 
 CHECKS = (
@@ -31,6 +49,8 @@ CHECKS = (
     "agent_ledger_five_agents",
     "control_plane_privacy",
 )
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT = ROOT / "reports" / "stage43b" / "recovery-evidence-v1.json"
 
 
 class AcceptanceFailure(RuntimeError):
@@ -66,25 +86,80 @@ def run_acceptance(adapter) -> dict:
     return {"status": "PASS", "checks": results}
 
 
+def _gate_code(value: object) -> str:
+    normalized = re.sub(r"[^A-Z0-9_]+", "_", str(value).upper()).strip("_")
+    return normalized or "STAGE43B_RECOVERY_FAILED"
+
+
+def build_recovery_evidence(
+    result: dict,
+    *,
+    cleanup_receipt: PostgresCleanupReceipt | None = None,
+    synthetic: bool = False,
+) -> Stage43bRecoveryEvidencePayload:
+    passed = result.get("status") == "PASS"
+    checks = result.get("checks")
+    checked_count = len(checks) if isinstance(checks, dict) else 0
+    cleanup_completed = cleanup_receipt is not None
+    return Stage43bRecoveryEvidencePayload(
+        schema_version="stage43b-recovery-evidence-v1",
+        status="PASS" if passed else "FAIL",
+        check_count=len(CHECKS),
+        checks_passed=checked_count,
+        cleanup_completed=cleanup_completed,
+        cleanup_ownership_verified=(
+            cleanup_receipt.ownership_verified if cleanup_receipt else False
+        ),
+        cleanup_target_verified=(
+            cleanup_receipt.target_verified if cleanup_receipt else False
+        ),
+        cleanup_residue_count=(
+            cleanup_receipt.residue_count if cleanup_receipt else None
+        ),
+        cleanup_receipt_sha256=(
+            cleanup_receipt.receipt_sha256 if cleanup_receipt else None
+        ),
+        target_fingerprint=(
+            cleanup_receipt.target_fingerprint if cleanup_receipt else None
+        ),
+        failure_code=None if passed else _gate_code(result.get("error_code")),
+        failed_check=None if passed else result.get("failed_check"),
+        synthetic=synthetic,
+    )
+
+
 class PostgresCeleryAcceptance:
-    def __init__(self, *, timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float,
+        dsn: str,
+        table_prefix: str,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
-        self.prefix = "stage43b_accept_" + uuid4().hex[:10]
+        self.dsn = dsn
+        self.prefix = table_prefix
         self.worker = None
         self.store = None
         self.control = None
         self.celery_app = None
         self.events = {}
+        self._previous_environment = {
+            name: os.environ.get(name)
+            for name in (
+                "INTERVIEW_RUNTIME_STORE",
+                "INTERVIEW_RUNTIME_TABLE_PREFIX",
+            )
+        }
 
     def setup(self) -> None:
         from app.services.celery_app import celery_app
-        from app.services.config import get_postgres_dsn
 
         self.celery_app = celery_app
         os.environ["INTERVIEW_RUNTIME_STORE"] = "postgres"
         os.environ["INTERVIEW_RUNTIME_TABLE_PREFIX"] = self.prefix
         self.store = PostgresInterviewSessionStore(
-            dsn=get_postgres_dsn(),
+            dsn=self.dsn,
             table_prefix=self.prefix,
         )
         self.control = self.store._runtime_control
@@ -95,15 +170,20 @@ class PostgresCeleryAcceptance:
         return method()
 
     def cleanup(self) -> None:
-        if self.worker is not None and self.worker.poll() is None:
-            self.worker.terminate()
-            try:
-                self.worker.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.worker.kill()
-                self.worker.wait(timeout=5)
-        if self.control is not None:
-            self._drop_tables()
+        try:
+            if self.worker is not None and self.worker.poll() is None:
+                self.worker.terminate()
+                try:
+                    self.worker.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.worker.kill()
+                    self.worker.wait(timeout=5)
+        finally:
+            for name, previous in self._previous_environment.items():
+                if previous is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = previous
 
     def _new_closed_event(self, label: str):
         turn = self.store.start(
@@ -418,47 +498,89 @@ class PostgresCeleryAcceptance:
             time.sleep(0.25)
         raise AcceptanceFailure("acceptance_timeout")
 
-    def _drop_tables(self):
-        _, sql = self.control._import_psycopg2()
-        names = [
-            self.control.receipts_table,
-            self.control.agent_runs_table,
-            self.control.outbox_table,
-            self.store.question_evaluations_table,
-            self.store.reports_table,
-            self.store.messages_table,
-            self.store.sessions_table,
-        ]
-        with self.control.connection() as connection:
-            with connection.cursor() as cursor:
-                for name in names:
-                    cursor.execute(
-                        sql.SQL("DROP TABLE IF EXISTS {table}").format(
-                            table=sql.Identifier(name)
-                        )
-                    )
-
     @staticmethod
     def _require(condition, code):
         if not condition:
             raise AcceptanceFailure(code)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=float, default=180)
-    args = parser.parse_args()
-    result = run_acceptance(
-        PostgresCeleryAcceptance(timeout_seconds=args.timeout)
+    parser.add_argument(
+        "--table-prefix",
+        default="test_s43b_" + uuid4().hex[:12],
     )
-    target = Path("tmp/stage-43b-recovery-acceptance.json")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(result, indent=2, sort_keys=True),
-        encoding="utf-8",
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="stage43b.recovery.acceptance",
     )
+    parser.add_argument("--synthetic", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        dsn = require_environment_value(os.environ, "POSTGRES_DSN")
+        signer = load_receipt_signer(os.environ)
+        output_revision = (
+            args.output_revision
+            or require_environment_value(os.environ, "EVIDENCE_REVISION")
+        )
+    except AcceptanceConfigurationError as exc:
+        print("STAGE43B_RECOVERY_EVIDENCE=BLOCKED")
+        print(f"GATE={exc.code}")
+        return 1
+    active = None
+    try:
+        with approved_postgres_scope(
+            dsn=dsn,
+            scope_prefix=args.table_prefix,
+            environ=os.environ,
+        ) as active:
+            result = run_acceptance(
+                PostgresCeleryAcceptance(
+                    timeout_seconds=args.timeout,
+                    dsn=dsn,
+                    table_prefix=args.table_prefix,
+                )
+            )
+    except (AcceptanceConfigurationError, PostgresScopeError) as exc:
+        result = {
+            "status": "FAIL",
+            "error_code": exc.code,
+            "failed_check": None,
+            "checks": {},
+        }
+    cleanup_receipt = active.lease.cleanup_receipt if active is not None else None
+    payload = build_recovery_evidence(
+        result,
+        cleanup_receipt=cleanup_receipt,
+        synthetic=args.synthetic,
+    )
+    policy_result = Stage43bRecoveryEvidencePolicy().evaluate(payload)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="stage43b-recovery-evidence",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.stage43b-recovery-acceptance",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+    )
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: output_verifier.verify(
+            value,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.output, bundle)
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] == "PASS" else 1
+    print("\n".join(render_gate_lines(bundle)))
+    return 0 if policy_result.verification_status is VerificationStatus.PASS else 1
 
 
 if __name__ == "__main__":

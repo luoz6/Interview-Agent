@@ -1,5 +1,34 @@
 const { test, expect } = require("@playwright/test");
-const { createSession } = require("./reference-ui-geometry");
+const {
+  createSession,
+  desktopOnly,
+  expectGeometry,
+  viewports,
+} = require("./browser-suite-support");
+
+test.beforeEach(async ({}, testInfo) => {
+  test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
+});
+
+const referenceJobDescription = "Backend engineer with Redis and MySQL";
+const referenceResumeText = "Built cache-aside recovery workflows";
+const commandUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function fillReferencePrepSources(page) {
+  const jdTab = page.getByRole("tab", { name: /岗位 JD/ });
+  if (await jdTab.isVisible()) await jdTab.click();
+  await page.getByLabel("岗位 JD").fill(referenceJobDescription);
+  const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
+  if (await resumeTab.isVisible()) await resumeTab.click();
+  await page.getByLabel("简历内容").fill(referenceResumeText);
+}
+
+async function openInterview(page, request) {
+  const sessionId = await createSession(request);
+  await page.goto(`/interview?session_id=${sessionId}`);
+  await expect(page.locator(".interview-workspace")).toBeVisible();
+  return sessionId;
+}
 
 async function snapshotFor(request, sessionId) {
   const response = await request.get(`/api/interviews/${sessionId}`);
@@ -220,4 +249,283 @@ test("reduced motion removes interview state transitions without removing contro
   expect(Number.parseFloat(details.transition) || 0).toBeLessThanOrEqual(0.001);
   await expect(page.getByRole("button", { name: "提交回答" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "结束面试" })).toBeEnabled();
+});
+
+test("interview layout contracts remain stable across viewports", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const sessionId = await createSession(request);
+  for (const viewport of viewports) {
+    await page.setViewportSize({ width: viewport.width, height: 900 });
+    await page.goto("/interview?session_id=" + sessionId);
+    await expectGeometry(page);
+    const interview = await page.evaluate(() => {
+      const workspace = document.querySelector(".interview-workspace");
+      const main = document.querySelector(".interview-main").getBoundingClientRect();
+      const context = document
+        .querySelector(".interview-context")
+        .getBoundingClientRect();
+      return {
+        display: getComputedStyle(workspace).display,
+        viewportWidth: window.innerWidth,
+        compactLayoutMatches: window.matchMedia("(max-width: 1099px)").matches,
+        columnValue: getComputedStyle(workspace).gridTemplateColumns,
+        columns: getComputedStyle(workspace).gridTemplateColumns
+          .split(" ")
+          .filter(Boolean).length,
+        contextBelowMain: context.top >= main.bottom - 1,
+        agentBackground: getComputedStyle(
+          document.querySelector(".agent-console"),
+        ).backgroundColor,
+        composerBackground: getComputedStyle(
+          document.querySelector(".answer-composer"),
+        ).backgroundColor,
+        questionBorderTop: getComputedStyle(
+          document.querySelector(".current-question"),
+        ).borderTopWidth,
+        primaryCount: document.querySelectorAll(
+          ".button-primary:not(:disabled)",
+        ).length,
+        statusBarVisible:
+          document.querySelector(".interview-status-bar").getBoundingClientRect().height > 0,
+        appStyled: document.querySelector(".interview-app") !== null,
+        composerButtons: [...document.querySelectorAll(".interview-actions button")]
+          .map((button) => button.getBoundingClientRect().height),
+        currentQuestionFontSize: Number.parseFloat(getComputedStyle(
+          document.querySelector(".current-question h2"),
+        ).fontSize),
+        questionCursor: getComputedStyle(
+          document.querySelector(".interview-question-list li"),
+        ).cursor,
+        submitIconCount: document.querySelectorAll(
+          ".interview-submit-button svg",
+        ).length,
+      };
+    });
+
+    expect(interview.appStyled).toBe(true);
+    expect(interview.agentBackground).toBe(interview.composerBackground);
+    expect(interview.agentBackground).not.toBe("rgb(7, 24, 41)");
+    expect(interview.questionBorderTop).toBe("1px");
+    expect(interview.primaryCount).toBe(1);
+    expect(interview.statusBarVisible).toBe(true);
+    expect(interview.currentQuestionFontSize).toBeGreaterThanOrEqual(viewport.width <= 479 ? 16 : 18);
+    expect(interview.questionCursor).not.toBe("pointer");
+    expect(interview.submitIconCount).toBe(1);
+    if (viewport.width <= 767) {
+      expect(interview.display).toBe("flex");
+      expect(interview.contextBelowMain).toBe(true);
+      expect(interview.composerButtons.every((height) => height >= 44)).toBe(true);
+    } else {
+      expect(interview.display).toBe("grid");
+      expect(
+        interview.columns,
+        `viewport=${interview.viewportWidth}, compact=${interview.compactLayoutMatches}, columns=${interview.columnValue}`,
+      ).toBe(viewport.width <= 1099 ? 2 : 3);
+      expect(interview.contextBelowMain).toBe(viewport.width <= 1099);
+    }
+  }
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const reducedMotionDuration = await page.locator(".current-question").evaluate(
+    (element) => Number.parseFloat(getComputedStyle(element).animationDuration),
+  );
+  expect(reducedMotionDuration).toBeLessThanOrEqual(0.001);
+});
+
+test("interview focus mode keeps the answer draft and restores both side panes", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+  await page.goto("/interview?session_id=" + sessionId);
+  const draft = "focus-mode-draft";
+  await page.getByLabel("你的回答").fill(draft);
+  await page.getByRole("button", { name: "专注模式" }).click();
+  await expect(page.locator(".question-rail")).toHaveCount(0);
+  await expect(page.locator(".interview-context")).toHaveCount(0);
+  await expect(page.getByLabel("你的回答")).toHaveValue(draft);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".question-rail")).toBeVisible();
+  await expect(page.locator(".interview-context")).toBeVisible();
+  await expect(page.getByLabel("你的回答")).toHaveValue(draft);
+});
+
+test("answer composer stays at the workspace bottom with a fixed-size editor", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/interview?session_id=" + sessionId);
+  await expect(page.locator(".answer-composer")).toBeVisible();
+  await expect(page.locator("#answerInput")).toBeEnabled();
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(
+      document.getAnimations()
+        .filter((animation) => animation.playState !== "finished" && animation.effect?.getTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
+
+  const before = await page.evaluate(() => {
+    const main = document.querySelector(".interview-main").getBoundingClientRect();
+    const scrollRegion = document.querySelector(".interview-workspace-scroll").getBoundingClientRect();
+    const composer = document.querySelector(".answer-composer").getBoundingClientRect();
+    const textarea = document.querySelector("#answerInput");
+    const textareaRect = textarea.getBoundingClientRect();
+    const textareaStyle = getComputedStyle(textarea);
+    return {
+      mainBottom: main.bottom,
+      scrollBottom: scrollRegion.bottom,
+      composerTop: composer.top,
+      composerBottom: composer.bottom,
+      textareaHeight: textareaRect.height,
+      resize: textareaStyle.resize,
+      overflowY: textareaStyle.overflowY,
+    };
+  });
+
+  expect(Math.abs(before.mainBottom - before.composerBottom)).toBeLessThanOrEqual(16);
+  expect(before.scrollBottom).toBeLessThanOrEqual(before.composerTop + 1);
+  expect(before.resize).toBe("none");
+  expect(before.overflowY).toBe("auto");
+
+  await page.locator("#answerInput").fill(Array.from({ length: 20 }, (_, index) => `第 ${index + 1} 行回答`).join("\n"));
+  const after = await page.evaluate(() => {
+    const composer = document.querySelector(".answer-composer").getBoundingClientRect();
+    const textarea = document.querySelector("#answerInput").getBoundingClientRect();
+    return { composerTop: composer.top, composerBottom: composer.bottom, textareaHeight: textarea.height };
+  });
+
+  expect(after.textareaHeight).toBeCloseTo(before.textareaHeight, 1);
+  expect(after.composerTop).toBeCloseTo(before.composerTop, 1);
+  expect(after.composerBottom).toBeCloseTo(before.composerBottom, 1);
+});
+
+test("submitting an answer follows the newest conversation inside the message list", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const sessionId = await createSession(request);
+  await page.goto("/interview?session_id=" + sessionId);
+  await expect(page.locator(".message-list")).toBeVisible();
+
+  await page.locator(".message-list").evaluate((element) => {
+    element.style.flex = "0 0 7rem";
+    element.style.height = "7rem";
+    element.style.maxHeight = "7rem";
+    element.scrollTop = 0;
+  });
+  const pageScrollBefore = await page.evaluate(() => window.scrollY);
+  const answer = "我会先建立可观测指标，再用小流量验证缓存恢复策略。";
+  await page.getByLabel("你的回答").fill(answer);
+  await page.getByRole("button", { name: "提交回答" }).click();
+
+  await expect(page.locator(".message-candidate").filter({ hasText: answer })).toBeVisible();
+  await expect.poll(async () => page.locator(".message-list").evaluate((element) => (
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  ))).toBeLessThanOrEqual(4);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore);
+});
+
+test("empty answer feedback explains the problem and returns focus to the editor", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+  await page.goto("/interview?session_id=" + sessionId);
+  const answer = page.getByLabel("你的回答");
+  await page.getByRole("button", { name: "提交回答" }).click();
+  const fieldError = page.locator(".interview-field-error");
+  await expect(fieldError).toContainText("请先填写回答");
+  await expect(fieldError).toContainText("至少写下你的判断和依据");
+  await expect(answer).toBeFocused();
+  await expect(answer).toHaveAttribute("aria-invalid", "true");
+  await expect(answer).toHaveAttribute("aria-describedby", /answer-error/);
+  await answer.fill("先说明判断，再补充方案取舍。");
+  await expect(fieldError).toHaveCount(0);
+  await expect(answer).not.toHaveAttribute("aria-invalid", "true");
+});
+
+test("React interview focus mode and answer draft survive refresh", async ({ page }) => {
+  await page.goto("/prep");
+  await fillReferencePrepSources(page);
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
+  const draft = "Cache-aside with database fallback and timeout recovery.";
+  await page.getByLabel("你的回答").fill(draft);
+  await page.reload();
+  await expect(page.getByLabel("你的回答")).toHaveValue(draft);
+  await page.getByRole("button", { name: "专注模式" }).click();
+  await expect(page.locator(".question-rail")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".question-rail")).toBeVisible();
+  await page.getByRole("button", { name: "提交回答" }).click();
+  await expect(page.locator(".agent-console")).toContainText("trade-off");
+});
+
+test("skip requires a second action before one authoritative request", async ({ page, request }) => {
+  const sessionId = await openInterview(page, request);
+  const writes = [];
+  await page.route(`**/api/interviews/${sessionId}/skip`, async (route) => {
+    writes.push(route.request().postDataJSON());
+    await route.continue();
+  });
+
+  await page.getByRole("button", { name: "跳过此题" }).click();
+  await page.waitForTimeout(150);
+  expect(writes).toHaveLength(0);
+  await expect(page.getByRole("button", { name: "确认跳过" })).toBeVisible();
+
+  await page.getByRole("button", { name: "确认跳过" }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0].expected_version).toEqual(expect.any(Number));
+  expect(writes[0].command_id).toMatch(commandUuidPattern);
+});
+
+test("finish dialog sends no request until confirmed and restores focus on Escape", async ({ page, request }) => {
+  const sessionId = await openInterview(page, request);
+  const writes = [];
+  await page.route(`**/api/interviews/${sessionId}/finish`, async (route) => {
+    writes.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  const finishButton = page.getByRole("button", { name: "结束面试" });
+
+  await finishButton.click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  expect(writes).toHaveLength(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(finishButton).toBeFocused();
+
+  await finishButton.click();
+  await page.getByRole("button", { name: "结束并生成报告" }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0].expected_version).toEqual(expect.any(Number));
+  expect(writes[0].command_id).toMatch(commandUuidPattern);
+});
+
+test("leave and continue preserves the active session without finishing it", async ({ page, request }) => {
+  const sessionId = await openInterview(page, request);
+  let finishWrites = 0;
+  await page.route(`**/api/interviews/${sessionId}/finish`, async (route) => {
+    finishWrites += 1;
+    await route.continue();
+  });
+
+  await page.locator('a[href="/reports"]:visible').first().click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  expect(finishWrites).toBe(0);
+  await page.getByRole("button", { name: "离开并稍后继续" }).click();
+  await expect(page).toHaveURL(/\/reports$/);
+
+  const snapshot = await (await request.get(`/api/interviews/${sessionId}`)).json();
+  expect(snapshot.status).toBe("active");
+  expect(finishWrites).toBe(0);
 });

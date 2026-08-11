@@ -40,7 +40,7 @@ class StaticKnowledgeStore:
         limit: int = 5,
     ):
         del query_text, job_tags
-        from app.services.vector_store import KnowledgeChunk
+        from app.domain.knowledge.models import KnowledgeChunk
 
         allowed = set(source_types or ())
         values = [
@@ -57,7 +57,8 @@ class StaticKnowledgeStore:
         return values
 
     def get_by_ids(self, ids: list[str], *, expected_hashes=None):
-        from app.services.vector_store import KnowledgeChunk, KnowledgeLookupResult
+        from app.domain.knowledge.models import KnowledgeChunk
+        from app.ports.runtime import KnowledgeLookupResult
 
         expected_hashes = expected_hashes or {}
         chunks = []

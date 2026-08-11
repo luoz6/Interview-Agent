@@ -1,4 +1,9 @@
 const { test, expect } = require("@playwright/test");
+const { desktopOnly } = require("./browser-suite-support");
+
+test.beforeEach(async ({}, testInfo) => {
+  test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
+});
 
 const jobDescription = "Backend engineer owning Python, Redis, PostgreSQL and safe releases.";
 const resumeText = "Built resilient FastAPI services with cache recovery and production incident ownership.";
@@ -397,4 +402,246 @@ test("prep motion and focus honor accessibility preferences", async ({ page }) =
   expect(["0s", "1e-05s", "none"]).toContain(state.duration);
   expect(state.outlineStyle).toBe("solid");
   expect(state.outlineWidth).toBe("2px");
+});
+
+const prepWorkbenchViewports = [
+  { width: 320, height: 900 },
+  { width: 375, height: 900 },
+  { width: 414, height: 900 },
+  { width: 768, height: 900 },
+  { width: 844, height: 900 },
+  { width: 900, height: 900 },
+  { width: 901, height: 900 },
+  { width: 1024, height: 900 },
+  { width: 1280, height: 900 },
+  { width: 1440, height: 900 },
+  { width: 2048, height: 1152 },
+];
+
+test("preparation workbench follows the locked navigation-aware viewport matrix", async ({ page }) => {
+  test.setTimeout(90_000);
+
+  for (const viewport of prepWorkbenchViewports) {
+    await page.setViewportSize(viewport);
+    await page.goto("/prep");
+
+    await expect(page.locator(".start-prep-app-shell")).toBeVisible();
+    await expect(page.locator(".start-activity-rail")).toBeVisible();
+    await expect(page.locator(".start-editor-workspace")).toBeVisible();
+    await expect(page.locator(".start-inspector")).toBeVisible();
+    await expect(page.locator(".start-prep-status-bar")).toBeVisible();
+
+    const prep = await page.evaluate(() => {
+      const topbar = document.querySelector(".start-app-topbar").getBoundingClientRect();
+      const shell = document.querySelector(".start-prep-app-shell");
+      const rail = document.querySelector(".start-activity-rail");
+      const workspace = document.querySelector(".start-editor-workspace");
+      const inspector = document.querySelector(".start-inspector");
+      const statusBar = document.querySelector(".start-prep-status-bar");
+      const primary = document.querySelector(".start-prep-primary-action");
+      const mobileNav = document.querySelector(".mobile-nav");
+      const visibleDocuments = [...document.querySelectorAll(".start-document-canvas [data-document]")]
+        .filter((element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        }).length;
+      const controls = [...document.querySelectorAll(".start-prep-app-shell button, .start-prep-app-shell .start-file-button")]
+        .filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+
+      return {
+        topbarHeight: Math.round(topbar.height),
+        viewportWidth: document.documentElement.clientWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        visibleDocuments,
+        smallControls: controls.filter((element) => element.getBoundingClientRect().height < 43.5).length,
+        activityRailCount: document.querySelectorAll(".start-activity-rail").length,
+        inspectorCount: document.querySelectorAll(".start-inspector").length,
+        statusBarCount: document.querySelectorAll(".start-prep-status-bar").length,
+        splitEntryCount: document.querySelectorAll(".start-split-tab").length,
+        primaryCount: document.querySelectorAll(".start-prep-primary-action").length,
+        primaryRect: primary?.getBoundingClientRect().toJSON(),
+        railRect: rail.getBoundingClientRect().toJSON(),
+        workspaceRect: workspace.getBoundingClientRect().toJSON(),
+        inspectorRect: inspector.getBoundingClientRect().toJSON(),
+        statusRect: statusBar.getBoundingClientRect().toJSON(),
+        mobileNavRect: mobileNav.getBoundingClientRect().toJSON(),
+        mobileNavVisible: getComputedStyle(mobileNav).display !== "none",
+        shellOverflow: getComputedStyle(shell).overflow,
+      };
+    });
+
+    expect(prep.topbarHeight).toBe(64);
+    expect(prep.documentWidth).toBeLessThanOrEqual(prep.viewportWidth);
+    expect(prep.visibleDocuments).toBe(1);
+    expect(prep.activityRailCount).toBe(1);
+    expect(prep.inspectorCount).toBe(1);
+    expect(prep.statusBarCount).toBe(1);
+    expect(prep.primaryCount).toBe(1);
+    expect(prep.splitEntryCount).toBe(viewport.width >= 1180 ? 1 : 0);
+    expect(prep.primaryRect.top).toBeGreaterThanOrEqual(prep.topbarHeight);
+    expect(prep.primaryRect.bottom).toBeLessThanOrEqual(viewport.height + 1);
+
+    if (viewport.width <= 900) {
+      expect(prep.mobileNavVisible).toBe(true);
+      expect(prep.statusRect.bottom).toBeLessThanOrEqual(prep.mobileNavRect.top + 1);
+      expect(prep.primaryRect.bottom).toBeLessThanOrEqual(prep.mobileNavRect.top + 1);
+    } else {
+      expect(prep.mobileNavVisible).toBe(false);
+    }
+
+    if (viewport.width >= 1180) {
+      expect(prep.railRect.right).toBeLessThanOrEqual(prep.workspaceRect.left + 1);
+      expect(prep.workspaceRect.right).toBeLessThanOrEqual(prep.inspectorRect.left + 1);
+    } else {
+      expect(prep.inspectorRect.top).toBeGreaterThanOrEqual(prep.workspaceRect.bottom - 1);
+    }
+
+    if (viewport.width <= 414) expect(prep.smallControls).toBe(0);
+  }
+});
+
+test("activity rail, inspector tabs and the fixed status bar expose one shared state model", async ({ page }) => {
+  await page.goto("/prep");
+
+  const sources = page.getByRole("button", { name: "资料" });
+  const plan = page.getByRole("button", { name: "蓝图" });
+  const evidence = page.getByRole("button", { name: "证据" });
+  await expect(sources).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("tab", { name: "准备状态" })).toHaveAttribute("aria-selected", "true");
+
+  await plan.click();
+  await expect(plan).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("tab", { name: "计划" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "尚未生成面试计划" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "准备状态" }).click();
+  await expect(plan).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("tab", { name: "准备状态" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("tab", { name: "准备状态" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "计划" })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "计划" })).toHaveAttribute("aria-selected", "true");
+
+  await evidence.click();
+  await expect(evidence).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("tab", { name: "证据" })).toHaveAttribute("aria-selected", "true");
+
+  const fields = await page.locator(".start-prep-status-bar > span").allTextContents();
+  expect(fields).toHaveLength(5);
+  expect(fields[0]).toContain("当前请求");
+  expect(fields[1]).toContain("岗位 JD");
+  expect(fields[2]).toContain("候选人经历");
+  expect(fields[3]).toContain("草稿");
+  expect(fields[4]).toContain("Knowledge");
+});
+
+test("React preparation validates imports and renders the authoritative plan", async ({ page }) => {
+  await page.goto("/prep");
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "role.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("unsupported"),
+  });
+  await expect(page.getByRole("alert")).toContainText("复制其中的文本后粘贴");
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "role.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(jobDescription),
+  });
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await page.locator('input[type="file"]').nth(1).setInputFiles({
+    name: "resume.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from(resumeText),
+  });
+  await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
+  await expect(page.locator(".start-prep-launch-bar")).toContainText("20–30 分钟");
+  const evidence = page.locator(".start-plan-question-evidence").first();
+  await evidence.click();
+  await expect(evidence.locator("code")).toContainText("redis_consistency");
+});
+
+test("preparation validation focuses the missing document and uses restrained feedback", async ({ page }) => {
+  await page.goto("/prep");
+  await expect(page.locator(".prep-stepper")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存草稿", exact: true }).locator("svg")).toHaveCount(1);
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await expect(page.getByRole("alert")).toContainText("岗位 JD");
+  await expect(page.getByLabel("岗位 JD")).toBeFocused();
+  await expect(page.getByLabel("岗位 JD")).toHaveAttribute("aria-invalid", "true");
+
+  await page.getByLabel("岗位 JD").fill(jobDescription);
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await expect(page.getByRole("alert")).toContainText("候选人经历");
+  await expect(page.getByLabel("简历内容")).toBeFocused();
+  const colors = await page.getByRole("alert").evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor,
+  }));
+  expect(colors.background).not.toBe(colors.body);
+});
+
+test("primary preparation action preserves its hierarchy while generating", async ({ page }) => {
+  await page.goto("/prep");
+  await fillSources(page);
+  await page.route("**/api/prep", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  const action = page.locator(".start-prep-primary-action");
+  await action.click();
+  await expect(action).toHaveAttribute("aria-busy", "true");
+  const state = await action.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    opacity: Number(getComputedStyle(element).opacity),
+    iconCount: element.querySelectorAll("svg").length,
+  }));
+  expect(state.height).toBeGreaterThanOrEqual(48);
+  expect(state.opacity).toBeGreaterThanOrEqual(.85);
+  expect(state.iconCount).toBe(1);
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
+});
+
+test("draft actions save, restore and guard destructive clearing", async ({ page }) => {
+  await page.goto("/prep");
+  await fillSources(page);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("interview-agent:draft-id"))).not.toBeNull();
+  await expect(page.locator(".start-prep-draft-state")).toContainText(/持久保存|进程内临时保存/);
+
+  await page.getByRole("button", { name: "清空当前画布" }).click();
+  await expect(page.locator(".start-notice-warning")).toContainText("再次点击");
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await page.getByRole("button", { name: "确认清空画布" }).click();
+  await expect(page.getByLabel("岗位 JD")).toHaveValue("");
+
+  await page.reload();
+  await page.getByRole("button", { name: "恢复草稿" }).click();
+  await expect(page.getByLabel("岗位 JD")).toHaveValue(jobDescription);
+  await expect(page.getByLabel("简历内容")).toHaveValue(resumeText);
+});
+
+test("degraded knowledge stays honest without blocking launch", async ({ page }) => {
+  await page.goto("/prep");
+  await fillSources(page, `${jobDescription} simulate degraded`);
+  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  const evidence = page.locator(".start-plan-question-evidence").first();
+  await evidence.click();
+  await expect(evidence).toContainText("知识证据不可用");
+  await expect(evidence.locator("code")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /确认版本并开始面试/ })).toBeEnabled();
+});
+
+test("reduced motion disables preparation animations", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/prep");
+  const duration = await page.locator(".start-editor-workspace").evaluate((element) => getComputedStyle(element).animationDuration);
+  expect(["0s", "1e-05s"]).toContain(duration);
 });

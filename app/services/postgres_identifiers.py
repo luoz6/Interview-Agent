@@ -158,6 +158,11 @@ def runtime_identifier_suffixes() -> tuple[str, ...]:
     return _RUNTIME_IDENTIFIER_SUFFIXES
 
 
+def runtime_table_names(prefix: str) -> tuple[str, ...]:
+    validate_runtime_table_prefix(prefix)
+    return tuple(f"{prefix}_{suffix}" for suffix in _RUNTIME_TABLE_SUFFIXES)
+
+
 def runtime_schema_identifier(prefix: str, semantic_suffix: str) -> str:
     """Derive a stable secondary-object name without server truncation.
 

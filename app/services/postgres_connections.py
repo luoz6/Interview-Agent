@@ -441,10 +441,15 @@ class _DirectConnectionContext:
 
     def __exit__(self, exc_type, exc, traceback):
         connection = self.connection
+        pending_error: BaseException | None = None
         try:
             if exc_type is None:
                 if not self.autocommit:
-                    connection.commit()
+                    try:
+                        connection.commit()
+                    except BaseException as commit_error:
+                        pending_error = commit_error
+                        _best_effort(connection.rollback)
             elif not self.autocommit:
                 _best_effort(connection.rollback)
         finally:
@@ -452,9 +457,12 @@ class _DirectConnectionContext:
                 connection.close()
             except Exception:
                 # Connection cleanup cannot replace the caller's business
-                # exception. A successful body still reports close failure.
-                if exc_type is None:
+                # or commit exception. A successful commit still reports a
+                # close failure.
+                if exc_type is None and pending_error is None:
                     raise
+        if pending_error is not None:
+            raise pending_error
         return False
 
 

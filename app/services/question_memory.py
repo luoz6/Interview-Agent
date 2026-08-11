@@ -10,7 +10,7 @@ from app.services.context_artifact_scope import (
     StableContextArtifactPrivacyScopeResolver,
     privacy_scope_sha256,
 )
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     CompressionSourceSegment,
     ContextArtifactBusy,
     ContextArtifactIdentityMaterial,

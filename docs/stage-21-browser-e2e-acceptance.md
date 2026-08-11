@@ -55,7 +55,7 @@ Out of scope: user login, account isolation, startup scripts, Playwright/browser
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_page_routes.py tests/test_local_v1_docs.py -q` | Pass: 37 passed |
+| Retired historical Static UI/Docs gates plus `tests/acceptance/test_page_routes.py` | Historical pass: 37 passed; retired source-string tests are no longer runnable |
 | `node --check app/static/api.js` | Pass |
 | `node --check app/static/shared-ui.js` | Pass |
 | `node --check app/static/prep.js` | Pass |
@@ -118,7 +118,7 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | Execution date | 2026-07-09 |
 | Runtime store | PostgreSQL with isolated Stage 38 table prefixes |
 | Acceptance script | `scripts/stage38_postgres_runtime_acceptance.py` |
-| Evidence JSON | `tmp/stage-38-postgres-runtime-acceptance.json` disposable run artifact; not committed |
+| Evidence Bundle | `reports/acceptance/stage38-postgres-runtime-evidence-v1.json`; protected Evidence Bundle using strict Payload/Policy, HMAC Receipt, `AtomicEvidenceWriter` and post-write verification |
 | Browser status | manual GUI browser acceptance remains blocked in this tool session |
 
 ### Stage 38 Automated Contract Results
@@ -136,8 +136,8 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe scripts/stage38_postgres_runtime_acceptance.py --table-prefix stage38_acceptance --write-json tmp/stage-38-postgres-runtime-acceptance.json` | Pass |
-| `F:\python3.11\python.exe -m pytest tests/test_stage38_postgres_api_contract.py tests/test_postgres_session_store.py -q` | Pass with `POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/interview` |
+| `python -m scripts.stage38_postgres_runtime_acceptance --execute --table-prefix <approved-prefix> --output reports/acceptance/stage38-postgres-runtime-evidence-v1.json` | Current protected command; requires explicit PostgreSQL scope approval and Evidence signing environment |
+| `python -m pytest tests/contracts/test_stage38_postgres_api_contract.py tests/integration/postgres/test_postgres_session_store.py -q` | Run only against an explicitly approved isolated PostgreSQL target; credentials and DSN must not be written to documentation or Evidence |
 
 ## Stage 39 Browser RC Acceptance
 
@@ -146,7 +146,7 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 | Execution date | 2026-07-10 |
 | Scope | UTF-8 guardrail plus Local V1 browser RC validation |
 | Runtime store | PostgreSQL Docker runtime with isolated `stage39_rc` table prefix |
-| UTF-8 guardrail | `tests/test_utf8_text_contract.py` |
+| UTF-8 guardrail | `tests/contracts/test_utf8_text_contract.py` |
 | Browser status | HTTP/API acceptance passed; manual GUI browser observation remains pending |
 | Environment probe | Docker container `postgres` uses image `pgvector/pgvector:pg16` and maps `0.0.0.0:5432->5432/tcp`; DSN `postgresql://postgres:postgres@127.0.0.1:5432/interview` connected successfully |
 | Evidence JSON | `tmp/stage39-http-acceptance-continue.json` disposable run artifact; not committed |
@@ -157,9 +157,9 @@ Stage 24 acceptance is superseded by Stage 25 RC acceptance. The Stage 25 run co
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe -m pytest tests/test_utf8_text_contract.py -q` | Pass: 2 passed |
-| `F:\python3.11\python.exe -m pytest tests/test_static_report_ui.py tests/test_local_v1_docs.py -q` | Pass: 54 passed |
-| `F:\python3.11\python.exe -m pytest tests/test_utf8_text_contract.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q` | Pass: 57 passed |
+| `F:\python3.11\python.exe -m pytest tests/contracts/test_utf8_text_contract.py -q` | Pass: 2 passed |
+| Retired historical Static UI/Docs gates | Historical pass: 54 passed; retired source-string tests are no longer runnable |
+| `tests/contracts/test_utf8_text_contract.py` plus retired historical Static UI/Docs gates | Historical pass: 57 passed; only the UTF-8 Contract remains runnable |
 | `node --check app/static/api.js` | Pass |
 | `node --check app/static/shared-ui.js` | Pass |
 | `node --check app/static/prep.js` | Pass |

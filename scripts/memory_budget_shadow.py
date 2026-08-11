@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 from dataclasses import dataclass
-from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -76,7 +74,6 @@ def evaluate_preflight(value: BudgetShadowPreflight) -> dict:
         "configuration_changed": False,
     }
 
-
 def evaluate_stop_gates(observation: dict) -> dict:
     stop_reasons = []
     direct = {
@@ -133,55 +130,3 @@ def build_observation_record(*, preflight: dict, aggregate: dict) -> dict:
         "cost_aggregates": dict(aggregate.get("cost_aggregates", {})),
         "stop_gate": gates,
     }
-
-
-def _load_bool_record(path: str, key: str) -> bool:
-    value = json.loads(Path(path).read_text(encoding="utf-8"))
-    for part in key.split("."):
-        if not isinstance(value, dict):
-            return False
-        value = value.get(part)
-    return bool(value)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate Budget Shadow readiness")
-    parser.add_argument("--validate-only", action="store_true", required=True)
-    parser.add_argument("--target-environment", required=True)
-    parser.add_argument("--observation-hours", type=int, required=True)
-    parser.add_argument("--durable-metrics-ready", action="store_true")
-    parser.add_argument("--postgres-validation-record", required=True)
-    parser.add_argument("--quality-record", required=True)
-    parser.add_argument("--knowledge-p1-ready", action="store_true")
-    parser.add_argument("--python-baseline-passed", action="store_true")
-    parser.add_argument("--browser-baseline-passed", action="store_true")
-    parser.add_argument("--staging-preflight-passed", action="store_true")
-    parser.add_argument("--principal-memory-disabled", action="store_true")
-    parser.add_argument("--operation-window-approved", action="store_true")
-    parser.add_argument("--stop-owner-role", required=True)
-    args = parser.parse_args(argv)
-    preflight = BudgetShadowPreflight(
-        target_environment=args.target_environment,
-        observation_hours=args.observation_hours,
-        durable_metrics_available=args.durable_metrics_ready,
-        postgres_validation_passed=_load_bool_record(
-            args.postgres_validation_record, "pg_runtime.cleanup_verified"
-        ),
-        knowledge_p1_ready=args.knowledge_p1_ready,
-        long_context_gate_passed=_load_bool_record(
-            args.quality_record, "quality.passed"
-        ),
-        python_baseline_passed=args.python_baseline_passed,
-        browser_baseline_passed=args.browser_baseline_passed,
-        staging_preflight_passed=args.staging_preflight_passed,
-        principal_memory_disabled=args.principal_memory_disabled,
-        operation_window_approved=args.operation_window_approved,
-        stop_owner_role=args.stop_owner_role,
-    )
-    result = evaluate_preflight(preflight)
-    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-    return 0 if result["ready"] else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

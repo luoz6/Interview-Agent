@@ -39,7 +39,7 @@ class PrincipalMemoryConsent(BaseModel):
         return self
 
 
-class PrincipalMemoryConsentService:
+class PrincipalMemoryConsentPolicy:
     def __init__(
         self,
         *,
@@ -83,3 +83,6 @@ class PrincipalMemoryConsentService:
             and consent.revoked_at is None
             and purpose in consent.allowed_purposes
         )
+
+
+PrincipalMemoryConsentService = PrincipalMemoryConsentPolicy

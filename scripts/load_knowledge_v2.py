@@ -11,8 +11,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.services.knowledge_corpus_schema import load_knowledge_document_v2
-from app.services.knowledge_ingestion import IngestionSummary, KnowledgeCorpusIngestor
-from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore, get_knowledge_store
+from app.services.knowledge_ingestion import IngestionSummary, KnowledgeReleaseService
+from app.adapters.pgvector.repository import KnowledgeChunk, PgVectorKnowledgeStore, get_knowledge_store
 from scripts.build_knowledge_manifest_v2 import (
     DEFAULT_CORPUS_VERSION,
     KNOWLEDGE_V2_ROOT,
@@ -107,7 +107,7 @@ def load_knowledge_v2(
     manifest = build_manifest_v2(root, corpus_version=corpus_version)
     chunks = build_chunks_v2(root, manifest=manifest)
     resolved_store = _resolve_store(store)
-    ingestor = KnowledgeCorpusIngestor(
+    ingestor = KnowledgeReleaseService(
         store=resolved_store,
         provider=resolved_store.embedding_provider,
     )

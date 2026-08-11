@@ -10,7 +10,7 @@ fact into interview context, scoring, reports or public knowledge.
 - validated application RC `a982b1f` and isolated Staging gate `5280c9d`;
 - synthetic data only; no real Provider authorization;
 - explicit test Identity and operation-time Consent;
-- strict isolated PostgreSQL prefix and approved fingerprint;
+- strict isolated PostgreSQL prefix and externally protected approval Receipt;
 - deletion path and independent stop owner available.
 
 Keep Budget enforcement, compression consumption, Question Memory consumption,
@@ -18,14 +18,25 @@ Read Shadow and the trusted-local Principal API disabled.
 
 ## Execute the synthetic matrix
 
-Inspect the approved database fingerprint without logging the DSN, then run:
+Load the approved target binding and Evidence signing key from the protected
+operator environment. `POSTGRES_ACCEPTANCE_APPROVED_FINGERPRINT` is the full
+Owned Scope target fingerprint, not the former short CLI fingerprint. Then run:
 
 ~~~powershell
 & 'F:\python3.11\python.exe' -m scripts.principal_memory_write_shadow `
   --execute `
-  --expected-database-fingerprint $approvedFingerprint `
+  --scope-prefix $approvedScopePrefix `
+  --output reports/memory/write-shadow-evidence-v1.json `
   --samples 300
 ~~~
+
+Required protected environment names are `POSTGRES_DSN`,
+`POSTGRES_ACCEPTANCE_APPROVAL_ID`,
+`POSTGRES_ACCEPTANCE_APPROVAL_RECEIPT_SHA256`,
+`POSTGRES_ACCEPTANCE_APPROVED_FINGERPRINT`,
+`POSTGRES_ACCEPTANCE_DATABASE_ALLOWLIST`,
+`POSTGRES_ACCEPTANCE_APPROVAL_EXPIRES_AT`, `EVIDENCE_REVISION`,
+`EVIDENCE_HMAC_KEY_ID` and `EVIDENCE_HMAC_SECRET_B64`.
 
 The process enables only an immutable in-process `write_shadow` configuration.
 It uses a fixed structured extractor and makes no Provider call. Each operation
@@ -78,7 +89,8 @@ On any invariant, Consent, isolation, migration, storage or cleanup failure:
 2. keep long-term mode disabled for subsequent processes;
 3. stop new worker leasing;
 4. retain only aggregate gate codes and counts;
-5. purge the strict synthetic prefix and require residue 0;
+5. allow `OwnedPostgresScope` to verify Ownership, purge the exact approved
+   synthetic prefix and require a zero-residue Cleanup Receipt;
 6. leave the deterministic Interview path available;
 7. do not activate, confirm or restore any proposal;
 8. do not modify public Knowledge, migration definitions or immutable

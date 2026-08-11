@@ -20,7 +20,7 @@ real-candidate production processing.
 | Evidence | Result | Scope |
 |---|---:|---|
 | Full Python regression with reachable PostgreSQL | 2123 passed, 1 skipped | all repository tests; PostgreSQL persistence, migrations, concurrency, restart, failure and restore paths executed |
-| Skipped Python test | NOT_RUN | `tests/test_real_llm_eval.py`; requires explicit real-provider authorization and credentials, neither required nor authorized here |
+| Skipped Python test | NOT_RUN | `tests/integration/providers/test_real_llm_eval.py`; requires explicit real-provider authorization and credentials, neither required nor authorized here |
 | Frontend production build | PASS | Vite production build; 4591 modules transformed |
 | Full Playwright matrix | 86 passed, 38 skipped | configured desktop/mobile projects; conditional non-applicable combinations and real-provider smoke remained skipped |
 | Memory Center browser cases | 16 passed | eight cases on desktop Chromium and eight on mobile Chromium, including confirm, edit, session ignore/restore, stale recovery, keyboard, safe refs, responsive layout and reduced motion |

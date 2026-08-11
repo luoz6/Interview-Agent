@@ -558,10 +558,10 @@ class ReportRecord(BaseModel):
 - `app/services/llm.py:OpenAIInterviewLLM.generate_report()`
 - 所有 fake LLM 的 `InterviewReport(...)` 构造
 - 所有 `InterviewFeedback(...)` 测试构造
-- `tests/test_report_models.py`
-- `tests/test_report_evaluator.py`
-- `tests/test_report_api.py`
-- `tests/test_session_report_store.py`
+- `tests/contracts/test_report_models.py`
+- `tests/unit/test_report_evaluator.py`
+- `tests/acceptance/test_report_api.py`
+- `tests/unit/test_session_report_store.py`
 
 不能把这些变更夹带在其他任务里顺手处理，否则会导致后续任务被大面积 schema 失败淹没。
 
@@ -790,9 +790,9 @@ report = evaluator.evaluate(state, on_progress=publish_progress)
 新增：
 
 ```text
-tests/test_vector_store.py
-tests/test_expert_evaluator.py
-tests/test_report_progress.py
+tests/unit/test_vector_store.py
+tests/unit/test_expert_evaluator.py
+tests/unit/test_report_progress.py
 ```
 
 覆盖：
@@ -816,7 +816,7 @@ tests/test_report_progress.py
 扩展：
 
 ```text
-tests/test_report_api.py
+tests/acceptance/test_report_api.py
 ```
 
 新增覆盖：

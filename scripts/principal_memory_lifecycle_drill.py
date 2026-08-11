@@ -5,15 +5,17 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import os
+from pathlib import Path
+from typing import Mapping
 
-from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactStore
+from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
 from app.services.in_memory_principal_memory_consent import InMemoryPrincipalMemoryConsentStore
-from app.services.memory_config import load_effective_memory_config
-from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.runtime.config.memory import load_effective_memory_config
+from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
 from app.services.postgres_principal_memory_consent import PostgresPrincipalMemoryConsentStore
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_consent import PrincipalMemoryConsent, PrincipalMemoryConsentService
-from app.services.principal_memory_contracts import PrincipalMemoryFact, canonical_principal_fact, derive_principal_fact_id
+from app.domain.memory.contracts import PrincipalMemoryFact, canonical_principal_fact, derive_principal_fact_id
 from app.services.principal_memory_deletion import PrincipalMemoryDeletionService
 from app.services.principal_memory_extractor import PrincipalMemoryCandidate
 from app.services.principal_memory_lifecycle import PrincipalMemoryLifecycleService
@@ -21,10 +23,25 @@ from app.services.principal_memory_proposals import build_proposal_event_if_elig
 from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
 from app.services.principal_memory_shadow import PrincipalMemoryShadowService
 from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
-from scripts.memory_postgres_validation import cleanup_isolated_prefix, database_fingerprint, run_validation
-from scripts.memory_shadow_staging_preflight import count_isolated_relations, make_staging_prefix
+from contracts.evidence import ShadowEvidencePayload
+from scripts.memory_postgres_validation import run_validation
+from scripts.memory_shadow_evidence_support import (
+    approved_postgres_scope,
+    print_evidence_result,
+    publish_shadow_evidence,
+    strict_nonnegative_int,
+)
 
 NOW=datetime(2026,7,31,tzinfo=timezone.utc)
+DEFAULT_OUTPUT=Path("reports/memory/lifecycle-shadow-evidence-v1.json")
+RACE_EXPECTATIONS={
+    "enqueue_then_revoke_cancelled":1,
+    "source_read_then_revoke_cancelled":1,
+    "select_then_revoke_excluded":1,
+    "revoke_confirm_blocked":1,
+    "purge_replay_cancelled":1,
+    "unsafe_race_write_count":0,
+}
 
 class Sessions:
     def __init__(self,state): self.state=state
@@ -112,14 +129,48 @@ def validate_artifact(record):
     rendered=json.dumps(record,sort_keys=True).casefold()
     if any(k in rendered for k in ("principal_id","session_id","fact_id","prompt","answer","excerpt","postgresql://","database_fingerprint","table_prefix")): raise RuntimeError("lifecycle artifact unsafe")
 
+def build_lifecycle_shadow_payload(record:Mapping[str,object])->ShadowEvidencePayload:
+    fields=("confirmed_count","superseded_count","rejected_count","selected_before_revoke","selected_after_revoke","session_facts_deleted","principal_facts_deleted","principal_consents_deleted","fact_residue","consent_residue","cleanup_residue")
+    values={field:strict_nonnegative_int(record,field) for field in fields}
+    violations=[]
+    expected={
+        "confirmed_count":1,"superseded_count":1,"rejected_count":1,
+        "selected_before_revoke":1,"selected_after_revoke":0,
+        "session_facts_deleted":3,"principal_facts_deleted":0,
+        "principal_consents_deleted":1,"fact_residue":0,"consent_residue":0,
+        "cleanup_residue":0,
+    }
+    for field,value in expected.items():
+        if values[field]!=value:
+            violations.append(f"LIFECYCLE_{field.upper()}_INVALID")
+    race=record["race_matrix"]
+    if not isinstance(race,Mapping) or set(race)!=set(RACE_EXPECTATIONS):
+        raise ValueError("race_matrix field set is invalid")
+    for field,expected_value in RACE_EXPECTATIONS.items():
+        if strict_nonnegative_int(race,field)!=expected_value:
+            violations.append(f"LIFECYCLE_RACE_{field.upper()}_INVALID")
+    metrics={field:float(value) for field,value in values.items()}
+    metrics.update({f"race_{field}":float(strict_nonnegative_int(race,field)) for field in RACE_EXPECTATIONS})
+    return ShadowEvidencePayload(
+        schema_version="shadow-evidence-v1",
+        sample_count=5,
+        synthetic=True,
+        observation_window_seconds=1,
+        metrics=metrics,
+        violations=violations,
+    )
+
 def main(argv=None):
-    p=argparse.ArgumentParser(); p.add_argument("--execute",action="store_true",required=True); p.add_argument("--expected-database-fingerprint",required=True); a=p.parse_args(argv); dsn=os.getenv("POSTGRES_DSN","").strip()
-    if not dsn or database_fingerprint(dsn).digest!=a.expected_database_fingerprint: raise RuntimeError("database mismatch")
-    prefix=make_staging_prefix(); result=None
-    try:
-        run_validation(dsn=dsn,table_prefix=prefix,keep_tables=True); result=run_lifecycle(fact_store=PostgresPrincipalMemoryFactStore(dsn=dsn,table_prefix=prefix,schema_mode="validate"),consent_store=PostgresPrincipalMemoryConsentStore(dsn=dsn,table_prefix=prefix,schema_mode="validate")); result["race_matrix"]=run_race_matrix()
-    finally: cleanup_isolated_prefix(dsn,prefix)
-    result["cleanup_residue"]=count_isolated_relations(dsn,prefix); result["production_observation"]="NOT_RUN"; validate_artifact(result); print(json.dumps(result,sort_keys=True))
-    return 0 if result["selected_after_revoke"]==0 and result["fact_residue"]==0 and result["consent_residue"]==0 and result["cleanup_residue"]==0 and not result["race_matrix"]["unsafe_race_write_count"] else 1
+    p=argparse.ArgumentParser(); p.add_argument("--execute",action="store_true",required=True); p.add_argument("--scope-prefix",required=True); p.add_argument("--output",type=Path,default=DEFAULT_OUTPUT); a=p.parse_args(argv); dsn=os.getenv("POSTGRES_DSN","").strip()
+    if not dsn: raise RuntimeError("POSTGRES_DSN is required")
+    result=None; active=None
+    with approved_postgres_scope(dsn=dsn,scope_prefix=a.scope_prefix,environ=os.environ) as active:
+        run_validation(dsn=dsn,table_prefix=a.scope_prefix); result=run_lifecycle(fact_store=PostgresPrincipalMemoryFactStore(dsn=dsn,table_prefix=a.scope_prefix,schema_mode="validate"),consent_store=PostgresPrincipalMemoryConsentStore(dsn=dsn,table_prefix=a.scope_prefix,schema_mode="validate")); result["race_matrix"]=run_race_matrix()
+    if result is None or active is None or active.lease.cleanup_receipt is None: raise RuntimeError("lifecycle drill did not produce cleanup evidence")
+    result["cleanup_residue"]=active.lease.cleanup_receipt.residue_count; result["production_observation"]="NOT_RUN"; validate_artifact(result)
+    payload=build_lifecycle_shadow_payload(result)
+    bundle=publish_shadow_evidence(payload=payload,output=a.output,producer="scripts.principal-memory-lifecycle-drill",scope="memory.lifecycle-shadow.controlled",environ=os.environ,minimum_samples=5)
+    print_evidence_result(bundle,a.output)
+    return 0 if bundle.artifact.verification_status.value=="PASS" else 1
 
 if __name__=="__main__": raise SystemExit(main())

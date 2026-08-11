@@ -96,6 +96,14 @@ $env:EMBEDDING_MODEL_REVISION="siliconflow-bge-m3-20260721"
 python -m scripts.load_knowledge --corpus-version stage44a-bge-m3-v1
 ```
 
+For an explicitly approved remote acceptance run, keep the same provider
+identity, set `RUN_SILICONFLOW_ACCEPTANCE=1`, and use the unified profile CLI:
+
+```powershell
+python -m scripts.knowledge_acceptance stage44a --run-id <run-id> --run-dir <run-dir>
+python -m scripts.release_artifact_audit --profile stage44a --run-id <run-id> --run-dir <run-dir>
+```
+
 The loader prepares all vectors before the activation transaction. Reviewer `get_by_ids()` makes no embedding call
 and resolves bound historical evidence by content hash.
 
@@ -132,7 +140,7 @@ celery -A app.services.celery_app.celery_app worker --loglevel=info
 ## 5. Automated Smoke
 
 ```powershell
-python -m pytest tests/test_page_routes.py tests/test_static_report_ui.py tests/test_local_v1_docs.py -q
+python -m pytest tests/acceptance/test_page_routes.py tests/architecture/test_frontend_runtime.py -q
 python -m pytest -q
 npm run build:frontend
 npm run test:browser
@@ -294,7 +302,7 @@ python -m scripts.init_local_runtime --check
 npm run build:frontend
 npm run test:browser
 python -m pytest -q
-python -m scripts.audit_stage40_artifacts
+python -m scripts.release_artifact_audit --profile stage40 --run-dir <stage40-run-dir> --run-id <printed-run-id>
 ```
 
 On Ubuntu 24.04 LTS x64, run the same sequence with the Linux lock:
@@ -373,7 +381,7 @@ retries, and `raw_only` report output inside the Playwright configuration. Set
 After a passing run, populate only the Stage 42 release whitelist and audit it:
 
 ```powershell
-python -m scripts.audit_stage42_artifacts --run-dir reports/stage42-acceptance/<run-id> --run-id <run-id> --write-manifest
+python -m scripts.release_artifact_audit --profile stage42 --run-dir reports/stage42-acceptance/<run-id> --run-id <run-id> --write-manifest
 ```
 
 The accepted directory contains only `manifest.json`, `metrics.json`,
@@ -406,11 +414,11 @@ Run the focused privacy and composition gate:
 
 ```powershell
 python -m pytest -q `
-  tests/test_agent_runtime.py `
-  tests/test_agent_runtime_hardening.py `
-  tests/test_agent_runtime_composition.py `
-  tests/test_agent_runtime_audit.py `
-  tests/test_agent_runtime_release_contract.py
+  tests/unit/test_agent_runtime.py `
+  tests/unit/test_agent_runtime_hardening.py `
+  tests/unit/test_agent_runtime_composition.py `
+  tests/contracts/test_agent_runtime_audit.py `
+  tests/contracts/test_agent_runtime_release_contract.py
 ```
 
 Run the mandatory PostgreSQL gate with the local/test DSN:
@@ -418,15 +426,15 @@ Run the mandatory PostgreSQL gate with the local/test DSN:
 ```powershell
 $env:POSTGRES_DSN='postgresql://postgres:postgres@127.0.0.1:5432/interview'
 python -m pytest -q `
-  tests/test_agent_recorders.py `
-  tests/test_agent_runtime_metrics_postgres.py
+  tests/integration/postgres/test_agent_recorders.py `
+  tests/integration/postgres/test_agent_runtime_metrics_postgres.py
 ```
 
 Run the machine acceptance:
 
 ```powershell
 $env:POSTGRES_DSN='postgresql://postgres:postgres@127.0.0.1:5432/interview'
-python -m scripts.agent_runtime_stage47_2_acceptance
+python -m scripts.repository_acceptance stage47_2
 ```
 
 `completed`, `degraded`, `failed`, and `cancelled` remain the public AgentRun
@@ -504,6 +512,11 @@ table prefix or promote `stage44b1-zh-v2` automatically. Production promotion
 requires separate explicit operator approval after
 `docs/stage-44b1-chinese-corpus-acceptance.md` is complete.
 
+```powershell
+python -m scripts.knowledge_acceptance stage44b1 --run-id <run-id> --run-dir <run-dir>
+python -m scripts.release_artifact_audit --profile stage44b1 --run-id <run-id> --run-dir <run-dir>
+```
+
 # Local V1 Runbook
 
 ## Durable Interview Recovery
@@ -573,6 +586,7 @@ service. Supply `POSTGRES_DSN` through deployment secret management and run:
 
 ```powershell
 $env:INTERVIEW_RUNTIME_STORE='postgres'
+python -m scripts.repository_acceptance stage47
 python -m scripts.runtime_preflight --profile core
 python -m scripts.langgraph_canary snapshot `
   --phase baseline `
@@ -821,7 +835,7 @@ rollout, destructive retention job, real-provider call, or production canary.
 默认保留期为 minute 30 天、hour 180 天。缩短可通过经评审的部署策略执行；延长必须由隐私/合规、SRE 和技术负责人共同批准，并同步更新 retention policy version 与验收记录，不能用普通环境变量静默延长。
 Budget Shadow is prepared as a validate-only workflow documented in `docs/memory-budget-shadow-runbook.md`. Do not set `MEMORY_BUDGET_SHADOW_ENABLED=true` from this repository phase; the status endpoint is read-only and cannot activate it.
 Principal Memory is default-off. Supported repository modes are only `disabled`, `write_shadow`, and `read_shadow`; `MEMORY_LONG_TERM_MODE=consume` is rejected rather than downgraded. Identity must come from an explicit trusted resolver, never from resume text, contact data, browser/device identifiers, network metadata, candidate names, embeddings, or model output. Consent is versioned and checked again for every proposal, storage, and read-shadow operation.
-Final phase acceptance is produced by `python -m scripts.memory_validation_foundation_acceptance` only after full Python/browser/build/live-PostgreSQL evidence is recorded. A successful gate still reports `LONG_TERM_MEMORY_CONSUMPTION=BLOCKED` and `PRODUCTION_OBSERVATION=NOT_RUN`.
+Final phase acceptance is produced by `python -m scripts.memory_validation_foundation_acceptance` only after full Python/browser/build/live-PostgreSQL results have been published as the signed `reports/memory/operational-rc-evidence-v1.json` Bundle. Configure `OPERATIONAL_INPUT_REVISION` and the Evidence HMAC signer before running it. A successful gate still reports `LONG_TERM_MEMORY_CONSUMPTION=BLOCKED` and `PRODUCTION_OBSERVATION=NOT_RUN`.
 
 ## Local V1 Principal Memory operations
 
@@ -873,7 +887,7 @@ Use a clean clone and verify the publication tag before using the runbook:
 git fetch origin --tags
 git rev-parse refs/tags/local-v1-hardening-v0.4-accepted^{}
 git merge-base --is-ancestor e6b8f29d25276f17c874d07cebc15565bad37492 refs/tags/local-v1-hardening-v0.4-accepted^{}
-python -m pytest tests/test_local_v1_hardening_publication_contract.py -q
+python -m pytest tests/contracts/test_memory_publication_evidence.py -q
 ```
 
 The tag resolves to the documentation-only evidence publication revision. The

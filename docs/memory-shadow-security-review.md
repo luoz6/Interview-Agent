@@ -26,14 +26,23 @@ This exception must not be generalized into health or disability inference.
 ## Execute the review
 
 ```powershell
-python -m pytest -q tests/test_memory_shadow_privacy.py tests/test_memory_shadow_fairness.py tests/test_principal_memory_knowledge_firewall.py tests/test_principal_memory_prompt_isolation.py
-python -m scripts.memory_shadow_security_review --execute --output docs/memory-shadow-security-review-evidence.json
+python -m pytest -q tests/contracts/test_memory_shadow_privacy.py tests/unit/test_memory_shadow_fairness.py tests/architecture/test_principal_memory_isolation.py tests/architecture/test_principal_memory_consumption_boundary.py tests/unit/test_principal_memory_isolation.py
+python -m scripts.memory_shadow_security_review --execute --output reports/memory/records/security-review-record.json
+$record = 'reports/memory/records/security-review-record.json'
+$digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $record).Hash.ToLowerInvariant()
+python -m scripts.memory_operational_input_evidence security --input-record $record --expected-input-sha256 $digest --synthetic
 ```
 
 The runner audits repository observation artifacts whose names contain
 `observation`, `evidence`, or `status` and whose extensions are JSON, JSONL,
 log, Markdown, or text. It stores only aggregate counts. It never stores the
 offending value or path in evidence.
+
+The first file is a hash-bound intermediate review record, not trusted release
+evidence. The second command converts it to the strict
+`OperationalSecurityEvidencePayload`, applies its Policy, and writes the signed
+`reports/memory/operational-security-evidence-v1.json` Bundle. Do not copy the
+intermediate record into `docs/` or provide it directly to Operational Shadow.
 
 ## Hard-stop response
 

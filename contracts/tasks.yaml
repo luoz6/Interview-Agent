@@ -1,0 +1,121 @@
+schema_version: "1.0"
+kind: tasks
+authoritative_source: docs/refactoring-plan.md
+items:
+  - id: TASK-A
+    title: P0 Safety
+    wave: A
+    status: completed
+    depends_on: []
+    deliverables:
+      - Stage 38、Redis、Staging、Release Diff 与 PostgreSQL Cleanup 安全修复
+    requirement_ids: [REQ-SAFETY-001, REQ-SAFETY-002, REQ-SAFETY-003]
+    gate_ids: [GATE-PYTHON, GATE-AUDIT]
+  - id: TASK-B
+    title: Evidence 与 PostgreSQL 安全基础 Contract
+    wave: B
+    status: completed
+    depends_on: [TASK-A]
+    deliverables:
+      - Common Evidence Envelope、Domain Payload/Policy、Receipt 与 Atomic Writer
+      - OwnedPostgresScope、Migration Harness 与共享 Fixture
+    requirement_ids: [REQ-REDUNDANCY-001, REQ-REDUNDANCY-002, REQ-SAFETY-004]
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES, GATE-AUDIT]
+  - id: TASK-C
+    title: Acceptance 与 Shadow Control Plane 收敛
+    wave: C
+    status: completed
+    depends_on: [TASK-B]
+    deliverables:
+      - 受保护 Evidence 链、Receipt、Owned Scope 与 Stage Acceptance
+    requirement_ids: [REQ-REDUNDANCY-001, REQ-REDUNDANCY-002, REQ-SAFETY-002, REQ-SAFETY-004]
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES, GATE-RESIDUE, GATE-AUDIT]
+  - id: TASK-D
+    title: Config、Container、Lifecycle 与 Reliability Contract
+    wave: D
+    status: completed
+    depends_on: [TASK-B]
+    deliverables:
+      - Effective Runtime Config
+      - 单一 Runtime Container 和显式 Lifecycle
+      - 最小 Reliability Contract
+    requirement_ids: [REQ-ARCH-002, REQ-ARCH-004]
+    gate_ids: [GATE-STATIC, GATE-PYTHON, GATE-POSTGRES, GATE-AUDIT]
+  - id: TASK-E-ROUTER
+    title: API Router 与 Session Application 边界
+    wave: E
+    status: completed
+    depends_on: [TASK-D]
+    deliverables:
+      - 领域 Router、共享依赖与错误映射
+      - Session Command、State、Snapshot 与 Application Service
+    requirement_ids: [REQ-ARCH-001, REQ-ARCH-003, REQ-ARCH-004]
+    gate_ids: [GATE-STATIC, GATE-PYTHON, GATE-AUDIT]
+  - id: TASK-E-UOW
+    title: UnitOfWork 与 PostgreSQL Repository 拆分
+    wave: E
+    status: completed
+    depends_on: [TASK-E-ROUTER]
+    deliverables:
+      - 六个独立 Repository、Schema Adapter 和 caller-owned Cursor
+      - 真实 PostgreSQL SQL、Atomicity、Cleanup 与 Residue 证据
+    requirement_ids: [REQ-DATA-001, REQ-REDUNDANCY-002, REQ-SAFETY-002, REQ-TEST-002]
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES, GATE-RESIDUE, GATE-AUDIT]
+  - id: TASK-E-SERIALIZATION
+    title: Serialization 与 Wave E Atomicity
+    wave: E
+    status: completed
+    depends_on: [TASK-E-UOW]
+    deliverables:
+      - Session、Message、Outbox 与 Receipt 字节兼容和原子性 Gate
+    requirement_ids: [REQ-DATA-001]
+    gate_ids: [GATE-PYTHON, GATE-POSTGRES, GATE-AUDIT]
+  - id: TASK-F
+    title: Report Pipeline 与 Reliability Adapter
+    wave: F
+    status: completed
+    depends_on: [TASK-E-SERIALIZATION]
+    deliverables:
+      - Report Job、Worker、Progress、Evaluation、Assembly、Quality 与 Provider Adapter 收敛
+    requirement_ids: [REQ-ARCH-002, REQ-ARCH-003, REQ-TEST-001]
+    gate_ids: [GATE-STATIC, GATE-PYTHON, GATE-POSTGRES, GATE-AUDIT]
+  - id: TASK-G
+    title: Memory、Knowledge、Vector 与 Context Artifact 收敛
+    wave: G
+    status: completed
+    depends_on: [TASK-E-SERIALIZATION, TASK-D]
+    deliverables:
+      - Principal Memory Lifecycle、Rights、Ledger 与 Shadow Matrix
+      - Knowledge/Vector Adapter 和 Context Artifact Compatibility Matrix
+    requirement_ids: [REQ-ARCH-003, REQ-DATA-002, REQ-SAFETY-002]
+    gate_ids: [GATE-STATIC, GATE-PYTHON, GATE-POSTGRES, GATE-RESIDUE, GATE-AUDIT]
+  - id: TASK-H-BROWSER
+    title: Browser Runtime 与十类权威 Suite
+    wave: H
+    status: completed
+    depends_on: [TASK-D]
+    deliverables:
+      - 单一 Python Runtime Resolver
+      - 单一 Chromium Project 和十类权威 Browser Suite
+    requirement_ids: [REQ-REDUNDANCY-003, REQ-TEST-003, REQ-TEST-004]
+    gate_ids: [GATE-BROWSER, GATE-RESIDUE, GATE-AUDIT]
+  - id: TASK-H-CLEANUP
+    title: 测试分层、结构化文档与历史兼容删除
+    wave: H
+    status: completed
+    depends_on: [TASK-H-BROWSER, TASK-B]
+    deliverables:
+      - 结构化 Requirements、Decisions、Tasks、Gates、Runbooks 与 Releases
+      - 历史 Baseline、源码字符串 Gate、Static/Legacy Compatibility 和已替代 Stage 删除
+    requirement_ids: [REQ-TEST-001, REQ-COMPLETE-001]
+    gate_ids: [GATE-STATIC, GATE-PYTHON, GATE-FRONTEND, GATE-BROWSER, GATE-AUDIT]
+  - id: TASK-FINAL-AUDIT
+    title: 完整 Gate 与最终自动审查
+    wave: FINAL
+    status: completed
+    depends_on: [TASK-F, TASK-G, TASK-H-CLEANUP]
+    deliverables:
+      - docs/refactoring-audit.md
+      - 第 21、23、24 节逐项证据和修复闭环
+    requirement_ids: [REQ-COMPLETE-001, REQ-COMPLETE-002, REQ-COMPLETE-003]
+    gate_ids: [GATE-STATIC, GATE-PYTHON, GATE-POSTGRES, GATE-FRONTEND, GATE-BROWSER, GATE-RESIDUE, GATE-AUDIT]

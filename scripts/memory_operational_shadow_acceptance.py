@@ -2,16 +2,85 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 from typing import Mapping
 
-from app.services.memory_config import load_effective_memory_config
+from app.runtime.config.memory import load_effective_memory_config
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    OperationalRcEvidencePayload,
+    OperationalRegressionEvidencePayload,
+    OperationalSecurityEvidencePayload,
+    OperationalShadowEvidencePayload,
+    OperationalStagingEvidencePayload,
+    OperationalStatusEvidencePayload,
+    ProposalReviewEvidencePayload,
+    RestoreDrillEvidencePayload,
+    ShadowEvidencePayload,
+    input_artifact_from_bundle,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.evidence.status import VerificationStatus
+from contracts.policies import (
+    OperationalRcEvidencePolicy,
+    OperationalRegressionEvidencePolicy,
+    OperationalSecurityEvidencePolicy,
+    OperationalShadowEvidencePolicy,
+    OperationalStagingEvidencePolicy,
+    OperationalStatusEvidencePolicy,
+    ProposalReviewEvidencePolicy,
+    RestoreDrillEvidencePolicy,
+    ShadowEvidencePolicy,
+)
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_REGRESSION = ROOT / "docs" / "memory-operational-regression-evidence.json"
-DEFAULT_OUTPUT = ROOT / "docs" / "memory-operational-shadow-evidence.json"
+DEFAULT_RC_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-rc-evidence-v1.json"
+)
+DEFAULT_REGRESSION_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-regression-evidence-v1.json"
+)
+DEFAULT_STAGING_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-staging-evidence-v1.json"
+)
+DEFAULT_STATUS_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-status-evidence-v1.json"
+)
+DEFAULT_SECURITY_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-security-evidence-v1.json"
+)
+DEFAULT_OUTPUT = (
+    ROOT / "reports" / "memory" / "operational-shadow-evidence-v1.json"
+)
+DEFAULT_PROPOSAL_REVIEW = (
+    ROOT / "reports" / "memory" / "proposal-review-evidence-v1.json"
+)
+DEFAULT_BUDGET_EVIDENCE = (
+    ROOT / "reports" / "memory" / "budget-shadow-evidence-v1.json"
+)
+DEFAULT_WRITE_EVIDENCE = (
+    ROOT / "reports" / "memory" / "write-shadow-evidence-v1.json"
+)
+DEFAULT_READ_EVIDENCE = (
+    ROOT / "reports" / "memory" / "read-shadow-evidence-v1.json"
+)
+DEFAULT_LIFECYCLE_EVIDENCE = (
+    ROOT / "reports" / "memory" / "lifecycle-shadow-evidence-v1.json"
+)
+DEFAULT_RESTORE_EVIDENCE = (
+    ROOT / "reports" / "memory" / "restore-drill-evidence-v1.json"
+)
 SUCCESS_LINES = (
     "MEMORY_SHADOW_RC=REPRODUCIBLE",
     "BUDGET_SHADOW_STAGING=PASS",
@@ -54,198 +123,117 @@ def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _integer(value: object, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+def _shadow_evidence_passes(
+    value: object,
+    *,
+    minimum_samples: int,
+) -> bool:
+    return (
+        isinstance(value, ShadowEvidencePayload)
+        and ShadowEvidencePolicy(minimum_samples=minimum_samples)
+        .evaluate(value, production_scope=False)
+        .verification_status
+        is VerificationStatus.PASS
+    )
 
 
-def _all_zero(value: object) -> bool:
-    return all(_integer(item) == 0 for item in _mapping(value).values())
+def _restore_evidence_passes(value: object) -> bool:
+    return (
+        isinstance(value, RestoreDrillEvidencePayload)
+        and RestoreDrillEvidencePolicy().evaluate(value).verification_status
+        is VerificationStatus.PASS
+    )
 
 
-def _passed_section(value: object) -> bool:
-    section = _mapping(value)
-    return bool(section.get("passed")) and _integer(section.get("failed")) == 0
+def _operational_input_passes(value: object, payload_type, policy) -> bool:
+    return (
+        isinstance(value, payload_type)
+        and policy.evaluate(value).verification_status is VerificationStatus.PASS
+    )
 
 
 def evaluate_operational_shadow(
     bundle: Mapping[str, object]
 ) -> tuple[str, ...]:
     codes: list[str] = []
-    rc = _mapping(bundle.get("rc"))
-    release = _mapping(rc.get("release_candidate"))
-    if not release.get("passed") or not release.get("clean_detached_worktree"):
-        codes.append("RC_NOT_REPRODUCIBLE")
-    for key, code in (
-        ("full_python", "RC_FULL_PYTHON_NOT_GREEN"),
-        ("pg_runtime", "RC_POSTGRES_NOT_GREEN"),
-        ("frontend_build", "RC_FRONTEND_NOT_GREEN"),
-        ("full_browser", "RC_BROWSER_NOT_GREEN"),
+    rc = bundle.get("rc")
+    if not _operational_input_passes(
+        rc,
+        OperationalRcEvidencePayload,
+        OperationalRcEvidencePolicy(),
     ):
-        if not _passed_section(rc.get(key)):
-            codes.append(code)
-    rc_browser = _mapping(rc.get("full_browser"))
-    if rc_browser.get("scope") != "full":
-        codes.append("RC_BROWSER_SCOPE_PARTIAL")
-    rc_metrics = _mapping(rc.get("durable_metrics"))
-    if (
-        not rc_metrics.get("passed")
-        or rc_metrics.get("store_kind") != "postgres_aggregate"
-        or not rc_metrics.get("data_complete")
-    ):
-        codes.append("RC_DURABLE_METRICS_INCOMPLETE")
+        codes.append("RC_EVIDENCE_UNVERIFIED")
 
-    regression = _mapping(bundle.get("regression"))
-    if not regression:
-        codes.append("REGRESSION_EVIDENCE_MISSING")
-    if not regression.get("clean_detached_worktree"):
-        codes.append("REGRESSION_NOT_CLEAN_REVISION")
-    for key, code in (
-        ("full_python", "FULL_PYTHON_REGRESSION_FAILED"),
-        ("pg_runtime", "POSTGRES_REGRESSION_FAILED"),
-        ("frontend_build", "FRONTEND_BUILD_REGRESSION_FAILED"),
-        ("full_browser", "BROWSER_REGRESSION_FAILED"),
-        ("compileall", "COMPILEALL_FAILED"),
-        ("diff_check", "DIFF_CHECK_FAILED"),
+    regression = bundle.get("regression")
+    if not _operational_input_passes(
+        regression,
+        OperationalRegressionEvidencePayload,
+        OperationalRegressionEvidencePolicy(),
     ):
-        if not _passed_section(regression.get(key)):
-            codes.append(code)
-    regression_browser = _mapping(regression.get("full_browser"))
-    if regression_browser.get("scope") != "full":
-        codes.append("BROWSER_SCOPE_PARTIAL")
-    cleanup = _mapping(regression.get("cleanup"))
-    if _integer(cleanup.get("test_listeners"), -1) != 0:
-        codes.append("TEST_LISTENER_RESIDUE")
-    if _integer(cleanup.get("isolated_test_relation_residue"), -1) != 0:
-        codes.append("POSTGRES_RELATION_RESIDUE")
+        codes.append("REGRESSION_EVIDENCE_UNVERIFIED")
 
-    staging_text = str(bundle.get("staging_text", ""))
-    for line, code in (
-        ("STAGING_PREFLIGHT=PASS", "STAGING_PREFLIGHT_FAILED"),
-        ("MIGRATION_SCOPE=ISOLATED", "STAGING_MIGRATION_NOT_ISOLATED"),
-        ("ROLLBACK_DRILL=PASS", "STAGING_ROLLBACK_FAILED"),
+    staging = bundle.get("staging")
+    if not _operational_input_passes(
+        staging,
+        OperationalStagingEvidencePayload,
+        OperationalStagingEvidencePolicy(),
     ):
-        if line not in staging_text:
-            codes.append(code)
+        codes.append("STAGING_EVIDENCE_UNVERIFIED")
 
-    budget_text = str(bundle.get("budget_text", ""))
-    if "BUDGET_SHADOW_STAGING=PASS" not in budget_text:
-        codes.append("BUDGET_SHADOW_NOT_ACCEPTED")
-    if "BUDGET_ENFORCEMENT=BLOCKED" not in budget_text:
-        codes.append("BUDGET_ENFORCEMENT_NOT_BLOCKED")
-    budget = _mapping(bundle.get("budget"))
-    if budget.get("profile") != "B" or _integer(
-        budget.get("followup_sample_count")
-    ) < 300:
-        codes.append("BUDGET_SAMPLE_PROFILE_INCOMPLETE")
-    languages = _mapping(budget.get("language_sample_counts"))
-    if any(_integer(languages.get(key)) < 100 for key in ("en", "mixed", "zh_hans")):
-        codes.append("BUDGET_LANGUAGE_MATRIX_INCOMPLETE")
-    if not budget.get("data_complete"):
-        codes.append("BUDGET_METRICS_INCOMPLETE")
-    if _integer(budget.get("mandatory_current_content_losses")):
-        codes.append("BUDGET_MANDATORY_CONTENT_LOSS")
-    if _integer(budget.get("known_over_budget_provider_calls")):
-        codes.append("BUDGET_OVER_LIMIT_PROVIDER_CALL")
-    if _integer(budget.get("cleanup_residue")) or not budget.get(
-        "rollback_verified"
+    budget = bundle.get("budget")
+    if not _shadow_evidence_passes(budget, minimum_samples=300):
+        codes.append("BUDGET_SHADOW_EVIDENCE_UNVERIFIED")
+
+    write = bundle.get("write")
+    if not _shadow_evidence_passes(write, minimum_samples=300):
+        codes.append("PRINCIPAL_WRITE_SHADOW_EVIDENCE_UNVERIFIED")
+
+    quality_value = bundle.get("quality")
+    quality = (
+        quality_value
+        if isinstance(quality_value, ProposalReviewEvidencePayload)
+        else None
+    )
+    if quality is None:
+        codes.append("PROPOSAL_REVIEW_EVIDENCE_UNVERIFIED")
+    elif (
+        ProposalReviewEvidencePolicy().evaluate(quality).verification_status
+        is not VerificationStatus.PASS
+        or quality.review_case_count < 300
     ):
-        codes.append("BUDGET_CLEANUP_OR_ROLLBACK_FAILED")
-
-    write = _mapping(bundle.get("write"))
-    if _integer(write.get("sample_count")) < 300:
-        codes.append("PRINCIPAL_WRITE_SAMPLE_INCOMPLETE")
-    if not _all_zero(write.get("hard_invariants")):
-        codes.append("PRINCIPAL_WRITE_HARD_INVARIANT")
-    if _integer(write.get("cleanup_residue")) or not write.get(
-        "rollback_verified"
-    ):
-        codes.append("PRINCIPAL_WRITE_CLEANUP_OR_ROLLBACK_FAILED")
-
-    quality = _mapping(bundle.get("quality"))
-    if quality.get("quality_gate") != "PASS" or _integer(
-        quality.get("reviewed_count")
-    ) < 300:
         codes.append("PROPOSAL_QUALITY_FAILED")
-    if _integer(quality.get("privacy_sensitive_count")):
+    if quality is not None and quality.label_counts.privacy_sensitive != 0:
         codes.append("PROPOSAL_PRIVACY_SENSITIVE")
-    if _integer(quality.get("stale_source_accepted_count")):
+    if quality is not None and quality.stale_source_accepted_count != 0:
         codes.append("PROPOSAL_STALE_SOURCE_ACCEPTED")
 
-    read = _mapping(bundle.get("read"))
-    if _integer(read.get("sample_count")) < 300:
-        codes.append("PRINCIPAL_READ_SAMPLE_INCOMPLETE")
-    if (
-        read.get("provider_isolation") != "PASS"
-        or read.get("read_shadow_gate") != "PASS"
-        or not _all_zero(read.get("hard_invariants"))
-    ):
-        codes.append("PRINCIPAL_READ_ZERO_INJECTION_FAILED")
-    if _integer(read.get("cleanup_residue")) or not read.get(
-        "rollback_verified"
-    ):
-        codes.append("PRINCIPAL_READ_CLEANUP_OR_ROLLBACK_FAILED")
+    read = bundle.get("read")
+    if not _shadow_evidence_passes(read, minimum_samples=300):
+        codes.append("PRINCIPAL_READ_SHADOW_EVIDENCE_UNVERIFIED")
 
-    lifecycle = _mapping(bundle.get("lifecycle"))
-    if (
-        lifecycle.get("lifecycle_gate") != "PASS"
-        or lifecycle.get("consent_race_safety") != "PASS"
-    ):
-        codes.append("CONSENT_LIFECYCLE_DRILL_FAILED")
-    if any(
-        _integer(lifecycle.get(key))
-        for key in ("fact_residue", "consent_residue", "cleanup_residue")
-    ):
-        codes.append("CONSENT_LIFECYCLE_RESIDUE")
+    lifecycle = bundle.get("lifecycle")
+    if not _shadow_evidence_passes(lifecycle, minimum_samples=5):
+        codes.append("CONSENT_LIFECYCLE_EVIDENCE_UNVERIFIED")
 
-    restore = _mapping(bundle.get("restore"))
-    if (
-        restore.get("backup_restore_tombstone_replay") != "PASS"
-        or _integer(restore.get("restore_cycles")) < 3
-        or _integer(restore.get("fault_boundaries_exercised")) < 6
-        or _integer(restore.get("fault_reclaims_completed")) < 6
-    ):
-        codes.append("BACKUP_RESTORE_TOMBSTONE_REPLAY_FAILED")
-    if _integer(restore.get("restored_private_data_residue")):
-        codes.append("RESTORE_PRIVATE_DATA_RESIDUE")
-    if not restore.get("public_knowledge_unchanged"):
-        codes.append("RESTORE_PUBLIC_KNOWLEDGE_CHANGED")
+    restore = bundle.get("restore")
+    if not _restore_evidence_passes(restore):
+        codes.append("RESTORE_DRILL_EVIDENCE_UNVERIFIED")
 
-    status = _mapping(bundle.get("status"))
-    automatic_stop = _mapping(status.get("automatic_stop"))
-    if automatic_stop.get("triggered") or automatic_stop.get("gate_codes"):
-        codes.append("AGGREGATE_HARD_STOP_ACTIVE")
-    if status.get("hold_codes"):
-        codes.append("AGGREGATE_HOLD_ACTIVE")
-    for stage in ("budget", "write", "read"):
-        if not _mapping(status.get(stage)).get("sample_sufficient"):
-            codes.append(f"{stage.upper()}_AGGREGATE_SAMPLE_INSUFFICIENT")
-    if not _mapping(status.get("budget")).get("data_complete"):
-        codes.append("AGGREGATE_METRICS_INCOMPLETE")
-    if _integer(
-        _mapping(status.get("read")).get("prompt_isolation_violation_count")
+    status = bundle.get("status")
+    if not _operational_input_passes(
+        status,
+        OperationalStatusEvidencePayload,
+        OperationalStatusEvidencePolicy(),
     ):
-        codes.append("AGGREGATE_PROMPT_ISOLATION_VIOLATION")
-    if status.get("configuration_changed") is not False:
-        codes.append("STATUS_CHANGED_CONFIGURATION")
+        codes.append("STATUS_EVIDENCE_UNVERIFIED")
 
-    security = _mapping(bundle.get("security"))
-    if security.get("review_status") != "PASS":
-        codes.append("SECURITY_REVIEW_FAILED")
-    if any(
-        _integer(security.get(key))
-        for key in (
-            "artifact_violations",
-            "hard_stop_count",
-            "knowledge_firewall_violations",
-            "protected_taxonomy_hits",
-        )
+    security = bundle.get("security")
+    if not _operational_input_passes(
+        security,
+        OperationalSecurityEvidencePayload,
+        OperationalSecurityEvidencePolicy(),
     ):
-        codes.append("SECURITY_PRIVACY_FAIRNESS_FIREWALL_FAILED")
-    if not security.get("public_knowledge_unchanged"):
-        codes.append("SECURITY_PUBLIC_KNOWLEDGE_CHANGED")
+        codes.append("SECURITY_EVIDENCE_UNVERIFIED")
 
     repository = _mapping(bundle.get("repository"))
     if not repository.get("safe_defaults"):
@@ -255,20 +243,10 @@ def evaluate_operational_shadow(
     if not repository.get("rc_revision_is_ancestor"):
         codes.append("RC_REVISION_NOT_ANCESTOR")
 
-    for stage in (
-        rc,
-        budget,
-        write,
-        quality,
-        read,
-        lifecycle,
-        restore,
-        status,
-        security,
-    ):
-        if stage.get("production_observation") != "NOT_RUN":
+    if isinstance(restore, RestoreDrillEvidencePayload):
+        if restore.production_observation != "NOT_RUN":
             codes.append("PRODUCTION_OBSERVATION_CONTRACT_INVALID")
-        if stage.get("long_term_memory_consumption") not in (None, "BLOCKED"):
+        if restore.long_term_memory_consumption != "BLOCKED":
             codes.append("LONG_TERM_CONSUMPTION_NOT_BLOCKED")
 
     if codes:
@@ -278,97 +256,61 @@ def evaluate_operational_shadow(
 
 def build_acceptance_evidence(
     bundle: Mapping[str, object]
-) -> dict[str, object]:
+) -> OperationalShadowEvidencePayload:
     evaluate_operational_shadow(bundle)
-    rc = _mapping(bundle["rc"])
-    regression = _mapping(bundle["regression"])
-    budget = _mapping(bundle["budget"])
-    write = _mapping(bundle["write"])
-    quality = _mapping(bundle["quality"])
-    read = _mapping(bundle["read"])
-    restore = _mapping(bundle["restore"])
-    security = _mapping(bundle["security"])
-    evidence: dict[str, object] = {
-        "schema_version": "memory-operational-shadow-evidence-v1",
-        "accepted": True,
-        "validated_rc_revision": str(rc.get("validated_rc_revision", "")),
-        "validation_revision": str(regression.get("validated_revision", "")),
-        "environment_category": "isolated_staging",
-        "observation_profile": str(budget.get("profile", "")),
-        "observation_window": "deterministic_profile_b_matrix",
-        "validation_counts": {
-            "full_python_passed": _integer(
-                _mapping(regression.get("full_python")).get("passed_count")
-            ),
-            "full_python_skipped": _integer(
-                _mapping(regression.get("full_python")).get("skipped")
-            ),
-            "postgres_executed": _integer(
-                _mapping(regression.get("pg_runtime")).get("executed")
-            ),
-            "postgres_deselected": _integer(
-                _mapping(regression.get("pg_runtime")).get("deselected")
-            ),
-            "frontend_modules": _integer(
-                _mapping(regression.get("frontend_build")).get(
-                    "modules_transformed"
-                )
-            ),
-            "browser_passed": _integer(
-                _mapping(regression.get("full_browser")).get("passed_count")
-            ),
-            "browser_skipped": _integer(
-                _mapping(regression.get("full_browser")).get("skipped")
-            ),
-        },
-        "shadow_samples": {
-            "budget_followups": _integer(budget.get("followup_sample_count")),
-            "principal_write": _integer(write.get("sample_count")),
-            "proposal_reviews": _integer(quality.get("reviewed_count")),
-            "principal_read": _integer(read.get("sample_count")),
-            "restore_cycles": _integer(restore.get("restore_cycles")),
-            "restore_fault_boundaries": _integer(
-                restore.get("fault_boundaries_exercised")
-            ),
-            "artifacts_audited": _integer(
-                security.get("artifacts_audited")
-            ),
-        },
-        "aggregate_gates": {
-            "staging_isolated": True,
-            "migration_validated": True,
-            "budget_shadow": "PASS",
-            "principal_write_shadow": "PASS",
-            "proposal_quality": "PASS",
-            "principal_read_zero_injection": "PASS",
-            "consent_deletion_restore": "PASS",
-            "durable_metrics_complete": True,
-            "privacy_security_fairness_firewall": "PASS",
-        },
-        "cleanup": {
-            "test_listeners": _integer(
-                _mapping(regression.get("cleanup")).get("test_listeners")
-            ),
-            "isolated_relation_residue": _integer(
-                _mapping(regression.get("cleanup")).get(
-                    "isolated_test_relation_residue"
-                )
-            ),
-            "private_data_residue": _integer(
-                restore.get("restored_private_data_residue")
-            ),
-        },
-        "safe_defaults": {
-            "budget": "disabled",
-            "compression": "disabled",
-            "principal_memory": "disabled",
-            "trusted_local_api": "disabled",
-            "consume_rejected": True,
-        },
-        "production_shadow_approval": "REQUIRED",
-        "long_term_memory_consumption": "BLOCKED",
-        "production_observation": "NOT_RUN",
-    }
+    rc = bundle["rc"]
+    if not isinstance(rc, OperationalRcEvidencePayload):
+        raise AcceptanceBlocked(("RC_EVIDENCE_UNVERIFIED",))
+    regression = bundle["regression"]
+    if not isinstance(regression, OperationalRegressionEvidencePayload):
+        raise AcceptanceBlocked(("REGRESSION_EVIDENCE_UNVERIFIED",))
+    budget = bundle["budget"]
+    write = bundle["write"]
+    quality = bundle["quality"]
+    if not isinstance(quality, ProposalReviewEvidencePayload):
+        raise AcceptanceBlocked(("PROPOSAL_REVIEW_EVIDENCE_UNVERIFIED",))
+    if not isinstance(budget, ShadowEvidencePayload):
+        raise AcceptanceBlocked(("BUDGET_SHADOW_EVIDENCE_UNVERIFIED",))
+    if not isinstance(write, ShadowEvidencePayload):
+        raise AcceptanceBlocked(("PRINCIPAL_WRITE_SHADOW_EVIDENCE_UNVERIFIED",))
+    read = bundle["read"]
+    if not isinstance(read, ShadowEvidencePayload):
+        raise AcceptanceBlocked(("PRINCIPAL_READ_SHADOW_EVIDENCE_UNVERIFIED",))
+    restore = bundle["restore"]
+    if not isinstance(restore, RestoreDrillEvidencePayload):
+        raise AcceptanceBlocked(("RESTORE_DRILL_EVIDENCE_UNVERIFIED",))
+    security = bundle["security"]
+    if not isinstance(security, OperationalSecurityEvidencePayload):
+        raise AcceptanceBlocked(("SECURITY_EVIDENCE_UNVERIFIED",))
+    repository = _mapping(bundle["repository"])
+    evidence = OperationalShadowEvidencePayload(
+        schema_version="operational-shadow-evidence-v1",
+        validated_rc_revision=rc.validated_rc_revision,
+        validation_revision=regression.validated_revision,
+        environment_category="isolated_staging",
+        observation_profile="B",
+        full_python_passed=regression.full_python_passed_count,
+        postgres_executed=regression.postgres_executed,
+        frontend_modules=regression.frontend_modules_transformed,
+        browser_passed=regression.browser_passed_count,
+        budget_followup_samples=budget.sample_count,
+        principal_write_samples=write.sample_count,
+        proposal_review_cases=quality.review_case_count,
+        principal_read_samples=read.sample_count,
+        restore_cycles=restore.restore_cycles,
+        restore_fault_boundaries=restore.fault_boundaries_exercised,
+        artifacts_audited=security.artifacts_audited,
+        test_listener_residue=regression.test_listener_residue,
+        isolated_relation_residue=regression.isolated_relation_residue,
+        private_data_residue=restore.restored_private_data_residue,
+        operational_gates_passed=True,
+        safe_defaults=repository.get("safe_defaults") is True,
+        consume_rejected=repository.get("consume_rejected") is True,
+        production_approval_required=True,
+        long_term_consumption_blocked=True,
+        production_observation_not_run=True,
+        synthetic=True,
+    )
     validate_acceptance_artifact(evidence)
     return evidence
 
@@ -380,29 +322,6 @@ def format_blocked_output(codes) -> tuple[str, ...]:
         "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
         "PRODUCTION_OBSERVATION=NOT_RUN",
     )
-
-
-def _load_json(path: Path) -> Mapping[str, object]:
-    if not path.exists():
-        return {}
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping):
-        raise ValueError(f"acceptance input {path.name} must be an object")
-    return value
-
-
-def _git_output(*args: str) -> str:
-    completed = subprocess.run(
-        ["git", *args],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if completed.returncode:
-        return ""
-    return completed.stdout.strip()
 
 
 def repository_snapshot(rc_revision: str) -> dict[str, bool]:
@@ -432,40 +351,108 @@ def repository_snapshot(rc_revision: str) -> dict[str, bool]:
     }
 
 
-def load_default_bundle(*, regression_path: Path) -> dict[str, object]:
-    rc = _load_json(ROOT / "docs/memory-validation-operational-evidence.json")
+def _policy_matches_verified_artifact(verified, policy_result) -> bool:
+    artifact = verified.bundle.artifact
+    return (
+        policy_result.verification_status is VerificationStatus.PASS
+        and artifact.verification_status == policy_result.verification_status
+        and artifact.promotion_decision == policy_result.promotion_decision
+        and tuple(artifact.gate_codes) == policy_result.gate_codes
+    )
+
+
+def verify_shadow_input(
+    *,
+    path: Path,
+    revision: str,
+    scope: str,
+    minimum_samples: int,
+    verifier: EvidenceVerifier,
+):
+    verified = verifier.verify(
+        json.loads(path.read_text(encoding="utf-8")),
+        expected_revision=revision,
+        expected_scope=scope,
+    )
+    if not isinstance(verified.payload, ShadowEvidencePayload):
+        raise ValueError("shadow input payload type is invalid")
+    policy_result = ShadowEvidencePolicy(
+        minimum_samples=minimum_samples
+    ).evaluate(verified.payload, production_scope=False)
+    if not _policy_matches_verified_artifact(verified, policy_result):
+        raise ValueError("shadow input policy result is invalid")
+    return verified
+
+
+def verify_restore_input(
+    *,
+    path: Path,
+    revision: str,
+    scope: str,
+    verifier: EvidenceVerifier,
+):
+    verified = verifier.verify(
+        json.loads(path.read_text(encoding="utf-8")),
+        expected_revision=revision,
+        expected_scope=scope,
+    )
+    if not isinstance(verified.payload, RestoreDrillEvidencePayload):
+        raise ValueError("restore input payload type is invalid")
+    policy_result = RestoreDrillEvidencePolicy().evaluate(verified.payload)
+    if not _policy_matches_verified_artifact(verified, policy_result):
+        raise ValueError("restore input policy result is invalid")
+    return verified
+
+
+def verify_operational_input(
+    *,
+    path: Path,
+    revision: str,
+    scope: str,
+    payload_type,
+    policy,
+    verifier: EvidenceVerifier,
+):
+    verified = verifier.verify(
+        json.loads(path.read_text(encoding="utf-8")),
+        expected_revision=revision,
+        expected_scope=scope,
+    )
+    if not isinstance(verified.payload, payload_type):
+        raise ValueError("operational input payload type is invalid")
+    policy_result = policy.evaluate(verified.payload)
+    if not _policy_matches_verified_artifact(verified, policy_result):
+        raise ValueError("operational input policy result is invalid")
+    return verified
+
+
+def load_default_bundle(
+    *,
+    rc: OperationalRcEvidencePayload,
+    regression: OperationalRegressionEvidencePayload,
+    staging: OperationalStagingEvidencePayload,
+    status: OperationalStatusEvidencePayload,
+    security: OperationalSecurityEvidencePayload,
+    proposal_review: ProposalReviewEvidencePayload,
+    budget: ShadowEvidencePayload,
+    write: ShadowEvidencePayload,
+    read: ShadowEvidencePayload,
+    lifecycle: ShadowEvidencePayload,
+    restore: RestoreDrillEvidencePayload,
+) -> dict[str, object]:
     return {
         "rc": rc,
-        "regression": _load_json(regression_path),
-        "staging_text": (
-            ROOT / "docs/memory-shadow-staging-acceptance.md"
-        ).read_text(encoding="utf-8"),
-        "budget_text": (
-            ROOT / "docs/memory-budget-shadow-acceptance.md"
-        ).read_text(encoding="utf-8"),
-        "budget": _load_json(ROOT / "docs/memory-budget-shadow-observation.json"),
-        "write": _load_json(
-            ROOT / "docs/principal-memory-write-shadow-observation.json"
-        ),
-        "quality": _load_json(
-            ROOT / "docs/principal-memory-proposal-quality.json"
-        ),
-        "read": _load_json(
-            ROOT / "docs/principal-memory-read-shadow-observation.json"
-        ),
-        "lifecycle": _load_json(
-            ROOT / "docs/principal-memory-lifecycle-drill-evidence.json"
-        ),
-        "restore": _load_json(
-            ROOT / "docs/memory-shadow-restore-drill-evidence.json"
-        ),
-        "status": _load_json(ROOT / "docs/memory-shadow-status.json"),
-        "security": _load_json(
-            ROOT / "docs/memory-shadow-security-review-evidence.json"
-        ),
-        "repository": repository_snapshot(
-            str(rc.get("validated_rc_revision", ""))
-        ),
+        "regression": regression,
+        "staging": staging,
+        "budget": budget,
+        "write": write,
+        "quality": proposal_review,
+        "read": read,
+        "lifecycle": lifecycle,
+        "restore": restore,
+        "status": status,
+        "security": security,
+        "repository": repository_snapshot(rc.validated_rc_revision),
     }
 
 
@@ -479,15 +466,22 @@ def _audit_private_keys(value: object) -> bool:
     return False
 
 
-def validate_acceptance_artifact(value: Mapping[str, object]) -> None:
-    if _audit_private_keys(value):
+def validate_acceptance_artifact(
+    value: Mapping[str, object] | OperationalShadowEvidencePayload,
+) -> None:
+    record = (
+        value.model_dump(mode="json")
+        if isinstance(value, OperationalShadowEvidencePayload)
+        else value
+    )
+    if _audit_private_keys(record):
         raise RuntimeError("acceptance evidence contains private data")
-    rendered = json.dumps(value, sort_keys=True, ensure_ascii=False).casefold()
+    rendered = json.dumps(record, sort_keys=True, ensure_ascii=False).casefold()
     if "postgresql://" in rendered or "redis://" in rendered:
         raise RuntimeError("acceptance evidence contains private connection data")
-    if value.get("production_observation") != "NOT_RUN":
+    if record.get("production_observation_not_run") is not True:
         raise RuntimeError("acceptance evidence production state is invalid")
-    if value.get("long_term_memory_consumption") != "BLOCKED":
+    if record.get("long_term_consumption_blocked") is not True:
         raise RuntimeError("acceptance evidence consumption state is invalid")
 
 
@@ -495,26 +489,297 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Gate operational Memory Shadow approval material."
     )
-    parser.add_argument("--regression-evidence", type=Path, default=DEFAULT_REGRESSION)
+    parser.add_argument(
+        "--rc-evidence",
+        type=Path,
+        default=DEFAULT_RC_EVIDENCE,
+    )
+    parser.add_argument(
+        "--regression-evidence",
+        type=Path,
+        default=DEFAULT_REGRESSION_EVIDENCE,
+    )
+    parser.add_argument(
+        "--staging-evidence",
+        type=Path,
+        default=DEFAULT_STAGING_EVIDENCE,
+    )
+    parser.add_argument(
+        "--status-evidence",
+        type=Path,
+        default=DEFAULT_STATUS_EVIDENCE,
+    )
+    parser.add_argument(
+        "--security-evidence",
+        type=Path,
+        default=DEFAULT_SECURITY_EVIDENCE,
+    )
+    parser.add_argument(
+        "--proposal-review-evidence",
+        type=Path,
+        default=DEFAULT_PROPOSAL_REVIEW,
+    )
+    parser.add_argument("--proposal-review-revision")
+    parser.add_argument(
+        "--proposal-review-scope",
+        default="memory.proposal-review.controlled",
+    )
+    parser.add_argument("--input-revision")
+    parser.add_argument(
+        "--budget-evidence",
+        type=Path,
+        default=DEFAULT_BUDGET_EVIDENCE,
+    )
+    parser.add_argument(
+        "--write-evidence",
+        type=Path,
+        default=DEFAULT_WRITE_EVIDENCE,
+    )
+    parser.add_argument(
+        "--read-evidence",
+        type=Path,
+        default=DEFAULT_READ_EVIDENCE,
+    )
+    parser.add_argument(
+        "--lifecycle-evidence",
+        type=Path,
+        default=DEFAULT_LIFECYCLE_EVIDENCE,
+    )
+    parser.add_argument(
+        "--restore-evidence",
+        type=Path,
+        default=DEFAULT_RESTORE_EVIDENCE,
+    )
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.operational-shadow.controlled",
+    )
     parser.add_argument("--evidence-output", type=Path, default=DEFAULT_OUTPUT)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    bundle = load_default_bundle(regression_path=args.regression_evidence)
+    try:
+        proposal_review_revision = (
+            args.proposal_review_revision
+            or require_environment_value(os.environ, "PROPOSAL_REVIEW_REVISION")
+        )
+        output_revision = (
+            args.output_revision
+            or require_environment_value(os.environ, "EVIDENCE_REVISION")
+        )
+        input_revision = (
+            args.input_revision
+            or require_environment_value(
+                os.environ,
+                "OPERATIONAL_INPUT_REVISION",
+            )
+        )
+        signer = load_receipt_signer(os.environ)
+        input_verifier = EvidenceVerifier(
+            registry=EvidenceRegistry.default(),
+            receipt_signer=signer,
+        )
+        verified_rc = verify_operational_input(
+            path=args.rc_evidence,
+            revision=input_revision,
+            scope="memory.operational-rc.controlled",
+            payload_type=OperationalRcEvidencePayload,
+            policy=OperationalRcEvidencePolicy(),
+            verifier=input_verifier,
+        )
+        verified_regression = verify_operational_input(
+            path=args.regression_evidence,
+            revision=input_revision,
+            scope="memory.operational-regression.controlled",
+            payload_type=OperationalRegressionEvidencePayload,
+            policy=OperationalRegressionEvidencePolicy(),
+            verifier=input_verifier,
+        )
+        verified_staging = verify_operational_input(
+            path=args.staging_evidence,
+            revision=input_revision,
+            scope="memory.staging-preflight.controlled",
+            payload_type=OperationalStagingEvidencePayload,
+            policy=OperationalStagingEvidencePolicy(),
+            verifier=input_verifier,
+        )
+        verified_status = verify_operational_input(
+            path=args.status_evidence,
+            revision=input_revision,
+            scope="memory.shadow-status.controlled",
+            payload_type=OperationalStatusEvidencePayload,
+            policy=OperationalStatusEvidencePolicy(),
+            verifier=input_verifier,
+        )
+        verified_security = verify_operational_input(
+            path=args.security_evidence,
+            revision=input_revision,
+            scope="memory.shadow-security.controlled",
+            payload_type=OperationalSecurityEvidencePayload,
+            policy=OperationalSecurityEvidencePolicy(),
+            verifier=input_verifier,
+        )
+        proposal_value = json.loads(
+            args.proposal_review_evidence.read_text(encoding="utf-8")
+        )
+        verified_review = input_verifier.verify(
+            proposal_value,
+            expected_revision=proposal_review_revision,
+            expected_scope=args.proposal_review_scope,
+        )
+        if not isinstance(verified_review.payload, ProposalReviewEvidencePayload):
+            raise ValueError("proposal review payload type is invalid")
+        review_policy_result = ProposalReviewEvidencePolicy().evaluate(
+            verified_review.payload
+        )
+        if not _policy_matches_verified_artifact(
+            verified_review,
+            review_policy_result,
+        ):
+            raise ValueError("proposal review policy result is invalid")
+        verified_budget = verify_shadow_input(
+            path=args.budget_evidence,
+            revision=input_revision,
+            scope="memory.budget-shadow.controlled",
+            minimum_samples=300,
+            verifier=input_verifier,
+        )
+        verified_write = verify_shadow_input(
+            path=args.write_evidence,
+            revision=input_revision,
+            scope="memory.write-shadow.controlled",
+            minimum_samples=300,
+            verifier=input_verifier,
+        )
+        verified_read = verify_shadow_input(
+            path=args.read_evidence,
+            revision=input_revision,
+            scope="memory.read-shadow.controlled",
+            minimum_samples=300,
+            verifier=input_verifier,
+        )
+        verified_lifecycle = verify_shadow_input(
+            path=args.lifecycle_evidence,
+            revision=input_revision,
+            scope="memory.lifecycle-shadow.controlled",
+            minimum_samples=5,
+            verifier=input_verifier,
+        )
+        verified_restore = verify_restore_input(
+            path=args.restore_evidence,
+            revision=input_revision,
+            scope="memory.shadow.restore-drill",
+            verifier=input_verifier,
+        )
+    except (AcceptanceConfigurationError, OSError, ValueError, json.JSONDecodeError):
+        print(
+            "\n".join(
+                format_blocked_output(("OPERATIONAL_INPUT_EVIDENCE_UNVERIFIED",))
+            )
+        )
+        return 1
+    bundle = load_default_bundle(
+        rc=verified_rc.payload,
+        regression=verified_regression.payload,
+        staging=verified_staging.payload,
+        status=verified_status.payload,
+        security=verified_security.payload,
+        proposal_review=verified_review.payload,
+        budget=verified_budget.payload,
+        write=verified_write.payload,
+        read=verified_read.payload,
+        lifecycle=verified_lifecycle.payload,
+        restore=verified_restore.payload,
+    )
     try:
         lines = evaluate_operational_shadow(bundle)
         evidence = build_acceptance_evidence(bundle)
     except AcceptanceBlocked as exc:
         print("\n".join(format_blocked_output(exc.codes)))
         return 1
-    args.evidence_output.write_text(
-        json.dumps(evidence, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    policy_result = OperationalShadowEvidencePolicy().evaluate(evidence)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="operational-shadow-evidence",
+        payload=evidence,
+        policy_result=policy_result,
+        producer="scripts.memory-operational-shadow-acceptance",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+        input_manifest=(
+            input_artifact_from_bundle(
+                path=args.rc_evidence,
+                logical_path="operational-rc-evidence",
+                bundle=verified_rc.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.regression_evidence,
+                logical_path="operational-regression-evidence",
+                bundle=verified_regression.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.staging_evidence,
+                logical_path="operational-staging-evidence",
+                bundle=verified_staging.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.status_evidence,
+                logical_path="operational-status-evidence",
+                bundle=verified_status.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.security_evidence,
+                logical_path="operational-security-evidence",
+                bundle=verified_security.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.proposal_review_evidence,
+                logical_path="proposal-review-evidence",
+                bundle=verified_review.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.budget_evidence,
+                logical_path="budget-shadow-evidence",
+                bundle=verified_budget.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.write_evidence,
+                logical_path="write-shadow-evidence",
+                bundle=verified_write.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.read_evidence,
+                logical_path="read-shadow-evidence",
+                bundle=verified_read.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.lifecycle_evidence,
+                logical_path="lifecycle-shadow-evidence",
+                bundle=verified_lifecycle.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.restore_evidence,
+                logical_path="restore-drill-evidence",
+                bundle=verified_restore.bundle,
+            ),
+        ),
     )
-    print("\n".join(lines))
-    return 0
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: output_verifier.verify(
+            value,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.evidence_output, bundle)
+    print("\n".join((*render_gate_lines(bundle), *lines)))
+    return 0 if policy_result.verification_status is VerificationStatus.PASS else 1
 
 
 if __name__ == "__main__":

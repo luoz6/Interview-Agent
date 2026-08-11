@@ -252,7 +252,7 @@ class RenderedPromptGuard:
 
 
 def context_enforcement_enabled(operation: str) -> bool:
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
 
     enforcement = load_effective_memory_config().budget.enforcement
     return {

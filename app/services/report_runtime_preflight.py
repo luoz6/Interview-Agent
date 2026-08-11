@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 
-from app.services.config import (
+from app.runtime.config import load_provider_credentials
+from app.runtime.config.compatibility import (
     derive_pgvector_table_names,
     get_embedding_settings,
     get_pgvector_table,
@@ -70,7 +70,7 @@ def run_report_runtime_preflight(
                 ),
                 ReportRuntimePreflightCheck(
                     code="embedding_credentials_present",
-                    passed=bool(os.getenv("SILICONFLOW_API_KEY", "").strip()),
+                    passed=load_provider_credentials().siliconflow_configured,
                 ),
             ]
         )

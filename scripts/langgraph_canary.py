@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
-from app.services.config import (
+from app.runtime.config.compatibility import (
     get_interview_langgraph_rollout_percent,
     get_postgres_dsn,
     get_report_langgraph_rollout_percent,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.services.principal_memory_ledger import (
     PrincipalMemoryLedgerError,
-    ProtectedPrincipalMemoryLedger,
+    PrincipalMemoryLedger,
     opaque_ledger_ref,
 )
 from app.services.principal_memory_ledger_readiness import (
@@ -25,7 +25,7 @@ class PrincipalMemoryDurableLedger:
         watermark_store,
         lock_timeout_seconds: float = 2.0,
     ) -> None:
-        self.ledger = ProtectedPrincipalMemoryLedger(
+        self.ledger = PrincipalMemoryLedger(
             Path(path),
             workspace=workspace,
             lock_timeout_seconds=lock_timeout_seconds,

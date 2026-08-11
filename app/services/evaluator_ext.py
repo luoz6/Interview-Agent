@@ -23,7 +23,8 @@ from app.services.report import (
     ReportOutputFormatError,
     ReportProgress,
 )
-from app.services.vector_store import KnowledgeChunk, KnowledgeSearchStore
+from app.domain.knowledge.models import KnowledgeChunk
+from app.adapters.pgvector.repository import KnowledgeSearchStore
 from app.services.context_budget import (
     QUESTION_REVIEW_CONTEXT_POLICY,
     context_enforcement_enabled,

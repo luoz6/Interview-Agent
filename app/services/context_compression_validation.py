@@ -6,7 +6,7 @@ from typing import Iterable, Sequence
 
 from pydantic import ValidationError
 
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     AnchoredCompressedUnit,
     ArtifactPayload,
     CompressionSourceSegment,

@@ -8,7 +8,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
 
 from app.graphs.durable_review_state import DurableReviewState
-from app.services.runtime_work import RuntimeFailure, classify_runtime_failure
+from app.adapters.reliability.runtime_failure import (
+    RuntimeFailure,
+    classify_runtime_failure,
+)
 
 
 @dataclass(frozen=True)

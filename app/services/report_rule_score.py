@@ -100,6 +100,52 @@ SIGNAL_POINTS: dict[QualitySignal, int] = {
 }
 
 
+@dataclass(frozen=True)
+class VersionedReportRubric:
+    version: str
+    applicable_dimensions_by_kind: dict[str, list[DimensionName]]
+    dimension_weights_by_kind: dict[str, dict[DimensionName, float]]
+    evidence_requirements: tuple[str, ...]
+    signal_points: dict[QualitySignal, int]
+    score_caps: dict[str, int]
+    blocking_conditions: tuple[str, ...]
+    aggregate_rule: str
+
+
+CURRENT_REPORT_RUBRIC = VersionedReportRubric(
+    version=REPORT_SCORING_RUBRIC_VERSION,
+    applicable_dimensions_by_kind=QUESTION_KIND_DIMENSIONS,
+    dimension_weights_by_kind=QUESTION_KIND_WEIGHTS,
+    evidence_requirements=(
+        "observed_excerpt_for_nonzero_dimension",
+        "backend_owned_applicable_dimensions",
+        "backend_derived_quality_signals",
+    ),
+    signal_points=SIGNAL_POINTS,
+    score_caps={
+        "missing_with_high_score": 85,
+        "evidence_maximum": 95,
+        "unrestricted": 100,
+        "empty_or_off_topic": 0,
+        "short_or_repeated": 20,
+        "low_information": 40,
+        "unsafe_absolute_claim": 35,
+    },
+    blocking_conditions=(
+        "unanswered_or_empty_answer",
+        "no_observed_evidence_for_nonzero_dimension",
+        "explicit_off_topic_answer",
+    ),
+    aggregate_rule="mean_question_score_and_zero_fill_non_applicable_dimensions-v1",
+)
+
+
+def resolve_report_scoring_rubric(version: str) -> VersionedReportRubric:
+    if version != CURRENT_REPORT_RUBRIC.version:
+        raise ValueError(f"unsupported report scoring rubric version: {version}")
+    return CURRENT_REPORT_RUBRIC
+
+
 class DimensionEvidence(BaseModel):
     dimension: DimensionName
     observed: list[str] = Field(default_factory=list)
@@ -116,8 +162,8 @@ class RuleQuestionScore:
 
 def applicable_dimensions_for_item(item: dict) -> list[DimensionName]:
     kind = str(item.get("question_kind") or item.get("kind") or "").strip()
-    if kind in QUESTION_KIND_DIMENSIONS:
-        return list(QUESTION_KIND_DIMENSIONS[kind])
+    if kind in CURRENT_REPORT_RUBRIC.applicable_dimensions_by_kind:
+        return list(CURRENT_REPORT_RUBRIC.applicable_dimensions_by_kind[kind])
 
     text = " ".join(
         str(item.get(key) or "")
@@ -141,11 +187,15 @@ def score_dimension_evidence(evidence: DimensionEvidence) -> int:
     for signal in signals:
         if signal == "concept":
             continue
-        score += SIGNAL_POINTS[signal]
+        score += CURRENT_REPORT_RUBRIC.signal_points[signal]
 
-    if evidence.missing and score > 85:
-        score = 85
-    return max(0, min(score, 95))
+    missing_cap = CURRENT_REPORT_RUBRIC.score_caps["missing_with_high_score"]
+    if evidence.missing and score > missing_cap:
+        score = missing_cap
+    return max(
+        0,
+        min(score, CURRENT_REPORT_RUBRIC.score_caps["evidence_maximum"]),
+    )
 
 
 def score_question_from_evidence(
@@ -279,36 +329,36 @@ def score_question_without_evidence(item: dict) -> RuleQuestionScore:
 
 def answer_quality_score_cap(item: dict) -> int:
     if str(item.get("answer_state") or "answered").strip() != "answered":
-        return 0
+        return CURRENT_REPORT_RUBRIC.score_caps["empty_or_off_topic"]
     if not _has_answer_payload(item):
         logger.warning(
             "score item has no answer payload; leaving score cap unrestricted",
             extra={"question_id": item.get("question_id")},
         )
-        return 100
+        return CURRENT_REPORT_RUBRIC.score_caps["unrestricted"]
 
     answer = _candidate_answer_text(item)
     meaningful = re.sub(r"[\W_]+", "", answer, flags=re.UNICODE)
     if len(meaningful) < 8:
-        return 0
+        return CURRENT_REPORT_RUBRIC.score_caps["empty_or_off_topic"]
 
     normalized = answer.strip().lower()
     compact = re.sub(r"\s+", "", normalized)
     if compact in _LOW_INFORMATION_ANSWERS:
-        return 0
+        return CURRENT_REPORT_RUBRIC.score_caps["empty_or_off_topic"]
     if re.fullmatch(r"[\d\W_]+", answer):
-        return 0
+        return CURRENT_REPORT_RUBRIC.score_caps["empty_or_off_topic"]
     if len(meaningful) < 20:
-        return 20
+        return CURRENT_REPORT_RUBRIC.score_caps["short_or_repeated"]
     if _looks_like_repeated_placeholder(meaningful):
-        return 20
+        return CURRENT_REPORT_RUBRIC.score_caps["short_or_repeated"]
     if _looks_like_low_information_answer(compact):
-        return 40
+        return CURRENT_REPORT_RUBRIC.score_caps["low_information"]
     if _contains_any(normalized, ("does not answer", "not answering", "off topic", "\u6ca1\u6709\u56de\u7b54", "\u672a\u56de\u7b54", "\u6ca1\u6709\u590d\u76d8", "\u4e0e\u95ee\u9898\u65e0\u5173")):
-        return 0
+        return CURRENT_REPORT_RUBRIC.score_caps["empty_or_off_topic"]
     if _contains_unsafe_absolute_claim(answer.lower()):
-        return 35
-    return 100
+        return CURRENT_REPORT_RUBRIC.score_caps["unsafe_absolute_claim"]
+    return CURRENT_REPORT_RUBRIC.score_caps["unrestricted"]
 
 
 def _contains_unsafe_absolute_claim(answer: str) -> bool:
@@ -343,7 +393,7 @@ def weights_for_item(
     applicable: list[DimensionName],
 ) -> dict[DimensionName, float]:
     kind = str(item.get("question_kind") or item.get("kind") or "").strip()
-    weights = QUESTION_KIND_WEIGHTS.get(kind)
+    weights = CURRENT_REPORT_RUBRIC.dimension_weights_by_kind.get(kind)
     if weights is not None:
         return weights
     if not applicable:

@@ -5,15 +5,12 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.graphs.interview_state import choose_workflow_engine
-from app.services.in_memory_interview_launch_repository import (
-    InMemoryInterviewLaunchRepository,
+from app.ports.interview_launch import (
+    InterviewLaunchRepository,
+    TransactionalInterviewLaunchRepository,
+    TransactionalPrepPlanStore,
+    TransactionalSessionRepository,
 )
-from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
-from app.services.postgres_interview_launch_repository import (
-    PostgresInterviewLaunchRepository,
-)
-from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
-from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.prep_plans import (
     PrepPlanError,
     launch_plan_from_record,
@@ -43,7 +40,7 @@ class InterviewLaunchCoordinator:
         command_id: str,
     ) -> dict[str, Any]:
         _validate_command_id(command_id)
-        if isinstance(self.prep_plan_store, PostgresPrepPlanStore):
+        if getattr(self.prep_plan_store, "durability", None) == "postgres":
             return self._launch_postgres(
                 plan_id=plan_id,
                 expected_plan_version=expected_plan_version,
@@ -62,7 +59,7 @@ class InterviewLaunchCoordinator:
         expected_plan_version: int,
         command_id: str,
     ) -> dict[str, Any]:
-        repository: InMemoryInterviewLaunchRepository = self.launch_repository
+        repository: InterviewLaunchRepository = self.launch_repository
         self.prep_plan_store.cleanup()
         fast_path = repository.get_by_plan(plan_id)
         if fast_path is not None:
@@ -121,9 +118,9 @@ class InterviewLaunchCoordinator:
         expected_plan_version: int,
         command_id: str,
     ) -> dict[str, Any]:
-        store: PostgresPrepPlanStore = self.prep_plan_store
-        repository: PostgresInterviewLaunchRepository = self.launch_repository
-        session_store: PostgresInterviewSessionStore = self.session_store
+        store: TransactionalPrepPlanStore = self.prep_plan_store
+        repository: TransactionalInterviewLaunchRepository = self.launch_repository
+        session_store: TransactionalSessionRepository = self.session_store
 
         store.cleanup()
 
@@ -131,74 +128,71 @@ class InterviewLaunchCoordinator:
         if fast_path is not None:
             return self._bootstrap_and_respond(fast_path, replayed=True)
 
-        with store.connection_provider.connection() as connection:
+        with store.unit_of_work() as unit_of_work:
+            cursor = unit_of_work.cursor
             try:
-                with connection.cursor() as cursor:
-                    try:
-                        record = store.select_locked(cursor, plan_id, for_update=True)
-                    except PrepPlanError as exc:
-                        if exc.code != "PREP_PLAN_NOT_FOUND":
-                            raise
-                        # The PrepPlan payload may have been removed after its
-                        # retention window while the launch command remains as
-                        # the durable idempotency tombstone. Reuse the current
-                        # transaction instead of opening a nested connection,
-                        # and defer bootstrap until this connection is closed.
-                        existing = repository.select_by_plan(cursor, plan_id)
-                        if existing is None:
-                            raise
-                        if existing["command_id"] != command_id:
-                            raise self._already_consumed(existing)
-                        command = existing
-                        replayed = True
-                    else:
-                        # Mandatory lock-internal second lookup. This closes the
-                        # race where concurrent requests both miss the fast path.
-                        existing = repository.select_by_plan(cursor, plan_id)
-                        if existing:
-                            if existing["command_id"] != command_id:
-                                raise self._already_consumed(existing)
-                            command = existing
-                            replayed = True
-                        else:
-                            self._validate_record_for_launch(
-                                record,
-                                plan_id=plan_id,
-                                expected_plan_version=expected_plan_version,
-                            )
-                            plan, mappings = launch_plan_from_record(record)
-                            session_id = str(uuid4())
-                            graph_version, memory_policy_version = self._engine_for_session(session_id)
-                            session_store.insert_session_in_transaction(
-                                cursor,
-                                session_id=session_id,
-                                plan=plan,
-                                job_description=record["job_description"],
-                                resume_text=record["resume_text"],
-                                job_tags=record["job_tags"],
-                                graph_version=graph_version,
-                                memory_policy_version=memory_policy_version,
-                            )
-                            command = repository.insert_pending(
-                                cursor,
-                                plan_id=plan_id,
-                                command_id=command_id,
-                                consumed_plan_version=expected_plan_version,
-                                session_id=session_id,
-                                mappings=mappings,
-                            )
-                            store.mark_consumed(
-                                cursor,
-                                plan_id=plan_id,
-                                session_id=session_id,
-                                command_id=command_id,
-                                consumed_plan_version=expected_plan_version,
-                            )
-                            replayed = False
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
+                record = store.select_locked(cursor, plan_id, for_update=True)
+            except PrepPlanError as exc:
+                if exc.code != "PREP_PLAN_NOT_FOUND":
+                    raise
+                # The PrepPlan payload may have been removed after its
+                # retention window while the launch command remains as the
+                # durable idempotency tombstone. Reuse the current UoW and
+                # defer bootstrap until its connection is closed.
+                existing = repository.select_by_plan(cursor, plan_id)
+                if existing is None:
+                    raise
+                if existing["command_id"] != command_id:
+                    raise self._already_consumed(existing)
+                command = existing
+                replayed = True
+            else:
+                # Mandatory lock-internal second lookup closes the race where
+                # concurrent requests both miss the fast path.
+                existing = repository.select_by_plan(cursor, plan_id)
+                if existing:
+                    if existing["command_id"] != command_id:
+                        raise self._already_consumed(existing)
+                    command = existing
+                    replayed = True
+                else:
+                    self._validate_record_for_launch(
+                        record,
+                        plan_id=plan_id,
+                        expected_plan_version=expected_plan_version,
+                    )
+                    plan, mappings = launch_plan_from_record(record)
+                    session_id = str(uuid4())
+                    graph_version, memory_policy_version = (
+                        self._engine_for_session(session_id)
+                    )
+                    session_store.insert_session_in_transaction(
+                        cursor,
+                        session_id=session_id,
+                        plan=plan,
+                        job_description=record["job_description"],
+                        resume_text=record["resume_text"],
+                        job_tags=record["job_tags"],
+                        graph_version=graph_version,
+                        memory_policy_version=memory_policy_version,
+                    )
+                    command = repository.insert_pending(
+                        cursor,
+                        plan_id=plan_id,
+                        command_id=command_id,
+                        consumed_plan_version=expected_plan_version,
+                        session_id=session_id,
+                        mappings=mappings,
+                    )
+                    store.mark_consumed(
+                        cursor,
+                        plan_id=plan_id,
+                        session_id=session_id,
+                        command_id=command_id,
+                        consumed_plan_version=expected_plan_version,
+                    )
+                    replayed = False
+            unit_of_work.commit()
         return self._bootstrap_and_respond(command, replayed=replayed)
 
     def _engine_for_session(self, session_id: str) -> tuple[str, str]:

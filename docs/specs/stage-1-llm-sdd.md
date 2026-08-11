@@ -174,7 +174,7 @@ def prepare_interview(
 
 - `test_prep_service.py` 不能再断言硬编码 `_infer_role_title` 产生的标题，必须改成 fake LLM 返回的标题。
 - `test_session_service.py` 不能再使用无参 `InterviewSessionStore()`，必须传入 fake LLM。
-- `test_api.py` 不能通过多重继承拼 fake，应使用一个单独 fake 类实现 `generate_plan` 和 `generate_followup`。
+- `tests/acceptance/test_api.py` 不能通过多重继承拼 fake，应使用一个单独 fake 类实现 `generate_plan` 和 `generate_followup`。
 
 自动测试不调用真实 LLM，避免网络、费用和不稳定输出影响 TDD。
 

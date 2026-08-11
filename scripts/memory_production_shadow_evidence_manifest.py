@@ -1,89 +1,50 @@
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
+from dataclasses import dataclass
 import json
-from pathlib import Path, PurePosixPath
-import re
+import os
+from pathlib import Path
 import subprocess
-from typing import Mapping
+
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    ProductionBudgetAcceptanceEvidencePayload,
+    ProductionBudgetObservationEvidencePayload,
+    ProductionBudgetReadinessEvidencePayload,
+    ProductionBudgetWindowDecisionEvidencePayload,
+    ProductionShadowApprovalRequestPayload,
+    ProductionShadowChangePreflightEvidencePayload,
+    ProductionShadowEvidenceManifestEntry,
+    ProductionShadowEvidenceManifestPayload,
+    input_artifact_from_bundle,
+)
+from contracts.evidence.digest import canonical_sha256
+from contracts.evidence.rendering import render_gate_lines
+from contracts.evidence.status import VerificationStatus
+from contracts.evidence.verifier import VerifiedEvidence
+from contracts.policies import (
+    ProductionBudgetAcceptanceEvidencePolicy,
+    ProductionBudgetObservationEvidencePolicy,
+    ProductionBudgetReadinessEvidencePolicy,
+    ProductionBudgetWindowDecisionEvidencePolicy,
+    ProductionShadowApprovalRequestPolicy,
+    ProductionShadowChangePreflightEvidencePolicy,
+    ProductionShadowEvidenceManifestPolicy,
+)
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs/memory-production-shadow-evidence-manifest.json"
-MANIFEST_SCHEMA_VERSION = "memory-production-shadow-evidence-manifest-v2"
-CONTENT_NORMALIZATION = "utf8-lf-v1"
-DEFAULT_CONTRACTS: dict[str, str] = {
-    "docs/memory-production-budget-shadow-readiness-evidence.json": (
-        "machine_evidence"
-    ),
-    "docs/memory-validation-operational-evidence.json": "machine_evidence",
-    "docs/memory-budget-shadow-observation.json": "machine_evidence",
-    "docs/principal-memory-write-shadow-observation.json": "machine_evidence",
-    "docs/principal-memory-proposal-quality.json": "machine_evidence",
-    "docs/principal-memory-read-shadow-observation.json": "machine_evidence",
-    "docs/principal-memory-lifecycle-drill-evidence.json": "machine_evidence",
-    "docs/memory-shadow-restore-drill-evidence.json": "machine_evidence",
-    "docs/memory-shadow-status.json": "machine_evidence",
-    "docs/memory-shadow-security-review-evidence.json": "machine_evidence",
-    "docs/memory-operational-regression-evidence.json": "machine_evidence",
-    "docs/memory-operational-shadow-evidence.json": "machine_evidence",
-    "docs/memory-production-shadow-approval-evidence.json": "machine_evidence",
-    "docs/memory-production-shadow-change-preflight-evidence.json": (
-        "machine_evidence"
-    ),
-    "docs/memory-shadow-restore-drill.md": "review_reference",
-    "docs/memory-shadow-observability-runbook.md": "review_reference",
-    "docs/principal-memory-threat-model.md": "review_reference",
-    "docs/memory-shadow-security-review.md": "review_reference",
-    "docs/memory-operational-shadow-acceptance.md": "review_reference",
-    "docs/memory-production-shadow-approval-request.md": "review_reference",
-    "docs/memory-production-budget-shadow-runbook.md": "review_reference",
-    "docs/memory-production-budget-shadow-observation-contract.md": (
-        "review_reference"
-    ),
-    "docs/memory-production-budget-shadow-acceptance-contract.md": (
-        "review_reference"
-    ),
-    "docs/memory-production-shadow-approval-record-contract.md": (
-        "review_reference"
-    ),
-    "docs/memory-production-shadow-change-preflight.md": "review_reference",
-    "docs/memory-production-shadow-evidence-manifest.md": "review_reference",
-    "docs/memory-production-shadow-evidence-verification.md": "review_reference",
-    "docs/principal-memory-consumption-spec.md": "review_reference",
-    "docs/principal-memory-consumption-risk-review.md": "review_reference",
-    "docs/superpowers/plans/2026-08-03-memory-production-budget-shadow-execution-and-evidence.md": (
-        "review_reference"
-    ),
-}
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_REVISION = re.compile(r"^[0-9a-f]{7,40}$")
-_PRIVATE_KEYS = frozenset(
-    {
-        "session_id",
-        "principal_id",
-        "fact_id",
-        "question_id",
-        "message_id",
-        "normalized_fact",
-        "source_excerpt",
-        "source_manifest_sha256",
-        "artifact_ref",
-        "provider_payload",
-        "approval_record_sha256",
-        "approver_ref_sha256",
-        "deployment_scope_sha256",
-        "change_ticket_sha256",
-        "dsn",
-        "database_fingerprint",
-        "table_prefix",
-        "prompt",
-        "answer",
-        "resume",
-        "report",
-    }
-)
+MEMORY_REPORTS = ROOT / "reports" / "memory"
+DEFAULT_OUTPUT = MEMORY_REPORTS / "production-shadow-evidence-manifest-v1.json"
 
 
 class ManifestBlocked(RuntimeError):
@@ -92,225 +53,13 @@ class ManifestBlocked(RuntimeError):
         super().__init__("production Shadow evidence manifest blocked")
 
 
-def _path_is_safe(root: Path, relative: str) -> bool:
-    pure = PurePosixPath(relative)
-    if (
-        pure.is_absolute()
-        or not pure.parts
-        or pure.parts[0] != "docs"
-        or any(part in {"", ".", ".."} for part in pure.parts)
-        or "\\" in relative
-    ):
-        return False
-    resolved = (root / Path(*pure.parts)).resolve()
-    try:
-        resolved.relative_to(root.resolve())
-    except ValueError:
-        return False
-    return True
-
-
-def _schema_version(path: Path) -> str | None:
-    if path.suffix.casefold() != ".json":
-        return None
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping):
-        raise ValueError("machine evidence JSON must be an object")
-    schema = value.get("schema_version")
-    return str(schema) if isinstance(schema, str) and schema else None
-
-
-def _canonical_file_content(path: Path) -> bytes:
-    """Return checkout-independent bytes for an allowlisted text artifact."""
-    text_content = path.read_bytes().decode("utf-8")
-    normalized = text_content.replace("\r\n", "\n").replace("\r", "\n")
-    return normalized.encode("utf-8")
-
-
-def _file_entry(root: Path, relative: str, category: str) -> dict[str, object]:
-    if not _path_is_safe(root, relative):
-        raise ManifestBlocked(["MANIFEST_PATH_UNSAFE"])
-    path = root / Path(*PurePosixPath(relative).parts)
-    if not path.is_file():
-        raise ManifestBlocked(["MANIFEST_FILE_MISSING"])
-    try:
-        content = _canonical_file_content(path)
-    except UnicodeDecodeError as exc:
-        raise ManifestBlocked(["FILE_ENCODING_INVALID"]) from exc
-    entry: dict[str, object] = {
-        "path": relative,
-        "category": category,
-        "sha256": sha256(content).hexdigest(),
-        "size_bytes": len(content),
-    }
-    schema = _schema_version(path)
-    if schema is not None:
-        entry["schema_version"] = schema
-    return entry
-
-
-def _bundle_payload(manifest: Mapping[str, object]) -> dict[str, object]:
-    return {
-        "schema_version": manifest.get("schema_version"),
-        "content_normalization": manifest.get("content_normalization"),
-        "source_revision": manifest.get("source_revision"),
-        "approval_status": manifest.get("approval_status"),
-        "change_preflight": manifest.get("change_preflight"),
-        "production_observation": manifest.get("production_observation"),
-        "long_term_memory_consumption": manifest.get(
-            "long_term_memory_consumption"
-        ),
-        "file_count": manifest.get("file_count"),
-        "files": manifest.get("files"),
-    }
-
-
-def _bundle_sha256(manifest: Mapping[str, object]) -> str:
-    canonical = json.dumps(
-        _bundle_payload(manifest), sort_keys=True, separators=(",", ":")
-    )
-    return sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def build_manifest(
-    *,
-    root: Path,
-    source_revision: str,
-    contracts: Mapping[str, str] = DEFAULT_CONTRACTS,
-) -> dict[str, object]:
-    if _REVISION.fullmatch(source_revision) is None:
-        raise ManifestBlocked(["SOURCE_REVISION_INVALID"])
-    entries = [
-        _file_entry(root, relative, category)
-        for relative, category in sorted(contracts.items())
-    ]
-    manifest: dict[str, object] = {
-        "schema_version": MANIFEST_SCHEMA_VERSION,
-        "content_normalization": CONTENT_NORMALIZATION,
-        "source_revision": source_revision,
-        "approval_status": "PENDING",
-        "change_preflight": "BLOCKED",
-        "production_observation": "NOT_RUN",
-        "long_term_memory_consumption": "BLOCKED",
-        "file_count": len(entries),
-        "files": entries,
-    }
-    manifest["bundle_sha256"] = _bundle_sha256(manifest)
-    validate_manifest_artifact(manifest)
-    return manifest
-
-
-def verify_manifest(
-    manifest: Mapping[str, object],
-    *,
-    root: Path,
-    contracts: Mapping[str, str] = DEFAULT_CONTRACTS,
-    revision_is_ancestor: bool,
-) -> dict[str, object]:
-    codes: list[str] = []
-    try:
-        validate_manifest_artifact(manifest)
-    except RuntimeError:
-        codes.append("MANIFEST_ARTIFACT_INVALID")
-    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
-        codes.append("MANIFEST_SCHEMA_INVALID")
-    if manifest.get("content_normalization") != CONTENT_NORMALIZATION:
-        codes.append("CONTENT_NORMALIZATION_INVALID")
-    if not revision_is_ancestor:
-        codes.append("SOURCE_REVISION_NOT_ANCESTOR")
-    files = manifest.get("files")
-    items = files if isinstance(files, list) else []
-    item_paths = [
-        str(item.get("path"))
-        for item in items
-        if isinstance(item, Mapping)
-    ]
-    if (
-        len(item_paths) != len(set(item_paths))
-        or set(item_paths) != set(contracts)
-        or int(manifest.get("file_count", -1)) != len(contracts)
-    ):
-        codes.append("MANIFEST_FILE_SET_MISMATCH")
-
-    verified = 0
-    for item in items:
-        if not isinstance(item, Mapping):
-            codes.append("MANIFEST_ENTRY_INVALID")
-            continue
-        relative = str(item.get("path", ""))
-        if not _path_is_safe(root, relative):
-            codes.append("MANIFEST_PATH_UNSAFE")
-            continue
-        expected_category = contracts.get(relative)
-        if expected_category is None or item.get("category") != expected_category:
-            codes.append("MANIFEST_CATEGORY_MISMATCH")
-            continue
-        path = root / Path(*PurePosixPath(relative).parts)
-        if not path.is_file():
-            codes.append("MANIFEST_FILE_MISSING")
-            continue
-        try:
-            content = _canonical_file_content(path)
-        except UnicodeDecodeError:
-            codes.append("FILE_ENCODING_INVALID")
-            continue
-        if item.get("sha256") != sha256(content).hexdigest():
-            codes.append("FILE_HASH_MISMATCH")
-        if int(item.get("size_bytes", -1)) != len(content):
-            codes.append("FILE_SIZE_MISMATCH")
-        try:
-            current_schema = _schema_version(path)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            codes.append("FILE_SCHEMA_INVALID")
-            continue
-        if item.get("schema_version") != current_schema and (
-            item.get("schema_version") is not None or current_schema is not None
-        ):
-            codes.append("FILE_SCHEMA_MISMATCH")
-        verified += 1
-
-    bundle_match = (
-        isinstance(manifest.get("bundle_sha256"), str)
-        and _SHA256.fullmatch(str(manifest.get("bundle_sha256"))) is not None
-        and manifest.get("bundle_sha256") == _bundle_sha256(manifest)
-    )
-    if not bundle_match:
-        codes.append("BUNDLE_HASH_MISMATCH")
-    if codes:
-        raise ManifestBlocked(codes)
-    return {
-        "bundle_sha256_match": True,
-        "file_count": len(contracts),
-        "files_verified": verified,
-        "revision_is_ancestor": True,
-    }
-
-
-def _has_private_key(value: object) -> bool:
-    if isinstance(value, Mapping):
-        return any(
-            str(key).casefold() in _PRIVATE_KEYS or _has_private_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list):
-        return any(_has_private_key(item) for item in value)
-    return False
-
-
-def validate_manifest_artifact(value: Mapping[str, object]) -> None:
-    if value.get("approval_status") != "PENDING":
-        raise RuntimeError("evidence manifest approval must remain pending")
-    if value.get("change_preflight") != "BLOCKED":
-        raise RuntimeError("evidence manifest change preflight must remain blocked")
-    if value.get("production_observation") != "NOT_RUN":
-        raise RuntimeError("evidence manifest production state is invalid")
-    if value.get("long_term_memory_consumption") != "BLOCKED":
-        raise RuntimeError("evidence manifest consumption state is invalid")
-    if _has_private_key(value):
-        raise RuntimeError("evidence manifest contains private data")
-    rendered = json.dumps(value, sort_keys=True, ensure_ascii=False).casefold()
-    if "postgresql://" in rendered or "redis://" in rendered:
-        raise RuntimeError("evidence manifest contains connection data")
+@dataclass(frozen=True)
+class ManifestSource:
+    logical_name: str
+    path: Path
+    revision: str
+    scope: str
+    expected_type: type
 
 
 def _git_revision() -> str:
@@ -325,65 +74,330 @@ def _git_revision() -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def _revision_is_ancestor(revision: str) -> bool:
-    return subprocess.run(
-        ["git", "merge-base", "--is-ancestor", revision, "HEAD"],
-        cwd=ROOT,
-        capture_output=True,
-    ).returncode == 0
+def _policy_result(payload):
+    if isinstance(payload, ProductionShadowApprovalRequestPayload):
+        return ProductionShadowApprovalRequestPolicy().evaluate(payload)
+    if isinstance(payload, ProductionBudgetReadinessEvidencePayload):
+        return ProductionBudgetReadinessEvidencePolicy().evaluate(payload)
+    if isinstance(payload, ProductionShadowChangePreflightEvidencePayload):
+        return ProductionShadowChangePreflightEvidencePolicy().evaluate(payload)
+    if isinstance(payload, ProductionBudgetObservationEvidencePayload):
+        return ProductionBudgetObservationEvidencePolicy().evaluate(payload)
+    if isinstance(payload, ProductionBudgetWindowDecisionEvidencePayload):
+        return ProductionBudgetWindowDecisionEvidencePolicy().evaluate(payload)
+    if isinstance(payload, ProductionBudgetAcceptanceEvidencePayload):
+        return ProductionBudgetAcceptanceEvidencePolicy().evaluate(payload)
+    raise ManifestBlocked(("MANIFEST_PAYLOAD_TYPE_INVALID",))
+
+
+def verify_sources(
+    sources: tuple[ManifestSource, ...],
+    *,
+    verifier: EvidenceVerifier,
+) -> dict[str, VerifiedEvidence]:
+    verified: dict[str, VerifiedEvidence] = {}
+    for source in sources:
+        try:
+            value = json.loads(source.path.read_text(encoding="utf-8"))
+            item = verifier.verify(
+                value,
+                expected_revision=source.revision,
+                expected_scope=source.scope,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise ManifestBlocked(("MANIFEST_EVIDENCE_UNVERIFIED",)) from exc
+        if not isinstance(item.payload, source.expected_type):
+            raise ManifestBlocked(("MANIFEST_PAYLOAD_TYPE_INVALID",))
+        policy_result = _policy_result(item.payload)
+        artifact = item.bundle.artifact
+        if (
+            artifact.verification_status is not VerificationStatus.PASS
+            or artifact.verification_status is not policy_result.verification_status
+            or artifact.promotion_decision is not policy_result.promotion_decision
+            or tuple(artifact.gate_codes) != tuple(policy_result.gate_codes)
+        ):
+            raise ManifestBlocked(("MANIFEST_EVIDENCE_STATE_INVALID",))
+        verified[source.logical_name] = item
+    return verified
+
+
+def _manifest_receipts(item: VerifiedEvidence) -> dict[str, str]:
+    return {
+        artifact.path: artifact.receipt_sha256
+        for artifact in item.bundle.artifact.envelope.input_manifest
+    }
+
+
+def verify_chain(verified: dict[str, VerifiedEvidence]) -> None:
+    receipt = {
+        name: canonical_sha256(item.bundle.receipt)
+        for name, item in verified.items()
+    }
+    readiness_inputs = _manifest_receipts(verified["readiness"])
+    preflight_inputs = _manifest_receipts(verified["change-preflight"])
+    observation_inputs = _manifest_receipts(verified["observation"])
+    window_inputs = _manifest_receipts(verified["window-decision"])
+    acceptance_inputs = _manifest_receipts(verified["acceptance"])
+    if readiness_inputs != {
+        "production-shadow-approval-request": receipt["approval-request"]
+    }:
+        raise ManifestBlocked(("MANIFEST_READINESS_CHAIN_UNBOUND",))
+    if (
+        set(preflight_inputs)
+        != {
+            "production-shadow-approval-request",
+            "production-budget-readiness-evidence",
+            "external-production-shadow-approval-record",
+        }
+        or preflight_inputs["production-shadow-approval-request"]
+        != receipt["approval-request"]
+        or preflight_inputs["production-budget-readiness-evidence"]
+        != receipt["readiness"]
+    ):
+        raise ManifestBlocked(("MANIFEST_PREFLIGHT_CHAIN_UNBOUND",))
+    if (
+        set(observation_inputs)
+        != {
+            "production-shadow-change-preflight-evidence",
+            "external-production-budget-aggregate",
+        }
+        or observation_inputs["production-shadow-change-preflight-evidence"]
+        != receipt["change-preflight"]
+    ):
+        raise ManifestBlocked(("MANIFEST_OBSERVATION_CHAIN_UNBOUND",))
+    if (
+        set(window_inputs)
+        != {
+            "production-shadow-change-preflight-evidence",
+            "external-production-budget-window-state",
+        }
+        or window_inputs["production-shadow-change-preflight-evidence"]
+        != receipt["change-preflight"]
+    ):
+        raise ManifestBlocked(("MANIFEST_WINDOW_CHAIN_UNBOUND",))
+    if acceptance_inputs != {
+        "production-budget-observation-evidence": receipt["observation"],
+        "production-budget-window-decision-evidence": receipt["window-decision"],
+    }:
+        raise ManifestBlocked(("MANIFEST_ACCEPTANCE_CHAIN_UNBOUND",))
+
+
+def build_manifest_payload(
+    verified: dict[str, VerifiedEvidence],
+    *,
+    source_revision: str,
+) -> ProductionShadowEvidenceManifestPayload:
+    verify_chain(verified)
+    entries = []
+    for logical_name, item in sorted(verified.items()):
+        artifact = item.bundle.artifact
+        decision = artifact.promotion_decision
+        if decision is None:
+            raise ManifestBlocked(("MANIFEST_PROMOTION_DECISION_MISSING",))
+        entries.append(
+            ProductionShadowEvidenceManifestEntry(
+                logical_name=logical_name,
+                payload_type=artifact.payload_type,
+                revision=artifact.envelope.revision,
+                scope=artifact.envelope.scope,
+                receipt_sha256=canonical_sha256(item.bundle.receipt),
+                evidence_sha256=item.bundle.receipt.evidence_sha256,
+                verification_status=artifact.verification_status.value,
+                promotion_decision=decision.value,
+            )
+        )
+    acceptance = verified["acceptance"].payload
+    if not isinstance(acceptance, ProductionBudgetAcceptanceEvidencePayload):
+        raise ManifestBlocked(("MANIFEST_PAYLOAD_TYPE_INVALID",))
+    synthetic = any(bool(getattr(item.payload, "synthetic", False)) for item in verified.values())
+    return ProductionShadowEvidenceManifestPayload(
+        schema_version="production-shadow-evidence-manifest-v1",
+        source_revision=source_revision,
+        artifact_count=len(entries),
+        artifacts=entries,
+        all_verified=True,
+        chain_bound=True,
+        final_acceptance_status=acceptance.decision_status,
+        principal_write_shadow_production="NOT_AUTHORIZED",
+        principal_read_shadow_production="NOT_AUTHORIZED",
+        long_term_memory_consumption="BLOCKED",
+        synthetic=synthetic,
+    )
+
+
+def format_blocked_output(codes) -> tuple[str, ...]:
+    return (
+        "MEMORY_PRODUCTION_SHADOW_EVIDENCE_MANIFEST=BLOCKED",
+        *(f"GATE={code}" for code in sorted(set(codes))),
+        "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build or verify the production Shadow evidence handoff manifest."
+        description="Build a protected production Shadow evidence manifest."
     )
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--build", action="store_true")
-    mode.add_argument("--verify", type=Path)
+    parser.add_argument(
+        "--approval-request",
+        type=Path,
+        default=MEMORY_REPORTS / "production-shadow-approval-request-v1.json",
+    )
+    parser.add_argument("--approval-request-revision")
+    parser.add_argument(
+        "--readiness-evidence",
+        type=Path,
+        default=MEMORY_REPORTS / "production-budget-readiness-evidence-v1.json",
+    )
+    parser.add_argument("--readiness-revision")
+    parser.add_argument(
+        "--preflight-evidence",
+        type=Path,
+        default=MEMORY_REPORTS / "production-shadow-change-preflight-evidence-v1.json",
+    )
+    parser.add_argument("--preflight-revision")
+    parser.add_argument(
+        "--observation-evidence",
+        type=Path,
+        default=MEMORY_REPORTS / "production-budget-observation-evidence-v1.json",
+    )
+    parser.add_argument("--observation-revision")
+    parser.add_argument(
+        "--window-evidence",
+        type=Path,
+        default=MEMORY_REPORTS / "production-budget-window-decision-evidence-v1.json",
+    )
+    parser.add_argument("--window-revision")
+    parser.add_argument(
+        "--acceptance-evidence",
+        type=Path,
+        default=MEMORY_REPORTS / "production-budget-acceptance-evidence-v1.json",
+    )
+    parser.add_argument("--acceptance-revision")
+    parser.add_argument("--source-revision")
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.production-shadow.evidence-manifest",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.build:
-        manifest = build_manifest(
-            root=ROOT,
-            source_revision=_git_revision(),
-            contracts=DEFAULT_CONTRACTS,
+    try:
+        signer = load_receipt_signer(os.environ)
+        revisions = {
+            "approval-request": args.approval_request_revision
+            or require_environment_value(os.environ, "APPROVAL_REQUEST_REVISION"),
+            "readiness": args.readiness_revision
+            or require_environment_value(os.environ, "READINESS_EVIDENCE_REVISION"),
+            "change-preflight": args.preflight_revision
+            or require_environment_value(os.environ, "PREFLIGHT_EVIDENCE_REVISION"),
+            "observation": args.observation_revision
+            or require_environment_value(os.environ, "OBSERVATION_EVIDENCE_REVISION"),
+            "window-decision": args.window_revision
+            or require_environment_value(os.environ, "WINDOW_EVIDENCE_REVISION"),
+            "acceptance": args.acceptance_revision
+            or require_environment_value(os.environ, "ACCEPTANCE_EVIDENCE_REVISION"),
+        }
+        output_revision = args.output_revision or require_environment_value(
+            os.environ,
+            "EVIDENCE_REVISION",
         )
-        args.output.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        source_revision = args.source_revision or _git_revision()
+        sources = (
+            ManifestSource(
+                "approval-request",
+                args.approval_request,
+                revisions["approval-request"],
+                "memory.production-shadow.approval-request",
+                ProductionShadowApprovalRequestPayload,
+            ),
+            ManifestSource(
+                "readiness",
+                args.readiness_evidence,
+                revisions["readiness"],
+                "memory.production-budget-shadow.readiness",
+                ProductionBudgetReadinessEvidencePayload,
+            ),
+            ManifestSource(
+                "change-preflight",
+                args.preflight_evidence,
+                revisions["change-preflight"],
+                "memory.production-shadow.change-preflight",
+                ProductionShadowChangePreflightEvidencePayload,
+            ),
+            ManifestSource(
+                "observation",
+                args.observation_evidence,
+                revisions["observation"],
+                "memory.production-budget-shadow.observation",
+                ProductionBudgetObservationEvidencePayload,
+            ),
+            ManifestSource(
+                "window-decision",
+                args.window_evidence,
+                revisions["window-decision"],
+                "memory.production-budget-shadow.window-decision",
+                ProductionBudgetWindowDecisionEvidencePayload,
+            ),
+            ManifestSource(
+                "acceptance",
+                args.acceptance_evidence,
+                revisions["acceptance"],
+                "memory.production-budget-shadow.acceptance",
+                ProductionBudgetAcceptanceEvidencePayload,
+            ),
         )
-        print("MEMORY_PRODUCTION_SHADOW_EVIDENCE_MANIFEST=BUILT")
-        print(f"FILES={manifest['file_count']}")
-    else:
-        manifest = json.loads(args.verify.read_text(encoding="utf-8"))
-        try:
-            result = verify_manifest(
-                manifest,
-                root=ROOT,
-                contracts=DEFAULT_CONTRACTS,
-                revision_is_ancestor=_revision_is_ancestor(
-                    str(manifest.get("source_revision", ""))
-                ),
+        verifier = EvidenceVerifier(
+            registry=EvidenceRegistry.default(),
+            receipt_signer=signer,
+        )
+        verified = verify_sources(sources, verifier=verifier)
+        payload = build_manifest_payload(
+            verified,
+            source_revision=source_revision,
+        )
+    except (AcceptanceConfigurationError, ManifestBlocked, ValueError) as exc:
+        codes = exc.codes if isinstance(exc, ManifestBlocked) else ("MANIFEST_INPUT_INVALID",)
+        print("\n".join(format_blocked_output(codes)))
+        return 1
+
+    policy_result = ProductionShadowEvidenceManifestPolicy().evaluate(payload)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="production-shadow-evidence-manifest",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.memory-production-shadow-evidence-manifest",
+        tool_version="3.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+        input_manifest=tuple(
+            input_artifact_from_bundle(
+                path=source.path,
+                logical_path=f"production-shadow-chain/{source.logical_name}",
+                bundle=verified[source.logical_name].bundle,
             )
-        except ManifestBlocked as exc:
-            print("MEMORY_PRODUCTION_SHADOW_EVIDENCE_MANIFEST=BLOCKED")
-            for code in exc.codes:
-                print(f"GATE={code}")
-            print("APPROVAL_STATUS=PENDING")
-            print("CHANGE_PREFLIGHT=BLOCKED")
-            print("PRODUCTION_OBSERVATION=NOT_RUN")
-            return 1
-        print("MEMORY_PRODUCTION_SHADOW_EVIDENCE_MANIFEST=VERIFIED")
-        print(f"FILES={result['files_verified']}")
-    print("APPROVAL_STATUS=PENDING")
-    print("CHANGE_PREFLIGHT=BLOCKED")
+            for source in sources
+        ),
+    )
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda persisted: output_verifier.verify(
+            persisted,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.output, bundle)
+    print("\n".join(render_gate_lines(bundle)))
+    print("MEMORY_PRODUCTION_SHADOW_EVIDENCE_MANIFEST=VERIFIED")
+    print(f"ARTIFACTS={payload.artifact_count}")
     print("LONG_TERM_MEMORY_CONSUMPTION=BLOCKED")
-    print("PRODUCTION_OBSERVATION=NOT_RUN")
-    return 0
+    return 0 if policy_result.verification_status is VerificationStatus.PASS else 1
 
 
 if __name__ == "__main__":

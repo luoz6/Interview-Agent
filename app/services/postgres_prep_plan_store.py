@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import json
 from typing import Any
 
+from app.adapters.postgres.unit_of_work import PostgresUnitOfWork
+from app.adapters.postgres.row_mappers import PrepPlanRowMapper
 from app.services.postgres_connections import (
     ConnectionProvider,
     DirectPsycopg2ConnectionProvider,
@@ -71,6 +73,9 @@ class PostgresPrepPlanStore:
     def connection_provider(self) -> ConnectionProvider:
         return self._provider
 
+    def unit_of_work(self) -> PostgresUnitOfWork:
+        return PostgresUnitOfWork(self._provider)
+
     def ensure_schema(self) -> None:
         from psycopg2 import sql
 
@@ -93,6 +98,7 @@ class PostgresPrepPlanStore:
                             consumed_plan_version INTEGER NULL,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            row_schema_version TEXT NOT NULL DEFAULT 'prep-plan-row-v1',
                             FOREIGN KEY (source_draft_id) REFERENCES {drafts}(draft_id) ON DELETE SET NULL
                         )
                         """
@@ -111,6 +117,7 @@ class PostgresPrepPlanStore:
                             change_type TEXT NOT NULL,
                             replaced_question_id TEXT NULL,
                             replacement_question_id TEXT NULL,
+                            row_schema_version TEXT NOT NULL DEFAULT 'prep-plan-version-row-v1',
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             PRIMARY KEY (plan_id, version),
                             FOREIGN KEY (plan_id) REFERENCES {plans}(plan_id) ON DELETE CASCADE
@@ -121,6 +128,39 @@ class PostgresPrepPlanStore:
                         plans=sql.Identifier(self._plans_table),
                     )
                 )
+                for table_name, version in (
+                    (self._plans_table, PrepPlanRowMapper.CURRENT_VERSION),
+                    (
+                        self._versions_table,
+                        PrepPlanRowMapper.VERSION_CURRENT_VERSION,
+                    ),
+                ):
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "
+                            "row_schema_version TEXT"
+                        ).format(table=sql.Identifier(table_name))
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            "UPDATE {table} SET row_schema_version=%s "
+                            "WHERE row_schema_version IS NULL"
+                        ).format(table=sql.Identifier(table_name)),
+                        (version,),
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} ALTER COLUMN "
+                            "row_schema_version SET NOT NULL"
+                        ).format(table=sql.Identifier(table_name))
+                    )
+                    cursor.execute(
+                        sql.SQL(
+                            "ALTER TABLE {table} ALTER COLUMN "
+                            "row_schema_version SET DEFAULT %s"
+                        ).format(table=sql.Identifier(table_name)),
+                        (version,),
+                    )
                 cursor.execute(
                     sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {plans} (state, expires_at)").format(
                         index=sql.Identifier(runtime_schema_identifier(self._plans_table.removesuffix("_prep_plans"), "prep_plans_state_expiry_idx")),
@@ -191,11 +231,13 @@ class PostgresPrepPlanStore:
                     cursor.execute(
                         sql.SQL(
                             "UPDATE {plans} SET plan_version=%s, plan_json=%s::jsonb, "
-                            "updated_at=NOW() WHERE plan_id=%s AND plan_version=%s"
+                            "row_schema_version=%s, updated_at=NOW() "
+                            "WHERE plan_id=%s AND plan_version=%s"
                         ).format(plans=sql.Identifier(self._plans_table)),
                         (
                             next_public["plan_version"],
                             json.dumps(next_public, ensure_ascii=False),
+                            PrepPlanRowMapper.CURRENT_VERSION,
                             plan_id,
                             expected_version,
                         ),
@@ -262,13 +304,18 @@ class PostgresPrepPlanStore:
                     cursor.execute(
                         sql.SQL(
                             "UPDATE {plans} SET plan_version=%s, plan_json=%s::jsonb, "
-                            "internal_context_json=%s::jsonb, updated_at=NOW() "
+                            "internal_context_json=%s::jsonb, row_schema_version=%s, "
+                            "updated_at=NOW() "
                             "WHERE plan_id=%s AND plan_version=%s"
                         ).format(plans=sql.Identifier(self._plans_table)),
                         (
                             next_public["plan_version"],
                             json.dumps(next_public, ensure_ascii=False),
-                            json.dumps(self._internal_payload(record), ensure_ascii=False),
+                            json.dumps(
+                                PrepPlanRowMapper.internal_payload(record),
+                                ensure_ascii=False,
+                            ),
+                            PrepPlanRowMapper.CURRENT_VERSION,
                             plan_id,
                             expected_version,
                         ),
@@ -351,7 +398,8 @@ class PostgresPrepPlanStore:
             sql.SQL(
                 "SELECT plan_id, plan_version, state, plan_json, internal_context_json, "
                 "source_sha256, source_draft_id, expires_at, consumed_session_id, "
-                "consumed_command_id, consumed_plan_version, created_at, updated_at "
+                "consumed_command_id, consumed_plan_version, created_at, updated_at, "
+                "row_schema_version "
                 "FROM {plans} WHERE plan_id=%s"
             ).format(plans=sql.Identifier(self._plans_table)) + suffix,
             (plan_id,),
@@ -359,7 +407,7 @@ class PostgresPrepPlanStore:
         row = cursor.fetchone()
         if row is None:
             raise plan_not_found(plan_id)
-        return self._row_record(row)
+        return PrepPlanRowMapper.record_from_db_row(row)
 
     def mark_consumed(
         self,
@@ -390,15 +438,17 @@ class PostgresPrepPlanStore:
     def _insert_record(self, cursor, record: dict[str, Any]) -> None:
         from psycopg2 import sql
 
-        public = record["public"]
-        internal = self._internal_payload(record)
+        mapped = PrepPlanRowMapper.record_to_row(record)
+        public = mapped["public"]
+        internal = mapped["internal"]
         cursor.execute(
             sql.SQL(
                 """
                 INSERT INTO {plans} (
                     plan_id, plan_version, state, plan_json, internal_context_json,
-                    source_sha256, source_draft_id, expires_at, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s)
+                    source_sha256, source_draft_id, expires_at, created_at, updated_at,
+                    row_schema_version
+                ) VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s)
                 """
             ).format(plans=sql.Identifier(self._plans_table)),
             (
@@ -412,6 +462,7 @@ class PostgresPrepPlanStore:
                 record["expires_at"],
                 record["created_at"],
                 record["updated_at"],
+                mapped["row_schema_version"],
             ),
         )
         self._insert_version(cursor, record["versions"][1])
@@ -419,58 +470,24 @@ class PostgresPrepPlanStore:
     def _insert_version(self, cursor, snapshot: dict[str, Any]) -> None:
         from psycopg2 import sql
 
+        mapped = PrepPlanRowMapper.version_to_row(snapshot)
         cursor.execute(
             sql.SQL(
                 "INSERT INTO {versions} (plan_id, version, public_snapshot_json, "
-                "change_type, replaced_question_id, replacement_question_id) "
-                "VALUES (%s, %s, %s::jsonb, %s, %s, %s)"
+                "change_type, replaced_question_id, replacement_question_id, "
+                "row_schema_version) "
+                "VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s)"
             ).format(versions=sql.Identifier(self._versions_table)),
             (
-                snapshot["plan_id"],
-                snapshot["version"],
-                json.dumps(snapshot["public_snapshot"], ensure_ascii=False),
-                snapshot["change_type"],
-                snapshot["replaced_question_id"],
-                snapshot["replacement_question_id"],
+                mapped["plan_id"],
+                mapped["version"],
+                json.dumps(mapped["public_snapshot"], ensure_ascii=False),
+                mapped["change_type"],
+                mapped["replaced_question_id"],
+                mapped["replacement_question_id"],
+                mapped["row_schema_version"],
             ),
         )
-
-    def _row_record(self, row) -> dict[str, Any]:
-        public = dict(row[3])
-        internal = dict(row[4])
-        return {
-            "public": public,
-            "internal_plan": internal["internal_plan"],
-            "question_contexts": dict(internal.get("question_contexts") or {}),
-            "context_catalog": dict(internal.get("context_catalog") or {}),
-            "job_description": internal["job_description"],
-            "resume_text": internal["resume_text"],
-            "job_tags": list(internal.get("job_tags") or []),
-            "practice_provenance": deepcopy(
-                internal.get("practice_provenance")
-            ),
-            "source_sha256": row[5],
-            "source_draft_id": row[6],
-            "expires_at": row[7].isoformat(),
-            "state": row[2],
-            "consumed_session_id": row[8],
-            "consumed_command_id": row[9],
-            "consumed_plan_version": row[10],
-            "created_at": row[11].isoformat(),
-            "updated_at": row[12].isoformat(),
-        }
-
-    @staticmethod
-    def _internal_payload(record: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "internal_plan": record["internal_plan"],
-            "question_contexts": record.get("question_contexts") or {},
-            "context_catalog": record.get("context_catalog") or {},
-            "job_description": record["job_description"],
-            "resume_text": record["resume_text"],
-            "job_tags": record["job_tags"],
-            "practice_provenance": record.get("practice_provenance"),
-        }
 
     @staticmethod
     def _assert_available(record: dict[str, Any], plan_id: str) -> None:

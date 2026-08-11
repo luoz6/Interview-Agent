@@ -1,0 +1,59 @@
+schema_version: "1.0"
+kind: gates
+authoritative_source: docs/refactoring-plan.md
+items:
+  - id: GATE-STATIC
+    title: 静态结构与工作区 Gate
+    mode: automated
+    commands:
+      - [python, -m, scripts.structured_contracts, --check]
+      - [git, diff, --check]
+    proves: 依赖边界、结构化 Contract 完整性、无尾随空格和变更清单可审查。
+  - id: GATE-PYTHON
+    title: Python Unit、Contract、Integration 与 Architecture Gate
+    mode: automated
+    commands:
+      - [python, -m, pytest, -q]
+    proves: Python 行为、领域 Contract、Adapter Contract 和 Architecture 规则在当前代码上通过。
+  - id: GATE-POSTGRES
+    title: 真实 PostgreSQL Gate
+    mode: approval_required
+    commands:
+      - [python, -m, pytest, -q, -m, postgres]
+    preconditions:
+      - 显式 Scope Approval 已配置且未过期。
+      - 目标 Fingerprint 与 Allowlist 一致。
+      - 输出只报告布尔可用性，不输出连接秘密。
+    proves: SQL、CAS、Fencing、Atomicity、Migration、Cleanup 与 Residue 在真实 PostgreSQL 上通过且 Critical Contract 零 skip。
+  - id: GATE-FRONTEND
+    title: Frontend 静态检查、构建与 Bundle Gate
+    mode: automated
+    commands:
+      - [npm, --prefix, frontend, run, check]
+      - [npm, --prefix, frontend, run, build]
+    proves: Frontend lint、production build、bundle budget 和 lazy route 约束通过。
+  - id: GATE-BROWSER
+    title: Browser Runtime 与十类权威 Suite Gate
+    mode: automated
+    commands:
+      - [npm, run, test:browser:preflight]
+      - [npm, run, test:browser]
+    proves: Python 身份、Browser 支持服务、十类权威 Suite、显式 Viewport 和退出清理通过；Real-model Smoke 单独分类。
+  - id: GATE-RESIDUE
+    title: 外部资源终态 Gate
+    mode: procedural
+    checks:
+      - Owned PostgreSQL relation residue 为零。
+      - 临时 PostgreSQL role residue 为零。
+      - 专用容器 residue 为零。
+      - Browser 服务监听和测试临时文件 residue 为零。
+    proves: 本次运行创建的外部资源全部安全清理，没有越权删除。
+  - id: GATE-AUDIT
+    title: 最终自动审查 Gate
+    mode: procedural
+    checks:
+      - 第 21 节和第 23 节逐条映射到 Requirement ID。
+      - 每项记录 Status、Evidence、Finding、Remediation 和 Reverification。
+      - 所有 BLOCKED 先尝试修复，生产修改后重新运行失效 Gate。
+      - docs/refactoring-audit.md 已生成且没有未解释的 BLOCKED。
+    proves: 全量重构完成声明具有逐项、当前且可复核的证据。

@@ -27,8 +27,8 @@ single-session tombstone; principal deletion remains a separate operation.
 From a clean checkout of the validated RC:
 
 ```powershell
-python -m pytest -q tests/test_memory_shadow_restore_drill.py tests/test_session_deletion_tombstone_replay.py tests/test_session_deletion.py
-python -m scripts.memory_shadow_restore_drill --execute --restore-cycles 3 --evidence-output docs/memory-shadow-restore-drill-evidence.json
+python -m pytest -q tests/contracts/test_memory_shadow_restore_drill.py tests/unit/test_session_deletion_tombstone_replay.py tests/unit/test_session_deletion.py tests/acceptance/test_session_deletion_api.py
+python -m scripts.memory_shadow_restore_drill --execute --restore-cycles 3 --evidence-output reports/memory/restore-drill-evidence-v1.json
 ```
 
 The runner creates three independent logical old-backup snapshots using only
@@ -42,7 +42,7 @@ Principal facts and queued effects are deleted atomically and that the isolated
 runtime relations are cleaned. That suite must run before this gate is accepted:
 
 ```powershell
-python -m pytest -q tests/test_postgres_principal_memory.py -m pg_runtime
+python -m pytest -q tests/integration/postgres/test_postgres_principal_memory.py -m pg_runtime
 ```
 
 ## Passing output

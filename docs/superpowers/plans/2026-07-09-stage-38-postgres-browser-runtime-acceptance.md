@@ -1,5 +1,7 @@
 # Stage 38 Postgres Browser Runtime Acceptance Implementation Plan
 
+> Historical implementation plan. Its `--write-json`/`tmp/*.json` commands and local cleanup design are retired. Use `python -m scripts.stage38_postgres_runtime_acceptance --execute ... --output reports/acceptance/stage38-postgres-runtime-evidence-v1.json` with explicit PostgreSQL scope approval and Evidence signing configuration. Current behavior is defined by the production script and `docs/stage-21-browser-e2e-acceptance.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Prove the Stage 37 versioned runtime contract against a real PostgreSQL store and record the Local V1 browser/API acceptance state.

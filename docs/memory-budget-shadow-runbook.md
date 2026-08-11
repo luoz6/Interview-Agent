@@ -12,10 +12,12 @@ in this guide calls no Provider at all.
 
 Require all of the following before starting:
 
-- validated application RC `a982b1f`;
-- Task 1 evidence `fb33894`;
-- isolated Staging preflight implementation `5280c9d`;
-- Task 2 acceptance `STAGING_PREFLIGHT=PASS`;
+- a protected RC Bundle at
+  `reports/memory/operational-rc-evidence-v1.json`;
+- a protected isolated Staging Bundle at
+  `reports/memory/operational-staging-evidence-v1.json`;
+- both Bundles issued for the explicitly selected revision and protected by
+  the configured HMAC key;
 - live PostgreSQL migration and cleanup evidence;
 - Knowledge P1 and long-context quality evidence;
 - full Python, frontend and browser baselines green;
@@ -24,59 +26,32 @@ Require all of the following before starting:
 - `memory-shadow-rollback-owner` assigned as stop owner;
 - synthetic data only and no real Provider authorization.
 
-Task 2's database fingerprint approval remains in force. Keep the DSN and the
+The database fingerprint approval remains in force. Keep the DSN and the
 approved irreversible fingerprint outside repository artifacts and general
 logs.
 
-## Step 1: run validate-only preflight while Shadow is disabled
+## Step 1: select the protected prerequisite Bundles
 
 ~~~powershell
-& 'F:\python3.11\python.exe' -m scripts.memory_budget_shadow `
-  --validate-only `
-  --target-environment isolated-staging `
-  --observation-hours 24 `
-  --durable-metrics-ready `
-  --postgres-validation-record docs/memory-validation-operational-evidence.json `
-  --quality-record docs/memory-validation-operational-evidence.json `
-  --knowledge-p1-ready `
-  --python-baseline-passed `
-  --browser-baseline-passed `
-  --staging-preflight-passed `
-  --principal-memory-disabled `
-  --operation-window-approved `
-  --stop-owner-role memory-shadow-rollback-owner
+$validatedRevision = '<approved-revision>'
+$rcEvidence = 'reports/memory/operational-rc-evidence-v1.json'
+$stagingEvidence = 'reports/memory/operational-staging-evidence-v1.json'
 ~~~
 
-Accept only:
+Do not replace either path with a committed `docs/*.json` record or a Markdown
+PASS statement. The Observer verifies both HMAC Receipts, Revision, fixed
+Scope, exact Payload type, recomputed Domain Policy, Verification Status,
+Promotion Decision and Gate Codes before it reads `POSTGRES_DSN` or opens a
+database scope. Any mismatch returns
+`GATE=BUDGET_INPUT_EVIDENCE_UNVERIFIED` and writes no output Artifact.
 
-~~~text
-mode=VALIDATE_ONLY
-ready=true
-configuration_changed=false
-~~~
+## Step 2: load the approved database target binding
 
-The validation fails if the Staging gate, durable metrics, Knowledge, quality,
-Python or browser evidence is missing; if the stop owner/window is absent; if
-Question Memory or Principal Memory consumption exists; or if Budget Shadow is
-already enabled before validation.
-
-## Step 2: inspect the approved database target
-
-With the approved Staging connection available only in the process
-environment, run:
-
-~~~powershell
-$inspection = & 'F:\python3.11\python.exe' `
-  -m scripts.memory_shadow_staging_preflight `
-  --inspect-database-fingerprint | ConvertFrom-Json
-$approvedFingerprint = '<separately approved irreversible fingerprint>'
-if ($inspection.database_fingerprint -ne $approvedFingerprint) {
-  throw 'approved Staging database fingerprint mismatch'
-}
-~~~
-
-Do not proceed on mismatch. Do not write either the DSN or fingerprint into
-the observation artifact.
+The protected operator environment must contain `POSTGRES_DSN`, the six
+`POSTGRES_ACCEPTANCE_*` Approval/target fields, `EVIDENCE_REVISION`,
+`EVIDENCE_HMAC_KEY_ID` and `EVIDENCE_HMAC_SECRET_B64`. The approved target
+fingerprint binds the full PostgreSQL instance/database identity. Do not write
+the DSN, fingerprint, approval Receipt or HMAC secret into the observation.
 
 ## Step 3: run the single-axis Profile B observation
 
@@ -89,9 +64,12 @@ process returns to disabled by termination.
 ~~~powershell
 & 'F:\python3.11\python.exe' -m scripts.memory_budget_shadow_observe `
   --execute `
-  --validated-rc-revision a982b1f `
-  --staging-preflight-revision 5280c9d `
-  --expected-database-fingerprint $approvedFingerprint `
+  --validated-rc-revision $validatedRevision `
+  --staging-preflight-revision $validatedRevision `
+  --rc-evidence $rcEvidence `
+  --staging-evidence $stagingEvidence `
+  --scope-prefix $approvedScopePrefix `
+  --output reports/memory/budget-shadow-evidence-v1.json `
   --target-environment isolated-staging `
   --observation-hours 24 `
   --stop-owner-role memory-shadow-rollback-owner `
@@ -150,9 +128,14 @@ latency evidence and cannot change `PRODUCTION_OBSERVATION=NOT_RUN`.
 ## Step 6: close the window and audit the artifact
 
 After the observer exits, confirm all Memory environment modes are disabled.
-Store only the one-line aggregate JSON as
-`docs/memory-budget-shadow-observation.json`, then run the repository artifact
-audit and the Task 4 acceptance runner.
+The observer writes aggregate-only protected Evidence to
+`reports/memory/budget-shadow-evidence-v1.json`, evaluates it with the shared
+`ShadowEvidencePolicy`, and verifies its signed Receipt after the atomic write.
+Its Input Manifest contains logical `operational-rc-evidence` and
+`operational-staging-evidence` entries bound to the persisted Bundle bytes and
+Receipt digests; local absolute paths are not written to the Artifact.
+Do not copy a plain observation JSON into `docs/` or invoke the retired Task 4
+acceptance runner as a second source of truth.
 
 The record may contain counts, ratios, latency aggregates, allowlisted
 language/scenario dimensions, revision identifiers and stable gate states. It
@@ -196,10 +179,10 @@ hard stops do not receive a low-sample exemption.
 The trusted-local `GET /api/runtime/memory-budget-shadow` endpoint remains
 status-only. It cannot enable Shadow.
 
-## Task 3 boundary
+## Budget Shadow boundary
 
-Completing this run produces an observation record for Task 4. It does not by
-itself grant the Task 4 PASS state and does not authorize enforcement, Write
+Completing this run produces a protected Budget observation. It does not by
+itself grant production approval and does not authorize enforcement, Write
 Shadow, Read Shadow or production observation.
 
 ~~~text

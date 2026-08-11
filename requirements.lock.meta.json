@@ -13,15 +13,18 @@
   "locks": {
     "ubuntu_24_04_x64": {
       "file": "requirements-linux.lock.txt",
+      "digest_mode": "canonical_utf8_lf",
       "sha256": "e9f10c80adf70ea0ea41abd4f570f435d457c94bcf1de871dd92944f781b3b55"
     },
     "windows_11_x64": {
       "file": "requirements-windows.lock.txt",
+      "digest_mode": "canonical_utf8_lf",
       "sha256": "08ccf0523c8696e657c9de9f0452e0dec2b55efbdaf032ac7c0256a5b555e4e6"
     }
   },
   "legacy_windows_alias": {
     "file": "requirements.lock.txt",
+    "digest_mode": "canonical_utf8_lf",
     "sha256": "08ccf0523c8696e657c9de9f0452e0dec2b55efbdaf032ac7c0256a5b555e4e6"
   }
 }

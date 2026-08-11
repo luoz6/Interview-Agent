@@ -6,23 +6,58 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
 from typing import Mapping
 
-from app.services.in_memory_principal_memory import InMemoryPrincipalMemoryFactStore
+from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStore
 from app.services.in_memory_principal_memory_consent import InMemoryPrincipalMemoryConsentStore
-from app.services.memory_config import load_effective_memory_config
-from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.runtime.config.memory import load_effective_memory_config
+from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
 from app.services.postgres_principal_memory_consent import PostgresPrincipalMemoryConsentStore
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_consent import PrincipalMemoryConsent, PrincipalMemoryConsentService
 from app.services.principal_memory_extractor import StructuredPrincipalMemoryExtractor
 from app.services.principal_memory_proposals import build_proposal_event_if_eligible
 from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
-from scripts.memory_postgres_validation import cleanup_isolated_prefix, database_fingerprint, run_validation
-from scripts.memory_shadow_staging_preflight import count_isolated_relations, make_staging_prefix
+from contracts.evidence import ShadowEvidencePayload
+from scripts.memory_postgres_validation import run_validation
+from scripts.memory_shadow_evidence_support import (
+    approved_postgres_scope,
+    print_evidence_result,
+    publish_shadow_evidence,
+    strict_nonnegative_int,
+)
 
 
 NOW = datetime(2026, 7, 31, tzinfo=timezone.utc)
+DEFAULT_OUTPUT = Path("reports/memory/write-shadow-evidence-v1.json")
+
+WRITE_INVARIANT_GATES = {
+    "without_consent_proposal": "WRITE_SHADOW_WITHOUT_CONSENT",
+    "identity_unavailable_proposal": "WRITE_SHADOW_IDENTITY_UNAVAILABLE",
+    "cross_principal_write": "WRITE_SHADOW_CROSS_PRINCIPAL_WRITE",
+    "source_mismatch_write": "WRITE_SHADOW_SOURCE_MISMATCH",
+    "non_allowlist_taxonomy_write": "WRITE_SHADOW_TAXONOMY_VIOLATION",
+    "free_text_fact_value": "WRITE_SHADOW_FREE_TEXT_FACT",
+    "automatic_active": "WRITE_SHADOW_AUTOMATIC_ACTIVE",
+    "automatic_user_confirmed": "WRITE_SHADOW_AUTOMATIC_CONFIRMED",
+    "inferred_accessibility_preference": "WRITE_SHADOW_INFERRED_ACCESSIBILITY",
+    "deleting_session_proposal": "WRITE_SHADOW_DELETING_SESSION_PROPOSAL",
+    "public_knowledge_write": "WRITE_SHADOW_PUBLIC_KNOWLEDGE_WRITE",
+    "interview_behavior_change": "WRITE_SHADOW_INTERVIEW_BEHAVIOR_CHANGE",
+    "privacy_artifact_hit": "WRITE_SHADOW_PRIVACY_HIT",
+}
+WRITE_FAULT_FIELDS = frozenset(
+    {
+        "candidate_rejected",
+        "consent_unavailable",
+        "extractor_failure_contained",
+        "identity_changed",
+        "identity_unavailable",
+        "source_unavailable",
+        "source_version_changed",
+    }
+)
 
 
 class SessionStore:
@@ -215,30 +250,119 @@ def validate_artifact(record: Mapping[str, object]) -> None:
     if any(key in rendered for key in blocked): raise RuntimeError("write shadow artifact contains blocked fields")
 
 
+def build_write_shadow_payload(record: Mapping[str, object]) -> ShadowEvidencePayload:
+    sample_count = strict_nonnegative_int(record, "sample_count")
+    if sample_count < 1:
+        raise ValueError("sample_count must be positive")
+    violations = []
+    invariants = record["hard_invariants"]
+    if not isinstance(invariants, Mapping):
+        raise ValueError("hard_invariants must be an object")
+    if set(invariants) != set(WRITE_INVARIANT_GATES):
+        raise ValueError("hard_invariants field set is invalid")
+    for field, gate in WRITE_INVARIANT_GATES.items():
+        if strict_nonnegative_int(invariants, field) != 0:
+            violations.append(gate)
+    faults = record["fault_matrix"]
+    if not isinstance(faults, Mapping) or set(faults) != set(WRITE_FAULT_FIELDS):
+        raise ValueError("fault_matrix field set is invalid")
+    fault_counts = {
+        field: strict_nonnegative_int(faults, field)
+        for field in sorted(WRITE_FAULT_FIELDS)
+    }
+    invariant_counts = {
+        field: strict_nonnegative_int(invariants, field)
+        for field in sorted(WRITE_INVARIANT_GATES)
+    }
+    created = strict_nonnegative_int(record, "proposal_created_count")
+    proposed = strict_nonnegative_int(record, "proposed_fact_count")
+    duplicate = strict_nonnegative_int(record, "duplicate_fact_count")
+    deduplicated = strict_nonnegative_int(record, "deduplicated_replay_count")
+    provider_calls = strict_nonnegative_int(record, "provider_calls")
+    cleanup_residue = strict_nonnegative_int(record, "cleanup_residue")
+    if created != sample_count or proposed != sample_count:
+        violations.append("WRITE_SHADOW_PROPOSAL_COUNT_MISMATCH")
+    if duplicate != 0:
+        violations.append("WRITE_SHADOW_DUPLICATE_FACT")
+    if provider_calls != 0:
+        violations.append("WRITE_SHADOW_PROVIDER_CALLED")
+    if cleanup_residue != 0:
+        violations.append("WRITE_SHADOW_CLEANUP_RESIDUE")
+    if record["rollback_verified"] is not True:
+        violations.append("WRITE_SHADOW_ROLLBACK_NOT_VERIFIED")
+    if record["configuration_persisted"] is not False:
+        violations.append("WRITE_SHADOW_CONFIGURATION_PERSISTED")
+    if record["authority"] != "model_proposed":
+        violations.append("WRITE_SHADOW_AUTHORITY_INVALID")
+    if record["final_status"] != "proposed":
+        violations.append("WRITE_SHADOW_FINAL_STATUS_INVALID")
+    if record["read_shadow"] != "disabled":
+        violations.append("WRITE_SHADOW_READ_AXIS_ENABLED")
+    if record["trusted_local_api"] != "disabled":
+        violations.append("WRITE_SHADOW_TRUSTED_API_ENABLED")
+    return ShadowEvidencePayload(
+        schema_version="shadow-evidence-v1",
+        sample_count=sample_count,
+        synthetic=True,
+        observation_window_seconds=1,
+        metrics={
+            "proposal_created_count": float(created),
+            "proposed_fact_count": float(proposed),
+            "duplicate_fact_count": float(duplicate),
+            "deduplicated_replay_count": float(deduplicated),
+            "provider_calls": float(provider_calls),
+            "cleanup_residue": float(cleanup_residue),
+            **{
+                f"fault_{field}": float(value)
+                for field, value in fault_counts.items()
+            },
+            **{
+                f"hard_{field}": float(value)
+                for field, value in invariant_counts.items()
+            },
+        },
+        violations=violations,
+    )
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--execute", action="store_true", required=True)
-    parser.add_argument("--expected-database-fingerprint", required=True)
+    parser.add_argument("--scope-prefix", required=True)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--samples", type=int, default=300)
     args = parser.parse_args(argv)
     dsn = os.getenv("POSTGRES_DSN", "").strip()
     if not dsn: raise RuntimeError("POSTGRES_DSN is required")
-    if database_fingerprint(dsn).digest != args.expected_database_fingerprint: raise RuntimeError("database fingerprint mismatch")
-    prefix = make_staging_prefix(); record = None
-    try:
-        run_validation(dsn=dsn, table_prefix=prefix, keep_tables=True)
+    record = None
+    active = None
+    with approved_postgres_scope(
+        dsn=dsn,
+        scope_prefix=args.scope_prefix,
+        environ=os.environ,
+    ) as active:
+        run_validation(dsn=dsn, table_prefix=args.scope_prefix)
         record = run_write_shadow(
-            fact_store=PostgresPrincipalMemoryFactStore(dsn=dsn, table_prefix=prefix, schema_mode="validate"),
-            consent_store=PostgresPrincipalMemoryConsentStore(dsn=dsn, table_prefix=prefix, schema_mode="validate"),
+            fact_store=PostgresPrincipalMemoryFactStore(dsn=dsn, table_prefix=args.scope_prefix, schema_mode="validate"),
+            consent_store=PostgresPrincipalMemoryConsentStore(dsn=dsn, table_prefix=args.scope_prefix, schema_mode="validate"),
             sample_count=args.samples,
         )
-    finally:
-        cleanup_isolated_prefix(dsn, prefix)
-    record["cleanup_residue"] = count_isolated_relations(dsn, prefix)
+    if record is None or active is None or active.lease.cleanup_receipt is None:
+        raise RuntimeError("write shadow did not produce cleanup evidence")
+    record["cleanup_residue"] = active.lease.cleanup_receipt.residue_count
     record["rollback_verified"] = record["cleanup_residue"] == 0
     validate_artifact(record)
-    print(json.dumps(record, sort_keys=True))
-    return 0 if record["rollback_verified"] and not any(record["hard_invariants"].values()) else 1
+    payload = build_write_shadow_payload(record)
+    bundle = publish_shadow_evidence(
+        payload=payload,
+        output=args.output,
+        producer="scripts.principal-memory-write-shadow",
+        scope="memory.write-shadow.controlled",
+        environ=os.environ,
+        minimum_samples=300,
+    )
+    print_evidence_result(bundle, args.output)
+    return 0 if bundle.artifact.verification_status.value == "PASS" else 1
 
 
 if __name__ == "__main__": raise SystemExit(main())

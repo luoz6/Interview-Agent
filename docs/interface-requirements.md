@@ -295,7 +295,7 @@ LLM 调用策略为 structured output 优先；当 DeepSeek 兼容接口拒绝 `
 | `engineering` | 工程实践 |
 | `communication` | 表达沟通 |
 
-HTML 复盘页使用了“技术能力、系统设计、表达沟通、项目深度”四维雷达图。当前后端是五维模型，运行页 `app/static/app.js` 已将 `breadth`、`depth`、`architecture`、`engineering`、`communication` 映射为中文标签展示；如果后续恢复雷达图，需要继续统一维度定义。
+早期 HTML 复盘页使用了“技术能力、系统设计、表达沟通、项目深度”四维雷达图。当前后端是五维模型，React 运行页 `frontend/src/pages/ReportDetailPage.jsx` 已将 `breadth`、`depth`、`architecture`、`engineering`、`communication` 映射为中文标签展示；如果后续恢复雷达图，需要继续统一维度定义。
 
 ### 4.8 FeedbackReference
 

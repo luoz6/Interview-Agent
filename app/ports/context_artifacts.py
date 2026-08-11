@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     ArtifactPurpose,
     ContextArtifactClaim,
     ContextArtifactCleanupPolicy,

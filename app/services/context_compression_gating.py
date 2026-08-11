@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from app.services.context_artifacts import ArtifactType
-from app.services.memory_config import load_effective_memory_config
+from app.domain.context.artifacts import ArtifactType
+from app.runtime.config.memory import load_effective_memory_config
 
 
 CompressionWorkflow = Literal["prep", "interview", "review"]

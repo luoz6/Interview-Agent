@@ -27,7 +27,7 @@ class ContextRuntimeConfig:
 
     @classmethod
     def from_env(cls) -> "ContextRuntimeConfig":
-        from app.services.memory_config import load_effective_memory_config
+        from app.runtime.config.memory import load_effective_memory_config
 
         memory = load_effective_memory_config().model
         return cls(

@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 from time import perf_counter
 from typing import Mapping, Sequence
 
@@ -14,22 +15,39 @@ from app.services.context_runtime import (
     build_context_runtime,
 )
 from app.services.context_selection import build_interview_context
-from app.services.memory_config import EffectiveMemoryConfig, load_effective_memory_config
+from app.runtime.config.memory import EffectiveMemoryConfig, load_effective_memory_config
 from app.services.memory_metrics import (
     MemoryMetricDimensions,
     MemoryMetricEvent,
     MemoryMetricValues,
 )
 from app.services.postgres_memory_metrics import PostgresMemoryMetricStore
-from scripts.memory_budget_shadow import BudgetShadowPreflight, evaluate_preflight
-from scripts.memory_postgres_validation import (
-    cleanup_isolated_prefix,
-    database_fingerprint,
-    run_validation,
+from contracts.evidence import (
+    EvidenceRegistry,
+    EvidenceVerifier,
+    OperationalRcEvidencePayload,
+    OperationalStagingEvidencePayload,
+    ShadowEvidencePayload,
+    input_artifact_from_bundle,
 )
-from scripts.memory_shadow_staging_preflight import (
-    count_isolated_relations,
-    make_staging_prefix,
+from contracts.evidence.status import VerificationStatus
+from contracts.policies import (
+    OperationalRcEvidencePolicy,
+    OperationalStagingEvidencePolicy,
+)
+from scripts.memory_budget_shadow import BudgetShadowPreflight, evaluate_preflight
+from scripts.memory_postgres_validation import run_validation
+from scripts.memory_shadow_evidence_support import (
+    print_evidence_result,
+    publish_shadow_evidence,
+    strict_finite_float,
+    strict_nonnegative_int,
+    verify_policy_bound_evidence,
+)
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    approved_postgres_scope,
+    load_receipt_signer,
 )
 
 
@@ -47,6 +65,14 @@ SCENARIOS = (
 )
 LANGUAGES = ("zh_hans", "en", "mixed")
 SYNTHETIC_BASELINE_LATENCY_MS = 500.0
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT = Path("reports/memory/budget-shadow-evidence-v1.json")
+DEFAULT_RC_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-rc-evidence-v1.json"
+)
+DEFAULT_STAGING_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-staging-evidence-v1.json"
+)
 
 
 @dataclass(frozen=True)
@@ -376,6 +402,95 @@ def validate_observation_artifact(record: Mapping[str, object]) -> None:
         raise RuntimeError("budget shadow artifact contains blocked fields")
 
 
+def build_budget_shadow_payload(
+    record: Mapping[str, object],
+    *,
+    observation_hours: int,
+) -> ShadowEvidencePayload:
+    violations: list[str] = []
+    if record["data_complete"] is not True:
+        violations.append("BUDGET_SHADOW_DATA_INCOMPLETE")
+    if record["budget_config_conflict"] is not False:
+        violations.append("BUDGET_SHADOW_CONFIG_CONFLICT")
+    decisive_counts = {
+        "execution_error_count": "BUDGET_SHADOW_EXECUTION_ERROR",
+        "privacy_audit_hits": "BUDGET_SHADOW_PRIVACY_HIT",
+        "mandatory_current_content_losses": "BUDGET_SHADOW_MANDATORY_CONTENT_LOSS",
+        "provider_input_change_count": "BUDGET_SHADOW_PROVIDER_INPUT_CHANGED",
+        "known_over_budget_provider_calls": "BUDGET_SHADOW_OVER_BUDGET_PROVIDER_CALL",
+        "cleanup_residue": "BUDGET_SHADOW_CLEANUP_RESIDUE",
+    }
+    for field, gate in decisive_counts.items():
+        value = strict_nonnegative_int(record, field)
+        if value != 0:
+            violations.append(gate)
+    if record["rollback_verified"] is not True:
+        violations.append("BUDGET_SHADOW_ROLLBACK_NOT_VERIFIED")
+    session_count = strict_nonnegative_int(record, "session_count")
+    if session_count < 1:
+        raise ValueError("session_count must be a positive integer")
+    language_raw = record["language_sample_counts"]
+    if not isinstance(language_raw, Mapping) or set(language_raw) != set(LANGUAGES):
+        raise ValueError("language_sample_counts field set is invalid")
+    language_counts = {
+        key: strict_nonnegative_int(language_raw, key) for key in LANGUAGES
+    }
+    direction_raw = record["estimator_error_direction"]
+    if not isinstance(direction_raw, Mapping) or not set(direction_raw).issubset(
+        {"under", "over", "equal"}
+    ):
+        raise ValueError("estimator_error_direction field set is invalid")
+    direction_counts = {
+        key: strict_nonnegative_int(direction_raw, key)
+        for key in direction_raw
+    }
+    p95 = strict_finite_float(record, "followup_p95_latency_ms")
+    baseline_p95 = strict_finite_float(record, "baseline_p95_latency_ms")
+    baseline_error = strict_finite_float(record, "baseline_error_rate")
+    followup_error = strict_finite_float(record, "followup_error_rate")
+    would_select = strict_nonnegative_int(record, "would_select_count")
+    would_drop = strict_nonnegative_int(record, "would_drop_count")
+    fallback_count = strict_nonnegative_int(record, "fallback_count")
+    unavailable_count = strict_nonnegative_int(record, "unavailable_bucket_count")
+    return ShadowEvidencePayload(
+        schema_version="shadow-evidence-v1",
+        sample_count=session_count,
+        synthetic=True,
+        observation_window_seconds=observation_hours * 3600,
+        metrics={
+            "execution_error_count": float(record["execution_error_count"]),
+            "privacy_audit_hits": float(record["privacy_audit_hits"]),
+            "mandatory_current_content_losses": float(
+                record["mandatory_current_content_losses"]
+            ),
+            "provider_input_change_count": float(
+                record["provider_input_change_count"]
+            ),
+            "known_over_budget_provider_calls": float(
+                record["known_over_budget_provider_calls"]
+            ),
+            "would_select_count": float(would_select),
+            "would_drop_count": float(would_drop),
+            "fallback_count": float(fallback_count),
+            "baseline_error_rate": baseline_error,
+            "followup_error_rate": followup_error,
+            "baseline_p95_latency_ms": baseline_p95,
+            "followup_p95_latency_ms": p95,
+            "unavailable_bucket_count": float(unavailable_count),
+            "cleanup_residue": float(record["cleanup_residue"]),
+            **{
+                f"language_sample_count_{key}": float(value)
+                for key, value in language_counts.items()
+            },
+            **{
+                f"estimator_error_direction_{key}": float(value)
+                for key, value in direction_counts.items()
+            },
+        },
+        violations=violations,
+    )
+
+
 def _ready_preflight(target: str, hours: int, stop_owner: str) -> dict:
     return evaluate_preflight(
         BudgetShadowPreflight(
@@ -395,6 +510,96 @@ def _ready_preflight(target: str, hours: int, stop_owner: str) -> dict:
     )
 
 
+def verify_budget_prerequisite_evidence(
+    *,
+    rc_path: Path,
+    rc_revision: str,
+    staging_path: Path,
+    staging_revision: str,
+    environ: Mapping[str, str],
+):
+    signer = load_receipt_signer(environ)
+    verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    verified_rc = verify_policy_bound_evidence(
+        path=rc_path,
+        revision=rc_revision,
+        scope="memory.operational-rc.controlled",
+        payload_type=OperationalRcEvidencePayload,
+        evaluate_policy=OperationalRcEvidencePolicy().evaluate,
+        verifier=verifier,
+    )
+    verified_staging = verify_policy_bound_evidence(
+        path=staging_path,
+        revision=staging_revision,
+        scope="memory.staging-preflight.controlled",
+        payload_type=OperationalStagingEvidencePayload,
+        evaluate_policy=OperationalStagingEvidencePolicy().evaluate,
+        verifier=verifier,
+    )
+    if verified_rc.payload.validated_rc_revision != rc_revision:
+        raise ValueError("RC payload revision binding is invalid")
+    if verified_staging.payload.validated_rc_revision != staging_revision:
+        raise ValueError("Staging payload revision binding is invalid")
+    return verified_rc, verified_staging
+
+
+def build_budget_input_manifest(
+    *,
+    rc_path: Path,
+    rc_bundle,
+    staging_path: Path,
+    staging_bundle,
+):
+    return (
+        input_artifact_from_bundle(
+            path=rc_path,
+            logical_path="operational-rc-evidence",
+            bundle=rc_bundle,
+        ),
+        input_artifact_from_bundle(
+            path=staging_path,
+            logical_path="operational-staging-evidence",
+            bundle=staging_bundle,
+        ),
+    )
+
+
+def publish_budget_shadow_evidence(
+    *,
+    payload: ShadowEvidencePayload,
+    output: Path,
+    environ: Mapping[str, str],
+    rc_path: Path,
+    rc_bundle,
+    staging_path: Path,
+    staging_bundle,
+):
+    return publish_shadow_evidence(
+        payload=payload,
+        output=output,
+        producer="scripts.memory-budget-shadow-observe",
+        scope="memory.budget-shadow.controlled",
+        environ=environ,
+        minimum_samples=300,
+        input_manifest=build_budget_input_manifest(
+            rc_path=rc_path,
+            rc_bundle=rc_bundle,
+            staging_path=staging_path,
+            staging_bundle=staging_bundle,
+        ),
+    )
+
+
+def format_budget_input_blocked_output() -> tuple[str, ...]:
+    return (
+        "BUDGET_SHADOW=BLOCKED",
+        "GATE=BUDGET_INPUT_EVIDENCE_UNVERIFIED",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run the deterministic Profile B Budget Shadow observation."
@@ -402,12 +607,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--execute", action="store_true", required=True)
     parser.add_argument("--validated-rc-revision", required=True)
     parser.add_argument("--staging-preflight-revision", required=True)
-    parser.add_argument("--expected-database-fingerprint", required=True)
+    parser.add_argument("--rc-evidence", type=Path, default=DEFAULT_RC_EVIDENCE)
+    parser.add_argument(
+        "--staging-evidence",
+        type=Path,
+        default=DEFAULT_STAGING_EVIDENCE,
+    )
+    parser.add_argument("--scope-prefix", required=True)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--target-environment", default="isolated-staging")
     parser.add_argument("--observation-hours", type=int, default=24)
     parser.add_argument("--stop-owner-role", default="memory-shadow-rollback-owner")
     parser.add_argument("--sessions", type=int, default=300)
     args = parser.parse_args(argv)
+
+    try:
+        verified_rc, verified_staging = verify_budget_prerequisite_evidence(
+            rc_path=args.rc_evidence,
+            rc_revision=args.validated_rc_revision,
+            staging_path=args.staging_evidence,
+            staging_revision=args.staging_preflight_revision,
+            environ=os.environ,
+        )
+    except (AcceptanceConfigurationError, OSError, ValueError, json.JSONDecodeError):
+        print("\n".join(format_budget_input_blocked_output()))
+        return 1
 
     preflight = _ready_preflight(
         args.target_environment,
@@ -420,16 +644,17 @@ def main(argv: list[str] | None = None) -> int:
     dsn = os.getenv("POSTGRES_DSN", "").strip()
     if not dsn:
         raise RuntimeError("POSTGRES_DSN is required")
-    if database_fingerprint(dsn).digest != args.expected_database_fingerprint:
-        raise RuntimeError("approved database fingerprint mismatch")
-    prefix = make_staging_prefix()
     record: dict | None = None
-    cleanup_residue = -1
-    try:
-        run_validation(dsn=dsn, table_prefix=prefix, keep_tables=True)
+    active = None
+    with approved_postgres_scope(
+        dsn=dsn,
+        scope_prefix=args.scope_prefix,
+        environ=os.environ,
+    ) as active:
+        run_validation(dsn=dsn, table_prefix=args.scope_prefix)
         store = PostgresMemoryMetricStore(
             dsn=dsn,
-            table_prefix=prefix,
+            table_prefix=args.scope_prefix,
             schema_mode="validate",
             minimum_language_samples=5,
         )
@@ -439,16 +664,33 @@ def main(argv: list[str] | None = None) -> int:
             staging_preflight_revision=args.staging_preflight_revision,
             session_count=args.sessions,
         )
-    finally:
-        cleanup_isolated_prefix(dsn, prefix)
-        cleanup_residue = count_isolated_relations(dsn, prefix)
     if record is None:
         raise RuntimeError("budget shadow observation did not complete")
-    record["cleanup_residue"] = cleanup_residue
-    record["rollback_verified"] = cleanup_residue == 0
+    if active is None or active.lease.cleanup_receipt is None:
+        raise RuntimeError("budget shadow cleanup receipt is missing")
+    cleanup = active.lease.cleanup_receipt
+    record["cleanup_residue"] = cleanup.residue_count
+    record["rollback_verified"] = cleanup.residue_count == 0
     validate_observation_artifact(record)
-    print(json.dumps(record, ensure_ascii=False, sort_keys=True))
-    return 0 if cleanup_residue == 0 else 1
+    payload = build_budget_shadow_payload(
+        record,
+        observation_hours=args.observation_hours,
+    )
+    bundle = publish_budget_shadow_evidence(
+        payload=payload,
+        output=args.output,
+        environ=os.environ,
+        rc_path=args.rc_evidence,
+        rc_bundle=verified_rc.bundle,
+        staging_path=args.staging_evidence,
+        staging_bundle=verified_staging.bundle,
+    )
+    print_evidence_result(bundle, args.output)
+    return (
+        0
+        if bundle.artifact.verification_status is VerificationStatus.PASS
+        else 1
+    )
 
 
 if __name__ == "__main__":

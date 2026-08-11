@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from app.ports.runtime import KnowledgeRepository
 from app.services.knowledge_profile import CANONICAL_TAXONOMY
-from app.services.knowledge_query import KnowledgeQuery
+from app.domain.knowledge.models import KnowledgeChunk, KnowledgeQuery
 from app.services.prep import (
     InterviewPlan,
     KnowledgeBindingSnapshot,
@@ -19,7 +19,6 @@ from app.services.prep import (
     RoleProfile,
     deterministic_follow_up_hint,
 )
-from app.services.vector_store import KnowledgeChunk
 
 
 RetrievalStatus = Literal["completed", "empty", "degraded"]

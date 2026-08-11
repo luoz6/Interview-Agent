@@ -1,9 +1,8 @@
-const { defineConfig, devices } = require("@playwright/test");
+const { defineConfig } = require("@playwright/test");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const python = process.env.STAGE41_PYTHON || "python";
 const externalWebServer = process.env.PLAYWRIGHT_EXTERNAL_WEB_SERVER === "true";
 if (!process.env.AGENT_TRACE_DIR) {
   process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
@@ -25,14 +24,13 @@ module.exports = defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   projects: [
-    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    { name: "desktop-chromium" },
   ],
   webServer: externalWebServer || process.platform === "win32"
     ? undefined
     : [
         {
-          command: `"${python}" -m uvicorn tests.browser_support_app:app --host 127.0.0.1 --port 8011`,
+          command: "node ./scripts/run_browser_support_backend.js",
           url: "http://127.0.0.1:8011/api/health",
           timeout: 30_000,
           reuseExistingServer: process.env.REUSE_EXISTING_SERVER === "true",

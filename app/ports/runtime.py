@@ -2,11 +2,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from app.domain.interview.models import InterviewTurn, PreparedInterviewTurn
 from app.graphs.interview_state import InterviewState
 from app.services.prep import InterviewPlan
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
-from app.services.session import InterviewTurn, PreparedInterviewTurn
 
 
 @runtime_checkable
@@ -16,7 +16,7 @@ class RuntimeLLMProvider(Protocol):
 
 
 @runtime_checkable
-class EmbeddingProvider(Protocol):
+class EmbeddingPort(Protocol):
     provider_name: str
     model_name: str
     model_revision: str
@@ -37,7 +37,7 @@ class KnowledgeLookupResult:
 
 
 @runtime_checkable
-class KnowledgeRepository(Protocol):
+class KnowledgeRepositoryPort(Protocol):
     def search(
         self,
         query_text: str,
@@ -55,6 +55,12 @@ class KnowledgeRepository(Protocol):
         expected_hashes: dict[str, str] | None = None,
     ) -> KnowledgeLookupResult:
         ...
+
+
+# Stable compatibility names. They point at the canonical Ports rather than
+# defining a parallel protocol tree.
+EmbeddingProvider = EmbeddingPort
+KnowledgeRepository = KnowledgeRepositoryPort
 
 
 @runtime_checkable
@@ -204,29 +210,121 @@ class InterviewSessionRepository(
 
 
 @runtime_checkable
-class ReportJobQueue(Protocol):
+class ReportJobRepository(Protocol):
     def enqueue_report_request(self, session_id: str) -> dict[str, Any]:
         ...
 
-    def claim_next(self, worker_id: str, lease_seconds: int | None = None) -> dict[str, Any] | None:
-        ...
-
-    def mark_completed(self, job_id: str) -> dict[str, Any] | None:
-        ...
-
-    def mark_failed(self, job_id: str, error: str) -> dict[str, Any] | None:
-        ...
-
-    def mark_retryable_failure(self, job_id: str, error: str) -> dict[str, Any] | None:
-        ...
-
-    def repair_orphan_processing_reports(self) -> int:
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
         ...
 
     def get_job_by_session(self, session_id: str) -> dict[str, Any] | None:
         ...
 
+    def mark_completed(
+        self,
+        job_id: str,
+        *,
+        worker_id: str | None = None,
+        lease_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        ...
+
+    def mark_failed(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str = "unexpected_error",
+        worker_id: str | None = None,
+        lease_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        ...
+
     def requeue_failed(self, session_id: str) -> dict[str, Any]:
+        ...
+
+
+@runtime_checkable
+class ReportJobLeaseAdapter(Protocol):
+    def claim_next(
+        self,
+        worker_id: str,
+        lease_seconds: int | None = None,
+    ) -> dict[str, Any] | None:
+        ...
+
+    def assert_lease(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+    ) -> bool:
+        ...
+
+    def heartbeat(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        lease_seconds: int | None = None,
+    ) -> bool:
+        ...
+
+    def release_claim_for_retry(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        delay_seconds: float = 0.25,
+    ) -> bool:
+        ...
+
+
+@runtime_checkable
+class ReportRetryAdapter(Protocol):
+    def schedule_review_retry(
+        self,
+        job_id: str,
+        *,
+        next_attempt_number: int,
+        delay_seconds: float = 0,
+    ) -> str:
+        ...
+
+    def mark_retryable_failure(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str = "unexpected_error",
+        worker_id: str | None = None,
+        lease_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        ...
+
+
+@runtime_checkable
+class ReportOrphanRepair(Protocol):
+    def repair_orphan_processing_reports(self) -> int:
+        ...
+
+
+@runtime_checkable
+class ReportJobQueue(
+    ReportJobRepository,
+    ReportJobLeaseAdapter,
+    ReportRetryAdapter,
+    ReportOrphanRepair,
+    Protocol,
+):
+    """Aggregate compatibility Port for current runtime wiring."""
+
+
+class ReportWorker(Protocol):
+    def run_one(self) -> bool:
         ...
 
 

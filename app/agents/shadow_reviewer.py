@@ -5,7 +5,7 @@ from app.services.evaluator_ext import ExpertShadowEvaluator
 from app.services.llm import InterviewLLM
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.report import InterviewReport, ReportProgress
-from app.services.vector_store import KnowledgeSearchStore
+from app.adapters.pgvector.repository import KnowledgeSearchStore
 from app.services.context_runtime import ContextRuntime
 
 

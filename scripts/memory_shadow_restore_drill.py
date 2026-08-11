@@ -4,25 +4,25 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
+import os
 from pathlib import Path
 from typing import Callable
 
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     ContextArtifactIdentity,
     ContextArtifactIdentityMaterial,
 )
-from app.services.in_memory_context_artifact_store import (
+from app.adapters.memory.context_artifacts import (
     InMemoryContextArtifactStore,
 )
-from app.services.in_memory_principal_memory import (
+from app.adapters.memory.principal_memory import (
     InMemoryPrincipalMemoryFactStore,
 )
 from app.services.in_memory_question_memory_index import (
     InMemoryQuestionMemoryIndexStore,
 )
 from app.services.prep import InterviewPlan, InterviewQuestion
-from app.services.principal_memory_contracts import (
+from app.domain.memory.contracts import (
     PrincipalMemoryFact,
     canonical_principal_fact,
     derive_principal_fact_id,
@@ -38,10 +38,25 @@ from app.services.session_deletion_tombstones import (
     InMemorySessionDeletionTombstoneStore,
 )
 from app.services.session_deletion_worker import SessionDeletionWorker
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    RestoreDrillEvidencePayload,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.policies import RestoreDrillEvidencePolicy
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
 from scripts.replay_session_deletion_tombstones import replay_tombstones
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT = ROOT / "reports" / "memory" / "restore-drill-evidence-v1.json"
 NOW = datetime(2026, 7, 31, tzinfo=timezone.utc)
 FAULT_BOUNDARIES = (
     "after_workflow_purge",
@@ -62,23 +77,6 @@ PRIVATE_RESIDUE_CATEGORIES = (
     "principal_memory_effects",
     "session_bound_consent_bindings",
 )
-_BLOCKED_EVIDENCE_TERMS = (
-    "session_id",
-    "principal_id",
-    "fact_id",
-    "normalized_fact",
-    "source_manifest",
-    "source_excerpt",
-    "artifact_ref",
-    "prompt",
-    "answer",
-    "resume",
-    "postgresql://",
-    "database_fingerprint",
-    "table_prefix",
-)
-
-
 class _NoProviderLLM:
     def generate_followup(self, context):  # pragma: no cover - safety tripwire
         raise AssertionError("restore drill must not call a provider")
@@ -547,14 +545,26 @@ def run_restore_drill(*, restore_cycles: int = 3) -> dict:
         "production_observation": "NOT_RUN",
         "long_term_memory_consumption": "BLOCKED",
     }
-    validate_evidence_artifact(result)
     return result
 
 
-def validate_evidence_artifact(value: dict) -> None:
-    rendered = json.dumps(value, sort_keys=True, ensure_ascii=False).casefold()
-    if any(term in rendered for term in _BLOCKED_EVIDENCE_TERMS):
-        raise RuntimeError("restore drill evidence contains a private field")
+def build_restore_evidence(result: dict) -> RestoreDrillEvidencePayload:
+    return RestoreDrillEvidencePayload(
+        schema_version="memory-shadow-restore-drill-evidence-v1",
+        restore_cycles=result["restore_cycles"],
+        tombstones_replayed=result["tombstones_replayed"],
+        fault_boundaries_exercised=result["fault_boundaries_exercised"],
+        fault_reclaims_completed=result["fault_reclaims_completed"],
+        restored_rows_by_category=result["restored_rows_by_category"],
+        residue_by_category=result["residue_by_category"],
+        restored_private_data_residue=result["restored_private_data_residue"],
+        public_knowledge_file_count=result["public_knowledge_file_count"],
+        public_knowledge_unchanged=result["public_knowledge_unchanged"],
+        provider_calls=result["provider_calls"],
+        production_observation=result["production_observation"],
+        long_term_memory_consumption=result["long_term_memory_consumption"],
+        synthetic=True,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -563,7 +573,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--restore-cycles", type=int, default=3)
-    parser.add_argument("--evidence-output", type=Path)
+    parser.add_argument("--evidence-output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.shadow.restore-drill",
+    )
     return parser
 
 
@@ -574,12 +589,40 @@ def main(argv: list[str] | None = None) -> int:
         print("data_category=synthetic")
         print("provider_calls=0")
         return 0
-    result = run_restore_drill(restore_cycles=args.restore_cycles)
-    if args.evidence_output is not None:
-        args.evidence_output.write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+    try:
+        output_revision = (
+            args.output_revision
+            or require_environment_value(os.environ, "EVIDENCE_REVISION")
         )
+        signer = load_receipt_signer(os.environ)
+    except AcceptanceConfigurationError as exc:
+        print("RESTORE_DRILL_EVIDENCE=BLOCKED")
+        print(f"GATE={exc.code}")
+        return 1
+    result = run_restore_drill(restore_cycles=args.restore_cycles)
+    payload = build_restore_evidence(result)
+    policy_result = RestoreDrillEvidencePolicy().evaluate(payload)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="restore-drill-evidence",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.memory-shadow-restore-drill",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+    )
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: output_verifier.verify(
+            value,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.evidence_output, bundle)
+    print("\n".join(render_gate_lines(bundle)))
     print(
         "BACKUP_RESTORE_TOMBSTONE_REPLAY="
         + result["backup_restore_tombstone_replay"]
@@ -592,7 +635,7 @@ def main(argv: list[str] | None = None) -> int:
         "PUBLIC_KNOWLEDGE_UNCHANGED="
         + str(result["public_knowledge_unchanged"]).lower()
     )
-    return 0 if result["backup_restore_tombstone_replay"] == "PASS" else 1
+    return 0 if policy_result.verification_status.value == "PASS" else 1
 
 
 if __name__ == "__main__":

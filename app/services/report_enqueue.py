@@ -3,8 +3,6 @@ from dataclasses import dataclass
 import logging
 from typing import Literal
 
-from fastapi import BackgroundTasks
-
 from app.ports.runtime import ReportJobQueue, ReportRepository
 
 
@@ -26,11 +24,7 @@ def enqueue_report_if_needed(
     store: ReportRepository,
     job_store: ReportJobQueue | None = None,
     job_store_factory: Callable[[], ReportJobQueue] | None = None,
-    background_tasks: BackgroundTasks | None,
 ) -> ReportEnqueueResult:
-    # Kept in the boundary signature for route compatibility while durable
-    # enqueue callers migrate away from response-coupled execution.
-    del background_tasks
     if turn_status != "finished":
         return ReportEnqueueResult(status="not_applicable")
     if store.get_report_record(session_id) is not None:

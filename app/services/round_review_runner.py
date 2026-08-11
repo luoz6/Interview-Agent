@@ -18,7 +18,7 @@ from app.services.question_evaluations import (
 from app.services.round_review import build_single_question_review_state
 from app.services.runtime import get_session_store, resolve_runtime_llm
 from app.services.runtime_domain_events import RoundClosedEvent
-from app.services.vector_store import get_knowledge_store
+from app.adapters.pgvector.repository import get_knowledge_store
 
 
 def run_round_review_event_payload(

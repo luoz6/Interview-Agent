@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import os
 from contextlib import AbstractContextManager
 from threading import RLock
 from typing import Any, Callable
 
+from app.runtime.config import (
+    load_langgraph_strict_msgpack,
+    set_default_environment_value,
+)
 from app.services.postgres_connections import PostgresSchemaNotReady
 
 
@@ -74,7 +77,10 @@ class PostgresCheckpointerRuntime:
             if self._state != "new":
                 raise RuntimeError("LangGraph checkpointer cannot be restarted")
             self._state = "starting"
-        os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
+        set_default_environment_value(
+            "LANGGRAPH_STRICT_MSGPACK",
+            "true" if load_langgraph_strict_msgpack() else "false",
+        )
 
         try:
             if self._legacy_saver_factory is not None:

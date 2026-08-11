@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -9,7 +10,7 @@ from time import perf_counter
 from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit
 
-from app.services.config import (
+from app.runtime.config.compatibility import (
     get_durable_workflow_maintenance_seconds,
     get_interview_chunk_retention_hours,
     get_langgraph_canary_signal_retention_hours,
@@ -215,8 +216,7 @@ def check_langgraph_runtime() -> dict[str, object]:
         f"{review_store.runs_table}_session_status_idx",
         f"{review_store.effects_table}_job_status_idx",
     ]
-    psycopg2, _ = session_store._import_psycopg2()
-    with psycopg2.connect(dsn) as connection:
+    with provider.connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -381,22 +381,66 @@ def redact_connection_url(value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
-def check_redis(client, *, key: str = "stage41:preflight", ttl_seconds: int = 30) -> dict:
-    value = "ok"
+def _decode_redis_value(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
+
+
+def _delete_owned_redis_probe(client, *, key: str, ownership_value: str) -> int:
+    deleted = client.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] "
+        "then return redis.call('del', KEYS[1]) else return 0 end",
+        1,
+        key,
+        ownership_value,
+    )
+    return int(deleted)
+
+
+def check_redis(
+    client,
+    *,
+    key_prefix: str = "stage41:preflight",
+    ttl_seconds: int = 30,
+    run_id: str | None = None,
+    ownership_token: str | None = None,
+) -> dict:
+    run_id = run_id or uuid4().hex
+    ownership_token = ownership_token or uuid4().hex
+    key = f"{key_prefix}:{run_id}"
+    value = json.dumps(
+        {
+            "owner": ownership_token,
+            "run_id": run_id,
+            "schema": "runtime-preflight-redis-probe-v1",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    created = False
     try:
         ping = bool(client.ping())
-        client.set(key, value, ex=ttl_seconds)
-        stored = client.get(key)
-        if isinstance(stored, bytes):
-            stored = stored.decode("utf-8")
+        created = bool(client.set(key, value, ex=ttl_seconds, nx=True))
+        if not created:
+            raise PreflightError("Redis probe key collision")
+        stored = _decode_redis_value(client.get(key))
         ttl = client.ttl(key)
         return {
             "ping": ping,
             "read_write": stored == value,
             "ttl": 0 < int(ttl) <= ttl_seconds,
+            "probe_key_sha256": hashlib.sha256(key.encode("utf-8")).hexdigest(),
         }
     finally:
-        client.delete(key)
+        if created:
+            deleted = _delete_owned_redis_probe(
+                client,
+                key=key,
+                ownership_value=value,
+            )
+            if deleted != 1 or client.get(key) is not None:
+                raise PreflightError("Redis probe ownership was lost before cleanup")
 
 
 def validate_runtime_control_snapshot(

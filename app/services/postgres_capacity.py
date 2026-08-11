@@ -5,8 +5,9 @@ from math import floor
 from threading import Barrier, Event, Thread
 from typing import Any, Literal
 
-from app.services.config import PostgresCapacitySettings, PostgresPoolSettings
+from app.runtime.config.compatibility import PostgresCapacitySettings, PostgresPoolSettings
 from app.services.postgres_connections import ConnectionProvider
+from contracts.evidence.payloads import CapacityEvidencePayload
 
 
 CapacityStatus = Literal[
@@ -196,6 +197,62 @@ def build_capacity_artifact(
         "evidence_level": "repository",
         "production_observation": "NOT_RUN",
     }
+
+
+def build_capacity_evidence_payload(
+    *,
+    pools: PostgresPoolSettings,
+    capacity: PostgresCapacitySettings,
+    server: PostgresServerCapacity,
+    domain_snapshots: dict[str, dict[str, Any]],
+    schema_ready: bool,
+    load_errors: list[Exception],
+    observed_checkpointer_peak: int,
+    observed_application_peak: int,
+    expected_application_peak: int,
+    observed_advisory_locks: int,
+    expected_advisory_locks: int,
+    simultaneous_domains_verified: bool,
+    privacy_violations: int = 0,
+    synthetic: bool = True,
+) -> CapacityEvidencePayload:
+    budgets = calculate_role_budgets(pools, capacity)
+    server_available = max(
+        0,
+        server.server_available - capacity.external_connection_reserve,
+    )
+    allowed = floor(server_available * capacity.max_utilization)
+    headroom = (
+        0.0
+        if allowed == 0
+        else max(
+            0.0,
+            min(100.0, (allowed - budgets.configured_total) * 100.0 / allowed),
+        )
+    )
+    return CapacityEvidencePayload(
+        schema_version="capacity-evidence-v1",
+        sample_count=expected_application_peak + expected_advisory_locks,
+        server_available_capacity=server_available,
+        configured_process_budget=budgets.configured_total,
+        allowed_process_budget=allowed,
+        observed_application_peak=observed_application_peak,
+        expected_application_peak=expected_application_peak,
+        application_peak_tolerance=pools.checkpointer_overhead,
+        observed_advisory_locks=observed_advisory_locks,
+        expected_advisory_locks=expected_advisory_locks,
+        observed_checkpointer_peak=observed_checkpointer_peak,
+        checkpointer_budgeted_max=(
+            pools.checkpointer_max_size + pools.checkpointer_overhead
+        ),
+        headroom_percent=float(headroom),
+        simultaneous_domains_verified=simultaneous_domains_verified,
+        schema_ready=schema_ready,
+        load_error_count=len(load_errors),
+        privacy_violation_count=privacy_violations,
+        domains=domain_snapshots,
+        synthetic=synthetic,
+    )
 
 
 def run_deterministic_connection_overlap(

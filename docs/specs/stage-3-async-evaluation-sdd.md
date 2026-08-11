@@ -413,7 +413,7 @@ GET /api/interviews/{session_id}/report
 ### 新增测试文件
 
 ```text
-tests/test_report_evaluator.py
+tests/unit/test_report_evaluator.py
 ```
 
 覆盖：
@@ -426,7 +426,7 @@ tests/test_report_evaluator.py
 ### 修改测试文件
 
 ```text
-tests/test_llm_service.py
+tests/unit/test_llm_service.py
 ```
 
 新增覆盖：
@@ -434,7 +434,7 @@ tests/test_llm_service.py
 - prompt 中包含题目、focus 和对话历史。
 
 ```text
-tests/test_session_service.py
+tests/unit/test_session_service.py
 ```
 
 新增覆盖：
@@ -444,7 +444,7 @@ tests/test_session_service.py
 - `fail_report` 后可以读取 failed record。
 
 ```text
-tests/test_api.py
+tests/acceptance/test_api.py
 ```
 
 新增覆盖：

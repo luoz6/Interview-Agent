@@ -3,11 +3,11 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
+const { pythonArgs, resolvePythonRuntime } = require("./python_runtime");
 
 const ROOT = path.resolve(__dirname, "..");
 const BACKEND_HEALTH_URL = "http://127.0.0.1:8011/api/health";
 const FRONTEND_URL = "http://127.0.0.1:4173/prep";
-const python = process.env.STAGE41_PYTHON || "python";
 if (!process.env.AGENT_TRACE_DIR) {
   process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
     path.join(os.tmpdir(), "stage43-agent-traces-"),
@@ -61,6 +61,18 @@ async function stopServer(server) {
 }
 
 async function run() {
+  const pythonRuntime = resolvePythonRuntime({ cwd: ROOT });
+  const runtimeEnv = {
+    ...process.env,
+    INTERVIEW_RUNTIME_PYTHON: pythonRuntime.executable,
+  };
+  process.stdout.write(`${JSON.stringify({
+    browser_python_runtime: "PASS",
+    source: pythonRuntime.source,
+    executable_realpath: pythonRuntime.realpath,
+    python_version: pythonRuntime.version,
+    runtime_preflight: pythonRuntime.preflight.python_major_minor,
+  })}\n`);
   const reuseExisting = process.env.REUSE_EXISTING_SERVER === "true";
   const backendAvailable = await urlAvailable(BACKEND_HEALTH_URL);
   const frontendAvailable = await urlAvailable(FRONTEND_URL);
@@ -76,8 +88,8 @@ async function run() {
   try {
     if (!backendAvailable) {
       backend = spawn(
-        python,
-        [
+        pythonRuntime.command,
+        pythonArgs(pythonRuntime, [
           "-m",
           "uvicorn",
           "tests.browser_support_app:app",
@@ -85,10 +97,10 @@ async function run() {
           "127.0.0.1",
           "--port",
           "8011",
-        ],
+        ]),
         {
           cwd: ROOT,
-          env: process.env,
+          env: runtimeEnv,
           shell: false,
           stdio: ["ignore", "inherit", "inherit"],
           windowsHide: true,
@@ -112,7 +124,7 @@ async function run() {
         {
           cwd: path.join(ROOT, "frontend"),
           env: {
-            ...process.env,
+            ...runtimeEnv,
             VITE_API_TARGET: "http://127.0.0.1:8011",
           },
           shell: false,
@@ -130,7 +142,7 @@ async function run() {
       {
         cwd: ROOT,
         env: {
-          ...process.env,
+          ...runtimeEnv,
           PLAYWRIGHT_EXTERNAL_WEB_SERVER: "true",
           REUSE_EXISTING_SERVER: "true",
         },

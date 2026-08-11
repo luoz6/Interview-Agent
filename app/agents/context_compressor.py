@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     CompressionSourceSegment,
     ContextCompressionPolicy,
 )

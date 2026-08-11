@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Any, Callable
 
-from app.services.config import PostgresPoolSettings
+from app.runtime.config.compatibility import PostgresPoolSettings
 from app.services.langgraph_runtime import PostgresCheckpointerRuntime
 from app.services.postgres_connections import (
     PooledPsycopg2ConnectionProvider,

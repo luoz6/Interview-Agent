@@ -192,7 +192,7 @@ class KnowledgeBindingResolver:
 
     @staticmethod
     def _default_repository() -> KnowledgeRepository:
-        from app.services.vector_store import get_knowledge_store
+        from app.adapters.pgvector.repository import get_knowledge_store
 
         return get_knowledge_store()
 

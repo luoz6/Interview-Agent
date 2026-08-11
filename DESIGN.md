@@ -1293,7 +1293,7 @@ Q01 · 系统设计                         82/100
 - 不用珊瑚色代替错误红，也不用绿色装饰普通内容。
 - 不虚构实时 Agent 思考、评分、排名、百分位或后端不存在的数据。
 - 不通过极小字体提高信息密度。
-- 不直接编辑生成文件 `app/static/prototype.css`。
+- 已退休的 `app/static/` 不得重新生成或恢复为产品前端。
 
 ## 17. Implementation Contract
 
@@ -1307,7 +1307,7 @@ Q01 · 系统设计                         82/100
 - 设计系统 CSS：`frontend/src/styles/tokens.css`、`styles/base.css`、`styles/components/` 与按路由懒加载的 `styles/pages/`。
 - 构建输出：`frontend/dist/`；构建产物带 hash，不直接编辑。
 - FastAPI 是 API-only 服务，不再提供 `/prep`、`/interview`、`/reports` 等页面路由。
-- 旧 `app/test*.html` 与 `app/static/*.js` 仅为迁移前遗留材料，不属于当前运行契约，也不得作为新组件模板继续扩展。
+- 旧 `app/test*.html` 与 `app/static/` 已删除并退休，不属于当前运行契约，也不得作为新组件模板恢复。
 
 ### 17.2 Build
 

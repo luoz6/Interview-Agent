@@ -4,7 +4,7 @@ import hashlib
 from contextlib import nullcontext
 from datetime import datetime, timezone
 
-from app.services.principal_memory_contracts import (
+from app.domain.memory.contracts import (
     PrincipalMemoryFact,
     canonical_principal_fact,
     derive_principal_fact_id,

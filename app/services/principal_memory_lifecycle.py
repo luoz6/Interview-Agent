@@ -5,8 +5,8 @@ import json
 from contextlib import nullcontext
 from datetime import timedelta
 
-from app.services.in_memory_principal_memory import PrincipalMemoryConflict
-from app.services.principal_memory_contracts import (
+from app.domain.memory.facts import PrincipalMemoryConflict
+from app.domain.memory.contracts import (
     PrincipalMemoryFact,
     derive_principal_fact_id,
     derive_principal_fact_taxonomy_keys,
@@ -14,7 +14,7 @@ from app.services.principal_memory_contracts import (
 )
 
 
-class PrincipalMemoryLifecycleService:
+class PrincipalMemoryLifecycle:
     def __init__(
         self, *, identity_resolver, consent_service, fact_store, session_store,
         config, clock, deletion_fence=None,
@@ -232,7 +232,6 @@ class PrincipalMemoryLifecycleService:
         if identity is None:
             raise PermissionError("principal identity is unavailable")
         return identity
-
     def _require_source(self, fact):
         state = self.session_store.get(fact.source_session_id)
         if state.get("deletion_status") in {"deleting", "deleted"}:
@@ -251,3 +250,6 @@ class PrincipalMemoryLifecycleService:
             "expires_at": fact.expires_at.isoformat() if fact.expires_at else None,
             "revocable": fact.status == "active",
         }
+
+
+PrincipalMemoryLifecycleService = PrincipalMemoryLifecycle

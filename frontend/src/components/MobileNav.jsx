@@ -1,7 +1,7 @@
 import { FileText, PlayCircle, Question } from "@phosphor-icons/react";
 import { PRODUCT_NAVIGATION } from "./navigation";
 
-const NAV_ICONS = { prep: PlayCircle, reports: FileText, help: Question };
+const NAV_ICONS = { prep: PlayCircle, reports: FileText, memory: FileText, help: Question };
 
 export function MobileNav({ pathname = window.location.pathname, onNavigate }) {
   return (

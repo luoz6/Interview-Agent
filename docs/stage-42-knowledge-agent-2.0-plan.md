@@ -159,9 +159,9 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 
 - `app/services/prep.py`
 - `app/services/session_serialization.py`
-- `tests/test_prep_service.py`
-- `tests/test_session_serialization.py`
-- `tests/test_postgres_session_store.py`
+- `tests/unit/test_prep_service.py`
+- `tests/contracts/test_session_serialization.py`
+- `tests/integration/postgres/test_postgres_session_store.py`
 
 执行：
 
@@ -180,8 +180,8 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 
 - 新建 `app/services/knowledge_profile.py`
 - 新建 `app/services/knowledge_query.py`
-- 新建 `tests/test_knowledge_profile.py`
-- 新建 `tests/test_knowledge_query.py`
+- 新建 `tests/contracts/test_knowledge_profile.py`
+- 新建 `tests/unit/test_knowledge_query.py`
 
 执行：
 
@@ -205,7 +205,7 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 - `app/data/knowledge/**`
 - `scripts/load_knowledge.py`
 - 新建 `scripts/build_knowledge_manifest.py`
-- 新建 `tests/test_knowledge_manifest.py`
+- 新建 `tests/contracts/test_knowledge_manifest.py`
 
 执行：
 
@@ -226,16 +226,16 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 - `app/ports/runtime.py`
 - `app/services/vector_store.py`
 - `scripts/load_knowledge.py`
-- `tests/test_vector_store.py`
-- `tests/test_vector_store_pgvector.py`
-- `tests/test_runtime_ports.py`
+- `tests/unit/test_vector_store.py`
+- `tests/integration/postgres/test_vector_store_pgvector.py`
+- `tests/contracts/test_runtime_ports.py`
 - 新建共享 v1/v2 knowledge repository test fake
 
 执行：
 
 1. 先解决双 Protocol：以 `app/ports/runtime.py::KnowledgeRepository` 为唯一所有者，增加 `get_by_ids()`；`app/services/vector_store.py::KnowledgeSearchStore` 暂时作为兼容 re-export，避免调用方一次性断裂。
 2. 在 `PgVectorKnowledgeStore` 实现批量 `get_by_ids(ids, expected_hashes=None)`，保持输入顺序、去重，并分别报告 `found`、`missing` 和 `version_mismatch`。
-3. 迁移所有测试 Fake/Mock。影响面至少包括 `tests/test_agents.py`、`tests/eval_support.py`、`tests/test_expert_evaluator.py`、`tests/test_report_api.py`、`tests/test_report_tasks.py`、`tests/test_report_worker.py` 和 `tests/test_runtime_ports.py`；共享 fake 应提取到测试 helper，减少二十余个局部实现继续漂移。
+3. 迁移所有测试 Fake/Mock。影响面至少包括 `tests/unit/test_agents.py`、`tests/eval_support.py`、`tests/unit/test_expert_evaluator.py`、`tests/acceptance/test_report_api.py`、`tests/unit/test_report_tasks.py`、`tests/unit/test_report_worker.py`、`tests/integration/postgres/test_report_worker.py` 和 `tests/contracts/test_runtime_ports.py`；共享 fake 应提取到测试 helper，减少二十余个局部实现继续漂移。
 4. legacy v1 测试 fake 可以保留 `search()` 行为，但任何声明实现新 Protocol 或进入 v2 路径的 fake 必须实现 `get_by_ids()`；运行时 Protocol 检查增加覆盖。
 5. 搜索增加最小相关度阈值、稳定排序和重复 ID 去重。
 6. 返回检索耗时、filters 和命中 ID，但不记录 DSN 或 embedding。
@@ -252,8 +252,8 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 - `app/agents/knowledge.py`
 - `app/services/llm.py`
 - `app/services/prep.py`
-- `tests/test_prep_service.py`
-- 新建 `tests/test_grounded_knowledge_agent.py`
+- `tests/unit/test_prep_service.py`
+- 新建 `tests/unit/test_grounded_knowledge_agent.py`
 
 执行流程：
 
@@ -279,9 +279,9 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 - `app/api/routes.py`
 - `app/static/prep.js`
 - `app/test1.html`
-- `tests/test_api.py`
-- `tests/test_static_report_ui.py`
-- `tests/browser/local-v1.spec.js`
+- `tests/acceptance/test_api.py`
+- `tests/architecture/test_frontend_runtime.py`
+- `tests/browser/phase2-prep-plan.spec.js`
 
 执行：
 
@@ -302,8 +302,8 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 - `app/services/prep_context.py`
 - `app/graphs/interview_graph.py`
 - `app/services/llm.py`
-- `tests/test_prep_context.py`
-- `tests/test_interview_graph.py`
+- `tests/unit/test_prep_context.py`
+- `tests/unit/test_interview_graph.py`
 
 执行：
 
@@ -326,9 +326,9 @@ Trace 分为两层，禁止把所有运行细节塞入 `plan_json`：
 - `app/services/report_microbatch.py`
 - `app/services/report_tasks.py`
 - `app/services/report_trace.py`
-- `tests/test_report_evaluator.py`
-- `tests/test_report_microbatch.py`
-- `tests/test_report_tasks.py`
+- `tests/unit/test_report_evaluator.py`
+- `tests/unit/test_report_microbatch.py`
+- `tests/unit/test_report_tasks.py`
 
 执行：
 

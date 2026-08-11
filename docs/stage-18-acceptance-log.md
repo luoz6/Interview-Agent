@@ -17,7 +17,7 @@ Date: 2026-07-06
 
 | Command | Result |
 | --- | --- |
-| `F:\python3.11\python.exe -m pytest tests/test_page_routes.py tests/test_static_report_ui.py -q` | Pass: 19 passed, 1 warning |
+| Retired historical Static Report UI gate plus `tests/acceptance/test_page_routes.py` | Historical pass: 19 passed, 1 warning; the retired source-string test is no longer runnable |
 | `node --check app/static/api.js ... app/static/report-detail.js` | Pass |
 | `npm run build:prototype-css` | Pass |
 | `F:\python3.11\python.exe -m pytest -q` | Pass: 222 passed, 20 skipped, 1 warning |
@@ -60,8 +60,8 @@ Date: 2026-07-06
 
 | ID | Severity | Page/File | Symptom | Fix | Regression Test |
 | --- | --- | --- | --- | --- | --- |
-| S18-1 | Medium | `app/services/report_tasks.py` | Local smoke without `POSTGRES_DSN` raised `KeyError` from `get_knowledge_store()` before report failure could be recorded | Catch knowledge-store construction errors in `generate_report_for_session()` and save a failed report record | `tests/test_report_tasks.py::test_generate_report_for_session_saves_failed_record_when_knowledge_store_is_unconfigured` |
-| S18-2 | High | `app/services/llm.py` | Real DeepSeek-compatible `generate_plan()` call failed because the provider does not currently support the structured `response_format` path used by `with_structured_output()`; report structured output has the same limitation but already recovers through raw JSON fallback | Added raw JSON fallback for plan generation and validated it with a real DeepSeek-compatible smoke call | `tests/test_llm_service.py::test_openai_interview_llm_falls_back_to_json_for_plan_when_structured_output_fails` |
+| S18-1 | Medium | `app/services/report_tasks.py` | Local smoke without `POSTGRES_DSN` raised `KeyError` from `get_knowledge_store()` before report failure could be recorded | Catch knowledge-store construction errors in `generate_report_for_session()` and save a failed report record | `tests/unit/test_report_tasks.py::test_generate_report_for_session_saves_failed_record_when_knowledge_store_is_unconfigured` |
+| S18-2 | High | `app/services/llm.py` | Real DeepSeek-compatible `generate_plan()` call failed because the provider does not currently support the structured `response_format` path used by `with_structured_output()`; report structured output has the same limitation but already recovers through raw JSON fallback | Added raw JSON fallback for plan generation and validated it with a real DeepSeek-compatible smoke call | `tests/unit/test_llm_service.py::test_openai_interview_llm_falls_back_to_json_for_plan_when_structured_output_fails` |
 
 ## Final Status
 

@@ -1,9 +1,10 @@
 import logging
-import os
 import socket
 import time
 from contextlib import nullcontext
+from dataclasses import dataclass
 
+from app.runtime.config import load_worker_runtime_settings
 from app.services.report import ReportGenerationFailed, ReportGenerationTimeout
 from app.services.report_tasks import execute_report_generation
 from app.services.runtime import (
@@ -13,7 +14,7 @@ from app.services.runtime import (
     get_runtime_signal_store,
 )
 from app.services.runtime_signal_metrics import CANARY_SIGNAL_CODES
-from app.services.runtime_work import classify_runtime_failure
+from app.adapters.reliability.runtime_failure import classify_runtime_failure
 from app.services.review_workflow import ReportLeaseHeartbeat
 from app.services.workflow_thread_lock import (
     FencedWriteRejected,
@@ -199,6 +200,24 @@ def run_one_job(
         )
 
 
+@dataclass
+class ReportWorker:
+    job_store: object
+    executor: object
+    worker_id: str
+    review_workflow: object | None = None
+    signal_store: object | None = None
+
+    def run_one(self):
+        return run_one_job(
+            job_store=self.job_store,
+            executor=self.executor,
+            worker_id=self.worker_id,
+            review_workflow=self.review_workflow,
+            signal_store=self.signal_store,
+        )
+
+
 def run_forever(
     *,
     worker_id: str | None = None,
@@ -211,12 +230,12 @@ def run_forever(
     signal_store = get_runtime_signal_store()
     resolved_worker_id = worker_id or _default_worker_id()
     while True:
-        result = run_one_job(
+        result = ReportWorker(
             job_store=resolved_job_store,
             executor=resolved_executor,
             worker_id=resolved_worker_id,
             signal_store=signal_store,
-        )
+        ).run_one()
         if result is None:
             time.sleep(poll_interval_seconds)
 
@@ -270,7 +289,7 @@ def _release_durable_failure(job_store, job: dict, *, worker_id: str):
 
 
 def _default_worker_id() -> str:
-    configured = os.getenv("REPORT_WORKER_ID")
+    configured = load_worker_runtime_settings().report_worker_id
     if configured:
         return configured
     return f"report-worker@{socket.gethostname()}"

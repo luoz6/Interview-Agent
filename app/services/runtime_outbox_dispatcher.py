@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Event, Lock, Thread
 from typing import Any
 
-from app.services.runtime_work import (
+from app.adapters.reliability.runtime_failure import (
     classify_runtime_failure,
     retry_delay_seconds,
 )
@@ -275,7 +275,7 @@ class LocalRuntimeEventSink:
         )
         if outcome.status == "reschedule":
             raise RuntimeError(
-                outcome.error_code or "runtime_work_retry"
+                outcome.error_code or "runtime_retry"
             )
 
 

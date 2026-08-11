@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore, get_knowledge_store
-from app.services.knowledge_ingestion import KnowledgeCorpusIngestor, IngestionSummary
+from app.adapters.pgvector.repository import KnowledgeChunk, PgVectorKnowledgeStore, get_knowledge_store
+from app.services.knowledge_ingestion import KnowledgeReleaseService, IngestionSummary
 
 
 KNOWLEDGE_ROOT = Path("app/data/knowledge")
@@ -187,7 +187,7 @@ def load_knowledge(
     manifest = build_manifest(root, corpus_version=corpus_version)
     chunks = build_chunks(root, manifest=manifest)
     resolved_store = resolve_store(store)
-    ingestor = KnowledgeCorpusIngestor(
+    ingestor = KnowledgeReleaseService(
         store=resolved_store,
         provider=resolved_store.embedding_provider,
     )

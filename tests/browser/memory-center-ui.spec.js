@@ -239,7 +239,7 @@ test("memory center export and destructive deletion require explicit local actio
 
   const openDelete = page.getByRole("button", { name: "永久删除全部记忆" });
   await openDelete.click();
-  const dialog = page.getByRole("dialog", { name: "确认永久删除？" });
+  const dialog = page.getByRole("alertdialog", { name: "确认永久删除？" });
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
@@ -257,6 +257,7 @@ test("memory center export and destructive deletion require explicit local actio
 });
 
 test("memory center preserves focus, touch targets, mobile flow, and reduced motion", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockMemoryApi(page);
   await page.goto("/memory-center.html");
@@ -284,7 +285,7 @@ test("memory center preserves focus, touch targets, mobile flow, and reduced mot
     viewport: document.documentElement.clientWidth,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   }));
-  if (page.viewportSize().width <= 760) expect(layout.columns).toBe(1);
+  expect(layout.columns).toBe(1);
   expect(layout.right).toBeLessThanOrEqual(layout.viewport + 1);
   expect(layout.overflow).toBeLessThanOrEqual(1);
 

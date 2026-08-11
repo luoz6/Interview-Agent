@@ -6,7 +6,7 @@ from threading import Event, Lock, Thread
 from typing import Any, Callable, Literal, Protocol, Sequence
 
 from app.ports.context_artifacts import ContextArtifactStore
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     ArtifactPurpose,
     ArtifactPayload,
     CompressionSourceSegment,
@@ -390,7 +390,7 @@ class ContextCompressionRunner:
 
     @staticmethod
     def _failure_code(exc: Exception) -> str:
-        from app.services.context_artifacts import (
+        from app.domain.context.artifacts import (
             ContextArtifactValidationFailed,
         )
 

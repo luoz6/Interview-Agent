@@ -1,4 +1,10 @@
 const { test, expect } = require("@playwright/test");
+const {
+  createCompletedReport,
+  createSession,
+  expectGeometry,
+  seedReport,
+} = require("./browser-suite-support");
 
 const jd = "Backend role using Python, FastAPI, Redis, and PostgreSQL.";
 const resume = "Built a FastAPI service with Redis cache-aside and PostgreSQL.";
@@ -56,6 +62,7 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
 });
 
 test("React preparation evidence is visible and bounded on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/prep");
   await fillPrepSources(page);
   await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
@@ -94,4 +101,87 @@ test("missing session routes expose safe React errors", async ({ page }) => {
   await page.goto("/report-detail?session_id=missing");
   await expect(page.locator("body")).toContainText("报告暂时无法读取");
   await expect(page.locator("body")).not.toContainText("Traceback");
+});
+
+test("all six React routes remain nonempty and bounded", async ({ page, request }) => {
+  const active = await createSession(request);
+  const processing = await seedReport(request, "processing");
+  const completed = await createCompletedReport(request);
+  const routes = [
+    "/prep",
+    `/interview?session_id=${active}`,
+    `/report-processing?session_id=${processing.session_id}`,
+    `/report-detail?session_id=${completed}`,
+    "/reports",
+    "/help",
+  ];
+  for (const route of routes) {
+    await page.goto(route);
+    await expectGeometry(page);
+  }
+});
+
+test("rejected lazy route modules expose a usable recovery view", async ({ page }) => {
+  await page.route("**/src/pages/HelpPage.jsx*", (route) => route.abort("failed"));
+  await page.goto("/help");
+  await expect(page.getByRole("heading", { name: "当前页面没有完整载入" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新载入" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "返回准备阶段" })).toBeVisible();
+});
+
+test("shared API client returns stable safe errors", async ({ page }) => {
+  await page.goto("/help");
+  await expect(page.locator(".help-workspace")).toBeVisible();
+  await page.route("**/test-errors/server", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Provider secret stack trace" }),
+  }));
+  await page.route("**/test-errors/conflict", (route) => route.fulfill({
+    status: 409,
+    contentType: "application/json",
+    body: JSON.stringify({
+      detail: {
+        code: "PREP_PLAN_VERSION_CONFLICT",
+        message: "计划已更新，请加载最新版本。",
+        retryable: true,
+      },
+    }),
+  }));
+  await page.route("**/test-errors/invalid", (route) => route.fulfill({
+    status: 200,
+    contentType: "text/plain",
+    body: "not-json",
+  }));
+  await page.route("**/test-errors/network", (route) => route.abort("failed"));
+
+  const errors = await page.evaluate(async () => {
+    const { getJson } = await import("/src/api/client.js");
+    const paths = ["server", "conflict", "invalid", "network"];
+    return Promise.all(paths.map(async (path) => {
+      try {
+        await getJson(`/test-errors/${path}`);
+        return null;
+      } catch (error) {
+        return {
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          status: error.status,
+          requestId: error.requestId,
+        };
+      }
+    }));
+  });
+
+  expect(errors[0]).toMatchObject({ code: "HTTP_500", status: 500, retryable: true });
+  expect(errors[0].message).not.toContain("Provider");
+  expect(errors[0].message).not.toContain("stack");
+  expect(errors[1]).toMatchObject({
+    code: "PREP_PLAN_VERSION_CONFLICT",
+    status: 409,
+    retryable: true,
+  });
+  expect(errors[2]).toMatchObject({ code: "INVALID_RESPONSE", status: 200, retryable: true });
+  expect(errors[3]).toMatchObject({ code: "CONNECTION_FAILED", status: 0, retryable: true });
 });

@@ -47,13 +47,13 @@ group:
 
 - `frontend/**`;
 - `app/api/routes.py` and `app/main.py`;
-- `app/static/*.js`, excluding the separately classified prototype CSS;
+- retirement deletions for the legacy `app/static/` compatibility assets;
 - `package.json`, `package-lock.json`, `playwright.config.js` and
   `scripts/run_browser_tests.js`;
 - browser test specifications and `tests/browser_support_app.py`;
 - README, local runbook, frontend/interface documentation;
 - central Session/PostgreSQL Session files and broad API/page/report tests;
-- the six retired historical HTML deletions.
+- the retired historical HTML and legacy static-asset deletions.
 
 The shared group cannot be split solely by filename if doing so makes the API,
 React routes or browser suite non-functional. It must pass compile/build,
@@ -64,8 +64,6 @@ revision.
 
 - `.hallmark/**`;
 - `DESIGN.md`;
-- `app/static/prototype-source.css`;
-- `app/static/prototype.css`.
 - `frontend/src/styles/reports-app.css`, created after the isolated RC candidate
   was assembled and therefore outside the validated candidate boundary.
 - the post-candidate worktree revisions of

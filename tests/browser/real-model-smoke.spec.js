@@ -2,6 +2,10 @@ const { test, expect } = require("@playwright/test");
 const { spawn, spawnSync } = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs/promises");
+const {
+  pythonArgs,
+  resolvePythonRuntime,
+} = require("../../scripts/python_runtime");
 
 let reportWorker;
 let webServer;
@@ -33,10 +37,11 @@ async function waitForServer(url, timeoutMs = 120_000) {
 
 test.beforeAll(async () => {
   if (process.env.RUN_REAL_BROWSER_SMOKE !== "1") return;
-  const python = process.env.STAGE41_PYTHON || "python";
+  const pythonRuntime = resolvePythonRuntime({ cwd: process.cwd() });
   const runtimePrefix = process.env.STAGE42_REAL_BROWSER_PREFIX || "stage42_real_browser";
   const runtimeEnv = {
     ...process.env,
+    INTERVIEW_RUNTIME_PYTHON: pythonRuntime.executable,
     INTERVIEW_RUNTIME_STORE: "postgres",
     INTERVIEW_RUNTIME_TABLE_PREFIX: runtimePrefix,
     INTERVIEW_EVENT_BACKEND: "local",
@@ -54,15 +59,27 @@ test.beforeAll(async () => {
     "print('stage42-report-worker-ready', flush=True)",
     "run_forever(executor=executor, job_store=job_store)",
   ].join("; ");
-  reportWorker = spawn(python, ["-u", "-c", workerCode], {
+  reportWorker = spawn(
+    pythonRuntime.command,
+    pythonArgs(pythonRuntime, ["-u", "-c", workerCode]),
+    {
     cwd: process.cwd(),
     env: runtimeEnv,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+    },
+  );
   webServer = spawn(
-    python,
-    ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8012"],
+    pythonRuntime.command,
+    pythonArgs(pythonRuntime, [
+      "-m",
+      "uvicorn",
+      "app.main:app",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8012",
+    ]),
     {
       cwd: process.cwd(),
       env: runtimeEnv,

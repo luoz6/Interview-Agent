@@ -5,7 +5,7 @@ import json
 import re
 from typing import Protocol, runtime_checkable
 
-from app.services.context_artifacts import canonical_json
+from app.domain.context.artifacts import canonical_json
 
 
 _SENSITIVE_SCOPE = re.compile(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import logging
 from threading import Event, Lock, Thread
 
@@ -71,6 +70,24 @@ class DurableWorkflowMaintenanceService:
         self.context_artifact_cleanup_batch_size = (
             context_artifact_cleanup_batch_size
         )
+        if context_artifact_store is not None:
+            from app.services.context_artifact_recovery import (
+                ContextArtifactRecoveryService,
+            )
+
+            self.context_artifact_recovery = ContextArtifactRecoveryService(
+                store=context_artifact_store,
+                unreferenced_retention_hours=(
+                    context_artifact_unreferenced_retention_hours
+                ),
+                failed_retention_hours=context_artifact_failed_retention_hours,
+                prep_ref_retention_hours=(
+                    context_artifact_prep_ref_retention_hours
+                ),
+                batch_size=context_artifact_cleanup_batch_size,
+            )
+        else:
+            self.context_artifact_recovery = None
         self.interval_seconds = interval_seconds
         self._stop = Event()
         self._run_lock = Lock()
@@ -162,26 +179,9 @@ class DurableWorkflowMaintenanceService:
             self._run_lock.release()
 
     def _cleanup_context_artifacts(self):
-        if self.context_artifact_store is None:
+        if self.context_artifact_recovery is None:
             return None
-        from app.services.context_artifacts import ContextArtifactCleanupPolicy
-
-        now = datetime.now(timezone.utc)
-        return self.context_artifact_store.cleanup(
-            ContextArtifactCleanupPolicy(
-                completed_before=now
-                - timedelta(
-                    hours=self.context_artifact_unreferenced_retention_hours
-                ),
-                failed_before=now
-                - timedelta(hours=self.context_artifact_failed_retention_hours),
-                prep_ref_expires_before=now
-                - timedelta(
-                    hours=self.context_artifact_prep_ref_retention_hours
-                ),
-                batch_size=self.context_artifact_cleanup_batch_size,
-            )
-        )
+        return self.context_artifact_recovery.cleanup()
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval_seconds):

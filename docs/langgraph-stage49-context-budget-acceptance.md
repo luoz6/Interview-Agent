@@ -9,7 +9,7 @@ LLM-generated semantic compression artifacts.
 Run:
 
 ```powershell
-& 'F:\python3.11\python.exe' -m scripts.langgraph_stage49_acceptance
+& 'F:\python3.11\python.exe' -m scripts.repository_acceptance stage49
 ```
 
 Successful repository output is:

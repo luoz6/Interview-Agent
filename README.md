@@ -18,6 +18,11 @@ Repository-only memory acceptance is documented in
 `python -m scripts.memory_system_optimization_acceptance`. Its successful
 status is shadow readiness only; production observation remains `NOT_RUN`.
 
+Files under `docs/superpowers/plans/` and `docs/superpowers/specs/` are frozen
+implementation and design history, not current runbooks or command references.
+Read the `README.md` in the corresponding archive before using an archived
+plan or design snapshot.
+
 ## What Works
 
 - Independent Vite/React frontend at `http://127.0.0.1:5173` with six routes:
@@ -103,22 +108,23 @@ changes deployment configuration.
 - Node.js for static asset checks and Tailwind CSS build
 - PostgreSQL on `127.0.0.1:5432`
 - Database: `interview`
-- PostgreSQL user/password: `postgres` / `postgres`
+- PostgreSQL credentials supplied through the local process environment
 - pgvector extension installed in the `interview` database
 
 ## Configure
 
-The local PostgreSQL defaults are built into the code:
+PostgreSQL connection credentials are required configuration and are not built
+into the code. Configure them in the local process or Windows user environment:
 
-- `POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/interview`
+- `POSTGRES_DSN=postgresql://<user>:<password>@127.0.0.1:5432/interview`
 - `PGVECTOR_TABLE=knowledge_chunks`
 - `INTERVIEW_RUNTIME_STORE=postgres`
 - `INTERVIEW_RUNTIME_TABLE_PREFIX=interview`
 
-Set environment variables only when you need to override those defaults or provide the LLM key:
+Set the connection value and any desired overrides before starting the runtime:
 
 ```powershell
-$env:POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:5432/interview"
+$env:POSTGRES_DSN="postgresql://<user>:<password>@127.0.0.1:5432/interview"
 $env:PGVECTOR_TABLE="knowledge_chunks"
 $env:INTERVIEW_RUNTIME_STORE="postgres"
 $env:INTERVIEW_RUNTIME_TABLE_PREFIX="interview"
@@ -265,7 +271,7 @@ npm run test:browser:preflight
 python -m scripts.runtime_preflight --profile core
 python -m scripts.init_local_runtime --check
 npm run test:browser
-python -m scripts.audit_stage40_artifacts
+python -m scripts.release_artifact_audit --profile stage40
 ```
 
 On Ubuntu 24.04 LTS x64, use the Linux lock instead:

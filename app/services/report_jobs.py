@@ -3,7 +3,7 @@ import hashlib
 from typing import Literal
 from uuid import uuid4
 
-from app.services.config import (
+from app.runtime.config.compatibility import (
     get_report_langgraph_rollout_percent,
     get_report_langgraph_runtime_enabled,
     get_report_langgraph_version,

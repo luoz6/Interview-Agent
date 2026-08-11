@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.services.embedding_providers import validate_embedding_batch
-from app.services.vector_store import KnowledgeChunk
+from app.domain.knowledge.models import KnowledgeChunk
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class IngestionSummary(BaseModel):
     dimension: int
 
 
-class KnowledgeCorpusIngestor:
+class KnowledgeReleaseService:
     def __init__(self, *, store, provider) -> None:
         self.store = store
         self.provider = provider
@@ -158,3 +158,6 @@ def validate_manifest_and_chunks(
         if chunk_hash != identity_by_id[chunk.chunk_id]:
             raise ValueError("knowledge manifest content hash mismatch")
     return identity_by_id
+
+
+KnowledgeCorpusIngestor = KnowledgeReleaseService

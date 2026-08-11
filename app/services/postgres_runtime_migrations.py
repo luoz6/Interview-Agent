@@ -4,8 +4,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from app.services.config import derive_pgvector_table_names
-from app.services.context_artifact_store import PostgresContextArtifactStore
+from app.runtime.config.compatibility import derive_pgvector_table_names
+from app.adapters.postgres.context_artifacts import ContextArtifactPostgresAdapter
 from app.services.interview_generation_store import PostgresInterviewGenerationStore
 from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
 from app.services.postgres_identifiers import (
@@ -18,7 +18,7 @@ from app.services.report_jobs import PostgresReportJobStore
 from app.services.review_workflow_store import PostgresReviewWorkflowStore
 from app.services.runtime_signal_metrics import PostgresRuntimeSignalStore
 from app.services.postgres_memory_metrics import PostgresMemoryMetricStore
-from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
 from app.services.postgres_principal_memory_consent import (
     PostgresPrincipalMemoryConsentStore,
 )
@@ -33,17 +33,17 @@ from app.services.postgres_principal_memory_rights import (
 from app.services.postgres_principal_memory_ledger import (
     PostgresPrincipalMemoryLedgerWatermarkStore,
 )
-from app.services.vector_store import PgVectorKnowledgeStore
+from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V15_MANIFEST,
+    RUNTIME_SCHEMA_V16_MANIFEST,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V15_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V16_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -187,7 +187,7 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
-            PostgresContextArtifactStore(
+            ContextArtifactPostgresAdapter(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,
@@ -392,7 +392,7 @@ def _upgrade_principal_memory_exclusive_scope(
 
     from psycopg2 import sql
 
-    from app.services.principal_memory_contracts import (
+    from app.domain.memory.contracts import (
         derive_principal_fact_taxonomy_keys,
     )
     from app.services.principal_memory_exclusive_scan import (

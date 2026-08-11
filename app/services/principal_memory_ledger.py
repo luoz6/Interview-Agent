@@ -95,7 +95,7 @@ def _validated_timestamp(value: str) -> str:
     return value
 
 
-class ProtectedPrincipalMemoryLedger:
+class PrincipalMemoryLedger:
     def __init__(
         self,
         path: Path,
@@ -414,3 +414,6 @@ class ProtectedPrincipalMemoryLedger:
         finally:
             if descriptor is not None:
                 os.close(descriptor)
+
+
+ProtectedPrincipalMemoryLedger = PrincipalMemoryLedger

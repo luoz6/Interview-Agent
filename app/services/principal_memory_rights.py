@@ -153,6 +153,70 @@ class PrincipalMemoryExportService:
         }
 
 
+class PrincipalMemoryRightsService:
+    """Application boundary for the principal's export and deletion rights."""
+
+    def __init__(
+        self,
+        *,
+        identity_resolver,
+        consent_store,
+        export_store,
+        lifecycle_service=None,
+        control_service=None,
+        fact_store=None,
+        control_store=None,
+        tombstone_store=None,
+        cache_purge=None,
+        cache_count=None,
+        ledger_writer=None,
+        ledger_applied_writer=None,
+    ) -> None:
+        self.identity_resolver = identity_resolver
+        self.consent_store = consent_store
+        self.export_store = export_store
+        self.lifecycle_service = lifecycle_service
+        self.control_service = control_service
+        self.fact_store = fact_store
+        self.control_store = control_store
+        self.tombstone_store = tombstone_store
+        self.cache_purge = cache_purge
+        self.cache_count = cache_count
+        self.ledger_writer = ledger_writer
+        self.ledger_applied_writer = ledger_applied_writer
+
+    def export_current_principal(self):
+        if self.lifecycle_service is None or self.control_service is None:
+            raise RuntimeError("principal memory export dependencies are unavailable")
+        return PrincipalMemoryExportService(
+            identity_resolver=self.identity_resolver,
+            lifecycle_service=self.lifecycle_service,
+            consent_store=self.consent_store,
+            control_service=self.control_service,
+            export_store=self.export_store,
+        ).create()
+
+    def delete_current_principal(self):
+        if self.fact_store is None or self.tombstone_store is None:
+            raise RuntimeError("principal memory deletion dependencies are unavailable")
+        from app.services.principal_memory_deletion import (
+            PrincipalMemoryDeletionService,
+        )
+
+        return PrincipalMemoryDeletionService(
+            identity_resolver=self.identity_resolver,
+            consent_store=self.consent_store,
+            fact_store=self.fact_store,
+            control_store=self.control_store,
+            export_store=self.export_store,
+            tombstone_store=self.tombstone_store,
+            cache_purge=self.cache_purge,
+            cache_count=self.cache_count,
+            ledger_writer=self.ledger_writer,
+            ledger_applied_writer=self.ledger_applied_writer,
+        ).purge_current_principal()
+
+
 class PrincipalMemoryDeletionTombstone(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

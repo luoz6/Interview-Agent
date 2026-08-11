@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from app.services.config import (
+from app.runtime.config.compatibility import (
     get_embedding_settings,
     get_pgvector_table,
     get_postgres_dsn,

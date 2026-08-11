@@ -4,8 +4,7 @@ import hashlib
 import json
 import re
 
-from pydantic import BaseModel, Field
-
+from app.domain.knowledge.models import DEFAULT_SOURCE_TYPES, KnowledgeQuery
 from app.services.knowledge_profile import CANONICAL_TAXONOMY
 from app.services.prep import RoleProfile
 
@@ -38,19 +37,6 @@ SENIORITY_LABELS = {
     "mid": "中级",
     "junior": "初级",
 }
-DEFAULT_SOURCE_TYPES = ["theory", "engineering_guide", "expert_benchmark"]
-
-
-class KnowledgeQuery(BaseModel):
-    query_id: str
-    topic_id: str
-    query_text: str
-    canonical_tag: str
-    filters: dict[str, list[str]] = Field(default_factory=dict)
-    source_types: list[str] = Field(default_factory=lambda: list(DEFAULT_SOURCE_TYPES))
-    top_k: int = 5
-
-
 def build_knowledge_queries(role_profile: RoleProfile) -> list[KnowledgeQuery]:
     queries: list[KnowledgeQuery] = []
     for tag in role_profile.canonical_tags:

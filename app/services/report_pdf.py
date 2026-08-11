@@ -21,21 +21,22 @@ _DIMENSION_LABELS = {
 }
 
 
-def build_report_pdf(report: InterviewReport) -> bytes:
-    _register_pdf_fonts()
-    buffer = BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
-        title=f"Interview Report {report.session_id}",
-        author="Interview Agent",
-    )
-    document.build(_build_story(report))
-    return buffer.getvalue()
+class ReportPdfRenderer:
+    def render(self, report: InterviewReport) -> bytes:
+        _register_pdf_fonts()
+        buffer = BytesIO()
+        document = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=18 * mm,
+            rightMargin=18 * mm,
+            topMargin=16 * mm,
+            bottomMargin=16 * mm,
+            title=f"Interview Report {report.session_id}",
+            author="Interview Agent",
+        )
+        document.build(_build_story(report))
+        return buffer.getvalue()
 
 
 def _register_pdf_fonts() -> None:

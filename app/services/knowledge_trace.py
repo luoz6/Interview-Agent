@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.runtime.config import load_trace_runtime_settings
 from app.services.trace_sanitization import (
     KNOWLEDGE_TRACE_BLOCKED_KEY_PARTS,
     sanitize_trace_payload,
@@ -18,7 +18,7 @@ class KnowledgeTraceRecorder:
 
     @classmethod
     def from_env(cls) -> "KnowledgeTraceRecorder":
-        raw_dir = os.getenv("KNOWLEDGE_TRACE_DIR")
+        raw_dir = load_trace_runtime_settings().knowledge_directory
         return cls(root_dir=Path(raw_dir) if raw_dir else None)
 
     def record(

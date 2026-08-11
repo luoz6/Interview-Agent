@@ -15,7 +15,7 @@
 
 开发环境由 Vite 代理 `/api` 到 FastAPI，因此浏览器保持同源请求体验。跨域部署时可通过 `VITE_API_BASE_URL` 指定 API 地址，并通过后端 `FRONTEND_ORIGINS` 设置允许的前端来源。
 
-`app/test0.html` 至 `app/test4.html`、`app/test-help.html` 已经删除并退休，不能恢复为第二套产品前端。`app/static/*.js` 仅作为仍受测试约束的兼容性源码，不是当前页面设计、运行入口或部署契约。新增和修改产品功能应落在 `frontend/src/`。
+`app/test0.html` 至 `app/test4.html`、`app/test-help.html` 已经删除并退休，原 `app/static/` 静态兼容资源已经删除；两者都不能恢复为第二套产品前端。新增和修改产品功能必须落在 `frontend/src/`，Memory Center 完成 React 替代前仍由 `frontend/public/memory-center.*` 临时承载。
 
 ## 2. 启动与构建
 
@@ -52,7 +52,7 @@ npm.cmd run dev:frontend
 npm.cmd run build:frontend
 ```
 
-构建产物位于 `frontend/dist/`。`build:prototype-css` 仅作为兼容命令别名保留，当前同样执行 Vite 构建，不再编译旧 HTML 的 Tailwind 样式。
+构建产物位于 `frontend/dist/`。旧 `build:prototype-css` 兼容别名已经删除，唯一生产构建入口是 `build:frontend`。
 
 ## 3. 路由与页面组件
 
@@ -224,4 +224,4 @@ frontend/src/styles/components/
 frontend/src/styles/pages/
 ```
 
-除非任务明确要求清理历史兼容资产，否则不要把 `app/test*.html` 或 `app/static/*.js` 重新接回运行路径，也不要据此还原页面设计。
+不要把已经退休的 `app/test*.html` 或 `app/static/` 重新接回运行路径，也不要据此还原页面设计。
