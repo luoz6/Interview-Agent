@@ -33,7 +33,7 @@ class PrincipalMemoryControl(BaseModel):
         return self
 
 
-class PrincipalMemoryControlService:
+class PrincipalMemoryControlPolicy:
     def __init__(self, *, identity_resolver, store, clock=None):
         self.identity_resolver = identity_resolver
         self.store = store
@@ -123,3 +123,6 @@ class PrincipalMemoryControlService:
         if identity is None:
             raise PermissionError("principal identity is unavailable")
         return identity
+
+
+PrincipalMemoryControlService = PrincipalMemoryControlPolicy

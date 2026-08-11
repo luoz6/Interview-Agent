@@ -5,7 +5,7 @@ from pathlib import Path
 from app.services.principal_memory_ledger import (
     GENESIS_HEAD_SHA256,
     PrincipalMemoryLedgerError,
-    ProtectedPrincipalMemoryLedger,
+    PrincipalMemoryLedger,
 )
 
 
@@ -73,7 +73,7 @@ def check_principal_memory_ledger_readiness(
     if path is None or not str(path).strip():
         return _blocked("TOMBSTONE_LEDGER_REQUIRED")
     try:
-        ledger = ProtectedPrincipalMemoryLedger(
+        ledger = PrincipalMemoryLedger(
             Path(path),
             workspace=workspace,
             lock_timeout_seconds=lock_timeout_seconds,

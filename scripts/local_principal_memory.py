@@ -24,11 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _service(*, maintenance: bool = False):
-    from app.services.config import (
+    from app.runtime.config.compatibility import (
         get_runtime_store,
         get_runtime_table_prefix,
     )
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
     from app.services.memory_metrics import UnavailableMemoryMetricStore
     from app.services.postgres_runtime_migrations import (
         RUNTIME_MIGRATION_CHECKSUM,
@@ -131,7 +131,7 @@ def _deletion_service():
 
 
 def _capture_latest_tombstone(ledger: Path):
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
     from app.services.principal_memory_ledger import PrincipalMemoryLedgerError
     from app.services.runtime import (
         get_principal_identity_resolver,
@@ -160,8 +160,8 @@ def _capture_latest_tombstone(ledger: Path):
 
 
 def _replay_tombstones(ledger: Path):
-    from app.services.config import get_runtime_table_prefix
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.compatibility import get_runtime_table_prefix
+    from app.runtime.config.memory import load_effective_memory_config
     from app.services.principal_memory_durable_ledger import (
         PrincipalMemoryDurableLedger,
     )

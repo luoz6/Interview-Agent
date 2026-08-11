@@ -66,7 +66,11 @@ npm.cmd run build:frontend
 $env:STAGE41_PYTHON='F:\python3.11\python.exe'
 npm.cmd run test:browser
 git diff --check
-& 'F:\python3.11\python.exe' -m scripts.memory_validation_foundation_acceptance
+$env:OPERATIONAL_INPUT_REVISION='<validated revision>'
+$env:EVIDENCE_HMAC_KEY_ID='<external key id>'
+$env:EVIDENCE_HMAC_SECRET_B64='<external base64 secret>'
+& 'F:\python3.11\python.exe' -m scripts.memory_validation_foundation_acceptance `
+  --evidence reports/memory/operational-rc-evidence-v1.json
 ~~~
 
 The validation ran in a clean detached worktree created from `a982b1f`, with

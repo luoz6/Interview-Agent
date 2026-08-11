@@ -4,7 +4,6 @@
     "build:frontend": "npm --prefix frontend run build",
     "analyze:bundle": "npm --prefix frontend run analyze:bundle",
     "preview:frontend": "npm --prefix frontend run preview",
-    "build:prototype-css": "npm --prefix frontend run build",
     "test:browser:preflight": "node ./scripts/browser_preflight.js",
     "test:browser": "node ./scripts/run_browser_tests.js"
   },

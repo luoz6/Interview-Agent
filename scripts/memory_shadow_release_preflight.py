@@ -4,14 +4,34 @@ import argparse
 from collections import Counter
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Collection, Iterable, Sequence
+
+from app.runtime.config.memory import load_effective_memory_config
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    ReleaseEvidencePayload,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.policies import ReleaseEvidencePolicy
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_EVIDENCE_OUTPUT = (
+    ROOT / "reports" / "memory" / "release-preflight-evidence-v1.json"
+)
 
-RETIRED_HTML = frozenset(
+RETIRED_STATIC_ASSETS = frozenset(
     {
         "app/test-help.html",
         "app/test0.html",
@@ -19,25 +39,39 @@ RETIRED_HTML = frozenset(
         "app/test2.html",
         "app/test3.html",
         "app/test4.html",
+        "app/static/api.js",
+        "app/static/interview.js",
+        "app/static/prep.js",
+        "app/static/prototype-source.css",
+        "app/static/prototype.css",
+        "app/static/report-center.js",
+        "app/static/report-detail.js",
+        "app/static/report-processing.js",
+        "app/static/shared-ui.js",
+        "frontend/public/memory-center.css",
+        "frontend/public/memory-center.html",
+        "frontend/public/memory-center.js",
     }
 )
 
 REQUIRED_RC_PATHS = (
     ".env.example",
-    "app/services/memory_config.py",
+    "app/runtime/config/memory.py",
     "app/services/postgres_runtime_migrations.py",
-    "app/services/principal_memory_contracts.py",
-    "app/services/postgres_principal_memory.py",
+    "app/domain/memory/contracts.py",
+    "app/domain/memory/facts.py",
+    "app/adapters/memory/principal_memory.py",
+    "app/adapters/postgres/principal_memory.py",
     "app/services/principal_memory_tasks.py",
     "app/services/principal_memory_shadow.py",
     "docs/interview-agent-memory-system-optimization-spec.md",
-    "docs/memory-validation-operational-evidence.json",
+    "contracts/evidence/payloads.py",
     "docs/principal-memory-threat-model.md",
     "docs/superpowers/plans/2026-07-31-memory-operational-shadow-and-promotion-gates.md",
     "scripts/memory_validation_foundation_acceptance.py",
-    "tests/test_memory_validation_foundation_acceptance.py",
-    "tests/test_principal_memory_prompt_isolation.py",
-    "tests/test_principal_memory_knowledge_firewall.py",
+    "scripts/memory_operational_input_evidence.py",
+    "tests/acceptance/test_memory_validation_foundation_acceptance.py",
+    "tests/architecture/test_principal_memory_isolation.py",
 )
 
 SENSITIVE_SUFFIXES = frozenset(
@@ -49,6 +83,7 @@ SENSITIVE_SUFFIXES = frozenset(
 class StatusEntry:
     status: str
     path: str
+    path_role: str = "path"
 
     @property
     def staged(self) -> bool:
@@ -68,6 +103,7 @@ class Ownership:
 class InventoryItem:
     status: str
     path: str
+    path_role: str
     category: str
     policy: str
     phase: str
@@ -122,13 +158,13 @@ def _ownership(
 def classify_path(path: str) -> Ownership:
     normalized = path.replace("\\", "/")
 
-    if normalized in RETIRED_HTML:
+    if normalized in RETIRED_STATIC_ASSETS:
         return _ownership(
-            "retired_static_html",
+            "retired_static_asset",
             "include",
             "memory_validation_foundation",
             "frontend_contract_migration",
-            "Retired HTML deletion is an accepted baseline migration.",
+            "Retired static asset deletion is an accepted baseline migration.",
         )
 
     if normalized.startswith(".hallmark/") or normalized == "DESIGN.md":
@@ -141,8 +177,6 @@ def classify_path(path: str) -> Ownership:
         )
 
     if normalized in {
-        "app/static/prototype-source.css",
-        "app/static/prototype.css",
         "frontend/src/pages/ReportsPage.jsx",
         "frontend/src/styles/reports-app.css",
         "tests/browser/reports-ui.spec.js",
@@ -179,15 +213,12 @@ def classify_path(path: str) -> Ownership:
         "playwright.config.js",
         "scripts/run_browser_tests.js",
         "tests/browser_support_app.py",
-        "tests/test_api.py",
-        "tests/test_react_frontend.py",
-        "tests/test_local_v1_docs.py",
-        "tests/test_page_routes.py",
-        "tests/test_report_api.py",
-        "tests/test_session_service.py",
-        "tests/test_static_memory_assistance.py",
-        "tests/test_static_report_ui.py",
-        "tests/test_utf8_text_contract.py",
+        "tests/acceptance/test_api.py",
+        "tests/architecture/test_frontend_runtime.py",
+        "tests/acceptance/test_page_routes.py",
+        "tests/acceptance/test_report_api.py",
+        "tests/unit/test_session_service.py",
+        "tests/contracts/test_utf8_text_contract.py",
     } or normalized.startswith("frontend/") or normalized.startswith(
         "app/static/"
     ) or normalized.startswith("tests/browser/"):
@@ -214,11 +245,11 @@ def classify_path(path: str) -> Ownership:
         "scripts/build_knowledge_manifest_v2.py",
         "scripts/load_knowledge_v2.py",
         "tests/golden/knowledge_retrieval_memory_p1.json",
-        "tests/test_grounded_knowledge_agent.py",
-        "tests/test_knowledge_eval_dataset_v2.py",
-        "tests/test_knowledge_manifest_v2.py",
-        "tests/test_knowledge_profile.py",
-        "tests/test_stage44b1_corpus.py",
+        "tests/unit/test_grounded_knowledge_agent.py",
+        "tests/contracts/test_knowledge_eval_dataset_v2.py",
+        "tests/contracts/test_knowledge_manifest_v2.py",
+        "tests/contracts/test_knowledge_profile.py",
+        "tests/contracts/test_stage44b1_corpus.py",
     }:
         return _ownership(
             "knowledge_p1",
@@ -259,7 +290,9 @@ def classify_path(path: str) -> Ownership:
         "app/services/in_memory_principal_"
     ) or normalized.startswith("tests/test_principal_") or normalized.startswith(
         "tests/test_postgres_principal_"
-    ) or normalized.startswith("tests/test_in_memory_principal_"):
+    ) or normalized.startswith("tests/test_in_memory_principal_") or normalized.startswith(
+        "tests/architecture/test_principal_memory"
+    ):
         return _ownership(
             "principal_memory",
             "include",
@@ -286,8 +319,10 @@ def classify_path(path: str) -> Ownership:
     if normalized.startswith("app/ports/session_deletion") or normalized.startswith(
         "app/services/session_deletion"
     ) or normalized.startswith("app/services/postgres_session_deletion") or normalized.startswith(
-        "tests/test_session_deletion"
-    ) or normalized.startswith("tests/test_postgres_session_deletion"):
+        "tests/unit/test_session_deletion"
+    ) or normalized.startswith(
+        "tests/acceptance/test_session_deletion"
+    ) or normalized.startswith("tests/contracts/test_postgres_session_deletion"):
         return _ownership(
             "memory_deletion",
             "include",
@@ -322,7 +357,7 @@ def classify_path(path: str) -> Ownership:
     ) or normalized in {
         "app/agents/context_compressor.py",
         "app/services/context_artifact_store.py",
-        "tests/test_context_artifacts.py",
+        "tests/contracts/test_context_artifacts.py",
     }:
         return _ownership(
             "context_memory",
@@ -354,22 +389,21 @@ def classify_path(path: str) -> Ownership:
         "app/services/session_serialization.py",
         "app/services/trace_sanitization.py",
         "tests/postgres_support.py",
-        "tests/test_agents.py",
-        "tests/test_dual_langgraph_rollout.py",
-        "tests/test_durable_interview_state.py",
-        "tests/test_llm_service.py",
-        "tests/test_postgres_identifiers.py",
-        "tests/test_postgres_runtime_migrations.py",
-        "tests/test_postgres_session_store.py",
-        "tests/test_postgres_store_provider_injection.py",
-        "tests/test_prep_service.py",
-        "tests/test_provider_usage.py",
-        "tests/test_reference_ui_artifact.py",
-        "tests/test_runtime_boundary_api.py",
-        "tests/test_runtime_outbox_dispatcher.py",
-        "tests/test_session_serialization.py",
-        "tests/test_interview_assistance.py",
-        "tests/test_trace_sanitization.py",
+        "tests/unit/test_agents.py",
+        "tests/unit/test_dual_langgraph_rollout.py",
+        "tests/unit/test_durable_interview_state.py",
+        "tests/unit/test_llm_service.py",
+        "tests/unit/test_postgres_identifiers.py",
+        "tests/integration/postgres/test_postgres_runtime_migrations.py",
+        "tests/integration/postgres/test_postgres_session_store.py",
+        "tests/unit/test_postgres_store_provider_injection.py",
+        "tests/unit/test_prep_service.py",
+        "tests/unit/test_provider_usage.py",
+        "tests/acceptance/test_runtime_boundary_api.py",
+        "tests/unit/test_runtime_outbox_dispatcher.py",
+        "tests/contracts/test_session_serialization.py",
+        "tests/unit/test_interview_assistance.py",
+        "tests/unit/test_trace_sanitization.py",
     }:
         return _ownership(
             "memory_central_integration",
@@ -388,6 +422,18 @@ def classify_path(path: str) -> Ownership:
     )
 
 
+def _normalize_git_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:/", normalized)
+        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+    ):
+        raise ValueError("unsafe path in git porcelain entry")
+    return normalized
+
+
 def parse_porcelain_v1_z(raw: bytes) -> tuple[StatusEntry, ...]:
     fields = raw.decode("utf-8", errors="strict").split("\0")
     entries: list[StatusEntry] = []
@@ -400,10 +446,24 @@ def parse_porcelain_v1_z(raw: bytes) -> tuple[StatusEntry, ...]:
         if len(field) < 4:
             raise ValueError("invalid git porcelain entry")
         status = field[:2]
-        path = field[3:]
-        entries.append(StatusEntry(status=status, path=path.replace("\\", "/")))
+        destination = _normalize_git_path(field[3:])
         if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
+            if index >= len(fields) or not fields[index]:
+                raise ValueError("rename/copy git porcelain entry is missing its source path")
+            source = _normalize_git_path(fields[index])
             index += 1
+            entries.append(
+                StatusEntry(
+                    status=status,
+                    path=destination,
+                    path_role="destination",
+                )
+            )
+            entries.append(
+                StatusEntry(status=status, path=source, path_role="source")
+            )
+        else:
+            entries.append(StatusEntry(status=status, path=destination))
     return tuple(entries)
 
 
@@ -426,19 +486,33 @@ def build_report(
     required_paths: Sequence[str] = REQUIRED_RC_PATHS,
     exists: Callable[[Path], bool] | None = None,
     allow_planned_staging: bool = False,
+    is_symlink: Callable[[Path], bool] | None = None,
+    symlink_paths: Collection[str] = (),
+    submodule_paths: Collection[str] = (),
 ) -> PreflightReport:
     exists = exists or Path.exists
+    is_symlink = is_symlink or Path.is_symlink
     items: list[InventoryItem] = []
     blockers: set[str] = set()
     entry_by_path: dict[str, StatusEntry] = {}
+    path_by_casefold: dict[str, str] = {}
 
     for entry in entries:
+        folded = entry.path.casefold()
+        previous_path = path_by_casefold.get(folded)
+        if previous_path is not None and previous_path != entry.path:
+            blockers.add(
+                "case_colliding_paths:"
+                f"{min(previous_path, entry.path)}:{max(previous_path, entry.path)}"
+            )
+        path_by_casefold[folded] = entry.path
         ownership = classify_path(entry.path)
         entry_by_path[entry.path] = entry
         items.append(
             InventoryItem(
                 status=entry.status,
                 path=entry.path,
+                path_role=entry.path_role,
                 staged=entry.staged,
                 **asdict(ownership),
             )
@@ -447,19 +521,26 @@ def build_report(
             blockers.add(f"manual_review_path:{entry.path}")
         if _looks_sensitive(entry.path):
             blockers.add(f"sensitive_path:{entry.path}")
+        if entry.path in symlink_paths or is_symlink(root / entry.path):
+            blockers.add(f"symlink_path:{entry.path}")
+        if entry.path in submodule_paths:
+            blockers.add(f"submodule_path:{entry.path}")
         if entry.staged:
             if allow_planned_staging:
                 if ownership.policy not in {"include", "shared_review"}:
                     blockers.add(f"staged_path_outside_rc:{entry.path}")
-            elif entry.path not in RETIRED_HTML:
+            elif entry.path not in RETIRED_STATIC_ASSETS:
                 blockers.add(f"unexpected_staged_change:{entry.path}")
 
-    for path in RETIRED_HTML:
+    for path in RETIRED_STATIC_ASSETS:
         entry = entry_by_path.get(path)
         if exists(root / path):
-            blockers.add(f"retired_static_html_restored:{path}")
-        elif entry is not None and "D" not in entry.status:
-            blockers.add(f"retired_static_html_not_deleted:{path}")
+            blockers.add(f"retired_static_asset_restored:{path}")
+        elif entry is not None and not (
+            "D" in entry.status
+            or entry.path_role == "source" and "R" in entry.status
+        ):
+            blockers.add(f"retired_static_asset_not_deleted:{path}")
 
     for path in required_paths:
         if not exists(root / path):
@@ -485,11 +566,35 @@ def _git(root: Path, *args: str) -> bytes:
     return completed.stdout
 
 
+def _paths_with_git_mode(raw: bytes, expected_mode: str) -> set[str]:
+    paths: set[str] = set()
+    for record in raw.decode("utf-8", errors="strict").split("\0"):
+        if not record:
+            continue
+        metadata, separator, path = record.partition("\t")
+        if not separator:
+            raise ValueError("invalid git mode entry")
+        mode = metadata.split(" ", 1)[0]
+        if mode == expected_mode:
+            paths.add(_normalize_git_path(path))
+    return paths
+
+
 def run_preflight(
     root: Path = ROOT, *, allow_planned_staging: bool = False
 ) -> PreflightReport:
     entries = parse_porcelain_v1_z(
         _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    )
+    index_modes = _git(root, "ls-files", "-s", "-z")
+    head_modes = _git(root, "ls-tree", "-rz", "HEAD")
+    symlink_paths = _paths_with_git_mode(index_modes, "120000") | _paths_with_git_mode(
+        head_modes,
+        "120000",
+    )
+    submodule_paths = _paths_with_git_mode(index_modes, "160000") | _paths_with_git_mode(
+        head_modes,
+        "160000",
     )
     revision = _git(root, "rev-parse", "--short", "HEAD").decode("ascii").strip()
     return build_report(
@@ -497,6 +602,48 @@ def run_preflight(
         root=root,
         base_revision=revision,
         allow_planned_staging=allow_planned_staging,
+        symlink_paths=symlink_paths,
+        submodule_paths=submodule_paths,
+    )
+
+
+def _shadow_modes_changed() -> bool:
+    config = load_effective_memory_config({})
+    return any(
+        (
+            config.budget.mode != "disabled",
+            config.compression.mode != "disabled",
+            config.long_term.mode != "disabled",
+            config.long_term.write_shadow_enabled,
+            config.long_term.read_shadow_enabled,
+            config.long_term.trusted_local_api_enabled,
+        )
+    )
+
+
+def _release_gate_codes(blockers: Iterable[str]) -> list[str]:
+    return sorted(
+        {
+            re.sub(r"[^A-Z0-9_]+", "_", blocker.partition(":")[0].upper())
+            for blocker in blockers
+        }
+    )
+
+
+def build_release_evidence(
+    report: PreflightReport,
+    *,
+    synthetic: bool = False,
+) -> ReleaseEvidencePayload:
+    aggregate = report.aggregate()
+    return ReleaseEvidencePayload(
+        schema_version="release-evidence-v1",
+        changed_path_count=aggregate["changed_path_count"],
+        staged_path_count=aggregate["staged_path_count"],
+        clean_detached_worktree=not report.items,
+        shadow_modes_changed=_shadow_modes_changed(),
+        blockers=_release_gate_codes(report.blockers),
+        synthetic=synthetic,
     )
 
 
@@ -530,13 +677,58 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="allow staged include/shared paths while blocking excluded paths",
     )
+    parser.add_argument(
+        "--evidence-output",
+        type=Path,
+        default=DEFAULT_EVIDENCE_OUTPUT,
+    )
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.shadow.release-preflight",
+    )
+    parser.add_argument("--synthetic", action="store_true")
     args = parser.parse_args(argv)
     report = run_preflight(allow_planned_staging=args.allow_planned_staging)
+    output_revision = args.output_revision or report.base_revision
+    if output_revision != report.base_revision:
+        print("MEMORY_SHADOW_RELEASE_PREFLIGHT=BLOCKED")
+        print("GATE=RELEASE_REVISION_MISMATCH")
+        return 1
+    try:
+        signer = load_receipt_signer(os.environ)
+    except AcceptanceConfigurationError as exc:
+        print("MEMORY_SHADOW_RELEASE_PREFLIGHT=BLOCKED")
+        print(f"GATE={exc.code}")
+        return 1
+    payload = build_release_evidence(report, synthetic=args.synthetic)
+    policy_result = ReleaseEvidencePolicy().evaluate(payload)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="release-evidence",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.memory-shadow-release-preflight",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+    )
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: output_verifier.verify(
+            value,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.evidence_output, bundle)
     if args.json:
         print(json.dumps(report.aggregate(), ensure_ascii=False, sort_keys=True, indent=2))
     else:
         _print_text(report, list_paths=args.list)
-    return 0 if report.passed else 1
+    print("\n".join(render_gate_lines(bundle)))
+    return 0 if policy_result.verification_status.value == "PASS" else 1
 
 
 if __name__ == "__main__":

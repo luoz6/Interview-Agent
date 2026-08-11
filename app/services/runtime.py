@@ -1,21 +1,31 @@
-import os
 import socket
 from dataclasses import dataclass
 from datetime import timedelta
 from threading import Lock, RLock
 from uuid import uuid4
 
-from app.services.config import (
-    DEFAULT_POSTGRES_DSN,
+from app.runtime.config import load_worker_runtime_settings
+from app.runtime.container import RuntimeContainer
+from app.runtime.lifecycle import (
+    RuntimeCloser,
+    close_runtime_resources,
+    close_without_wait_argument,
+    shutdown_with_optional_wait,
+    shutdown_without_wait_argument,
+)
+from app.runtime.config.compatibility import (
     get_durable_workflow_maintenance_seconds,
     get_context_artifact_cleanup_batch_size,
+    get_context_artifact_deployment_scope,
     get_context_artifact_failed_retention_hours,
     get_context_artifact_lease_seconds,
     get_context_artifact_prep_ref_retention_hours,
     get_context_artifact_unreferenced_retention_hours,
     get_postgres_dsn,
     get_postgres_pool_settings,
+    get_interview_langgraph_rollout_percent,
     get_interview_langgraph_runtime_enabled,
+    get_interview_langgraph_version,
     get_interview_chunk_retention_hours,
     get_interview_draft_ttl_seconds,
     get_prep_plan_consumed_retention_seconds,
@@ -40,7 +50,7 @@ from app.services.agent_recorders import (
 )
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.agent_trace import AgentTraceRecorder
-from app.services.drafts import AnonymousDraftStore
+from app.services.in_memory_draft_store import InMemoryDraftStore
 from app.services.postgres_draft_store import PostgresDraftStore
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.postgres_prep_plan_store import PostgresPrepPlanStore
@@ -52,7 +62,6 @@ from app.services.model_capabilities import ContextConfigurationError
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.memory_report_jobs import InMemoryReportJobStore
-from app.services.report_artifact_store import InMemoryReportArtifactStore
 from app.services.runtime_outbox_dispatcher import (
     CeleryRuntimeEventSink,
     LocalRuntimeEventSink,
@@ -60,7 +69,7 @@ from app.services.runtime_outbox_dispatcher import (
     RuntimeOutboxService,
 )
 from app.services.session import InterviewSessionStore
-from app.services.vector_store import PgVectorKnowledgeStore, get_knowledge_store
+from app.adapters.pgvector.repository import PgVectorKnowledgeStore, get_knowledge_store
 
 
 @dataclass(frozen=True)
@@ -84,93 +93,62 @@ class _ContextCompressorAuthority:
     model_config: object | None
 
 
-_session_store = None
-_report_job_store = None
-_report_artifact_store = None
-_decision_store = None
-_report_executor = None
-_draft_store = None
-_prep_plan_store = None
-_interview_launch_repository = None
-_interview_launch_coordinator = None
-_plan_revision_store = None
-_event_publisher = None
-_runtime_control_store = None
-_runtime_outbox_service = None
-_agent_execution_runner = None
-_agent_composite_recorder = None
-_agent_postgres_control_identities: set[tuple[str, object]] = set()
-_agent_runtime_lock = Lock()
-_postgres_domains_lock = Lock()
-_runtime_lifecycle_lock = RLock()
-_langgraph_checkpointer_runtime = None
-_langgraph_checkpointer_started = False
-_interview_workflow_service = None
-_interview_workflow_consumer = None
-_review_workflow_service = None
-_review_workflow_consumer = None
-_durable_workflow_maintenance_service = None
-_durable_workflow_maintenance_started = False
-_workflow_thread_lock = None
-_runtime_signal_store = None
-_postgres_connection_domains = None
-_context_artifact_store = None
-_context_compression_runners = {}
-_context_compression_failure_store = None
-_context_compressor_agent = None
-_context_compressor_authority: _ContextCompressorAuthority | None = None
-_composed_workflow_llm = None
-_composed_workflow_llm_authority: _ComposedWorkflowLLMAuthority | None = None
-_question_memory_index_store = None
-_session_deletion_job_store = None
-_session_deletion_tombstone_store = None
-_session_deletion_service = None
-_session_deletion_worker = None
-_memory_metric_store = None
-_principal_identity_resolver = None
-_principal_memory_control_store = None
-_principal_memory_consent_store = None
-_principal_memory_fact_store = None
-_principal_memory_export_store = None
-_principal_memory_deletion_tombstone_store = None
-_principal_memory_safe_ref_store = None
-_principal_memory_ledger_watermark_store = None
-_principal_memory_durable_ledger = None
-_principal_memory_proposal_processor = None
-_principal_memory_shadow_service = None
-_principal_memory_consume_service = None
-_context_compression_lock = RLock()
+_runtime_container = RuntimeContainer()
+
+_RUNTIME_CLOSERS = (
+    RuntimeCloser("runtime_outbox_service", shutdown_with_optional_wait),
+    RuntimeCloser(
+        "durable_workflow_maintenance_service",
+        shutdown_with_optional_wait,
+    ),
+    RuntimeCloser("report_job_store", shutdown_with_optional_wait),
+    RuntimeCloser(
+        "langgraph_checkpointer_runtime",
+        shutdown_without_wait_argument,
+    ),
+    RuntimeCloser("workflow_thread_lock", close_without_wait_argument),
+    RuntimeCloser(
+        "postgres_connection_domains",
+        close_without_wait_argument,
+    ),
+    RuntimeCloser("event_publisher", shutdown_with_optional_wait),
+)
 
 
-def get_principal_identity_resolver(*, config=None):
-    global _principal_identity_resolver
-    if _principal_identity_resolver is None:
-        from app.services.memory_config import load_effective_memory_config
+def get_runtime_container() -> RuntimeContainer:
+    return _runtime_container
+
+
+def get_principal_identity_resolver():
+    resolver = _runtime_container.get("principal_identity_resolver")
+    if resolver is None:
+        from app.runtime.config.memory import load_effective_memory_config
         from app.services.principal_identity import (
             ExplicitPrincipalIdentityResolver,
             NullPrincipalIdentityResolver,
         )
 
-        config = config or load_effective_memory_config()
+        config = load_effective_memory_config()
         if config.long_term.local_principal_enabled:
-            _principal_identity_resolver = ExplicitPrincipalIdentityResolver(
+            resolver = ExplicitPrincipalIdentityResolver(
                 deployment_id=config.privacy.deployment_id,
                 principal_id=config.long_term.local_principal_id,
                 assurance="trusted_local",
             )
         else:
-            _principal_identity_resolver = NullPrincipalIdentityResolver()
-    return _principal_identity_resolver
+            resolver = NullPrincipalIdentityResolver()
+        _runtime_container.set("principal_identity_resolver", resolver)
+    return resolver
 
 
 def get_principal_memory_consent_store():
-    global _principal_memory_consent_store
-    if _principal_memory_consent_store is None:
+    store = _runtime_container.get("principal_memory_consent_store")
+    if store is None:
         if get_runtime_store() == "postgres":
             from app.services.postgres_principal_memory_consent import (
                 PostgresPrincipalMemoryConsentStore,
             )
-            _principal_memory_consent_store = PostgresPrincipalMemoryConsentStore(
+            store = PostgresPrincipalMemoryConsentStore(
                 dsn=get_postgres_dsn(),
                 connection_provider=get_postgres_connection_domains().business,
                 table_prefix=get_runtime_table_prefix(),
@@ -180,19 +158,20 @@ def get_principal_memory_consent_store():
             from app.services.in_memory_principal_memory_consent import (
                 InMemoryPrincipalMemoryConsentStore,
             )
-            _principal_memory_consent_store = InMemoryPrincipalMemoryConsentStore()
-    return _principal_memory_consent_store
+            store = InMemoryPrincipalMemoryConsentStore()
+        _runtime_container.set("principal_memory_consent_store", store)
+    return store
 
 
 def get_principal_memory_control_store():
-    global _principal_memory_control_store
-    if _principal_memory_control_store is None:
+    store = _runtime_container.get("principal_memory_control_store")
+    if store is None:
         if get_runtime_store() == "postgres":
             from app.services.postgres_principal_memory_control import (
                 PostgresPrincipalMemoryControlStore,
             )
 
-            _principal_memory_control_store = PostgresPrincipalMemoryControlStore(
+            store = PostgresPrincipalMemoryControlStore(
                 dsn=get_postgres_dsn(),
                 connection_provider=get_postgres_connection_domains().business,
                 table_prefix=get_runtime_table_prefix(),
@@ -203,19 +182,20 @@ def get_principal_memory_control_store():
                 InMemoryPrincipalMemoryControlStore,
             )
 
-            _principal_memory_control_store = InMemoryPrincipalMemoryControlStore()
-    return _principal_memory_control_store
+            store = InMemoryPrincipalMemoryControlStore()
+        _runtime_container.set("principal_memory_control_store", store)
+    return store
 
 
 def get_principal_memory_export_store():
-    global _principal_memory_export_store
-    if _principal_memory_export_store is None:
+    store = _runtime_container.get("principal_memory_export_store")
+    if store is None:
         if get_runtime_store() == "postgres":
             from app.services.postgres_principal_memory_rights import (
                 PostgresPrincipalMemoryExportStore,
             )
 
-            _principal_memory_export_store = PostgresPrincipalMemoryExportStore(
+            store = PostgresPrincipalMemoryExportStore(
                 dsn=get_postgres_dsn(),
                 connection_provider=get_postgres_connection_domains().business,
                 table_prefix=get_runtime_table_prefix(),
@@ -226,19 +206,20 @@ def get_principal_memory_export_store():
                 InMemoryPrincipalMemoryExportStore,
             )
 
-            _principal_memory_export_store = InMemoryPrincipalMemoryExportStore()
-    return _principal_memory_export_store
+            store = InMemoryPrincipalMemoryExportStore()
+        _runtime_container.set("principal_memory_export_store", store)
+    return store
 
 
 def get_principal_memory_deletion_tombstone_store():
-    global _principal_memory_deletion_tombstone_store
-    if _principal_memory_deletion_tombstone_store is None:
+    store = _runtime_container.get("principal_memory_deletion_tombstone_store")
+    if store is None:
         if get_runtime_store() == "postgres":
             from app.services.postgres_principal_memory_rights import (
                 PostgresPrincipalMemoryDeletionTombstoneStore,
             )
 
-            _principal_memory_deletion_tombstone_store = (
+            store = (
                 PostgresPrincipalMemoryDeletionTombstoneStore(
                     dsn=get_postgres_dsn(),
                     connection_provider=get_postgres_connection_domains().business,
@@ -251,21 +232,22 @@ def get_principal_memory_deletion_tombstone_store():
                 InMemoryPrincipalMemoryDeletionTombstoneStore,
             )
 
-            _principal_memory_deletion_tombstone_store = (
+            store = (
                 InMemoryPrincipalMemoryDeletionTombstoneStore()
             )
-    return _principal_memory_deletion_tombstone_store
+        _runtime_container.set("principal_memory_deletion_tombstone_store", store)
+    return store
 
 
 def get_principal_memory_safe_ref_store():
-    global _principal_memory_safe_ref_store
-    if _principal_memory_safe_ref_store is None:
+    store = _runtime_container.get("principal_memory_safe_ref_store")
+    if store is None:
         if get_runtime_store() == "postgres":
             from app.services.postgres_principal_memory_rights import (
                 PostgresPrincipalMemorySafeRefStore,
             )
 
-            _principal_memory_safe_ref_store = PostgresPrincipalMemorySafeRefStore(
+            store = PostgresPrincipalMemorySafeRefStore(
                 dsn=get_postgres_dsn(),
                 connection_provider=get_postgres_connection_domains().business,
                 table_prefix=get_runtime_table_prefix(),
@@ -276,25 +258,26 @@ def get_principal_memory_safe_ref_store():
                 InMemoryPrincipalMemorySafeRefStore,
             )
 
-            _principal_memory_safe_ref_store = InMemoryPrincipalMemorySafeRefStore()
-    return _principal_memory_safe_ref_store
+            store = InMemoryPrincipalMemorySafeRefStore()
+        _runtime_container.set("principal_memory_safe_ref_store", store)
+    return store
 
 
-def get_principal_memory_ledger_watermark_store(*, config=None):
-    global _principal_memory_ledger_watermark_store
-    from app.services.memory_config import load_effective_memory_config
+def get_principal_memory_ledger_watermark_store():
+    from app.runtime.config.memory import load_effective_memory_config
 
-    config = config or load_effective_memory_config()
+    config = load_effective_memory_config()
     if config.long_term.mode != "local_consume":
         return None
     if get_runtime_store() != "postgres":
         raise RuntimeError("local principal memory ledger requires PostgreSQL")
-    if _principal_memory_ledger_watermark_store is None:
+    store = _runtime_container.get("principal_memory_ledger_watermark_store")
+    if store is None:
         from app.services.postgres_principal_memory_ledger import (
             PostgresPrincipalMemoryLedgerWatermarkStore,
         )
 
-        _principal_memory_ledger_watermark_store = (
+        store = (
             PostgresPrincipalMemoryLedgerWatermarkStore(
                 dsn=get_postgres_dsn(),
                 connection_provider=get_postgres_connection_domains().business,
@@ -302,16 +285,16 @@ def get_principal_memory_ledger_watermark_store(*, config=None):
                 schema_mode="validate",
             )
         )
-    return _principal_memory_ledger_watermark_store
+        _runtime_container.set("principal_memory_ledger_watermark_store", store)
+    return store
 
 
-def get_principal_memory_durable_ledger(*, config=None):
-    global _principal_memory_durable_ledger
+def get_principal_memory_durable_ledger():
     from pathlib import Path
 
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
 
-    config = config or load_effective_memory_config()
+    config = load_effective_memory_config()
     if config.long_term.mode != "local_consume":
         return None
     path = config.long_term.operator_tombstone_ledger_path
@@ -319,70 +302,71 @@ def get_principal_memory_durable_ledger(*, config=None):
         from app.services.principal_memory_ledger import PrincipalMemoryLedgerError
 
         raise PrincipalMemoryLedgerError("TOMBSTONE_LEDGER_REQUIRED")
-    if _principal_memory_durable_ledger is None:
+    ledger = _runtime_container.get("principal_memory_durable_ledger")
+    if ledger is None:
         from app.services.principal_memory_durable_ledger import (
             PrincipalMemoryDurableLedger,
         )
 
-        _principal_memory_durable_ledger = PrincipalMemoryDurableLedger(
+        ledger = PrincipalMemoryDurableLedger(
             path=path,
             workspace=Path.cwd(),
-            watermark_store=get_principal_memory_ledger_watermark_store(
-                config=config
-            ),
+            watermark_store=get_principal_memory_ledger_watermark_store(),
         )
-    return _principal_memory_durable_ledger
+        _runtime_container.set("principal_memory_durable_ledger", ledger)
+    return ledger
 
 
 def _principal_memory_control_service(*, config, resolver):
     if not config.long_term.local_principal_enabled:
         return None
-    from app.services.principal_memory_control import PrincipalMemoryControlService
+    from app.services.principal_memory_control import PrincipalMemoryControlPolicy
 
-    return PrincipalMemoryControlService(
+    return PrincipalMemoryControlPolicy(
         identity_resolver=resolver,
         store=get_principal_memory_control_store(),
     )
 
 
 def get_principal_memory_fact_store():
-    global _principal_memory_fact_store
-    if _principal_memory_fact_store is None:
+    store = _runtime_container.get("principal_memory_fact_store")
+    if store is None:
         if get_runtime_store() == "postgres":
-            from app.services.postgres_principal_memory import (
+            from app.adapters.postgres.principal_memory import (
                 PostgresPrincipalMemoryFactStore,
             )
-            _principal_memory_fact_store = PostgresPrincipalMemoryFactStore(
+            store = PostgresPrincipalMemoryFactStore(
                 dsn=get_postgres_dsn(),
                 connection_provider=get_postgres_connection_domains().business,
                 table_prefix=get_runtime_table_prefix(),
                 schema_mode="validate",
             )
         else:
-            from app.services.in_memory_principal_memory import (
+            from app.adapters.memory.principal_memory import (
                 InMemoryPrincipalMemoryFactStore,
             )
-            _principal_memory_fact_store = InMemoryPrincipalMemoryFactStore()
-    return _principal_memory_fact_store
+            store = InMemoryPrincipalMemoryFactStore()
+        _runtime_container.set("principal_memory_fact_store", store)
+    return store
 
 
 def get_principal_memory_proposal_processor():
-    global _principal_memory_proposal_processor
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
 
     config = load_effective_memory_config()
     if config.long_term.mode != "write_shadow":
         return None
-    if _principal_memory_proposal_processor is None:
-        from app.services.principal_memory_consent import PrincipalMemoryConsentService
+    processor = _runtime_container.get("principal_memory_proposal_processor")
+    if processor is None:
+        from app.services.principal_memory_consent import PrincipalMemoryConsentPolicy
         from app.services.principal_memory_extractor import NullPrincipalMemoryExtractor
         from app.services.principal_memory_tasks import PrincipalMemoryProposalProcessor
 
         resolver = get_principal_identity_resolver()
-        _principal_memory_proposal_processor = PrincipalMemoryProposalProcessor(
+        processor = PrincipalMemoryProposalProcessor(
             session_store=get_session_store(),
             identity_resolver=resolver,
-            consent_service=PrincipalMemoryConsentService(
+            consent_service=PrincipalMemoryConsentPolicy(
                 identity_resolver=resolver,
                 store=get_principal_memory_consent_store(),
                 policy_version=config.long_term.consent_policy_version,
@@ -397,27 +381,28 @@ def get_principal_memory_proposal_processor():
             config=config,
             deletion_fence=get_principal_memory_deletion_tombstone_store(),
         )
-    return _principal_memory_proposal_processor
+        _runtime_container.set("principal_memory_proposal_processor", processor)
+    return processor
 
 
 def get_principal_memory_shadow_service(*, config=None):
-    global _principal_memory_shadow_service
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
 
     config = config or load_effective_memory_config()
     if config.long_term.mode != "read_shadow":
         return None
-    if _principal_memory_shadow_service is None:
-        from app.services.principal_memory_consent import PrincipalMemoryConsentService
-        from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
-        from app.services.principal_memory_shadow import PrincipalMemoryShadowService
+    service = _runtime_container.get("principal_memory_shadow_service")
+    if service is None:
+        from app.services.principal_memory_consent import PrincipalMemoryConsentPolicy
+        from app.services.principal_memory_retrieval import PrincipalMemorySelector
+        from app.services.principal_memory_shadow import PrincipalMemoryShadowObserver
 
-        resolver = get_principal_identity_resolver(config=config)
-        _principal_memory_shadow_service = PrincipalMemoryShadowService(
+        resolver = get_principal_identity_resolver()
+        service = PrincipalMemoryShadowObserver(
             mode=config.long_term.mode,
-            retriever=PrincipalMemoryRetriever(
+            retriever=PrincipalMemorySelector(
                 fact_store=get_principal_memory_fact_store(),
-                consent_service=PrincipalMemoryConsentService(
+                consent_service=PrincipalMemoryConsentPolicy(
                     identity_resolver=resolver,
                     store=get_principal_memory_consent_store(),
                     policy_version=config.long_term.consent_policy_version,
@@ -432,34 +417,35 @@ def get_principal_memory_shadow_service(*, config=None):
                 config=config,
             )
         )
-    return _principal_memory_shadow_service
+        _runtime_container.set("principal_memory_shadow_service", service)
+    return service
 
 
 def get_principal_memory_consume_service(*, config=None, context_runtime=None):
-    global _principal_memory_consume_service
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
 
     config = config or load_effective_memory_config()
     if config.long_term.mode != "local_consume":
         return None
     if get_runtime_store() != "postgres":
         raise RuntimeError("local principal memory consumption requires PostgreSQL")
-    durable_ledger = get_principal_memory_durable_ledger(config=config)
+    durable_ledger = get_principal_memory_durable_ledger()
     if durable_ledger is None:
         raise RuntimeError("TOMBSTONE_LEDGER_REQUIRED")
     durable_ledger.require_ready()
-    if _principal_memory_consume_service is None:
+    service = _runtime_container.get("principal_memory_consume_service")
+    if service is None:
         from app.services.context_runtime import get_context_runtime
-        from app.services.principal_memory_consent import PrincipalMemoryConsentService
+        from app.services.principal_memory_consent import PrincipalMemoryConsentPolicy
         from app.services.principal_memory_consume import (
             PrincipalMemoryLocalConsumeService,
         )
 
-        resolver = get_principal_identity_resolver(config=config)
+        resolver = get_principal_identity_resolver()
         context_runtime = context_runtime or get_context_runtime()
-        _principal_memory_consume_service = PrincipalMemoryLocalConsumeService(
+        service = PrincipalMemoryLocalConsumeService(
             fact_store=get_principal_memory_fact_store(),
-            consent_service=PrincipalMemoryConsentService(
+            consent_service=PrincipalMemoryConsentPolicy(
                 identity_resolver=resolver,
                 store=get_principal_memory_consent_store(),
                 policy_version=config.long_term.consent_policy_version,
@@ -475,13 +461,14 @@ def get_principal_memory_consume_service(*, config=None, context_runtime=None):
             estimator=context_runtime.estimator_resolution.estimator,
             model=context_runtime.model_profile.model,
         )
-    return _principal_memory_consume_service
+        _runtime_container.set("principal_memory_consume_service", service)
+    return service
 
 
 def get_memory_metric_store():
-    global _memory_metric_store
-    if _memory_metric_store is not None:
-        return _memory_metric_store
+    store = _runtime_container.get("memory_metric_store")
+    if store is not None:
+        return store
     from app.services.memory_metrics import (
         InMemoryMemoryMetricStore,
         ResilientMemoryMetricStore,
@@ -491,7 +478,7 @@ def get_memory_metric_store():
     )
 
     if get_runtime_store() != "postgres":
-        _memory_metric_store = get_process_metric_store()
+        store = get_process_metric_store()
     else:
         from app.services.postgres_memory_metrics import PostgresMemoryMetricStore
 
@@ -504,20 +491,22 @@ def get_memory_metric_store():
             )
         except Exception:
             primary = UnavailableMemoryMetricStore()
-        _memory_metric_store = ResilientMemoryMetricStore(
+        store = ResilientMemoryMetricStore(
             primary=primary,
             fallback=InMemoryMemoryMetricStore(),
         )
-        configure_memory_metric_store(_memory_metric_store)
-    return _memory_metric_store
+        configure_memory_metric_store(store)
+    _runtime_container.set("memory_metric_store", store)
+    return store
 
 
 def get_postgres_connection_domains():
-    global _postgres_connection_domains
     if get_runtime_store() != "postgres":
         return None
-    with _postgres_domains_lock:
-        if _postgres_connection_domains is None:
+    lock = _runtime_container.metadata("postgres_domains_lock", Lock)
+    with lock:
+        domains = _runtime_container.get("postgres_connection_domains")
+        if domains is None:
             from app.services.postgres_connection_domains import (
                 PostgresConnectionDomains,
             )
@@ -527,47 +516,49 @@ def get_postgres_connection_domains():
                 settings=get_postgres_pool_settings(),
             )
             domains.open()
-            _postgres_connection_domains = domains
-    return _postgres_connection_domains
+            _runtime_container.set("postgres_connection_domains", domains)
+    return domains
 
 
 def get_question_memory_index_store():
-    global _question_memory_index_store
-    if _question_memory_index_store is not None:
-        return _question_memory_index_store
+    store = _runtime_container.get("question_memory_index_store")
+    if store is not None:
+        return store
     if get_runtime_store() != "postgres":
         from app.services.in_memory_question_memory_index import (
             InMemoryQuestionMemoryIndexStore,
         )
 
-        _question_memory_index_store = InMemoryQuestionMemoryIndexStore()
+        store = InMemoryQuestionMemoryIndexStore()
     else:
         from app.services.postgres_question_memory_index import (
             PostgresQuestionMemoryIndexStore,
         )
 
-        _question_memory_index_store = PostgresQuestionMemoryIndexStore(
+        store = PostgresQuestionMemoryIndexStore(
             dsn=get_postgres_dsn(),
             connection_provider=get_postgres_connection_domains().business,
             table_prefix=get_runtime_table_prefix(),
             schema_mode="validate",
         )
-    return _question_memory_index_store
+    _runtime_container.set("question_memory_index_store", store)
+    return store
 
 
 def get_session_deletion_service():
-    global _session_deletion_job_store, _session_deletion_tombstone_store
-    global _session_deletion_service
-    if _session_deletion_service is None:
+    service = _runtime_container.get("session_deletion_service")
+    if service is None:
         from app.services.session_deletion import SessionDeletionService
 
-        if _session_deletion_job_store is None:
+        job_store = _runtime_container.get("session_deletion_job_store")
+        tombstone_store = _runtime_container.get("session_deletion_tombstone_store")
+        if job_store is None:
             if get_runtime_store() == "postgres":
                 from app.services.postgres_session_deletion import (
                     PostgresSessionDeletionJobStore,
                 )
 
-                _session_deletion_job_store = PostgresSessionDeletionJobStore(
+                job_store = PostgresSessionDeletionJobStore(
                     dsn=get_postgres_dsn(),
                     connection_provider=(
                         get_postgres_connection_domains().business
@@ -579,7 +570,7 @@ def get_session_deletion_service():
                     PostgresSessionDeletionTombstoneStore,
                 )
 
-                _session_deletion_tombstone_store = (
+                tombstone_store = (
                     PostgresSessionDeletionTombstoneStore(
                         dsn=get_postgres_dsn(),
                         connection_provider=(
@@ -597,27 +588,33 @@ def get_session_deletion_service():
                     InMemorySessionDeletionTombstoneStore,
                 )
 
-                _session_deletion_job_store = InMemorySessionDeletionJobStore()
-                _session_deletion_tombstone_store = (
+                job_store = InMemorySessionDeletionJobStore()
+                tombstone_store = (
                     InMemorySessionDeletionTombstoneStore()
                 )
-        _session_deletion_service = SessionDeletionService(
+            _runtime_container.set("session_deletion_job_store", job_store)
+            _runtime_container.set(
+                "session_deletion_tombstone_store",
+                tombstone_store,
+            )
+        service = SessionDeletionService(
             session_store=get_session_store(),
-            job_store=_session_deletion_job_store,
-            tombstone_store=_session_deletion_tombstone_store,
+            job_store=job_store,
+            tombstone_store=tombstone_store,
         )
-    return _session_deletion_service
+        _runtime_container.set("session_deletion_service", service)
+    return service
 
 
 def get_session_deletion_worker():
-    global _session_deletion_worker
-    if _session_deletion_worker is None:
+    worker = _runtime_container.get("session_deletion_worker")
+    if worker is None:
         from app.services.session_deletion_worker import SessionDeletionWorker
-        from app.services.memory_config import load_effective_memory_config
+        from app.runtime.config.memory import load_effective_memory_config
 
         service = get_session_deletion_service()
         memory_config = load_effective_memory_config()
-        _session_deletion_worker = SessionDeletionWorker(
+        worker = SessionDeletionWorker(
             job_store=service.job_store,
             session_store=get_session_store(),
             workflow_service=(
@@ -627,7 +624,11 @@ def get_session_deletion_worker():
             ),
             question_memory_index=get_question_memory_index_store(),
             context_artifact_store=get_context_artifact_store(),
-            report_job_store=get_report_job_store(),
+            report_job_store=(
+                get_report_job_store()
+                if get_runtime_store() == "postgres"
+                else None
+            ),
             report_artifact_store=get_report_artifact_store(),
             tombstone_store=service.tombstone_store,
             failure_state_store=get_context_compression_failure_store(),
@@ -637,7 +638,8 @@ def get_session_deletion_worker():
             principal_memory_store=get_principal_memory_fact_store(),
             principal_memory_control_store=get_principal_memory_control_store(),
         )
-    return _session_deletion_worker
+        _runtime_container.set("session_deletion_worker", worker)
+    return worker
 
 
 def build_session_store(llm=None):
@@ -667,7 +669,7 @@ def build_session_store(llm=None):
 
 
 def build_report_job_store():
-    from app.services.config import get_report_runtime_profile
+    from app.runtime.config.compatibility import get_report_runtime_profile
 
     profile = get_report_runtime_profile()
     if profile.report_job_store == "memory":
@@ -680,13 +682,15 @@ def build_report_job_store():
         dsn=get_postgres_dsn(),
         connection_provider=domains.business,
         table_prefix=get_runtime_table_prefix(),
-        lease_seconds=int(os.getenv("REPORT_JOB_LEASE_SECONDS", "45")),
+        lease_seconds=load_worker_runtime_settings().report_job_lease_seconds,
         schema_mode="validate",
     )
 
 
 def build_report_artifact_store():
     if get_runtime_store() == "memory":
+        from app.services.report_artifact_store import InMemoryReportArtifactStore
+
         return InMemoryReportArtifactStore()
     if get_runtime_store() == "postgres":
         from app.services.postgres_report_artifact_store import (
@@ -700,7 +704,9 @@ def build_report_artifact_store():
             table_prefix=get_runtime_table_prefix(),
             schema_mode="validate",
         )
-    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+    raise RuntimeError(
+        f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}"
+    )
 
 
 def build_decision_store():
@@ -718,13 +724,15 @@ def build_decision_store():
             table_prefix=get_runtime_table_prefix(),
             schema_mode="validate",
         )
-    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
+    raise RuntimeError(
+        f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}"
+    )
 
 
 def build_draft_store():
     ttl = timedelta(seconds=get_interview_draft_ttl_seconds())
     if get_runtime_store() == "memory":
-        return AnonymousDraftStore(ttl=ttl)
+        return InMemoryDraftStore(ttl=ttl)
     domains = get_postgres_connection_domains()
     return PostgresDraftStore(
         dsn=get_postgres_dsn(),
@@ -780,27 +788,6 @@ def build_interview_launch_coordinator():
     )
 
 
-def build_plan_revision_store():
-    if get_runtime_store() == "postgres":
-        from app.services.postgres_plan_revision_store import (
-            PostgresInterviewPlanRevisionStore,
-        )
-
-        return PostgresInterviewPlanRevisionStore(
-            dsn=get_postgres_dsn(),
-            connection_provider=get_postgres_connection_domains().business,
-            table_prefix=get_runtime_table_prefix(),
-            schema_mode="validate",
-        )
-    if get_runtime_store() == "memory":
-        from app.services.interview_plan_revision_store import (
-            InMemoryInterviewPlanRevisionStore,
-        )
-
-        return InMemoryInterviewPlanRevisionStore()
-    raise RuntimeError(f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}")
-
-
 def build_event_publisher():
     from app.services.event_publisher import (
         LocalRoundReviewEventPublisher,
@@ -835,7 +822,7 @@ def build_report_executor(
     domains = get_postgres_connection_domains()
     resolved_vector_store = vector_store or get_knowledge_store(
         connection_provider=domains.business if domains is not None else None,
-        schema_mode="validate" if domains is not None else "migrate",
+        schema_mode="validate",
     )
     return ReportExecutor(
         store=resolved_store,
@@ -858,14 +845,9 @@ def _build_composed_workflow_llm(
     model_config,
     context_runtime,
 ) -> InterviewLLM:
-    global _composed_workflow_llm, _composed_workflow_llm_authority
     existing = getattr(store, "llm", None)
     if existing is not None:
-        existing_context_runtime = getattr(
-            existing,
-            "context_runtime",
-            None,
-        )
+        existing_context_runtime = getattr(existing, "context_runtime", None)
         if (
             existing_context_runtime is not None
             and existing_context_runtime is not context_runtime
@@ -874,9 +856,13 @@ def _build_composed_workflow_llm(
                 "existing workflow LLM context runtime conflict"
             )
         return existing
-    with _context_compression_lock:
-        if _composed_workflow_llm is not None:
-            authority = _composed_workflow_llm_authority
+    lock = _runtime_container.metadata("context_compression_lock", RLock)
+    with lock:
+        llm = _runtime_container.get("composed_workflow_llm")
+        if llm is not None:
+            authority = _runtime_container.get(
+                "composed_workflow_llm_authority"
+            )
             if (
                 authority is None
                 or authority.context_runtime is not context_runtime
@@ -885,162 +871,174 @@ def _build_composed_workflow_llm(
                 raise ContextConfigurationError(
                     "composed workflow LLM authority conflict"
                 )
-            return _composed_workflow_llm
+            return llm
         llm = OpenAIInterviewLLM(
             config=LLMConfig.from_env(memory=model_config),
             context_runtime=context_runtime,
         )
-        _composed_workflow_llm_authority = _ComposedWorkflowLLMAuthority(
-            model_config=model_config,
-            context_runtime=context_runtime,
+        _runtime_container.set(
+            "composed_workflow_llm_authority",
+            _ComposedWorkflowLLMAuthority(
+                model_config=model_config,
+                context_runtime=context_runtime,
+            ),
         )
-        _composed_workflow_llm = llm
+        _runtime_container.set("composed_workflow_llm", llm)
         return llm
 
 
 def get_session_store():
-    global _session_store
-    if _session_store is None:
-        _session_store = build_session_store()
-    return _session_store
+    return _runtime_container.get_or_create("session_store", build_session_store)
 
 
 def get_report_job_store():
-    global _report_job_store
-    if _report_job_store is None:
-        _report_job_store = build_report_job_store()
-    return _report_job_store
+    return _runtime_container.get_or_create(
+        "report_job_store",
+        build_report_job_store,
+    )
+
+
+def build_plan_revision_store():
+    if get_runtime_store() == "postgres":
+        from app.services.postgres_plan_revision_store import (
+            PostgresInterviewPlanRevisionStore,
+        )
+
+        return PostgresInterviewPlanRevisionStore(
+            dsn=get_postgres_dsn(),
+            connection_provider=get_postgres_connection_domains().business,
+            table_prefix=get_runtime_table_prefix(),
+            schema_mode="validate",
+        )
+    if get_runtime_store() == "memory":
+        from app.services.interview_plan_revision_store import (
+            InMemoryInterviewPlanRevisionStore,
+        )
+
+        return InMemoryInterviewPlanRevisionStore()
+    raise RuntimeError(
+        f"unsupported INTERVIEW_RUNTIME_STORE: {get_runtime_store()}"
+    )
 
 
 def get_report_artifact_store():
-    global _report_artifact_store
-    if _report_artifact_store is None:
-        _report_artifact_store = build_report_artifact_store()
-    return _report_artifact_store
+    return _runtime_container.get_or_create(
+        "report_artifact_store",
+        build_report_artifact_store,
+    )
 
 
 def get_decision_store():
-    global _decision_store
-    if _decision_store is None:
-        _decision_store = build_decision_store()
-    return _decision_store
+    return _runtime_container.get_or_create(
+        "decision_store",
+        build_decision_store,
+    )
 
 
 def get_draft_store():
-    global _draft_store
-    if _draft_store is None:
-        _draft_store = build_draft_store()
-    return _draft_store
+    return _runtime_container.get_or_create("draft_store", build_draft_store)
 
 
 def get_prep_plan_store():
-    global _prep_plan_store
-    if _prep_plan_store is None:
-        _prep_plan_store = build_prep_plan_store()
-    return _prep_plan_store
+    return _runtime_container.get_or_create(
+        "prep_plan_store",
+        build_prep_plan_store,
+    )
 
 
 def get_interview_launch_repository():
-    global _interview_launch_repository
-    if _interview_launch_repository is None:
-        _interview_launch_repository = build_interview_launch_repository()
-    return _interview_launch_repository
+    return _runtime_container.get_or_create(
+        "interview_launch_repository",
+        build_interview_launch_repository,
+    )
 
 
 def get_interview_launch_coordinator():
-    global _interview_launch_coordinator
-    if _interview_launch_coordinator is None:
-        _interview_launch_coordinator = build_interview_launch_coordinator()
-    return _interview_launch_coordinator
-
-
-def get_plan_revision_store():
-    global _plan_revision_store
-    if _plan_revision_store is None:
-        _plan_revision_store = build_plan_revision_store()
-    return _plan_revision_store
+    return _runtime_container.get_or_create(
+        "interview_launch_coordinator",
+        build_interview_launch_coordinator,
+    )
 
 
 def get_event_publisher():
-    global _event_publisher
-    if _event_publisher is None:
-        _event_publisher = build_event_publisher()
-    return _event_publisher
+    return _runtime_container.get_or_create(
+        "event_publisher",
+        build_event_publisher,
+    )
 
 
 def get_runtime_control_store():
-    global _runtime_control_store
-    if _runtime_control_store is None:
-        if get_runtime_store() != "postgres":
-            return None
-        session_store = get_session_store()
-        _runtime_control_store = session_store._runtime_control
-    return _runtime_control_store
+    control_store = _runtime_container.get("runtime_control_store")
+    if control_store is not None:
+        return control_store
+    if get_runtime_store() != "postgres":
+        return None
+    control_store = get_session_store()._runtime_control
+    _runtime_container.set("runtime_control_store", control_store)
+    return control_store
 
 
 def build_context_artifact_store():
     if get_runtime_store() == "postgres":
-        from app.services.context_artifact_store import (
-            PostgresContextArtifactStore,
+        from app.adapters.postgres.context_artifacts import (
+            ContextArtifactPostgresAdapter,
         )
 
         domains = get_postgres_connection_domains()
-        return PostgresContextArtifactStore(
+        return ContextArtifactPostgresAdapter(
             dsn=get_postgres_dsn(),
             connection_provider=domains.business,
             table_prefix=get_runtime_table_prefix(),
             schema_mode="validate",
         )
     if get_runtime_store() == "memory":
-        from app.services.in_memory_context_artifact_store import (
-            InMemoryContextArtifactStore,
+        from app.adapters.memory.context_artifacts import (
+            ContextArtifactMemoryAdapter,
         )
 
-        return InMemoryContextArtifactStore()
+        return ContextArtifactMemoryAdapter()
     raise RuntimeError("context artifacts require postgres or memory runtime")
 
 
 def get_context_artifact_store():
-    global _context_artifact_store
-    with _context_compression_lock:
-        if _context_artifact_store is None:
-            _context_artifact_store = build_context_artifact_store()
-        return _context_artifact_store
+    lock = _runtime_container.metadata("context_compression_lock", RLock)
+    with lock:
+        return _runtime_container.get_or_create(
+            "context_artifact_store",
+            build_context_artifact_store,
+        )
 
 
 def get_context_compression_failure_store():
-    global _context_compression_failure_store
-    with _context_compression_lock:
-        if _context_compression_failure_store is None:
-            runtime_store = get_runtime_store()
-            if runtime_store == "postgres":
-                from app.services.context_compression_failure_store import (
-                    PostgresContextCompressionFailureStore,
-                )
+    lock = _runtime_container.metadata("context_compression_lock", RLock)
+    with lock:
+        store = _runtime_container.get("context_compression_failure_store")
+        if store is not None:
+            return store
+        runtime_store = get_runtime_store()
+        if runtime_store == "postgres":
+            from app.services.context_compression_failure_store import (
+                PostgresContextCompressionFailureStore,
+            )
 
-                _context_compression_failure_store = (
-                    PostgresContextCompressionFailureStore(
-                        dsn=get_postgres_dsn(),
-                        connection_provider=(
-                            get_postgres_connection_domains().business
-                        ),
-                        table_prefix=get_runtime_table_prefix(),
-                        schema_mode="validate",
-                    )
-                )
-            elif runtime_store == "memory":
-                from app.services.in_memory_context_compression_failure_store import (
-                    InMemoryContextCompressionFailureStore,
-                )
+            store = PostgresContextCompressionFailureStore(
+                dsn=get_postgres_dsn(),
+                connection_provider=get_postgres_connection_domains().business,
+                table_prefix=get_runtime_table_prefix(),
+                schema_mode="validate",
+            )
+        elif runtime_store == "memory":
+            from app.services.in_memory_context_compression_failure_store import (
+                InMemoryContextCompressionFailureStore,
+            )
 
-                _context_compression_failure_store = (
-                    InMemoryContextCompressionFailureStore()
-                )
-            else:
-                raise RuntimeError(
-                    "context compression failure state requires postgres or memory runtime"
-                )
-        return _context_compression_failure_store
+            store = InMemoryContextCompressionFailureStore()
+        else:
+            raise RuntimeError(
+                "context compression failure state requires postgres or memory runtime"
+            )
+        _runtime_container.set("context_compression_failure_store", store)
+        return store
 
 
 def get_context_compression_runner(
@@ -1048,54 +1046,59 @@ def get_context_compression_runner(
     workflow: str = "interview",
     lease_seconds: int | None = None,
 ):
-    global _context_compression_runners
     if workflow not in {"interview", "review", "prep"}:
         raise ValueError("workflow must be interview, review, or prep")
-    with _context_compression_lock:
-        if workflow not in _context_compression_runners:
-            from app.services.context_compression_runner import (
-                ContextCompressionRunner,
+    lock = _runtime_container.metadata("context_compression_lock", RLock)
+    with lock:
+        runners = _runtime_container.metadata(
+            "context_compression_runners",
+            dict,
+        )
+        runner = runners.get(workflow)
+        if runner is not None:
+            return runner
+        from app.services.context_compression_runner import ContextCompressionRunner
+
+        failure_containment = None
+        if workflow == "interview":
+            from app.runtime.config.memory import load_effective_memory_config
+            from app.services.context_compression_failure_containment import (
+                ContextCompressionFailureContainment,
+                FailureContainmentConfig,
             )
 
-            failure_containment = None
-            if workflow == "interview":
-                from app.services.context_compression_failure_containment import (
-                    ContextCompressionFailureContainment,
-                    FailureContainmentConfig,
-                )
-                from app.services.memory_config import load_effective_memory_config
-
-                compression = load_effective_memory_config().compression
-                failure_containment = ContextCompressionFailureContainment(
-                    store=get_context_compression_failure_store(),
-                    config=FailureContainmentConfig(
-                        provider_circuit_threshold=(
-                            compression.provider_circuit_threshold
-                        ),
-                        provider_circuit_cooldown_seconds=(
-                            compression.provider_circuit_cooldown_seconds
-                        ),
-                        validation_quarantine_threshold=(
-                            compression.validation_quarantine_threshold
-                        ),
-                        validation_quarantine_cooldown_seconds=(
-                            compression.validation_quarantine_cooldown_seconds
-                        ),
-                        failure_state_lease_seconds=(
-                            compression.failure_state_lease_seconds
-                        ),
+            compression = load_effective_memory_config().compression
+            failure_containment = ContextCompressionFailureContainment(
+                store=get_context_compression_failure_store(),
+                config=FailureContainmentConfig(
+                    provider_circuit_threshold=(
+                        compression.provider_circuit_threshold
                     ),
-                )
-            _context_compression_runners[workflow] = ContextCompressionRunner(
-                get_context_artifact_store(),
-                lease_seconds=(
-                    lease_seconds
-                    if lease_seconds is not None
-                    else get_context_artifact_lease_seconds()
+                    provider_circuit_cooldown_seconds=(
+                        compression.provider_circuit_cooldown_seconds
+                    ),
+                    validation_quarantine_threshold=(
+                        compression.validation_quarantine_threshold
+                    ),
+                    validation_quarantine_cooldown_seconds=(
+                        compression.validation_quarantine_cooldown_seconds
+                    ),
+                    failure_state_lease_seconds=(
+                        compression.failure_state_lease_seconds
+                    ),
                 ),
-                failure_containment=failure_containment,
             )
-        return _context_compression_runners[workflow]
+        runner = ContextCompressionRunner(
+            get_context_artifact_store(),
+            lease_seconds=(
+                lease_seconds
+                if lease_seconds is not None
+                else get_context_artifact_lease_seconds()
+            ),
+            failure_containment=failure_containment,
+        )
+        runners[workflow] = runner
+        return runner
 
 
 def get_context_compressor_agent(
@@ -1104,15 +1107,16 @@ def get_context_compressor_agent(
     model_config=None,
     llm=None,
 ):
-    global _context_compressor_agent, _context_compressor_authority
-    with _context_compression_lock:
+    lock = _runtime_container.metadata("context_compression_lock", RLock)
+    with lock:
+        agent = _runtime_container.get("context_compressor_agent")
         if (
-            _context_compressor_agent is not None
+            agent is not None
             and llm is None
             and context_runtime is None
             and model_config is None
         ):
-            return _context_compressor_agent
+            return agent
 
         from app.agents.context_compressor import ContextCompressorAgent
         from app.services.context_compression import OpenAIContextCompressor
@@ -1138,8 +1142,8 @@ def get_context_compressor_agent(
             context_runtime=effective_context_runtime,
             model_config=model_config,
         )
-        if _context_compressor_agent is not None:
-            authority = _context_compressor_authority
+        if agent is not None:
+            authority = _runtime_container.get("context_compressor_authority")
             if (
                 authority is None
                 or authority.llm is not requested_authority.llm
@@ -1150,7 +1154,7 @@ def get_context_compressor_agent(
                 raise ContextConfigurationError(
                     "context compressor singleton authority conflict"
                 )
-            return _context_compressor_agent
+            return agent
 
         provider = (
             OpenAIContextCompressor(
@@ -1172,16 +1176,15 @@ def get_context_compressor_agent(
             provider=provider,
             execution_runner=get_agent_execution_runner(),
         )
-        _context_compressor_authority = requested_authority
-        _context_compressor_agent = agent
-        return _context_compressor_agent
+        _runtime_container.set("context_compressor_authority", requested_authority)
+        _runtime_container.set("context_compressor_agent", agent)
+        return agent
 
 
 def get_langgraph_checkpointer_runtime(
     *,
     interview_runtime_enabled: bool | None = None,
 ):
-    global _langgraph_checkpointer_runtime
     if get_runtime_store() != "postgres":
         return None
     if not (
@@ -1193,11 +1196,11 @@ def get_langgraph_checkpointer_runtime(
         or get_report_langgraph_runtime_enabled()
     ):
         return None
-    if _langgraph_checkpointer_runtime is None:
-        _langgraph_checkpointer_runtime = (
-            get_postgres_connection_domains().checkpointer
-        )
-    return _langgraph_checkpointer_runtime
+    runtime = _runtime_container.get("langgraph_checkpointer_runtime")
+    if runtime is None:
+        runtime = get_postgres_connection_domains().checkpointer
+        _runtime_container.set("langgraph_checkpointer_runtime", runtime)
+    return runtime
 
 
 def build_durable_workflow_maintenance_service():
@@ -1259,7 +1262,6 @@ def build_durable_workflow_maintenance_service():
 
 
 def get_durable_workflow_maintenance_service():
-    global _durable_workflow_maintenance_service
     if get_runtime_store() != "postgres":
         return None
     if not (
@@ -1267,40 +1269,47 @@ def get_durable_workflow_maintenance_service():
         or get_report_langgraph_runtime_enabled()
     ):
         return None
-    if _durable_workflow_maintenance_service is None:
-        _durable_workflow_maintenance_service = (
-            build_durable_workflow_maintenance_service()
-        )
-    return _durable_workflow_maintenance_service
+    return _runtime_container.get_or_create(
+        "durable_workflow_maintenance_service",
+        build_durable_workflow_maintenance_service,
+    )
 
 
 def get_runtime_signal_store():
-    global _runtime_signal_store
     if get_runtime_store() != "postgres":
         return None
-    if _runtime_signal_store is None:
+    store = _runtime_container.get("runtime_signal_store")
+    if store is None:
         from app.services.runtime_signal_metrics import (
             PostgresRuntimeSignalStore,
         )
 
-        _runtime_signal_store = PostgresRuntimeSignalStore(
+        store = PostgresRuntimeSignalStore(
             dsn=get_postgres_dsn(),
             connection_provider=get_postgres_connection_domains().telemetry,
             table_prefix=get_runtime_table_prefix(),
             schema_mode="validate",
         )
-    return _runtime_signal_store
+        _runtime_container.set("runtime_signal_store", store)
+    return store
 
 
-def build_runtime_followup_decision_provider(store):
+def build_runtime_followup_decision_provider(store, *, llm=None):
     from app.services.followup_prompts import (
         build_followup_decision_provider_for_llm,
     )
 
-    llm = store.llm
-    if llm is None or not hasattr(llm, "chat_model"):
+    resolved_llm = llm or store.llm
+    if resolved_llm is None or not hasattr(resolved_llm, "chat_model"):
         return None
-    return build_followup_decision_provider_for_llm(llm)
+    return build_followup_decision_provider_for_llm(resolved_llm)
+
+
+def get_plan_revision_store():
+    return _runtime_container.get_or_create(
+        "plan_revision_store",
+        build_plan_revision_store,
+    )
 
 
 def build_interview_workflow_service():
@@ -1334,7 +1343,7 @@ def build_interview_workflow_service():
     )
     from app.services.context_budget import DynamicCompressionTargetPolicy
     from app.services.context_compression_gating import ContextCompressionGates
-    from app.services.memory_config import (
+    from app.runtime.config.memory import (
         load_effective_memory_config,
         memory_readiness_payload,
     )
@@ -1364,9 +1373,7 @@ def build_interview_workflow_service():
     if get_runtime_store() != "postgres":
         raise RuntimeError("durable interview workflow requires PostgreSQL")
     checkpointer = get_langgraph_checkpointer_runtime(
-        interview_runtime_enabled=(
-            effective_memory.interview_graph.runtime_enabled
-        )
+        interview_runtime_enabled=graph_config.runtime_enabled
     )
     if checkpointer is None:
         raise RuntimeError("LangGraph runtime is disabled")
@@ -1423,7 +1430,10 @@ def build_interview_workflow_service():
         table_prefix=prefix,
         schema_mode="validate",
     )
-    decision_provider = build_runtime_followup_decision_provider(store)
+    decision_provider = build_runtime_followup_decision_provider(
+        store,
+        llm=business_llm,
+    )
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
@@ -1469,7 +1479,7 @@ def build_interview_workflow_service():
         )
         compression_runner = get_context_compression_runner(
             workflow="interview",
-            lease_seconds=effective_memory.artifact.lease_seconds
+            lease_seconds=effective_memory.artifact.lease_seconds,
         )
         deps.context_artifact_coordinator = InterviewContextArtifactCoordinator(
             runner=compression_runner,
@@ -1575,47 +1585,49 @@ def _prepare_preview_report_job(session_id: str) -> None:
 
 
 def get_interview_workflow_service():
-    global _interview_workflow_service
-    if _interview_workflow_service is None:
-        _interview_workflow_service = build_interview_workflow_service()
-    return _interview_workflow_service
+    return _runtime_container.get_or_create(
+        "interview_workflow_service",
+        build_interview_workflow_service,
+    )
 
 
 def get_interview_workflow_consumer():
-    global _interview_workflow_consumer
-    if _interview_workflow_consumer is None:
+    consumer = _runtime_container.get("interview_workflow_consumer")
+    if consumer is None:
         from app.services.interview_workflow_consumer import (
             InterviewWorkflowConsumer,
         )
 
-        _interview_workflow_consumer = InterviewWorkflowConsumer(
+        consumer = InterviewWorkflowConsumer(
             get_interview_workflow_service()
         )
-    return _interview_workflow_consumer
+        _runtime_container.set("interview_workflow_consumer", consumer)
+    return consumer
 
 
 def get_workflow_thread_lock():
-    global _workflow_thread_lock
-    if _workflow_thread_lock is None:
+    thread_lock = _runtime_container.get("workflow_thread_lock")
+    if thread_lock is None:
         if get_runtime_store() != "postgres":
             from app.services.workflow_thread_lock import NoopWorkflowThreadLock
 
-            _workflow_thread_lock = NoopWorkflowThreadLock()
+            thread_lock = NoopWorkflowThreadLock()
         else:
             from app.services.workflow_thread_lock import (
                 PostgresWorkflowThreadLock,
             )
 
-            _workflow_thread_lock = PostgresWorkflowThreadLock(
+            thread_lock = PostgresWorkflowThreadLock(
                 dsn=get_postgres_dsn(),
                 exclusive_provider=(
                     get_postgres_connection_domains().advisory_lock
                 ),
-                default_timeout_seconds=float(
-                    os.getenv("WORKFLOW_THREAD_LOCK_TIMEOUT_SECONDS", "1")
+                default_timeout_seconds=(
+                    load_worker_runtime_settings().workflow_thread_lock_timeout_seconds
                 ),
             )
-    return _workflow_thread_lock
+        _runtime_container.set("workflow_thread_lock", thread_lock)
+    return thread_lock
 
 
 def build_review_workflow_service():
@@ -1650,7 +1662,7 @@ def build_review_workflow_service():
         get_context_runtime,
     )
     from app.services.context_source_identity import ContextSourceIdentityConfig
-    from app.services.memory_config import load_effective_memory_config
+    from app.runtime.config.memory import load_effective_memory_config
 
     effective_memory = load_effective_memory_config()
     compression_config = effective_memory.compression
@@ -1736,7 +1748,7 @@ def build_review_workflow_service():
         )
         compression_runner = get_context_compression_runner(
             workflow="review",
-            lease_seconds=effective_memory.artifact.lease_seconds
+            lease_seconds=effective_memory.artifact.lease_seconds,
         )
         review_evidence_coordinator = EvidenceContextArtifactCoordinator(
             runner=compression_runner,
@@ -2021,43 +2033,57 @@ def build_review_workflow_service():
 
 
 def get_review_workflow_service():
-    global _review_workflow_service
-    if _review_workflow_service is None:
-        _review_workflow_service = build_review_workflow_service()
-    return _review_workflow_service
+    return _runtime_container.get_or_create(
+        "review_workflow_service",
+        build_review_workflow_service,
+    )
 
 
 def get_review_workflow_consumer():
-    global _review_workflow_consumer
-    if _review_workflow_consumer is None:
+    consumer = _runtime_container.get("review_workflow_consumer")
+    if consumer is None:
         from app.services.review_workflow_consumer import ReviewWorkflowConsumer
-        _review_workflow_consumer = ReviewWorkflowConsumer(
+        consumer = ReviewWorkflowConsumer(
             get_review_workflow_service(), get_report_job_store()
         )
-    return _review_workflow_consumer
+        _runtime_container.set("review_workflow_consumer", consumer)
+    return consumer
 
 
 def get_agent_execution_runner(
     *,
     control_store=None,
 ) -> AgentExecutionRunner:
-    global _agent_execution_runner, _agent_composite_recorder
-    with _agent_runtime_lock:
-        if _agent_execution_runner is None:
-            _agent_composite_recorder = CompositeAgentRunRecorder(
+    lock = _runtime_container.metadata("agent_runtime_lock", Lock)
+    with lock:
+        runner = _runtime_container.get("agent_execution_runner")
+        composite_recorder = _runtime_container.get(
+            "agent_composite_recorder"
+        )
+        if runner is None:
+            composite_recorder = CompositeAgentRunRecorder(
                 [AgentTraceRecorder.from_env()]
             )
-            _agent_execution_runner = AgentExecutionRunner(
-                recorder=_agent_composite_recorder
+            runner = AgentExecutionRunner(
+                recorder=composite_recorder
             )
+            _runtime_container.set(
+                "agent_composite_recorder",
+                composite_recorder,
+            )
+            _runtime_container.set("agent_execution_runner", runner)
         if control_store is not None:
             identity = _agent_control_store_identity(control_store)
-            if identity not in _agent_postgres_control_identities:
-                _agent_composite_recorder.add_recorder(
+            identities = _runtime_container.metadata(
+                "agent_postgres_control_identities",
+                set,
+            )
+            if identity not in identities:
+                composite_recorder.add_recorder(
                     PostgresAgentRunRecorder(control_store)
                 )
-                _agent_postgres_control_identities.add(identity)
-        return _agent_execution_runner
+                identities.add(identity)
+        return runner
 
 
 def _agent_control_store_identity(control_store) -> tuple[str, object]:
@@ -2114,172 +2140,100 @@ def build_celery_runtime_outbox_service() -> RuntimeOutboxService:
 
 
 def start_runtime() -> None:
-    with _runtime_lifecycle_lock:
-        _start_runtime_unlocked()
+    container = _runtime_container
+    with container.lifecycle_lock:
+        container.mark_open()
+        _start_runtime_unlocked(container)
 
 
-def _start_runtime_unlocked() -> None:
-    global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
-    global _review_workflow_service
-    global _review_workflow_consumer
-    global _interview_workflow_service, _interview_workflow_consumer
-    global _runtime_outbox_service
-    global _durable_workflow_maintenance_service
-    global _durable_workflow_maintenance_started
+def _start_runtime_unlocked(container: RuntimeContainer) -> None:
     if get_runtime_store() != "postgres":
         return
     get_memory_metric_store()
-    if _langgraph_checkpointer_runtime is None:
-        _langgraph_checkpointer_runtime = get_langgraph_checkpointer_runtime()
-    checkpointer_runtime = _langgraph_checkpointer_runtime
-    if checkpointer_runtime is not None and not _langgraph_checkpointer_started:
+    checkpointer_runtime = container.get("langgraph_checkpointer_runtime")
+    if checkpointer_runtime is None:
+        checkpointer_runtime = get_langgraph_checkpointer_runtime()
+        if checkpointer_runtime is not None:
+            container.set(
+                "langgraph_checkpointer_runtime",
+                checkpointer_runtime,
+            )
+    if (
+        checkpointer_runtime is not None
+        and not container.flag("langgraph_checkpointer_started")
+    ):
         checkpointer_runtime.start()
-        _langgraph_checkpointer_started = True
-    if _durable_workflow_maintenance_service is None:
-        _durable_workflow_maintenance_service = (
+        container.set_flag("langgraph_checkpointer_started", True)
+    maintenance_service = container.get(
+        "durable_workflow_maintenance_service"
+    )
+    if maintenance_service is None:
+        maintenance_service = (
             get_durable_workflow_maintenance_service()
         )
+        if maintenance_service is not None:
+            container.set(
+                "durable_workflow_maintenance_service",
+                maintenance_service,
+            )
     if (
-        _durable_workflow_maintenance_service is not None
-        and not _durable_workflow_maintenance_started
+        maintenance_service is not None
+        and not container.flag("durable_workflow_maintenance_started")
     ):
-        _durable_workflow_maintenance_service.start()
-        _durable_workflow_maintenance_started = True
+        maintenance_service.start()
+        container.set_flag("durable_workflow_maintenance_started", True)
     if get_runtime_event_backend() != "local":
         return
-    if _runtime_outbox_service is None:
-        _runtime_outbox_service = build_runtime_outbox_service()
-        _runtime_outbox_service.start()
+    outbox_service = container.get("runtime_outbox_service")
+    if outbox_service is None:
+        outbox_service = build_runtime_outbox_service()
+        outbox_service.start()
+        container.set("runtime_outbox_service", outbox_service)
 
 
 def get_report_executor():
-    global _report_executor
-    if _report_executor is None:
-        _report_executor = build_report_executor()
-    return _report_executor
+    return _runtime_container.get_or_create(
+        "report_executor",
+        build_report_executor,
+    )
 
 
 def shutdown_runtime(*, wait: bool = True) -> None:
-    with _runtime_lifecycle_lock:
-        _shutdown_runtime_unlocked(wait=wait)
+    container = _runtime_container
+    with container.lifecycle_lock:
+        if not container.begin_close():
+            return
+        try:
+            _shutdown_runtime_unlocked(container, wait=wait)
+        finally:
+            container.finish_close()
 
 
-def _shutdown_runtime_unlocked(*, wait: bool = True) -> None:
-    global _session_store, _report_job_store, _report_artifact_store
-    global _decision_store, _report_executor, _draft_store
-    global _prep_plan_store, _interview_launch_repository
-    global _interview_launch_coordinator
-    global _plan_revision_store
-    global _event_publisher, _runtime_control_store, _runtime_outbox_service
-    global _agent_execution_runner, _agent_composite_recorder
-    global _langgraph_checkpointer_runtime, _langgraph_checkpointer_started
-    global _durable_workflow_maintenance_service
-    global _durable_workflow_maintenance_started
-    global _interview_workflow_service, _interview_workflow_consumer
-    global _review_workflow_service, _review_workflow_consumer
-    global _workflow_thread_lock
-    global _runtime_signal_store
-    global _postgres_connection_domains
-    global _context_artifact_store, _context_compression_runners
-    global _context_compression_failure_store
-    global _context_compressor_agent, _context_compressor_authority
-    global _composed_workflow_llm, _composed_workflow_llm_authority
-    global _question_memory_index_store
-    global _session_deletion_job_store, _session_deletion_tombstone_store
-    global _session_deletion_service, _session_deletion_worker
-    global _memory_metric_store
-    global _principal_identity_resolver, _principal_memory_control_store
-    global _principal_memory_consent_store, _principal_memory_export_store
-    global _principal_memory_deletion_tombstone_store
-    global _principal_memory_safe_ref_store
-    global _principal_memory_ledger_watermark_store
-    global _principal_memory_durable_ledger
-    global _principal_memory_fact_store, _principal_memory_proposal_processor
-    global _principal_memory_shadow_service
-    global _principal_memory_consume_service
-    if _runtime_outbox_service is not None:
-        _runtime_outbox_service.shutdown(wait=wait)
-    if _durable_workflow_maintenance_service is not None:
-        _durable_workflow_maintenance_service.shutdown(wait=wait)
-    if _report_job_store is not None:
-        shutdown = getattr(_report_job_store, "shutdown", None)
-        if shutdown is not None:
-            shutdown(wait=wait)
-    if _langgraph_checkpointer_runtime is not None:
-        _langgraph_checkpointer_runtime.shutdown()
-    if _workflow_thread_lock is not None:
-        _workflow_thread_lock.close()
-    if _postgres_connection_domains is not None:
-        _postgres_connection_domains.close()
-    _shutdown_cached_publisher(_event_publisher, wait=wait)
-    _session_store = None
-    _report_job_store = None
-    _report_artifact_store = None
-    _decision_store = None
-    _report_executor = None
-    _draft_store = None
-    _prep_plan_store = None
-    _interview_launch_repository = None
-    _interview_launch_coordinator = None
-    _plan_revision_store = None
-    _event_publisher = None
-    _runtime_control_store = None
-    _runtime_outbox_service = None
-    _langgraph_checkpointer_runtime = None
-    _langgraph_checkpointer_started = False
-    _durable_workflow_maintenance_service = None
-    _durable_workflow_maintenance_started = False
-    _interview_workflow_service = None
-    _interview_workflow_consumer = None
-    _review_workflow_service = None
-    _review_workflow_consumer = None
-    _workflow_thread_lock = None
-    _runtime_signal_store = None
-    _postgres_connection_domains = None
-    _context_artifact_store = None
-    _context_compression_runners = {}
-    _context_compression_failure_store = None
-    _context_compressor_agent = None
-    _context_compressor_authority = None
-    _composed_workflow_llm = None
-    _composed_workflow_llm_authority = None
-    _question_memory_index_store = None
-    _session_deletion_job_store = None
-    _session_deletion_tombstone_store = None
-    _session_deletion_service = None
-    _session_deletion_worker = None
-    _memory_metric_store = None
-    _principal_identity_resolver = None
-    _principal_memory_control_store = None
-    _principal_memory_consent_store = None
-    _principal_memory_fact_store = None
-    _principal_memory_export_store = None
-    _principal_memory_deletion_tombstone_store = None
-    _principal_memory_safe_ref_store = None
-    _principal_memory_ledger_watermark_store = None
-    _principal_memory_durable_ledger = None
-    _principal_memory_proposal_processor = None
-    _principal_memory_shadow_service = None
-    _principal_memory_consume_service = None
+def _shutdown_runtime_unlocked(
+    container: RuntimeContainer,
+    *,
+    wait: bool = True,
+) -> None:
     from app.services.memory_metrics import reset_memory_metric_store
 
-    reset_memory_metric_store()
-    with _agent_runtime_lock:
-        _agent_execution_runner = None
-        _agent_composite_recorder = None
-        _agent_postgres_control_identities.clear()
+    try:
+        close_runtime_resources(container, _RUNTIME_CLOSERS, wait=wait)
+    finally:
+        reset_memory_metric_store()
 
 
 def reset_runtime_for_tests() -> None:
-    shutdown_runtime(wait=False)
-
-
-def _shutdown_cached_publisher(publisher, *, wait: bool) -> None:
-    if publisher is None:
-        return
-    shutdown = getattr(publisher, "shutdown", None)
-    if shutdown is not None:
-        shutdown(wait=wait)
+    global _runtime_container
+    container = _runtime_container
+    with container.lifecycle_lock:
+        try:
+            if container.begin_close():
+                try:
+                    _shutdown_runtime_unlocked(container, wait=False)
+                finally:
+                    container.finish_close()
+        finally:
+            _runtime_container = RuntimeContainer()
 
 
 def _runtime_worker_id(mode: str) -> str:

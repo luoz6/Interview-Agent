@@ -83,6 +83,7 @@ AGENT_SAFE_METADATA_STRING_KEYS = frozenset(
         "report_path",
         "retrieval_path",
         "knowledge_status",
+        "knowledge_path",
         "question_ids",
         "reused_question_ids",
         "rerun_question_ids",

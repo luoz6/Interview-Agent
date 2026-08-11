@@ -19,7 +19,7 @@ from app.services.knowledge_eval_metrics import (
     KnowledgeRetrievalObservation,
     calculate_knowledge_retrieval_metrics,
 )
-from app.services.vector_store import KnowledgeChunk, PgVectorKnowledgeStore
+from app.adapters.pgvector.repository import KnowledgeChunk, PgVectorKnowledgeStore
 
 
 DEFAULT_OUTPUT_PATH = Path("tmp/stage42-knowledge-retrieval.json")

@@ -33,7 +33,7 @@ from app.services.followup_prompts import (
     validate_followup_output,
 )
 from app.services.knowledge_binding import resolve_evidence_by_ids
-from app.services.runtime_work import (
+from app.adapters.reliability.runtime_failure import (
     RuntimeFailure,
     classify_runtime_failure,
     retry_delay_seconds,

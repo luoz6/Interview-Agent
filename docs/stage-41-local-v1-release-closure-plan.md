@@ -117,12 +117,13 @@ python -m pytest -q -rs
 
 重点覆盖：
 
-- `tests/test_postgres_session_store.py`
-- `tests/test_report_jobs.py`
-- `tests/test_report_worker.py`
-- `tests/test_stage38_postgres_api_contract.py`
-- `tests/test_vector_store.py`
-- `tests/test_vector_store_pgvector.py`
+- `tests/integration/postgres/test_postgres_session_store.py`
+- `tests/integration/postgres/test_report_jobs.py`
+- `tests/unit/test_report_worker.py`
+- `tests/integration/postgres/test_report_worker.py`
+- `tests/contracts/test_stage38_postgres_api_contract.py`
+- `tests/unit/test_vector_store.py`
+- `tests/integration/postgres/test_vector_store_pgvector.py`
 
 Redis/Celery 验证：
 

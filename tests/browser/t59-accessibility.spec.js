@@ -3,7 +3,7 @@ const {
   createSession,
   desktopOnly,
   expectGeometry,
-} = require("./reference-ui-geometry");
+} = require("./browser-suite-support");
 
 const jobDescription = "Backend engineer responsible for resilient payment and cache services";
 const resumeText = "Built idempotent payment APIs, cache recovery, and production observability";

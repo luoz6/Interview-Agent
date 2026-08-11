@@ -5,14 +5,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, Literal
 
 from app.services.agent_runtime import AgentExecutionRunner
-from app.services.config import get_runtime_receipt_lease_seconds
+from app.runtime.config.compatibility import get_runtime_receipt_lease_seconds
 from app.services.round_review_runner import (
     evaluate_round_review_event,
     failed_question_evaluation,
     run_round_review_event_payload,
 )
 from app.services.runtime_domain_events import RoundClosedEvent
-from app.services.runtime_work import (
+from app.adapters.reliability.runtime_failure import (
     classify_runtime_failure,
     retry_delay_seconds,
 )
@@ -181,7 +181,7 @@ def _resolve_runtime_llm(store):
 
 
 def _get_knowledge_store():
-    from app.services.vector_store import get_knowledge_store
+    from app.adapters.pgvector.repository import get_knowledge_store
 
     return get_knowledge_store()
 

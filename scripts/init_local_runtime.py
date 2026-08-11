@@ -2,7 +2,7 @@ import argparse
 import json
 import re
 
-from app.services.config import (
+from app.runtime.config.compatibility import (
     derive_pgvector_table_names,
     get_pgvector_table,
     get_postgres_dsn,
@@ -10,7 +10,7 @@ from app.services.config import (
 )
 from app.services.postgres_session import PostgresInterviewSessionStore
 from app.services.report_jobs import PostgresReportJobStore
-from app.services.vector_store import PgVectorKnowledgeStore
+from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from scripts.load_knowledge import load_knowledge
 
 

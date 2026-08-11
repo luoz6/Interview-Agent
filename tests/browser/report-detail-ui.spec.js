@@ -3,8 +3,11 @@ const {
   createCompletedReport,
   desktopOnly,
   expectGeometry,
+  seedReport,
   viewports,
-} = require("./reference-ui-geometry");
+} = require("./browser-suite-support");
+
+const diagnosticsEnabled = process.env.VITE_SHOW_RUNTIME_DIAGNOSTICS === "true";
 
 test.beforeEach(async ({}, testInfo) => {
   test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
@@ -288,4 +291,170 @@ test("report detail motion and focus states remain accessible", async ({
     });
   });
   expect(Math.max(...durations)).toBeLessThanOrEqual(0.02);
+});
+
+test("React report detail shows only safe runtime fields and tracks sections", async ({ page, request }) => {
+  const sessionId = await createCompletedReport(request);
+  await page.route(`**/api/interviews/${sessionId}/agent-runs?limit=100`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      items: [{
+        run_id: "run-safe-1",
+        agent: "reviewer",
+        operation: "evaluate",
+        status: "completed",
+        safe_metadata: { prompt: "secret-agent" },
+      }],
+    }),
+  }));
+  await page.route(`**/api/interviews/${sessionId}/runtime-events?limit=100`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      items: [{
+        event_id: "event-safe-1",
+        event_type: "round.closed",
+        status: "completed",
+        payload_json: { answer: "secret-event" },
+      }],
+    }),
+  }));
+  await page.goto(`/report-detail?session_id=${sessionId}`);
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("secret-agent");
+  await expect(page.locator("body")).not.toContainText("secret-event");
+});
+
+test("score and coverage states remain explicit without fabricating missing scores", async ({ page, request }) => {
+  test.setTimeout(60_000);
+  const sessionId = await createCompletedReport(request);
+  const response = await request.get(`/api/interviews/${sessionId}/report`);
+  expect(response.ok()).toBe(true);
+  const baseline = await response.json();
+  const activeArtifact = baseline.active_artifact || baseline;
+  const wrappedArtifact = Boolean(baseline.active_artifact);
+
+  let payload = baseline;
+  await page.route(`**/api/interviews/${sessionId}/report`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(payload),
+  }));
+
+  const cases = [
+    {
+      score_status: "scored",
+      coverage_status: "complete",
+      overall_score: 82,
+      evaluated_count: 1,
+      total_eligible_count: 1,
+      scoreLabel: "已评分",
+      coverageLabel: "完整覆盖",
+      note: "五个维度仍只代表本轮已回答题目的证据",
+    },
+    {
+      score_status: "partial",
+      coverage_status: "partial",
+      overall_score: 67,
+      evaluated_count: 1,
+      total_eligible_count: 2,
+      scoreLabel: "部分评分",
+      coverageLabel: "部分覆盖",
+      note: "未评估题目和维度不会按 0 分处理",
+    },
+    {
+      score_status: "unscored",
+      coverage_status: "none",
+      overall_score: null,
+      overall_dimension_scores: {},
+      evaluated_count: 0,
+      total_eligible_count: 1,
+      scoreLabel: "未评分",
+      coverageLabel: "无有效覆盖",
+      note: "不显示任何假分",
+    },
+  ];
+
+  for (const state of cases) {
+    const overrides = { ...state };
+    delete overrides.scoreLabel;
+    delete overrides.coverageLabel;
+    delete overrides.note;
+    payload = wrappedArtifact
+      ? {
+          ...baseline,
+          active_artifact: {
+            ...activeArtifact,
+            ...overrides,
+            payload: {
+              ...(activeArtifact.payload || {}),
+              ...overrides,
+            },
+          },
+        }
+      : { ...baseline, ...overrides };
+    await page.goto(`/report-detail?session_id=${sessionId}`);
+    const statePair = page.getByLabel("评分和覆盖状态");
+    await expect(statePair).toBeVisible({ timeout: 15_000 });
+    await expect(statePair).toContainText(state.scoreLabel);
+    await expect(statePair).toContainText(state.coverageLabel);
+    await expect(page.locator(".report-detail-coverage-note")).toContainText(state.note);
+  }
+
+  await expect(page.locator(".report-detail-score-mark")).toContainText("未评分");
+  await expect(page.locator(".report-detail-dimension")).toHaveCount(5);
+  await expect(page.locator(".report-detail-dimension").first()).toContainText(/未评估|证据不足/);
+});
+
+test("report detail excludes the legacy targeted-practice facade", async ({ page, request }) => {
+  const sessionId = await createCompletedReport(request);
+  let legacyRequests = 0;
+  await page.route("**/api/interviews/*/practice-plan", (route) => {
+    legacyRequests += 1;
+    return route.abort();
+  });
+  await page.route("**/api/prep-plans/**", (route) => {
+    legacyRequests += 1;
+    return route.abort();
+  });
+
+  await page.goto(`/report-detail?session_id=${sessionId}`);
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建针对性练习" })).toHaveCount(0);
+  await expect(page.locator('a[href*="/prep?plan_id="]')).toHaveCount(0);
+  expect(legacyRequests).toBe(0);
+});
+
+test("runtime diagnostics follow the explicit build capability", async ({ page, request }) => {
+  const completed = await createCompletedReport(request);
+  const processing = await seedReport(request, "processing");
+  let diagnosticRequests = 0;
+  for (const suffix of ["question-evaluations", "agent-runs?limit=100", "runtime-events?limit=100"]) {
+    await page.route(`**/api/interviews/${completed}/${suffix}`, async (route) => {
+      diagnosticRequests += 1;
+      await route.continue();
+    });
+  }
+
+  await page.goto(`/report-detail?session_id=${completed}`);
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  if (diagnosticsEnabled) {
+    await expect(page.locator("#runtime-trace")).toBeVisible();
+    await expect(page.locator(".report-detail-evaluation-ledger")).toBeVisible();
+    expect(diagnosticRequests).toBeGreaterThanOrEqual(3);
+  } else {
+    await expect(page.locator("#runtime-trace, .report-detail-evaluation-ledger")).toHaveCount(0);
+    expect(diagnosticRequests).toBe(0);
+  }
+
+  await page.goto(`/report-processing?session_id=${processing.session_id}`);
+  await expect(page.locator(".processing-progress-panel")).toBeVisible();
+  if (diagnosticsEnabled) {
+    await expect(page.locator(".processing-diagnostics")).toBeVisible();
+    await expect(page.locator(".processing-diagnostics")).toContainText("任务 ID");
+  } else {
+    await expect(page.locator(".processing-diagnostics")).toHaveCount(0);
+    await expect(page.locator("body")).not.toContainText("任务 ID");
+  }
 });

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-import os
+
+from app.runtime.config import load_provider_credentials
 
 
 class EmbeddingConfigurationError(RuntimeError):
@@ -50,7 +51,7 @@ def validate_embedding_batch(
 
 
 def build_embedding_provider(settings=None):
-    from app.services.config import get_embedding_settings
+    from app.runtime.config.compatibility import get_embedding_settings
 
     resolved = settings or get_embedding_settings()
     if resolved.provider_name == "disabled":
@@ -58,7 +59,7 @@ def build_embedding_provider(settings=None):
             model_name=resolved.model_name,
             dimension=resolved.dimension,
         )
-    api_key = os.getenv("SILICONFLOW_API_KEY", "").strip()
+    api_key = load_provider_credentials().siliconflow_api_key
     if not api_key:
         raise EmbeddingConfigurationError("SILICONFLOW_API_KEY is not configured")
     from app.services.siliconflow_embeddings import SiliconFlowEmbeddingProvider

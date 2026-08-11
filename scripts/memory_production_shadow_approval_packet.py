@@ -2,14 +2,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Mapping
 
-from app.services.memory_config import load_effective_memory_config
+from app.runtime.config.memory import load_effective_memory_config
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    OperationalShadowEvidencePayload,
+    ProductionShadowApprovalRequestPayload,
+    input_artifact_from_bundle,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.evidence.status import VerificationStatus
+from contracts.policies import (
+    OperationalShadowEvidencePolicy,
+    ProductionShadowApprovalRequestPolicy,
+)
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs/memory-production-shadow-approval-evidence.json"
+DEFAULT_OUTPUT = (
+    ROOT / "reports" / "memory" / "production-shadow-approval-request-v1.json"
+)
+DEFAULT_OPERATIONAL_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-shadow-evidence-v1.json"
+)
 PENDING_LINES = (
     "MEMORY_PRODUCTION_SHADOW_PACKET=READY_FOR_REVIEW",
     "REQUESTED_PHASE=BUDGET_SHADOW_ONLY",
@@ -19,160 +45,60 @@ PENDING_LINES = (
     "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
     "PRODUCTION_OBSERVATION=NOT_RUN",
 )
-_PRIVATE_KEYS = frozenset(
-    {
-        "session_id",
-        "principal_id",
-        "fact_id",
-        "question_id",
-        "message_id",
-        "normalized_fact",
-        "source_excerpt",
-        "source_manifest_sha256",
-        "source_excerpt_sha256",
-        "artifact_ref",
-        "provider_payload",
-        "prompt",
-        "answer",
-        "resume",
-        "report",
-        "dsn",
-        "database_fingerprint",
-        "table_prefix",
-    }
-)
-
-
 class ApprovalPacketBlocked(RuntimeError):
     def __init__(self, codes) -> None:
         self.codes = tuple(sorted(set(codes)))
         super().__init__("production Memory Shadow approval packet blocked")
 
 
-def _mapping(value: object) -> Mapping[str, object]:
-    return value if isinstance(value, Mapping) else {}
-
-
-def _integer(value: object, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _section_passed(value: object) -> bool:
-    section = _mapping(value)
-    return bool(section.get("passed")) and _integer(section.get("failed")) == 0
-
-
 def evaluate_approval_readiness(
     inputs: Mapping[str, object]
 ) -> tuple[str, ...]:
     codes: list[str] = []
-    operational = _mapping(inputs.get("operational"))
-    if not operational.get("accepted"):
-        codes.append("OPERATIONAL_SHADOW_NOT_ACCEPTED")
-    if operational.get("production_shadow_approval") != "REQUIRED":
-        codes.append("PRODUCTION_APPROVAL_REQUEST_STATE_INVALID")
-    gates = _mapping(operational.get("aggregate_gates"))
-    for key in (
-        "budget_shadow",
-        "principal_write_shadow",
-        "principal_read_zero_injection",
-        "consent_deletion_restore",
-        "privacy_security_fairness_firewall",
+    operational_value = inputs.get("operational")
+    operational = (
+        operational_value
+        if isinstance(operational_value, OperationalShadowEvidencePayload)
+        else None
+    )
+    if operational is None:
+        codes.append("OPERATIONAL_EVIDENCE_UNVERIFIED")
+    elif (
+        OperationalShadowEvidencePolicy().evaluate(operational).verification_status
+        is not VerificationStatus.PASS
+        or not operational.operational_gates_passed
     ):
-        if gates.get(key) != "PASS":
-            codes.append(f"OPERATIONAL_{key.upper()}_NOT_GREEN")
-    cleanup = _mapping(operational.get("cleanup"))
-    if any(_integer(value) for value in cleanup.values()):
+        codes.append("OPERATIONAL_SHADOW_NOT_ACCEPTED")
+    if operational is not None and not operational.production_approval_required:
+        codes.append("PRODUCTION_APPROVAL_REQUEST_STATE_INVALID")
+    if operational is not None and any(
+        value != 0
+        for value in (
+            operational.test_listener_residue,
+            operational.isolated_relation_residue,
+            operational.private_data_residue,
+        )
+    ):
         codes.append("OPERATIONAL_CLEANUP_RESIDUE")
-    safe = _mapping(operational.get("safe_defaults"))
-    if (
-        safe.get("budget") != "disabled"
-        or safe.get("compression") != "disabled"
-        or safe.get("principal_memory") != "disabled"
-        or safe.get("trusted_local_api") != "disabled"
-        or safe.get("consume_rejected") is not True
+    if operational is not None and (
+        not operational.safe_defaults or not operational.consume_rejected
     ):
         codes.append("OPERATIONAL_SAFE_DEFAULTS_INVALID")
 
-    status = _mapping(inputs.get("status"))
-    automatic_stop = _mapping(status.get("automatic_stop"))
-    if automatic_stop.get("triggered") or automatic_stop.get("gate_codes"):
-        codes.append("SHADOW_HARD_STOP_ACTIVE")
-    if status.get("hold_codes"):
-        codes.append("SHADOW_HOLD_ACTIVE")
-    if automatic_stop.get("deterministic_path_available") is not True:
-        codes.append("DETERMINISTIC_PATH_NOT_AVAILABLE")
-    if status.get("configuration_changed") is not False:
-        codes.append("STATUS_CONFIGURATION_CHANGED")
-    if status.get("configuration_mutation_available") is not False:
-        codes.append("STATUS_MUTATION_AVAILABLE")
-
-    security = _mapping(inputs.get("security"))
-    if security.get("review_status") != "PASS":
-        codes.append("SECURITY_REVIEW_NOT_GREEN")
-    if any(
-        _integer(security.get(key))
-        for key in (
-            "artifact_violations",
-            "hard_stop_count",
-            "knowledge_firewall_violations",
-            "protected_taxonomy_hits",
-        )
-    ):
-        codes.append("SECURITY_PRIVACY_FAIRNESS_VIOLATION")
-    if security.get("public_knowledge_unchanged") is not True:
-        codes.append("PUBLIC_KNOWLEDGE_CHANGED")
-
-    regression = _mapping(inputs.get("regression"))
-    if not regression.get("clean_detached_worktree"):
-        codes.append("REGRESSION_NOT_CLEAN_REVISION")
-    if any(
-        not _section_passed(regression.get(key))
-        for key in (
-            "full_python",
-            "pg_runtime",
-            "frontend_build",
-            "full_browser",
-            "compileall",
-            "diff_check",
-        )
-    ):
-        codes.append("REGRESSION_NOT_GREEN")
-    if _mapping(regression.get("full_browser")).get("scope") != "full":
-        codes.append("BROWSER_SCOPE_PARTIAL")
-    regression_cleanup = _mapping(regression.get("cleanup"))
-    if any(_integer(value) for value in regression_cleanup.values()):
-        codes.append("REGRESSION_CLEANUP_RESIDUE")
-
-    repository = _mapping(inputs.get("repository"))
+    repository_value = inputs.get("repository")
+    repository = (
+        repository_value if isinstance(repository_value, Mapping) else {}
+    )
     if repository.get("safe_defaults") is not True:
         codes.append("SAFE_DEFAULTS_CHANGED")
     if repository.get("consume_rejected") is not True:
         codes.append("CONSUME_NOT_REJECTED")
 
-    tooling = _mapping(inputs.get("production_budget_tooling"))
-    if tooling.get("tooling_readiness") != "READY_FOR_REVIEW":
-        codes.append("PRODUCTION_BUDGET_TOOLING_NOT_READY")
-    if tooling.get("approval_status") != "PENDING":
-        codes.append("PRODUCTION_BUDGET_TOOLING_APPROVAL_STATE_INVALID")
-    if tooling.get("change_preflight") != "BLOCKED":
-        codes.append("PRODUCTION_BUDGET_TOOLING_PREFLIGHT_STATE_INVALID")
-    if tooling.get("configuration_changed") is not False:
-        codes.append("PRODUCTION_BUDGET_TOOLING_CONFIGURATION_CHANGED")
-    if tooling.get("production_observation") != "NOT_RUN":
-        codes.append("PRODUCTION_BUDGET_TOOLING_OBSERVATION_STARTED")
-    if tooling.get("long_term_memory_consumption") != "BLOCKED":
-        codes.append("PRODUCTION_BUDGET_TOOLING_CONSUMPTION_INVALID")
-
-    for value in (operational, status, security, regression):
-        if value.get("production_observation") != "NOT_RUN":
+    if operational is not None:
+        if not operational.production_observation_not_run:
             codes.append("PRODUCTION_OBSERVATION_ALREADY_STARTED")
-        if value.get("long_term_memory_consumption") != "BLOCKED":
+        if not operational.long_term_consumption_blocked:
             codes.append("CONSUMPTION_BOUNDARY_INVALID")
-
     if codes:
         raise ApprovalPacketBlocked(codes)
     return PENDING_LINES
@@ -180,111 +106,44 @@ def evaluate_approval_readiness(
 
 def build_approval_packet(
     inputs: Mapping[str, object]
-) -> dict[str, object]:
+) -> ProductionShadowApprovalRequestPayload:
     evaluate_approval_readiness(inputs)
-    operational = _mapping(inputs["operational"])
-    regression = _mapping(inputs["regression"])
-    packet: dict[str, object] = {
-        "schema_version": "memory-production-shadow-approval-packet-v1",
-        "packet_readiness": "READY_FOR_REVIEW",
-        "approval_status": "PENDING",
-        "requested_phase": "BUDGET_SHADOW_ONLY",
-        "validated_rc_revision": str(
-            operational.get("validated_rc_revision", "")
-        ),
-        "validation_revision": str(
-            operational.get("validation_revision", "")
-        ),
-        "evidence_environment": str(
-            operational.get("environment_category", "")
-        ),
-        "evidence_profile": str(operational.get("observation_profile", "")),
-        "requested_scope": {
-            "budget_shadow_observation": True,
-            "provider_input_change": False,
-            "budget_enforcement": False,
-            "context_compression_consumption": False,
-            "question_memory_consumption": False,
-            "principal_write_shadow": False,
-            "principal_read_shadow": False,
-            "principal_memory_consumption": False,
-            "production_migration": False,
-        },
-        "required_approvals": {
-            "change_owner": "PENDING",
-            "operations": "PENDING",
-            "privacy": "PENDING",
-            "security": "PENDING",
-            "fairness": "PENDING",
-        },
-        "proposed_guardrails": {
-            "maximum_traffic_percent": 1,
-            "initial_warmup_traffic_percent": 0.1,
-            "minimum_warmup_minutes": 30,
-            "minimum_warmup_followup_samples": 20,
-            "minimum_observation_hours": 24,
-            "minimum_followup_samples": 200,
-            "continue_observation_requires_new_approval": True,
-            "one_axis_at_a_time": True,
-            "synthetic_replay_matrix_required": True,
-            "durable_aggregate_metrics_required": True,
-            "per_entity_drilldown": False,
-            "real_provider_payload_persistence": False,
-        },
-        "hard_stop_thresholds": {
-            "mandatory_content_loss": 0,
-            "over_limit_provider_calls": 0,
-            "privacy_artifact_hits": 0,
-            "provider_input_mutations": 0,
-            "error_rate_delta_max": 0.005,
-            "p95_latency_delta_ratio_max": 0.20,
-        },
-        "rollback_target": {
-            "budget_mode": "disabled",
-            "compression_mode": "disabled",
-            "principal_memory_mode": "disabled",
-            "new_shadow_worker_leasing": "stopped",
-            "deterministic_interview": "available",
-        },
-        "production_budget_tooling": {
-            "readiness": str(
-                _mapping(inputs.get("production_budget_tooling")).get(
-                    "tooling_readiness", ""
-                )
-            ),
-            "observation_schema": (
-                "memory-production-budget-shadow-observation-v1"
-            ),
-            "acceptance_states": [
-                "PASS",
-                "BLOCKED",
-                "CONTINUE_OBSERVATION",
-            ],
-            "offline_aggregate_input_only": True,
-        },
-        "validation_counts": {
-            "full_python_passed": _integer(
-                _mapping(regression.get("full_python")).get("passed_count")
-            ),
-            "postgres_executed": _integer(
-                _mapping(regression.get("pg_runtime")).get("executed")
-            ),
-            "frontend_modules": _integer(
-                _mapping(regression.get("frontend_build")).get(
-                    "modules_transformed"
-                )
-            ),
-            "browser_passed": _integer(
-                _mapping(regression.get("full_browser")).get("passed_count")
-            ),
-        },
-        "configuration_changed": False,
-        "principal_write_shadow_production": "NOT_AUTHORIZED",
-        "principal_read_shadow_production": "NOT_AUTHORIZED",
-        "long_term_memory_consumption": "BLOCKED",
-        "production_observation": "NOT_RUN",
-    }
-    validate_packet_artifact(packet)
+    operational = inputs["operational"]
+    if not isinstance(operational, OperationalShadowEvidencePayload):
+        raise ApprovalPacketBlocked(("OPERATIONAL_EVIDENCE_UNVERIFIED",))
+    packet = ProductionShadowApprovalRequestPayload(
+        schema_version="production-shadow-approval-request-v1",
+        validated_rc_revision=operational.validated_rc_revision,
+        validation_revision=operational.validation_revision,
+        evidence_environment=operational.environment_category,
+        evidence_profile=operational.observation_profile,
+        requested_phase="BUDGET_SHADOW_ONLY",
+        approval_status="PENDING",
+        required_approval_roles=[
+            "change_owner",
+            "operations",
+            "privacy",
+            "security",
+            "fairness",
+        ],
+        maximum_traffic_percent=1.0,
+        initial_warmup_traffic_percent=0.1,
+        minimum_warmup_minutes=30,
+        minimum_warmup_followup_samples=20,
+        minimum_observation_hours=24,
+        minimum_followup_samples=200,
+        provider_input_change=False,
+        budget_enforcement=False,
+        compression_consumption=False,
+        principal_write_shadow=False,
+        principal_read_shadow=False,
+        principal_memory_consumption=False,
+        production_migration=False,
+        configuration_changed=False,
+        production_observation_not_run=True,
+        long_term_consumption_blocked=True,
+        synthetic=operational.synthetic,
+    )
     return packet
 
 
@@ -295,13 +154,6 @@ def format_blocked_output(codes) -> tuple[str, ...]:
         "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
         "PRODUCTION_OBSERVATION=NOT_RUN",
     )
-
-
-def _load_json(path: Path) -> Mapping[str, object]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping):
-        raise ValueError(f"approval input {path.name} must be an object")
-    return value
 
 
 def repository_snapshot() -> dict[str, bool]:
@@ -325,57 +177,34 @@ def repository_snapshot() -> dict[str, bool]:
     }
 
 
-def load_default_inputs() -> dict[str, object]:
+def load_default_inputs(
+    *,
+    operational: OperationalShadowEvidencePayload,
+) -> dict[str, object]:
     return {
-        "operational": _load_json(
-            ROOT / "docs/memory-operational-shadow-evidence.json"
-        ),
-        "status": _load_json(ROOT / "docs/memory-shadow-status.json"),
-        "security": _load_json(
-            ROOT / "docs/memory-shadow-security-review-evidence.json"
-        ),
-        "regression": _load_json(
-            ROOT / "docs/memory-operational-regression-evidence.json"
-        ),
-        "production_budget_tooling": _load_json(
-            ROOT / "docs/memory-production-budget-shadow-readiness-evidence.json"
-        ),
+        "operational": operational,
         "repository": repository_snapshot(),
     }
-
-
-def _has_private_key(value: object) -> bool:
-    if isinstance(value, Mapping):
-        return any(
-            str(key).casefold() in _PRIVATE_KEYS or _has_private_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list):
-        return any(_has_private_key(item) for item in value)
-    return False
-
-
-def validate_packet_artifact(value: Mapping[str, object]) -> None:
-    if value.get("approval_status") != "PENDING":
-        raise RuntimeError("approval packet must remain pending")
-    if value.get("packet_readiness") != "READY_FOR_REVIEW":
-        raise RuntimeError("approval packet readiness is invalid")
-    if value.get("configuration_changed") is not False:
-        raise RuntimeError("approval packet changed configuration")
-    if value.get("production_observation") != "NOT_RUN":
-        raise RuntimeError("approval packet production state is invalid")
-    if value.get("long_term_memory_consumption") != "BLOCKED":
-        raise RuntimeError("approval packet consumption boundary is invalid")
-    if _has_private_key(value):
-        raise RuntimeError("approval packet contains private data")
-    rendered = json.dumps(value, sort_keys=True, ensure_ascii=False).casefold()
-    if "postgresql://" in rendered or "redis://" in rendered:
-        raise RuntimeError("approval packet contains private connection data")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build a pending production Budget Shadow approval packet."
+    )
+    parser.add_argument(
+        "--operational-evidence",
+        type=Path,
+        default=DEFAULT_OPERATIONAL_EVIDENCE,
+    )
+    parser.add_argument("--operational-revision")
+    parser.add_argument(
+        "--operational-scope",
+        default="memory.operational-shadow.controlled",
+    )
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.production-shadow.approval-request",
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser
@@ -383,19 +212,72 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    inputs = load_default_inputs()
+    try:
+        operational_revision = (
+            args.operational_revision
+            or require_environment_value(os.environ, "OPERATIONAL_EVIDENCE_REVISION")
+        )
+        output_revision = (
+            args.output_revision
+            or require_environment_value(os.environ, "EVIDENCE_REVISION")
+        )
+        signer = load_receipt_signer(os.environ)
+        operational_value = json.loads(
+            args.operational_evidence.read_text(encoding="utf-8")
+        )
+        verified_operational = EvidenceVerifier(
+            registry=EvidenceRegistry.default(),
+            receipt_signer=signer,
+        ).verify(
+            operational_value,
+            expected_revision=operational_revision,
+            expected_scope=args.operational_scope,
+        )
+        if not isinstance(
+            verified_operational.payload,
+            OperationalShadowEvidencePayload,
+        ):
+            raise ValueError("operational payload type is invalid")
+    except (AcceptanceConfigurationError, OSError, ValueError, json.JSONDecodeError):
+        print("\n".join(format_blocked_output(("OPERATIONAL_EVIDENCE_UNVERIFIED",))))
+        return 1
+    inputs = load_default_inputs(operational=verified_operational.payload)
     try:
         lines = evaluate_approval_readiness(inputs)
         packet = build_approval_packet(inputs)
     except ApprovalPacketBlocked as exc:
         print("\n".join(format_blocked_output(exc.codes)))
         return 1
-    args.output.write_text(
-        json.dumps(packet, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    policy_result = ProductionShadowApprovalRequestPolicy().evaluate(packet)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="production-shadow-approval-request",
+        payload=packet,
+        policy_result=policy_result,
+        producer="scripts.memory-production-shadow-approval-packet",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+        input_manifest=(
+            input_artifact_from_bundle(
+                path=args.operational_evidence,
+                logical_path="operational-shadow-evidence",
+                bundle=verified_operational.bundle,
+            ),
+        ),
     )
-    print("\n".join(lines))
-    return 0
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: output_verifier.verify(
+            value,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.output, bundle)
+    print("\n".join((*render_gate_lines(bundle), *lines)))
+    return 0 if policy_result.verification_status is VerificationStatus.PASS else 1
 
 
 if __name__ == "__main__":

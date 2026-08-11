@@ -1,9 +1,32 @@
 const { test, expect } = require("@playwright/test");
 
+const recoveryJobDescription = "Backend engineer with Python, Redis, and PostgreSQL.";
+const recoveryResumeText = "Built and operated a resilient FastAPI platform.";
+const recoveryUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function seed(request, mode) {
   const response = await request.post(`/test-support/langgraph/${mode}`);
   expect(response.status()).toBe(200);
   return response.json();
+}
+
+async function seedDurableReview(request, status) {
+  const response = await request.post(`/test-support/reports/${status}`);
+  expect(response.status()).toBe(200);
+  return response.json();
+}
+
+async function prepareRecoveryPlan(page) {
+  await page.goto("/prep");
+  await expect(page.locator(".start-editor-workspace")).toBeVisible();
+  const jdTab = page.getByRole("tab", { name: /岗位 JD/ });
+  if (await jdTab.isVisible()) await jdTab.click();
+  await page.getByLabel("岗位 JD").fill(recoveryJobDescription);
+  const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
+  if (await resumeTab.isVisible()) await resumeTab.click();
+  await page.getByLabel("简历内容").fill(recoveryResumeText);
+  await page.getByRole("button", { name: /生成面试计划/ }).click();
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
 }
 
 test("refresh replays an active durable generation", async ({ page, request }) => {
@@ -19,10 +42,10 @@ test("refresh replays an active durable generation", async ({ page, request }) =
   });
 
   await page.goto(`/interview?session_id=${sessionId}`);
-  const turnStatus = page.locator('.interview-turn-status[role="status"]');
-  await expect(turnStatus).toHaveAttribute("data-turn-state", "recovery");
-  await expect(turnStatus).toContainText("正在恢复上一条追问");
-  await expect(page.locator('[role="status"]')).toHaveCount(1);
+  const turnStatus = page.locator(".interview-live-state");
+  await expect(turnStatus).toHaveAttribute("data-state", "generating");
+  await expect(turnStatus).toContainText("正在恢复回答流");
+  await expect(page.locator('.interview-runtime[role="status"]')).toHaveCount(1);
   await expect(page.locator(".agent-console")).not.toHaveAttribute("aria-live", /.+/);
   await expect(turnStatus).not.toContainText(/gap|confidence|reason|chain.of.thought/i);
   releaseStream();
@@ -229,4 +252,134 @@ test("memory assistance degradation is accessible and refresh does not reannounc
   await expect(page.locator('[data-assistance-notice="basic"]')).toHaveCount(1);
   await expect(page.locator('[data-assistance-notice="basic"]')).toHaveAttribute("aria-live", "off");
   await request.delete(`/test-support/langgraph/${basic.session_id}`);
+});
+
+test("durable review progress survives browser refresh", async ({ page, request }) => {
+  const { session_id: sessionId } = await seedDurableReview(request, "durable-processing");
+  const response = await request.get(`/api/interviews/${sessionId}/report/progress`);
+  const progress = await response.json();
+  expect(progress.workflow_engine).toBe("langgraph-review-v1");
+  expect(progress.completed_question_count).toBe(1);
+  expect(progress.total_question_count).toBe(3);
+
+  await page.goto(`/report-processing?session_id=${sessionId}`);
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
+  await page.reload();
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
+  await request.delete(`/test-support/reports/${sessionId}`);
+});
+
+test("durable review failure exposes only stable public status", async ({ request }) => {
+  const { session_id: sessionId } = await seedDurableReview(request, "durable-failed");
+  const response = await request.get(`/api/interviews/${sessionId}/report/progress`);
+  const progress = await response.json();
+
+  expect(progress.status).toBe("failed");
+  expect(progress.workflow_engine).toBe("langgraph-review-v1");
+  expect(JSON.stringify(progress)).not.toContain("browser-safe-input");
+  expect(JSON.stringify(progress)).not.toContain("browser-safe-question");
+  for (const forbidden of [
+    "review_input_sha256",
+    "question_input_sha256",
+    "evidence_content_sha256",
+    "review_graph_schema_version",
+    "checkpoint_id",
+    "provider_payload",
+  ]) {
+    expect(JSON.stringify(progress)).not.toContain(forbidden);
+  }
+  await request.delete(`/test-support/reports/${sessionId}`);
+});
+
+test("duplicate durable review delivery keeps one logical job", async ({ request }) => {
+  const { session_id: sessionId } = await seedDurableReview(request, "durable-processing");
+
+  const first = await request.post(
+    `/test-support/reports/${sessionId}/deliver`,
+  );
+  const second = await request.post(
+    `/test-support/reports/${sessionId}/deliver`,
+  );
+  expect((await first.json()).logical_job_count).toBe(1);
+  expect((await second.json()).logical_job_count).toBe(1);
+  expect((await first.json()).job_id).toBe((await second.json()).job_id);
+  await request.delete(`/test-support/reports/${sessionId}`);
+});
+
+test("joint durable handoff stays private across refresh", async ({ page, request }) => {
+  const { session_id: sessionId } = await seedDurableReview(request, "durable-processing");
+
+  await page.goto(`/report-processing?session_id=${sessionId}`);
+  await expect(page.locator(".pipeline-hero")).toContainText("20%");
+  await page.reload();
+  const pageText = await page.locator("body").innerText();
+  const progress = await (
+    await request.get(`/api/interviews/${sessionId}/report/progress`)
+  ).json();
+  const serialized = JSON.stringify(progress);
+  for (const forbidden of [
+    "review_input_sha256",
+    "question_input_sha256",
+    "evidence_content_sha256",
+    "review_graph_schema_version",
+    "checkpoint_id",
+    "provider_payload",
+    "browser-safe-input",
+    "browser-safe-question",
+  ]) {
+    expect(serialized).not.toContain(forbidden);
+    expect(pageText).not.toContain(forbidden);
+  }
+  await request.delete(`/test-support/reports/${sessionId}`);
+});
+
+test("bootstrap retry reuses the same revision-bound request identity", async ({ page }) => {
+  await prepareRecoveryPlan(page);
+  const attempts = [];
+  await page.route("**/api/interviews", async (route) => {
+    const payload = route.request().postDataJSON();
+    attempts.push(payload);
+    if (attempts.length === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: {
+            code: "INTERVIEW_BOOTSTRAP_PENDING",
+            message: "会话正在恢复初始化。",
+            retryable: true,
+            details: {
+              session_id: "recovering-session",
+              retry_after_seconds: 0.05,
+            },
+          },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        session_id: "recovering-session",
+        bootstrap_status: "ready",
+      }),
+    });
+  });
+
+  await page.getByRole("button", { name: /开始本次面试/ }).click();
+  await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(1);
+  await expect(page.getByRole("button", { name: /开始本次面试/ })).toBeEnabled();
+  await page.getByRole("button", { name: /开始本次面试/ }).click();
+  await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(2);
+  expect(new Set(attempts.map((item) => item.request_id)).size).toBe(1);
+  expect(attempts[0].request_id).toMatch(recoveryUuidPattern);
+  expect(new Set(attempts.map((item) => item.plan_revision_id)).size).toBe(1);
+  expect(new Set(attempts.map((item) => item.expected_revision)).size).toBe(1);
+  expect(new Set(attempts.map((item) => item.plan_sha256)).size).toBe(1);
+  await expect(page).toHaveURL(/\/interview\?session_id=recovering-session/);
+  const pendingKeys = await page.evaluate(() => (
+    Object.keys(sessionStorage).filter((key) => key.startsWith("interview-agent:request-id:session-start:"))
+  ));
+  expect(pendingKeys).toEqual([]);
 });

@@ -1,10 +1,11 @@
 const { test, expect } = require("@playwright/test");
 const {
+  createCompletedReport,
   desktopOnly,
   expectGeometry,
   seedReport,
   viewports,
-} = require("./reference-ui-geometry");
+} = require("./browser-suite-support");
 
 test.beforeEach(async ({}, testInfo) => {
   test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
@@ -268,4 +269,23 @@ test("report center motion honors reduced motion", async ({ page, request }) => 
     document.querySelector('.reports-activity-rail button[aria-pressed="true"] > span'),
   ].map((element) => Number.parseFloat(getComputedStyle(element).animationDuration)));
   expect(durations.every((duration) => duration <= 0.001)).toBe(true);
+});
+
+test("React report center filters, requeues and opens progress", async ({ page, request }) => {
+  const processing = await seedReport(request, "processing");
+  const failed = await seedReport(request, "failed");
+  await createCompletedReport(request);
+  await page.goto("/reports");
+  await expect(page.locator(".reports-report-row").first()).toBeVisible();
+  await page.getByRole("button", { name: /生成失败/ }).click();
+  await page.locator('input[aria-label="搜索报告"]').fill(failed.session_id);
+  await page.getByRole("button", { name: "搜索" }).click();
+  await expect(page.locator(".reports-report-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "重新排队" }).click();
+  await expect(page.locator("body")).toContainText("已重新排队");
+  await page.getByRole("button", { name: /生成中/ }).click();
+  await page.locator('input[aria-label="搜索报告"]').fill(processing.session_id);
+  await page.getByRole("button", { name: "搜索" }).click();
+  await page.getByRole("button", { name: "查看进度" }).click();
+  await expect(page).toHaveURL(new RegExp(`/report-processing\\?session_id=${processing.session_id}`));
 });

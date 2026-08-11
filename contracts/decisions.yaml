@@ -1,0 +1,85 @@
+schema_version: "1.0"
+kind: decisions
+authoritative_source: docs/refactoring-plan.md
+items:
+  - id: DEC-001
+    title: 收敛现有 Ports 而非重建目录树
+    status: accepted
+    rationale: 项目已经具有稳定 Port；新建平行目录会形成两套架构和迁移漂移。
+    consequences:
+      - 先审查现有 Port 的职责，再保留、重命名或分组。
+      - 具体实现逐个迁入 Adapter，兼容出口只能是薄包装。
+    requirement_ids: [REQ-ARCH-003]
+  - id: DEC-002
+    title: Runtime 不属于业务 Domain
+    status: accepted
+    rationale: Lease、Retry、Outbox、Container、Lifecycle 和 Provider Wiring 是运行基础设施，不是 Interview 业务实体。
+    consequences:
+      - 不新增 app/domain/runtime。
+      - 核心 Reliability Contract 位于 app/runtime，业务 Adapter 复用它。
+    requirement_ids: [REQ-ARCH-002]
+  - id: DEC-003
+    title: Evidence 使用 Envelope 与领域 Payload 组合
+    status: accepted
+    rationale: 通用完整性字段可以共享，但 Capacity、Shadow、Release 和 Cleanup 的业务字段不能压入万能 Schema。
+    consequences:
+      - Common Envelope 负责身份、范围、输入摘要、隐私和 Receipt。
+      - Domain Payload 与 Domain Policy 保持严格且独立。
+    requirement_ids: [REQ-REDUNDANCY-001, REQ-SAFETY-004]
+  - id: DEC-004
+    title: 验证状态与晋升决策分开
+    status: accepted
+    rationale: PASS、BLOCKED、NOT_RUN 描述验证事实，HOLD、CONTINUE_OBSERVATION、READY 描述晋升决策，两者不可混用。
+    consequences:
+      - NOT_RUN 不能通过 PromotionDecision 绕过。
+      - Synthetic Evidence 即使验证通过也不能自动晋升生产。
+    requirement_ids: [REQ-SAFETY-004]
+  - id: DEC-005
+    title: OwnedPostgresScope 先于 Acceptance 迁移
+    status: accepted
+    rationale: 先迁移 Control Plane 再统一数据库所有权会重复搬迁不安全的 Cleanup 逻辑。
+    consequences:
+      - 所有测试和 Acceptance 数据库操作从第一天开始只通过 Owned Scope。
+      - 未获批准或目标身份不匹配时 fail closed。
+    requirement_ids: [REQ-REDUNDANCY-002, REQ-SAFETY-002]
+  - id: DEC-006
+    title: Reliability 核心 Contract 先于 Report 拆分
+    status: accepted
+    rationale: Report、Review、Generation 与 Runtime 都需要 Lease、Retry、Fencing 和 Idempotency；晚提取会造成二次重构。
+    consequences:
+      - Phase 4 冻结最小 Reliability Contract。
+      - 后续业务 Wave 只迁移 Adapter，不建立万能 Framework。
+    requirement_ids: [REQ-ARCH-002]
+  - id: DEC-007
+    title: UnitOfWork 拥有事务边界
+    status: accepted
+    rationale: Repository 文件拆分不能把原有 business mutation 与 transactional outbox 拆成多个 Commit。
+    consequences:
+      - caller-owned Cursor 在同一 connection 和 transaction 中组合写入。
+      - 失败路径 Rollback，成功路径只有一次 Commit。
+    requirement_ids: [REQ-DATA-001]
+  - id: DEC-008
+    title: Context Artifact 只做边界抽取
+    status: accepted
+    rationale: Context Artifact 已具有成熟 Identity、Privacy、Lease、Replay 和错误协议，不应借目录迁移重新设计。
+    consequences:
+      - 先冻结兼容性 Matrix，再移动实现。
+      - Filesystem 与 PostgreSQL Adapter 运行同一 Store Contract。
+    requirement_ids: [REQ-DATA-002]
+  - id: DEC-009
+    title: Browser 使用十类权威 Suite
+    status: accepted
+    rationale: desktop/mobile Project 全量复制和跨领域 Reference Spec 会重复执行相同行为，模糊测试所有权。
+    consequences:
+      - 只保留一个 Chromium Project。
+      - 移动端与 Accessibility 使用显式 Matrix 和唯一 Owner。
+      - Real-model Smoke 保持显式 opt-in。
+    requirement_ids: [REQ-REDUNDANCY-003, REQ-TEST-004]
+  - id: DEC-010
+    title: 当前 Gate 不冻结历史仓库状态
+    status: accepted
+    rationale: 固定 Commit、Tree、ahead/behind、测试数量和旧文件清单会把历史快照误当成当前正确性。
+    consequences:
+      - 历史文档可以保留为非执行档案。
+      - 当前 Gate 只验证稳定语义、结构、资源终态和最新运行证据。
+    requirement_ids: [REQ-TEST-001, REQ-COMPLETE-001]

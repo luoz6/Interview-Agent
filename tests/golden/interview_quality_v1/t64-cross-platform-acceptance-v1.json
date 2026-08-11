@@ -45,7 +45,7 @@
         "windows_11_x64"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix"
       ]
     },
     {
@@ -55,7 +55,7 @@
         "ubuntu_24_04_x64"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix"
       ]
     },
     {
@@ -66,7 +66,7 @@
         "python_absolute_path"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
       ]
     },
     {
@@ -76,7 +76,7 @@
         "node_22"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
       ]
     },
     {
@@ -86,7 +86,7 @@
         "postgresql_16"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
       ]
     },
     {
@@ -97,7 +97,7 @@
         "playwright_1_61_1"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
       ]
     },
     {
@@ -107,8 +107,8 @@
         "python_full_pytest"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
-        "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
+        "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity"
       ]
     },
     {
@@ -119,7 +119,7 @@
         "postgres_marked_pytest"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn"
       ]
     },
     {
@@ -129,7 +129,7 @@
         "migration_restore"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
       ]
     },
     {
@@ -140,7 +140,7 @@
         "npm_ci_root"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
       ]
     },
     {
@@ -150,7 +150,7 @@
         "eslint"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
       ]
     },
     {
@@ -160,7 +160,7 @@
         "vitest"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
       ]
     },
     {
@@ -170,7 +170,7 @@
         "frontend_build"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
       ]
     },
     {
@@ -181,8 +181,8 @@
         "playwright_preflight"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
-        "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
+        "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason"
       ]
     },
     {
@@ -195,7 +195,7 @@
         "report_semantic_replay"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_requires_all_four_zero_provider_replays"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_requires_all_four_zero_provider_replays"
       ]
     },
     {
@@ -205,7 +205,7 @@
         "cleanup_zero_residue"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_cleanup_residue"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_cleanup_residue"
       ]
     },
     {
@@ -216,7 +216,7 @@
         "zero_failures"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command"
       ]
     },
     {
@@ -226,7 +226,7 @@
         "zero_missing_dsn_skips"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn"
       ]
     },
     {
@@ -236,8 +236,8 @@
         "skip_inventory_owned"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_unowned_or_blocking_skip",
-        "tests/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_unowned_or_blocking_skip",
+        "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"
       ]
     },
     {
@@ -247,7 +247,7 @@
         "target_versions_exact"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python"
       ]
     },
     {
@@ -259,22 +259,22 @@
         "source_clean"
       ],
       "test_nodes": [
-        "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_revision_tree_or_cleanliness_drift"
+        "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_revision_tree_or_cleanliness_drift"
       ]
     }
   ],
   "unique_test_nodes": [
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_cleanup_residue",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_revision_tree_or_cleanliness_drift",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_unowned_or_blocking_skip",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python",
-    "tests/test_t64_cross_platform_acceptance.py::test_t64_gate_requires_all_four_zero_provider_replays",
-    "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason",
-    "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity",
-    "tests/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_accepts_complete_target_matrix",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_cleanup_residue",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_missing_or_failed_required_command",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_postgres_skip_or_missing_dsn",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_revision_tree_or_cleanliness_drift",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_unowned_or_blocking_skip",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_rejects_wrong_toolchain_or_relative_python",
+    "tests/acceptance/test_t64_cross_platform_acceptance.py::test_t64_gate_requires_all_four_zero_provider_replays",
+    "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason",
+    "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity",
+    "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"
   ],
-  "canonical_sha256": "3da812229919e3892af5733da8bc9efb9b544b8c12c48e35aceb0afeb8631ec7"
+  "canonical_sha256": "17bcb1d498be0093ac0d6379077c341f33b3d4f21fb2e01a4ab9a9f303d875f1"
 }

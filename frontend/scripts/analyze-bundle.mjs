@@ -19,6 +19,7 @@ const routeModules = Object.freeze({
   reportDetail: "src/pages/ReportDetailPage.jsx",
   reports: "src/pages/ReportsPage.jsx",
   help: "src/pages/HelpPage.jsx",
+  memoryCenter: "src/pages/MemoryCenterPage.jsx",
 });
 
 function fail(message) {

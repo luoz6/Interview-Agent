@@ -317,7 +317,9 @@ class InterviewWorkflowService:
         )
 
     def snapshot(self, session_id: str) -> dict:
-        from app.services.session import interview_assistance_metadata
+        from app.application.interview.session_snapshot import (
+            interview_assistance_metadata,
+        )
 
         snapshot = self.legacy_store.snapshot(session_id)
         if not is_durable_interview_version(snapshot.get("workflow_engine")):

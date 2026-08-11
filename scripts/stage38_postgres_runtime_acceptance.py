@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import argparse
 import json
 import os
-import sys
-from dataclasses import asdict, dataclass
 from pathlib import Path
+import re
+import sys
+from typing import Sequence
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,25 +14,55 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.services.postgres_session import PostgresInterviewSessionStore
-from app.services.session_errors import SessionVersionConflict
-from tests.stage38_fakes import (
+from app.domain.interview.errors import SessionVersionConflict
+from app.ports.postgres_scope import PostgresScopeError
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    Stage38AcceptanceEvidencePayload,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.policies import Stage38AcceptanceEvidencePolicy
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    approved_postgres_scope,
+    load_receipt_signer,
+    require_environment_value,
+)
+from scripts.stage38_acceptance_support import (
     FakeStage38InterviewLLM,
     make_stage38_plan,
     make_stage38_report,
 )
 
 
-DEFAULT_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/interview"
+SAFE_TABLE_PREFIX = re.compile(r"^test_stage38_[0-9a-f]{12}$")
 
 
-@dataclass(frozen=True)
-class AcceptanceCheck:
-    name: str
-    status: str
-    detail: str
+class AcceptanceGateError(RuntimeError):
+    def __init__(self, code: str, detail: str):
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+def require_gate(condition: bool, code: str, detail: str) -> None:
+    if not condition:
+        raise AcceptanceGateError(code, detail)
+
+
+def assert_safe_table_prefix(table_prefix: str) -> None:
+    require_gate(
+        SAFE_TABLE_PREFIX.fullmatch(table_prefix) is not None,
+        "STAGE38_TABLE_PREFIX_UNSAFE",
+        "table prefix must be a generated Stage 38 isolation prefix",
+    )
 
 
 def make_store(dsn: str, table_prefix: str) -> PostgresInterviewSessionStore:
+    assert_safe_table_prefix(table_prefix)
     return PostgresInterviewSessionStore(
         dsn=dsn,
         table_prefix=table_prefix,
@@ -50,18 +83,19 @@ def count_messages(snapshot: dict, role: str) -> int:
     return len([message for message in snapshot["messages"] if message["role"] == role])
 
 
-def run_acceptance(*, dsn: str, table_prefix: str) -> dict:
-    checks: list[AcceptanceCheck] = []
+def run_acceptance(
+    *,
+    dsn: str,
+    table_prefix: str,
+) -> dict:
+    assert_safe_table_prefix(table_prefix)
     store = make_store(dsn, table_prefix)
     tables = store.list_runtime_tables()
-    checks.append(
-        AcceptanceCheck(
-            name="schema_initializes_isolated_tables",
-            status="pass",
-            detail=",".join(tables),
-        )
+    require_gate(
+        bool(tables),
+        "STAGE38_SCHEMA_INITIALIZATION_FAILED",
+        "isolated runtime schema did not create any tables",
     )
-
     stale_session = start_session(store)
     try:
         store.submit_answer(
@@ -70,18 +104,16 @@ def run_acceptance(*, dsn: str, table_prefix: str) -> dict:
             expected_version=0,
             command_id="cmd-stale",
         )
-        raise AssertionError("stale command unexpectedly succeeded")
-    except SessionVersionConflict as exc:
-        assert exc.expected_version == 0
-        assert exc.actual_version == 1
-    checks.append(
-        AcceptanceCheck(
-            name="stale_expected_version_rejected",
-            status="pass",
-            detail="expected=0 actual=1",
+        raise AcceptanceGateError(
+            "STAGE38_STALE_VERSION_ACCEPTED",
+            "stale command unexpectedly succeeded",
         )
-    )
-
+    except SessionVersionConflict as exc:
+        require_gate(
+            exc.expected_version == 0 and exc.actual_version == 1,
+            "STAGE38_VERSION_CONFLICT_MISMATCH",
+            "version conflict did not preserve expected=0 actual=1",
+        )
     duplicate_session = start_session(store)
     first_turn = store.submit_answer(
         duplicate_session.session_id,
@@ -96,19 +128,19 @@ def run_acceptance(*, dsn: str, table_prefix: str) -> dict:
         command_id="cmd-answer",
     )
     duplicate_snapshot = store.snapshot(duplicate_session.session_id)
-    assert duplicate_turn.follow_up == first_turn.follow_up
-    assert duplicate_snapshot["state_version"] == 2
-    assert duplicate_snapshot["checkpoint_version"] == 2
-    assert duplicate_snapshot["last_command_id"] == "cmd-answer"
-    assert count_messages(duplicate_snapshot, "candidate") == 1
-    checks.append(
-        AcceptanceCheck(
-            name="duplicate_command_id_is_idempotent",
-            status="pass",
-            detail="state_version=2 candidate_messages=1",
-        )
+    require_gate(
+        duplicate_turn.follow_up == first_turn.follow_up,
+        "STAGE38_IDEMPOTENT_RESPONSE_MISMATCH",
+        "duplicate command returned a different follow-up",
     )
-
+    require_gate(
+        duplicate_snapshot["state_version"] == 2
+        and duplicate_snapshot["checkpoint_version"] == 2
+        and duplicate_snapshot["last_command_id"] == "cmd-answer"
+        and count_messages(duplicate_snapshot, "candidate") == 1,
+        "STAGE38_IDEMPOTENCY_STATE_MISMATCH",
+        "duplicate command changed persisted session state",
+    )
     stream_session = start_session(store)
     prepared = store.prepare_streaming_answer(
         stream_session.session_id,
@@ -116,7 +148,11 @@ def run_acceptance(*, dsn: str, table_prefix: str) -> dict:
         expected_version=1,
         command_id="cmd-stream",
     )
-    assert prepared.stream_follow_up is True
+    require_gate(
+        prepared.stream_follow_up is True,
+        "STAGE38_STREAM_PREPARATION_FAILED",
+        "streaming answer was not prepared for follow-up generation",
+    )
     finalized = store.complete_streaming_answer(
         stream_session.session_id,
         follow_up_text="Please explain cache miss protection.",
@@ -130,132 +166,207 @@ def run_acceptance(*, dsn: str, table_prefix: str) -> dict:
         command_id="cmd-stream",
     )
     stream_snapshot = store.snapshot(stream_session.session_id)
-    assert duplicate_finalized == finalized
-    assert stream_snapshot["state_version"] == 3
-    assert stream_snapshot["checkpoint_version"] == 3
-    assert stream_snapshot["last_command_id"] == "cmd-stream"
-    assert count_messages(stream_snapshot, "candidate") == 1
-    checks.append(
-        AcceptanceCheck(
-            name="stream_completion_advances_version_once",
-            status="pass",
-            detail="state_version=3 last_command_id=cmd-stream",
-        )
+    require_gate(
+        duplicate_finalized == finalized,
+        "STAGE38_STREAM_REPLAY_MISMATCH",
+        "replayed stream completion returned a different result",
     )
-
+    require_gate(
+        stream_snapshot["state_version"] == 3
+        and stream_snapshot["checkpoint_version"] == 3
+        and stream_snapshot["last_command_id"] == "cmd-stream"
+        and count_messages(stream_snapshot, "candidate") == 1,
+        "STAGE38_STREAM_STATE_MISMATCH",
+        "stream completion did not advance persisted state exactly once",
+    )
     report_session = start_session(store)
     store.finish(
         report_session.session_id,
         expected_version=1,
         command_id="cmd-finish",
     )
-    assert store.mark_report_processing(report_session.session_id) is True
+    require_gate(
+        store.mark_report_processing(report_session.session_id) is True,
+        "STAGE38_REPORT_PROCESSING_TRANSITION_FAILED",
+        "report processing transition was rejected",
+    )
     processing_snapshot = store.snapshot(report_session.session_id)
-    assert processing_snapshot["phase"] == "review"
-    assert processing_snapshot["phase_status"] == "active"
-    assert processing_snapshot["review_status"] == "processing"
-    assert processing_snapshot["state_version"] == 3
-    assert processing_snapshot["last_command_id"] == "cmd-finish"
+    require_gate(
+        processing_snapshot["phase"] == "review"
+        and processing_snapshot["phase_status"] == "active"
+        and processing_snapshot["review_status"] == "processing"
+        and processing_snapshot["state_version"] == 3
+        and processing_snapshot["last_command_id"] == "cmd-finish",
+        "STAGE38_REPORT_PROCESSING_STATE_MISMATCH",
+        "processing snapshot did not preserve the expected report lifecycle state",
+    )
     store.save_report(
         report_session.session_id,
         make_stage38_report(report_session.session_id),
     )
     completed_snapshot = store.snapshot(report_session.session_id)
-    assert completed_snapshot["phase_status"] == "completed"
-    assert completed_snapshot["review_status"] == "completed"
-    assert completed_snapshot["state_version"] == 4
-    assert completed_snapshot["last_command_id"] == "cmd-finish"
-    checks.append(
-        AcceptanceCheck(
-            name="report_lifecycle_preserves_user_command_id",
-            status="pass",
-            detail="processing_version=3 completed_version=4 last_command_id=cmd-finish",
-        )
+    require_gate(
+        completed_snapshot["phase_status"] == "completed"
+        and completed_snapshot["review_status"] == "completed"
+        and completed_snapshot["state_version"] == 4
+        and completed_snapshot["last_command_id"] == "cmd-finish",
+        "STAGE38_REPORT_COMPLETION_STATE_MISMATCH",
+        "completed snapshot did not preserve report lifecycle state",
     )
-
     recovered = make_store(dsn, table_prefix)
     recovered_snapshot = recovered.snapshot(report_session.session_id)
     recovered_record = recovered.get_report_record(report_session.session_id)
-    assert recovered_snapshot["state_version"] == 4
-    assert recovered_snapshot["last_command_id"] == "cmd-finish"
-    assert recovered_record is not None
-    assert recovered_record.status == "completed"
-    checks.append(
-        AcceptanceCheck(
-            name="postgres_reinstantiation_preserves_state",
-            status="pass",
-            detail=f"session_id={report_session.session_id}",
-        )
+    require_gate(
+        recovered_snapshot["state_version"] == 4
+        and recovered_snapshot["last_command_id"] == "cmd-finish"
+        and recovered_record is not None
+        and recovered_record.status == "completed",
+        "STAGE38_REINSTANTIATION_STATE_MISMATCH",
+        "reinstantiated store did not recover the completed report state",
     )
-
     return {
-        "stage": "Stage 38 Postgres Runtime Acceptance",
-        "status": "pass",
-        "dsn": dsn,
-        "table_prefix": table_prefix,
-        "checks": [asdict(check) for check in checks],
+        "schema_initialized": True,
+        "stale_version_rejected": True,
+        "duplicate_command_idempotent": True,
+        "stream_completion_exactly_once": True,
+        "report_lifecycle_preserved": True,
+        "reinstantiation_recovered": True,
     }
 
 
-def drop_isolated_tables(*, dsn: str, table_prefix: str) -> None:
-    import psycopg2
-    from psycopg2 import sql
-
-    table_names = [
-        f"{table_prefix}_question_evaluations",
-        f"{table_prefix}_reports",
-        f"{table_prefix}_messages",
-        f"{table_prefix}_sessions",
-    ]
-    with psycopg2.connect(dsn) as connection:
-        with connection.cursor() as cursor:
-            for table_name in table_names:
-                cursor.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
-                        sql.Identifier(table_name)
-                    )
-                )
-
-
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--dsn",
-        default=os.getenv("POSTGRES_DSN", DEFAULT_DSN),
-        help="PostgreSQL DSN used for the acceptance run.",
-    )
+    parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--table-prefix",
-        default=f"stage38_{uuid4().hex[:10]}",
-        help="Isolated runtime table prefix for this run.",
+        default=f"test_stage38_{uuid4().hex[:12]}",
+        help="Externally approved exact Owned PostgreSQL scope prefix.",
     )
     parser.add_argument(
-        "--write-json",
-        default=None,
-        help="Optional disposable output path for acceptance evidence JSON.",
+        "--output",
+        default="reports/acceptance/stage38-postgres-runtime-evidence-v1.json",
+        help="Protected Stage 38 Evidence Bundle output path.",
     )
-    parser.add_argument(
-        "--keep-tables",
-        action="store_true",
-        help="Keep isolated stage38 tables for manual database inspection.",
-    )
-    return parser.parse_args()
+    return parser
 
 
-def main() -> None:
-    args = parse_args()
+def _render_result(result: dict) -> None:
+    rendered = json.dumps(result, ensure_ascii=False, indent=2)
+    print(rendered)
+
+
+def _dry_run_result(table_prefix: str) -> dict:
+    return {
+        "schema_version": "stage38-postgres-runtime-acceptance-v2",
+        "stage": "Stage 38 Postgres Runtime Acceptance",
+        "mode": "DRY_RUN",
+        "status": "not_run",
+        "database_connection_attempted": False,
+        "table_prefix": table_prefix,
+        "required_authorization": [
+            "--execute",
+            "POSTGRES_DSN",
+            "POSTGRES_ACCEPTANCE_APPROVAL_ID",
+            "POSTGRES_ACCEPTANCE_APPROVAL_RECEIPT_SHA256",
+            "POSTGRES_ACCEPTANCE_APPROVED_FINGERPRINT",
+            "POSTGRES_ACCEPTANCE_DATABASE_ALLOWLIST",
+            "POSTGRES_ACCEPTANCE_APPROVAL_EXPIRES_AT",
+            "EVIDENCE_REVISION",
+            "EVIDENCE_HMAC_KEY_ID",
+            "EVIDENCE_HMAC_SECRET_B64",
+        ],
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    assert_safe_table_prefix(args.table_prefix)
+    if not args.execute:
+        _render_result(_dry_run_result(args.table_prefix))
+        return 0
+
     try:
-        result = run_acceptance(dsn=args.dsn, table_prefix=args.table_prefix)
-        rendered = json.dumps(result, ensure_ascii=False, indent=2)
-        print(rendered)
-        if args.write_json:
-            output_path = Path(args.write_json)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(rendered + "\n", encoding="utf-8")
-    finally:
-        if not args.keep_tables:
-            drop_isolated_tables(dsn=args.dsn, table_prefix=args.table_prefix)
+        dsn = require_environment_value(os.environ, "POSTGRES_DSN")
+        revision = require_environment_value(os.environ, "EVIDENCE_REVISION")
+        signer = load_receipt_signer(os.environ)
+    except AcceptanceConfigurationError as exc:
+        raise AcceptanceGateError(
+            exc.code,
+            "protected acceptance configuration is invalid",
+        ) from None
+
+    active = None
+    observations = None
+    try:
+        with approved_postgres_scope(
+            dsn=dsn,
+            scope_prefix=args.table_prefix,
+            environ=os.environ,
+        ) as active:
+            observations = run_acceptance(
+                dsn=dsn,
+                table_prefix=args.table_prefix,
+            )
+    except (AcceptanceConfigurationError, PostgresScopeError) as exc:
+        raise AcceptanceGateError(
+            exc.code,
+            "Owned PostgreSQL scope was rejected",
+        ) from None
+
+    if active is None or observations is None or active.lease.cleanup_receipt is None:
+        raise AcceptanceGateError(
+            "STAGE38_CLEANUP_RECEIPT_MISSING",
+            "Owned PostgreSQL scope did not produce a cleanup receipt",
+        )
+    cleanup = active.lease.cleanup_receipt
+    payload = Stage38AcceptanceEvidencePayload(
+        schema_version="stage38-acceptance-evidence-v1",
+        synthetic=True,
+        **observations,
+        cleanup_ownership_verified=cleanup.ownership_verified,
+        cleanup_target_verified=cleanup.target_verified,
+        cleanup_residue_count=cleanup.residue_count,
+    )
+    policy_result = Stage38AcceptanceEvidencePolicy().evaluate(payload)
+    evidence_scope = "stage38.postgres-runtime.controlled"
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="stage38-acceptance-evidence",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.stage38-postgres-runtime-acceptance",
+        tool_version="3.0.0",
+        revision=revision,
+        scope=evidence_scope,
+    )
+    verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: verifier.verify(
+            value,
+            expected_revision=revision,
+            expected_scope=evidence_scope,
+        )
+    ).write(Path(args.output), bundle)
+    for line in render_gate_lines(bundle):
+        print(line)
+    return 0 if policy_result.verification_status.value == "PASS" else 2
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        raise SystemExit(main())
+    except AcceptanceGateError as exc:
+        print(
+            json.dumps(
+                {
+                    "schema_version": "stage38-postgres-runtime-acceptance-v2",
+                    "status": "blocked",
+                    "gate_code": exc.code,
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None

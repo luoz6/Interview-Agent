@@ -4,15 +4,52 @@ import argparse
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 from typing import Mapping
 
-from app.services.memory_config import load_effective_memory_config
+from app.runtime.config.memory import load_effective_memory_config
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    InputArtifact,
+    ProductionBudgetReadinessEvidencePayload,
+    ProductionShadowApprovalRequestPayload,
+    ProductionShadowChangePreflightEvidencePayload,
+    input_artifact_from_bundle,
+)
+from contracts.evidence.digest import canonical_sha256, sha256_bytes
+from contracts.evidence.rendering import render_gate_lines
+from contracts.evidence.status import PromotionDecision, VerificationStatus
+from contracts.policies import (
+    ProductionBudgetReadinessEvidencePolicy,
+    ProductionShadowApprovalRequestPolicy,
+    ProductionShadowChangePreflightEvidencePolicy,
+)
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_APPROVAL_REQUEST = (
+    ROOT / "reports" / "memory" / "production-shadow-approval-request-v1.json"
+)
+DEFAULT_READINESS_EVIDENCE = (
+    ROOT / "reports" / "memory" / "production-budget-readiness-evidence-v1.json"
+)
+DEFAULT_OUTPUT = (
+    ROOT
+    / "reports"
+    / "memory"
+    / "production-shadow-change-preflight-evidence-v1.json"
+)
 REQUIRED_ROLES = (
     "change_owner",
     "operations",
@@ -31,29 +68,7 @@ PASS_LINES = (
     "PRODUCTION_OBSERVATION=NOT_RUN",
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_REVISION = re.compile(r"^[0-9a-f]{7,40}$")
-_PRIVATE_KEYS = frozenset(
-    {
-        "session_id",
-        "principal_id",
-        "fact_id",
-        "question_id",
-        "normalized_fact",
-        "source_excerpt",
-        "artifact_ref",
-        "provider_payload",
-        "approver_ref_sha256",
-        "deployment_scope_sha256",
-        "change_ticket_sha256",
-        "approval_record_sha256",
-        "dsn",
-        "database_fingerprint",
-        "table_prefix",
-        "prompt",
-        "answer",
-        "resume",
-    }
-)
+_REVISION = re.compile(r"^[0-9a-f]{7,64}$")
 
 
 class ChangePreflightBlocked(RuntimeError):
@@ -97,13 +112,18 @@ def evaluate_change_preflight(
     codes: list[str] = []
     if not record_is_external:
         codes.append("APPROVAL_RECORD_NOT_EXTERNAL")
-    if expected_record_sha256 != actual_record_sha256:
+    if (
+        _SHA256.fullmatch(expected_record_sha256) is None
+        or expected_record_sha256 != actual_record_sha256
+    ):
         codes.append("APPROVAL_RECORD_HASH_MISMATCH")
     if record.get("approval_status") != "APPROVED":
         codes.append("APPROVAL_STATUS_NOT_APPROVED")
 
     if repository.get("approval_packet_ready") is not True:
         codes.append("APPROVAL_PACKET_NOT_READY")
+    if repository.get("readiness_verified") is not True:
+        codes.append("PRODUCTION_READINESS_UNVERIFIED")
     if repository.get("safe_defaults") is not True:
         codes.append("SAFE_DEFAULTS_CHANGED")
     if repository.get("consume_rejected") is not True:
@@ -115,32 +135,50 @@ def evaluate_change_preflight(
     if repository.get("configuration_changed") is not False:
         codes.append("PREFLIGHT_CONFIGURATION_ALREADY_CHANGED")
 
-    # A pending repository example intentionally has no production bindings.
-    # Do not turn its null placeholders into noisy or misleading scope errors.
     if record.get("approval_status") == "APPROVED":
+        expected_fields = {
+            "schema_version",
+            "approval_status",
+            "requested_phase",
+            "approved_revision",
+            "deployment_scope_sha256",
+            "traffic_percent",
+            "window_start",
+            "window_end",
+            "expires_at",
+            "change_ticket_sha256",
+            "approvals",
+        }
+        if set(record) != expected_fields:
+            codes.append("APPROVAL_RECORD_FIELDS_INVALID")
         if record.get("schema_version") != (
             "memory-production-shadow-approval-record-v1"
         ):
             codes.append("APPROVAL_RECORD_SCHEMA_INVALID")
         if record.get("requested_phase") != "BUDGET_SHADOW_ONLY":
             codes.append("REQUESTED_PHASE_NOT_BUDGET_ONLY")
-        revision = str(record.get("approved_revision") or "")
-        if _REVISION.fullmatch(revision) is None or revision != current_revision:
-            codes.append("APPROVED_REVISION_MISMATCH")
-        deployment_digest = str(record.get("deployment_scope_sha256") or "")
+        revision = record.get("approved_revision")
         if (
-            _SHA256.fullmatch(deployment_digest) is None
+            not isinstance(revision, str)
+            or _REVISION.fullmatch(revision) is None
+            or revision != current_revision
+        ):
+            codes.append("APPROVED_REVISION_MISMATCH")
+        deployment_digest = record.get("deployment_scope_sha256")
+        if (
+            not isinstance(deployment_digest, str)
+            or _SHA256.fullmatch(deployment_digest) is None
             or deployment_digest != expected_deployment_scope_sha256
         ):
             codes.append("DEPLOYMENT_SCOPE_MISMATCH")
-        ticket_digest = str(record.get("change_ticket_sha256") or "")
-        if _SHA256.fullmatch(ticket_digest) is None:
+        ticket_digest = record.get("change_ticket_sha256")
+        if (
+            not isinstance(ticket_digest, str)
+            or _SHA256.fullmatch(ticket_digest) is None
+        ):
             codes.append("CHANGE_TICKET_BINDING_INVALID")
-        try:
-            traffic = float(record.get("traffic_percent"))
-        except (TypeError, ValueError):
-            traffic = -1.0
-        if traffic <= 0 or traffic > 1.0:
+        traffic_value = record.get("traffic_percent")
+        if type(traffic_value) is not float or not 0 < traffic_value <= 1.0:
             codes.append("TRAFFIC_PERCENT_EXCEEDS_APPROVAL")
 
         start = _timestamp(record.get("window_start"))
@@ -163,12 +201,19 @@ def evaluate_change_preflight(
 
         approvals = _mapping(record.get("approvals"))
         approval_failure = set(approvals) != set(REQUIRED_ROLES)
+        expected_approval_fields = {
+            "decision",
+            "approver_ref_sha256",
+            "decided_at",
+        }
         for role in REQUIRED_ROLES:
             approval = _mapping(approvals.get(role))
             decided_at = _timestamp(approval.get("decided_at"))
-            approver_digest = str(approval.get("approver_ref_sha256") or "")
+            approver_digest = approval.get("approver_ref_sha256")
             if (
-                approval.get("decision") != "APPROVED"
+                set(approval) != expected_approval_fields
+                or approval.get("decision") != "APPROVED"
+                or not isinstance(approver_digest, str)
                 or _SHA256.fullmatch(approver_digest) is None
                 or decided_at is None
                 or (start is not None and decided_at > start)
@@ -192,7 +237,9 @@ def build_preflight_evidence(
     record_is_external: bool,
     now: datetime,
     repository: Mapping[str, object],
-) -> dict[str, object]:
+    approval_request: ProductionShadowApprovalRequestPayload,
+    readiness: ProductionBudgetReadinessEvidencePayload,
+) -> ProductionShadowChangePreflightEvidencePayload:
     evaluate_change_preflight(
         record=record,
         expected_record_sha256=expected_record_sha256,
@@ -206,42 +253,32 @@ def build_preflight_evidence(
     start = _timestamp(record.get("window_start"))
     end = _timestamp(record.get("window_end"))
     duration = int((end - start).total_seconds() / 3600) if start and end else 0
-    evidence: dict[str, object] = {
-        "schema_version": "memory-production-shadow-change-preflight-v1",
-        "preflight_status": "PASS",
-        "approval_record_verified": True,
-        "approval_roles_verified": len(REQUIRED_ROLES),
-        "record_is_external": True,
-        "record_hash_match": True,
-        "revision_match": True,
-        "deployment_scope_match": True,
-        "requested_phase": "BUDGET_SHADOW_ONLY",
-        "traffic_percent": float(record.get("traffic_percent")),
-        "window_duration_hours": duration,
-        "configuration_changed": False,
-        "principal_write_shadow_production": "NOT_AUTHORIZED",
-        "principal_read_shadow_production": "NOT_AUTHORIZED",
-        "long_term_memory_consumption": "BLOCKED",
-        "production_observation": "NOT_RUN",
-    }
-    validate_preflight_evidence(evidence)
-    return evidence
-
-
-def build_blocked_evidence(codes) -> dict[str, object]:
-    evidence: dict[str, object] = {
-        "schema_version": "memory-production-shadow-change-preflight-v1",
-        "preflight_status": "BLOCKED",
-        "gate_codes": list(sorted(set(codes))),
-        "approval_record_verified": False,
-        "configuration_changed": False,
-        "principal_write_shadow_production": "NOT_AUTHORIZED",
-        "principal_read_shadow_production": "NOT_AUTHORIZED",
-        "long_term_memory_consumption": "BLOCKED",
-        "production_observation": "NOT_RUN",
-    }
-    validate_preflight_evidence(evidence)
-    return evidence
+    traffic = record.get("traffic_percent")
+    if type(traffic) is not float:
+        raise ChangePreflightBlocked(("TRAFFIC_PERCENT_EXCEEDS_APPROVAL",))
+    return ProductionShadowChangePreflightEvidencePayload(
+        schema_version="production-shadow-change-preflight-evidence-v1",
+        validated_revision=current_revision,
+        validated_rc_revision=approval_request.validated_rc_revision,
+        validation_revision=approval_request.validation_revision,
+        approval_request_verified=True,
+        readiness_verified=True,
+        approval_record_verified=True,
+        approval_roles_verified=len(REQUIRED_ROLES),
+        record_is_external=True,
+        record_hash_match=True,
+        revision_match=True,
+        deployment_scope_match=True,
+        requested_phase="BUDGET_SHADOW_ONLY",
+        traffic_percent=traffic,
+        window_duration_hours=duration,
+        configuration_changed=False,
+        principal_write_shadow_production="NOT_AUTHORIZED",
+        principal_read_shadow_production="NOT_AUTHORIZED",
+        long_term_memory_consumption="BLOCKED",
+        production_observation="NOT_RUN",
+        synthetic=approval_request.synthetic or readiness.synthetic,
+    )
 
 
 def format_blocked_output(codes) -> tuple[str, ...]:
@@ -254,15 +291,11 @@ def format_blocked_output(codes) -> tuple[str, ...]:
     )
 
 
-def repository_snapshot() -> dict[str, object]:
-    packet = json.loads(
-        (ROOT / "docs/memory-production-shadow-approval-evidence.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    status = json.loads(
-        (ROOT / "docs/memory-shadow-status.json").read_text(encoding="utf-8")
-    )
+def repository_snapshot(
+    *,
+    approval_request: ProductionShadowApprovalRequestPayload,
+    readiness: ProductionBudgetReadinessEvidencePayload,
+) -> dict[str, object]:
     config = load_effective_memory_config({})
     safe_defaults = (
         config.budget.mode == "disabled"
@@ -277,20 +310,36 @@ def repository_snapshot() -> dict[str, object]:
         load_effective_memory_config({"MEMORY_LONG_TERM_MODE": "consume"})
     except ValueError:
         consume_rejected = True
+    approval_result = ProductionShadowApprovalRequestPolicy().evaluate(
+        approval_request
+    )
+    readiness_result = ProductionBudgetReadinessEvidencePolicy().evaluate(readiness)
+    revisions_match = (
+        readiness.validated_rc_revision == approval_request.validated_rc_revision
+        and readiness.validation_revision == approval_request.validation_revision
+    )
     return {
         "approval_packet_ready": (
-            packet.get("packet_readiness") == "READY_FOR_REVIEW"
-            and packet.get("approval_status") == "PENDING"
+            approval_result.verification_status is VerificationStatus.PASS
+            and approval_result.promotion_decision is PromotionDecision.HOLD
+            and approval_request.approval_status == "PENDING"
+            and revisions_match
         ),
-        "safe_defaults": safe_defaults,
-        "consume_rejected": consume_rejected,
+        "readiness_verified": (
+            readiness_result.verification_status is VerificationStatus.PASS
+            and readiness_result.promotion_decision is PromotionDecision.HOLD
+            and revisions_match
+        ),
+        "safe_defaults": safe_defaults and readiness.safe_defaults,
+        "consume_rejected": consume_rejected and readiness.consume_rejected,
         "production_observation_not_run": (
-            packet.get("production_observation") == "NOT_RUN"
+            approval_request.production_observation_not_run
+            and readiness.production_observation == "NOT_RUN"
         ),
-        "hard_stop_clear": not bool(
-            _mapping(status.get("automatic_stop")).get("triggered")
+        "hard_stop_clear": readiness.hard_stop_clear,
+        "configuration_changed": (
+            approval_request.configuration_changed or readiness.configuration_changed
         ),
-        "configuration_changed": False,
     }
 
 
@@ -315,53 +364,170 @@ def _git_revision() -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def _has_private_key(value: object) -> bool:
-    if isinstance(value, Mapping):
-        return any(
-            str(key).casefold() in _PRIVATE_KEYS or _has_private_key(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, list):
-        return any(_has_private_key(item) for item in value)
-    return False
+def _external_record_input(
+    *,
+    path: Path,
+    expected_record_sha256: str,
+) -> InputArtifact:
+    persisted = path.read_bytes()
+    return InputArtifact(
+        path="external-production-shadow-approval-record",
+        sha256=sha256_bytes(persisted),
+        receipt_sha256=expected_record_sha256,
+        size_bytes=len(persisted),
+        media_type="application/json",
+    )
 
 
-def validate_preflight_evidence(value: Mapping[str, object]) -> None:
-    if value.get("configuration_changed") is not False:
-        raise RuntimeError("change preflight changed configuration")
-    if value.get("production_observation") != "NOT_RUN":
-        raise RuntimeError("change preflight production state is invalid")
-    if value.get("long_term_memory_consumption") != "BLOCKED":
-        raise RuntimeError("change preflight consumption boundary is invalid")
-    if _has_private_key(value):
-        raise RuntimeError("change preflight evidence contains private data")
-    rendered = json.dumps(value, sort_keys=True, ensure_ascii=False).casefold()
-    if "postgresql://" in rendered or "redis://" in rendered:
-        raise RuntimeError("change preflight evidence contains connection data")
+def _verified_upstream_state(
+    *,
+    approval_request: ProductionShadowApprovalRequestPayload,
+    approval_status: VerificationStatus,
+    approval_decision: PromotionDecision | None,
+    approval_gate_codes: list[str],
+    readiness: ProductionBudgetReadinessEvidencePayload,
+    readiness_status: VerificationStatus,
+    readiness_decision: PromotionDecision | None,
+    readiness_gate_codes: list[str],
+    readiness_input_receipt_sha256: str | None,
+    approval_receipt_sha256: str,
+) -> bool:
+    return (
+        approval_status is VerificationStatus.PASS
+        and approval_decision is PromotionDecision.HOLD
+        and not approval_gate_codes
+        and readiness_status is VerificationStatus.PASS
+        and readiness_decision is PromotionDecision.HOLD
+        and not readiness_gate_codes
+        and readiness_input_receipt_sha256 == approval_receipt_sha256
+        and readiness.validated_rc_revision == approval_request.validated_rc_revision
+        and readiness.validation_revision == approval_request.validation_revision
+        and ProductionShadowApprovalRequestPolicy()
+        .evaluate(approval_request)
+        .verification_status
+        is VerificationStatus.PASS
+        and ProductionBudgetReadinessEvidencePolicy()
+        .evaluate(readiness)
+        .verification_status
+        is VerificationStatus.PASS
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Validate an external production Budget Shadow approval record."
     )
+    parser.add_argument(
+        "--approval-request",
+        type=Path,
+        default=DEFAULT_APPROVAL_REQUEST,
+    )
+    parser.add_argument("--approval-request-revision")
+    parser.add_argument(
+        "--approval-request-scope",
+        default="memory.production-shadow.approval-request",
+    )
+    parser.add_argument(
+        "--readiness-evidence",
+        type=Path,
+        default=DEFAULT_READINESS_EVIDENCE,
+    )
+    parser.add_argument("--readiness-revision")
+    parser.add_argument(
+        "--readiness-scope",
+        default="memory.production-budget-shadow.readiness",
+    )
     parser.add_argument("--approval-record", type=Path, required=True)
     parser.add_argument("--expected-record-sha256", required=True)
     parser.add_argument("--expected-deployment-scope-sha256", required=True)
-    parser.add_argument("--current-revision", default=None)
+    parser.add_argument("--current-revision")
     parser.add_argument("--now")
-    parser.add_argument("--evidence-output", type=Path)
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.production-shadow.change-preflight",
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    record = json.loads(args.approval_record.read_text(encoding="utf-8"))
-    actual_sha = canonical_record_sha256(record)
+    try:
+        approval_revision = (
+            args.approval_request_revision
+            or require_environment_value(os.environ, "APPROVAL_REQUEST_REVISION")
+        )
+        readiness_revision = (
+            args.readiness_revision
+            or require_environment_value(os.environ, "READINESS_EVIDENCE_REVISION")
+        )
+        output_revision = (
+            args.output_revision
+            or require_environment_value(os.environ, "EVIDENCE_REVISION")
+        )
+        signer = load_receipt_signer(os.environ)
+        verifier = EvidenceVerifier(
+            registry=EvidenceRegistry.default(),
+            receipt_signer=signer,
+        )
+        verified_approval = verifier.verify(
+            json.loads(args.approval_request.read_text(encoding="utf-8")),
+            expected_revision=approval_revision,
+            expected_scope=args.approval_request_scope,
+        )
+        verified_readiness = verifier.verify(
+            json.loads(args.readiness_evidence.read_text(encoding="utf-8")),
+            expected_revision=readiness_revision,
+            expected_scope=args.readiness_scope,
+        )
+        if not isinstance(
+            verified_approval.payload,
+            ProductionShadowApprovalRequestPayload,
+        ) or not isinstance(
+            verified_readiness.payload,
+            ProductionBudgetReadinessEvidencePayload,
+        ):
+            raise ValueError("production preflight upstream payload type is invalid")
+        readiness_manifest = verified_readiness.bundle.artifact.envelope.input_manifest
+        readiness_input_receipt = (
+            readiness_manifest[0].receipt_sha256
+            if len(readiness_manifest) == 1
+            else None
+        )
+        if not _verified_upstream_state(
+            approval_request=verified_approval.payload,
+            approval_status=verified_approval.bundle.artifact.verification_status,
+            approval_decision=verified_approval.bundle.artifact.promotion_decision,
+            approval_gate_codes=verified_approval.bundle.artifact.gate_codes,
+            readiness=verified_readiness.payload,
+            readiness_status=verified_readiness.bundle.artifact.verification_status,
+            readiness_decision=verified_readiness.bundle.artifact.promotion_decision,
+            readiness_gate_codes=verified_readiness.bundle.artifact.gate_codes,
+            readiness_input_receipt_sha256=readiness_input_receipt,
+            approval_receipt_sha256=canonical_sha256(
+                verified_approval.bundle.receipt
+            ),
+        ):
+            raise ValueError("production preflight upstream evidence state is invalid")
+        record_value = json.loads(args.approval_record.read_text(encoding="utf-8"))
+        if not isinstance(record_value, Mapping):
+            raise ValueError("approval record must be an object")
+    except (AcceptanceConfigurationError, OSError, ValueError, json.JSONDecodeError):
+        print(
+            "\n".join(
+                format_blocked_output(("PRODUCTION_PREFLIGHT_INPUT_UNVERIFIED",))
+            )
+        )
+        return 1
+
+    actual_sha = canonical_record_sha256(record_value)
     now = _timestamp(args.now) if args.now else datetime.now(timezone.utc)
     if now is None:
-        raise ValueError("--now must be a timezone-aware ISO timestamp")
+        print("\n".join(format_blocked_output(("PREFLIGHT_TIME_INVALID",))))
+        return 1
     kwargs = {
-        "record": record,
+        "record": record_value,
         "expected_record_sha256": args.expected_record_sha256,
         "actual_record_sha256": actual_sha,
         "current_revision": args.current_revision or _git_revision(),
@@ -370,27 +536,61 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "record_is_external": _is_external(args.approval_record),
         "now": now,
-        "repository": repository_snapshot(),
+        "repository": repository_snapshot(
+            approval_request=verified_approval.payload,
+            readiness=verified_readiness.payload,
+        ),
     }
     try:
         lines = evaluate_change_preflight(**kwargs)
-        evidence = build_preflight_evidence(**kwargs)
+        payload = build_preflight_evidence(
+            **kwargs,
+            approval_request=verified_approval.payload,
+            readiness=verified_readiness.payload,
+        )
     except ChangePreflightBlocked as exc:
-        evidence = build_blocked_evidence(exc.codes)
-        if args.evidence_output is not None:
-            args.evidence_output.write_text(
-                json.dumps(evidence, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
         print("\n".join(format_blocked_output(exc.codes)))
         return 1
-    if args.evidence_output is not None:
-        args.evidence_output.write_text(
-            json.dumps(evidence, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+
+    policy_result = ProductionShadowChangePreflightEvidencePolicy().evaluate(payload)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="production-shadow-change-preflight-evidence",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.memory-production-shadow-change-preflight",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+        input_manifest=(
+            input_artifact_from_bundle(
+                path=args.approval_request,
+                logical_path="production-shadow-approval-request",
+                bundle=verified_approval.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.readiness_evidence,
+                logical_path="production-budget-readiness-evidence",
+                bundle=verified_readiness.bundle,
+            ),
+            _external_record_input(
+                path=args.approval_record,
+                expected_record_sha256=args.expected_record_sha256,
+            ),
+        ),
+    )
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda value: output_verifier.verify(
+            value,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
         )
-    print("\n".join(lines))
-    return 0
+    ).write(args.output, bundle)
+    print("\n".join((*render_gate_lines(bundle), *lines)))
+    return 0 if policy_result.verification_status is VerificationStatus.PASS else 1
 
 
 if __name__ == "__main__":

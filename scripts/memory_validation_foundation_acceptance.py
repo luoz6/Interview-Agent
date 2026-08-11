@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
@@ -9,16 +10,31 @@ from app.services.knowledge_profile import (
     P1_REQUIRED_COVERED_TAGS,
     load_active_knowledge_covered_tags,
 )
-from app.services.memory_config import load_effective_memory_config
+from app.runtime.config.memory import load_effective_memory_config
 from app.services.memory_quality_dataset import load_memory_quality_dataset
 from app.services.memory_quality_eval import evaluate_memory_quality
 from app.services.postgres_schema_contract import RUNTIME_MIGRATIONS
+from scripts.memory_shadow_release_preflight import RETIRED_STATIC_ASSETS
+from contracts.evidence import (
+    EvidenceRegistry,
+    EvidenceVerifier,
+    OperationalRcEvidencePayload,
+)
+from contracts.evidence.status import VerificationStatus
+from contracts.policies import OperationalRcEvidencePolicy
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "docs/interview-agent-memory-system-optimization-spec.md"
 PLAN = ROOT / "docs/superpowers/plans/2026-07-30-memory-validation-and-long-term-memory-foundation.md"
-DEFAULT_EVIDENCE = ROOT / "docs/memory-validation-operational-evidence.json"
+DEFAULT_EVIDENCE = (
+    ROOT / "reports" / "memory" / "operational-rc-evidence-v1.json"
+)
 SUCCESS_LINES = (
     "READY_FOR_MEMORY_VALIDATION_SHADOW",
     "LONG_TERM_MEMORY_WRITE_SHADOW_READY",
@@ -43,9 +59,8 @@ def verify_traceability() -> None:
 
 def repository_gate_codes() -> list[str]:
     codes = []
-    for name in ("test0.html", "test1.html", "test2.html", "test3.html", "test4.html", "test-help.html"):
-        if (ROOT / "app" / name).exists():
-            codes.append("retired_static_html_restored")
+    if any((ROOT / relative_path).exists() for relative_path in RETIRED_STATIC_ASSETS):
+        codes.append("retired_static_asset_restored")
     config = load_effective_memory_config({})
     if config.long_term.mode != "disabled":
         codes.append("long_term_default_not_disabled")
@@ -71,8 +86,10 @@ def repository_gate_codes() -> list[str]:
     if not quality["passed"]:
         codes.append("long_context_quality_failed")
     required = (
-        "app/services/principal_memory_contracts.py",
-        "app/services/postgres_principal_memory.py",
+        "app/domain/memory/contracts.py",
+        "app/domain/memory/facts.py",
+        "app/adapters/memory/principal_memory.py",
+        "app/adapters/postgres/principal_memory.py",
         "app/services/principal_memory_tasks.py",
         "app/services/principal_memory_shadow.py",
         "docs/principal-memory-threat-model.md",
@@ -82,44 +99,11 @@ def repository_gate_codes() -> list[str]:
     return codes
 
 
-def operational_gate_codes(evidence: dict) -> list[str]:
-    codes = []
-    boolean_gates = {
-        "focused_tests": "focused_tests_not_green",
-        "pg_runtime": "pg_runtime_not_executed",
-        "full_python": "full_python_not_green",
-        "frontend_build": "frontend_build_not_green",
-        "full_browser": "full_browser_not_green",
-        "deletion_replay": "deletion_replay_not_passed",
-        "quality": "quality_gate_not_passed",
-        "privacy": "privacy_gate_not_passed",
-        "compileall": "compileall_not_green",
-        "diff_check": "diff_check_not_green",
-        "cleanup": "cleanup_not_verified",
-    }
-    for key, code in boolean_gates.items():
-        if not bool(evidence.get(key, {}).get("passed")):
-            codes.append(code)
-    if int(evidence.get("pg_runtime", {}).get("executed", 0)) < 1:
-        codes.append("pg_runtime_all_skipped")
-    browser = evidence.get("full_browser", {})
-    if browser.get("scope") != "full" or int(browser.get("failed", 1)) != 0:
-        codes.append("browser_scope_partial")
-    python = evidence.get("full_python", {})
-    if int(python.get("failed", 1)) != 0:
-        codes.append("python_failures_present")
-    metrics = evidence.get("durable_metrics", {})
-    if metrics.get("store_kind") != "postgres_aggregate" or not metrics.get("data_complete"):
-        codes.append("durable_metrics_incomplete")
-    knowledge = evidence.get("knowledge", {})
-    if not knowledge.get("ready") or knowledge.get("corpus_version") != "memory-p1-zh-v3":
-        codes.append("knowledge_evidence_incomplete")
-    if evidence.get("production_observation") != "NOT_RUN":
-        codes.append("production_observation_contract_invalid")
-    return codes
+def operational_gate_codes(evidence: OperationalRcEvidencePayload) -> list[str]:
+    return list(OperationalRcEvidencePolicy().evaluate(evidence).gate_codes)
 
 
-def run_acceptance(evidence: dict) -> tuple[str, ...]:
+def run_acceptance(evidence: OperationalRcEvidencePayload) -> tuple[str, ...]:
     verify_traceability()
     codes = repository_gate_codes() + operational_gate_codes(evidence)
     if codes:
@@ -130,13 +114,48 @@ def run_acceptance(evidence: dict) -> tuple[str, ...]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Gate memory validation foundation")
     parser.add_argument("--evidence", default=str(DEFAULT_EVIDENCE))
+    parser.add_argument("--evidence-revision")
     args = parser.parse_args(argv)
-    evidence = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
     try:
-        lines = run_acceptance(evidence)
-    except AcceptanceBlocked as exc:
+        revision = args.evidence_revision or require_environment_value(
+            os.environ,
+            "OPERATIONAL_INPUT_REVISION",
+        )
+        signer = load_receipt_signer(os.environ)
+        verified = EvidenceVerifier(
+            registry=EvidenceRegistry.default(),
+            receipt_signer=signer,
+        ).verify(
+            json.loads(Path(args.evidence).read_text(encoding="utf-8")),
+            expected_revision=revision,
+            expected_scope="memory.operational-rc.controlled",
+        )
+        if not isinstance(verified.payload, OperationalRcEvidencePayload):
+            raise ValueError("operational RC payload type is invalid")
+        policy_result = OperationalRcEvidencePolicy().evaluate(verified.payload)
+        artifact = verified.bundle.artifact
+        if (
+            policy_result.verification_status is not VerificationStatus.PASS
+            or artifact.verification_status is not policy_result.verification_status
+            or artifact.promotion_decision is not policy_result.promotion_decision
+            or tuple(artifact.gate_codes) != policy_result.gate_codes
+        ):
+            raise ValueError("operational RC policy state is invalid")
+        lines = run_acceptance(verified.payload)
+    except (
+        AcceptanceBlocked,
+        AcceptanceConfigurationError,
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
         print("MEMORY_VALIDATION_FOUNDATION=BLOCKED")
-        for code in exc.codes:
+        codes = (
+            exc.codes
+            if isinstance(exc, AcceptanceBlocked)
+            else ("OPERATIONAL_RC_EVIDENCE_UNVERIFIED",)
+        )
+        for code in codes:
             print(f"GATE={code}")
         print("LONG_TERM_MEMORY_CONSUMPTION=BLOCKED")
         print("PRODUCTION_OBSERVATION=NOT_RUN")

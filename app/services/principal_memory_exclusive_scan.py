@@ -10,7 +10,7 @@ from app.services.postgres_connections import (
     DirectPsycopg2ConnectionProvider,
 )
 from app.services.postgres_identifiers import validate_runtime_table_prefix
-from app.services.principal_memory_contracts import (
+from app.domain.memory.contracts import (
     derive_principal_fact_taxonomy_keys,
 )
 

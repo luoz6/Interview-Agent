@@ -12,7 +12,7 @@ from urllib.parse import quote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.services.config import derive_pgvector_table_names
+from app.runtime.config.compatibility import derive_pgvector_table_names
 from app.services.postgres_identifiers import validate_runtime_table_prefix
 
 

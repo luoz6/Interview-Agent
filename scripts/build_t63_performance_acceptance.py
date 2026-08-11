@@ -23,8 +23,8 @@ def _requirement(identifier, requirement, evidence_codes, test_nodes):
     }
 
 
-T63_CONTRACT = "tests/test_t63_performance_acceptance.py"
-FOLLOWUP = "tests/test_followup_performance.py"
+T63_CONTRACT = "tests/acceptance/test_t63_performance_acceptance.py"
+FOLLOWUP = "tests/unit/test_followup_performance.py"
 REQUIREMENTS: tuple[dict[str, Any], ...] = (
     _requirement(
         "T63-M01",
@@ -36,7 +36,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "T63-M02",
         "measure plan revision reads and writes",
         ["plan_revision_read_measured", "plan_revision_write_measured"],
-        ["tests/test_postgres_plan_revision_store.py::test_postgres_schema_is_idempotent_and_revision_round_trips"],
+        ["tests/integration/postgres/test_postgres_plan_revision_store.py::test_postgres_schema_is_idempotent_and_revision_round_trips"],
     ),
     _requirement(
         "T63-M03",
@@ -75,15 +75,15 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "T63-M08",
         "measure Artifact list get and PDF paths",
         ["artifact_list_measured", "artifact_get_measured", "artifact_pdf_measured"],
-        ["tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves"],
+        ["tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves"],
     ),
     _requirement(
         "T63-M09",
         "measure PostgreSQL concurrent connection capacity",
         ["postgres_capacity_measured", "connection_domains_bounded"],
         [
-            "tests/test_stage48_postgres_capacity.py::test_business_pool_reuses_connection_and_never_exceeds_max",
-            "tests/test_stage48_postgres_capacity.py::test_telemetry_saturation_does_not_consume_business_capacity",
+            "tests/integration/postgres/test_stage48_postgres_capacity.py::test_business_pool_reuses_connection_and_never_exceeds_max",
+            "tests/integration/postgres/test_stage48_postgres_capacity.py::test_telemetry_saturation_does_not_consume_business_capacity",
         ],
     ),
     _requirement(
@@ -131,7 +131,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "T63-A02",
         "detect and prevent obvious N plus one report reads",
         ["active_get_constant_queries", "n_plus_one_absent"],
-        ["tests/test_report_artifact_api.py::test_active_report_get_does_not_materialize_job_history"],
+        ["tests/unit/test_report_artifact_api.py::test_active_report_get_does_not_materialize_job_history"],
     ),
     _requirement(
         "T63-A03",

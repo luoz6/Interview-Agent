@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 
-from app.services.principal_memory_contracts import EXCLUSIVE_TAXONOMY_KEYS
+from app.services.principal_memory_context import PrincipalMemoryContextRenderer
+from app.domain.memory.contracts import EXCLUSIVE_TAXONOMY_KEYS
 from app.services.principal_memory_sink_policy import (
     ASSISTANCE_CONTEXT_KIND,
     ASSISTANCE_LABEL,
@@ -50,6 +51,7 @@ class PrincipalMemoryLocalConsumeService:
         config,
         estimator,
         model: str,
+        context_renderer=None,
     ) -> None:
         self.fact_store = fact_store
         self.consent_service = consent_service
@@ -58,6 +60,11 @@ class PrincipalMemoryLocalConsumeService:
         self.config = config
         self.estimator = estimator
         self.model = model
+        self.context_renderer = context_renderer or PrincipalMemoryContextRenderer(
+            config=config,
+            estimator=estimator,
+            model=model,
+        )
 
     def prepare(
         self,
@@ -122,10 +129,10 @@ class PrincipalMemoryLocalConsumeService:
             signatures = tuple((fact.fact_id, fact.version) for fact in selected)
             if signatures != prepared.selected_signatures:
                 return self._suppressed(base, "state_changed")
-            block, included, tokens = self._render_bounded(selected)
+            block, included, tokens = self.context_renderer.render_bounded(selected)
             if not block or not included:
                 return self._suppressed(base, "token_cap")
-            context = self._insert_before_current_candidate(base, block)
+            context = self.context_renderer.insert_before_current_candidate(base, block)
             if context is None:
                 return self._suppressed(base, "current_candidate_missing")
             return PrincipalMemoryConsumeResult(
@@ -246,59 +253,6 @@ class PrincipalMemoryLocalConsumeService:
         if key == "learning_goal" and value in current_tags | role_tags:
             return 2
         return None
-
-    def _render_bounded(self, selected):
-        items = []
-        best = ("", 0, 0)
-        cap = self.config.long_term.max_local_consume_tokens
-        for fact in selected:
-            key, value = next(iter(json.loads(fact.normalized_fact).items()))
-            items.append(
-                f"- category={key}; value={value}; authority={fact.authority}; "
-                "confirmation=user_confirmed; source_status=available"
-            )
-            block = self._render(items)
-            tokens = self.estimator.estimate_text(block, model=self.model)
-            if tokens > cap:
-                break
-            best = (block, len(items), tokens)
-        return best
-
-    @staticmethod
-    def _render(items):
-        return "\n".join(
-            [
-                f"[{ASSISTANCE_LABEL}]",
-                "Use: local follow-up assistance only.",
-                ASSISTANCE_WARNING,
-                *items,
-                f"[/{ASSISTANCE_LABEL}]",
-            ]
-        )
-
-    @staticmethod
-    def _insert_before_current_candidate(base, block):
-        candidate_index = next(
-            (
-                index
-                for index in range(len(base) - 1, -1, -1)
-                if base[index].get("role") == "candidate"
-            ),
-            None,
-        )
-        if candidate_index is None:
-            return None
-        current_candidate = base[candidate_index]
-        preceding = base[:candidate_index] + base[candidate_index + 1 :]
-        return [
-            *preceding,
-            {
-                "role": "system",
-                "content": block,
-                "context_kind": ASSISTANCE_CONTEXT_KIND,
-            },
-            current_candidate,
-        ]
 
     @staticmethod
     def _suppressed(base, reason, *, outcome="suppressed"):

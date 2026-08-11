@@ -1,10 +1,12 @@
 const fs = require("fs");
+const { resolvePythonRuntime } = require("./python_runtime");
 
 async function run() {
   const major = Number(process.versions.node.split(".")[0]);
   if (major !== 22) {
     throw new Error("NODE_VERSION_UNSUPPORTED");
   }
+  const pythonRuntime = resolvePythonRuntime();
 
   let playwrightPackage;
   let chromium;
@@ -26,6 +28,10 @@ async function run() {
     process.stdout.write(`${JSON.stringify({
       browser_preflight: "PASS",
       node_version: process.versions.node,
+      python_version: pythonRuntime.version,
+      python_executable_realpath: pythonRuntime.realpath,
+      python_runtime_source: pythonRuntime.source,
+      python_runtime_preflight: pythonRuntime.preflight.python_major_minor,
       playwright_version: playwrightPackage.version,
       chromium_version: browserVersion,
     })}\n`);

@@ -28,7 +28,7 @@ stored in this record.
 | Dependency lock and install | `PASS` (`npm ci`, `.venv` `pip check`, `requirements.lock.txt`) |
 | PostgreSQL/pgvector targeted suite | `42 passed` |
 | Full pytest with PostgreSQL DSN | `515 passed, 1 skipped` |
-| Skipped test | `tests/test_real_llm_eval.py` is opt-in only; the fresh run below passed it |
+| Skipped test | `tests/integration/providers/test_real_llm_eval.py` is opt-in only; the fresh run below passed it |
 | Database init/check | `PASS`; five runtime tables, vector extension, knowledge table |
 | Redis data path | `PASS`; authenticated ping, read/write, TTL and delete |
 | Celery round review | `PASS`; real worker consumed `round_closed` and persisted `completed` evaluation |
@@ -49,7 +49,7 @@ Fresh provider quality command:
 
 ```powershell
 $env:RUN_REAL_LLM_EVAL="1"
-python -m pytest tests/test_real_llm_eval.py -q
+python -m pytest tests/integration/providers/test_real_llm_eval.py -q
 ```
 
 Fresh provider browser command requires an isolated PostgreSQL table prefix,

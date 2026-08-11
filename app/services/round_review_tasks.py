@@ -21,6 +21,6 @@ def run_closed_round_review(self, payload: dict) -> None:
         raise self.retry(
             countdown=outcome.countdown_seconds,
             exc=RuntimeError(
-                outcome.error_code or "runtime_work_retry"
+                outcome.error_code or "runtime_retry"
             ),
         )

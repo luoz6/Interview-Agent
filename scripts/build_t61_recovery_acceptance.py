@@ -21,7 +21,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "plan revision concurrent writes serialize one winner",
         "stable_evidence_codes": ["plan_revision_conflict"],
         "test_nodes": [
-            "tests/test_postgres_plan_revision_store.py::test_postgres_expected_revision_serializes_concurrent_writers",
+            "tests/integration/postgres/test_postgres_plan_revision_store.py::test_postgres_expected_revision_serializes_concurrent_writers",
         ],
     },
     {
@@ -32,11 +32,11 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "session_start_request_conflict",
         ],
         "test_nodes": [
-            "tests/test_interview_plan_api.py::test_duplicate_session_start_request_replays_one_business_session",
-            "tests/test_interview_plan_api.py::test_session_start_request_id_reuse_with_changed_contract_is_conflict",
-            "tests/test_interview_plan_api.py::test_session_start_request_id_reuse_with_new_revision_is_conflict",
-            "tests/test_session_service.py::test_duplicate_server_session_identity_is_thread_safe",
-            "tests/test_stage38_postgres_api_contract.py::test_duplicate_start_replays_after_session_store_reinstantiation",
+            "tests/unit/test_interview_plan_api.py::test_duplicate_session_start_request_replays_one_business_session",
+            "tests/unit/test_interview_plan_api.py::test_session_start_request_id_reuse_with_changed_contract_is_conflict",
+            "tests/unit/test_interview_plan_api.py::test_session_start_request_id_reuse_with_new_revision_is_conflict",
+            "tests/unit/test_session_service.py::test_duplicate_server_session_identity_is_thread_safe",
+            "tests/contracts/test_stage38_postgres_api_contract.py::test_duplicate_start_replays_after_session_store_reinstantiation",
         ],
     },
     {
@@ -50,8 +50,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "timeout",
         ],
         "test_nodes": [
-            "tests/test_decision_store.py::test_decision_fencing_rejects_late_worker_and_failure_creates_bounded_retry",
-            "tests/test_postgres_decision_store.py::test_postgres_decision_unique_prepare_lease_fencing_and_retry",
+            "tests/unit/test_decision_store.py::test_decision_fencing_rejects_late_worker_and_failure_creates_bounded_retry",
+            "tests/integration/postgres/test_postgres_decision_store.py::test_postgres_decision_unique_prepare_lease_fencing_and_retry",
         ],
     },
     {
@@ -63,11 +63,11 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "reconnect",
         ],
         "test_nodes": [
-            "tests/test_interview_event_stream.py::test_chunk_sse_has_replay_cursor",
-            "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-            "tests/test_interview_event_stream.py::test_reset_event_precedes_replacement_chunks",
-            "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-            "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+            "tests/unit/test_interview_event_stream.py::test_chunk_sse_has_replay_cursor",
+            "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+            "tests/unit/test_interview_event_stream.py::test_reset_event_precedes_replacement_chunks",
+            "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+            "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
         ],
     },
     {
@@ -79,9 +79,9 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "report_lease_fenced",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_publish_completes_review_run_in_same_transaction",
-            "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
-            "tests/test_report_jobs.py::test_terminal_transitions_are_fenced_against_reclaimed_worker",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_publish_completes_review_run_in_same_transaction",
+            "tests/integration/postgres/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+            "tests/integration/postgres/test_report_jobs.py::test_terminal_transitions_are_fenced_against_reclaimed_worker",
         ],
     },
     {
@@ -92,8 +92,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "transaction_rolled_back",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[before_artifact]",
-            "tests/test_report_artifact_store.py::test_publish_is_atomic_when_any_commit_step_fails[before_artifact]",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[before_artifact]",
+            "tests/unit/test_report_artifact_store.py::test_publish_is_atomic_when_any_commit_step_fails[before_artifact]",
         ],
     },
     {
@@ -104,8 +104,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "transaction_rolled_back",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[artifact]",
-            "tests/test_report_artifact_store.py::test_publish_is_atomic_when_any_commit_step_fails[artifact]",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[artifact]",
+            "tests/unit/test_report_artifact_store.py::test_publish_is_atomic_when_any_commit_step_fails[artifact]",
         ],
     },
     {
@@ -116,8 +116,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "transaction_rolled_back",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[head]",
-            "tests/test_report_artifact_store.py::test_publish_is_atomic_when_any_commit_step_fails[head]",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[head]",
+            "tests/unit/test_report_artifact_store.py::test_publish_is_atomic_when_any_commit_step_fails[head]",
         ],
     },
     {
@@ -131,11 +131,11 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "transaction_rolled_back",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[job]",
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[review_run]",
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[session]",
-            "tests/test_postgres_session_store.py::test_outbox_failure_rolls_back_state_and_messages",
-            "tests/test_review_workflow_store.py::test_stale_report_lease_rolls_back_all_final_projections",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[job]",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[review_run]",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_publish_rolls_back_all_steps[session]",
+            "tests/integration/postgres/test_postgres_session_store.py::test_outbox_failure_rolls_back_state_and_messages",
+            "tests/integration/postgres/test_review_workflow_store.py::test_stale_report_lease_rolls_back_all_final_projections",
         ],
     },
     {
@@ -147,8 +147,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "same_source_job",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_publish_replays_after_response_loss_by_source_job_and_hash",
-            "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_publish_replays_after_response_loss_by_source_job_and_hash",
+            "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
         ],
     },
     {
@@ -159,8 +159,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "provider_timeout",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_artifact_history_active_pointer_and_failed_requeue",
-            "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_artifact_history_active_pointer_and_failed_requeue",
+            "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
         ],
     },
     {
@@ -171,7 +171,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "latest_failed_job_visible",
         ],
         "test_nodes": [
-            "tests/test_report_artifact_api.py::test_report_version_endpoints_keep_active_artifact_when_rescore_fails",
+            "tests/unit/test_report_artifact_api.py::test_report_version_endpoints_keep_active_artifact_when_rescore_fails",
         ],
     },
     {
@@ -182,7 +182,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "monotonic_artifact_revision",
         ],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_multiple_rescores_keep_history_and_one_active_job",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_multiple_rescores_keep_history_and_one_active_job",
         ],
     },
     {
@@ -193,8 +193,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "report_job_repaired",
         ],
         "test_nodes": [
-            "tests/test_report_jobs.py::test_repair_orphan_processing_reports_enqueues_missing_job",
-            "tests/test_report_orphan_recovery.py::test_stale_processing_record_without_job_is_projected_as_orphaned",
+            "tests/integration/postgres/test_report_jobs.py::test_repair_orphan_processing_reports_enqueues_missing_job",
+            "tests/unit/test_report_orphan_recovery.py::test_stale_processing_record_without_job_is_projected_as_orphaned",
         ],
     },
     {
@@ -206,9 +206,9 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "single_business_output",
         ],
         "test_nodes": [
-            "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-            "tests/test_durable_interview_graph.py::test_conflicted_command_replay_is_idempotent",
-            "tests/test_langgraph_recovery_postgres.py::test_restart_recovers_without_duplicate_business_output",
+            "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+            "tests/unit/test_durable_interview_graph.py::test_conflicted_command_replay_is_idempotent",
+            "tests/integration/postgres/test_langgraph_recovery_postgres.py::test_restart_recovers_without_duplicate_business_output",
         ],
     },
     {
@@ -220,8 +220,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "report_retry_exhausted",
         ],
         "test_nodes": [
-            "tests/test_durable_interview_graph.py::test_third_generation_failure_safely_advances",
-            "tests/test_report_jobs.py::test_retryable_failure_marks_retrying_until_max_attempts",
+            "tests/unit/test_durable_interview_graph.py::test_third_generation_failure_safely_advances",
+            "tests/integration/postgres/test_report_jobs.py::test_retryable_failure_marks_retrying_until_max_attempts",
         ],
     },
     {
@@ -233,10 +233,10 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "repeated_state",
         ],
         "test_nodes": [
-            "tests/test_durable_interview_graph.py::test_followup_guard_detects_same_state_and_action_repetition",
-            "tests/test_durable_interview_graph.py::test_followup_guard_has_stable_fail_closed_reasons",
-            "tests/test_durable_interview_graph.py::test_graph_derived_two_followup_limit_makes_zero_decision_provider_calls",
-            "tests/test_durable_interview_graph.py::test_stream_event_limit_fails_attempt_closed_with_diagnostic_code",
+            "tests/unit/test_durable_interview_graph.py::test_followup_guard_detects_same_state_and_action_repetition",
+            "tests/unit/test_durable_interview_graph.py::test_followup_guard_has_stable_fail_closed_reasons",
+            "tests/unit/test_durable_interview_graph.py::test_graph_derived_two_followup_limit_makes_zero_decision_provider_calls",
+            "tests/unit/test_durable_interview_graph.py::test_stream_event_limit_fails_attempt_closed_with_diagnostic_code",
         ],
     },
 )
@@ -277,7 +277,14 @@ def _canonical_sha256(payload: dict[str, Any]) -> str:
 
 
 def build_acceptance() -> dict[str, Any]:
-    requirements = [dict(item) for item in REQUIREMENTS]
+    requirements = [
+        {
+            **item,
+            "stable_evidence_codes": sorted(item["stable_evidence_codes"]),
+            "test_nodes": sorted(item["test_nodes"]),
+        }
+        for item in REQUIREMENTS
+    ]
     unique_test_nodes = sorted(
         {node for item in requirements for node in item["test_nodes"]}
     )

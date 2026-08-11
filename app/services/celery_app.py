@@ -1,6 +1,6 @@
 from celery import Celery
 
-from app.services.config import get_redis_url
+from app.runtime.config.compatibility import get_redis_url
 
 
 celery_app = Celery(

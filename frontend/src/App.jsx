@@ -15,6 +15,10 @@ const ReportProcessingPage = lazyNamedPage(
 const ReportDetailPage = lazyNamedPage(() => import("./pages/ReportDetailPage"), "ReportDetailPage");
 const ReportsPage = lazyNamedPage(() => import("./pages/ReportsPage"), "ReportsPage");
 const HelpPage = lazyNamedPage(() => import("./pages/HelpPage"), "HelpPage");
+const MemoryCenterPage = lazyNamedPage(
+  () => import("./pages/MemoryCenterPage"),
+  "MemoryCenterPage",
+);
 
 const routes = {
   "/": StartPage,
@@ -24,6 +28,8 @@ const routes = {
   "/report-detail": ReportDetailPage,
   "/reports": ReportsPage,
   "/help": HelpPage,
+  "/memory-center": MemoryCenterPage,
+  "/memory-center.html": MemoryCenterPage,
 };
 
 export default function App() {

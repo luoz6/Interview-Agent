@@ -8,7 +8,9 @@ from fastapi import HTTPException
 os.environ["INTERVIEW_RUNTIME_STORE"] = "memory"
 os.environ["INTERVIEW_EVENT_BACKEND"] = "noop"
 
-import app.api.routes as route_module
+import app.api.prep.routes as prep_route_module
+import app.api.shared.dependencies as api_dependencies
+import app.application.interview.interview_start as interview_start_module
 from app.main import app
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
@@ -39,7 +41,7 @@ from app.services.report import (
 from app.services.report_microbatch import generate_microbatch_report
 from app.services.session import InterviewSessionStore
 from app.agents.examiner import fallback_followup
-from app.services.session_errors import SessionVersionConflict
+from app.domain.interview.errors import SessionVersionConflict
 
 
 class BrowserTestLLM:
@@ -765,7 +767,8 @@ def _build_browser_interview(
     )
 
 
-route_module.prepare_interview = prepare_browser_interview
+interview_start_module.prepare_interview = prepare_browser_interview
+prep_route_module.prepare_interview = prepare_browser_interview
 
 
 def generate_browser_revision_replacement(
@@ -869,20 +872,20 @@ job_store = BrowserReportJobStore(store)
 durable_workflow = FakeDurableWorkflow(store)
 durable_workflow.report_job_store = job_store
 
-original_report_job_dependency = route_module.get_report_job_store
-original_report_queue_dependency = route_module.get_report_job_queue
-app.dependency_overrides[route_module.get_session_store] = lambda: store
-app.dependency_overrides[route_module.get_event_publisher] = lambda: publisher
+original_report_job_dependency = api_dependencies.get_report_job_store
+original_report_queue_dependency = api_dependencies.get_report_job_queue
+app.dependency_overrides[api_dependencies.get_session_store] = lambda: store
+app.dependency_overrides[api_dependencies.get_event_publisher] = lambda: publisher
 app.dependency_overrides[original_report_job_dependency] = lambda: job_store
 app.dependency_overrides[original_report_queue_dependency] = lambda: job_store
-app.dependency_overrides[route_module.get_prep_question_regenerator] = (
+app.dependency_overrides[prep_route_module.get_prep_question_regenerator] = (
     lambda: PrepQuestionRegenerator(generate_browser_replacement)
 )
-app.dependency_overrides[route_module.get_plan_regenerator] = (
+app.dependency_overrides[api_dependencies.get_plan_regenerator] = (
     lambda: ProviderPlanRegenerator(generate_browser_revision_replacement)
 )
-route_module.get_report_job_store = lambda: job_store
-route_module.get_interview_workflow_service = lambda: durable_workflow
+api_dependencies.get_report_job_store = lambda: job_store
+api_dependencies.get_interview_workflow_service = lambda: durable_workflow
 
 
 @app.get("/test-support/interviews/{session_id}/prep-run-id")

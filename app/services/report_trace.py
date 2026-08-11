@@ -1,9 +1,9 @@
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.runtime.config import load_trace_runtime_settings
 
 @dataclass
 class ReportTraceRecorder:
@@ -11,7 +11,7 @@ class ReportTraceRecorder:
 
     @classmethod
     def from_env(cls) -> "ReportTraceRecorder":
-        raw_dir = os.getenv("REPORT_TRACE_DIR")
+        raw_dir = load_trace_runtime_settings().report_directory
         return cls(root_dir=Path(raw_dir) if raw_dir else None)
 
     def record(self, *, session_id: str, stage: str, payload: dict) -> Path | None:

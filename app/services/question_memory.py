@@ -14,7 +14,7 @@ from app.services.context_budget import (
     DynamicCompressionTargetPolicy,
     allocate_dynamic_compression_target,
 )
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     CompressionSourceSegment,
     ContextArtifactBusy,
     ContextArtifactIdentityMaterial,

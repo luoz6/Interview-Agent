@@ -60,7 +60,7 @@ question-evaluation, report-reference, and PDF assertion in 4.5 minutes.
 
 The formal PASS directory is
 `reports/stage42-acceptance/20260716T062331Z-real-model-rc/`.
-`scripts/audit_stage42_artifacts.py` verified the whitelist, relative paths,
+`scripts/release_artifact_audit.py --profile stage42` verified the whitelist, relative paths,
 sizes, SHA-256 hashes, passing metrics, and absence of secrets, DSNs, absolute
 paths, email addresses, and phone numbers. The directory contains only the
 manifest, metrics, report, one sanitized retrieval case, and two browser

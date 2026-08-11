@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
+    CompressionSourceSegment,
     ContextCompressorConfig,
     ContextCompressionPolicy,
     EvidenceCompressionArtifact,

@@ -4,11 +4,15 @@ Run Task 7 only after Write Shadow and proposal quality are PASS. Use synthetic,
 explicitly confirmed active facts with current Consent and taxonomy. This
 runbook permits deterministic would-select only; it never permits consumption.
 
-Execute the isolated 300-sample matrix with the approved database fingerprint:
+Execute the isolated 300-sample matrix with the externally approved Owned
+Scope. The protected environment must provide the PostgreSQL Approval fields,
+`EVIDENCE_REVISION`, `EVIDENCE_HMAC_KEY_ID` and
+`EVIDENCE_HMAC_SECRET_B64` described by the Write Shadow runbook:
 
 ~~~powershell
 & 'F:\python3.11\python.exe' -m scripts.principal_memory_read_shadow `
-  --execute --expected-database-fingerprint $approvedFingerprint --samples 300
+  --execute --scope-prefix $approvedScopePrefix `
+  --output reports/memory/read-shadow-evidence-v1.json --samples 300
 ~~~
 
 The matrix covers relevant facts, exclusive conflicts, revoked Consent,

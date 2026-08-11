@@ -18,6 +18,7 @@ export function ConfirmDialog({
   confirmLabel = "确认",
   cancelLabel = "取消",
   tone = "danger",
+  role = "dialog",
   busy = false,
   onConfirm,
   onCancel,
@@ -79,7 +80,7 @@ export function ConfirmDialog({
         ref={dialogRef}
         className="confirm-dialog"
         data-tone={tone}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}

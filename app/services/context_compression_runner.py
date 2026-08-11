@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Any, Callable, Literal, Protocol
 
 from app.ports.context_artifacts import ContextArtifactStore
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     ArtifactPurpose,
     ArtifactPayload,
     ContextArtifactClaim,
@@ -950,7 +950,7 @@ class ContextCompressionRunner:
 
     @staticmethod
     def _abort_reason(exc: BaseException) -> str:
-        from app.services.context_artifacts import ContextArtifactBusy
+        from app.domain.context.artifacts import ContextArtifactBusy
 
         if isinstance(exc, CancelledError):
             return "cancelled"
@@ -975,7 +975,7 @@ class ContextCompressionRunner:
 
     @staticmethod
     def _failure_code(exc: Exception) -> str:
-        from app.services.context_artifacts import (
+        from app.domain.context.artifacts import (
             ContextArtifactValidationFailed,
         )
 

@@ -31,9 +31,10 @@ part of this runbook.
 
 Before starting, confirm all of the following:
 
-- the validated application RC is `a982b1f`;
-- `docs/memory-validation-operational-evidence.json` reports the RC gate as
-  passed;
+- the validated application RC revision is recorded in
+  `OPERATIONAL_INPUT_REVISION`;
+- `reports/memory/operational-rc-evidence-v1.json` is a verified signed Bundle
+  for that revision and `memory.operational-rc.controlled` Scope;
 - the target is an isolated Staging environment;
 - the data category is `synthetic`, unless a separate internal-data approval
   exists;
@@ -87,31 +88,30 @@ all compression consumption gates=false
 Do not set `MEMORY_LONG_TERM_MODE=consume`. The real configuration loader must
 reject it; the preflight treats failure to prove that rejection as a blocker.
 
-## Step 2: inspect and approve the database fingerprint
+## Step 2: load the externally approved target and scope
 
-Place the approved Staging connection in the process environment without
-printing it. Then run the read-only inspection:
+Load the Staging connection and its independently issued approval record into
+the protected operator environment. The preflight requires all of these names:
 
-~~~powershell
-& 'F:\python3.11\python.exe' -m scripts.memory_shadow_staging_preflight `
-  --inspect-database-fingerprint
-~~~
+- `POSTGRES_DSN`;
+- `POSTGRES_ACCEPTANCE_APPROVAL_ID`;
+- `POSTGRES_ACCEPTANCE_APPROVAL_RECEIPT_SHA256`;
+- `POSTGRES_ACCEPTANCE_APPROVED_FINGERPRINT`;
+- `POSTGRES_ACCEPTANCE_DATABASE_ALLOWLIST`;
+- `POSTGRES_ACCEPTANCE_APPROVAL_EXPIRES_AT`.
 
-The command prints an irreversible 16-character fingerprint and confirms that
-the DSN was redacted. It rejects production-like database names. Register the
-fingerprint in the operator's approved environment record; do not paste the
-DSN, database name or fingerprint into general logs, tickets, or the
-repository acceptance document.
-
-For the execute step, provide the separately approved fingerprint as a shell
-value:
+`POSTGRES_ACCEPTANCE_APPROVED_FINGERPRINT` is the full Owned Scope target
+fingerprint. It binds the host, port, database, user and TLS identity; it is not
+the former short CLI fingerprint. The approval must also bind the exact strict
+prefix used below:
 
 ~~~powershell
-$approvedFingerprint = '<approved irreversible fingerprint>'
+$approvedScopePrefix = '<externally approved test_memval_[12 lowercase hex] prefix>'
 ~~~
 
-If the inspected and approved values differ, stop. Do not run a migration to
-discover whether the target was intended.
+Do not generate or approve the target identity inside the preflight. If the
+current target, database allowlist, approval receipt, expiry or exact prefix
+does not match the protected approval record, stop before migration.
 
 ## Step 3: run the static dry-run
 
@@ -121,8 +121,9 @@ synthetic coverage matrix in later tasks. Task 2 uses Profile B with a 24-hour
 declared window; it does not claim that the later sample matrix is complete.
 
 ~~~powershell
+$validatedRevision = $env:OPERATIONAL_INPUT_REVISION
 & 'F:\python3.11\python.exe' -m scripts.memory_shadow_staging_preflight `
-  --validated-rc-revision a982b1f `
+  --validated-rc-revision $validatedRevision `
   --observation-profile B `
   --observation-hours 24 `
   --data-category synthetic `
@@ -153,12 +154,12 @@ metrics and cleanup executed.
 
 ## Step 4: execute the isolated validation
 
-Run the same declaration with `--execute` and the approved fingerprint:
+Run the same declaration with `--execute` and the approved exact prefix:
 
 ~~~powershell
 & 'F:\python3.11\python.exe' -m scripts.memory_shadow_staging_preflight `
   --execute `
-  --validated-rc-revision a982b1f `
+  --validated-rc-revision $validatedRevision `
   --observation-profile B `
   --observation-hours 24 `
   --data-category synthetic `
@@ -171,11 +172,12 @@ Run the same declaration with `--execute` and the approved fingerprint:
   --dedicated-worker-scope `
   --dedicated-owner-scope `
   --deterministic-path-verified `
-  --expected-database-fingerprint $approvedFingerprint
+  --table-prefix $approvedScopePrefix `
+  --output-record reports/memory/records/staging-preflight-record.json
 ~~~
 
-The executable preflight performs these operations inside one generated,
-strictly validated test prefix:
+The executable preflight performs these operations inside one externally
+approved, strictly validated test prefix:
 
 1. validates the current migration registry through `principal_memory_v1`;
 2. validates all Memory runtime stores;
@@ -185,6 +187,22 @@ strictly validated test prefix:
 6. drops only relations inside the validated prefix;
 7. recounts the prefix and requires residue `0`.
 
+After the executable result passes, hash-bind and publish the intermediate
+record as the only Operational Staging input:
+
+~~~powershell
+$record = 'reports/memory/records/staging-preflight-record.json'
+$digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $record).Hash.ToLowerInvariant()
+& 'F:\python3.11\python.exe' -m scripts.memory_operational_input_evidence staging `
+  --input-record $record `
+  --expected-input-sha256 $digest `
+  --synthetic
+~~~
+
+The publisher writes
+`reports/memory/operational-staging-evidence-v1.json`. The intermediate record
+is not approval evidence and must not be copied into `docs/`.
+
 The operation does not start a worker, acquire a business lease, create a real
 Session or Principal, call a model, or modify the public Knowledge Corpus.
 
@@ -192,7 +210,7 @@ Session or Principal, call a model, or modify the public Knowledge Corpus.
 
 Accept Task 2 only when `passed=true` and `gate_codes` is empty. Also require:
 
-- `database_fingerprint_matches=true`;
+- `database_fingerprint_matches=true` (the full approved target identity matched);
 - `prefix_valid=true`;
 - `migration_validated=true`;
 - `durable_metrics_validated=true`;
@@ -227,8 +245,8 @@ validator before any manual cleanup.
 | Gate family | Operator action |
 |---|---|
 | RC or baseline mismatch | Stop and rebuild evidence from the committed RC |
-| Database fingerprint mismatch | Stop; verify the approved target out of band |
-| Production-like database | Stop; do not migrate |
+| Target identity, allowlist, approval receipt or expiry mismatch | Stop; verify the complete approved target out of band |
+| Production target or database | Stop; do not migrate |
 | Prefix or co-resident scope failure | Stop; provide a stronger isolated boundary |
 | Any Memory mode enabled | Restore disabled configuration and rerun dry-run |
 | Migration validation failure | Stop; preserve schema and diagnose the isolated prefix |
@@ -240,7 +258,7 @@ validator before any manual cleanup.
 
 Store only the aggregate execution result, exact pass counts, RC revision,
 environment category, profile, declared window, gate codes, and residue count.
-Do not store the DSN, database name, fingerprint, generated prefix, Prompt,
+Do not store the DSN, database name, fingerprint, approved prefix, Prompt,
 Answer, Resume, Excerpt, Source Manifest, provider payload, or subject-level
 identifier.
 

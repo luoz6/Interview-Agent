@@ -102,50 +102,50 @@
   "manual_p0_scenario_count": 4,
   "unique_test_node_count": 44,
   "unique_test_nodes": [
-    "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-    "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
-    "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-    "tests/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
-    "tests/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next",
-    "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-    "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-    "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
-    "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-    "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
-    "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
-    "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
-    "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-    "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
-    "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
-    "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
-    "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-    "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
-    "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-    "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
-    "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-    "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
-    "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-    "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-    "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
-    "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-    "tests/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
-    "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-    "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-    "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-    "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
-    "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
-    "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
-    "tests/test_report_jobs.py::test_claim_marks_job_running",
-    "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-    "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
-    "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
-    "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped",
-    "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level",
-    "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback",
-    "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence",
-    "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
-    "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]",
-    "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+    "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+    "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+    "tests/integration/postgres/test_report_jobs.py::test_claim_marks_job_running",
+    "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+    "tests/integration/postgres/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+    "tests/integration/postgres/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+    "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+    "tests/unit/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+    "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+    "tests/unit/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
+    "tests/unit/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next",
+    "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+    "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+    "tests/unit/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+    "tests/unit/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+    "tests/unit/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+    "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+    "tests/unit/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+    "tests/unit/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+    "tests/unit/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+    "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+    "tests/unit/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+    "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+    "tests/unit/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+    "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+    "tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+    "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+    "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+    "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+    "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+    "tests/unit/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
+    "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+    "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+    "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+    "tests/unit/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+    "tests/unit/test_report_eval_runner.py::test_runner_retries_fallback_result",
+    "tests/unit/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+    "tests/unit/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped",
+    "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level",
+    "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback",
+    "tests/unit/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence",
+    "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
+    "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]",
+    "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
   ],
   "scenarios": [
     {
@@ -171,24 +171,24 @@
         "scoring and report paths do not construct Principal Memory dependencies"
       ],
       "cross_state_test_nodes": [
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies"
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies"
       ],
       "priority": "P0",
       "selection_kind": "manual_state_machine_cross",
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+        "tests/unit/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
       ]
     },
     {
@@ -214,25 +214,25 @@
         "successful rescore adds history and moves active only after commit"
       ],
       "cross_state_test_nodes": [
-        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
-        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success"
+        "tests/unit/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success"
       ],
       "priority": "P0",
       "selection_kind": "manual_state_machine_cross",
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
-        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
-        "tests/test_report_jobs.py::test_claim_marks_job_running",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+        "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/integration/postgres/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/unit/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/unit/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
       ]
     },
     {
@@ -258,27 +258,27 @@
         "repeated Provider failure for an off-topic answer advances through the safe bounded path"
       ],
       "cross_state_test_nodes": [
-        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
-        "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
-        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-        "tests/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next"
+        "tests/unit/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/integration/postgres/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+        "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/unit/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next"
       ],
       "priority": "P0",
       "selection_kind": "manual_state_machine_cross",
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
-        "tests/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next",
-        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
-        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
-        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
-        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
-        "tests/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
-        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+        "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/integration/postgres/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/integration/postgres/test_report_jobs.py::test_report_lease_token_fences_stale_worker",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
+        "tests/unit/test_followup_decision_service.py::test_repeated_provider_failure_for_off_topic_answer_forces_safe_next",
+        "tests/unit/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/unit/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/unit/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/unit/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
       ]
     },
     {
@@ -304,26 +304,26 @@
         "report enqueue creates exactly one queued job and processing projection"
       ],
       "cross_state_test_nodes": [
-        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report"
+        "tests/unit/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report"
       ],
       "priority": "P0",
       "selection_kind": "manual_state_machine_cross",
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
-        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
-        "tests/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
-        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/unit/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/unit/test_report_coverage.py::test_all_skipped_is_unscored_and_never_fabricates_zero",
+        "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/unit/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
       ]
     },
     {
@@ -349,16 +349,16 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
-        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/unit/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
       ]
     },
     {
@@ -384,17 +384,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
-        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-        "tests/test_report_jobs.py::test_claim_marks_job_running",
-        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+        "tests/integration/postgres/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_durable_interview_graph.py::test_graph_initializes_then_waits_for_answer",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/unit/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
       ]
     },
     {
@@ -420,17 +420,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
-        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_dual_langgraph_rollout.py::test_v2_initial_state_contains_only_bounded_artifact_references",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/unit/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/unit/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
       ]
     },
     {
@@ -456,17 +456,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
-        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+        "tests/integration/postgres/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
       ]
     },
     {
@@ -492,17 +492,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
-        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/unit/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
       ]
     },
     {
@@ -528,17 +528,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
-        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_jobs.py::test_claim_marks_job_running",
-        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+        "tests/integration/postgres/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/unit/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
       ]
     },
     {
@@ -564,17 +564,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
-        "tests/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
-        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+        "tests/integration/postgres/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_revision.py::test_saved_revision_cannot_be_mutated_in_place_or_through_a_returned_copy",
+        "tests/unit/test_knowledge_grounding.py::test_empty_grounding_summary_is_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/unit/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
       ]
     },
     {
@@ -600,17 +600,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
-        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
-        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+        "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/unit/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
       ]
     },
     {
@@ -636,17 +636,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
-        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
-        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
-        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+        "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/unit/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/unit/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/unit/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/unit/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
       ]
     },
     {
@@ -672,17 +672,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
-        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
+        "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/integration/postgres/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_audit_and_knowledge.py::test_content_edit_invalidates_binding_and_audit_contains_only_hashes",
+        "tests/unit/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback"
       ]
     },
     {
@@ -708,17 +708,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
-        "tests/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
-        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
-        "tests/test_report_jobs.py::test_claim_marks_job_running",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
+        "tests/integration/postgres/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_durable_interview_graph.py::test_adaptive_graph_routes_only_from_persisted_decision_and_replays_after_crash",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/unit/test_knowledge_grounding.py::test_degraded_grounding_context_summary_is_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/unit/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level"
       ]
     },
     {
@@ -744,17 +744,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
-        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
+        "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/unit/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence"
       ]
     },
     {
@@ -780,17 +780,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
-        "tests/test_report_jobs.py::test_report_failure_persists_stable_error_code",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback",
-        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+        "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/integration/postgres/test_report_jobs.py::test_report_failure_persists_stable_error_code",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_start_rejects_a_historical_revision_and_returns_latest_winner",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_evaluator.py::test_evaluator_propagates_timeout_for_background_failure_state",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_rewards_tradeoff_metrics_and_fallback",
+        "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
       ]
     },
     {
@@ -816,17 +816,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level",
-        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+        "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_raises_typed_format_error_for_schema_invalid_json",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_api.py::test_historical_pdf_is_bound_to_requested_artifact_after_active_pointer_moves",
+        "tests/unit/test_report_rule_score.py::test_score_dimension_evidence_caps_concept_only_answer_below_pass_level",
+        "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
       ]
     },
     {
@@ -852,17 +852,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
-        "tests/test_report_eval_runner.py::test_runner_retries_fallback_result",
-        "tests/test_report_jobs.py::test_claim_marks_job_running",
-        "tests/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence",
-        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+        "tests/integration/postgres/test_interview_generation_store.py::test_reclaimed_attempt_rejects_every_stale_mutation",
+        "tests/integration/postgres/test_report_jobs.py::test_claim_marks_job_running",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_rescore_creates_history_and_switches_active_only_on_success",
+        "tests/unit/test_report_eval_runner.py::test_runner_retries_fallback_result",
+        "tests/unit/test_report_rule_score.py::test_score_question_caps_nonsense_answer_even_when_provider_claims_evidence",
+        "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
       ]
     },
     {
@@ -888,17 +888,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
-        "tests/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
-        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped",
-        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
+        "tests/integration/postgres/test_interview_generation_store.py::test_expired_attempt_is_replaced_with_reset_event",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_api.py::test_revision_conflict_contains_current_metadata_and_does_not_overwrite",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_memory_report_jobs.py::test_preview_runtime_factory_completes_report_and_job",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_failed_job_keeps_old_active_and_requeue_reuses_job",
+        "tests/unit/test_report_eval_runner.py::test_runner_propagates_provider_budget_exhaustion",
+        "tests/unit/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped",
+        "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score"
       ]
     },
     {
@@ -924,17 +924,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
       ]
     },
     {
@@ -960,17 +960,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_coverage.py::test_all_answered_with_sufficient_evidence_is_scored_and_complete",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
       ]
     },
     {
@@ -996,17 +996,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
       ]
     },
     {
@@ -1032,17 +1032,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_partial_scores_keep_their_numerator_and_denominator_when_text_degrades",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
       ]
     },
     {
@@ -1068,17 +1068,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/unit/test_report_rule_score.py::test_explicit_off_topic_answer_is_capped"
       ]
     },
     {
@@ -1104,17 +1104,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_insufficient_evidence_publishes_unscored_without_any_numeric_score",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
       ]
     },
     {
@@ -1140,17 +1140,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
       ]
     },
     {
@@ -1176,17 +1176,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_degraded.py::test_summary_failure_publishes_degraded_report_without_erasing_valid_scores",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
       ]
     },
     {
@@ -1212,17 +1212,17 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[unanswered]"
       ]
     },
     {
@@ -1248,19 +1248,19 @@
       ],
       "cross_state_test_nodes": [],
       "test_nodes": [
-        "tests/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
-        "tests/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
-        "tests/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
-        "tests/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
-        "tests/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
-        "tests/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
-        "tests/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
-        "tests/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
-        "tests/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
-        "tests/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
-        "tests/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
+        "tests/integration/postgres/test_report_jobs.py::test_enqueue_report_request_creates_job_and_processing_report",
+        "tests/unit/test_dual_langgraph_rollout.py::test_followup_ui_state_exposes_only_policy_safe_stage",
+        "tests/unit/test_interview_event_stream.py::test_pending_sse_times_out_with_reconnect_cursor",
+        "tests/unit/test_interview_graph.py::test_runner_finishes_after_last_question_followup_answer",
+        "tests/unit/test_interview_plan_budget.py::test_default_legacy_conversion_closes_its_30_minute_estimate",
+        "tests/unit/test_knowledge_grounding.py::test_grounding_summaries_are_chinese",
+        "tests/unit/test_llm_report_service.py::test_generate_report_uses_question_result_schema_and_assembles_report",
+        "tests/unit/test_principal_memory_runtime_isolation.py::test_disabled_runtime_does_not_construct_shadow_dependencies",
+        "tests/unit/test_report_artifact_store.py::test_artifact_publish_is_immutable_monotonic_and_replay_idempotent",
+        "tests/unit/test_report_view.py::test_legacy_payload_does_not_fabricate_coverage_for_missing_score",
+        "tests/unit/test_round_review.py::test_run_closed_round_review_short_circuits_empty_answer_agents[skipped]"
       ]
     }
   ],
-  "canonical_sha256": "d9bbafdfa70e49c183d29f0be1d6496ecfbc1aef3c032d598ef49c75f27759a0"
+  "canonical_sha256": "4efaf934601416036cd129cd9a350e4163800080e7a93f55157e294f208af898"
 }

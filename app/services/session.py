@@ -1,11 +1,24 @@
-from dataclasses import dataclass
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import Any, Callable, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator
 from uuid import uuid4
 
 from app.agents.orchestrator import OrchestratorAgent
+from app.application.interview.session_snapshot import (
+    SessionSnapshotProjector,
+    interview_assistance_metadata,
+)
+from app.domain.interview.models import InterviewTurn, PreparedInterviewTurn
+from app.domain.interview.state_machine import (
+    advance_state_metadata as _advance_state_metadata,
+    already_finalized_streaming_answer as _already_finalized_streaming_answer,
+    ensure_expected_version as _ensure_expected_version,
+    extract_follow_up as _extract_follow_up,
+    is_duplicate_command as _is_duplicate_command,
+    should_stream_follow_up as _should_stream_follow_up,
+    turn_from_state,
+)
 from app.graphs.interview_graph import (
     InterviewGraphRunner,
     fallback_followup,
@@ -36,7 +49,6 @@ from app.services.interview_plan_revision import InterviewPlanV2
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
-from app.services.session_errors import SessionVersionConflict
 from app.services.session_plan_binding import (
     SessionPlanBinding,
     session_plan_binding_from_state,
@@ -45,20 +57,6 @@ from app.services.memory_retention import (
     InMemorySessionCapacityExceeded,
     InMemorySessionRetentionPolicy,
 )
-
-
-@dataclass(frozen=True)
-class InterviewTurn:
-    session_id: str
-    current_question: Optional[InterviewQuestion]
-    follow_up: Optional[str]
-    status: str
-
-
-@dataclass(frozen=True)
-class PreparedInterviewTurn:
-    state: InterviewState
-    stream_follow_up: bool
 
 
 class InterviewSessionStore:
@@ -202,74 +200,8 @@ class InterviewSessionStore:
         return 1
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
-        state = self.get(session_id)
-        _ensure_state_metadata(state)
-        current_question = None if state["status"] == "finished" else get_current_question(state)
-        questions = [
-            {
-                **question.model_dump(),
-                "state": _question_state(state, index),
-            }
-            for index, question in enumerate(state["plan"].questions)
-        ]
-        answer_counts = _question_answer_counts(state)
-        return {
-            "session_id": state["session_id"],
-            "status": state["status"],
-            "phase": state["phase"],
-            "phase_status": state["phase_status"],
-            "review_status": state["review_status"],
-            "current_index": state["current_index"],
-            "total_questions": len(state["plan"].questions),
-            "completed_questions": answer_counts["answered"] + answer_counts["skipped"],
-            "answered_questions": answer_counts["answered"],
-            "skipped_questions": answer_counts["skipped"],
-            "unanswered_questions": answer_counts["unanswered"],
-            "started_at": state["started_at"],
-            "finished_at": state["finished_at"],
-            "elapsed_seconds": _elapsed_seconds(state),
-            "estimated_remaining_seconds": answer_counts["pending_or_current"] * 6 * 60,
-            "state_version": state["state_version"],
-            "checkpoint_version": state["checkpoint_version"],
-            "last_checkpoint_at": state["last_checkpoint_at"],
-            "last_command_id": state["last_command_id"],
-            "workflow_engine": state.get("workflow_engine", "legacy"),
-            "graph_schema_version": state.get("graph_schema_version"),
-            "followup_policy_version": state.get(
-                "followup_policy_version", "fixed_v1"
-            ),
-            "current_followup_count": max(
-                0, min(2, int(state.get("current_followup_count", 0)))
-            ),
-            "followup_ui_state": (
-                "degraded"
-                if state.get("termination_reason_code")
-                else "idle"
-            ),
-            "memory_policy_version": state["memory_policy_version"],
-            "deletion_status": state.get("deletion_status", "active"),
-            "plan_origin": state["plan_origin"],
-            "plan_revision_id": state.get("plan_revision_id"),
-            "plan_family_id": state.get("plan_family_id"),
-            "revision": state.get("revision"),
-            "plan_sha256": state["plan_sha256"],
-            "configuration_snapshot": deepcopy(
-                state.get("configuration_snapshot")
-            ),
-            "plan_snapshot": _public_session_plan_snapshot(state["plan_snapshot"]),
-            **interview_assistance_metadata(state),
-            "job_tags": list(state["job_tags"]),
-            "current_question": current_question.model_dump() if current_question else None,
-            "questions": questions,
-            "messages": [
-                {
-                    "role": message["role"],
-                    "content": message["content"],
-                    "question_id": message["question_id"],
-                }
-                for message in state["messages"]
-            ],
-        }
+        return SessionSnapshotProjector().project(self.get(session_id))
+
     def submit_answer(
         self,
         session_id: str,
@@ -647,69 +579,12 @@ class InterviewSessionStore:
         self.get(session_id)
         return list(self._question_evaluations.get(session_id, []))
 
-    def _to_turn(self, state: InterviewState, follow_up: Optional[str]) -> InterviewTurn:
-        current_question = None if state["status"] == "finished" else get_current_question(state)
-        return InterviewTurn(
-            session_id=state["session_id"],
-            current_question=current_question,
-            follow_up=follow_up,
-            status="finished" if state["status"] == "finished" else "active",
-        )
-
-
-def interview_assistance_metadata(
-    state: dict[str, Any],
-    *,
-    context_route: str | None = None,
-    policy_version: str | None = None,
-) -> dict[str, Any]:
-    route = context_route or state.get("context_route") or "deterministic"
-    resolved_policy = (
-        policy_version
-        or state.get("memory_policy_version")
-        or "deterministic-v1"
-    )
-    assistance_mode = "full"
-    user_notice_required = False
-
-    plan = state.get("plan")
-    prep_context = getattr(plan, "prep_context", None)
-    if getattr(prep_context, "knowledge_status", None) == "degraded":
-        assistance_mode = "reduced"
-
-    messages = list(state.get("messages") or [])
-    last_interviewer = next(
-        (
-            message
-            for message in reversed(messages)
-            if message.get("role") == "interviewer"
-        ),
-        None,
-    )
-    if last_interviewer is not None and plan is not None:
-        template_followups = {
-            fallback_followup(question.focus)
-            for question in plan.questions
-        }
-        if last_interviewer.get("content") in template_followups:
-            assistance_mode = "basic"
-            user_notice_required = True
-
-    return {
-        "context_route": route,
-        "assistance_mode": assistance_mode,
-        "user_notice_required": user_notice_required,
-        "policy_version": resolved_policy,
-    }
-
-
-def _extract_follow_up(state: InterviewState) -> str | None:
-    decision = state["decision"]
-    if decision and decision["action"] == "follow_up":
-        return state["pending_output"]
-    if state["status"] == "finished":
-        return state["pending_output"]
-    return None
+    def _to_turn(
+        self,
+        state: InterviewState,
+        follow_up: str | None,
+    ) -> InterviewTurn:
+        return turn_from_state(state, follow_up=follow_up)
 
 
 def _parse_utc_timestamp(value: str) -> datetime:
@@ -717,64 +592,6 @@ def _parse_utc_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-
-
-def _ensure_expected_version(
-    state: InterviewState,
-    expected_version: int | None,
-) -> None:
-    if expected_version is None:
-        return
-    if expected_version != state["state_version"]:
-        raise SessionVersionConflict(
-            expected_version=expected_version,
-            actual_version=state["state_version"],
-        )
-
-
-def _is_duplicate_command(state: InterviewState, command_id: str | None) -> bool:
-    return bool(command_id and state.get("last_command_id") == command_id)
-
-
-def _advance_state_metadata(
-    state: InterviewState,
-    *,
-    command_id: str | None,
-    record_command_id: bool = True,
-) -> InterviewState:
-    state["state_version"] += 1
-    # Local V1 stores checkpoints inline, so checkpoint_version mirrors
-    # state_version until an external checkpoint store exists.
-    state["checkpoint_version"] = state["state_version"]
-    state["last_checkpoint_at"] = utc_now_iso()
-    if record_command_id:
-        state["last_command_id"] = command_id
-    return state
-
-
-def _already_completed_streaming_followup(
-    state: InterviewState,
-    follow_up_text: str | None,
-) -> bool:
-    if not follow_up_text or not state["messages"]:
-        return False
-    last = state["messages"][-1]
-    return last["role"] == "interviewer" and last["content"] == follow_up_text
-
-
-def _already_finalized_streaming_answer(state: InterviewState) -> bool:
-    if not state["messages"]:
-        return False
-    if state["messages"][-1]["role"] != "interviewer":
-        return False
-    return state["decision"] is not None
-
-
-def _should_stream_follow_up(state: InterviewState) -> bool:
-    decision = state["decision"]
-    if decision is None or decision["action"] != "follow_up":
-        return False
-    return not _already_finalized_streaming_answer(state)
 
 
 def _merge_question_evaluation_records(

@@ -24,7 +24,7 @@ class ReportReliability(BaseModel):
     score_applicability: Literal["normal", "limited", "insufficient"]
 
 
-def build_report_reliability(
+def _project_report_reliability(
     state,
     report: InterviewReport,
     evaluations: Iterable[QuestionEvaluationRecord],
@@ -142,3 +142,20 @@ def build_report_reliability(
         degraded_reasons=reasons,
         score_applicability=score_applicability,
     )
+
+
+class ReportReliabilityProjector:
+    def project(
+        self,
+        state,
+        report: InterviewReport,
+        evaluations: Iterable[QuestionEvaluationRecord],
+        *,
+        report_path: str | None = None,
+    ) -> ReportReliability:
+        return _project_report_reliability(
+            state,
+            report,
+            evaluations,
+            report_path=report_path,
+        )

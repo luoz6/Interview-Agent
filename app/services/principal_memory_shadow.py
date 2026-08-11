@@ -18,7 +18,7 @@ class PrincipalMemoryShadowResult:
     outcome: str
 
 
-class PrincipalMemoryShadowService:
+class PrincipalMemoryShadowObserver:
     def __init__(self, *, retriever, mode: str):
         self.retriever = retriever
         self.is_enabled = mode == "read_shadow"
@@ -104,3 +104,6 @@ def canonical_provider_context(value: list[dict[str, str]]) -> str:
 
 def canonical_provider_context_digest(value: list[dict[str, str]]) -> str:
     return sha256(canonical_provider_context(value).encode("utf-8")).hexdigest()
+
+
+PrincipalMemoryShadowService = PrincipalMemoryShadowObserver

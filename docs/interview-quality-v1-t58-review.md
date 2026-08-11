@@ -108,7 +108,7 @@ adaptive_v1 → 动态路径；回答会决定追问或进入下一题
 
 ### 2. 旧静态契约要求已经被 Plan 淘汰的两次点击清空
 
-全仓测试最初出现一个 T58 相关失败：`tests/test_react_frontend.py` 硬编码检查 `clearArmed` 的旧两次点击状态。T58 明确要求覆盖动作使用确认框，该断言已经与权威 Plan 冲突。
+全仓测试最初出现一个 T58 相关失败：现由 `tests/architecture/test_frontend_runtime.py` 覆盖的前端静态契约曾硬编码检查 `clearArmed` 的旧两次点击状态。T58 明确要求覆盖动作使用确认框，该断言已经与权威 Plan 冲突。
 
 静态契约已更新为检查 `requestClearWorkspace`、`清空当前画布？` 和共享 dialog 前缀。相关 Python 邻接测试随后 75/75 通过。
 
@@ -139,7 +139,7 @@ npm test -- --run
 ### 邻接后端与静态契约
 
 ```text
-py -3.11 -m pytest -q tests/test_react_frontend.py tests/test_session_service.py tests/test_static_report_ui.py tests/test_utf8_text_contract.py tests/test_report_view.py tests/test_report_coverage.py tests/test_report_actions.py
+F:\python3.11\python.exe -m pytest -q tests/architecture/test_frontend_runtime.py tests/unit/test_session_service.py tests/contracts/test_frontend_bundle_budget.py tests/contracts/test_utf8_text_contract.py tests/unit/test_report_view.py tests/unit/test_report_coverage.py tests/unit/test_report_actions.py
 75 passed
 ```
 

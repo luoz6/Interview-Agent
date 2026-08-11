@@ -7,10 +7,10 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
-from app.services.drafts import (
+from app.domain.interview.drafts import (
     DraftWriteConflict,
-    _plan_status,
-    _validate_plan_binding,
+    plan_status,
+    validate_plan_binding,
 )
 from app.services.in_memory_draft_store import _validate_text
 from app.services.postgres_connections import (
@@ -278,7 +278,7 @@ class PostgresDraftStore:
             plan_family_id = existing[8]
             latest_plan_revision_id = existing[9]
             plan_source_sha256 = existing[10]
-        _validate_plan_binding(
+        validate_plan_binding(
             plan_family_id,
             latest_plan_revision_id,
             plan_source_sha256,
@@ -295,10 +295,12 @@ class PostgresDraftStore:
             "plan_family_id": plan_family_id,
             "latest_plan_revision_id": latest_plan_revision_id,
             "plan_source_sha256": plan_source_sha256,
-            "plan_status": _plan_status(
-                job_description=job_description,
-                resume_text=resume_text,
-                job_tags=resolved_tags,
+            "plan_status": plan_status(
+                current_source_sha256=self._plan_source_sha256(
+                    job_description,
+                    resume_text,
+                    resolved_tags,
+                ),
                 plan_family_id=plan_family_id,
                 plan_source_sha256=plan_source_sha256,
             ),
@@ -328,7 +330,7 @@ class PostgresDraftStore:
         expected_version = int(candidate.pop("_expected_draft_version"))
         expected_updated_at = candidate.pop("_expected_updated_at")
         expected_state = candidate.pop("_expected_row_state")
-        _validate_plan_binding(
+        validate_plan_binding(
             candidate.get("plan_family_id"),
             candidate.get("latest_plan_revision_id"),
             candidate.get("plan_source_sha256"),
@@ -546,6 +548,25 @@ class PostgresDraftStore:
             ).encode("utf-8")
         ).hexdigest()
 
+    @staticmethod
+    def _plan_source_sha256(
+        job_description: str,
+        resume_text: str,
+        job_tags: list[str],
+    ) -> str:
+        from app.services.interview_plan_revision import (
+            PlanSourcePayload,
+            source_payload_sha256,
+        )
+
+        return source_payload_sha256(
+            PlanSourcePayload(
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+            )
+        )
+
     def _row_payload(self, row) -> dict[str, Any]:
         if row is None:
             raise RuntimeError("draft write did not return a row")
@@ -564,10 +585,12 @@ class PostgresDraftStore:
             "plan_family_id": family_id,
             "latest_plan_revision_id": row[9],
             "plan_source_sha256": plan_source_sha256,
-            "plan_status": _plan_status(
-                job_description=row[1],
-                resume_text=row[2],
-                job_tags=tags,
+            "plan_status": plan_status(
+                current_source_sha256=self._plan_source_sha256(
+                    row[1],
+                    row[2],
+                    tags,
+                ),
                 plan_family_id=family_id,
                 plan_source_sha256=plan_source_sha256,
             ),

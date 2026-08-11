@@ -21,8 +21,8 @@
         "old_schema_upgraded"
       ],
       "test_nodes": [
-        "tests/test_postgres_runtime_migrations.py::test_actual_migration_upgrades_v10_and_runtime_factories_are_durable",
-        "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss"
+        "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_upgrades_v10_and_runtime_factories_are_durable",
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss"
       ]
     },
     {
@@ -33,8 +33,8 @@
         "single_latest_marker"
       ],
       "test_nodes": [
-        "tests/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
-        "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss"
+        "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss"
       ]
     },
     {
@@ -45,7 +45,7 @@
         "migration_resumed"
       ],
       "test_nodes": [
-        "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss"
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss"
       ]
     },
     {
@@ -56,8 +56,8 @@
         "legacy_lazy_migrated"
       ],
       "test_nodes": [
-        "tests/test_postgres_report_artifact_store.py::test_postgres_legacy_report_promotion_is_additive_and_idempotent",
-        "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas"
+        "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_legacy_report_promotion_is_additive_and_idempotent",
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas"
       ]
     },
     {
@@ -68,7 +68,7 @@
         "legacy_shadow_preserved"
       ],
       "test_nodes": [
-        "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas"
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas"
       ]
     },
     {
@@ -79,7 +79,7 @@
         "artifact_sha256_unchanged"
       ],
       "test_nodes": [
-        "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas"
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas"
       ]
     },
     {
@@ -90,7 +90,7 @@
         "history_hash_unchanged"
       ],
       "test_nodes": [
-        "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
       ]
     },
     {
@@ -101,8 +101,8 @@
         "schema_contract_valid"
       ],
       "test_nodes": [
-        "tests/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
-        "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
+        "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
       ]
     },
     {
@@ -113,8 +113,8 @@
         "legacy_table_preserved"
       ],
       "test_nodes": [
-        "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
-        "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
+        "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
       ]
     },
     {
@@ -125,7 +125,7 @@
         "stop_conditions_explicit"
       ],
       "test_nodes": [
-        "tests/test_t62_migration_acceptance.py::test_t62_rollback_runbook_is_complete_and_non_destructive"
+        "tests/acceptance/test_t62_migration_acceptance.py::test_t62_rollback_runbook_is_complete_and_non_destructive"
       ]
     }
   ],
@@ -174,13 +174,13 @@
     }
   ],
   "unique_test_nodes": [
-    "tests/test_postgres_report_artifact_store.py::test_postgres_legacy_report_promotion_is_additive_and_idempotent",
-    "tests/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
-    "tests/test_postgres_runtime_migrations.py::test_actual_migration_upgrades_v10_and_runtime_factories_are_durable",
-    "tests/test_t62_migration_acceptance.py::test_t62_rollback_runbook_is_complete_and_non_destructive",
-    "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
-    "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
-    "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
+    "tests/acceptance/test_t62_migration_acceptance.py::test_t62_rollback_runbook_is_complete_and_non_destructive",
+    "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_legacy_report_promotion_is_additive_and_idempotent",
+    "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
+    "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_upgrades_v10_and_runtime_factories_are_durable",
+    "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
+    "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
+    "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan"
   ],
-  "canonical_sha256": "23bbc137075c7fdf49035891593b6929cac09e735b96d7642446d1b0dfeca3ae"
+  "canonical_sha256": "de3f120290cc9bbd49a266a2201cecc0798c74b1966ec77dcc3e1dbee91685ea"
 }

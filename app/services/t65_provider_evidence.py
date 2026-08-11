@@ -13,6 +13,7 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.runtime.config.environment import process_environment
 from app.services.followup_provider_preflight import DeepSeekDiscoverySnapshot
 from app.services.independent_review_handoff import (
     DetachedSignatureEvidence,
@@ -1408,7 +1409,7 @@ def _is_native_executable(path: Path) -> bool:
 def _trusted_git_environment() -> dict[str, str]:
     environment = {
         key: value
-        for key, value in os.environ.items()
+        for key, value in process_environment().items()
         if key.upper() in _GIT_ENV_ALLOWLIST
     }
     environment.update(

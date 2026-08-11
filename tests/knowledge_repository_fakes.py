@@ -1,5 +1,5 @@
 from app.ports.runtime import KnowledgeLookupResult
-from app.services.vector_store import KnowledgeChunk
+from app.domain.knowledge.models import KnowledgeChunk
 
 
 class InMemoryKnowledgeRepository:

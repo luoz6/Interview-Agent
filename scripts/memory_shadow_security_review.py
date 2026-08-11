@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import Iterable, Mapping
 
-from app.services.principal_memory_contracts import ALLOWED_TAXONOMY
+from app.domain.memory.contracts import ALLOWED_TAXONOMY
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +40,7 @@ PROTECTED_CATEGORY_TERMS = frozenset(
     }
 )
 FIREWALL_PATHS = (
-    Path("app/services/vector_store.py"),
+    Path("app/adapters/pgvector/repository.py"),
     Path("app/services/knowledge_corpus_schema.py"),
     Path("app/services/knowledge_query.py"),
     Path("app/services/knowledge_grounding.py"),

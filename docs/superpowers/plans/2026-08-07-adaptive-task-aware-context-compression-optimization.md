@@ -652,10 +652,10 @@ context behavior or contradicting the existing memory specification.
 
 **Add or modify tests:**
 
-- `tests/test_context_compression_eligibility.py`
-- `tests/test_context_selection.py`
-- `tests/test_question_memory.py`
-- `tests/test_durable_interview_graph.py`
+- `tests/unit/test_context_compression_eligibility.py`
+- `tests/unit/test_context_selection.py`
+- `tests/unit/test_question_memory.py`
+- `tests/unit/test_durable_interview_graph.py`
 
 **Steps:**
 
@@ -695,10 +695,10 @@ of leaving it as documentation-only configuration.
 
 **Tests:**
 
-- `tests/test_memory_config.py`
-- `tests/test_question_memory.py`
-- `tests/test_context_compression_eligibility.py`
-- `tests/test_agent_runtime_composition.py`
+- `tests/unit/test_memory_config.py`
+- `tests/unit/test_question_memory.py`
+- `tests/unit/test_context_compression_eligibility.py`
+- `tests/unit/test_agent_runtime_composition.py`
 
 **Steps:**
 
@@ -749,11 +749,11 @@ part of immutable Artifact identity.
 
 **Tests:**
 
-- `tests/test_context_artifact_contracts.py`
-- `tests/test_context_compressor.py`
-- `tests/test_interview_context_artifacts.py`
-- `tests/test_evidence_context_artifacts.py`
-- `tests/test_question_memory.py`
+- `tests/contracts/test_context_artifact_contracts.py`
+- `tests/unit/test_context_compressor.py`
+- `tests/unit/test_interview_context_artifacts.py`
+- `tests/unit/test_evidence_context_artifacts.py`
+- `tests/unit/test_question_memory.py`
 
 **Steps:**
 
@@ -803,9 +803,9 @@ the existing exact-source validation contract.
 
 **Tests:**
 
-- `tests/test_context_compressor.py`
-- `tests/test_context_compression_validation.py`
-- `tests/test_context_compression_runner.py`
+- `tests/unit/test_context_compressor.py`
+- `tests/contracts/test_context_compression_validation.py`
+- `tests/unit/test_context_compression_runner.py`
 
 **Steps:**
 
@@ -861,10 +861,10 @@ compression of short or duplicate-heavy contexts.
 
 **Tests:**
 
-- `tests/test_context_budget.py`
-- `tests/test_context_selection.py`
-- `tests/test_context_compression_eligibility.py`
-- `tests/test_interview_context_artifacts.py`
+- `tests/unit/test_context_budget.py`
+- `tests/unit/test_context_selection.py`
+- `tests/unit/test_context_compression_eligibility.py`
+- `tests/unit/test_interview_context_artifacts.py`
 
 **Steps:**
 
@@ -949,10 +949,10 @@ deletion.
 
 **Tests:**
 
-- `tests/test_context_source_identity.py`
-- `tests/test_context_selection.py`
-- `tests/test_evidence_context_artifacts.py`
-- `tests/test_question_memory.py`
+- `tests/unit/test_context_source_identity.py`
+- `tests/unit/test_context_selection.py`
+- `tests/unit/test_evidence_context_artifacts.py`
+- `tests/unit/test_question_memory.py`
 
 **Steps:**
 
@@ -1018,10 +1018,10 @@ without repeatedly recompressing raw history.
 
 **Tests:**
 
-- `tests/test_context_selection.py`
-- `tests/test_question_memory_retrieval.py`
-- `tests/test_question_memory.py`
-- `tests/test_durable_interview_graph.py`
+- `tests/unit/test_context_selection.py`
+- `tests/unit/test_question_memory_retrieval.py`
+- `tests/unit/test_question_memory.py`
+- `tests/unit/test_durable_interview_graph.py`
 
 **Steps:**
 
@@ -1082,10 +1082,10 @@ prompt.
 
 **Tests:**
 
-- `tests/test_durable_interview_state.py`
-- `tests/test_durable_interview_graph.py`
-- `tests/test_question_memory.py`
-- `tests/test_interview_status_projection.py`
+- `tests/unit/test_durable_interview_state.py`
+- `tests/unit/test_durable_interview_graph.py`
+- `tests/unit/test_question_memory.py`
+- `tests/unit/test_interview_status_projection.py`
 
 **Projection fields:**
 
@@ -1158,13 +1158,13 @@ source to disable compression for unrelated sources.
 
 **Tests:**
 
-- `tests/test_context_compression_failure_containment.py`
-- `tests/test_context_compression_failure_store_postgres.py`
-- `tests/test_context_compression_runner.py`
-- `tests/test_durable_interview_state.py`
-- `tests/test_durable_interview_graph.py`
-- `tests/test_question_memory_recovery.py`
-- `tests/test_session_deletion_worker.py`
+- `tests/unit/test_context_compression_failure_containment.py`
+- `tests/integration/postgres/test_context_compression_failure_store_postgres.py`
+- `tests/unit/test_context_compression_runner.py`
+- `tests/unit/test_durable_interview_state.py`
+- `tests/unit/test_durable_interview_graph.py`
+- `tests/unit/test_question_memory_recovery.py`
+- `tests/unit/test_session_deletion_worker.py`
 
 **Steps:**
 
@@ -1232,7 +1232,7 @@ alone.
 
 - `tests/golden/context_compression_task_aware_v1.json`
 - `scripts/context_compression_shadow_acceptance.py`
-- `tests/test_context_compression_shadow_acceptance.py`
+- `tests/acceptance/test_context_compression_shadow_acceptance.py`
 
 **Required aggregate metrics:**
 
@@ -1313,7 +1313,7 @@ latency_bucket
 **Add or modify:**
 
 - `scripts/context_compression_repository_acceptance.py`
-- `tests/test_context_compression_repository_acceptance.py`
+- `tests/acceptance/test_context_compression_repository_acceptance.py`
 - Reuse: `scripts/memory_system_optimization_acceptance.py`
 - `docs/context-compression-optimization-acceptance.md`
 
@@ -1350,33 +1350,33 @@ latency_bucket
 
 ```powershell
 python -m pytest `
-  tests/test_memory_config.py `
-  tests/test_agent_runtime_composition.py `
-  tests/test_context_budget.py `
-  tests/test_context_selection.py `
-  tests/test_context_source_identity.py `
-  tests/test_context_compression_eligibility.py `
-  tests/test_context_compressor.py `
-  tests/test_context_compression_validation.py `
-  tests/test_context_compression_runner.py `
-  tests/test_context_artifacts.py `
-  tests/test_context_artifact_contracts.py `
-  tests/test_context_artifact_store_postgres.py `
-  tests/test_interview_context_artifacts.py `
-  tests/test_evidence_context_artifacts.py `
-  tests/test_question_memory.py `
-  tests/test_question_memory_retrieval.py `
-  tests/test_question_memory_recovery.py `
-  tests/test_interview_status_projection.py `
-  tests/test_context_compression_failure_containment.py `
-  tests/test_context_compression_failure_store_postgres.py `
-  tests/test_context_compression_shadow_acceptance.py `
-  tests/test_durable_interview_state.py `
-  tests/test_durable_interview_graph.py `
-  tests/test_session_deletion_worker.py `
-  tests/test_memory_metrics.py `
-  tests/test_memory_system_optimization_acceptance.py `
-  tests/test_context_compression_repository_acceptance.py -q
+  tests/unit/test_memory_config.py `
+  tests/unit/test_agent_runtime_composition.py `
+  tests/unit/test_context_budget.py `
+  tests/unit/test_context_selection.py `
+  tests/unit/test_context_source_identity.py `
+  tests/unit/test_context_compression_eligibility.py `
+  tests/unit/test_context_compressor.py `
+  tests/contracts/test_context_compression_validation.py `
+  tests/unit/test_context_compression_runner.py `
+  tests/contracts/test_context_artifacts.py `
+  tests/contracts/test_context_artifact_contracts.py `
+  tests/integration/postgres/test_context_artifact_store_postgres.py `
+  tests/unit/test_interview_context_artifacts.py `
+  tests/unit/test_evidence_context_artifacts.py `
+  tests/unit/test_question_memory.py `
+  tests/unit/test_question_memory_retrieval.py `
+  tests/unit/test_question_memory_recovery.py `
+  tests/unit/test_interview_status_projection.py `
+  tests/unit/test_context_compression_failure_containment.py `
+  tests/integration/postgres/test_context_compression_failure_store_postgres.py `
+  tests/acceptance/test_context_compression_shadow_acceptance.py `
+  tests/unit/test_durable_interview_state.py `
+  tests/unit/test_durable_interview_graph.py `
+  tests/unit/test_session_deletion_worker.py `
+  tests/unit/test_memory_metrics.py `
+  tests/acceptance/test_memory_system_optimization_acceptance.py `
+  tests/acceptance/test_context_compression_repository_acceptance.py -q
 ```
 
 Then run the repository acceptance entry point with fake providers.

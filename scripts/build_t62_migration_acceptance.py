@@ -20,8 +20,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "upgrade an old runtime schema to the current additive schema",
         "evidence_codes": ["legacy_data_readable", "old_schema_upgraded"],
         "test_nodes": [
-            "tests/test_postgres_runtime_migrations.py::test_actual_migration_upgrades_v10_and_runtime_factories_are_durable",
-            "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
+            "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_upgrades_v10_and_runtime_factories_are_durable",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
         ],
     },
     {
@@ -29,8 +29,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "repeating the migration is idempotent",
         "evidence_codes": ["migration_already_applied", "single_latest_marker"],
         "test_nodes": [
-            "tests/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
-            "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
+            "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
         ],
     },
     {
@@ -38,7 +38,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "an interrupted migration rolls back and can be resumed",
         "evidence_codes": ["migration_interrupted", "migration_resumed"],
         "test_nodes": [
-            "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
         ],
     },
     {
@@ -46,8 +46,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "legacy report JSON supports lazy and bounded batch migration",
         "evidence_codes": ["legacy_batch_migrated", "legacy_lazy_migrated"],
         "test_nodes": [
-            "tests/test_postgres_report_artifact_store.py::test_postgres_legacy_report_promotion_is_additive_and_idempotent",
-            "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
+            "tests/integration/postgres/test_postgres_report_artifact_store.py::test_postgres_legacy_report_promotion_is_additive_and_idempotent",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
         ],
     },
     {
@@ -55,7 +55,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "a new-schema write remains readable after switching to the legacy reader",
         "evidence_codes": ["legacy_reader_rollback", "legacy_shadow_preserved"],
         "test_nodes": [
-            "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
         ],
     },
     {
@@ -63,7 +63,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "the reader can switch back to the new Artifact authority without drift",
         "evidence_codes": ["artifact_reader_restored", "artifact_sha256_unchanged"],
         "test_nodes": [
-            "tests/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_lazy_batch_migration_and_reader_rollback_preserve_both_schemas",
         ],
     },
     {
@@ -71,7 +71,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "backup restore preserves Artifact history hashes and active head",
         "evidence_codes": ["backup_restored", "history_hash_unchanged"],
         "test_nodes": [
-            "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan",
         ],
     },
     {
@@ -79,8 +79,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "foreign keys unique constraints indexes and query plans are valid",
         "evidence_codes": ["query_plan_index_scan", "schema_contract_valid"],
         "test_nodes": [
-            "tests/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
-            "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan",
+            "tests/integration/postgres/test_postgres_runtime_migrations.py::test_actual_migration_installs_heartbeat_and_is_idempotent",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan",
         ],
     },
     {
@@ -88,8 +88,8 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "migration and rollback do not delete legacy tables or columns",
         "evidence_codes": ["legacy_columns_preserved", "legacy_table_preserved"],
         "test_nodes": [
-            "tests/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
-            "tests/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_old_schema_interruption_recovers_idempotently_without_data_loss",
+            "tests/unit/test_t62_migration_rehearsal.py::test_t62_pg_dump_restore_preserves_hash_head_constraints_and_query_plan",
         ],
     },
     {
@@ -97,7 +97,7 @@ REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requirement": "an executable fail-closed rollback runbook is checked in",
         "evidence_codes": ["rollback_runbook_valid", "stop_conditions_explicit"],
         "test_nodes": [
-            "tests/test_t62_migration_acceptance.py::test_t62_rollback_runbook_is_complete_and_non_destructive",
+            "tests/acceptance/test_t62_migration_acceptance.py::test_t62_rollback_runbook_is_complete_and_non_destructive",
         ],
     },
 )
@@ -124,7 +124,14 @@ def _canonical_sha256(payload: dict[str, Any]) -> str:
 
 
 def build_acceptance() -> dict[str, Any]:
-    requirements = [dict(item) for item in REQUIREMENTS]
+    requirements = [
+        {
+            **item,
+            "evidence_codes": sorted(item["evidence_codes"]),
+            "test_nodes": sorted(item["test_nodes"]),
+        }
+        for item in REQUIREMENTS
+    ]
     nodes = sorted({node for item in requirements for node in item["test_nodes"]})
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,

@@ -24,7 +24,7 @@ Reference SHA-256: `A4549DD6D1B0F37C4207338E1ABC33D00CD44453A7643FF2DF81F25F3D35
 
 The first full-suite run exposed a stale Stage 43B documentation contract:
 
-`tests/test_local_v1_docs.py::test_docs_describe_stage43b_durable_recovery`
+The former Local V1 documentation source-string gate has been retired; current recovery behavior is owned by the Recovery Browser suite and structured contracts.
 
 The test still expected `PENDING_RECOVERY_ACCEPTANCE`, while the Stage 43B
 acceptance document was already `PASS`. Commit `73a7031` aligned that

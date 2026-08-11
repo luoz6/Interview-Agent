@@ -1314,6 +1314,44 @@ RUNTIME_SCHEMA_V28_CHECKSUM = hashlib.sha256(
     RUNTIME_SCHEMA_V28_MANIFEST.encode("utf-8")
 ).hexdigest()
 
+# V29 makes database row serialization versions explicit without rewriting the
+# immutable V1-V28 migration chain. Existing rows are backfilled to the only
+# byte-compatible v1 format before each version column becomes required;
+# readers fail closed on every explicit unknown version.
+for _suffix in (
+    "_sessions",
+    "_messages",
+    "_reports",
+    "_question_evaluations",
+    "_prep_plans",
+    "_prep_plan_versions",
+):
+    RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX[_suffix] = (
+        RUNTIME_REQUIRED_COLUMNS_BY_SUFFIX.get(_suffix, frozenset())
+        | frozenset({"row_schema_version"})
+    )
+RUNTIME_SCHEMA_V29_MANIFEST = json.dumps(
+    {
+        "base_schema_checksum": RUNTIME_SCHEMA_V28_CHECKSUM,
+        "row_serialization": {
+            "sessions": "session-row-v1",
+            "messages": "message-row-v1",
+            "reports": "report-row-v1",
+            "question_evaluations": "question-evaluation-row-v1",
+            "prep_plans": "prep-plan-row-v1",
+            "prep_plan_versions": "prep-plan-version-row-v1",
+            "backfill": "null-or-missing-means-corresponding-v1",
+            "unknown_version": "fail-closed",
+        },
+        "transaction_mode": "transactional_with_idempotent_checkpointer_phase",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+RUNTIME_SCHEMA_V29_CHECKSUM = hashlib.sha256(
+    RUNTIME_SCHEMA_V29_MANIFEST.encode("utf-8")
+).hexdigest()
+
 RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="stage48_runtime_schema_v1",
@@ -1453,6 +1491,11 @@ RUNTIME_MIGRATIONS = (
     PostgresMigrationSpec(
         migration_id="context_compression_failure_state_v1_v28",
         checksum=RUNTIME_SCHEMA_V28_CHECKSUM,
+        transaction_mode="transactional_with_idempotent_checkpointer_phase",
+    ),
+    PostgresMigrationSpec(
+        migration_id="row_serialization_versions_v1_v29",
+        checksum=RUNTIME_SCHEMA_V29_CHECKSUM,
         transaction_mode="transactional_with_idempotent_checkpointer_phase",
     ),
 )

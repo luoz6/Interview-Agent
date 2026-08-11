@@ -186,6 +186,15 @@ export async function patchJson(path, payload = {}, options = {}) {
   }));
 }
 
+export async function putJson(path, payload = {}, options = {}) {
+  return parseResponse(await request(path, {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    body: JSON.stringify(payload),
+  }));
+}
+
 export async function deleteJson(path, options = {}) {
   return parseResponse(await request(path, { ...options, method: "DELETE" }));
 }

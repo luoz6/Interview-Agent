@@ -1,9 +1,9 @@
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.runtime.config import load_trace_runtime_settings
 from app.services.agent_runtime import AgentRunRecord
 from app.services.trace_sanitization import (
     AGENT_TRACE_BLOCKED_KEYS,
@@ -18,7 +18,7 @@ class AgentTraceRecorder:
 
     @classmethod
     def from_env(cls) -> "AgentTraceRecorder":
-        raw_dir = os.getenv("AGENT_TRACE_DIR")
+        raw_dir = load_trace_runtime_settings().agent_directory
         return cls(Path(raw_dir) if raw_dir else None)
 
     def record(self, record: AgentRunRecord) -> Path | None:

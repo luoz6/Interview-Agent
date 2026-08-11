@@ -2,7 +2,7 @@ import argparse
 import json
 from typing import Any
 
-from app.services.config import (
+from app.runtime.config.compatibility import (
     get_postgres_dsn,
     get_runtime_table_prefix,
 )

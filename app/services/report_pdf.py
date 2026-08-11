@@ -32,6 +32,42 @@ _DIMENSION_LABELS = {
 }
 
 
+class ReportPdfRenderer:
+    def render(
+        self,
+        report: InterviewReport,
+        *,
+        report_id: str | None = None,
+        revision: int | None = None,
+        created_at: str | None = None,
+    ) -> bytes:
+        _register_pdf_fonts()
+        buffer = BytesIO()
+        document = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=18 * mm,
+            rightMargin=18 * mm,
+            topMargin=16 * mm,
+            bottomMargin=16 * mm,
+            title=(
+                f"Interview Report R{revision} {report_id}"
+                if report_id and revision is not None
+                else f"Interview Report {report.session_id}"
+            ),
+            author="Interview Agent",
+        )
+        document.build(
+            _build_story(
+                report,
+                report_id=report_id,
+                revision=revision,
+                created_at=created_at,
+            )
+        )
+        return buffer.getvalue()
+
+
 def build_report_pdf(
     report: InterviewReport,
     *,
@@ -40,31 +76,12 @@ def build_report_pdf(
     created_at: str | None = None,
 ) -> bytes:
     """Render one immutable report payload with optional Artifact identity."""
-    _register_pdf_fonts()
-    buffer = BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
-        title=(
-            f"Interview Report R{revision} {report_id}"
-            if report_id and revision is not None
-            else f"Interview Report {report.session_id}"
-        ),
-        author="Interview Agent",
+    return ReportPdfRenderer().render(
+        report,
+        report_id=report_id,
+        revision=revision,
+        created_at=created_at,
     )
-    document.build(
-        _build_story(
-            report,
-            report_id=report_id,
-            revision=revision,
-            created_at=created_at,
-        )
-    )
-    return buffer.getvalue()
 
 
 def _register_pdf_fonts() -> None:

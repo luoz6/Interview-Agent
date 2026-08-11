@@ -4,7 +4,7 @@ const {
   expectGeometry,
   seedReport,
   viewports,
-} = require("./reference-ui-geometry");
+} = require("./browser-suite-support");
 
 test.beforeEach(async ({}, testInfo) => {
   test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
@@ -485,4 +485,18 @@ test("non-motion routes do not request GSAP modules", async ({ page }) => {
     const resources = await page.evaluate(() => performance.getEntriesByType("resource").map((entry) => entry.name));
     expect(resources.filter((resource) => /(?:^|[/@])gsap(?:[/@.]|$)/i.test(resource))).toEqual([]);
   }
+});
+
+test("report progress product mode shows only authoritative user-facing state", async ({ page, request }) => {
+  const seeded = await seedReport(request, "processing");
+  await page.goto(`/report-processing?session_id=${seeded.session_id}`);
+  await expect(page.locator(".processing-progress-panel")).toBeVisible();
+  await expect(page.locator(".processing-away-card")).toContainText("不必停留在此页");
+  await expect(page.locator(".processing-facts")).toContainText("最近更新");
+  await expect(page.locator(".processing-facts")).toContainText("已等待");
+  await expect(page.locator(".processing-events, .processing-status-bar, .processing-diagnostics")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("持久化事件");
+  await expect(page.locator("body")).not.toContainText("任务 ID");
+  await expect(page.locator("body")).not.toContainText("执行尝试");
+  await expect(page.locator("body")).not.toContainText("最近心跳");
 });

@@ -1,12 +1,12 @@
 from contextlib import asynccontextmanager
-import os
 from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import router
+from app.api.router import router
+from app.runtime.config import load_api_runtime_settings
 from app.services.runtime import shutdown_runtime, start_runtime
 from app.services.prep_plans import PrepPlanError
 from app.services.postgres_connections import PostgresConnectionError
@@ -27,15 +27,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-frontend_origins = [
-    origin.strip()
-    for origin in os.getenv(
-        "FRONTEND_ORIGINS",
-        "http://127.0.0.1:5173,http://localhost:5173,"
-        "http://127.0.0.1:4173,http://localhost:4173",
-    ).split(",")
-    if origin.strip()
-]
+frontend_origins = list(load_api_runtime_settings().frontend_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,
@@ -79,6 +71,6 @@ def root():
     return {
         "service": "Interview Agent API",
         "status": "ok",
-        "frontend": os.getenv("FRONTEND_URL", "http://127.0.0.1:5173"),
+        "frontend": load_api_runtime_settings().frontend_url,
         "docs": "/docs",
     }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from app.services.context_artifacts import (
+from app.domain.context.artifacts import (
     CompressionSourceSegment,
     ContextArtifactIdentityMaterial,
     ContextCompressionPolicy,

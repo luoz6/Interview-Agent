@@ -60,13 +60,17 @@ Validated results:
 - public Knowledge files: 58; mutation: 0;
 - test listener and isolated PostgreSQL relation residue: 0.
 
-Canonical evidence:
+Canonical protected evidence:
 
-- `docs/memory-operational-shadow-evidence.json`;
-- `docs/memory-operational-regression-evidence.json`;
-- `docs/memory-shadow-status.json`;
-- `docs/memory-shadow-security-review-evidence.json`;
-- `docs/memory-shadow-restore-drill-evidence.json`.
+- `reports/memory/operational-shadow-evidence-v1.json`;
+- `reports/memory/operational-regression-evidence-v1.json`;
+- `reports/memory/operational-status-evidence-v1.json`;
+- `reports/memory/operational-security-evidence-v1.json`;
+- `reports/memory/restore-drill-evidence-v1.json`.
+
+Every path above is a signed Evidence Bundle. Intermediate records under
+`reports/memory/records/` and former committed `docs/*.json` snapshots are not
+approval evidence.
 
 ## Requested production guardrails
 

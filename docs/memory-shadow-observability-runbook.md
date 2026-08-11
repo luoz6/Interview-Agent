@@ -13,23 +13,56 @@ provider-payload drill-down. Runtime displays must merge, delay, or suppress
 small buckets below 25 observations. Allowed dimensions are limited to stage,
 controlled profile, and coarse language bucket.
 
-The current committed inputs contain synthetic controlled observations. Small
+The current protected inputs contain synthetic controlled observations. Small
 failure-matrix and review-label counts therefore describe named synthetic test
 fixtures, not people. The same labels must be suppressed or merged before any
 authorized observation using non-synthetic traffic.
+
+The status builder accepts only these protected Bundles:
+
+| Input | Default path | Required Scope |
+|---|---|---|
+| Budget | `reports/memory/budget-shadow-evidence-v1.json` | `memory.budget-shadow.controlled` |
+| Principal Write | `reports/memory/write-shadow-evidence-v1.json` | `memory.write-shadow.controlled` |
+| Proposal Review | `reports/memory/proposal-review-evidence-v1.json` | `memory.proposal-review.controlled` |
+| Lifecycle | `reports/memory/lifecycle-shadow-evidence-v1.json` | `memory.lifecycle-shadow.controlled` |
+| Principal Read | `reports/memory/read-shadow-evidence-v1.json` | `memory.read-shadow.controlled` |
 
 ## Build status
 
 From the validated revision:
 
 ```powershell
-python -m scripts.memory_shadow_status --status-only --output docs/memory-shadow-status.json
+$inputRevision = '<validated-revision>'
+& 'F:\python3.11\python.exe' -m scripts.memory_shadow_status `
+  --status-only `
+  --input-revision $inputRevision `
+  --proposal-review-revision $inputRevision `
+  --output reports/memory/records/shadow-status-record.json
+$record = 'reports/memory/records/shadow-status-record.json'
+$digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $record).Hash.ToLowerInvariant()
+& 'F:\python3.11\python.exe' -m scripts.memory_operational_input_evidence status `
+  --input-record $record `
+  --expected-input-sha256 $digest `
+  --synthetic `
+  --output-revision $inputRevision
 ```
 
-The command reads the five committed aggregate evidence artifacts, validates
-that no high-cardinality keys are present, and writes a status-only projection.
-It never changes environment variables, configuration files, database state,
-worker leases, prompts, or interview behavior.
+The first command verifies each HMAC Receipt, Revision, fixed Scope, exact
+Payload type, recomputed Domain Policy, Verification Status, Promotion Decision
+and Gate Codes. The three status panels are projected only from protected,
+low-cardinality Payload fields. The builder no longer reads the former Budget,
+Write, Proposal, Lifecycle or Read `docs/*.json` observations. Missing metrics,
+wrong Receipt/Revision/Scope/Payload, or a mismatched Policy state returns
+`GATE=STATUS_INPUT_EVIDENCE_UNVERIFIED` and writes no status record.
+
+The command never changes environment variables, configuration files, database
+state, worker leases, prompts, or interview behavior.
+
+The status JSON is an intermediate aggregate record. Operational Shadow accepts
+only the strict, signed `reports/memory/operational-status-evidence-v1.json`
+Bundle created by the second command; it never reads the intermediate record or
+the former committed `docs/memory-shadow-status.json` file.
 
 ## Decision behavior
 

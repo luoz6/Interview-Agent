@@ -106,10 +106,10 @@ app/services/oidc_authentication.py
 app/services/application_sessions.py
 app/services/postgres_application_sessions.py
 app/api/auth_routes.py
-tests/test_oidc_authentication.py
-tests/test_application_sessions.py
-tests/test_postgres_application_sessions.py
-tests/test_authenticated_request_context.py
+tests/acceptance/test_oidc_authentication.py
+tests/acceptance/test_application_sessions.py
+tests/integration/postgres/test_postgres_application_sessions.py
+tests/unit/test_authenticated_request_context.py
 ```
 
 Do not put Provider client secrets, issuer lists, redirect URIs, or cookie signing material in Git.

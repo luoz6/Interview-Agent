@@ -3,12 +3,51 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 from typing import Mapping
 
+from contracts.evidence import (
+    AtomicEvidenceWriter,
+    EvidenceIssuer,
+    EvidenceRegistry,
+    EvidenceVerifier,
+    ProductionBudgetAcceptanceEvidencePayload,
+    ProductionBudgetObservationEvidencePayload,
+    ProductionBudgetWindowDecisionEvidencePayload,
+    input_artifact_from_bundle,
+)
+from contracts.evidence.rendering import render_gate_lines
+from contracts.evidence.status import PromotionDecision, VerificationStatus
+from contracts.policies import (
+    ProductionBudgetAcceptanceEvidencePolicy,
+    ProductionBudgetObservationEvidencePolicy,
+    ProductionBudgetWindowDecisionEvidencePolicy,
+)
 from scripts.memory_production_budget_shadow_observation import (
     AggregateInputBlocked,
+    OUTPUT_SCHEMA_VERSION,
     validate_observation_artifact,
+)
+from scripts.postgres_acceptance_support import (
+    AcceptanceConfigurationError,
+    load_receipt_signer,
+    require_environment_value,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OBSERVATION_EVIDENCE = (
+    ROOT / "reports" / "memory" / "production-budget-observation-evidence-v1.json"
+)
+DEFAULT_WINDOW_EVIDENCE = (
+    ROOT
+    / "reports"
+    / "memory"
+    / "production-budget-window-decision-evidence-v1.json"
+)
+DEFAULT_OUTPUT = (
+    ROOT / "reports" / "memory" / "production-budget-acceptance-evidence-v1.json"
 )
 
 
@@ -161,17 +200,230 @@ def render_decision(
     return tuple(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Evaluate a sanitized Production Budget Shadow observation."
+def observation_record(
+    payload: ProductionBudgetObservationEvidencePayload,
+) -> dict[str, object]:
+    value = payload.model_dump(mode="json")
+    value.pop("source_preflight_verified")
+    value.pop("synthetic")
+    value["schema_version"] = OUTPUT_SCHEMA_VERSION
+    return value
+
+
+def build_acceptance_payload(
+    decision: ProductionBudgetShadowDecision,
+    record: Mapping[str, object],
+    *,
+    observation: ProductionBudgetObservationEvidencePayload,
+    window: ProductionBudgetWindowDecisionEvidencePayload,
+) -> ProductionBudgetAcceptanceEvidencePayload:
+    return ProductionBudgetAcceptanceEvidencePayload(
+        schema_version="production-budget-acceptance-evidence-v1",
+        source_observation_verified=True,
+        source_window_verified=True,
+        observation_revision=observation.approved_revision,
+        decision_status=decision.status,
+        decision_gate_codes=list(decision.gate_codes),
+        observation_window=(
+            "CLOSED"
+            if record.get("observation_window_closed") is True
+            else "NOT_CLOSED"
+        ),
+        configuration_restored=(
+            "disabled"
+            if record.get("configuration_restored") is True
+            else "NOT_VERIFIED"
+        ),
+        new_approval_window_required=(
+            decision.status == "CONTINUE_OBSERVATION"
+        ),
+        principal_write_shadow_production="NOT_AUTHORIZED",
+        principal_read_shadow_production="NOT_AUTHORIZED",
+        long_term_memory_consumption="BLOCKED",
+        synthetic=observation.synthetic or window.synthetic,
     )
-    parser.add_argument("--observation", type=Path, required=True)
-    args = parser.parse_args(argv)
-    value = json.loads(args.observation.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping):
-        value = {}
-    decision = evaluate_observation(value)
-    print("\n".join(render_decision(decision, value)))
+
+
+def format_blocked_output(codes) -> tuple[str, ...]:
+    return (
+        "PRODUCTION_BUDGET_SHADOW=BLOCKED",
+        *(f"GATE={code}" for code in sorted(set(codes))),
+        "PRINCIPAL_WRITE_SHADOW_PRODUCTION=NOT_AUTHORIZED",
+        "PRINCIPAL_READ_SHADOW_PRODUCTION=NOT_AUTHORIZED",
+        "LONG_TERM_MEMORY_CONSUMPTION=BLOCKED",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Evaluate a protected Production Budget Shadow observation."
+    )
+    parser.add_argument(
+        "--observation-evidence",
+        type=Path,
+        default=DEFAULT_OBSERVATION_EVIDENCE,
+    )
+    parser.add_argument("--observation-revision")
+    parser.add_argument(
+        "--observation-scope",
+        default="memory.production-budget-shadow.observation",
+    )
+    parser.add_argument(
+        "--window-evidence",
+        type=Path,
+        default=DEFAULT_WINDOW_EVIDENCE,
+    )
+    parser.add_argument("--window-revision")
+    parser.add_argument(
+        "--window-scope",
+        default="memory.production-budget-shadow.window-decision",
+    )
+    parser.add_argument("--output-revision")
+    parser.add_argument(
+        "--output-scope",
+        default="memory.production-budget-shadow.acceptance",
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        observation_revision = (
+            args.observation_revision
+            or require_environment_value(os.environ, "OBSERVATION_EVIDENCE_REVISION")
+        )
+        window_revision = (
+            args.window_revision
+            or require_environment_value(os.environ, "WINDOW_EVIDENCE_REVISION")
+        )
+        output_revision = (
+            args.output_revision
+            or require_environment_value(os.environ, "EVIDENCE_REVISION")
+        )
+        signer = load_receipt_signer(os.environ)
+        verifier = EvidenceVerifier(
+            registry=EvidenceRegistry.default(),
+            receipt_signer=signer,
+        )
+        verified_observation = verifier.verify(
+            json.loads(args.observation_evidence.read_text(encoding="utf-8")),
+            expected_revision=observation_revision,
+            expected_scope=args.observation_scope,
+        )
+        verified_window = verifier.verify(
+            json.loads(args.window_evidence.read_text(encoding="utf-8")),
+            expected_revision=window_revision,
+            expected_scope=args.window_scope,
+        )
+        if not isinstance(
+            verified_observation.payload,
+            ProductionBudgetObservationEvidencePayload,
+        ) or not isinstance(
+            verified_window.payload,
+            ProductionBudgetWindowDecisionEvidencePayload,
+        ):
+            raise ValueError("production acceptance payload type is invalid")
+        observation = verified_observation.payload
+        window = verified_window.payload
+        observation_result = ProductionBudgetObservationEvidencePolicy().evaluate(
+            observation
+        )
+        expected_observation_decision = (
+            PromotionDecision.HOLD
+            if observation.synthetic
+            else PromotionDecision.CONTINUE_OBSERVATION
+        )
+        window_result = ProductionBudgetWindowDecisionEvidencePolicy().evaluate(window)
+        observation_manifest_paths = {
+            item.path
+            for item in verified_observation.bundle.artifact.envelope.input_manifest
+        }
+        window_manifest_paths = {
+            item.path
+            for item in verified_window.bundle.artifact.envelope.input_manifest
+        }
+        if (
+            verified_observation.bundle.artifact.verification_status
+            is not VerificationStatus.PASS
+            or verified_observation.bundle.artifact.promotion_decision
+            is not expected_observation_decision
+            or verified_observation.bundle.artifact.gate_codes
+            or observation_result.verification_status is not VerificationStatus.PASS
+            or observation_result.promotion_decision
+            is not expected_observation_decision
+            or observation_manifest_paths
+            != {
+                "production-shadow-change-preflight-evidence",
+                "external-production-budget-aggregate",
+            }
+            or verified_window.bundle.artifact.verification_status
+            is not VerificationStatus.PASS
+            or verified_window.bundle.artifact.promotion_decision
+            is not PromotionDecision.HOLD
+            or verified_window.bundle.artifact.gate_codes
+            or window_result.verification_status is not VerificationStatus.PASS
+            or window_result.promotion_decision is not PromotionDecision.HOLD
+            or window_manifest_paths
+            != {
+                "production-shadow-change-preflight-evidence",
+                "external-production-budget-window-state",
+            }
+            or window.current_state != "CLOSED"
+            or window.action != "HOLD"
+            or window.next_state != "CLOSED"
+        ):
+            raise ValueError("production acceptance upstream state is invalid")
+    except (AcceptanceConfigurationError, OSError, ValueError, json.JSONDecodeError):
+        print("\n".join(format_blocked_output(("ACCEPTANCE_INPUT_UNVERIFIED",))))
+        return 1
+
+    record = observation_record(observation)
+    decision = evaluate_observation(record)
+    payload = build_acceptance_payload(
+        decision,
+        record,
+        observation=observation,
+        window=window,
+    )
+    policy_result = ProductionBudgetAcceptanceEvidencePolicy().evaluate(payload)
+    bundle = EvidenceIssuer(signer=signer).issue(
+        payload_type="production-budget-acceptance-evidence",
+        payload=payload,
+        policy_result=policy_result,
+        producer="scripts.memory-production-budget-shadow-acceptance",
+        tool_version="2.0.0",
+        revision=output_revision,
+        scope=args.output_scope,
+        input_manifest=(
+            input_artifact_from_bundle(
+                path=args.observation_evidence,
+                logical_path="production-budget-observation-evidence",
+                bundle=verified_observation.bundle,
+            ),
+            input_artifact_from_bundle(
+                path=args.window_evidence,
+                logical_path="production-budget-window-decision-evidence",
+                bundle=verified_window.bundle,
+            ),
+        ),
+    )
+    output_verifier = EvidenceVerifier(
+        registry=EvidenceRegistry.default(),
+        receipt_signer=signer,
+    )
+    AtomicEvidenceWriter(
+        post_write_verifier=lambda persisted: output_verifier.verify(
+            persisted,
+            expected_revision=output_revision,
+            expected_scope=args.output_scope,
+        )
+    ).write(args.output, bundle)
+    print("\n".join(render_gate_lines(bundle)))
+    print("\n".join(render_decision(decision, record)))
+    if policy_result.verification_status is not VerificationStatus.PASS:
+        return 1
     return 0 if decision.status == "PASS" else 1
 
 

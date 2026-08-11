@@ -12,7 +12,7 @@ ACCEPTANCE_ID = "t64-cross-platform-acceptance-v1"
 DEFAULT_OUTPUT = Path(
     "tests/golden/interview_quality_v1/t64-cross-platform-acceptance-v1.json"
 )
-T64_TEST = "tests/test_t64_cross_platform_acceptance.py"
+T64_TEST = "tests/acceptance/test_t64_cross_platform_acceptance.py"
 REQUIRED_PLATFORMS = ("windows-11-x64", "ubuntu-24.04-x64")
 REQUIRED_COMMANDS = (
     "python_full_pytest",
@@ -50,19 +50,19 @@ REQUIREMENTS = (
     _requirement("T64-M04", "run Node 22 LTS", ["node_22"], [f"{T64_TEST}::test_t64_gate_rejects_wrong_toolchain_or_relative_python"]),
     _requirement("T64-M05", "run PostgreSQL 16", ["postgresql_16"], [f"{T64_TEST}::test_t64_gate_rejects_wrong_toolchain_or_relative_python"]),
     _requirement("T64-M06", "run project-locked Playwright Chromium", ["playwright_1_61_1", "chromium_149_0_7827_55"], [f"{T64_TEST}::test_t64_gate_rejects_wrong_toolchain_or_relative_python"]),
-    _requirement("T64-C01", "run full Python pytest", ["python_full_pytest"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command", "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity"]),
+    _requirement("T64-C01", "run full Python pytest", ["python_full_pytest"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command", "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_parses_pytest_counts_and_skip_identity"]),
     _requirement("T64-C02", "run PostgreSQL-marked tests with a reachable DSN", ["postgres_marked_pytest", "postgres_dsn_configured"], [f"{T64_TEST}::test_t64_gate_rejects_postgres_skip_or_missing_dsn"]),
     _requirement("T64-C03", "run migration and backup restore", ["migration_restore"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command"]),
     _requirement("T64-C04", "run root and frontend npm ci", ["npm_ci_root", "npm_ci_frontend"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command"]),
     _requirement("T64-C05", "run ESLint", ["eslint"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command"]),
     _requirement("T64-C06", "run Vitest", ["vitest"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command"]),
     _requirement("T64-C07", "run frontend production build", ["frontend_build"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command"]),
-    _requirement("T64-C08", "run Playwright preflight and browser tests", ["playwright_preflight", "playwright_browser"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command", "tests/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason"]),
+    _requirement("T64-C08", "run Playwright preflight and browser tests", ["playwright_preflight", "playwright_browser"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command", "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_parses_playwright_skip_reason"]),
     _requirement("T64-C09", "replay all four frozen quality evaluations", ["initial_question_replay", "followup_decision_replay", "report_score_replay", "report_semantic_replay"], [f"{T64_TEST}::test_t64_gate_requires_all_four_zero_provider_replays"]),
     _requirement("T64-C10", "clean ports processes traces screenshots and temporary database objects", ["cleanup_zero_residue"], [f"{T64_TEST}::test_t64_gate_rejects_cleanup_residue"]),
     _requirement("T64-R01", "allow zero required failures and zero blocking skips", ["zero_failures", "zero_blocking_skips"], [f"{T64_TEST}::test_t64_gate_rejects_missing_or_failed_required_command"]),
     _requirement("T64-R02", "never accept PostgreSQL skips caused by a missing DSN", ["zero_missing_dsn_skips"], [f"{T64_TEST}::test_t64_gate_rejects_postgres_skip_or_missing_dsn"]),
-    _requirement("T64-R03", "give every non-blocking skip a reason and owner", ["skip_inventory_owned"], [f"{T64_TEST}::test_t64_gate_rejects_unowned_or_blocking_skip", "tests/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"]),
+    _requirement("T64-R03", "give every non-blocking skip a reason and owner", ["skip_inventory_owned"], [f"{T64_TEST}::test_t64_gate_rejects_unowned_or_blocking_skip", "tests/contracts/test_t64_platform_matrix.py::test_t64_platform_runner_unknown_skip_is_blocking"]),
     _requirement("T64-R04", "reject substitute Python Node OS database or browser versions", ["target_versions_exact"], [f"{T64_TEST}::test_t64_gate_rejects_wrong_toolchain_or_relative_python"]),
     _requirement("T64-R05", "freeze one clean provider candidate revision and tree", ["candidate_revision_frozen", "candidate_tree_frozen", "source_clean"], [f"{T64_TEST}::test_t64_gate_rejects_revision_tree_or_cleanliness_drift"]),
 )

@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 
 from app.services.token_estimation import ConservativeUtf8TokenEstimator
-from app.services.principal_memory_contracts import EXCLUSIVE_TAXONOMY_KEYS
+from app.domain.memory.contracts import EXCLUSIVE_TAXONOMY_KEYS
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class PrincipalMemorySelection:
     would_confirm_count: int
 
 
-class PrincipalMemoryRetriever:
+class PrincipalMemorySelector:
     def __init__(
         self, *, fact_store, consent_service, identity_resolver, session_store,
         config, estimator=None, model="principal-shadow",
@@ -129,3 +129,6 @@ class PrincipalMemoryRetriever:
                 session_id=session_id,
             )
         )
+
+
+PrincipalMemoryRetriever = PrincipalMemorySelector

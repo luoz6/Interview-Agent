@@ -8,8 +8,13 @@ Consent record.
 
 ~~~powershell
 & 'F:\python3.11\python.exe' -m scripts.principal_memory_lifecycle_drill `
-  --execute --expected-database-fingerprint $approvedFingerprint
+  --execute --scope-prefix $approvedScopePrefix `
+  --output reports/memory/lifecycle-shadow-evidence-v1.json
 ~~~
+
+The protected operator environment must provide the complete PostgreSQL
+Approval Receipt/target binding and the Evidence HMAC/Revision variables. The
+drill no longer accepts a short database fingerprint on the command line.
 
 The race matrix revokes Consent during extraction and after selection but
 before observation commit. Both boundaries must fail closed with zero unsafe

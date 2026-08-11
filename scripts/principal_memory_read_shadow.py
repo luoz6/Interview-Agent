@@ -6,24 +6,45 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 import os
+from pathlib import Path
 from time import perf_counter
 from typing import Mapping
 
-from app.services.in_memory_principal_memory import transition_fact
-from app.services.memory_config import load_effective_memory_config
-from app.services.postgres_principal_memory import PostgresPrincipalMemoryFactStore
+from app.domain.memory.facts import transition_fact
+from app.runtime.config.memory import load_effective_memory_config
+from app.adapters.postgres.principal_memory import PostgresPrincipalMemoryFactStore
 from app.services.postgres_principal_memory_consent import PostgresPrincipalMemoryConsentStore
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from app.services.principal_memory_consent import PrincipalMemoryConsent, PrincipalMemoryConsentService
-from app.services.principal_memory_contracts import PrincipalMemoryFact, canonical_principal_fact, derive_principal_fact_id, derive_principal_fact_taxonomy_keys
+from app.domain.memory.contracts import PrincipalMemoryFact, canonical_principal_fact, derive_principal_fact_id, derive_principal_fact_taxonomy_keys
 from app.services.principal_memory_retrieval import PrincipalMemoryRetriever
 from app.services.principal_memory_shadow import PrincipalMemoryShadowService, canonical_provider_context_digest
-from scripts.memory_postgres_validation import cleanup_isolated_prefix, database_fingerprint, run_validation
-from scripts.memory_shadow_staging_preflight import count_isolated_relations, make_staging_prefix
+from contracts.evidence import ShadowEvidencePayload
+from scripts.memory_postgres_validation import run_validation
+from scripts.memory_shadow_evidence_support import (
+    approved_postgres_scope,
+    print_evidence_result,
+    publish_shadow_evidence,
+    strict_finite_float,
+    strict_nonnegative_int,
+)
 
 
 NOW = datetime(2026, 7, 31, tzinfo=timezone.utc)
 SCENARIOS = ("relevant", "conflict", "revoked_consent", "deleted_source", "expired", "unconfirmed", "cross_principal", "fact_cap")
+DEFAULT_OUTPUT = Path("reports/memory/read-shadow-evidence-v1.json")
+READ_INVARIANT_GATES = {
+    "unconfirmed_selected": "READ_SHADOW_UNCONFIRMED_SELECTED",
+    "revoked_expired_deleted_selected": "READ_SHADOW_REVOKED_SOURCE_SELECTED",
+    "consent_revoked_selected": "READ_SHADOW_REVOKED_CONSENT_SELECTED",
+    "cross_principal_selected": "READ_SHADOW_CROSS_PRINCIPAL_SELECTED",
+    "conflicting_exclusive_selected": "READ_SHADOW_CONFLICT_SELECTED",
+    "provider_context_mutation": "READ_SHADOW_PROVIDER_CONTEXT_MUTATED",
+    "provider_request_mutation": "READ_SHADOW_PROVIDER_REQUEST_MUTATED",
+    "question_score_report_mutation": "READ_SHADOW_BUSINESS_OUTPUT_MUTATED",
+    "fact_token_limit_violation": "READ_SHADOW_TOKEN_LIMIT_EXCEEDED",
+    "privacy_artifact_hit": "READ_SHADOW_PRIVACY_HIT",
+}
 
 
 class Sessions:
@@ -168,20 +189,97 @@ def validate_artifact(record:Mapping[str,object]):
     if any(key in rendered for key in ("postgresql://","session_id","principal_id","fact_id","normalized_fact","prompt","answer","excerpt","database_fingerprint","table_prefix")): raise RuntimeError("read shadow artifact contains blocked fields")
 
 
+def build_read_shadow_payload(record: Mapping[str, object]) -> ShadowEvidencePayload:
+    sample_count = strict_nonnegative_int(record, "sample_count")
+    if sample_count < 1:
+        raise ValueError("sample_count must be positive")
+    invariants = record["hard_invariants"]
+    if not isinstance(invariants, Mapping):
+        raise ValueError("hard_invariants must be an object")
+    if set(invariants) != set(READ_INVARIANT_GATES):
+        raise ValueError("hard_invariants field set is invalid")
+    violations = []
+    for field, gate in READ_INVARIANT_GATES.items():
+        if strict_nonnegative_int(invariants, field) != 0:
+            violations.append(gate)
+    invariant_counts = {
+        field: strict_nonnegative_int(invariants, field)
+        for field in sorted(READ_INVARIANT_GATES)
+    }
+    scenarios = record["scenario_counts"]
+    if not isinstance(scenarios, Mapping) or set(scenarios) != set(SCENARIOS):
+        raise ValueError("scenario_counts field set is invalid")
+    scenario_counts = {
+        field: strict_nonnegative_int(scenarios, field)
+        for field in SCENARIOS
+    }
+    provider_calls = strict_nonnegative_int(record, "provider_calls")
+    source_count = strict_nonnegative_int(record, "source_fact_count")
+    selected_count = strict_nonnegative_int(record, "would_select_count")
+    conflict_count = strict_nonnegative_int(record, "conflict_count")
+    cleanup_residue = strict_nonnegative_int(record, "cleanup_residue")
+    latency_ratio = strict_finite_float(record, "latency_regression_ratio")
+    p95 = strict_finite_float(record, "read_shadow_p95_latency_ms")
+    baseline_p95 = strict_finite_float(record, "baseline_p95_latency_ms")
+    if provider_calls != 0:
+        violations.append("READ_SHADOW_PROVIDER_CALLED")
+    if cleanup_residue != 0:
+        violations.append("READ_SHADOW_CLEANUP_RESIDUE")
+    if record["rollback_verified"] is not True:
+        violations.append("READ_SHADOW_ROLLBACK_NOT_VERIFIED")
+    if latency_ratio > 0.2:
+        violations.append("READ_SHADOW_LATENCY_REGRESSION")
+    if record["digest_values_persisted"] is not False:
+        violations.append("READ_SHADOW_DIGEST_PERSISTED")
+    if record["configuration_persisted"] is not False:
+        violations.append("READ_SHADOW_CONFIGURATION_PERSISTED")
+    if record["long_term_mode_after"] != "disabled":
+        violations.append("READ_SHADOW_MODE_NOT_RESET")
+    if record["long_term_memory_consumption"] != "BLOCKED":
+        violations.append("READ_SHADOW_CONSUMPTION_ENABLED")
+    return ShadowEvidencePayload(
+        schema_version="shadow-evidence-v1",
+        sample_count=sample_count,
+        synthetic=True,
+        observation_window_seconds=1,
+        metrics={
+            "source_fact_count": float(source_count),
+            "would_select_count": float(selected_count),
+            "conflict_count": float(conflict_count),
+            "provider_calls": float(provider_calls),
+            "latency_regression_ratio": latency_ratio,
+            "read_shadow_p95_latency_ms": p95,
+            "baseline_p95_latency_ms": baseline_p95,
+            "cleanup_residue": float(cleanup_residue),
+            **{
+                f"scenario_{field}": float(value)
+                for field, value in scenario_counts.items()
+            },
+            **{
+                f"hard_{field}": float(value)
+                for field, value in invariant_counts.items()
+            },
+        },
+        violations=violations,
+    )
+
+
 def main(argv=None):
-    p=argparse.ArgumentParser(); p.add_argument("--execute",action="store_true",required=True); p.add_argument("--expected-database-fingerprint",required=True); p.add_argument("--samples",type=int,default=300); a=p.parse_args(argv)
+    p=argparse.ArgumentParser(); p.add_argument("--execute",action="store_true",required=True); p.add_argument("--scope-prefix",required=True); p.add_argument("--output",type=Path,default=DEFAULT_OUTPUT); p.add_argument("--samples",type=int,default=300); a=p.parse_args(argv)
     dsn=os.getenv("POSTGRES_DSN","").strip()
-    if not dsn or database_fingerprint(dsn).digest!=a.expected_database_fingerprint: raise RuntimeError("database target unavailable or mismatched")
-    prefix=make_staging_prefix(); record=None
-    try:
-        run_validation(dsn=dsn,table_prefix=prefix,keep_tables=True)
+    if not dsn: raise RuntimeError("POSTGRES_DSN is required")
+    record=None; active=None
+    with approved_postgres_scope(dsn=dsn,scope_prefix=a.scope_prefix,environ=os.environ) as active:
+        run_validation(dsn=dsn,table_prefix=a.scope_prefix)
         record=run_read_shadow(
-            fact_store=PostgresPrincipalMemoryFactStore(dsn=dsn,table_prefix=prefix,schema_mode="validate"),
-            consent_store=PostgresPrincipalMemoryConsentStore(dsn=dsn,table_prefix=prefix,schema_mode="validate"),sample_count=a.samples)
-    finally: cleanup_isolated_prefix(dsn,prefix)
-    record["cleanup_residue"]=count_isolated_relations(dsn,prefix); record["rollback_verified"]=record["cleanup_residue"]==0
-    validate_artifact(record); print(json.dumps(record,sort_keys=True))
-    return 0 if not any(record["hard_invariants"].values()) and record["latency_regression_ratio"]<=.2 and record["rollback_verified"] else 1
+            fact_store=PostgresPrincipalMemoryFactStore(dsn=dsn,table_prefix=a.scope_prefix,schema_mode="validate"),
+            consent_store=PostgresPrincipalMemoryConsentStore(dsn=dsn,table_prefix=a.scope_prefix,schema_mode="validate"),sample_count=a.samples)
+    if record is None or active is None or active.lease.cleanup_receipt is None: raise RuntimeError("read shadow did not produce cleanup evidence")
+    record["cleanup_residue"]=active.lease.cleanup_receipt.residue_count; record["rollback_verified"]=record["cleanup_residue"]==0
+    validate_artifact(record); payload=build_read_shadow_payload(record)
+    bundle=publish_shadow_evidence(payload=payload,output=a.output,producer="scripts.principal-memory-read-shadow",scope="memory.read-shadow.controlled",environ=os.environ,minimum_samples=300)
+    print_evidence_result(bundle,a.output)
+    return 0 if bundle.artifact.verification_status.value=="PASS" else 1
 
 
 if __name__=="__main__": raise SystemExit(main())

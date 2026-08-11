@@ -14,7 +14,7 @@ from typing import Iterable, Mapping
 
 import httpx
 
-from app.services.config import derive_pgvector_table_names
+from app.runtime.config.compatibility import derive_pgvector_table_names
 from app.services.postgres_identifiers import (
     validate_postgres_identifier,
     validate_runtime_table_prefix,

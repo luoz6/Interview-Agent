@@ -123,8 +123,10 @@ MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED=false
 - No Budget, compression, Question Memory, Write Shadow or Read Shadow mode was
   enabled while producing this evidence.
 
-The machine-readable aggregate evidence is stored in
-`docs/memory-validation-operational-evidence.json`.
+The current machine-readable RC evidence is the signed
+`reports/memory/operational-rc-evidence-v1.json` Bundle. The former committed
+unsigned RC JSON record has been removed and is not accepted by the current
+foundation CLI.
 
 ## Acceptance result
 
