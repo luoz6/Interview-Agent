@@ -35,7 +35,7 @@ export function MemoryCenterPage() {
       {state.state === "UNAVAILABLE" && <section className="memory-unavailable"><h2>长期记忆当前不可用</h2><p>{state.description}</p><button type="button" className="button start-button button-primary" onClick={model.refresh}>重新检测</button></section>}
       {!['LOADING', 'UNAVAILABLE'].includes(state.state) && <div className="memory-layout">
         <MemoryFactsSection model={model} />
-        <aside aria-label="记忆设置与数据权利">
+        <aside className="memory-settings-rail" aria-label="记忆设置与数据权利">
           <MemoryConsentSection model={model} />
           <MemoryRightsSection model={model} onDelete={() => { setDeleteError(""); setDeleteOpen(true); }} />
         </aside>
