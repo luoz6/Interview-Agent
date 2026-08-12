@@ -65,16 +65,23 @@ export function useMemoryCenter() {
     return () => window.clearTimeout(noticeTimer.current);
   }, [refresh]);
 
-  const run = useCallback(async (name, action, { status: reloadStatus = false, facts: reloadFacts = false, success } = {}) => {
+  const run = useCallback(async (name, action, {
+    status: reloadStatus = false,
+    facts: reloadFacts = false,
+    success,
+    announceError = true,
+  } = {}) => {
     setBusy(name);
     try {
       const result = await action();
       if (reloadStatus) await loadStatus();
       if (reloadFacts) await loadFacts();
-      if (success) announce("success", success);
+      const successMessage = typeof success === "function" ? success(result) : success;
+      if (successMessage) announce("success", successMessage);
       return { ok: true, result };
     } catch (error) {
-      announce("error", memoryErrorMessage(error));
+      if (announceError) announce("error", memoryErrorMessage(error));
+      if (reloadStatus) await loadStatus().catch(() => {});
       if (reloadFacts) await loadFacts().catch(() => {});
       return { ok: false, error };
     } finally {
@@ -109,6 +116,13 @@ export function useMemoryCenter() {
       link.click();
       URL.revokeObjectURL(url);
     }, { success: "安全导出已生成。" }),
-    deleteMemory: () => run("delete", () => deleteJson(API, mutationOptions), { status: true, facts: true }),
+    deleteMemory: () => run("delete", () => deleteJson(API, mutationOptions), {
+      status: true,
+      facts: true,
+      announceError: false,
+      success: (result) => result?.status === "completed" && result?.residue_count === 0
+        ? "记忆已删除。"
+        : null,
+    }),
   };
 }

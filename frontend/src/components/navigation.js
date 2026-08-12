@@ -15,8 +15,8 @@ export const PRODUCT_NAVIGATION = [
   },
   {
     href: "/memory-center",
-    label: "记忆",
-    mobileLabel: "记忆",
+    label: "我的记忆",
+    mobileLabel: "我的记忆",
     match: ["/memory-center", "/memory-center.html"],
     icon: "memory",
   },

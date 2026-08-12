@@ -20,11 +20,13 @@ export function ConfirmDialog({
   tone = "danger",
   role = "dialog",
   busy = false,
+  errorMessage,
   onConfirm,
   onCancel,
 }) {
   const titleId = useId();
   const descriptionId = useId();
+  const errorId = useId();
   const dialogRef = useRef(null);
   const cancelRef = useRef(null);
   const returnFocusRef = useRef(null);
@@ -84,7 +86,10 @@ export function ConfirmDialog({
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
+        aria-describedby={[
+          description ? descriptionId : null,
+          errorMessage ? errorId : null,
+        ].filter(Boolean).join(" ") || undefined}
       >
         <header className="confirm-dialog-head">
           <span className="confirm-dialog-icon" aria-hidden="true"><WarningCircle size={22} weight="fill" /></span>
@@ -97,6 +102,7 @@ export function ConfirmDialog({
           </button>
         </header>
         {children && <div className="confirm-dialog-body">{children}</div>}
+        {errorMessage && <p id={errorId} className="confirm-dialog-error" role="alert">{errorMessage}</p>}
         <footer className="confirm-dialog-actions">
           <button ref={cancelRef} type="button" className="button start-button start-inspector-secondary" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
           <button type="button" className={`button start-button ${confirmVariant}`} onClick={onConfirm} disabled={busy} aria-busy={busy || undefined}>{confirmLabel}</button>

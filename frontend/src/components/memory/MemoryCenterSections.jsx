@@ -24,8 +24,14 @@ export function MemoryConsentSection({ model }) {
     setEditing(true);
   };
   return <section className="memory-panel memory-consent" aria-labelledby="memory-consent-title">
-    <PanelHeader icon={ShieldCheck} eyebrow="使用设置" title="你决定记忆如何工作" id="memory-consent-title" />
+    <PanelHeader icon={ShieldCheck} eyebrow="使用设置" title="记忆如何使用" id="memory-consent-title" />
     <p>{model.uiState.description}</p>
+    <ul className="memory-usage-summary" aria-label="长期记忆的默认使用说明">
+      <li data-kind="included"><span aria-hidden="true">✓</span>保存我明确确认的信息</li>
+      <li data-kind="included"><span aria-hidden="true">✓</span>用于让未来追问更贴合我的背景</li>
+      <li data-kind="excluded"><span aria-hidden="true">○</span>不用于面试评分</li>
+      <li data-kind="excluded"><span aria-hidden="true">○</span>不直接改变报告结论</li>
+    </ul>
     <div className="memory-actions">
       <Button className="start-button" variant="primary" disabled={!available} busy={model.busy === "toggle"} onClick={model.toggle}>{model.status?.global_enabled ? "暂停长期记忆" : "重新启用"}</Button>
       {!editing && <Button className="start-button" variant="text" disabled={!available} onClick={beginEditing}>管理使用范围</Button>}
@@ -79,7 +85,12 @@ export function MemoryFactsSection({ model }) {
   }, {}), [active]);
   const selectedValue = capability?.values.includes(value) ? value : capability?.values[0] || "";
   return <section className="memory-panel memory-facts-panel" aria-labelledby="memory-facts-title">
-    <PanelHeader icon={Database} eyebrow="我的信息" title="已保存的记忆" id="memory-facts-title" action={<button ref={refreshRef} type="button" className="memory-link-button" onClick={model.refresh}>刷新</button>} />
+    <PanelHeader icon={Database} eyebrow="我的信息" title="我记住的信息" id="memory-facts-title" action={<button ref={refreshRef} type="button" className="memory-link-button" onClick={model.refresh}>刷新</button>} />
+    <dl className="memory-fact-summary" aria-label="全部记忆摘要">
+      <div><dt>已确认</dt><dd>{model.summary.active || 0}<span>条</span></dd></div>
+      <div><dt>待确认</dt><dd>{model.summary.proposed || 0}<span>条</span></dd></div>
+      <div><dt>已撤回</dt><dd>{model.summary.revoked || 0}<span>条</span></dd></div>
+    </dl>
     {pending.length > 0 && <section className="memory-pending" aria-labelledby="memory-pending-title"><h3 id="memory-pending-title">等待你确认 <span>{model.summary.proposed || pending.length}</span></h3><p>这些信息不会在你确认前用于后续面试。</p><ul>{pending.map((item) => <FactItem key={item.safe_ref} item={item} model={model} restoreFocus={() => refreshRef.current?.focus()} />)}</ul></section>}
     <form className="memory-declare" onSubmit={(event) => { event.preventDefault(); if (capability && selectedValue) model.declareFact(capability.fact_type, capability.key, selectedValue); }}>
       <h3>添加一条信息</h3>

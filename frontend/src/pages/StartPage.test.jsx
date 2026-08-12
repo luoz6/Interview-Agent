@@ -215,6 +215,10 @@ describe("StartPage editable plan workflow", () => {
       name: "在本次面试中使用我的长期记忆",
     });
     expect(memoryChoice).toBeChecked();
+    expect(screen.getByRole("link", { name: "查看和管理我的记忆" })).toHaveAttribute(
+      "href",
+      "/memory-center",
+    );
     await user.click(memoryChoice);
     fetchMock.mockImplementationOnce(() =>
       response({ detail: { code: "provider_timeout", message: "start failed" } }, 503),

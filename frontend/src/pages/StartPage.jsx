@@ -1919,7 +1919,7 @@ export function StartPage() {
                     />
                     <span>在本次面试中使用我的长期记忆</span>
                   </label>
-                  <a href="/memory">查看和管理我的记忆</a>
+                  <a href="/memory-center">查看和管理我的记忆</a>
                 </section>
                 <div className="start-privacy-note"><ShieldCheck size={17} weight="bold" aria-hidden="true" focusable="false" /><p><strong>仅与当前浏览器关联</strong><span>资料用于当前面试流程；匿名草稿不会跨设备同步。</span></p></div>
               </section>

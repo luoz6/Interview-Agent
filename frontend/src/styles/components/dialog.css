@@ -82,6 +82,17 @@
   padding: 0 var(--start-space-md) var(--start-space-md);
 }
 
+.confirm-dialog-error {
+  margin: var(--start-space-sm) var(--start-space-md);
+  padding: var(--start-space-sm);
+  border-left: .1875rem solid var(--start-color-danger);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-danger-soft);
+  color: var(--start-color-ink-soft);
+  font-size: var(--start-text-sm);
+  line-height: 1.6;
+}
+
 .confirm-dialog-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

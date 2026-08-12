@@ -21,7 +21,15 @@ const capabilities = {
   ],
 };
 
-async function mockMemoryApi(page, { items = [], enabled = true, apiDisabled = false, deleteFails = false } = {}) {
+async function mockMemoryApi(page, {
+  items = [],
+  summary = null,
+  enabled = true,
+  apiDisabled = false,
+  deleteFails = false,
+  deleteResult = { status: "completed", residue_count: 0 },
+  editConflicts = false,
+} = {}) {
   const state = { enabled, purposes: ["fact_storage", "local_consume"], items: [...items], calls: [] };
   await page.route(API_PATTERN, async (route) => {
     const request = route.request();
@@ -44,7 +52,7 @@ async function mockMemoryApi(page, { items = [], enabled = true, apiDisabled = f
     if (method === "GET" && path === "/capabilities") return json(route, capabilities);
     if (method === "GET" && path === "/facts") return json(route, {
       schema_version: "principal-memory-safe-list-v2",
-      summary: state.items.reduce((result, item) => ({ ...result, [item.status]: (result[item.status] || 0) + 1 }), { active: 0, proposed: 0, revoked: 0, rejected: 0, superseded: 0, expired: 0 }),
+      summary: summary || state.items.reduce((result, item) => ({ ...result, [item.status]: (result[item.status] || 0) + 1 }), { active: 0, proposed: 0, revoked: 0, rejected: 0, superseded: 0, expired: 0 }),
       items: state.items,
       next_cursor: null,
     });
@@ -54,12 +62,16 @@ async function mockMemoryApi(page, { items = [], enabled = true, apiDisabled = f
     if (method === "DELETE" && path === "/consent") { state.purposes = []; return json(route, { revoked: true, facts_retained: true }); }
     if (method === "POST" && path === "/facts") return json(route, { status: "active", version: 1, normalized_fact: JSON.stringify(body.normalized_value) });
     if (method === "POST" && /^\/facts\/[^/]+\/(confirm|revoke|reject)$/.test(path)) { state.items = []; return json(route, { status: path.endsWith("confirm") ? "active" : path.endsWith("revoke") ? "revoked" : "rejected", version: 2 }); }
-    if (method === "PUT" && /^\/facts\/[^/]+$/.test(path)) { state.items = state.items.map((item) => ({ ...item, version: item.version + 1, normalized_value: body.normalized_value })); return json(route, { status: "active", version: 8, normalized_value: body.normalized_value }); }
+    if (method === "PUT" && /^\/facts\/[^/]+$/.test(path)) {
+      if (editConflicts) return json(route, { detail: { code: "principal_memory_version_conflict" } }, 409);
+      state.items = state.items.map((item) => ({ ...item, version: item.version + 1, normalized_value: body.normalized_value }));
+      return json(route, { status: "active", version: 8, normalized_value: body.normalized_value });
+    }
     if (method === "POST" && path === "/export") return json(route, { expires_at: "2026-08-05T00:00:00Z", payload: { schema_version: "principal-memory-safe-export-v1", facts: [] } });
     if (method === "DELETE" && path === "") {
       if (deleteFails) return json(route, { detail: { code: "principal_memory_deletion_unavailable" } }, 503);
       state.items = []; state.purposes = []; state.enabled = false;
-      return json(route, { status: "completed", residue_count: 0 });
+      return json(route, deleteResult);
     }
     return json(route, { detail: `unmocked ${method} ${path}` }, 500);
   });
@@ -69,7 +81,8 @@ async function mockMemoryApi(page, { items = [], enabled = true, apiDisabled = f
 test("memory center presents effective state and backend-driven declaration choices", async ({ page }) => {
   const state = await mockMemoryApi(page);
   await page.goto("/memory-center.html");
-  await expect(page.getByRole("heading", { name: "长期记忆", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "我的记忆", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "我的记忆", exact: true }).first()).toHaveAttribute("href", "/memory-center");
   await expect(page.locator("#status-stamp strong")).toHaveText("可用于后续面试");
   await page.getByRole("combobox", { name: "信息类别" }).selectOption("focus_topic");
   await page.getByRole("combobox", { name: "内容" }).selectOption("system-design");
@@ -96,9 +109,26 @@ test("memory center separates pending, active groups and history without interna
   await expect(page.getByRole("button", { name: "刷新" })).toBeFocused();
 });
 
+test("facts overview uses the global summary instead of deriving totals from the visible page", async ({ page }) => {
+  await mockMemoryApi(page, {
+    items: [
+      { safe_ref: "active-visible", status: "active", version: 2, fact_type: "learning_goal", normalized_value: { learning_goal: "kafka" } },
+    ],
+    summary: { active: 8, proposed: 2, revoked: 1, rejected: 3, superseded: 4, expired: 5 },
+  });
+  await page.goto("/memory-center.html");
+  const overview = page.locator('[aria-label="全部记忆摘要"]');
+  await expect(overview).toContainText("已确认8条");
+  await expect(overview).toContainText("待确认2条");
+  await expect(overview).toContainText("已撤回1条");
+});
+
 test("consent is progressively disclosed and session id controls are absent", async ({ page }) => {
   const state = await mockMemoryApi(page);
   await page.goto("/memory-center.html");
+  await expect(page.getByLabel("长期记忆的默认使用说明")).toContainText("保存我明确确认的信息");
+  await expect(page.getByLabel("长期记忆的默认使用说明")).toContainText("不用于面试评分");
+  await expect(page.getByLabel("长期记忆的默认使用说明")).toContainText("不直接改变报告结论");
   await expect(page.getByRole("checkbox")).toHaveCount(0);
   await expect(page.getByText("会话引用")).toHaveCount(0);
   await page.getByRole("button", { name: "管理使用范围" }).click();
@@ -125,7 +155,40 @@ test("deletion closes only after verified completion and stays open on failure",
   const dialog = page.getByRole("alertdialog", { name: "确认永久删除？" });
   await dialog.getByRole("button", { name: "确认永久删除" }).click();
   await expect(dialog).toBeVisible();
-  await expect(page.locator("#notice")).toContainText("当前无法确认永久删除");
+  await expect(dialog.getByRole("alert")).toContainText("当前无法确认永久删除");
+  await expect(dialog.getByRole("button", { name: "确认永久删除" })).toBeEnabled();
+  await expect(page.locator("#notice")).toHaveCount(0);
+});
+
+test("deletion stays open when the server reports residue and never shows false success", async ({ page }) => {
+  await mockMemoryApi(page, { deleteResult: { status: "completed", residue_count: 1 } });
+  await page.goto("/memory-center.html");
+  await page.getByRole("button", { name: "永久删除全部记忆" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "确认永久删除？" });
+  await dialog.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText("数据清理尚未确认完成");
+  await expect(page.getByText("记忆已删除。")).toHaveCount(0);
+});
+
+test("stale fact edits load the latest facts before asking the user to retry", async ({ page }) => {
+  const state = await mockMemoryApi(page, {
+    editConflicts: true,
+    items: [
+      { safe_ref: "editable-safe", status: "active", version: 2, fact_type: "declared_preference", normalized_value: { interview_language: "zh_hans" } },
+    ],
+  });
+  await page.goto("/memory-center.html");
+  await page.getByRole("button", { name: "更正" }).click();
+  await page.getByRole("combobox", { name: "更正为" }).selectOption("en");
+  const factsReadsBeforeSave = state.calls.filter(
+    (call) => call.method === "GET" && call.path === "/facts",
+  ).length;
+  await page.getByRole("button", { name: "保存更正" }).click();
+  await expect(page.locator("#notice")).toContainText("已加载最新状态");
+  expect(state.calls.filter(
+    (call) => call.method === "GET" && call.path === "/facts",
+  )).toHaveLength(factsReadsBeforeSave + 1);
 });
 
 test("memory center remains keyboard usable on mobile with reduced motion", async ({ page }) => {
@@ -133,6 +196,7 @@ test("memory center remains keyboard usable on mobile with reduced motion", asyn
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockMemoryApi(page);
   await page.goto("/memory-center.html");
+  await expect(page.getByRole("link", { name: "我的记忆", exact: true })).toBeVisible();
   const primary = page.getByRole("button", { name: "暂停长期记忆" });
   await primary.focus();
   const geometry = await primary.evaluate((element) => {

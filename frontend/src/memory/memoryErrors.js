@@ -17,6 +17,8 @@ export function memoryErrorMessage(error) {
   if (error?.status === 404) {
     return "长期记忆当前不可用。该功能只在受支持的本地运行模式下开放。";
   }
+  if (error?.status === 403) return "当前环境不允许执行这项长期记忆操作。";
+  if (error?.status === 409) return "这项长期记忆设置刚刚发生了变化，已加载最新状态，请重试。";
   if (error?.status === 503) return "本地记忆服务暂时无法完成该操作，请稍后重试。";
   return "长期记忆操作没有完成，请刷新状态后重试。";
 }
