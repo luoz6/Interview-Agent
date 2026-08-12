@@ -81,6 +81,7 @@ class DurableInterviewStateV2(TypedDict):
     plan_sha256: str
     configuration_snapshot: dict[str, Any] | None
     immutable_plan_snapshot: dict[str, Any]
+    principal_memory_mode: Literal["inherit", "ignore"]
 
 
 def make_durable_initial_state_v2(
@@ -165,4 +166,5 @@ def make_durable_initial_state_v2(
         "plan_sha256": binding.plan_sha256,
         "configuration_snapshot": binding.configuration_snapshot,
         "immutable_plan_snapshot": binding.plan_snapshot,
+        "principal_memory_mode": binding.principal_memory_mode,
     }

@@ -10,6 +10,10 @@ class PrincipalMemorySafeRefInvalid(ValueError):
     pass
 
 
+class PrincipalMemorySafeRefVersionConflict(PrincipalMemorySafeRefInvalid):
+    pass
+
+
 @dataclass(frozen=True)
 class PrincipalMemorySafeRefRecord:
     safe_ref: str
@@ -75,9 +79,13 @@ class InMemoryPrincipalMemorySafeRefStore:
             principal_id=principal_id,
             fact_id=record.fact_id,
         )
-        if fact is None or fact.version != record.fact_version:
+        if fact is None:
             raise PrincipalMemorySafeRefInvalid(
                 "principal memory safe reference is stale"
+            )
+        if fact.version != record.fact_version:
+            raise PrincipalMemorySafeRefVersionConflict(
+                "principal memory safe reference version changed"
             )
         return fact
 

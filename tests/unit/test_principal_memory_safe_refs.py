@@ -8,6 +8,7 @@ from app.adapters.memory.principal_memory import InMemoryPrincipalMemoryFactStor
 from app.services.principal_memory_safe_refs import (
     InMemoryPrincipalMemorySafeRefStore,
     PrincipalMemorySafeRefInvalid,
+    PrincipalMemorySafeRefVersionConflict,
 )
 from tests.principal_memory_fixtures import make_fact
 
@@ -50,7 +51,7 @@ def test_safe_ref_is_opaque_scoped_versioned_and_short_lived():
         target_status="rejected",
         now=NOW,
     )
-    with pytest.raises(PrincipalMemorySafeRefInvalid):
+    with pytest.raises(PrincipalMemorySafeRefVersionConflict):
         refs.resolve(
             safe_ref,
             deployment_id=fact.deployment_id,

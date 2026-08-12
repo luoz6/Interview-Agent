@@ -23,6 +23,7 @@ class SessionPlanBinding(BaseModel):
     plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     configuration_snapshot: dict[str, Any] | None = None
     plan_snapshot: dict[str, Any]
+    principal_memory_mode: Literal["inherit", "ignore"] = "inherit"
 
     @model_validator(mode="after")
     def validate_binding(self):
@@ -51,6 +52,8 @@ class SessionPlanBinding(BaseModel):
 
 def session_plan_binding_from_revision(
     revision: InterviewPlanRevision,
+    *,
+    principal_memory_mode: Literal["inherit", "ignore"] = "inherit",
 ) -> SessionPlanBinding:
     return SessionPlanBinding(
         plan_origin="plan_revision",
@@ -60,6 +63,7 @@ def session_plan_binding_from_revision(
         plan_sha256=revision.plan_sha256,
         configuration_snapshot=revision.configuration_snapshot.model_dump(mode="json"),
         plan_snapshot=revision.plan.model_dump(mode="json"),
+        principal_memory_mode=principal_memory_mode,
     )
 
 
@@ -84,5 +88,6 @@ def session_plan_binding_from_state(state: dict[str, Any]) -> SessionPlanBinding
             "plan_sha256": state["plan_sha256"],
             "configuration_snapshot": state.get("configuration_snapshot"),
             "plan_snapshot": state["plan_snapshot"],
+            "principal_memory_mode": state.get("principal_memory_mode", "inherit"),
         }
     )

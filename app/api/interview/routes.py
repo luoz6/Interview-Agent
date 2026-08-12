@@ -52,6 +52,10 @@ from app.services.session_plan_binding import (
     session_plan_binding_from_revision,
     session_plan_binding_from_state,
 )
+from app.services.principal_memory_session_choice import (
+    PrincipalMemorySessionChoiceBinder,
+    PrincipalMemorySessionChoiceConflict,
+)
 from app.runtime.config.compatibility import (
     get_interview_langgraph_rollout_percent,
     get_runtime_store,
@@ -268,6 +272,12 @@ def start_interview(
         get_request_interview_launch_coordinator
     ),
     revision_store=Depends(dependencies.get_request_plan_revision_store),
+    principal_memory_control_store=Depends(
+        dependencies.get_request_principal_memory_control_store
+    ),
+    principal_identity_resolver=Depends(
+        dependencies.get_request_principal_identity_resolver
+    ),
 ):
     if payload.plan_revision_id is not None:
         if start_service is None:
@@ -280,6 +290,8 @@ def start_interview(
                 payload,
                 start_service.store,
                 revision_store,
+                principal_memory_control_store=principal_memory_control_store,
+                principal_identity_resolver=principal_identity_resolver,
             )
 
     if payload.plan_id is not None:
@@ -319,11 +331,26 @@ def start_interview(
     return _turn_to_dict(turn)
 
 
-def _start_interview_locked(payload, store, revision_store):
+def _start_interview_locked(
+    payload,
+    store,
+    revision_store,
+    *,
+    principal_memory_control_store=None,
+    principal_identity_resolver=None,
+):
+    choice_binder = PrincipalMemorySessionChoiceBinder(
+        identity_resolver=principal_identity_resolver,
+        control_store=principal_memory_control_store,
+    )
+    choice_created = False
     try:
         revision_store.reconcile_session_source_references()
         revision = revision_store.get_by_id(payload.plan_revision_id)
-        plan_binding = session_plan_binding_from_revision(revision)
+        plan_binding = session_plan_binding_from_revision(
+            revision,
+            principal_memory_mode=payload.principal_memory_mode,
+        )
         session_id = _session_id_for_start_request(
             revision.plan_family_id,
             payload.request_id,
@@ -376,6 +403,10 @@ def _start_interview_locked(payload, store, revision_store):
             owner_id=session_id,
         )
         try:
+            choice_created = choice_binder.prepare(
+                session_id=session_id,
+                mode=payload.principal_memory_mode,
+            )
             if (
                 get_runtime_store() == "postgres"
                 and get_interview_langgraph_rollout_percent() > 0
@@ -406,13 +437,17 @@ def _start_interview_locked(payload, store, revision_store):
                 plan_sha256=payload.plan_sha256,
             )
             if turn is None:
+                choice_binder.rollback(
+                    session_id=session_id,
+                    created=choice_created,
+                )
                 revision_store.remove_source_reference(
                     revision.source_id,
                     owner_type="session",
                     owner_id=session_id,
                 )
                 raise
-    except SessionStartRequestConflict:
+    except (SessionStartRequestConflict, PrincipalMemorySessionChoiceConflict):
         return JSONResponse(
             status_code=409,
             content={"code": _SESSION_START_REQUEST_CONFLICT},

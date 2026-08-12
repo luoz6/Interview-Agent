@@ -72,6 +72,7 @@ export function ConfirmDialog({
   }, [open]);
 
   if (!open) return null;
+  const confirmVariant = tone === "danger" ? "button-danger" : "button-primary";
   return (
     <div className="confirm-dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !busy) onCancel?.();
@@ -98,7 +99,7 @@ export function ConfirmDialog({
         {children && <div className="confirm-dialog-body">{children}</div>}
         <footer className="confirm-dialog-actions">
           <button ref={cancelRef} type="button" className="button start-button start-inspector-secondary" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
-          <button type="button" className="button start-button button-primary" onClick={onConfirm} disabled={busy} aria-busy={busy || undefined}>{confirmLabel}</button>
+          <button type="button" className={`button start-button ${confirmVariant}`} onClick={onConfirm} disabled={busy} aria-busy={busy || undefined}>{confirmLabel}</button>
         </footer>
       </section>
     </div>

@@ -21,6 +21,7 @@ from app.services.principal_memory_rights import (
 from app.services.principal_memory_safe_refs import (
     PrincipalMemorySafeRefInvalid,
     PrincipalMemorySafeRefRecord,
+    PrincipalMemorySafeRefVersionConflict,
 )
 
 
@@ -662,9 +663,13 @@ class PostgresPrincipalMemorySafeRefStore(_PostgresPrincipalMemoryStore):
             principal_id=principal_id,
             fact_id=record.fact_id,
         )
-        if fact is None or fact.version != record.fact_version:
+        if fact is None:
             raise PrincipalMemorySafeRefInvalid(
                 "principal memory safe reference is stale"
+            )
+        if fact.version != record.fact_version:
+            raise PrincipalMemorySafeRefVersionConflict(
+                "principal memory safe reference version changed"
             )
         return fact
 

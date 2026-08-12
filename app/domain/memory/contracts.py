@@ -46,6 +46,17 @@ FACT_TYPE_KEYS = {
 EXCLUSIVE_TAXONOMY_KEYS = frozenset(
     {"interview_language", "target_role_family", "accessibility_preference"}
 )
+# These policies are intentionally domain-owned.  API and UI projections must
+# consume them instead of inferring permissions from the taxonomy shape.
+USER_DECLARABLE_TAXONOMY_KEYS = frozenset(ALLOWED_TAXONOMY)
+USER_EDITABLE_TAXONOMY_KEYS = EXCLUSIVE_TAXONOMY_KEYS
+
+
+def principal_memory_fact_type_for_taxonomy_key(key: str) -> str:
+    matches = [fact_type for fact_type, keys in FACT_TYPE_KEYS.items() if key in keys]
+    if len(matches) != 1:
+        raise ValueError("principal memory taxonomy key has no unique fact type")
+    return matches[0]
 
 
 def _canonical_scalar(value: str) -> str:

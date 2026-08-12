@@ -47,6 +47,7 @@ class StartInterviewRequest(BaseModel):
     expected_revision: int | None = Field(default=None, ge=1)
     plan_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     request_id: str | None = Field(default=None, min_length=1, max_length=200)
+    principal_memory_mode: Literal["inherit", "ignore"] = "inherit"
     plan_id: str | None = None
     expected_plan_version: int | None = Field(default=None, ge=1)
     command_id: str | None = None
@@ -80,6 +81,10 @@ class StartInterviewRequest(BaseModel):
                 raise ValueError(
                     "plan_id and plan_revision_id are mutually exclusive"
                 )
+        elif self.principal_memory_mode != "inherit":
+            raise ValueError(
+                "principal_memory_mode requires a revision-bound launch"
+            )
         return self
 
 

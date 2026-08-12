@@ -158,6 +158,34 @@ def get_request_plan_revision_store(
     return override() if override is not None else get_plan_revision_store()
 
 
+def get_request_principal_memory_control_store(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    if payload.plan_revision_id is None or payload.principal_memory_mode != "ignore":
+        return None
+    from app.runtime.config.memory import load_effective_memory_config
+
+    if not load_effective_memory_config().long_term.local_principal_enabled:
+        return None
+    override = request.app.dependency_overrides.get(get_principal_memory_control_store)
+    return override() if override is not None else get_principal_memory_control_store()
+
+
+def get_request_principal_identity_resolver(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    if payload.plan_revision_id is None or payload.principal_memory_mode != "ignore":
+        return None
+    from app.runtime.config.memory import load_effective_memory_config
+
+    if not load_effective_memory_config().long_term.local_principal_enabled:
+        return None
+    override = request.app.dependency_overrides.get(get_principal_identity_resolver)
+    return override() if override is not None else get_principal_identity_resolver()
+
+
 __all__ = [
     "get_agent_execution_runner",
     "get_draft_store",
@@ -185,6 +213,8 @@ __all__ = [
     "get_report_job_queue",
     "get_report_job_store",
     "get_request_interview_launch_coordinator",
+    "get_request_principal_identity_resolver",
+    "get_request_principal_memory_control_store",
     "get_request_plan_revision_store",
     "get_runtime_control_store",
     "get_session_deletion_service",

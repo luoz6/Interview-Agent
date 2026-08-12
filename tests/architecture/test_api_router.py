@@ -57,6 +57,6 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
         if method in methods
     ]
 
-    assert len(schema["paths"]) == 49
-    assert len(operations) == 55
+    assert len(schema["paths"]) == 50
+    assert len(operations) == 56
     assert len(operations) == len(set(operations))

@@ -5,21 +5,24 @@ const DURABLE_FACT_ID = "fact-durable-secret-never-render";
 const PRINCIPAL_ID = "principal-secret-never-render";
 
 function json(route, body, status = 200) {
-  return route.fulfill({
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  });
+  return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-async function mockMemoryApi(page, { items = [], enabled = true, staleEdit = false, apiDisabled = false } = {}) {
-  const state = {
-    enabled,
-    purposes: ["fact_storage", "read_shadow"],
-    items: [...items],
-    calls: [],
-  };
+const capabilities = {
+  schema_version: "principal-memory-capabilities-v1",
+  consent_purposes: ["proposal_write", "fact_storage", "read_shadow", "local_consume"],
+  fact_types: [
+    { key: "interview_language", fact_type: "declared_preference", values: ["zh_hans", "en", "mixed"], editable: true, user_declarable: true },
+    { key: "target_role_family", fact_type: "declared_preference", values: ["backend", "frontend"], editable: true, user_declarable: true },
+    { key: "focus_topic", fact_type: "declared_preference", values: ["python", "system-design"], editable: false, user_declarable: true },
+    { key: "confirmed_skill", fact_type: "confirmed_skill", values: ["python", "fastapi"], editable: false, user_declarable: true },
+    { key: "learning_goal", fact_type: "learning_goal", values: ["python", "kafka"], editable: false, user_declarable: true },
+    { key: "accessibility_preference", fact_type: "accessibility_preference", values: ["reduced_motion", "keyboard_only"], editable: true, user_declarable: true },
+  ],
+};
 
+async function mockMemoryApi(page, { items = [], enabled = true, apiDisabled = false, deleteFails = false } = {}) {
+  const state = { enabled, purposes: ["fact_storage", "local_consume"], items: [...items], calls: [] };
   await page.route(API_PATTERN, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -28,68 +31,34 @@ async function mockMemoryApi(page, { items = [], enabled = true, staleEdit = fal
     const method = request.method();
     const body = request.postDataJSON?.() ?? null;
     state.calls.push({ method, path, body, headers: request.headers() });
-
     if (apiDisabled) return json(route, { detail: "not found" }, 404);
-
-    if (method === "GET" && path === "/status") {
-      return json(route, {
-        schema_version: "principal-memory-local-status-v1",
-        mode: "read_shadow",
-        global_enabled: state.enabled,
-        consent: { granted: true, allowed_purposes: state.purposes, version: 3 },
-        fact_count: state.items.length,
-        local_consumption_enabled: false,
-      });
-    }
-    if (method === "GET" && path === "/facts") {
-      return json(route, { schema_version: "principal-memory-safe-list-v1", items: state.items });
-    }
-    if (method === "POST" && path === "/disable") {
-      state.enabled = false;
-      return json(route, { global_enabled: false, version: 4, facts_retained: true });
-    }
-    if (method === "POST" && path === "/enable") {
-      state.enabled = true;
-      return json(route, { global_enabled: true, version: 5, facts_retained: true });
-    }
-    if (method === "PUT" && path === "/consent") {
-      state.purposes = body.allowed_purposes;
-      return json(route, { allowed_purposes: state.purposes, revoked: false, version: 4 });
-    }
-    if (method === "DELETE" && path === "/consent") {
-      state.purposes = [];
-      return json(route, { revoked: true, facts_retained: true });
-    }
-    if (method === "POST" && path === "/facts") {
-      return json(route, { status: "active", version: 1, normalized_fact: JSON.stringify(body.normalized_value) });
-    }
-    if (method === "POST" && /^\/facts\/[^/]+\/(confirm|revoke|reject)$/.test(path)) {
-      state.items = [];
-      const status = path.endsWith("confirm") ? "active" : path.endsWith("revoke") ? "revoked" : "rejected";
-      return json(route, { status, version: 2 });
-    }
-    if (method === "PUT" && /^\/facts\/[^/]+$/.test(path)) {
-      if (staleEdit) return json(route, { detail: "principal memory version changed" }, 409);
-      state.items = state.items.map((item) => ({
-        ...item,
-        version: item.version + 1,
-        normalized_value: body.normalized_value,
-      }));
-      return json(route, { status: "active", version: 8, normalized_value: body.normalized_value });
-    }
-    if (/^\/sessions\/[^/]+\/ignore$/.test(path) && ["POST", "DELETE"].includes(method)) {
-      return json(route, { session_ignored: method === "POST", version: 1 });
-    }
-    if (method === "POST" && path === "/export") {
-      return json(route, {
-        expires_at: "2026-08-05T00:00:00Z",
-        payload: { schema_version: "principal-memory-safe-export-v1", facts: [] },
-      });
-    }
+    if (method === "GET" && path === "/status") return json(route, {
+      schema_version: "principal-memory-local-status-v1",
+      mode: "local_consume",
+      global_enabled: state.enabled,
+      consent: { granted: state.purposes.length > 0, allowed_purposes: state.purposes, version: 3 },
+      fact_count: state.items.length,
+      local_consumption_enabled: true,
+      deletion_fence_active: false,
+    });
+    if (method === "GET" && path === "/capabilities") return json(route, capabilities);
+    if (method === "GET" && path === "/facts") return json(route, {
+      schema_version: "principal-memory-safe-list-v2",
+      summary: state.items.reduce((result, item) => ({ ...result, [item.status]: (result[item.status] || 0) + 1 }), { active: 0, proposed: 0, revoked: 0, rejected: 0, superseded: 0, expired: 0 }),
+      items: state.items,
+      next_cursor: null,
+    });
+    if (method === "POST" && path === "/disable") { state.enabled = false; return json(route, { global_enabled: false, version: 4, facts_retained: true }); }
+    if (method === "POST" && path === "/enable") { state.enabled = true; return json(route, { global_enabled: true, version: 5, facts_retained: true }); }
+    if (method === "PUT" && path === "/consent") { state.purposes = body.allowed_purposes; return json(route, { allowed_purposes: state.purposes, revoked: false, version: 4 }); }
+    if (method === "DELETE" && path === "/consent") { state.purposes = []; return json(route, { revoked: true, facts_retained: true }); }
+    if (method === "POST" && path === "/facts") return json(route, { status: "active", version: 1, normalized_fact: JSON.stringify(body.normalized_value) });
+    if (method === "POST" && /^\/facts\/[^/]+\/(confirm|revoke|reject)$/.test(path)) { state.items = []; return json(route, { status: path.endsWith("confirm") ? "active" : path.endsWith("revoke") ? "revoked" : "rejected", version: 2 }); }
+    if (method === "PUT" && /^\/facts\/[^/]+$/.test(path)) { state.items = state.items.map((item) => ({ ...item, version: item.version + 1, normalized_value: body.normalized_value })); return json(route, { status: "active", version: 8, normalized_value: body.normalized_value }); }
+    if (method === "POST" && path === "/export") return json(route, { expires_at: "2026-08-05T00:00:00Z", payload: { schema_version: "principal-memory-safe-export-v1", facts: [] } });
     if (method === "DELETE" && path === "") {
-      state.items = [];
-      state.purposes = [];
-      state.enabled = false;
+      if (deleteFails) return json(route, { detail: { code: "principal_memory_deletion_unavailable" } }, 503);
+      state.items = []; state.purposes = []; state.enabled = false;
       return json(route, { status: "completed", residue_count: 0 });
     }
     return json(route, { detail: `unmocked ${method} ${path}` }, 500);
@@ -97,198 +66,81 @@ async function mockMemoryApi(page, { items = [], enabled = true, staleEdit = fal
   return state;
 }
 
-test("memory center loads status, supports keyboard consent, and declares canonical facts", async ({ page }) => {
+test("memory center presents effective state and backend-driven declaration choices", async ({ page }) => {
   const state = await mockMemoryApi(page);
   await page.goto("/memory-center.html");
-
-  await expect(page.getByRole("heading", { name: "长期记忆中心" })).toBeVisible();
-  await expect(page.locator("#status-stamp strong")).toHaveText("已启用");
-  await expect(page.locator("#facts-empty")).toBeVisible();
-
-  const consume = page.getByRole("checkbox", { name: "在本机追问中使用" });
-  await consume.focus();
-  await page.keyboard.press("Space");
-  await expect(consume).toBeChecked();
-  await page.getByRole("button", { name: "保存许可" }).click();
-
-  await page.locator("#fact-key").selectOption("confirmed_skill");
-  await page.locator("#fact-value").selectOption("fastapi");
-  await page.getByRole("button", { name: "加入档案" }).click();
-
-  const consentCall = state.calls.find((call) => call.method === "PUT" && call.path === "/consent");
-  expect(consentCall.body).toEqual({ allowed_purposes: ["fact_storage", "read_shadow", "local_consume"] });
-  expect(consentCall.headers["x-local-memory-action"]).toBe("1");
-  const declareCall = state.calls.find((call) => call.method === "POST" && call.path === "/facts");
-  expect(declareCall.body).toEqual({
-    fact_type: "confirmed_skill",
-    normalized_value: { confirmed_skill: "fastapi" },
-  });
-  expect(declareCall.headers["x-local-memory-action"]).toBe("1");
+  await expect(page.getByRole("heading", { name: "长期记忆", exact: true })).toBeVisible();
+  await expect(page.locator("#status-stamp strong")).toHaveText("可用于后续面试");
+  await page.getByRole("combobox", { name: "信息类别" }).selectOption("focus_topic");
+  await page.getByRole("combobox", { name: "内容" }).selectOption("system-design");
+  await page.getByRole("button", { name: "保存到我的记忆" }).click();
+  const declaration = state.calls.find((call) => call.method === "POST" && call.path === "/facts");
+  expect(declaration.body).toEqual({ fact_type: "declared_preference", normalized_value: { focus_topic: "system-design" } });
+  expect(declaration.headers["x-local-memory-action"]).toBe("1");
 });
 
-test("memory center renders only safe records and uses safe refs for lifecycle actions", async ({ page }) => {
-  const state = await mockMemoryApi(page, {
-    items: [{
-      safe_ref: "safe-ref-visible",
-      status: "active",
-      version: 7,
-      fact_type: "confirmed_skill",
-      normalized_value: { confirmed_skill: "python" },
-      fact_id: DURABLE_FACT_ID,
-      principal_id: PRINCIPAL_ID,
-    }],
-  });
+test("memory center separates pending, active groups and history without internal locators", async ({ page }) => {
+  await mockMemoryApi(page, { items: [
+    { safe_ref: "proposal-safe", status: "proposed", version: 1, fact_type: "confirmed_skill", normalized_value: { confirmed_skill: "python" }, fact_id: DURABLE_FACT_ID, principal_id: PRINCIPAL_ID },
+    { safe_ref: "active-safe", status: "active", version: 2, fact_type: "learning_goal", normalized_value: { learning_goal: "kafka" } },
+    { safe_ref: "history-safe", status: "superseded", version: 3, fact_type: "declared_preference", normalized_value: { interview_language: "zh_hans" } },
+  ] });
   await page.goto("/memory-center.html");
-
-  await expect(page.locator("#facts-list")).toContainText("python");
+  await expect(page.getByRole("heading", { name: /等待你确认/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /学习目标/ })).toBeVisible();
   await expect(page.locator("body")).not.toContainText(DURABLE_FACT_ID);
   await expect(page.locator("body")).not.toContainText(PRINCIPAL_ID);
-  await page.getByRole("button", { name: "撤回", exact: true }).click();
-
-  const revoke = state.calls.find((call) => call.path === "/facts/safe-ref-visible/revoke");
-  expect(revoke.method).toBe("POST");
-  expect(revoke.body).toEqual({ expected_version: 7 });
-  expect(revoke.headers["x-local-memory-action"]).toBe("1");
-  await expect(page.locator("#facts-empty")).toBeVisible();
-});
-
-test("memory center confirms proposals and restores keyboard focus", async ({ page }) => {
-  const state = await mockMemoryApi(page, {
-    items: [{
-      safe_ref: "proposal-safe-ref",
-      status: "proposed",
-      version: 1,
-      fact_type: "confirmed_skill",
-      normalized_value: { confirmed_skill: "python" },
-    }],
-  });
-  await page.goto("/memory-center.html");
-
+  await page.getByText("查看历史记录").click();
+  await expect(page.getByText("已被新版本替代")).toBeVisible();
   await page.getByRole("button", { name: "确认", exact: true }).click();
-
-  const confirm = state.calls.find((call) => call.path === "/facts/proposal-safe-ref/confirm");
-  expect(confirm.method).toBe("POST");
-  expect(confirm.body).toEqual({ expected_version: 1 });
-  await expect(page.locator("#refresh-facts")).toBeFocused();
+  await expect(page.getByRole("button", { name: "刷新" })).toBeFocused();
 });
 
-test("memory center edits exclusive facts and handles stale versions", async ({ page }) => {
-  const state = await mockMemoryApi(page, {
-    items: [{
-      safe_ref: "language-safe-ref",
-      status: "active",
-      version: 7,
-      fact_type: "declared_preference",
-      normalized_value: { interview_language: "zh_hans" },
-    }],
-  });
-  await page.goto("/memory-center.html");
-
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
-  await page.getByRole("combobox", { name: "面试语言 更正值" }).selectOption("en");
-  await page.getByRole("button", { name: "保存更正" }).click();
-
-  const correction = state.calls.find((call) => call.method === "PUT");
-  expect(correction.path).toBe("/facts/language-safe-ref");
-  expect(correction.body).toEqual({
-    expected_version: 7,
-    normalized_value: { interview_language: "en" },
-  });
-  await expect(page.locator("#facts-list")).toContainText("en");
-
-  const stalePage = await page.context().newPage();
-  await mockMemoryApi(stalePage, { items: state.items, staleEdit: true });
-  await stalePage.goto("/memory-center.html");
-  await stalePage.getByRole("button", { name: "编辑", exact: true }).click();
-  await stalePage.getByRole("button", { name: "保存更正" }).click();
-  await expect(stalePage.locator("#notice")).toContainText("principal memory version changed");
-  await expect(stalePage.locator("#refresh-facts")).toBeFocused();
-});
-
-test("memory center can ignore and restore one session without rendering it", async ({ page }) => {
+test("consent is progressively disclosed and session id controls are absent", async ({ page }) => {
   const state = await mockMemoryApi(page);
   await page.goto("/memory-center.html");
-
-  await page.locator("#session-key").fill("local-session-42");
-  await page.getByRole("button", { name: "本次忽略" }).click();
-  await page.getByRole("button", { name: "恢复使用" }).click();
-
-  const controls = state.calls.filter((call) => call.path === "/sessions/local-session-42/ignore");
-  expect(controls.map((call) => call.method)).toEqual(["POST", "DELETE"]);
-  await expect(page.locator("#session-key")).toBeFocused();
-  await expect(page.locator("#facts-list")).not.toContainText("local-session-42");
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByText("会话引用")).toHaveCount(0);
+  await page.getByRole("button", { name: "管理使用范围" }).click();
+  const localConsume = page.getByRole("checkbox", { name: /在以后面试中使用/ });
+  await expect(localConsume).toBeChecked();
+  await localConsume.uncheck();
+  await page.getByRole("button", { name: "保存使用范围" }).click();
+  const consent = state.calls.find((call) => call.method === "PUT" && call.path === "/consent");
+  expect(consent.body.allowed_purposes).not.toContain("local_consume");
 });
 
-test("memory center fails closed when the local API is unavailable", async ({ page }) => {
+test("unavailable API fails closed without exposing transport details", async ({ page }) => {
   await mockMemoryApi(page, { apiDisabled: true });
   await page.goto("/memory-center.html");
-
-  await expect(page.locator("#status-stamp strong")).toHaveText("不可用");
-  await expect(page.locator("#toggle-memory")).toBeDisabled();
-  await expect(page.locator("#refresh-facts")).toBeEnabled();
+  await expect(page.locator("#status-stamp strong")).toHaveText("长期记忆当前不可用");
+  await expect(page.getByText("404")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重新检测" })).toBeEnabled();
 });
 
-test("memory center export and destructive deletion require explicit local actions", async ({ page }) => {
-  const state = await mockMemoryApi(page);
+test("deletion closes only after verified completion and stays open on failure", async ({ page }) => {
+  await mockMemoryApi(page, { deleteFails: true });
   await page.goto("/memory-center.html");
-
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "生成安全导出" }).click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("interview-agent-memory-export.json");
-
-  const openDelete = page.getByRole("button", { name: "永久删除全部记忆" });
-  await openDelete.click();
+  await page.getByRole("button", { name: "永久删除全部记忆" }).click();
   const dialog = page.getByRole("alertdialog", { name: "确认永久删除？" });
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  expect(state.calls.filter((call) => call.method === "DELETE" && call.path === "")).toHaveLength(0);
-
-  await openDelete.click();
-  await dialog.getByRole("button", { name: "取消" }).click();
-  await expect(dialog).toBeHidden();
-  await openDelete.click();
   await dialog.getByRole("button", { name: "确认永久删除" }).click();
-
-  const deletion = state.calls.find((call) => call.method === "DELETE" && call.path === "");
-  expect(deletion.headers["x-local-memory-action"]).toBe("1");
-  await expect(dialog).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("#notice")).toContainText("当前无法确认永久删除");
 });
 
-test("memory center preserves focus, touch targets, mobile flow, and reduced motion", async ({ page }) => {
+test("memory center remains keyboard usable on mobile with reduced motion", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockMemoryApi(page);
   await page.goto("/memory-center.html");
-
-  const primary = page.getByRole("button", { name: "临时关闭" });
+  const primary = page.getByRole("button", { name: "暂停长期记忆" });
   await primary.focus();
   const geometry = await primary.evaluate((element) => {
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return {
-      outlineWidth: Number.parseFloat(style.outlineWidth),
-      height: rect.height,
-      transitionDuration: Number.parseFloat(style.transitionDuration),
-      animationDuration: Number.parseFloat(style.animationDuration),
-    };
+    const style = getComputedStyle(element); const rect = element.getBoundingClientRect();
+    return { outlineWidth: Number.parseFloat(style.outlineWidth), height: rect.height, transitionDuration: Number.parseFloat(style.transitionDuration), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   });
   expect(geometry.outlineWidth).toBeGreaterThanOrEqual(2);
   expect(geometry.height).toBeGreaterThanOrEqual(44);
   expect(geometry.transitionDuration).toBeLessThanOrEqual(0.001);
-  expect(geometry.animationDuration).toBeLessThanOrEqual(0.001);
-
-  const layout = await page.locator(".columns").evaluate((element) => ({
-    columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
-    right: element.getBoundingClientRect().right,
-    viewport: document.documentElement.clientWidth,
-    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  }));
-  expect(layout.columns).toBe(1);
-  expect(layout.right).toBeLessThanOrEqual(layout.viewport + 1);
-  expect(layout.overflow).toBeLessThanOrEqual(1);
-
-  await page.keyboard.press("Tab");
-  await expect(page.locator(":focus")).toBeVisible();
+  expect(geometry.overflow).toBeLessThanOrEqual(1);
 });

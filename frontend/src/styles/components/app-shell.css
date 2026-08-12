@@ -1927,6 +1927,71 @@
   color: var(--start-color-success);
 }
 
+.start-memory-choice {
+  display: grid;
+  gap: var(--start-space-xs);
+  margin-top: var(--start-space-sm);
+  padding: var(--start-space-sm);
+  border: var(--start-rule-thin) solid var(--start-color-rule);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-canvas);
+}
+
+.start-memory-choice > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--start-space-xs);
+}
+
+.start-memory-choice > div strong {
+  color: var(--start-color-ink);
+  font-size: var(--start-text-ui-sm);
+}
+
+.start-memory-choice > div span,
+.start-memory-choice > p {
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-xs);
+}
+
+.start-memory-choice > p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.start-memory-choice label {
+  display: flex;
+  align-items: center;
+  gap: var(--start-space-2xs);
+  min-height: var(--start-control-height-touch);
+  color: var(--start-color-ink-soft);
+  font-size: var(--start-text-ui-sm);
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.start-memory-choice input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--start-color-action);
+}
+
+.start-memory-choice a {
+  width: fit-content;
+  color: var(--start-color-action-hover);
+  font-size: var(--start-text-xs);
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.start-memory-choice[data-state="active"] {
+  border-color: color-mix(in srgb, var(--start-color-success) 38%, var(--start-color-rule));
+  background: color-mix(in srgb, var(--start-color-success-soft) 52%, var(--start-color-canvas));
+}
+
+.start-memory-choice[data-state="unavailable"] {
+  border-color: color-mix(in srgb, var(--start-color-warning) 35%, var(--start-color-rule));
+}
+
 .start-privacy-note {
   display: flex;
   align-items: flex-start;
@@ -1996,6 +2061,19 @@
   outline-color: var(--start-button-primary-focus-ring);
 }
 
+.start-app-root .button-danger {
+  border-color: var(--start-color-danger);
+  background: var(--start-color-danger);
+  color: var(--start-color-on-ink);
+}
+
+.start-app-root .button-text {
+  border-color: transparent;
+  background: transparent;
+  color: var(--start-color-action-hover);
+  box-shadow: none;
+}
+
 .start-app-root .start-inspector-secondary {
   border-color: var(--start-button-secondary-border);
   background: var(--start-button-secondary-bg);
@@ -2012,6 +2090,18 @@
   background: var(--start-button-primary-bg-active);
   color: var(--start-button-primary-text);
   box-shadow: none;
+}
+
+.start-app-root .button-danger:active:not(:disabled) {
+  border-color: var(--start-color-danger-hover);
+  background: var(--start-color-danger-hover);
+  color: var(--start-color-on-ink);
+}
+
+.start-app-root .button-text:active:not(:disabled) {
+  border-color: transparent;
+  background: var(--start-tab-active-bg);
+  color: var(--start-color-action-active);
 }
 
 .start-app-root .start-inspector-secondary:active:not(:disabled),
@@ -2035,6 +2125,22 @@
   background: var(--start-button-primary-bg);
   color: var(--start-button-primary-text);
   box-shadow: var(--start-shadow-button);
+  opacity: .88;
+}
+
+.start-app-root .button-danger[data-state="loading"]:disabled {
+  border-color: var(--start-color-danger);
+  background: var(--start-color-danger);
+  color: var(--start-color-on-ink);
+  cursor: wait;
+  opacity: .88;
+}
+
+.start-app-root .button-text[data-state="loading"]:disabled {
+  border-color: transparent;
+  background: transparent;
+  color: var(--start-color-action-hover);
+  cursor: wait;
   opacity: .88;
 }
 
@@ -2171,6 +2277,18 @@
     border-color: var(--start-button-primary-bg-hover);
     background: var(--start-button-primary-bg-hover);
     color: var(--start-button-primary-text);
+  }
+
+  .start-app-root .button-danger:hover:not(:disabled) {
+    border-color: var(--start-color-danger-hover);
+    background: var(--start-color-danger-hover);
+    color: var(--start-color-on-ink);
+  }
+
+  .start-app-root .button-text:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--start-tab-active-bg);
+    color: var(--start-color-action-active);
   }
 
   .start-app-root .start-tool-danger:hover:not(:disabled):not([data-state="confirm"]) {

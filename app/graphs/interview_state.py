@@ -87,6 +87,7 @@ class InterviewState(TypedDict):
     plan_sha256: str
     configuration_snapshot: dict[str, Any] | None
     plan_snapshot: dict[str, Any]
+    principal_memory_mode: Literal["inherit", "ignore"]
 
 
 def choose_workflow_engine(

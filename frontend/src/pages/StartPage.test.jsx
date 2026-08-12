@@ -197,6 +197,52 @@ describe("StartPage editable plan workflow", () => {
     ]);
   });
 
+  it("binds the readiness memory choice into the single start request", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    fetchMock.mockImplementationOnce(() => response({
+      schema_version: "principal-memory-local-status-v1",
+      mode: "local_consume",
+      global_enabled: true,
+      local_consumption_enabled: true,
+      deletion_fence_active: false,
+      consent: { granted: true, allowed_purposes: ["fact_storage", "local_consume"] },
+    }));
+
+    await user.click(screen.getByRole("tab", { name: "就绪" }));
+    const memoryChoice = await screen.findByRole("checkbox", {
+      name: "在本次面试中使用我的长期记忆",
+    });
+    expect(memoryChoice).toBeChecked();
+    await user.click(memoryChoice);
+    fetchMock.mockImplementationOnce(() =>
+      response({ detail: { code: "provider_timeout", message: "start failed" } }, 503),
+    );
+    await user.click(screen.getByRole("button", { name: "开始本次面试" }));
+
+    await screen.findByText("start failed");
+    const [path, options] = fetchMock.mock.calls.at(-1);
+    expect(path).toBe("/api/interviews");
+    expect(JSON.parse(options.body).principal_memory_mode).toBe("ignore");
+  });
+
+  it("inherits the memory setting when readiness was not opened", async () => {
+    const user = userEvent.setup();
+    render(<StartPage />);
+    await generatePlan(user, fetchMock);
+    fetchMock.mockImplementationOnce(() =>
+      response({ detail: { code: "provider_timeout", message: "start failed" } }, 503),
+    );
+
+    await user.click(screen.getByRole("button", { name: "开始本次面试" }));
+
+    await screen.findByText("start failed");
+    const [path, options] = fetchMock.mock.calls.at(-1);
+    expect(path).toBe("/api/interviews");
+    expect(JSON.parse(options.body).principal_memory_mode).toBe("inherit");
+  });
+
   it("preserves local input when save fails", async () => {
     const user = userEvent.setup();
     render(<StartPage />);
@@ -705,11 +751,15 @@ describe("StartPage editable plan workflow", () => {
     const dialog = screen.getByRole("dialog", { name: "用已保存草稿替换当前画布？" });
     expect(dialog).toHaveTextContent("当前画布中的岗位 JD 和候选人经历会被替换");
     expect(dialog).toHaveTextContent("已保存的匿名草稿不会被删除");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every(([path]) => path === "/api/runtime/principal-memory/status")).toBe(true);
 
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
     expect(jdInput).toHaveValue("New canvas content");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.every(
+        ([path]) => path === "/api/runtime/principal-memory/status",
+      ),
+    ).toBe(true);
     await waitFor(() => expect(restoreButton).toHaveFocus());
 
     fetchMock.mockImplementationOnce(() => response({
@@ -747,7 +797,11 @@ describe("StartPage editable plan workflow", () => {
     await user.click(screen.getByRole("button", { name: "确认清空画布" }));
     expect(jdInput).toHaveValue("");
     expect(screen.getByText("当前画布已清空；此前保存的匿名草稿仍可恢复。")).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.every(
+        ([path]) => path === "/api/runtime/principal-memory/status",
+      ),
+    ).toBe(true);
   });
 
   it("keeps the current canvas and draft link when a confirmed restore fails mid-read", async () => {

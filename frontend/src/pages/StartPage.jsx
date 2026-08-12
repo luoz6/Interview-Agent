@@ -66,6 +66,7 @@ import {
   postJson,
   stableRequestId,
 } from "../api/client";
+import { resolveMemoryUiState } from "../memory/memoryStatus";
 import "../styles/pages/prep.css";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
@@ -658,6 +659,9 @@ export function StartPage() {
     focus: "",
   });
   const [configuration, setConfiguration] = useState(getStoredConfiguration);
+  const [memoryStatus, setMemoryStatus] = useState(null);
+  const [memoryAvailability, setMemoryAvailability] = useState("loading");
+  const [useMemory, setUseMemory] = useState(null);
   const automaticRestoreStarted = useRef(false);
 
   const plan = editor.serverPlan;
@@ -700,6 +704,10 @@ export function StartPage() {
     },
   );
   const sourcesReady = Number(Boolean(jobDescription.trim())) + Number(Boolean(resumeText.trim()));
+  const memoryUi = resolveMemoryUiState({
+    status: memoryStatus,
+    availability: memoryAvailability,
+  });
   const estimatedMinutes = useMemo(
     () => {
       if (!questions.length) return "待生成";
@@ -731,6 +739,26 @@ export function StartPage() {
   useEffect(() => {
     document.body.dataset.prepState = status;
   }, [status]);
+
+  useEffect(() => {
+    if (inspectorView !== "readiness" || memoryAvailability !== "loading") return undefined;
+    let active = true;
+    getJson("/api/runtime/principal-memory/status", { cache: "no-store" })
+      .then((next) => {
+        if (!active) return;
+        const resolved = resolveMemoryUiState({ status: next, availability: "available" });
+        setMemoryStatus(next);
+        setMemoryAvailability("available");
+        setUseMemory(resolved.state === "ACTIVE");
+      })
+      .catch(() => {
+        if (!active) return;
+        setMemoryStatus(null);
+        setMemoryAvailability("unavailable");
+        setUseMemory(false);
+      });
+    return () => { active = false; };
+  }, [inspectorView, memoryAvailability]);
 
   useEffect(() => {
     if (!configurationSnapshot) return;
@@ -1448,6 +1476,7 @@ export function StartPage() {
           expected_revision: plan.revision,
           plan_sha256: plan.plan_sha256,
           request_id: stableRequestId(requestScope),
+          principal_memory_mode: useMemory === false ? "ignore" : "inherit",
         }),
       });
       clearStableRequestId(requestScope);
@@ -1875,6 +1904,23 @@ export function StartPage() {
                   <ReadinessItem ready={Boolean(draftId)} label="匿名草稿" value={draftDurabilityLabel} />
                   <ReadinessItem ready={Boolean(plan)} label="面试计划" value={plan ? "已生成" : "尚未生成"} />
                 </div>
+                <section className="start-memory-choice" data-state={memoryUi.state.toLowerCase()} aria-labelledby="start-memory-choice-title">
+                  <div>
+                    <strong id="start-memory-choice-title">长期记忆</strong>
+                    <span>{memoryUi.title}</span>
+                  </div>
+                  <p>{memoryUi.description}</p>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={useMemory === true}
+                      disabled={memoryUi.state !== "ACTIVE"}
+                      onChange={(event) => setUseMemory(event.target.checked)}
+                    />
+                    <span>在本次面试中使用我的长期记忆</span>
+                  </label>
+                  <a href="/memory">查看和管理我的记忆</a>
+                </section>
                 <div className="start-privacy-note"><ShieldCheck size={17} weight="bold" aria-hidden="true" focusable="false" /><p><strong>仅与当前浏览器关联</strong><span>资料用于当前面试流程；匿名草稿不会跨设备同步。</span></p></div>
               </section>
             ) : null}

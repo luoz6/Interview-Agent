@@ -38,11 +38,13 @@ BASE_CONTEXT = [
 class Sessions:
     def __init__(self):
         self.deleted = set()
+        self.memory_modes = {}
 
     def get(self, session_id):
         return {
             "session_id": session_id,
             "deletion_status": "deleted" if session_id in self.deleted else "active",
+            "principal_memory_mode": self.memory_modes.get(session_id, "inherit"),
         }
 
 
@@ -275,6 +277,17 @@ def test_session_ignore_is_immediate_and_scoped():
 
     assert ignored.provider_context == BASE_CONTEXT
     assert allowed.outcome == "consumed"
+
+
+def test_launch_bound_session_ignore_is_a_persistent_consumer_guard():
+    consumer, lifecycle, *_ = build_consumer()
+    declare(lifecycle, "declared_preference", {"interview_language": "en"})
+    consumer.session_store.memory_modes["session-a"] = "ignore"
+
+    result = consumer.finalize(prepare(consumer, session_id="session-a"), now=NOW)
+
+    assert result.provider_context == BASE_CONTEXT
+    assert result.outcome != "consumed"
 
 
 def test_non_local_modes_and_non_trusted_identity_never_consume():

@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.plans.routes as route_module
+import app.api.shared.dependencies as shared_dependencies
 from app.main import app
 from app.services.interview_plan_regenerator import PlanRegenerationFailed
 from app.services.interview_plan_revision import InterviewPlanQuestionV2
@@ -12,6 +13,10 @@ from app.services.session import InterviewSessionStore
 from app.domain.interview.drafts import DraftWriteConflict
 from app.services.in_memory_draft_store import InMemoryDraftStore
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
+from app.services.in_memory_principal_memory_control import (
+    InMemoryPrincipalMemoryControlStore,
+)
+from app.services.principal_identity import ExplicitPrincipalIdentityResolver
 from tests.unit.test_interview_plan_revision import plan, source
 
 
@@ -653,6 +658,98 @@ def test_duplicate_session_start_request_replays_one_business_session(api_plan):
         if ref.owner_type == "session"
     ]
     assert len(session_refs) == 1
+
+
+def test_session_memory_ignore_is_bound_before_start_and_replays(api_plan, monkeypatch):
+    client, _, initial, _ = api_plan
+    controls = InMemoryPrincipalMemoryControlStore()
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="local-owner",
+        assurance="trusted_local",
+    )
+    for name, value in {
+        "MEMORY_LONG_TERM_MODE": "local_consume",
+        "MEMORY_LOCAL_PRINCIPAL_ENABLED": "true",
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED": "true",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_READ_SHADOW_ENABLED": "true",
+        "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED": "true",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    class AssertIgnoredBeforeStartStore(InterviewSessionStore):
+        def start(self, *args, **kwargs):
+            control = controls.get_session(
+                deployment_id="single-tenant-local",
+                principal_id="local-owner",
+                session_id=kwargs["session_id"],
+            )
+            assert control is not None and control.enabled is False
+            return super().start(*args, **kwargs)
+
+    session_store = AssertIgnoredBeforeStartStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    app.dependency_overrides[
+        shared_dependencies.get_principal_memory_control_store
+    ] = lambda: controls
+    app.dependency_overrides[
+        shared_dependencies.get_principal_identity_resolver
+    ] = lambda: resolver
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "session-memory-ignore",
+        "principal_memory_mode": "ignore",
+    }
+
+    first = client.post("/api/interviews", json=payload)
+    replay = client.post("/api/interviews", json=payload)
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json() == first.json()
+    state = session_store.get(first.json()["session_id"])
+    assert state["principal_memory_mode"] == "ignore"
+
+
+def test_session_memory_choice_change_conflicts(api_plan, monkeypatch):
+    client, _, initial, _ = api_plan
+    monkeypatch.setenv("MEMORY_LOCAL_PRINCIPAL_ENABLED", "false")
+    session_store = InterviewSessionStore()
+    app.dependency_overrides[route_module.get_session_store] = lambda: session_store
+    payload = {
+        "plan_revision_id": initial.plan_revision_id,
+        "expected_revision": initial.revision,
+        "plan_sha256": initial.plan_sha256,
+        "request_id": "session-memory-choice-conflict",
+        "principal_memory_mode": "inherit",
+    }
+
+    first = client.post("/api/interviews", json=payload)
+    changed = client.post(
+        "/api/interviews",
+        json={**payload, "principal_memory_mode": "ignore"},
+    )
+
+    assert first.status_code == 200
+    assert changed.status_code == 409
+    assert changed.json() == {"code": "session_start_request_conflict"}
+
+
+def test_session_memory_choice_is_rejected_outside_revision_launch(api_plan):
+    client, _, _, _ = api_plan
+
+    response = client.post(
+        "/api/interviews",
+        json={
+            "job_description": "backend role",
+            "resume_text": "python experience",
+            "principal_memory_mode": "ignore",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_session_start_repairs_response_loss_without_missing_reference(api_plan):
