@@ -807,6 +807,12 @@ def _upgrade_session_plan_bindings(
     with connection.cursor() as cursor:
         cursor.execute(
             sql.SQL(
+                "ALTER TABLE {sessions} "
+                "ADD COLUMN IF NOT EXISTS plan_binding_json JSONB"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        cursor.execute(
+            sql.SQL(
                 "SELECT session_id,plan_json FROM {sessions} "
                 "WHERE plan_binding_json IS NULL"
             ).format(sessions=sql.Identifier(sessions_table))

@@ -104,6 +104,69 @@ def test_session_plan_binding_backfill_marks_legacy_snapshot(postgres_dsn):
                     )
 
 
+@pytest.mark.pg_runtime
+def test_session_plan_binding_upgrade_adds_missing_column(postgres_dsn):
+    import json
+    import psycopg2
+    from psycopg2 import sql
+
+    prefix = make_runtime_table_prefix("plan_binding_missing")
+    sessions_table = f"{prefix}_sessions"
+    plan = {
+        "title": "Legacy plan",
+        "questions": [
+            {
+                "id": "q1",
+                "kind": "technical",
+                "prompt": "Explain caching.",
+                "focus": "cache",
+            }
+        ],
+    }
+    try:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {sessions} ("
+                        "session_id TEXT PRIMARY KEY, "
+                        "plan_json JSONB NOT NULL)"
+                    ).format(sessions=sql.Identifier(sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {sessions} (session_id, plan_json) "
+                        "VALUES (%s, %s::jsonb)"
+                    ).format(sessions=sql.Identifier(sessions_table)),
+                    ("legacy-session", json.dumps(plan)),
+                )
+            migrations._upgrade_session_plan_bindings(
+                connection,
+                table_prefix=prefix,
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT plan_binding_json FROM {sessions} "
+                        "WHERE session_id=%s"
+                    ).format(sessions=sql.Identifier(sessions_table)),
+                    ("legacy-session",),
+                )
+                binding = cursor.fetchone()[0]
+
+        assert binding["plan_origin"] == "legacy_session_snapshot"
+        assert binding["plan_snapshot"] == plan
+        assert len(binding["plan_sha256"]) == 64
+    finally:
+        with psycopg2.connect(postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {table} CASCADE").format(
+                        table=sql.Identifier(sessions_table)
+                    )
+                )
+
+
 class FakeCursor:
     def __init__(self, connection):
         self.connection = connection
