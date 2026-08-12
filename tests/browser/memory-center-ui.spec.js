@@ -152,6 +152,28 @@ test("first-time consent is the primary task and memory declaration stays gated"
   await expect(page.getByRole("group", { name: "允许的用途" })).toBeVisible();
 });
 
+test("expanded consent settings remain reachable in the desktop app frame", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await mockMemoryApi(page, { purposes: [] });
+  await page.goto("/memory-center.html");
+  await page.locator(".memory-consent > .memory-actions .start-button").first().click();
+
+  const main = page.locator("#main-content");
+  const save = page.locator(".memory-consent-editor .memory-actions .start-button").first();
+  await expect(save).toBeAttached();
+  const before = await main.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  expect(before.overflowY).toBe("auto");
+  expect(before.scrollHeight).toBeGreaterThan(before.clientHeight);
+
+  await save.scrollIntoViewIfNeeded();
+  await expect(save).toBeVisible();
+  expect(await main.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+});
+
 test("unavailable API fails closed without exposing transport details", async ({ page }) => {
   await mockMemoryApi(page, { apiDisabled: true });
   await page.goto("/memory-center.html");

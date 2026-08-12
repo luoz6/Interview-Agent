@@ -7,8 +7,12 @@
 
 .memory-shell {
   width: min(var(--memory-content-width), calc(100% - 3rem));
+  min-height: 0;
   margin: 0 auto;
   padding: clamp(2.25rem, 4vw, 4.5rem) 0 6rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
 }
 
 .memory-hero {
@@ -859,6 +863,14 @@
 
   .memory-revoke-consent {
     margin-left: 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .memory-shell {
+    overflow-y: visible;
+    overscroll-behavior-y: auto;
+    scrollbar-gutter: auto;
   }
 }
 
