@@ -174,6 +174,30 @@ test("expanded consent settings remain reachable in the desktop app frame", asyn
   expect(await main.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 });
 
+test("desktop scrollbar stays at the viewport edge and memory actions keep their hierarchy", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await mockMemoryApi(page, { purposes: [] });
+  await page.goto("/memory-center.html");
+  await expect(page.locator("#status-stamp")).toBeVisible();
+
+  const mainGeometry = await page.locator("#main-content").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      rightGap: window.innerWidth - rect.right,
+      overflowY: getComputedStyle(element).overflowY,
+    };
+  });
+  expect(mainGeometry.rightGap).toBeLessThanOrEqual(1);
+  expect(mainGeometry.overflowY).toBe("auto");
+
+  const consentActions = page.locator(".memory-consent > .memory-actions");
+  await expect(consentActions.locator(".button-primary")).toHaveCount(1);
+  await expect(consentActions.locator(".memory-quiet-action")).toHaveCount(1);
+  await expect(page.locator(".memory-declare .button-primary")).toHaveCount(1);
+  await expect(page.locator(".memory-rights .memory-export-button svg")).toHaveCount(1);
+  await expect(page.locator(".memory-rights .memory-delete-button svg")).toHaveCount(1);
+});
+
 test("unavailable API fails closed without exposing transport details", async ({ page }) => {
   await mockMemoryApi(page, { apiDisabled: true });
   await page.goto("/memory-center.html");

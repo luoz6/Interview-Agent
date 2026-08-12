@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { ArrowClockwise, Check, Database, DownloadSimple, Minus, ShieldCheck, Trash } from "@phosphor-icons/react";
+import { ArrowClockwise, Check, Database, DownloadSimple, FloppyDisk, Minus, Pause, Power, ShieldCheck, SlidersHorizontal, Trash, X } from "@phosphor-icons/react";
 import { Button } from "../UI";
 import {
   displayMemoryFact,
@@ -38,9 +38,9 @@ export function MemoryConsentSection({ model }) {
       <li data-kind="excluded"><span aria-hidden="true"><Minus size={14} weight="bold" /></span>不直接改变报告结论</li>
     </ul>
     <div className="memory-actions">
-      {!editing && !consentGranted && <Button className="start-button" variant="primary" disabled={!available} onClick={beginEditing}>设置使用范围</Button>}
-      <Button className="start-button" variant={consentGranted ? "primary" : "text"} disabled={!available} busy={model.busy === "toggle"} onClick={model.toggle}>{model.status?.global_enabled ? "暂停长期记忆" : "重新启用"}</Button>
-      {!editing && consentGranted && <Button className="start-button" variant="text" disabled={!available} onClick={beginEditing}>管理使用范围</Button>}
+      {!editing && !consentGranted && <Button className="start-button memory-primary-action" variant="primary" disabled={!available} onClick={beginEditing}><SlidersHorizontal size={17} aria-hidden="true" />设置使用范围</Button>}
+      {!editing && consentGranted && <Button className="start-button memory-secondary-action" disabled={!available} onClick={beginEditing}><SlidersHorizontal size={17} aria-hidden="true" />管理使用范围</Button>}
+      <Button className="start-button memory-quiet-action" variant="text" disabled={!available} busy={model.busy === "toggle"} onClick={model.toggle}>{model.status?.global_enabled ? <><Pause size={17} aria-hidden="true" />暂停长期记忆</> : <><Power size={17} aria-hidden="true" />重新启用</>}</Button>
     </div>
     {editing && <div className="memory-consent-editor">
       <fieldset disabled={!available || model.busy === "consent"}>
@@ -51,8 +51,8 @@ export function MemoryConsentSection({ model }) {
         </label>)}
       </fieldset>
       <div className="memory-actions">
-        <Button className="start-button" disabled={!selected.length} busy={model.busy === "consent"} onClick={async () => { const outcome = await model.saveConsent(selected); if (outcome.ok) setEditing(false); }}>保存使用范围</Button>
-        <Button className="start-button" variant="text" onClick={() => setEditing(false)}>取消</Button>
+        <Button className="start-button memory-primary-action" variant="primary" disabled={!selected.length} busy={model.busy === "consent"} onClick={async () => { const outcome = await model.saveConsent(selected); if (outcome.ok) setEditing(false); }}><FloppyDisk size={17} aria-hidden="true" />保存使用范围</Button>
+        <Button className="start-button memory-quiet-action" variant="text" onClick={() => setEditing(false)}><X size={17} aria-hidden="true" />取消</Button>
         <Button className="start-button memory-revoke-consent" variant="text" disabled={!model.status?.consent?.granted} onClick={async () => { const outcome = await model.revokeConsent(); if (outcome.ok) setEditing(false); }}>撤回全部许可</Button>
       </div>
     </div>}
@@ -67,11 +67,11 @@ function FactItem({ item, model, restoreFocus }) {
   return <li className="memory-fact" data-status={item.status}>
     <div className="memory-fact-copy"><span>{displayMemoryFact(key).label}</span><strong>{displayMemoryValue(value)}</strong><small>{displayMemoryStatus(item.status)}</small></div>
     <div className="memory-fact-actions">
-      {item.status === "proposed" && <><Button className="start-button" onClick={async () => { await model.actFact(item, "confirm"); restoreFocus(); }}>确认</Button><Button className="start-button" variant="text" onClick={async () => { await model.actFact(item, "reject"); restoreFocus(); }}>不是我的信息</Button></>}
+      {item.status === "proposed" && <><Button className="start-button" variant="primary" onClick={async () => { await model.actFact(item, "confirm"); restoreFocus(); }}>确认</Button><Button className="start-button" variant="text" onClick={async () => { await model.actFact(item, "reject"); restoreFocus(); }}>不是我的信息</Button></>}
       {item.status === "active" && capability?.editable && <Button className="start-button" variant="text" onClick={() => setEditing(true)}>更正</Button>}
       {item.status === "active" && <Button className="start-button" variant="text" onClick={async () => { await model.actFact(item, "revoke"); restoreFocus(); }}>撤回</Button>}
     </div>
-    {editing && <div className="memory-fact-editor"><label>更正为<select value={nextValue} onChange={(event) => setNextValue(event.target.value)}>{capability.values.map((option) => <option key={option} value={option}>{displayMemoryValue(option)}</option>)}</select></label><Button className="start-button" busy={model.busy === `edit-${item.safe_ref}`} onClick={async () => { const outcome = await model.correctFact(item, key, nextValue); if (outcome.ok) setEditing(false); }}>保存更正</Button><Button className="start-button" variant="text" onClick={() => setEditing(false)}>取消</Button></div>}
+    {editing && <div className="memory-fact-editor"><label>更正为<select value={nextValue} onChange={(event) => setNextValue(event.target.value)}>{capability.values.map((option) => <option key={option} value={option}>{displayMemoryValue(option)}</option>)}</select></label><Button className="start-button" variant="primary" busy={model.busy === `edit-${item.safe_ref}`} onClick={async () => { const outcome = await model.correctFact(item, key, nextValue); if (outcome.ok) setEditing(false); }}><FloppyDisk size={17} aria-hidden="true" />保存更正</Button><Button className="start-button" variant="text" onClick={() => setEditing(false)}>取消</Button></div>}
   </li>;
 }
 
@@ -103,7 +103,7 @@ export function MemoryFactsSection({ model }) {
       <div className="memory-declare-heading"><h3>添加一条信息</h3><p>{canDeclare ? "只保存你主动选择并确认的内容。" : "先设置使用范围，才能向长期记忆添加信息。"}</p></div>
       <label>信息类别<select disabled={!canDeclare} value={capability?.key || ""} onChange={(event) => { setKey(event.target.value); setValue(""); }}>{declarable.map((item) => <option key={item.key} value={item.key}>{displayMemoryFact(item.key).label}</option>)}</select></label>
       <label>内容<select disabled={!canDeclare} value={selectedValue} onChange={(event) => setValue(event.target.value)}>{(capability?.values || []).map((option) => <option key={option} value={option}>{displayMemoryValue(option)}</option>)}</select></label>
-      <Button className="start-button" type="submit" busy={model.busy === "declare"} disabled={!capability || !canDeclare}>保存到我的记忆</Button>
+      <Button className="start-button" variant="primary" type="submit" busy={model.busy === "declare"} disabled={!capability || !canDeclare}><FloppyDisk size={17} aria-hidden="true" />保存到我的记忆</Button>
     </form>
     {!active.length && !pending.length && <p className="memory-empty">还没有已保存的信息。你可以从上方添加，也可以在系统提出信息后再确认。</p>}
     {Object.entries(groups).map(([group, items]) => <section className="memory-fact-group" key={group}><h3>{group}<span>{items.length}</span></h3><ul>{items.map((item) => <FactItem key={item.safe_ref} item={item} model={model} restoreFocus={() => refreshRef.current?.focus()} />)}</ul></section>)}
@@ -116,6 +116,6 @@ export function MemoryRightsSection({ model, onDelete }) {
   return <section className="memory-panel memory-rights" aria-labelledby="memory-rights-title">
     <PanelHeader icon={DownloadSimple} eyebrow="数据权利" title="导出或永久删除" id="memory-rights-title" />
     <p className="memory-panel-description">导出文件只包含可以安全展示的信息。永久删除会先停止读写，再清理全部长期记忆数据。</p>
-    <div className="memory-actions"><Button className="start-button" busy={model.busy === "export"} disabled={model.availability !== "available"} onClick={model.exportMemory}>导出我的记忆</Button><Button className="start-button memory-delete-button" variant="danger" disabled={model.availability !== "available"} onClick={onDelete}><Trash size={16} aria-hidden="true" />永久删除全部记忆</Button></div>
+    <div className="memory-actions"><Button className="start-button memory-export-button" busy={model.busy === "export"} disabled={model.availability !== "available"} onClick={model.exportMemory}><DownloadSimple size={17} aria-hidden="true" />导出我的记忆</Button><Button className="start-button memory-delete-button" variant="danger" disabled={model.availability !== "available"} onClick={onDelete}><Trash size={16} aria-hidden="true" />永久删除全部记忆</Button></div>
   </section>;
 }
