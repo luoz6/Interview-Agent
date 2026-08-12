@@ -25,12 +25,13 @@ async function mockMemoryApi(page, {
   items = [],
   summary = null,
   enabled = true,
+  purposes = ["fact_storage", "local_consume"],
   apiDisabled = false,
   deleteFails = false,
   deleteResult = { status: "completed", residue_count: 0 },
   editConflicts = false,
 } = {}) {
-  const state = { enabled, purposes: ["fact_storage", "local_consume"], items: [...items], calls: [] };
+  const state = { enabled, purposes: [...purposes], items: [...items], calls: [] };
   await page.route(API_PATTERN, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -138,6 +139,17 @@ test("consent is progressively disclosed and session id controls are absent", as
   await page.getByRole("button", { name: "保存使用范围" }).click();
   const consent = state.calls.find((call) => call.method === "PUT" && call.path === "/consent");
   expect(consent.body.allowed_purposes).not.toContain("local_consume");
+});
+
+test("first-time consent is the primary task and memory declaration stays gated", async ({ page }) => {
+  await mockMemoryApi(page, { purposes: [] });
+  await page.goto("/memory-center.html");
+  await expect(page.locator("#status-stamp strong")).toHaveText("等待你的许可");
+  await expect(page.getByRole("button", { name: "设置使用范围" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "保存到我的记忆" })).toBeDisabled();
+  await expect(page.getByText("先设置使用范围，才能向长期记忆添加信息。")).toBeVisible();
+  await page.getByRole("button", { name: "设置使用范围" }).click();
+  await expect(page.getByRole("group", { name: "允许的用途" })).toBeVisible();
 });
 
 test("unavailable API fails closed without exposing transport details", async ({ page }) => {
