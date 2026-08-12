@@ -7,6 +7,12 @@ export const MEMORY_FACT_TYPES = Object.freeze({
   learning_goal: { label: "学习目标", group: "学习目标" },
 });
 
+export const MEMORY_INPUT_HINTS = Object.freeze({
+  focus_topic: "例如：高并发缓存一致性",
+  confirmed_skill: "例如：FastAPI、Kubernetes、系统设计",
+  learning_goal: "例如：掌握 Kafka 消息可靠性设计",
+});
+
 export const MEMORY_VALUE_LABELS = Object.freeze({
   zh_hans: "中文",
   en: "English",

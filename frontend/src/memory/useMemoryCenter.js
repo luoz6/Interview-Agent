@@ -104,7 +104,7 @@ export function useMemoryCenter() {
     toggle: () => run("toggle", () => postJson(`${API}/${status?.global_enabled ? "disable" : "enable"}`, {}, mutationOptions), { status: true, success: status?.global_enabled ? "长期记忆已暂停，已有信息仍会保留。" : "长期记忆已重新启用。" }),
     saveConsent: (purposes) => run("consent", () => putJson(`${API}/consent`, { allowed_purposes: purposes }, mutationOptions), { status: true, success: "使用范围已保存。" }),
     revokeConsent: () => run("revoke-consent", () => deleteJson(`${API}/consent`, mutationOptions), { status: true, success: "已撤回全部许可，已有信息仍会保留。" }),
-    declareFact: (factType, key, value) => run("declare", () => postJson(`${API}/facts`, { fact_type: factType, normalized_value: { [key]: value } }, mutationOptions), { facts: true, success: "信息已加入你的记忆。" }),
+    declareFact: (factType, key, value) => run("declare", () => postJson(`${API}/facts`, { fact_type: factType, normalized_value: { [key]: typeof value === "string" ? value.trim() : value } }, mutationOptions), { facts: true, success: "信息已加入你的记忆。" }),
     actFact: (item, action) => run(`fact-${item.safe_ref}`, () => postJson(`${API}/facts/${item.safe_ref}/${action}`, { expected_version: item.version }, mutationOptions), { facts: true, success: action === "confirm" ? "这条信息已确认，之后可按你的许可使用。" : action === "reject" ? "已拒绝这条待确认信息。" : "已撤回这条信息。" }),
     correctFact: (item, key, value) => run(`edit-${item.safe_ref}`, () => putJson(`${API}/facts/${item.safe_ref}`, { expected_version: item.version, normalized_value: { [key]: value } }, mutationOptions), { facts: true, success: "更正已保存，旧版本会保留在历史记录中。" }),
     exportMemory: () => run("export", async () => {

@@ -145,6 +145,14 @@ def test_memory_capabilities_are_projected_from_domain_policy(monkeypatch):
     types = {item["key"]: item for item in body["fact_types"]}
     assert types["focus_topic"]["fact_type"] == "declared_preference"
     assert "system-design" in types["focus_topic"]["values"]
+    assert types["focus_topic"]["input_mode"] == "text"
+    assert types["focus_topic"]["max_length"] == 120
+    assert types["confirmed_skill"]["input_mode"] == "text"
+    assert types["confirmed_skill"]["max_length"] == 120
+    assert types["learning_goal"]["input_mode"] == "text"
+    assert types["learning_goal"]["max_length"] == 160
+    assert types["interview_language"]["input_mode"] == "select"
+    assert "max_length" not in types["interview_language"]
     assert types["interview_language"]["editable"] is True
     assert types["confirmed_skill"]["editable"] is False
     assert set(body["consent_purposes"]) == {
@@ -391,6 +399,44 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
         headers=mutation,
     )
     assert corrected.status_code == 200
+    for fact_type, normalized_value in (
+        ("declared_preference", {"focus_topic": "高并发缓存一致性"}),
+        ("confirmed_skill", {"confirmed_skill": "Kubernetes 1.32"}),
+        ("learning_goal", {"learning_goal": "掌握 Kafka 消息可靠性设计"}),
+    ):
+        custom = client.post(
+            "/api/runtime/principal-memory/facts",
+            json={
+                "fact_type": fact_type,
+                "normalized_value": normalized_value,
+            },
+            headers=mutation,
+        )
+        assert custom.status_code == 200
+    invalid = client.post(
+        "/api/runtime/principal-memory/facts",
+        json={
+            "fact_type": "declared_preference",
+            "normalized_value": {"focus_topic": "   "},
+        },
+        headers=mutation,
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == (
+        "principal_memory_fact_value_invalid"
+    )
+    invalid_enum = client.post(
+        "/api/runtime/principal-memory/facts",
+        json={
+            "fact_type": "declared_preference",
+            "normalized_value": {"interview_language": "unknown"},
+        },
+        headers=mutation,
+    )
+    assert invalid_enum.status_code == 422
+    assert invalid_enum.json()["detail"]["code"] == (
+        "principal_memory_fact_value_invalid"
+    )
     stale = client.post(
         f"/api/runtime/principal-memory/facts/{item['safe_ref']}/revoke",
         json={"expected_version": item["version"]},

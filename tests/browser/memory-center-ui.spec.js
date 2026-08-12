@@ -12,12 +12,12 @@ const capabilities = {
   schema_version: "principal-memory-capabilities-v1",
   consent_purposes: ["proposal_write", "fact_storage", "read_shadow", "local_consume"],
   fact_types: [
-    { key: "interview_language", fact_type: "declared_preference", values: ["zh_hans", "en", "mixed"], editable: true, user_declarable: true },
-    { key: "target_role_family", fact_type: "declared_preference", values: ["backend", "frontend"], editable: true, user_declarable: true },
-    { key: "focus_topic", fact_type: "declared_preference", values: ["python", "system-design"], editable: false, user_declarable: true },
-    { key: "confirmed_skill", fact_type: "confirmed_skill", values: ["python", "fastapi"], editable: false, user_declarable: true },
-    { key: "learning_goal", fact_type: "learning_goal", values: ["python", "kafka"], editable: false, user_declarable: true },
-    { key: "accessibility_preference", fact_type: "accessibility_preference", values: ["reduced_motion", "keyboard_only"], editable: true, user_declarable: true },
+    { key: "interview_language", fact_type: "declared_preference", input_mode: "select", values: ["zh_hans", "en", "mixed"], editable: true, user_declarable: true },
+    { key: "target_role_family", fact_type: "declared_preference", input_mode: "select", values: ["backend", "frontend"], editable: true, user_declarable: true },
+    { key: "focus_topic", fact_type: "declared_preference", input_mode: "text", max_length: 120, values: ["python", "system-design"], editable: false, user_declarable: true },
+    { key: "confirmed_skill", fact_type: "confirmed_skill", input_mode: "text", max_length: 120, values: ["python", "fastapi"], editable: false, user_declarable: true },
+    { key: "learning_goal", fact_type: "learning_goal", input_mode: "text", max_length: 160, values: ["python", "kafka"], editable: false, user_declarable: true },
+    { key: "accessibility_preference", fact_type: "accessibility_preference", input_mode: "select", values: ["reduced_motion", "keyboard_only"], editable: true, user_declarable: true },
   ],
 };
 
@@ -79,18 +79,46 @@ async function mockMemoryApi(page, {
   return state;
 }
 
-test("memory center presents effective state and backend-driven declaration choices", async ({ page }) => {
+test("memory center accepts custom text for backend-declared text categories", async ({ page }) => {
   const state = await mockMemoryApi(page);
   await page.goto("/memory-center.html");
   await expect(page.getByRole("heading", { name: "我的记忆", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "我的记忆", exact: true }).first()).toHaveAttribute("href", "/memory-center");
   await expect(page.locator("#status-stamp strong")).toHaveText("可用于后续面试");
+  for (const [key, factType, value] of [
+    ["focus_topic", "declared_preference", "  高并发缓存一致性  "],
+    ["confirmed_skill", "confirmed_skill", "Kubernetes 1.32"],
+    ["learning_goal", "learning_goal", "掌握 Kafka 消息可靠性设计"],
+  ]) {
+    await page.getByRole("combobox", { name: "信息类别" }).selectOption(key);
+    const input = page.locator(".memory-declare-value input");
+    await input.fill(value);
+    await page.getByRole("button", { name: "保存到我的记忆" }).click();
+    await expect(input).toHaveValue("");
+    const declaration = state.calls.filter(
+      (call) => call.method === "POST" && call.path === "/facts",
+    ).at(-1);
+    expect(declaration.body).toEqual({
+      fact_type: factType,
+      normalized_value: { [key]: value.trim() },
+    });
+    expect(declaration.headers["x-local-memory-action"]).toBe("1");
+  }
+
+  await page.getByRole("combobox", { name: "信息类别" }).selectOption("interview_language");
+  await expect(page.getByRole("combobox", { name: "内容" })).toBeVisible();
+  await expect(page.locator(".memory-declare-value input")).toHaveCount(0);
+});
+
+test("custom memory input blocks blank values and exposes its limit", async ({ page }) => {
+  const state = await mockMemoryApi(page);
+  await page.goto("/memory-center.html");
   await page.getByRole("combobox", { name: "信息类别" }).selectOption("focus_topic");
-  await page.getByRole("combobox", { name: "内容" }).selectOption("system-design");
-  await page.getByRole("button", { name: "保存到我的记忆" }).click();
-  const declaration = state.calls.find((call) => call.method === "POST" && call.path === "/facts");
-  expect(declaration.body).toEqual({ fact_type: "declared_preference", normalized_value: { focus_topic: "system-design" } });
-  expect(declaration.headers["x-local-memory-action"]).toBe("1");
+  const input = page.locator(".memory-declare-value input");
+  await expect(input).toHaveAttribute("maxlength", "120");
+  await input.fill("   ");
+  await expect(page.getByRole("button", { name: "保存到我的记忆" })).toBeDisabled();
+  expect(state.calls.filter((call) => call.method === "POST" && call.path === "/facts")).toHaveLength(0);
 });
 
 test("memory center separates pending, active groups and history without internal locators", async ({ page }) => {

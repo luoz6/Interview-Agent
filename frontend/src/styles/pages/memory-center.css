@@ -521,6 +521,7 @@
 }
 
 .memory-declare select,
+.memory-declare input,
 .memory-fact-editor select {
   min-height: 2.75rem;
   padding: 0 2.25rem 0 .75rem;
@@ -532,9 +533,30 @@
   transition: border-color var(--start-duration-fast) var(--start-ease-out), box-shadow var(--start-duration-fast) var(--start-ease-out);
 }
 
-.memory-declare select:disabled {
+.memory-declare input {
+  width: 100%;
+  padding: 0 .75rem;
+}
+
+.memory-declare input::placeholder {
+  color: var(--start-color-text-muted);
+  opacity: .82;
+}
+
+.memory-declare select:disabled,
+.memory-declare input:disabled {
   box-shadow: none;
   cursor: not-allowed;
+}
+
+.memory-input-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  color: var(--start-color-text-muted);
+  font-size: var(--start-text-micro);
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .memory-pending {
@@ -888,6 +910,12 @@
 
   .memory-declare {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .memory-declare input,
+  .memory-declare select {
+    min-height: var(--start-control-height-touch);
+    font-size: 1rem;
   }
 
   .memory-declare-heading,

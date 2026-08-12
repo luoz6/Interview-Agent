@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -49,7 +50,39 @@ def test_canonical_fact_is_nfc_sorted_compact_and_taxonomy_bounded():
     with pytest.raises(ValueError, match="taxonomy"):
         canonical_principal_fact({"company_name": "private-company"})
     with pytest.raises(ValueError, match="taxonomy"):
-        canonical_principal_fact({"confirmed_skill": "free text skill"})
+        canonical_principal_fact({"interview_language": "free text language"})
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "expected"),
+    [
+        ("focus_topic", "  高并发  缓存一致性  ", "高并发 缓存一致性"),
+        ("confirmed_skill", "Kubernetes  1.32", "Kubernetes 1.32"),
+        ("learning_goal", "掌握 Kafka 消息可靠性设计", "掌握 Kafka 消息可靠性设计"),
+    ],
+)
+def test_user_declared_text_taxonomies_accept_and_normalize_custom_values(
+    key,
+    value,
+    expected,
+):
+    assert canonical_principal_fact({key: value}) == json.dumps(
+        {key: expected},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+@pytest.mark.parametrize("value", ["", "   ", "line one\nline two"])
+def test_user_declared_text_taxonomies_reject_blank_or_control_characters(value):
+    with pytest.raises(ValueError, match="scalar|characters"):
+        canonical_principal_fact({"focus_topic": value})
+
+
+def test_user_declared_text_taxonomies_enforce_per_field_length_limits():
+    with pytest.raises(ValueError, match="bounded"):
+        canonical_principal_fact({"focus_topic": "x" * 121})
+    assert canonical_principal_fact({"learning_goal": "x" * 160})
 
 
 def test_principal_fact_identity_is_deterministic_and_active_requires_confirmation():

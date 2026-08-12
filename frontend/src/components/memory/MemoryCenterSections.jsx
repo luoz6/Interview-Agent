@@ -5,6 +5,7 @@ import {
   displayMemoryFact,
   displayMemoryStatus,
   displayMemoryValue,
+  MEMORY_INPUT_HINTS,
   MEMORY_PURPOSES,
 } from "../../memory/memoryDisplay";
 
@@ -90,7 +91,20 @@ export function MemoryFactsSection({ model }) {
     result[group] = [...(result[group] || []), item];
     return result;
   }, {}), [active]);
-  const selectedValue = capability?.values.includes(value) ? value : capability?.values[0] || "";
+  const acceptsText = capability?.input_mode === "text";
+  const selectedValue = acceptsText
+    ? value.trim()
+    : capability?.values.includes(value) ? value : capability?.values[0] || "";
+  const maxLength = acceptsText ? capability?.max_length : undefined;
+  const valueTooLong = Boolean(maxLength && selectedValue.length > maxLength);
+  const canSubmit = Boolean(
+    capability
+    && canDeclare
+    && selectedValue
+    && !valueTooLong
+    && model.busy !== "declare"
+  );
+  const suggestionListId = acceptsText ? `memory-suggestions-${capability.key}` : undefined;
   return <section className="memory-panel memory-facts-panel" aria-labelledby="memory-facts-title">
     <PanelHeader icon={Database} eyebrow="我的信息" title="我记住的信息" id="memory-facts-title" action={<button ref={refreshRef} type="button" className="memory-link-button" onClick={model.refresh}><ArrowClockwise size={16} aria-hidden="true" />刷新</button>} />
     <dl className="memory-fact-summary" aria-label="全部记忆摘要">
@@ -99,11 +113,24 @@ export function MemoryFactsSection({ model }) {
       <div><dt>已撤回</dt><dd>{model.summary.revoked || 0}<span>条</span></dd></div>
     </dl>
     {pending.length > 0 && <section className="memory-pending" aria-labelledby="memory-pending-title"><h3 id="memory-pending-title">等待你确认 <span>{model.summary.proposed || pending.length}</span></h3><p>这些信息不会在你确认前用于后续面试。</p><ul>{pending.map((item) => <FactItem key={item.safe_ref} item={item} model={model} restoreFocus={() => refreshRef.current?.focus()} />)}</ul></section>}
-    <form className="memory-declare" data-disabled={!canDeclare || undefined} onSubmit={(event) => { event.preventDefault(); if (capability && selectedValue && canDeclare) model.declareFact(capability.fact_type, capability.key, selectedValue); }}>
-      <div className="memory-declare-heading"><h3>添加一条信息</h3><p>{canDeclare ? "只保存你主动选择并确认的内容。" : "先设置使用范围，才能向长期记忆添加信息。"}</p></div>
+    <form className="memory-declare" data-disabled={!canDeclare || undefined} onSubmit={async (event) => { event.preventDefault(); if (!canSubmit) return; const outcome = await model.declareFact(capability.fact_type, capability.key, selectedValue); if (outcome.ok) setValue(""); }}>
+      <div className="memory-declare-heading"><h3>添加一条信息</h3><p>{canDeclare ? "可从建议中选择，也可在支持的类别中手动输入。" : "先设置使用范围，才能向长期记忆添加信息。"}</p></div>
       <label>信息类别<select disabled={!canDeclare} value={capability?.key || ""} onChange={(event) => { setKey(event.target.value); setValue(""); }}>{declarable.map((item) => <option key={item.key} value={item.key}>{displayMemoryFact(item.key).label}</option>)}</select></label>
-      <label>内容<select disabled={!canDeclare} value={selectedValue} onChange={(event) => setValue(event.target.value)}>{(capability?.values || []).map((option) => <option key={option} value={option}>{displayMemoryValue(option)}</option>)}</select></label>
-      <Button className="start-button" variant="primary" type="submit" busy={model.busy === "declare"} disabled={!capability || !canDeclare}><FloppyDisk size={17} aria-hidden="true" />保存到我的记忆</Button>
+      <label className="memory-declare-value">内容{acceptsText ? <>
+        <input
+          type="text"
+          disabled={!canDeclare}
+          value={value}
+          list={suggestionListId}
+          maxLength={maxLength}
+          placeholder={MEMORY_INPUT_HINTS[capability.key] || "请输入要记住的内容"}
+          aria-describedby="memory-value-hint"
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <datalist id={suggestionListId}>{(capability.values || []).map((option) => <option key={option} value={option} label={displayMemoryValue(option)} />)}</datalist>
+        <span className="memory-input-meta" id="memory-value-hint"><span>支持手动输入</span><span>{value.length}/{maxLength}</span></span>
+      </> : <select disabled={!canDeclare} value={selectedValue} onChange={(event) => setValue(event.target.value)}>{(capability?.values || []).map((option) => <option key={option} value={option}>{displayMemoryValue(option)}</option>)}</select>}</label>
+      <Button className="start-button" variant="primary" type="submit" busy={model.busy === "declare"} disabled={!canSubmit}><FloppyDisk size={17} aria-hidden="true" />保存到我的记忆</Button>
     </form>
     {!active.length && !pending.length && <p className="memory-empty">还没有已保存的信息。你可以从上方添加，也可以在系统提出信息后再确认。</p>}
     {Object.entries(groups).map(([group, items]) => <section className="memory-fact-group" key={group}><h3>{group}<span>{items.length}</span></h3><ul>{items.map((item) => <FactItem key={item.safe_ref} item={item} model={model} restoreFocus={() => refreshRef.current?.focus()} />)}</ul></section>)}

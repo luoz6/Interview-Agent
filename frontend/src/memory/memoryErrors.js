@@ -1,5 +1,6 @@
 const CODE_MESSAGES = Object.freeze({
   principal_memory_version_conflict: "这条记忆刚刚发生了变化，已加载最新状态，请重新确认。",
+  principal_memory_fact_value_invalid: "请输入有效内容，并确认没有超出长度限制。",
   principal_memory_safe_ref_invalid: "这条记忆的安全引用已经失效，请刷新后重试。",
   principal_memory_taxonomy_key_changed: "记忆类别不能直接改变。你可以撤回后重新添加。",
   principal_memory_deletion_fenced: "删除保护已经生效，不能继续写入长期记忆。",

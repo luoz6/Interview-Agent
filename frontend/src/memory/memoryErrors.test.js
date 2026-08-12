@@ -3,6 +3,7 @@ import { memoryErrorMessage } from "./memoryErrors";
 
 describe("memoryErrorMessage", () => {
   it.each([
+    [{ code: "principal_memory_fact_value_invalid" }, "请输入有效内容，并确认没有超出长度限制。"],
     [{ status: 403 }, "当前环境不允许执行这项长期记忆操作。"],
     [{ status: 409 }, "这项长期记忆设置刚刚发生了变化，已加载最新状态，请重试。"],
     [{ status: 404 }, "长期记忆当前不可用。该功能只在受支持的本地运行模式下开放。"],

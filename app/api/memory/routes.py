@@ -253,6 +253,7 @@ def principal_memory_capabilities(request: Request):
         USER_DECLARABLE_TAXONOMY_KEYS,
         USER_EDITABLE_TAXONOMY_KEYS,
         principal_memory_fact_type_for_taxonomy_key,
+        principal_memory_input_policy_for_taxonomy_key,
     )
     from app.services.principal_memory_consent import PRINCIPAL_MEMORY_PURPOSES
 
@@ -265,6 +266,7 @@ def principal_memory_capabilities(request: Request):
                 "values": sorted(values),
                 "editable": key in USER_EDITABLE_TAXONOMY_KEYS,
                 "user_declarable": key in USER_DECLARABLE_TAXONOMY_KEYS,
+                **principal_memory_input_policy_for_taxonomy_key(key),
             }
             for key, values in ALLOWED_TAXONOMY.items()
         ],
@@ -406,9 +408,16 @@ def declare_principal_memory_fact(
     from app.domain.memory.contracts import canonical_principal_fact
 
     try:
+        normalized_fact = canonical_principal_fact(payload.normalized_value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "principal_memory_fact_value_invalid"},
+        ) from exc
+    try:
         return _principal_memory_lifecycle(identity).declare(
             fact_type=payload.fact_type,
-            normalized_fact=canonical_principal_fact(payload.normalized_value),
+            normalized_fact=normalized_fact,
         )
     except PermissionError as exc:
         raise HTTPException(
@@ -496,7 +505,13 @@ def correct_principal_memory_fact(
     from app.domain.memory.contracts import canonical_principal_fact
     import json
 
-    normalized = canonical_principal_fact(payload.normalized_value)
+    try:
+        normalized = canonical_principal_fact(payload.normalized_value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "principal_memory_fact_value_invalid"},
+        ) from exc
     if next(iter(json.loads(normalized))) != next(iter(json.loads(fact.normalized_fact))):
         raise HTTPException(
             status_code=409,
