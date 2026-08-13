@@ -169,14 +169,16 @@ Report evaluator remains authoritative for report stability, grounding,
 ranking, fallback, and forbidden-claim checks.
 
 A real 50-case engine-output source dataset and randomized blind package now
-exist under `artifacts/private/knowledge-business-rmqv4-20260813/`. The source
+exist under `artifacts/private/knowledge-business-rmqv4-20260813-v2/`. The source
 contains 25 family-isolated inputs, each evaluated for both Follow-up and
 Reviewer: 38 tuning cases and 12 holdout cases, all eight required scenarios,
 and two repeated Reviewer scores for every engine option. Its dataset SHA-256
-is `9c76fb0664023ccf2a6cddba379d06654a47a86ceff05dfaaa6f4a548ccd630a`.
+is `16624a1dcc0f00066294faf7e9e05eff07e0f639146e974c1724f5c25cfec906`.
 Legacy evidence IDs come from the real Legacy artifact; Candidate evidence IDs
 come from the real weighted-RRF artifact. Fifty Provider bundles produced the
-frozen Follow-up and Reviewer outputs.
+frozen Follow-up and Reviewer outputs. The v2 builder repairs the historical
+GBK-bytes-as-Latin-1 query encoding only at the derivative human-package
+boundary; all 50 human-facing questions pass the Chinese readability check.
 
 The tuning and holdout blind packages, restricted unblinding keys, and empty
 annotation templates are self-hashed and validated. The blind packages expose

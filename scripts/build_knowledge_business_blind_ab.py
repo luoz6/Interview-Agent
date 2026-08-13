@@ -191,7 +191,7 @@ def build_business_dataset(
         candidate_case = candidate_by_id[case_id]
         scenario = SCENARIOS[index % len(SCENARIOS)]
         split = "tuning" if index < tuning_family_count else "holdout"
-        question = source["query_text"]
+        question = _repair_legacy_mojibake(source["query_text"])
         primary_id = (source.get("primary_relevant_chunk_ids") or [""])[0]
         primary_content = _load_chunk_content(corpus_dir, primary_id)
         answer = _synthetic_answer(scenario, primary_content, primary_id)
@@ -463,6 +463,30 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Provider JSON root must be an object")
     return payload
+
+
+def _repair_legacy_mojibake(value: str) -> str:
+    """Repair the historical GBK-bytes-as-Latin-1 Eval V3 query encoding.
+
+    The retrieval dataset is intentionally left immutable because its frozen
+    SHA and runtime artifacts bind the original text. Human-facing business
+    packages must contain readable questions, so normalization happens only at
+    this derivative boundary and fails closed when a suspicious value cannot
+    be repaired.
+    """
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("business evaluation question must not be empty")
+    suspicious = sum(character in "ÔÚºó¶ËÃæÊÔÖÐÈçÎªµÄÁË£¬¡°¡±" for character in text)
+    if suspicious < 2:
+        return text
+    try:
+        repaired = text.encode("latin-1").decode("gbk").strip()
+    except (UnicodeEncodeError, UnicodeDecodeError) as exc:
+        raise ValueError("legacy Eval V3 question mojibake could not be repaired") from exc
+    if not any("\u4e00" <= character <= "\u9fff" for character in repaired):
+        raise ValueError("repaired business evaluation question is not readable Chinese")
+    return repaired
 
 
 def _annotation_template(package) -> dict[str, Any]:

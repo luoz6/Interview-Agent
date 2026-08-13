@@ -27,7 +27,7 @@ For the RocketMQ V4 evaluation, the real engine-output builder is:
 $env:PYTHONPATH='.'
 $env:LLM_CONTEXT_WINDOW_TOKENS='128000'
 F:\python3.11\python.exe scripts/build_knowledge_business_blind_ab.py `
-  --output-dir artifacts/private/knowledge-business-rmqv4-20260813 `
+  --output-dir artifacts/private/knowledge-business-rmqv4-20260813-v2 `
   --seed <confidential-random-seed>
 ```
 

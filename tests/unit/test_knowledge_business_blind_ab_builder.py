@@ -7,6 +7,7 @@ from scripts.build_knowledge_business_blind_ab import (
     DEFAULT_CORPUS,
     DEFAULT_DATASET,
     _annotation_template,
+    _repair_legacy_mojibake,
     build_business_dataset,
 )
 from app.services.knowledge_business_eval import build_blind_business_eval_package
@@ -42,6 +43,11 @@ def test_builder_freezes_fifty_real_engine_outputs_without_human_labels(tmp_path
     assert len({case.scenario_type for case in dataset.cases}) == 8
     assert len(calls) == 50
     assert receipt["provider_bundle_calls"] == 50
+    assert all(
+        any("\u4e00" <= character <= "\u9fff" for character in case.question)
+        and "ÔÚ" not in case.question
+        for case in dataset.cases
+    )
     assert all(
         len(output.repeated_scores) == 2
         for case in dataset.cases
@@ -95,3 +101,10 @@ def test_builder_resumes_provider_cache_and_blank_template_stays_unannotated(tmp
     assert template["consensus"] == []
     assert template["instructions"]["do_not_fill_with_model_generated_ratings"] is True
     assert "legacy" not in json.dumps(package.model_dump(mode="json"))
+
+
+def test_legacy_eval_query_mojibake_is_repaired_only_for_human_package():
+    broken = "ÔÚºó¶ËÃæÊÔÖÐ£¬ÈçºÎ×¼È·½âÊÍ£¿"
+
+    assert _repair_legacy_mojibake(broken) == "在后端面试中，如何准确解释？"
+    assert _repair_legacy_mojibake("如何解释 Redis 锁？") == "如何解释 Redis 锁？"
