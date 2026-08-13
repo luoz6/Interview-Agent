@@ -1,0 +1,3301 @@
+{
+  "version": "knowledge-eval-v3-machine-preannotation-rmqv4-2026-08-13-v1",
+  "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84",
+  "governance": null,
+  "cases": [
+    {
+      "case_id": "kev3-tuning-001",
+      "case_family": "family-kev3-tuning-001",
+      "case_type": "exact_technical_term",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "在后端面试中，如何准确解释“ASGI 请求链路”的工作机制、适用边界和验证指标（分析重点：机制与执行顺序；工程情境：日常稳定流量；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-002",
+      "case_family": "family-kev3-tuning-002",
+      "case_type": "alias_only",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "面试官提到“Redis 锁”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：机制与执行顺序；工程情境：日常稳定流量；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "分布式锁"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "accepted_related_chunk_ids": [
+        "redis_consistency"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-003",
+      "case_family": "family-kev3-tuning-003",
+      "case_type": "acronym",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "针对PostgreSQL 备份恢复与时间点恢复边界，PITR 代表什么，如何用它判断数据库恢复目标并验证备份恢复、PITR 和恢复演练边界（分析重点：机制与执行顺序；工程情境：日常稳定流量；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-004",
+      "case_family": "family-kev3-tuning-004",
+      "case_type": "semantic_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "系统出现“消息重复到达并导致业务副作用重复执行”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：机制与执行顺序；工程情境：日常稳定流量；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "投递语义"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_delivery"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "excluded_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-005",
+      "case_family": "family-kev3-tuning-005",
+      "case_type": "chinese_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "不用堆砌组件名，请用中文说明生产速率超过消费速率时的背压和准入控制的因果关系、工程取舍和可观察证据。（分析重点：机制与执行顺序；工程情境：日常稳定流量；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "accepted_related_chunk_ids": [
+        "capacity_planning"
+      ],
+      "excluded_chunk_ids": [
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-006",
+      "case_family": "family-kev3-tuning-006",
+      "case_type": "weak_keyword",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "只得到“连接耗尽”这个模糊线索时，还要追问哪些条件才能定位到PostgreSQL 连接耗尽与排队放大而不是相邻问题（分析重点：机制与执行顺序；工程情境：日常稳定流量；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_connection_saturation"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "excluded_chunk_ids": [
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-007",
+      "case_family": "family-kev3-tuning-007",
+      "case_type": "multi_topic",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "如果同时出现请求结束后资源没有按预期释放，并且还要处理FastAPI 生产工程实践，怎样划分责任边界并制定联动治理方案（分析重点：所有权与资源释放；工程情境：版本发布窗口；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-008",
+      "case_family": "family-kev3-tuning-008",
+      "case_type": "ambiguous",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "“缓存更新顺序”容易与MySQL 事务隔离与锁边界混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：所有权与资源释放；工程情境：版本发布窗口；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_consistency"
+      ],
+      "accepted_related_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-009",
+      "case_family": "family-kev3-tuning-009",
+      "case_type": "hard_negative",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "有人认为只要让每个请求新建数据库连接就能解决PostgreSQL 连接池预算与全局连接上限，这个说法为什么不成立，正确边界是什么（分析重点：所有权与资源释放；工程情境：版本发布窗口；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "capacity_planning"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-010",
+      "case_family": "family-kev3-tuning-010",
+      "case_type": "out_of_domain",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "与当前RocketMQ 重试与死信消息治理槽位相对照，请解释 Kafka ISR 副本集合收缩与高水位推进算法。（分析重点：所有权与资源释放；工程情境：版本发布窗口；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "重试"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_operations",
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-011",
+      "case_family": "family-kev3-tuning-011",
+      "case_type": "no_evidence",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "在核对服务容量规划方法相关语料时，现有语料是否定义了量子纠错码的稳定子测量与解码流程（分析重点：所有权与资源释放；工程情境：版本发布窗口；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "capacity_planning",
+        "service_scaling",
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-012",
+      "case_family": "family-kev3-tuning-012",
+      "case_type": "cross_domain_confusion",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "服务级联故障与放大链路与RocketMQ 重试与死信消息治理都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：所有权与资源释放；工程情境：版本发布窗口；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cascading_failures"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-013",
+      "case_family": "family-kev3-tuning-013",
+      "case_type": "metadata_routing_error",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "查询中只描述了“CPU 不高但接口 p99 突然升高且其他请求一起等待”，如果检索被错误路由到redis领域，应如何识别并回到fastapi的正确证据（分析重点：失败传播与隔离；工程情境：突发流量高峰；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-014",
+      "case_family": "family-kev3-tuning-014",
+      "case_type": "filter_boundary",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "只允许检索redis领域的theory资料时，哪些证据能直接回答热点键失效后的并发回源保护，哪些相似资料必须排除（分析重点：失败传播与隔离；工程情境：突发流量高峰；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-015",
+      "case_family": "family-kev3-tuning-015",
+      "case_type": "exact_technical_term",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "在后端面试中，如何准确解释“InnoDB 死锁识别与恢复”的工作机制、适用边界和验证指标（分析重点：失败传播与隔离；工程情境：突发流量高峰；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "innodb"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_deadlocks"
+      ],
+      "accepted_related_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "excluded_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-016",
+      "case_family": "family-kev3-tuning-016",
+      "case_type": "alias_only",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "面试官提到“consumer group”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：失败传播与隔离；工程情境：突发流量高峰；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "消费组"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "excluded_chunk_ids": [
+        "service_scaling"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-017",
+      "case_family": "family-kev3-tuning-017",
+      "case_type": "acronym",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "针对服务容量规划方法，QPS 代表什么，如何用它判断容量模型与峰值余量并验证峰值 QPS、并发、资源余量和容量校准（分析重点：失败传播与隔离；工程情境：突发流量高峰；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "capacity_planning"
+      ],
+      "accepted_related_chunk_ids": [
+        "service_scaling"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-018",
+      "case_family": "family-kev3-tuning-018",
+      "case_type": "semantic_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "系统出现“写入成功后立即从只读节点查询却看不到数据”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：失败传播与隔离；工程情境：突发流量高峰；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-019",
+      "case_family": "family-kev3-tuning-019",
+      "case_type": "chinese_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "不用堆砌组件名，请用中文说明工作进程、健康检查、超时和优雅关闭的生产边界的因果关系、工程取舍和可观察证据。（分析重点：容量上限与安全余量；工程情境：单可用区故障；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_production"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-020",
+      "case_family": "family-kev3-tuning-020",
+      "case_type": "weak_keyword",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "只得到“容量”这个模糊线索时，还要追问哪些条件才能定位到Redis 生产运维观察点而不是相邻问题（分析重点：容量上限与安全余量；工程情境：单可用区故障；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "监控"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_operations"
+      ],
+      "accepted_related_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-021",
+      "case_family": "family-kev3-tuning-021",
+      "case_type": "multi_topic",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "如果同时出现写入成功后立即从只读节点查询却看不到数据，并且还要处理PostgreSQL 运行监控与证据基线，怎样划分责任边界并制定联动治理方案（分析重点：容量上限与安全余量；工程情境：单可用区故障；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_replica_lag",
+        "postgresql_monitoring_baseline"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_consistency"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-022",
+      "case_family": "family-kev3-tuning-022",
+      "case_type": "ambiguous",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "“消费延迟”容易与Redis 生产运维观察点混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：容量上限与安全余量；工程情境：单可用区故障；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "监控"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "excluded_chunk_ids": [
+        "redis_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-023",
+      "case_family": "family-kev3-tuning-023",
+      "case_type": "hard_negative",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "有人认为只要只根据 CPU 快速扩容就能解决无状态服务横向扩容时的共享下游瓶颈，这个说法为什么不成立，正确边界是什么（分析重点：容量上限与安全余量；工程情境：单可用区故障；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "扩容"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "service_scaling"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-024",
+      "case_family": "family-kev3-tuning-024",
+      "case_type": "out_of_domain",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "与当前队列背压与准入控制槽位相对照，请解释 Android Activity 的任务栈与生命周期回调。（分析重点：容量上限与安全余量；工程情境：单可用区故障；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design",
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "queue_backpressure",
+        "cascading_failures",
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-025",
+      "case_family": "family-kev3-tuning-025",
+      "case_type": "no_evidence",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "在核对FastAPI 后端项目评价基准相关语料时，FastAPI 是否内置跨数据中心的全局事务协调器，如何配置共识节点（分析重点：尾延迟与排队信号；工程情境：下游依赖变慢；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "fastapi_backend",
+        "fastapi_production"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-026",
+      "case_family": "family-kev3-tuning-026",
+      "case_type": "cross_domain_confusion",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "Redis 后端项目评价基准与MySQL 后端项目评价基准都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：尾延迟与排队信号；工程情境：下游依赖变慢；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "mysql_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-027",
+      "case_family": "family-kev3-tuning-027",
+      "case_type": "metadata_routing_error",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "查询中只描述了“同一事务中快照读和加锁读看到不同结果”，如果检索被错误路由到postgresql领域，应如何识别并回到mysql的正确证据（分析重点：尾延迟与排队信号；工程情境：下游依赖变慢；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "事务"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-028",
+      "case_family": "family-kev3-tuning-028",
+      "case_type": "filter_boundary",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "只允许检索rocketmq领域的expert_benchmark资料时，哪些证据能直接回答RocketMQ 项目的投递、消费和运维工程证据，哪些相似资料必须排除（分析重点：尾延迟与排队信号；工程情境：下游依赖变慢；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "消息系统"
+      ],
+      "source_types": [
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-029",
+      "case_family": "family-kev3-tuning-029",
+      "case_type": "exact_technical_term",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "在后端面试中，如何准确解释“后端架构证据”的工作机制、适用边界和验证指标（分析重点：尾延迟与排队信号；工程情境：下游依赖变慢；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "后端架构"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "system_design_backend"
+      ],
+      "accepted_related_chunk_ids": [
+        "capacity_planning"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-030",
+      "case_family": "family-kev3-tuning-030",
+      "case_type": "alias_only",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "面试官提到“主备切换”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：尾延迟与排队信号；工程情境：下游依赖变慢；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-031",
+      "case_family": "family-kev3-tuning-031",
+      "case_type": "acronym",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "针对FastAPI 请求生命周期，ASGI 代表什么，如何用它判断请求链路和依赖清理并验证请求从 ASGI 入口到响应和资源清理的执行顺序（分析重点：恢复条件与验证证据；工程情境：实例横向扩容；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-032",
+      "case_family": "family-kev3-tuning-032",
+      "case_type": "semantic_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "系统出现“旧持有者误删新持有者的锁并发生并发执行”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：恢复条件与验证证据；工程情境：实例横向扩容；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "分布式锁"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "accepted_related_chunk_ids": [
+        "redis_consistency"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-033",
+      "case_family": "family-kev3-tuning-033",
+      "case_type": "chinese_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "不用堆砌组件名，请用中文说明备份恢复、PITR 和恢复演练边界的因果关系、工程取舍和可观察证据。（分析重点：恢复条件与验证证据；工程情境：实例横向扩容；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-034",
+      "case_family": "family-kev3-tuning-034",
+      "case_type": "weak_keyword",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "只得到“幂等”这个模糊线索时，还要追问哪些条件才能定位到RocketMQ 投递语义与幂等消费而不是相邻问题（分析重点：恢复条件与验证证据；工程情境：实例横向扩容；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "投递语义"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_delivery"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "excluded_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-035",
+      "case_family": "family-kev3-tuning-035",
+      "case_type": "multi_topic",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "如果同时出现生产速度长期高于消费速度且队列年龄持续增长，并且还要处理服务级联故障与放大链路，怎样划分责任边界并制定联动治理方案（分析重点：恢复条件与验证证据；工程情境：实例横向扩容；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "queue_backpressure",
+        "cascading_failures"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-036",
+      "case_family": "family-kev3-tuning-036",
+      "case_type": "ambiguous",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "“峰值流量规划”容易与PostgreSQL 连接容量与池化预算混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：恢复条件与验证证据；工程情境：实例横向扩容；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "capacity_planning"
+      ],
+      "accepted_related_chunk_ids": [
+        "service_scaling"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-037",
+      "case_family": "family-kev3-tuning-037",
+      "case_type": "hard_negative",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "有人认为只要把所有资源都放进全局变量就能解决请求级 yield 依赖与应用级 lifespan 资源的所有权，这个说法为什么不成立，正确边界是什么（分析重点：扩容触发与下游预算；工程情境：连接池接近上限；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-038",
+      "case_family": "family-kev3-tuning-038",
+      "case_type": "out_of_domain",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "与当前Redis 缓存一致性的边界槽位相对照，请说明 Kubernetes CNI 插件如何为 Pod 分配网络地址。（分析重点：扩容触发与下游预算；工程情境：连接池接近上限；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_consistency",
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-039",
+      "case_family": "family-kev3-tuning-039",
+      "case_type": "no_evidence",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "在核对MySQL 在线表结构迁移相关语料时，MySQL 和 PostgreSQL 是否内置浏览器端 WebRTC 媒体编解码器（分析重点：扩容触发与下游预算；工程情境：连接池接近上限；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "在线迁移"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql",
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "mysql_online_migration",
+        "mysql_backend",
+        "postgresql_backup_restore_boundary"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-040",
+      "case_family": "family-kev3-tuning-040",
+      "case_type": "cross_domain_confusion",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "RocketMQ 重试与死信消息治理与服务级联故障与放大链路都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：扩容触发与下游预算；工程情境：连接池接近上限；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "重试"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-041",
+      "case_family": "family-kev3-tuning-041",
+      "case_type": "metadata_routing_error",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "查询中只描述了“平均流量正常但峰值期间资源余量快速耗尽”，如果检索被错误路由到postgresql领域，应如何识别并回到system-design的正确证据（分析重点：扩容触发与下游预算；工程情境：连接池接近上限；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "capacity_planning"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-042",
+      "case_family": "family-kev3-tuning-042",
+      "case_type": "filter_boundary",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "只允许检索postgresql领域的engineering_guide资料时，哪些证据能直接回答备份恢复、PITR 和恢复演练边界，哪些相似资料必须排除（分析重点：扩容触发与下游预算；工程情境：连接池接近上限；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "engineering_guide"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-043",
+      "case_family": "family-kev3-tuning-043",
+      "case_type": "exact_technical_term",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "在后端面试中，如何准确解释“同步客户端阻塞”的工作机制、适用边界和验证指标（分析重点：重试边界与幂等保护；工程情境：长尾延迟升高；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_production"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-044",
+      "case_family": "family-kev3-tuning-044",
+      "case_type": "alias_only",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "面试官提到“并发回源”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：重试边界与幂等保护；工程情境：长尾延迟升高；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "accepted_related_chunk_ids": [
+        "redis_operations"
+      ],
+      "excluded_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-045",
+      "case_family": "family-kev3-tuning-045",
+      "case_type": "acronym",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "针对MySQL 事务隔离与锁边界，RC/RR 代表什么，如何用它判断事务隔离和锁边界并验证RC、RR、快照读和当前读的锁边界（分析重点：重试边界与幂等保护；工程情境：长尾延迟升高；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "事务"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "accepted_related_chunk_ids": [
+        "mysql_deadlocks"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-046",
+      "case_family": "family-kev3-tuning-046",
+      "case_type": "semantic_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "系统出现“消费组成员变化后队列分配抖动且吞吐下降”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：重试边界与幂等保护；工程情境：长尾延迟升高；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "消费组"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "excluded_chunk_ids": [
+        "service_scaling"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-047",
+      "case_family": "family-kev3-tuning-047",
+      "case_type": "chinese_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "不用堆砌组件名，请用中文说明下游变慢、重试风暴和资源耗尽的级联链路的因果关系、工程取舍和可观察证据。（分析重点：重试边界与幂等保护；工程情境：长尾延迟升高；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cascading_failures"
+      ],
+      "accepted_related_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-048",
+      "case_family": "family-kev3-tuning-048",
+      "case_type": "weak_keyword",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "只得到“无状态服务”这个模糊线索时，还要追问哪些条件才能定位到无状态服务扩容边界而不是相邻问题（分析重点：重试边界与幂等保护；工程情境：长尾延迟升高；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "扩容"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "service_scaling"
+      ],
+      "accepted_related_chunk_ids": [
+        "capacity_planning"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-049",
+      "case_family": "family-kev3-tuning-049",
+      "case_type": "multi_topic",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "如果同时出现扩进程后连接数激增并且发布期间请求被中断，并且还要处理FastAPI 后端项目评价基准，怎样划分责任边界并制定联动治理方案（分析重点：可观测指标与告警阈值；工程情境：故障恢复演练；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_production",
+        "fastapi_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-050",
+      "case_family": "family-kev3-tuning-050",
+      "case_type": "ambiguous",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "“Redis 运维”容易与RocketMQ 消费运行指标混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：可观测指标与告警阈值；工程情境：故障恢复演练；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "监控"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_operations"
+      ],
+      "accepted_related_chunk_ids": [
+        "redis_backend"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-051",
+      "case_family": "family-kev3-tuning-051",
+      "case_type": "hard_negative",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "有人认为只要只展示平均查询耗时就能解决MySQL 项目的性能与可靠性工程证据，这个说法为什么不成立，正确边界是什么（分析重点：可观测指标与告警阈值；工程情境：故障恢复演练；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "数据库"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-052",
+      "case_family": "family-kev3-tuning-052",
+      "case_type": "out_of_domain",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "与当前RocketMQ 消费运行指标槽位相对照，请解释 Kafka ISR 副本集合收缩与高水位推进算法。（分析重点：可观测指标与告警阈值；工程情境：故障恢复演练；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "监控"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-053",
+      "case_family": "family-kev3-tuning-053",
+      "case_type": "no_evidence",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "在核对无状态服务扩容边界相关语料时，现有语料是否定义了量子纠错码的稳定子测量与解码流程（分析重点：可观测指标与告警阈值；工程情境：故障恢复演练；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "扩容"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "service_scaling",
+        "capacity_planning"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-054",
+      "case_family": "family-kev3-tuning-054",
+      "case_type": "cross_domain_confusion",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "PostgreSQL 运行监控与证据基线与Redis 生产运维观察点都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：可观测指标与告警阈值；工程情境：故障恢复演练；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-055",
+      "case_family": "family-kev3-tuning-055",
+      "case_type": "metadata_routing_error",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "查询中只描述了“项目列出很多组件却拿不出故障与量化改进证据”，如果检索被错误路由到system-design领域，应如何识别并回到fastapi的正确证据（分析重点：发布回滚与兼容边界；工程情境：容量压测复盘；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "system_design_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-056",
+      "case_family": "family-kev3-tuning-056",
+      "case_type": "filter_boundary",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "只允许检索redis领域的expert_benchmark资料时，哪些证据能直接回答Redis 项目的数据结构、容量和故障恢复证据，哪些相似资料必须排除（分析重点：发布回滚与兼容边界；工程情境：容量压测复盘；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "mysql_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-057",
+      "case_family": "family-kev3-tuning-057",
+      "case_type": "exact_technical_term",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "在后端面试中，如何准确解释“主备切换”的工作机制、适用边界和验证指标（分析重点：发布回滚与兼容边界；工程情境：容量压测复盘；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-058",
+      "case_family": "family-kev3-tuning-058",
+      "case_type": "alias_only",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "面试官提到“消息工程证据”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：发布回滚与兼容边界；工程情境：容量压测复盘；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "消息系统"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_backend"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "excluded_chunk_ids": [
+        "system_design_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-059",
+      "case_family": "family-kev3-tuning-059",
+      "case_type": "semantic_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "系统出现“架构图堆满组件却没有容量和故障假设”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：发布回滚与兼容边界；工程情境：容量压测复盘；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "后端架构"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "system_design_backend"
+      ],
+      "accepted_related_chunk_ids": [
+        "cascading_failures"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-060",
+      "case_family": "family-kev3-tuning-060",
+      "case_type": "chinese_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "不用堆砌组件名，请用中文说明PostgreSQL 连接池预算与全局连接上限的因果关系、工程取舍和可观察证据。（分析重点：发布回滚与兼容边界；工程情境：容量压测复盘；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_connection_saturation"
+      ],
+      "excluded_chunk_ids": [
+        "capacity_planning"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-061",
+      "case_family": "family-kev3-tuning-061",
+      "case_type": "weak_keyword",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "只得到“请求生命周期”这个模糊线索时，还要追问哪些条件才能定位到FastAPI 请求生命周期而不是相邻问题（分析重点：数据新鲜度与一致性窗口；工程情境：夜间批处理高峰；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-062",
+      "case_family": "family-kev3-tuning-062",
+      "case_type": "multi_topic",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "如果同时出现旧持有者误删新持有者的锁并发生并发执行，并且还要处理Redis 缓存一致性的边界，怎样划分责任边界并制定联动治理方案（分析重点：数据新鲜度与一致性窗口；工程情境：夜间批处理高峰；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "分布式锁"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_distributed_lock",
+        "redis_consistency"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-063",
+      "case_family": "family-kev3-tuning-063",
+      "case_type": "ambiguous",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "“数据库监控”容易与PostgreSQL 连接容量与池化预算混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：数据新鲜度与一致性窗口；工程情境：夜间批处理高峰；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_connection_saturation"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-064",
+      "case_family": "family-kev3-tuning-064",
+      "case_type": "hard_negative",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "有人认为只要依赖消息绝不重复就能解决至少一次投递下的幂等消费与确认边界，这个说法为什么不成立，正确边界是什么（分析重点：数据新鲜度与一致性窗口；工程情境：夜间批处理高峰；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "投递语义"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_delivery"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-065",
+      "case_family": "family-kev3-tuning-065",
+      "case_type": "cross_domain_confusion",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "队列背压与准入控制与RocketMQ 消费运行指标都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：数据新鲜度与一致性窗口；工程情境：夜间批处理高峰；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-066",
+      "case_family": "family-kev3-tuning-066",
+      "case_type": "metadata_routing_error",
+      "split": "tuning",
+      "evaluation_group": "reliability",
+      "query_text": "查询中只描述了“连接池排队拉长并引发入口超时和重试”，如果检索被错误路由到system-design领域，应如何识别并回到postgresql的正确证据（分析重点：数据新鲜度与一致性窗口；工程情境：夜间批处理高峰；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_connection_saturation"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-067",
+      "case_family": "family-kev3-tuning-067",
+      "case_type": "filter_boundary",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "只允许检索fastapi领域的theory资料时，哪些证据能直接回答请求级 yield 依赖与应用级 lifespan 资源的所有权，哪些相似资料必须排除（分析重点：热点识别与流量整形；工程情境：跨机房网络抖动；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-068",
+      "case_family": "family-kev3-tuning-068",
+      "case_type": "exact_technical_term",
+      "split": "tuning",
+      "evaluation_group": "redis",
+      "query_text": "在后端面试中，如何准确解释“Redis 缓存一致性的边界”的工作机制、适用边界和验证指标（分析重点：热点识别与流量整形；工程情境：跨机房网络抖动；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_consistency"
+      ],
+      "accepted_related_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-069",
+      "case_family": "family-kev3-tuning-069",
+      "case_type": "alias_only",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "面试官提到“覆盖索引”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：热点识别与流量整形；工程情境：跨机房网络抖动；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "索引"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_indexing"
+      ],
+      "accepted_related_chunk_ids": [
+        "mysql_backend"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-070",
+      "case_family": "family-kev3-tuning-070",
+      "case_type": "semantic_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "系统出现“永久失败消息反复重试并持续压垮下游”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：热点识别与流量整形；工程情境：跨机房网络抖动；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "重试"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "excluded_chunk_ids": [
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-071",
+      "case_family": "family-kev3-tuning-071",
+      "case_type": "chinese_paraphrase",
+      "split": "tuning",
+      "evaluation_group": "system-design",
+      "query_text": "不用堆砌组件名，请用中文说明峰值 QPS、并发、资源余量和容量校准的因果关系、工程取舍和可观察证据。（分析重点：热点识别与流量整形；工程情境：跨机房网络抖动；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "capacity_planning"
+      ],
+      "accepted_related_chunk_ids": [
+        "service_scaling"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-072",
+      "case_family": "family-kev3-tuning-072",
+      "case_type": "hard_negative",
+      "split": "tuning",
+      "evaluation_group": "fastapi",
+      "query_text": "有人认为只要增加协程数量就能解决异步接口中阻塞调用造成的事件循环尾延迟，这个说法为什么不成立，正确边界是什么（分析重点：故障演练与审计追踪；工程情境：数据迁移期间；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-073",
+      "case_family": "family-kev3-tuning-073",
+      "case_type": "cross_domain_confusion",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "PostgreSQL 连接容量与池化预算与服务容量规划方法都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：故障演练与审计追踪；工程情境：数据迁移期间；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "capacity_planning"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-074",
+      "case_family": "family-kev3-tuning-074",
+      "case_type": "metadata_routing_error",
+      "split": "tuning",
+      "evaluation_group": "rocketmq",
+      "query_text": "查询中只描述了“消费组成员变化后队列分配抖动且吞吐下降”，如果检索被错误路由到system-design领域，应如何识别并回到rocketmq的正确证据（分析重点：故障演练与审计追踪；工程情境：数据迁移期间；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "消费组"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "service_scaling"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-tuning-075",
+      "case_family": "family-kev3-tuning-075",
+      "case_type": "filter_boundary",
+      "split": "tuning",
+      "evaluation_group": "relational-database",
+      "query_text": "只允许检索mysql领域的theory资料时，哪些证据能直接回答InnoDB 死锁环识别、回滚和有限重试，哪些相似资料必须排除（分析重点：成本、复杂度与可靠性取舍；工程情境：冷启动阶段；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "innodb"
+      ],
+      "source_types": [
+        "theory"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_deadlocks"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-001",
+      "case_family": "family-kev3-holdout-001",
+      "case_type": "exact_technical_term",
+      "split": "holdout",
+      "evaluation_group": "fastapi",
+      "query_text": "在后端面试中，如何准确解释“服务运行治理”的工作机制、适用边界和验证指标（分析重点：成本、复杂度与可靠性取舍；工程情境：冷启动阶段；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_production"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-002",
+      "case_family": "family-kev3-holdout-002",
+      "case_type": "alias_only",
+      "split": "holdout",
+      "evaluation_group": "redis",
+      "query_text": "面试官提到“热点键失效”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：故障演练与审计追踪；工程情境：数据迁移期间；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "accepted_related_chunk_ids": [
+        "redis_consistency"
+      ],
+      "excluded_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-003",
+      "case_family": "family-kev3-holdout-003",
+      "case_type": "acronym",
+      "split": "holdout",
+      "evaluation_group": "relational-database",
+      "query_text": "针对MySQL 在线表结构迁移，DDL 代表什么，如何用它判断在线结构迁移风险并验证表结构变更的无停机迁移与回滚（分析重点：错误分类与有限恢复；工程情境：流量回切阶段；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "在线迁移"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "accepted_related_chunk_ids": [
+        "mysql_backend"
+      ],
+      "excluded_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-004",
+      "case_family": "family-kev3-holdout-004",
+      "case_type": "semantic_paraphrase",
+      "split": "holdout",
+      "evaluation_group": "rocketmq",
+      "query_text": "系统出现“消费积压增长但只看消息总数无法估计恢复时间”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：成本、复杂度与可靠性取舍；工程情境：冷启动阶段；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "监控"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "excluded_chunk_ids": [
+        "redis_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-005",
+      "case_family": "family-kev3-holdout-005",
+      "case_type": "chinese_paraphrase",
+      "split": "holdout",
+      "evaluation_group": "system-design",
+      "query_text": "不用堆砌组件名，请用中文说明下游变慢、重试风暴和资源耗尽的级联链路的因果关系、工程取舍和可观察证据。（分析重点：故障演练与审计追踪；工程情境：数据迁移期间；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cascading_failures"
+      ],
+      "accepted_related_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-006",
+      "case_family": "family-kev3-holdout-006",
+      "case_type": "weak_keyword",
+      "split": "holdout",
+      "evaluation_group": "reliability",
+      "query_text": "只得到“级联故障”这个模糊线索时，还要追问哪些条件才能定位到服务级联故障与放大链路而不是相邻问题（分析重点：热点识别与流量整形；工程情境：跨机房网络抖动；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "cascading_failures"
+      ],
+      "accepted_related_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-007",
+      "case_family": "family-kev3-holdout-007",
+      "case_type": "multi_topic",
+      "split": "holdout",
+      "evaluation_group": "fastapi",
+      "query_text": "如果同时出现项目列出很多组件却拿不出故障与量化改进证据，并且还要处理FastAPI 生产工程实践，怎样划分责任边界并制定联动治理方案（分析重点：错误分类与有限恢复；工程情境：流量回切阶段；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_backend",
+        "fastapi_production"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "system_design_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-008",
+      "case_family": "family-kev3-holdout-008",
+      "case_type": "ambiguous",
+      "split": "holdout",
+      "evaluation_group": "redis",
+      "query_text": "“缓存监控”容易与RocketMQ 消费运行指标混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：成本、复杂度与可靠性取舍；工程情境：冷启动阶段；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "监控"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_operations"
+      ],
+      "accepted_related_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-009",
+      "case_family": "family-kev3-holdout-009",
+      "case_type": "hard_negative",
+      "split": "holdout",
+      "evaluation_group": "relational-database",
+      "query_text": "有人认为只要把隔离级别统一调到最高就能解决RC、RR、快照读和当前读的锁边界，这个说法为什么不成立，正确边界是什么（分析重点：跨域消歧与元数据路由；工程情境：资源配额收紧；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "事务"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-010",
+      "case_family": "family-kev3-holdout-010",
+      "case_type": "out_of_domain",
+      "split": "holdout",
+      "evaluation_group": "rocketmq",
+      "query_text": "与当前RocketMQ 后端项目评价基准槽位相对照，请解释 Kafka ISR 副本集合收缩与高水位推进算法。（分析重点：错误分类与有限恢复；工程情境：流量回切阶段；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "消息系统"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-011",
+      "case_family": "family-kev3-holdout-011",
+      "case_type": "no_evidence",
+      "split": "holdout",
+      "evaluation_group": "system-design",
+      "query_text": "在核对无状态服务扩容边界相关语料时，现有语料是否定义了量子纠错码的稳定子测量与解码流程（分析重点：成本、复杂度与可靠性取舍；工程情境：冷启动阶段；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "扩容"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "service_scaling",
+        "capacity_planning",
+        "rocketmq_load_balancing"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": true,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-012",
+      "case_family": "family-kev3-holdout-012",
+      "case_type": "cross_domain_confusion",
+      "split": "holdout",
+      "evaluation_group": "reliability",
+      "query_text": "PostgreSQL 只读副本延迟与陈旧读取与Redis 缓存一致性的边界都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：故障演练与审计追踪；工程情境：数据迁移期间；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_consistency"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-013",
+      "case_family": "family-kev3-holdout-013",
+      "case_type": "metadata_routing_error",
+      "split": "holdout",
+      "evaluation_group": "fastapi",
+      "query_text": "查询中只描述了“中间件、依赖和响应清理顺序难以定位”，如果检索被错误路由到redis领域，应如何识别并回到fastapi的正确证据（分析重点：跨域消歧与元数据路由；工程情境：资源配额收紧；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-014",
+      "case_family": "family-kev3-holdout-014",
+      "case_type": "filter_boundary",
+      "split": "holdout",
+      "evaluation_group": "redis",
+      "query_text": "只允许检索redis领域的expert_benchmark资料时，哪些证据能直接回答Redis 项目的数据结构、容量和故障恢复证据，哪些相似资料必须排除（分析重点：错误分类与有限恢复；工程情境：流量回切阶段；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "缓存"
+      ],
+      "source_types": [
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "redis_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-015",
+      "case_family": "family-kev3-holdout-015",
+      "case_type": "exact_technical_term",
+      "split": "holdout",
+      "evaluation_group": "relational-database",
+      "query_text": "在后端面试中，如何准确解释“恢复演练”的工作机制、适用边界和验证指标（分析重点：准入拒绝与降级策略；工程情境：异常重试增多；评测领域：relational-database）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "accepted_related_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-016",
+      "case_family": "family-kev3-holdout-016",
+      "case_type": "alias_only",
+      "split": "holdout",
+      "evaluation_group": "rocketmq",
+      "query_text": "面试官提到“消费确认”时具体指什么问题，应怎样设计处理方案并证明它有效（分析重点：跨域消歧与元数据路由；工程情境：资源配额收紧；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "投递语义"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_delivery"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "excluded_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-017",
+      "case_family": "family-kev3-holdout-017",
+      "case_type": "acronym",
+      "split": "holdout",
+      "evaluation_group": "system-design",
+      "query_text": "针对后端系统设计评价基准，SLI 代表什么，如何用它判断架构选择的可观察证据并验证系统设计中的容量、数据流和故障边界证据（分析重点：错误分类与有限恢复；工程情境：流量回切阶段；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "后端架构"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "system_design_backend"
+      ],
+      "accepted_related_chunk_ids": [
+        "capacity_planning"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-018",
+      "case_family": "family-kev3-holdout-018",
+      "case_type": "semantic_paraphrase",
+      "split": "holdout",
+      "evaluation_group": "reliability",
+      "query_text": "系统出现“生产速度长期高于消费速度且队列年龄持续增长”，请给出根因链、控制影响的方法以及恢复后的验证证据。（分析重点：成本、复杂度与可靠性取舍；工程情境：冷启动阶段；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "accepted_related_chunk_ids": [
+        "cascading_failures"
+      ],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-019",
+      "case_family": "family-kev3-holdout-019",
+      "case_type": "chinese_paraphrase",
+      "split": "holdout",
+      "evaluation_group": "fastapi",
+      "query_text": "不用堆砌组件名，请用中文说明请求级 yield 依赖与应用级 lifespan 资源的所有权的因果关系、工程取舍和可观察证据。（分析重点：准入拒绝与降级策略；工程情境：异常重试增多；评测领域：fastapi）？",
+      "canonical_tags": [
+        "fastapi",
+        "python"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "fastapi"
+      ],
+      "primary_relevant_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "accepted_related_chunk_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "excluded_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-020",
+      "case_family": "family-kev3-holdout-020",
+      "case_type": "weak_keyword",
+      "split": "holdout",
+      "evaluation_group": "redis",
+      "query_text": "只得到“幂等”这个模糊线索时，还要追问哪些条件才能定位到Redis 分布式锁的安全边界而不是相邻问题（分析重点：跨域消歧与元数据路由；工程情境：资源配额收紧；评测领域：redis）？",
+      "canonical_tags": [
+        "redis",
+        "分布式锁"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "redis"
+      ],
+      "primary_relevant_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "accepted_related_chunk_ids": [
+        "redis_consistency"
+      ],
+      "excluded_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-021",
+      "case_family": "family-kev3-holdout-021",
+      "case_type": "multi_topic",
+      "split": "holdout",
+      "evaluation_group": "relational-database",
+      "query_text": "如果同时出现大表 DDL 导致锁等待和业务延迟升高，并且还要处理MySQL 后端项目评价基准，怎样划分责任边界并制定联动治理方案（分析重点：冷启动、预热与排空；工程情境：监控告警缺失；评测领域：relational-database）？",
+      "canonical_tags": [
+        "mysql",
+        "在线迁移"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "mysql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "mysql_online_migration",
+        "mysql_backend"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-022",
+      "case_family": "family-kev3-holdout-022",
+      "case_type": "ambiguous",
+      "split": "holdout",
+      "evaluation_group": "rocketmq",
+      "query_text": "“消费重试”容易与服务级联故障与放大链路混淆；在当前后端场景中应依据哪些条件消歧并找到正确证据（分析重点：准入拒绝与降级策略；工程情境：异常重试增多；评测领域：rocketmq）？",
+      "canonical_tags": [
+        "rocketmq",
+        "重试"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "rocketmq"
+      ],
+      "primary_relevant_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "accepted_related_chunk_ids": [
+        "rocketmq_delivery"
+      ],
+      "excluded_chunk_ids": [
+        "cascading_failures"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-023",
+      "case_family": "family-kev3-holdout-023",
+      "case_type": "hard_negative",
+      "split": "holdout",
+      "evaluation_group": "system-design",
+      "query_text": "有人认为只要使用无限队列吸收所有流量就能解决生产速率超过消费速率时的背压和准入控制，这个说法为什么不成立，正确边界是什么（分析重点：跨域消歧与元数据路由；工程情境：资源配额收紧；评测领域：system-design）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-024",
+      "case_family": "family-kev3-holdout-024",
+      "case_type": "cross_domain_confusion",
+      "split": "holdout",
+      "evaluation_group": "reliability",
+      "query_text": "PostgreSQL 高可用切换的恢复边界与热点缓存失效与缓存击穿都可能表现为延迟或失败，如何根据机制、所属边界和观测信号区分二者（分析重点：错误分类与有限恢复；工程情境：流量回切阶段；评测领域：reliability）？",
+      "canonical_tags": [
+        "postgresql",
+        "reliability"
+      ],
+      "source_types": [
+        "theory",
+        "engineering_guide",
+        "expert_benchmark"
+      ],
+      "allowed_domains": [
+        "postgresql"
+      ],
+      "primary_relevant_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    },
+    {
+      "case_id": "kev3-holdout-025",
+      "case_family": "family-kev3-holdout-025",
+      "case_type": "filter_boundary",
+      "split": "holdout",
+      "evaluation_group": "reliability",
+      "query_text": "只允许检索system-design领域的engineering_guide资料时，哪些证据能直接回答峰值 QPS、并发、资源余量和容量校准，哪些相似资料必须排除（分析重点：跨域消歧与元数据路由；工程情境：资源配额收紧；评测领域：reliability）？",
+      "canonical_tags": [
+        "system-design",
+        "reliability"
+      ],
+      "source_types": [
+        "engineering_guide"
+      ],
+      "allowed_domains": [
+        "system-design"
+      ],
+      "primary_relevant_chunk_ids": [
+        "capacity_planning"
+      ],
+      "accepted_related_chunk_ids": [],
+      "excluded_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "annotator_identity_sha256s": [],
+      "annotation_record_sha256s": [],
+      "label_consensus_record_sha256": null,
+      "expected_no_evidence": false,
+      "top_k": 5
+    }
+  ]
+}

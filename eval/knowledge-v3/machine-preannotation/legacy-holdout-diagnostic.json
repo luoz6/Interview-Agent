@@ -1,0 +1,2229 @@
+{
+  "schema_version": "knowledge-eval-artifact-v3",
+  "created_at": "2026-08-13T08:09:45.114039Z",
+  "dataset_version": "knowledge-eval-v3-machine-preannotation-rmqv4-2026-08-13-v1",
+  "dataset_sha256": "8de7f88b14940958ffb0ab9aff4d069fd089f603f5b4e4d57a120d1ddc6b072f",
+  "split": "holdout",
+  "identity": {
+    "engine_version": "compatibility-v1",
+    "code_revision": "187565b74115e7943999a1fb4205ded979eeb1c8",
+    "code_tree_sha256": "a1c257b04219e484ffbcc03ba9a23a4100ba05496c7ace10c02dcf2c34a1a67e",
+    "profile_id": "eval-legacy-v3",
+    "profile_version": "legacy-v1",
+    "profile_sha256": "239bbce5971b307d20bfe6f8ba3a90833d299de38ff325f1b0052ae7f7132164",
+    "provider_name": "siliconflow",
+    "model_name": "BAAI/bge-m3",
+    "model_revision": "siliconflow-bge-m3-rmqv4-2026-08-13",
+    "embedding_dimension": 1024,
+    "corpus_version": "memory-p1-zh-v4",
+    "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84"
+  },
+  "vector_validity_rate": 1.0,
+  "metrics": {
+    "split": "holdout",
+    "engine_version": "compatibility-v1",
+    "case_count": 25,
+    "observation_completeness_rate": 1.0,
+    "filter_correctness_rate": 0.6695652173913044,
+    "vector_validity_rate": 1.0,
+    "recall_at_5": 1.0,
+    "mrr_at_5": 0.9434782608695652,
+    "ndcg_at_5": 0.9204133560122262,
+    "hit_at_1": 0.9130434782608695,
+    "hard_negative_false_positive_rate": 0.5,
+    "no_evidence_precision": 0.0,
+    "no_evidence_recall": 0.0,
+    "no_evidence_f1": 0.0,
+    "evidence_precision_at_5": 0.30434782608695654,
+    "domain_routing_accuracy": 0.6695652173913044,
+    "topic_routing_accuracy": 0.7565217391304347,
+    "cross_channel_contribution_rate": 1.0,
+    "evidence_replay_stability_rate": 1.0,
+    "excluded_chunk_violation_rate": 0.34782608695652173,
+    "p95_latency_ms": 403.171,
+    "semantic_only_win_rate": 1.0,
+    "lexical_only_win_rate": 0.0,
+    "hybrid_win_rate": 0.0,
+    "case_type_counts": {
+      "exact_technical_term": 2,
+      "alias_only": 2,
+      "acronym": 2,
+      "semantic_paraphrase": 2,
+      "chinese_paraphrase": 2,
+      "weak_keyword": 2,
+      "multi_topic": 2,
+      "ambiguous": 2,
+      "hard_negative": 2,
+      "out_of_domain": 1,
+      "no_evidence": 1,
+      "cross_domain_confusion": 2,
+      "metadata_routing_error": 1,
+      "filter_boundary": 2
+    },
+    "case_type_breakdown": {
+      "acronym": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.91311732856428,
+        "evidence_precision_at_5": 0.3,
+        "domain_routing_accuracy": 0.6,
+        "topic_routing_accuracy": 0.6,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "alias_only": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.9388131729348483,
+        "evidence_precision_at_5": 0.4,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "ambiguous": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.5,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 0.6,
+        "ndcg_at_5": 0.6322395765521192,
+        "evidence_precision_at_5": 0.3,
+        "domain_routing_accuracy": 0.8,
+        "topic_routing_accuracy": 0.9,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "chinese_paraphrase": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.91311732856428,
+        "evidence_precision_at_5": 0.3,
+        "domain_routing_accuracy": 0.6,
+        "topic_routing_accuracy": 0.8,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "cross_domain_confusion": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 1.0,
+        "evidence_precision_at_5": 0.2,
+        "domain_routing_accuracy": 0.7,
+        "topic_routing_accuracy": 0.7,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "exact_technical_term": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.5,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 0.75,
+        "ndcg_at_5": 0.8199546640226729,
+        "evidence_precision_at_5": 0.4,
+        "domain_routing_accuracy": 0.7,
+        "topic_routing_accuracy": 0.8,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "filter_boundary": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 1.0,
+        "evidence_precision_at_5": 0.2,
+        "domain_routing_accuracy": 0.2,
+        "topic_routing_accuracy": 0.5,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "hard_negative": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 1.0,
+        "evidence_precision_at_5": 0.2,
+        "domain_routing_accuracy": 0.4,
+        "topic_routing_accuracy": 0.5,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.5,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "metadata_routing_error": {
+        "case_count": 1,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 1.0,
+        "evidence_precision_at_5": 0.2,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "multi_topic": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 1.0,
+        "evidence_precision_at_5": 0.4,
+        "domain_routing_accuracy": 0.8,
+        "topic_routing_accuracy": 0.8,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "no_evidence": {
+        "case_count": 1,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "mrr_at_5": 0.0,
+        "ndcg_at_5": 0.0,
+        "evidence_precision_at_5": 1.0,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "out_of_domain": {
+        "case_count": 1,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "mrr_at_5": 0.0,
+        "ndcg_at_5": 0.0,
+        "evidence_precision_at_5": 1.0,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "semantic_paraphrase": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.972423978279793,
+        "evidence_precision_at_5": 0.4,
+        "domain_routing_accuracy": 0.7,
+        "topic_routing_accuracy": 0.8,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "weak_keyword": {
+        "case_count": 2,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.8950875452226066,
+        "evidence_precision_at_5": 0.3,
+        "domain_routing_accuracy": 0.7,
+        "topic_routing_accuracy": 0.8,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "kev3-holdout-001",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 0.7775678396224976,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 2,
+          "score": 0.7608194506656809,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 3,
+          "score": 0.7220977491765546,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 4,
+          "score": 0.7014976501464845,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 5,
+          "score": 0.6550294683882438,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "system_design_backend",
+        "fastapi_dependency_lifecycle"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 366.511,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-002",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "cache_breakdown",
+          "rank": 1,
+          "score": 0.8107031517801804,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 2,
+          "score": 0.7641435623168946,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 3,
+          "score": 0.7488479585142171,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 4,
+          "score": 0.6958011150360108,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 5,
+          "score": 0.6794046097816413,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "cache_breakdown",
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock"
+      ],
+      "bound_evidence_ids": [
+        "cache_breakdown",
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock"
+      ],
+      "replayed_evidence_ids": [
+        "cache_breakdown",
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock"
+      ],
+      "semantic_hit_ids": [
+        "cache_breakdown",
+        "redis_operations",
+        "redis_backend",
+        "fastapi_production",
+        "cascading_failures"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 374.061,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-003",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 1,
+          "score": 0.8823634743690492,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 2,
+          "score": 0.7083527803421021,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.6348077298528929,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 4,
+          "score": 0.6140606471336283,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_deadlocks",
+          "rank": 5,
+          "score": 0.5617183517385521,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_online_migration",
+        "mysql_backend",
+        "mysql_isolation",
+        "mysql_indexing",
+        "mysql_deadlocks"
+      ],
+      "bound_evidence_ids": [
+        "mysql_online_migration",
+        "mysql_backend",
+        "mysql_isolation",
+        "mysql_indexing",
+        "mysql_deadlocks"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_online_migration",
+        "mysql_backend",
+        "mysql_isolation",
+        "mysql_indexing",
+        "mysql_deadlocks"
+      ],
+      "semantic_hit_ids": [
+        "mysql_online_migration",
+        "mysql_backend",
+        "redis_backend",
+        "redis_operations",
+        "postgresql_ha_failover_boundary"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 334.755,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-004",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 1,
+          "score": 0.8700961232185418,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 2,
+          "score": 0.801366585574544,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 3,
+          "score": 0.7815221119834264,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 4,
+          "score": 0.7804725337310168,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 5,
+          "score": 0.7527682542800951,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_operations",
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_operations",
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_operations",
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_operations",
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 373.013,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-005",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 1,
+          "score": 0.7301618242263794,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 2,
+          "score": 0.6534717464447022,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 3,
+          "score": 0.6158668184280396,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 4,
+          "score": 0.6089357180037677,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 5,
+          "score": 0.6063722968101501,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "cascading_failures",
+        "system_design_backend",
+        "postgresql_monitoring_baseline",
+        "postgresql_connection_saturation",
+        "fastapi_backend"
+      ],
+      "bound_evidence_ids": [
+        "cascading_failures",
+        "system_design_backend",
+        "postgresql_monitoring_baseline",
+        "postgresql_connection_saturation",
+        "fastapi_backend"
+      ],
+      "replayed_evidence_ids": [
+        "cascading_failures",
+        "system_design_backend",
+        "postgresql_monitoring_baseline",
+        "postgresql_connection_saturation",
+        "fastapi_backend"
+      ],
+      "semantic_hit_ids": [
+        "cascading_failures",
+        "system_design_backend",
+        "fastapi_backend",
+        "redis_operations",
+        "redis_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 332.23,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-006",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 1,
+          "score": 0.7780539178848267,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 2,
+          "score": 0.6501492643356324,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 3,
+          "score": 0.6387173318862915,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "service_scaling",
+          "rank": 4,
+          "score": 0.6375355505943299,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 5,
+          "score": 0.6177746057510376,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "cascading_failures",
+        "postgresql_monitoring_baseline",
+        "system_design_backend",
+        "service_scaling",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "cascading_failures",
+        "postgresql_monitoring_baseline",
+        "system_design_backend",
+        "service_scaling",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "cascading_failures",
+        "postgresql_monitoring_baseline",
+        "system_design_backend",
+        "service_scaling",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [
+        "cascading_failures",
+        "redis_operations",
+        "postgresql_monitoring_baseline",
+        "system_design_backend",
+        "service_scaling"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 330.91,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-007",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 1,
+          "score": 0.826375682733995,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.8092572450637818,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 3,
+          "score": 0.7576218605041505,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 4,
+          "score": 0.7264428087008841,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 5,
+          "score": 0.7211874670144163,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 347.452,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-008",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 1,
+          "score": 0.8105374508775813,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.7949870172150733,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 3,
+          "score": 0.7941868281364441,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 4,
+          "score": 0.7348489522933961,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 5,
+          "score": 0.7345533132553101,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "rocketmq_backend",
+        "redis_consistency",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "rocketmq_backend",
+        "redis_consistency",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "rocketmq_backend",
+        "redis_consistency",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_operations",
+        "redis_backend",
+        "rocketmq_delivery",
+        "rocketmq_retry_dead_letter"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 323.305,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-009",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 1,
+          "score": 0.8290842588917278,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 2,
+          "score": 0.6232483386993408,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 3,
+          "score": 0.6075992222071168,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_replica_lag",
+          "rank": 4,
+          "score": 0.6045210957527161,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 5,
+          "score": 0.5993925511655974,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_isolation",
+        "redis_consistency",
+        "postgresql_ha_failover_boundary",
+        "postgresql_replica_lag",
+        "redis_distributed_lock"
+      ],
+      "bound_evidence_ids": [
+        "mysql_isolation",
+        "redis_consistency",
+        "postgresql_ha_failover_boundary",
+        "postgresql_replica_lag",
+        "redis_distributed_lock"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_isolation",
+        "redis_consistency",
+        "postgresql_ha_failover_boundary",
+        "postgresql_replica_lag",
+        "redis_distributed_lock"
+      ],
+      "semantic_hit_ids": [
+        "mysql_isolation",
+        "redis_consistency",
+        "postgresql_ha_failover_boundary",
+        "postgresql_replica_lag",
+        "redis_distributed_lock"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 427.614,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-010",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 0.7287954449653626,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 2,
+          "score": 0.6617902278900147,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6486379265785218,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.6415432726417032,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 5,
+          "score": 0.6273833556542789,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_delivery"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_delivery"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_delivery"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_backend",
+        "redis_backend",
+        "rocketmq_retry_dead_letter",
+        "fastapi_backend",
+        "system_design_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 363.626,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-011",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "service_scaling",
+          "rank": 1,
+          "score": 0.6460540676116944,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 2,
+          "score": 0.5994757795333863,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 3,
+          "score": 0.5613569377235286,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 4,
+          "score": 0.5401940727233887,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 5,
+          "score": 0.5374583005905151,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "capacity_planning",
+        "cascading_failures",
+        "rocketmq_backend"
+      ],
+      "bound_evidence_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "capacity_planning",
+        "cascading_failures",
+        "rocketmq_backend"
+      ],
+      "replayed_evidence_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "capacity_planning",
+        "cascading_failures",
+        "rocketmq_backend"
+      ],
+      "semantic_hit_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "rocketmq_backend",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 349.78,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-012",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_replica_lag",
+          "rank": 1,
+          "score": 0.9348839780619147,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 2,
+          "score": 0.7992380082153099,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 3,
+          "score": 0.7656374549865772,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 4,
+          "score": 0.7553210410667097,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 5,
+          "score": 0.7430631901659495,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_replica_lag",
+        "redis_consistency",
+        "redis_backend",
+        "postgresql_monitoring_baseline",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_replica_lag",
+        "redis_consistency",
+        "redis_backend",
+        "postgresql_monitoring_baseline",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_replica_lag",
+        "redis_consistency",
+        "redis_backend",
+        "postgresql_monitoring_baseline",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_replica_lag",
+        "redis_consistency",
+        "redis_backend",
+        "redis_operations",
+        "postgresql_monitoring_baseline"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 328.837,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-013",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 1,
+          "score": 0.7647396085923563,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.752593591963864,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 3,
+          "score": 0.7336813728429523,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 4,
+          "score": 0.7208606917435552,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 5,
+          "score": 0.7019639135577638,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "redis_backend",
+        "fastapi_blocking_io"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 345.636,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-014",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_backend",
+          "rank": 1,
+          "score": 0.8061607837677052,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.5713122231550359,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 3,
+          "score": 0.5500356286785391,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 4,
+          "score": 0.5255425289596644,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 5,
+          "score": 0.5223209573221786,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_backend",
+        "fastapi_backend",
+        "mysql_backend",
+        "system_design_backend",
+        "rocketmq_backend"
+      ],
+      "bound_evidence_ids": [
+        "redis_backend",
+        "fastapi_backend",
+        "mysql_backend",
+        "system_design_backend",
+        "rocketmq_backend"
+      ],
+      "replayed_evidence_ids": [
+        "redis_backend",
+        "fastapi_backend",
+        "mysql_backend",
+        "system_design_backend",
+        "rocketmq_backend"
+      ],
+      "semantic_hit_ids": [
+        "redis_backend",
+        "fastapi_backend",
+        "mysql_backend",
+        "system_design_backend",
+        "rocketmq_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 344.943,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-015",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 0.7233365349967344,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 2,
+          "score": 0.6928205677026368,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 3,
+          "score": 0.6529166503871512,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "queue_backpressure",
+          "rank": 4,
+          "score": 0.6478674559514198,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 5,
+          "score": 0.6428364706884766,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "redis_backend",
+        "queue_backpressure",
+        "fastapi_backend"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "redis_backend",
+        "queue_backpressure",
+        "fastapi_backend"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "redis_backend",
+        "queue_backpressure",
+        "fastapi_backend"
+      ],
+      "semantic_hit_ids": [
+        "redis_backend",
+        "postgresql_ha_failover_boundary",
+        "fastapi_backend",
+        "mysql_backend",
+        "rocketmq_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 336.91,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-016",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 1,
+          "score": 0.7706863241978703,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 2,
+          "score": 0.7654161214828492,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 3,
+          "score": 0.7633935771349933,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 4,
+          "score": 0.7532129049301148,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.7377495527267457,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_delivery",
+        "rocketmq_backend",
+        "rocketmq_operations",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_delivery",
+        "rocketmq_backend",
+        "rocketmq_operations",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_delivery",
+        "rocketmq_backend",
+        "rocketmq_operations",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_delivery",
+        "rocketmq_backend",
+        "rocketmq_operations",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 403.171,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-017",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 1,
+          "score": 0.7899371767044068,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.6775145530700684,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 3,
+          "score": 0.6696577865089317,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 4,
+          "score": 0.6460960507392883,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 5,
+          "score": 0.6277092695236206,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "system_design_backend",
+        "fastapi_backend",
+        "redis_backend",
+        "rocketmq_backend",
+        "mysql_backend"
+      ],
+      "bound_evidence_ids": [
+        "system_design_backend",
+        "fastapi_backend",
+        "redis_backend",
+        "rocketmq_backend",
+        "mysql_backend"
+      ],
+      "replayed_evidence_ids": [
+        "system_design_backend",
+        "fastapi_backend",
+        "redis_backend",
+        "rocketmq_backend",
+        "mysql_backend"
+      ],
+      "semantic_hit_ids": [
+        "system_design_backend",
+        "fastapi_backend",
+        "redis_backend",
+        "rocketmq_backend",
+        "mysql_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 363.875,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-018",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "queue_backpressure",
+          "rank": 1,
+          "score": 0.7058002336561753,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 2,
+          "score": 0.6580918216705323,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 3,
+          "score": 0.6398890995979309,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.6246410235976574,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 5,
+          "score": 0.6203782558441162,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "queue_backpressure",
+        "cascading_failures",
+        "postgresql_monitoring_baseline",
+        "rocketmq_operations",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "queue_backpressure",
+        "cascading_failures",
+        "postgresql_monitoring_baseline",
+        "rocketmq_operations",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "queue_backpressure",
+        "cascading_failures",
+        "postgresql_monitoring_baseline",
+        "rocketmq_operations",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [
+        "queue_backpressure",
+        "rocketmq_operations",
+        "redis_operations",
+        "cascading_failures",
+        "fastapi_production"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 396.317,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-019",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 1,
+          "score": 0.7953090636524283,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 2,
+          "score": 0.7155906686538858,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 3,
+          "score": 0.7118931356636626,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.6915460519384791,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 5,
+          "score": 0.5632010866165488,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "mysql_backend"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "mysql_backend"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "mysql_backend"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "mysql_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 383.074,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-020",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 1,
+          "score": 0.8563490642205189,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.7403269600478459,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 3,
+          "score": 0.7234253273352798,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 0.7204934942428187,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 5,
+          "score": 0.6109922114310395,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_distributed_lock",
+        "redis_backend",
+        "redis_consistency",
+        "redis_operations",
+        "mysql_isolation"
+      ],
+      "bound_evidence_ids": [
+        "redis_distributed_lock",
+        "redis_backend",
+        "redis_consistency",
+        "redis_operations",
+        "mysql_isolation"
+      ],
+      "replayed_evidence_ids": [
+        "redis_distributed_lock",
+        "redis_backend",
+        "redis_consistency",
+        "redis_operations",
+        "mysql_isolation"
+      ],
+      "semantic_hit_ids": [
+        "redis_distributed_lock",
+        "redis_backend",
+        "redis_consistency",
+        "redis_operations",
+        "mysql_isolation"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 388.339,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-021",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 1,
+          "score": 0.7978207826614381,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 2,
+          "score": 0.7575896739959718,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.7155456258844424,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 4,
+          "score": 0.7149442616138313,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 5,
+          "score": 0.6974744772911072,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_backend",
+        "mysql_online_migration",
+        "mysql_isolation",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "bound_evidence_ids": [
+        "mysql_backend",
+        "mysql_online_migration",
+        "mysql_isolation",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_backend",
+        "mysql_online_migration",
+        "mysql_isolation",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "semantic_hit_ids": [
+        "mysql_backend",
+        "mysql_online_migration",
+        "redis_backend",
+        "fastapi_backend",
+        "postgresql_monitoring_baseline"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 331.248,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-022",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 1,
+          "score": 0.7957458257675172,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 2,
+          "score": 0.7933386325836183,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.7622074246406556,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 4,
+          "score": 0.7468892903989988,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 5,
+          "score": 0.7462206455337628,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_backend",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery",
+        "rocketmq_operations"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_backend",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery",
+        "rocketmq_operations"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_backend",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery",
+        "rocketmq_operations"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_backend",
+        "cascading_failures",
+        "rocketmq_load_balancing",
+        "rocketmq_delivery"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 352.741,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-023",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "queue_backpressure",
+          "rank": 1,
+          "score": 0.7850129015747581,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 2,
+          "score": 0.6486492175668955,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 3,
+          "score": 0.6431220555305481,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 4,
+          "score": 0.6417373082950983,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 5,
+          "score": 0.641018807888031,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "queue_backpressure",
+        "postgresql_connection_saturation",
+        "system_design_backend",
+        "capacity_planning",
+        "rocketmq_load_balancing"
+      ],
+      "bound_evidence_ids": [
+        "queue_backpressure",
+        "postgresql_connection_saturation",
+        "system_design_backend",
+        "capacity_planning",
+        "rocketmq_load_balancing"
+      ],
+      "replayed_evidence_ids": [
+        "queue_backpressure",
+        "postgresql_connection_saturation",
+        "system_design_backend",
+        "capacity_planning",
+        "rocketmq_load_balancing"
+      ],
+      "semantic_hit_ids": [
+        "queue_backpressure",
+        "rocketmq_load_balancing",
+        "fastapi_production",
+        "rocketmq_operations",
+        "postgresql_connection_saturation"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 351.053,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-024",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 1,
+          "score": 0.9128823041915952,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 2,
+          "score": 0.8257734537124686,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 0.7921727657318165,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 4,
+          "score": 0.7784720825238289,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_replica_lag",
+          "rank": 5,
+          "score": 0.7564931068714338,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_monitoring_baseline",
+        "postgresql_replica_lag"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_monitoring_baseline",
+        "postgresql_replica_lag"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_monitoring_baseline",
+        "postgresql_replica_lag"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_ha_failover_boundary",
+        "cache_breakdown",
+        "postgresql_backup_restore_boundary",
+        "fastapi_backend",
+        "redis_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 337.973,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-holdout-025",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 1,
+          "score": 0.6534392714311006,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 2,
+          "score": 0.6068908019727001,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 3,
+          "score": 0.593762608318018,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 4,
+          "score": 0.5758130612484786,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 5,
+          "score": 0.562827255557344,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "capacity_planning",
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "capacity_planning",
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "capacity_planning",
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [
+        "capacity_planning",
+        "postgresql_monitoring_baseline",
+        "redis_operations",
+        "rocketmq_operations",
+        "postgresql_backup_restore_boundary"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 374.539,
+      "reason_codes": []
+    }
+  ],
+  "artifact_sha256": "e8f68ceefc9d22a3540e58a884b6624790965f55f589552226a32df36ed82c7c"
+}

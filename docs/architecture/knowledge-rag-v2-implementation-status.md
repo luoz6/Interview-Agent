@@ -138,6 +138,23 @@ new queries, label them independently while blinded to engine output, measure
 the pre-registered agreement metric, adjudicate, and freeze a separate runnable
 dataset. The holdout files must be controlled by an owner who does not tune
 Hybrid.
+
+A separate machine-preannotation candidate now exists under
+`eval/knowledge-v3/machine-preannotation/`. It fills all 100 query and label
+slots and passes the non-release V3 schema, disjoint-label, 75/25 split,
+case-type coverage, filter-confuser, and semantic-family-isolation checks. It
+truthfully records zero human annotators, no agreement measurement, no human
+adjudication, and ineligibility as independent Eval V3 evidence. The formal V3
+release validator rejects it because governance is absent.
+
+The candidate received real Legacy diagnostics against the fixed RocketMQ V4
+BGE-M3 identity: 75 tuning and 25 machine-holdout embedding calls completed
+with zero retry or provider error. Both splits reached Recall@5 `1.0` and
+replay stability `1.0`. Tuning MRR/NDCG/Hit@1 were `0.872388`, `0.879023`, and
+`0.791045`; machine holdout values were `0.943478`, `0.920413`, and `0.913043`.
+Legacy no-evidence F1 remained `0.0` on both splits, and soft routing produced
+filter correctness of `0.749254` and `0.669565`. These are retained capability
+gaps, not release evidence or authorization to run Hybrid.
 ## Business quality evaluation
 
 Follow-up and Reviewer share the privacy-aware blind A/B contract in

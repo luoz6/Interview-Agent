@@ -1,0 +1,1436 @@
+{
+  "schema_version": "knowledge-eval-v3-machine-preannotation-provenance-v1",
+  "preannotation_version": "knowledge-eval-v3-machine-preannotation-2026-08-13-v1",
+  "dataset_version": "knowledge-eval-v3-machine-preannotation-rmqv4-2026-08-13-v1",
+  "dataset_canonical_sha256": "8de7f88b14940958ffb0ab9aff4d069fd089f603f5b4e4d57a120d1ddc6b072f",
+  "corpus_version": "memory-p1-zh-v4",
+  "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84",
+  "annotation_origin": "single_model_machine_preannotation",
+  "case_count": 100,
+  "human_annotator_count": 0,
+  "human_agreement_measured": false,
+  "human_adjudication_complete": false,
+  "runnable_with_release_gates": false,
+  "eligible_as_independent_eval_evidence": false,
+  "requires_human_review": true,
+  "cases": [
+    {
+      "case_id": "kev3-tuning-001",
+      "slot_id": "kev3-tuning-001",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_request_lifecycle",
+      "related_chunk_id": "fastapi_dependency_lifecycle",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "d2dbbfe15e1938063a5f84fa6490da17ddfe185bb2551c634d66b72cc59d1a3e",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-002",
+      "slot_id": "kev3-tuning-002",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_distributed_lock",
+      "related_chunk_id": "redis_consistency",
+      "confuser_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "semantic_family_key": "b15b6ade63945a81d2c92d8bf526012b54f51fdbed8cf2ed999cf5605573d6bb",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-003",
+      "slot_id": "kev3-tuning-003",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_backup_restore_boundary",
+      "related_chunk_id": "postgresql_ha_failover_boundary",
+      "confuser_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "semantic_family_key": "573f3814271846a63233c757d2070b48487da3079e4618f48d38ed887f3cdc89",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-004",
+      "slot_id": "kev3-tuning-004",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_delivery",
+      "related_chunk_id": "rocketmq_retry_dead_letter",
+      "confuser_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "semantic_family_key": "6bce13fd6887b2586b850f855f9ad871da9cf4f07d96de4ea287b80545e2cc40",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-005",
+      "slot_id": "kev3-tuning-005",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "queue_backpressure",
+      "related_chunk_id": "capacity_planning",
+      "confuser_chunk_ids": [
+        "cascading_failures"
+      ],
+      "semantic_family_key": "cfa2d05515cf047a074c3f1cc77a1786a0dae82ae16a8df677fb5f09429d668d",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-006",
+      "slot_id": "kev3-tuning-006",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_connection_saturation",
+      "related_chunk_id": "postgresql_connection_capacity",
+      "confuser_chunk_ids": [
+        "cascading_failures"
+      ],
+      "semantic_family_key": "765a5be9f4b7516749b75e1099340c7e58f1f412b56c642fd43e70afaaf378af",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-007",
+      "slot_id": "kev3-tuning-007",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_dependency_lifecycle",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "b2394b14a99c8005ebe8302f84f730ebc2a0ec32a09e9f515b32b60fdc446e38",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-008",
+      "slot_id": "kev3-tuning-008",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_consistency",
+      "related_chunk_id": "cache_breakdown",
+      "confuser_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "semantic_family_key": "3495843a7f1dc1e271cd50debededd8adf42b8adc5e675873382ac903a7097dc",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-009",
+      "slot_id": "kev3-tuning-009",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_connection_capacity",
+      "related_chunk_id": "postgresql_connection_saturation",
+      "confuser_chunk_ids": [
+        "capacity_planning"
+      ],
+      "semantic_family_key": "4b0ef5fd6b4813416709a48381d01cb13e9686c83fb7085feebbeb827008dbbe",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-010",
+      "slot_id": "kev3-tuning-010",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_operations",
+        "cascading_failures"
+      ],
+      "semantic_family_key": "6ac9843e702852affb6fe79cb421ba8a69d3f0e4999e1bcef4de1245f6119ddd",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-011",
+      "slot_id": "kev3-tuning-011",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "capacity_planning",
+        "service_scaling",
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "ed94764027be3227ad4032e17cc979e3faff7ddbe61ef802814bd3aeff422a9f",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-012",
+      "slot_id": "kev3-tuning-012",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cascading_failures",
+      "related_chunk_id": "queue_backpressure",
+      "confuser_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_family_key": "f2f9bd9803e521deebad3e4bd6f349fe7ae5396d177308b040ae2182a808fc44",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-013",
+      "slot_id": "kev3-tuning-013",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_blocking_io",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "2b919881704b72f8692411e6bf77c12e6731e9e61d44a61e682c3ca27440846d",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-014",
+      "slot_id": "kev3-tuning-014",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cache_breakdown",
+      "related_chunk_id": "redis_consistency",
+      "confuser_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "semantic_family_key": "1d0ea70bd09e11a0f55f5afbc0236b9caaed704d11bf0e5a882b2ce736dae107",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-015",
+      "slot_id": "kev3-tuning-015",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_deadlocks",
+      "related_chunk_id": "mysql_isolation",
+      "confuser_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "semantic_family_key": "e0066a1af1949d3eee2c81e27dd3ca71b742a51d58d957c8394d2d2d61052674",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-016",
+      "slot_id": "kev3-tuning-016",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_load_balancing",
+      "related_chunk_id": "rocketmq_operations",
+      "confuser_chunk_ids": [
+        "service_scaling"
+      ],
+      "semantic_family_key": "c38e03120358744b45a5307d1e99112dafaa5d1d3d208278f70be060f64a2911",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-017",
+      "slot_id": "kev3-tuning-017",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "capacity_planning",
+      "related_chunk_id": "service_scaling",
+      "confuser_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "2b7255ab07b87d781f87df59323fc36055136f342d08111c2b8ff5ac64f1415d",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-018",
+      "slot_id": "kev3-tuning-018",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_replica_lag",
+      "related_chunk_id": "postgresql_monitoring_baseline",
+      "confuser_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_family_key": "4aa50ff88f09ca8aad110363c18e64a9e3fde8039bf933e468b36ff5ba5b230b",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-019",
+      "slot_id": "kev3-tuning-019",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_production",
+      "related_chunk_id": "fastapi_dependency_lifecycle",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "35faee437489856e98a93a25660483a42efe26f9275566e3a4e79045e7e47dc9",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-020",
+      "slot_id": "kev3-tuning-020",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_operations",
+      "related_chunk_id": "cache_breakdown",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "967fa643d8d546468b5eafa0ede9a03b2ba6fb511dbc583569c1a73855b0c1b5",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-021",
+      "slot_id": "kev3-tuning-021",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_replica_lag",
+      "related_chunk_id": "postgresql_monitoring_baseline",
+      "confuser_chunk_ids": [
+        "redis_consistency"
+      ],
+      "semantic_family_key": "2728143151f1acd5859614772c51d1ce21655c317ee423787a1799446e7ba152",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-022",
+      "slot_id": "kev3-tuning-022",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_operations",
+      "related_chunk_id": "rocketmq_load_balancing",
+      "confuser_chunk_ids": [
+        "redis_operations"
+      ],
+      "semantic_family_key": "74d04650be59d2eeba79ce2cc9061221c0835f96e508b310883b0c294366eaa1",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-023",
+      "slot_id": "kev3-tuning-023",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "service_scaling",
+      "related_chunk_id": "capacity_planning",
+      "confuser_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "semantic_family_key": "118a7c3fd5de497263104425bf78a495291c442c0704a18960b2e591fd5c4daf",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-024",
+      "slot_id": "kev3-tuning-024",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "queue_backpressure",
+        "cascading_failures",
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "e1eb03fcf9dbc3dd9b6d20691b0774cd07c8cfcd300bb154e2d658283c70b7dd",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-025",
+      "slot_id": "kev3-tuning-025",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "fastapi_backend",
+        "fastapi_production"
+      ],
+      "semantic_family_key": "3e462b2c40f8d30d173de856ac0d48ce077e3b3da65ead336791e479077913e4",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-026",
+      "slot_id": "kev3-tuning-026",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_backend",
+      "related_chunk_id": "redis_operations",
+      "confuser_chunk_ids": [
+        "mysql_backend"
+      ],
+      "semantic_family_key": "eeac8dae679a1eb51237bd189ef2c40c0be783942ea1e933ceed063322cd7330",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-027",
+      "slot_id": "kev3-tuning-027",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_isolation",
+      "related_chunk_id": "mysql_deadlocks",
+      "confuser_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "semantic_family_key": "d91bcb364cd0be23a24375758a7fa62e4cc3d4c4347bc3479b5902e4928c2fbc",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-028",
+      "slot_id": "kev3-tuning-028",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_backend",
+      "related_chunk_id": "rocketmq_delivery",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "efc887d8ef8e98241bbf5edfd0c8a972e9482f7beb9d2b3347f1a963703e49f9",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-029",
+      "slot_id": "kev3-tuning-029",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "system_design_backend",
+      "related_chunk_id": "capacity_planning",
+      "confuser_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "semantic_family_key": "ab5007e9812565ad34cff0e94dc4e21659d04b4dcc25f72310c72b05b8152078",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-030",
+      "slot_id": "kev3-tuning-030",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_ha_failover_boundary",
+      "related_chunk_id": "postgresql_backup_restore_boundary",
+      "confuser_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "semantic_family_key": "0325f7eeec10110f8dcd35bbf31953a32667bf3c02b28090796eea00194e4ca4",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-031",
+      "slot_id": "kev3-tuning-031",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_request_lifecycle",
+      "related_chunk_id": "fastapi_dependency_lifecycle",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "15b4d875c82d7212c24f088f1aa8a0b9f714eb27d806059d015fb9002b9148a4",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-032",
+      "slot_id": "kev3-tuning-032",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_distributed_lock",
+      "related_chunk_id": "redis_consistency",
+      "confuser_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "semantic_family_key": "86ae822b8d0d231406311d71271b5dbb4f3ab66867ceacbb6be955db1eec7dad",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-033",
+      "slot_id": "kev3-tuning-033",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_backup_restore_boundary",
+      "related_chunk_id": "postgresql_ha_failover_boundary",
+      "confuser_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "semantic_family_key": "3ea587db3b4bda4ead502b20d49ef74f09f7427ec03882fcc00d5114a4b03a46",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-034",
+      "slot_id": "kev3-tuning-034",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_delivery",
+      "related_chunk_id": "rocketmq_retry_dead_letter",
+      "confuser_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "semantic_family_key": "d1f65e43d2e49b70c9c6ab6ef23dd05a1ac43aa580d202c34f693b2560275b16",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-035",
+      "slot_id": "kev3-tuning-035",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "queue_backpressure",
+      "related_chunk_id": "cascading_failures",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "63d04ca649db22d17d320d6410a14e97bfc5a10ed6a4807fed04f4dfd58373f2",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-036",
+      "slot_id": "kev3-tuning-036",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "capacity_planning",
+      "related_chunk_id": "service_scaling",
+      "confuser_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "0b5a136df79e87e0bc2753145c6de451f6de2d8b0bac40b5d3b6a3057f8e2a15",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-037",
+      "slot_id": "kev3-tuning-037",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_dependency_lifecycle",
+      "related_chunk_id": "fastapi_request_lifecycle",
+      "confuser_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "3613c9369aa208b835d8bb36021e57f90267ab6c8ba05b678ea6a286502f76ed",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-038",
+      "slot_id": "kev3-tuning-038",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "redis_consistency",
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "2c8048cefa06ff014a33ee70872f3c5f2bc7c6be773a8b0d6161352cd0efb581",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-039",
+      "slot_id": "kev3-tuning-039",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "mysql_online_migration",
+        "mysql_backend",
+        "postgresql_backup_restore_boundary"
+      ],
+      "semantic_family_key": "aa86863837b348f6af459cfae8f2fe1b07078ab78c4f2f41f37f77eab4d67a02",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-040",
+      "slot_id": "kev3-tuning-040",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_retry_dead_letter",
+      "related_chunk_id": "rocketmq_delivery",
+      "confuser_chunk_ids": [
+        "cascading_failures"
+      ],
+      "semantic_family_key": "46b9542bde5654c04bd2b9becbaa67de6ebc3f2f56192dc7bfdbad8ab1ce8168",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-041",
+      "slot_id": "kev3-tuning-041",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "capacity_planning",
+      "related_chunk_id": "service_scaling",
+      "confuser_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "22201f46e5665dce1faee6dc9a2755d7243a0a7f8fb9ca39867070a57c7144c9",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-042",
+      "slot_id": "kev3-tuning-042",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_backup_restore_boundary",
+      "related_chunk_id": "postgresql_ha_failover_boundary",
+      "confuser_chunk_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_family_key": "1300e9d2d87009adf05d0c41d80da35ef241bf3bca78e237922d35a85d232f2a",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-043",
+      "slot_id": "kev3-tuning-043",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_blocking_io",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "semantic_family_key": "00a47416f80eca29330306cb1a5ebc6bcbdc155a3da7cc5e5ea08a28ec7d4ffc",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-044",
+      "slot_id": "kev3-tuning-044",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cache_breakdown",
+      "related_chunk_id": "redis_operations",
+      "confuser_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "semantic_family_key": "3191a56aac6edc616d79511b0d2015086670ac2955e694c21d3f88b5e14f3962",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-045",
+      "slot_id": "kev3-tuning-045",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_isolation",
+      "related_chunk_id": "mysql_deadlocks",
+      "confuser_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "semantic_family_key": "ad2c107cc844d48df2870e0ee0e78cbde9e8ab3534e019bb8753630700d52fe9",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-046",
+      "slot_id": "kev3-tuning-046",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_load_balancing",
+      "related_chunk_id": "rocketmq_operations",
+      "confuser_chunk_ids": [
+        "service_scaling"
+      ],
+      "semantic_family_key": "219e459e7ac7012e4728ad79f6dbf6a11ee949f208f075880634299a34d3fe9c",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-047",
+      "slot_id": "kev3-tuning-047",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cascading_failures",
+      "related_chunk_id": "queue_backpressure",
+      "confuser_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_family_key": "00059dbe6ddbc4b62292553fdc9b27cbfb090259c7951a81e1c97bb01664299c",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-048",
+      "slot_id": "kev3-tuning-048",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "service_scaling",
+      "related_chunk_id": "capacity_planning",
+      "confuser_chunk_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "semantic_family_key": "2b89220f2c86ad33f22f2e2e36c2ced96f728ccd6d3fcd8067eae0fdaf43e295",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-049",
+      "slot_id": "kev3-tuning-049",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_production",
+      "related_chunk_id": "fastapi_backend",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "c6334ca8325834f00ac626322ac99bd6f4aad5ebf497dd775cf4c326c677a982",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-050",
+      "slot_id": "kev3-tuning-050",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_operations",
+      "related_chunk_id": "redis_backend",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "ddfbb0e74929dd11288228eb49fe0b9aca7f376966b0291c29e3e6fb2b9b3ef7",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-051",
+      "slot_id": "kev3-tuning-051",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_backend",
+      "related_chunk_id": "mysql_indexing",
+      "confuser_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_family_key": "8c43e27845789328674766a3a8e6a6496f1c54cea9f9a13b37c1faa3a1c1c69f",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-052",
+      "slot_id": "kev3-tuning-052",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_load_balancing"
+      ],
+      "semantic_family_key": "93001e03f41bd9eaa3a74774741c1ed8443a5ba440a3fc3430e075f443d47043",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-053",
+      "slot_id": "kev3-tuning-053",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "service_scaling",
+        "capacity_planning"
+      ],
+      "semantic_family_key": "9731ab766df68e7cf20b5d9fed384a037829c63a0aa595eb3651bf8fd36b1318",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-054",
+      "slot_id": "kev3-tuning-054",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_monitoring_baseline",
+      "related_chunk_id": "postgresql_connection_saturation",
+      "confuser_chunk_ids": [
+        "redis_operations"
+      ],
+      "semantic_family_key": "ca70bf6ed276868f1e96fd7f710c830247c6488cdfac5cc474a4b74566e92035",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-055",
+      "slot_id": "kev3-tuning-055",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_backend",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "system_design_backend"
+      ],
+      "semantic_family_key": "e6de806813a4a7cb825330c7c32ab22b6804136c51eaec1147a82d63c83f5645",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-056",
+      "slot_id": "kev3-tuning-056",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_backend",
+      "related_chunk_id": "redis_operations",
+      "confuser_chunk_ids": [
+        "mysql_backend"
+      ],
+      "semantic_family_key": "3f197b0e0056acfc6536488caa905b9ab1e27f39ae2de21930950da924ae036f",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-057",
+      "slot_id": "kev3-tuning-057",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_ha_failover_boundary",
+      "related_chunk_id": "postgresql_backup_restore_boundary",
+      "confuser_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "semantic_family_key": "aa05e127ac456d4754def6dc603a6a03ea2acc6f95cea423568eafb2c516f335",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-058",
+      "slot_id": "kev3-tuning-058",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_backend",
+      "related_chunk_id": "rocketmq_operations",
+      "confuser_chunk_ids": [
+        "system_design_backend"
+      ],
+      "semantic_family_key": "b7de909a9a9f68234afdd5a8f52b15e060d3d4272662b3bd7e8f16070d80d6ba",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-059",
+      "slot_id": "kev3-tuning-059",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "system_design_backend",
+      "related_chunk_id": "cascading_failures",
+      "confuser_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "semantic_family_key": "4a10e90453cd3fd498ca8ca77de6aec3a0e995e983b747b399ee70e2ceeb7b0c",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-060",
+      "slot_id": "kev3-tuning-060",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_connection_capacity",
+      "related_chunk_id": "postgresql_connection_saturation",
+      "confuser_chunk_ids": [
+        "capacity_planning"
+      ],
+      "semantic_family_key": "d693fd0219f3fdb0a5e414107dc1689eb3e666786408666739b16dde8bb8d835",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-061",
+      "slot_id": "kev3-tuning-061",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_request_lifecycle",
+      "related_chunk_id": "fastapi_dependency_lifecycle",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "9bc92790b79ee880e49144046660df571a416359ab37be024be67f717deaf1d0",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-062",
+      "slot_id": "kev3-tuning-062",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_distributed_lock",
+      "related_chunk_id": "redis_consistency",
+      "confuser_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "semantic_family_key": "58aeee06b67dfd260082482795b15502fd896d34e5cbf6e5816a28ea0cc549e4",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-063",
+      "slot_id": "kev3-tuning-063",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_monitoring_baseline",
+      "related_chunk_id": "postgresql_connection_saturation",
+      "confuser_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "823faf8210ba4bea6412facfda7b6056c3849981f99108620d9ca269c1b4a044",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-064",
+      "slot_id": "kev3-tuning-064",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_delivery",
+      "related_chunk_id": "rocketmq_retry_dead_letter",
+      "confuser_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "semantic_family_key": "cb917ceb37bca818d51ce0fa35a9d5cae1eedd531ebc53305617cfde6b81a1a3",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-065",
+      "slot_id": "kev3-tuning-065",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "queue_backpressure",
+      "related_chunk_id": "capacity_planning",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "6b1b5c36c9987a5ee37796b9bb2e57154e3769ccd9e115905b46f9c9c95f6ab5",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-066",
+      "slot_id": "kev3-tuning-066",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_connection_saturation",
+      "related_chunk_id": "postgresql_connection_capacity",
+      "confuser_chunk_ids": [
+        "cascading_failures"
+      ],
+      "semantic_family_key": "c4893eaaf8d8e72e759f041e1b5f08e967d4123b16b73ee6fccae666b670adfa",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-067",
+      "slot_id": "kev3-tuning-067",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_dependency_lifecycle",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "977be27d9321ce492b6248e69b3d76e19ea60e67270cb9d084a6076ae5142ed0",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-068",
+      "slot_id": "kev3-tuning-068",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_consistency",
+      "related_chunk_id": "cache_breakdown",
+      "confuser_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "semantic_family_key": "788a4d590983142b2bb1d4b0803dddef58ff8910a8766c0d76875658d4347bc3",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-069",
+      "slot_id": "kev3-tuning-069",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_indexing",
+      "related_chunk_id": "mysql_backend",
+      "confuser_chunk_ids": [
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_family_key": "12e4e70083c91147332cf746bf603c0462b24d0af9c3772a9905d148b586a6d1",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-070",
+      "slot_id": "kev3-tuning-070",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_retry_dead_letter",
+      "related_chunk_id": "rocketmq_operations",
+      "confuser_chunk_ids": [
+        "cascading_failures"
+      ],
+      "semantic_family_key": "51ae63757940cdbb521be58a6de8b3309615e7b68524e307796498f560e8aac4",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-071",
+      "slot_id": "kev3-tuning-071",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "capacity_planning",
+      "related_chunk_id": "service_scaling",
+      "confuser_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "2fb5cf1d48c23e39a8c72c95617365bba117d66241522540ec5a0fc7ea24a4b9",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-072",
+      "slot_id": "kev3-tuning-072",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_blocking_io",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "8d4388d34927cd8754335979d36018343492aef8eb1f0971ae6f87c2f9da0ff8",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-073",
+      "slot_id": "kev3-tuning-073",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_connection_capacity",
+      "related_chunk_id": "postgresql_connection_saturation",
+      "confuser_chunk_ids": [
+        "capacity_planning"
+      ],
+      "semantic_family_key": "365bf1065e835733ad77e2939f6fe32d97db5fbb777dd92861e41898ca993fa1",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-074",
+      "slot_id": "kev3-tuning-074",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_load_balancing",
+      "related_chunk_id": "rocketmq_operations",
+      "confuser_chunk_ids": [
+        "service_scaling"
+      ],
+      "semantic_family_key": "299a9e260395abb9e2aef59378c9dd27df4fd940933efca7934da11b00b0ce4b",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-tuning-075",
+      "slot_id": "kev3-tuning-075",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_deadlocks",
+      "related_chunk_id": "mysql_isolation",
+      "confuser_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "semantic_family_key": "d7d0a977961be7375db3523c5cf381be26327d7da3a69d10170228d425f73b54",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-001",
+      "slot_id": "kev3-holdout-001",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_production",
+      "related_chunk_id": "fastapi_dependency_lifecycle",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "4b5fd3eb0c2edd80325c2992d73e6ce9d0d31c62cf343a9a91a69024fb20f4cf",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-002",
+      "slot_id": "kev3-holdout-002",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cache_breakdown",
+      "related_chunk_id": "redis_consistency",
+      "confuser_chunk_ids": [
+        "queue_backpressure"
+      ],
+      "semantic_family_key": "3b9cbff56ee3f849222af592095b421a7467b5c9c50c0fdc16d6cd7a91cb95f7",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-003",
+      "slot_id": "kev3-holdout-003",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_online_migration",
+      "related_chunk_id": "mysql_backend",
+      "confuser_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "semantic_family_key": "4ed882003a284f6a581a2bfacd7b67243c2c698715c07a879b6855982a590e57",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-004",
+      "slot_id": "kev3-holdout-004",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_operations",
+      "related_chunk_id": "rocketmq_load_balancing",
+      "confuser_chunk_ids": [
+        "redis_operations"
+      ],
+      "semantic_family_key": "76fec82667c13a9f6c448ea132d7d115d7616d1d110bd905545eff26fbcb1849",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-005",
+      "slot_id": "kev3-holdout-005",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cascading_failures",
+      "related_chunk_id": "queue_backpressure",
+      "confuser_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_family_key": "68e683c1472288522da70dee71c8dd1d3c4bc0fd4f24c9d44ed8d957d3e59350",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-006",
+      "slot_id": "kev3-holdout-006",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "cascading_failures",
+      "related_chunk_id": "queue_backpressure",
+      "confuser_chunk_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_family_key": "2732db642a7e3968d3240496317b1721d43bd1a56afe3d1e25b9756278800b1d",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-007",
+      "slot_id": "kev3-holdout-007",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_backend",
+      "related_chunk_id": "fastapi_production",
+      "confuser_chunk_ids": [
+        "system_design_backend"
+      ],
+      "semantic_family_key": "e80cfffcf282ed17e4024807ac05cd38c49ffaa1e2299a10c44b9caf1f6f65b8",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-008",
+      "slot_id": "kev3-holdout-008",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_operations",
+      "related_chunk_id": "cache_breakdown",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "6a1b9850263bcdbb980026414a044e92a6af77e9c3082acce397c97792c81fd2",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-009",
+      "slot_id": "kev3-holdout-009",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_isolation",
+      "related_chunk_id": "mysql_deadlocks",
+      "confuser_chunk_ids": [
+        "postgresql_replica_lag"
+      ],
+      "semantic_family_key": "57e10d64786e351842e38a6ad045437f444d065374ba9b54fd0f85e35c910e8a",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-010",
+      "slot_id": "kev3-holdout-010",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "e7c4fb1b744afa4c9a8721d07e000822ed6b0969eb2a9ba1381a1b95141db72d",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-011",
+      "slot_id": "kev3-holdout-011",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": null,
+      "related_chunk_id": null,
+      "confuser_chunk_ids": [
+        "service_scaling",
+        "capacity_planning",
+        "rocketmq_load_balancing"
+      ],
+      "semantic_family_key": "5114c7dff75568e82ec53d2dacaf247a56ab85b929224864dca48fe6faa8c05d",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-012",
+      "slot_id": "kev3-holdout-012",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_replica_lag",
+      "related_chunk_id": "postgresql_monitoring_baseline",
+      "confuser_chunk_ids": [
+        "redis_consistency"
+      ],
+      "semantic_family_key": "1052e6325daf41c6a19c28499beb4d4ed7fe9d213e6aa5048afb4c514ad5a3b5",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-013",
+      "slot_id": "kev3-holdout-013",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_request_lifecycle",
+      "related_chunk_id": "fastapi_dependency_lifecycle",
+      "confuser_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "48820cae3ad65075be8ab4ff409613069d31babe8c9d65423aa548ebf9a992f7",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-014",
+      "slot_id": "kev3-holdout-014",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_backend",
+      "related_chunk_id": "redis_operations",
+      "confuser_chunk_ids": [
+        "redis_operations"
+      ],
+      "semantic_family_key": "84a8a1d37a6afa5920520bb3c26a066d97f312724fe9f9fb51d297f0027d0346",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-015",
+      "slot_id": "kev3-holdout-015",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_backup_restore_boundary",
+      "related_chunk_id": "postgresql_ha_failover_boundary",
+      "confuser_chunk_ids": [
+        "mysql_online_migration"
+      ],
+      "semantic_family_key": "4571609ec93445246af3f5526dd17167a9e3fc94dcdbcec7327a867197dcd16f",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-016",
+      "slot_id": "kev3-holdout-016",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_delivery",
+      "related_chunk_id": "rocketmq_retry_dead_letter",
+      "confuser_chunk_ids": [
+        "redis_distributed_lock"
+      ],
+      "semantic_family_key": "12a4d2fffd57f858788461b4ef1bc493fa62813b3579fbb19feb272321dbbd05",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-017",
+      "slot_id": "kev3-holdout-017",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "system_design_backend",
+      "related_chunk_id": "capacity_planning",
+      "confuser_chunk_ids": [
+        "fastapi_backend"
+      ],
+      "semantic_family_key": "59c3ff1a294ea7a102c2c9170e217836e5d0183049a6e5a92e4d84fe80b6f8e0",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-018",
+      "slot_id": "kev3-holdout-018",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "queue_backpressure",
+      "related_chunk_id": "cascading_failures",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "a8d50efe90afd71c2469bae4c1e39c40410186251d02b7049fe78fb72e64fb77",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-019",
+      "slot_id": "kev3-holdout-019",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "fastapi_dependency_lifecycle",
+      "related_chunk_id": "fastapi_request_lifecycle",
+      "confuser_chunk_ids": [
+        "fastapi_blocking_io"
+      ],
+      "semantic_family_key": "23a456dbe7f12ca9fe28585ae7a07c9528526f12a4ab84d0a3e388b9b3d86c70",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-020",
+      "slot_id": "kev3-holdout-020",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "redis_distributed_lock",
+      "related_chunk_id": "redis_consistency",
+      "confuser_chunk_ids": [
+        "mysql_isolation"
+      ],
+      "semantic_family_key": "21b65eaa87a48abb792168e77d85152d4e38dc190b3c9af698e22ebbee840f82",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-021",
+      "slot_id": "kev3-holdout-021",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "mysql_online_migration",
+      "related_chunk_id": "mysql_backend",
+      "confuser_chunk_ids": [
+        "postgresql_backup_restore_boundary"
+      ],
+      "semantic_family_key": "548afd696eb8075c8882001f5d83cc2a05a6810f13f8695a4691d1ca397e8b1e",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-022",
+      "slot_id": "kev3-holdout-022",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "rocketmq_retry_dead_letter",
+      "related_chunk_id": "rocketmq_delivery",
+      "confuser_chunk_ids": [
+        "cascading_failures"
+      ],
+      "semantic_family_key": "d07d8e72943d93fbfc2d6b5b9e20f2c8942f7d12355524cfc502779d7f362662",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-023",
+      "slot_id": "kev3-holdout-023",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "queue_backpressure",
+      "related_chunk_id": "cascading_failures",
+      "confuser_chunk_ids": [
+        "rocketmq_operations"
+      ],
+      "semantic_family_key": "09e85a15915960d2330b198d1086ffeb21852635673cf19a0933439d64c67401",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-024",
+      "slot_id": "kev3-holdout-024",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "postgresql_ha_failover_boundary",
+      "related_chunk_id": "postgresql_backup_restore_boundary",
+      "confuser_chunk_ids": [
+        "cache_breakdown"
+      ],
+      "semantic_family_key": "a8673409ed17ee46ffd7f08a6b4fc96e8dce1657605cdbb1c851e329d4e79bda",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    },
+    {
+      "case_id": "kev3-holdout-025",
+      "slot_id": "kev3-holdout-025",
+      "annotation_origin": "single_model_machine_preannotation",
+      "target_chunk_id": "capacity_planning",
+      "related_chunk_id": "service_scaling",
+      "confuser_chunk_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "semantic_family_key": "fa091dbd8d022553e4b164a84ce38661df98e34f3c5aa68811ca207e05cfc894",
+      "human_annotators": 0,
+      "human_adjudication_complete": false,
+      "eligible_as_independent_eval_evidence": false
+    }
+  ],
+  "provenance_sha256": "0268952fb9b3400d5ae4f8659b45d0c46c4623a9bf09aea568613b23d9ea7a44"
+}
