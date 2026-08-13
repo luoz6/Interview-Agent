@@ -15,6 +15,8 @@ source_type: theory
 content_kind: mechanism
 tags: [redis, 缓存]
 aliases: [缓存一致性]
+technical_terms: [cache-aside]
+topic: cache-consistency
 difficulty: intermediate
 question_patterns:
   - 缓存和数据库怎样保持一致
@@ -60,6 +62,12 @@ def test_v2_manifest_is_stable_and_separate_from_v1(tmp_path: Path):
     assert [item["chunk_id"] for item in manifest["chunks"]] == ["one", "two"]
     assert all("content_sha256" in item for item in manifest["chunks"])
     assert all("metadata_sha256" in item for item in manifest["chunks"])
+    assert all(
+        item["metadata_schema_version"] == "knowledge-metadata-v2.1"
+        for item in manifest["chunks"]
+    )
+    assert all(item["topic"] == "cache-consistency" for item in manifest["chunks"])
+    assert all(item["technical_terms"] == ["cache-aside"] for item in manifest["chunks"])
     assert all("references" not in item for item in manifest["chunks"])
     assert all("https://" not in str(item) for item in manifest["chunks"])
     assert manifest["coverage"]["schema_version"] == "knowledge-coverage-v1"
@@ -115,7 +123,7 @@ def test_historical_stage44_manifest_excludes_versioned_extensions(
     )
     current = build_manifest_v2(
         root,
-        corpus_version="memory-p1-zh-v3",
+        corpus_version="memory-p1-zh-v4",
     )
 
     assert [item["chunk_id"] for item in historical["chunks"]] == ["one"]

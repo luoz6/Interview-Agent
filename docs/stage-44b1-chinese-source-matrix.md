@@ -110,40 +110,40 @@ Status: APPROVED
 | InnoDB 在线 DDL 能力 | InnoDB 和在线 DDL | https://mysql.net.cn/doc/refman/8.0/en/innodb-online-ddl.html | secondary_cn | MySQL 中文手册镜像 | PASS：中文正文 | PASS：覆盖 ALGORITHM、LOCK、并发、失败和资源边界 |
 | 在线 DDL 算法边界 | InnoDB and Online DDL 读书笔记 | https://www.cnblogs.com/xuliuzai/p/18111648 | secondary_cn | 博客园作者东山絮柳仔 | PASS：中文正文 | PASS：独立覆盖 INSTANT/INPLACE、锁和操作支持范围；业务回填与回滚需另行设计 |
 
-## kafka_backend
+## rocketmq_backend
 
 | 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Kafka 协议与分区基线 | Azure 事件中心中的 Apache Kafka 协议支持 | https://learn.microsoft.com/zh-cn/azure/event-hubs/azure-event-hubs-apache-kafka-overview | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖 Kafka 协议、分区、消费者和兼容性边界 |
-| Kafka 容量与监控 | 使用 Strimzi 为 AKS 上的 Kafka 群集配置监视和网络 | https://learn.microsoft.com/zh-cn/azure/aks/kafka-configure | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖 Kafka 监控、网络和运行指标 |
+| RocketMQ 普通消息与消费基线 | RocketMQ 普通消息 | https://rocketmq.apache.org/zh/docs/featureBehavior/01normalmessage/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：覆盖 Topic、消息投递与消费基本边界 |
+| RocketMQ 重试与死信基线 | RocketMQ 消费者重试策略 | https://rocketmq.apache.org/zh/docs/featureBehavior/10consumerretrypolicy/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：覆盖消费失败、重试次数和死信治理 |
 
-## kafka_delivery
-
-| 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
-| --- | --- | --- | --- | --- | --- | --- |
-| Kafka 事务与幂等写入 | Azure 云上事件中心内的 Apache Kafka 事务 | https://learn.microsoft.com/zh-cn/azure/event-hubs/apache-kafka-transactions | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖事务生产、幂等性、offset 与处理语义边界 |
-| Kafka offset 与客户端约束 | 用于 Apache Kafka 的事件中心常见问题 | https://learn.microsoft.com/zh-cn/azure/event-hubs/apache-kafka-frequently-asked-questions | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖 offset、消费者组和幂等生产者兼容性 |
-
-## kafka_operations
+## rocketmq_delivery
 
 | 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Kafka 消费监控 | 使用 Strimzi 为 AKS 上的 Kafka 群集配置监视和网络 | https://learn.microsoft.com/zh-cn/azure/aks/kafka-configure | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖 Kafka 指标、监控组件和网络观察点 |
-| 事件消费指标 | 监视 Azure 事件中心 | https://learn.microsoft.com/zh-cn/azure/event-hubs/monitor-event-hubs | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖吞吐、延迟、错误、配额与诊断数据 |
+| RocketMQ 至少一次消费边界 | RocketMQ 普通消息 | https://rocketmq.apache.org/zh/docs/featureBehavior/01normalmessage/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：覆盖消息投递、消费结果与重复投递边界 |
+| RocketMQ 重试与幂等边界 | RocketMQ 消费者重试策略 | https://rocketmq.apache.org/zh/docs/featureBehavior/10consumerretrypolicy/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：覆盖消费失败重试；业务副作用仍需幂等保护 |
 
-## kafka_poison_messages
-
-| 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 坏消息隔离与死信 | 服务总线死信队列 | https://learn.microsoft.com/zh-cn/azure/service-bus-messaging/service-bus-dead-letter-queues | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖死信原因、投递计数、检查、重提和审计；Kafka 中需以独立主题实现同类模式 |
-| 重试失败隔离 | 重试模式 | https://learn.microsoft.com/zh-cn/azure/architecture/patterns/retry | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：覆盖瞬时/永久故障分类、有限重试和日志边界 |
-
-## kafka_rebalancing
+## rocketmq_operations
 
 | 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 消费者组、offset 与再平衡 | 事件中心功能和术语 | https://learn.microsoft.com/zh-cn/azure/event-hubs/event-hubs-features | official_cn | Microsoft Learn | PASS：中文官方正文 | PASS：正文明确覆盖消费者组、偏移量和重新平衡 |
-| Kafka 再平衡交叉说明 | 学习 Kafka 入门知识看这一篇就够了 | https://cloud.tencent.com/developer/article/1547380 | secondary_cn | 腾讯云开发者社区作者 | PASS：中文正文 | PASS：独立覆盖消费组、offset 和 rebalance；cooperative 策略只作为后续扩展 |
+| RocketMQ 消费运行状态 | RocketMQ 普通消息 | https://rocketmq.apache.org/zh/docs/featureBehavior/01normalmessage/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：支撑生产/消费速率、积压和消费组运行边界 |
+| RocketMQ 失败消费治理 | RocketMQ 消费者重试策略 | https://rocketmq.apache.org/zh/docs/featureBehavior/10consumerretrypolicy/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：支撑重试量、死信量和失败恢复观测 |
+
+## rocketmq_retry_dead_letter
+
+| 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
+| --- | --- | --- | --- | --- | --- | --- |
+| RocketMQ 有限重试 | RocketMQ 消费者重试策略 | https://rocketmq.apache.org/zh/docs/featureBehavior/10consumerretrypolicy/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：覆盖重试策略、最大重试次数与消费组边界 |
+| RocketMQ 死信消息 | RocketMQ 消费者重试策略 | https://rocketmq.apache.org/zh/docs/featureBehavior/10consumerretrypolicy/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：覆盖超过重试上限后进入死信队列；回放仍需审批、限速和幂等 |
+
+## rocketmq_load_balancing
+
+| 中文主题 | 来源标题 | HTTPS URL | 类型 | 发布方 | 页面语言检查 | 论断一致性检查 |
+| --- | --- | --- | --- | --- | --- | --- |
+| RocketMQ 集群消费与队列分配 | RocketMQ 普通消息 | https://rocketmq.apache.org/zh/docs/featureBehavior/01normalmessage/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：支撑 Topic、消息队列和消费组的集群消费边界 |
+| RocketMQ 故障后的重复处理 | RocketMQ 消费者重试策略 | https://rocketmq.apache.org/zh/docs/featureBehavior/10consumerretrypolicy/ | official_cn | Apache RocketMQ | PASS：中文官方正文 | PASS：支撑重新分配期间在途消息重试和业务幂等要求 |
 
 ## capacity_planning
 
@@ -201,5 +201,6 @@ Memory P1 扩展在用户授权执行计划后完成技术来源复核：以下�
 新增六个版本化扩展单元位于
 `app/data/knowledge_v2/extensions/memory_p1/`。历史
 `stage44b1-zh-v2` 构建显式排除 extensions，继续保持 25 个单元；
-当前 `memory-p1-zh-v3` 构建包含 31 个单元。任何后续来源变化都必须
+当前 `memory-p1-zh-v4` 构建包含 31 个单元，其中消息域的 5 个单元已
+从 Kafka 替换为 RocketMQ。任何后续来源变化都必须
 重新执行 schema、manifest、retrieval 和来源矩阵审查。

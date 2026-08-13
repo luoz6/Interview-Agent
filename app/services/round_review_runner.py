@@ -16,9 +16,12 @@ from app.services.question_evaluations import (
     question_evaluation_from_feedback,
 )
 from app.services.round_review import build_single_question_review_state
-from app.services.runtime import get_session_store, resolve_runtime_llm
+from app.services.runtime import (
+    get_runtime_knowledge_repository as get_knowledge_store,
+    get_session_store,
+    resolve_runtime_llm,
+)
 from app.services.runtime_domain_events import RoundClosedEvent
-from app.adapters.pgvector.repository import get_knowledge_store
 
 
 def run_round_review_event_payload(
@@ -152,6 +155,14 @@ def evaluate_round_review_event(
         evidence_content_sha256=retrieval_metadata.get(
             "evidence_content_sha256"
         ),
+        evaluation_confidence=retrieval_metadata.get("evaluation_confidence"),
+        evidence_availability=retrieval_metadata.get("evidence_availability"),
+        evidence_sufficiency=retrieval_metadata.get("evidence_sufficiency"),
+        evidence_consistency=retrieval_metadata.get("evidence_consistency"),
+        evidence_ids=retrieval_metadata.get("evidence_ids"),
+        gate_reason_codes=retrieval_metadata.get("gate_reason_codes"),
+        evidence_binding_id=retrieval_metadata.get("evidence_binding_id"),
+        review_evidence_binding=retrieval_metadata.get("review_evidence_binding"),
     )
 
 

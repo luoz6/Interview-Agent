@@ -17,13 +17,30 @@ class QuestionEvaluationRowMapper:
     @classmethod
     def to_row(cls, record: QuestionEvaluationRecord) -> dict[str, Any]:
         feedback_json = None
-        if record.feedback is not None:
+        if record.feedback is not None or record.review_evidence_binding is not None:
             feedback_json = {
-                "feedback": record.feedback.model_dump(mode="json"),
+                "feedback": (
+                    record.feedback.model_dump(mode="json")
+                    if record.feedback is not None
+                    else None
+                ),
                 "record_metadata": {
                     "retrieval_path": record.retrieval_path,
                     "degraded_reason": record.degraded_reason,
                     "evidence_content_sha256": record.evidence_content_sha256,
+                    "answer_quality_score": record.answer_quality_score,
+                    "evaluation_confidence": record.evaluation_confidence,
+                    "evidence_availability": record.evidence_availability,
+                    "evidence_sufficiency": record.evidence_sufficiency,
+                    "evidence_consistency": record.evidence_consistency,
+                    "evidence_ids": record.evidence_ids,
+                    "gate_reason_codes": record.gate_reason_codes,
+                    "evidence_binding_id": record.evidence_binding_id,
+                    "review_evidence_binding": (
+                        record.review_evidence_binding.model_dump(mode="json")
+                        if record.review_evidence_binding
+                        else None
+                    ),
                     "review_input_sha256": record.review_input_sha256,
                     "question_input_sha256": record.question_input_sha256,
                     "review_engine": record.review_engine,
@@ -73,6 +90,15 @@ class QuestionEvaluationRowMapper:
             retrieval_path=metadata.get("retrieval_path"),
             degraded_reason=metadata.get("degraded_reason"),
             evidence_content_sha256=metadata.get("evidence_content_sha256") or {},
+            answer_quality_score=metadata.get("answer_quality_score"),
+            evaluation_confidence=metadata.get("evaluation_confidence"),
+            evidence_availability=metadata.get("evidence_availability"),
+            evidence_sufficiency=metadata.get("evidence_sufficiency"),
+            evidence_consistency=metadata.get("evidence_consistency"),
+            evidence_ids=metadata.get("evidence_ids") or [],
+            gate_reason_codes=metadata.get("gate_reason_codes") or [],
+            evidence_binding_id=metadata.get("evidence_binding_id"),
+            review_evidence_binding=metadata.get("review_evidence_binding"),
             review_input_sha256=row.get("review_input_sha256")
             or metadata.get("review_input_sha256"),
             question_input_sha256=row.get("question_input_sha256")

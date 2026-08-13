@@ -15,7 +15,7 @@ QUERYABLE_TOPIC_TAGS = {
     "redis",
     "mysql",
     "postgresql",
-    "kafka",
+    "rocketmq",
     "system-design",
     "reliability",
 }
@@ -25,7 +25,7 @@ QUERY_DOMAIN_LABELS = {
     "redis": "缓存",
     "mysql": "数据库",
     "postgresql": "数据库",
-    "kafka": "消息系统",
+    "rocketmq": "消息系统",
     "system-design": "系统设计",
     "reliability": "可靠性",
 }

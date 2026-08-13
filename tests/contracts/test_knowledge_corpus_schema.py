@@ -36,6 +36,8 @@ source_type: theory
 content_kind: mechanism
 tags: [redis, 缓存, 一致性]
 aliases: [缓存一致性, Cache-Aside]
+technical_terms: [cache-aside, delayed-double-delete]
+topic: cache-consistency
 difficulty: intermediate
 question_patterns:
   - 缓存与数据库如何保持一致？
@@ -66,6 +68,12 @@ def test_v2_document_accepts_complete_chinese_metadata(tmp_path: Path):
 
     assert document.metadata.id == "redis_consistency"
     assert document.metadata.domain == "redis"
+    assert document.metadata.technical_terms == [
+        "cache-aside",
+        "delayed-double-delete",
+    ]
+    assert document.metadata.topic == "cache-consistency"
+    assert document.metadata.metadata_schema_version == "knowledge-metadata-v2.1"
     assert document.metadata.references[0].source_kind == "official_cn"
     assert 300 <= document.chinese_character_count <= 1200
 
@@ -232,7 +240,7 @@ def test_whitelisted_technical_term_does_not_hide_english_prose(tmp_path: Path):
 
 
 def test_pure_technical_identifiers_are_allowed(tmp_path: Path):
-    body = "中文" * 150 + "\nPython FastAPI Redis MySQL PostgreSQL Kafka SQL HTTP HTTPS ASGI Cache-Aside"
+    body = "中文" * 150 + "\nPython FastAPI Redis MySQL PostgreSQL Kafka RocketMQ SQL HTTP HTTPS ASGI Cache-Aside"
     text = replace_body(valid_document(), body)
 
     document = load_knowledge_document_v2(write_document(tmp_path, text))

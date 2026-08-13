@@ -1,7 +1,10 @@
+import inspect
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.shared.dependencies import (
     get_agent_execution_runner,
+    get_prep_knowledge_repository,
     get_prep_plan_store,
     get_prep_question_regenerator,
 )
@@ -21,12 +24,19 @@ router = APIRouter()
 
 
 @router.post("/prep")
-def prep_interview(payload: PrepRequest, plan_store=Depends(get_prep_plan_store)):
+def prep_interview(
+    payload: PrepRequest,
+    plan_store=Depends(get_prep_plan_store),
+    knowledge_store=Depends(get_prep_knowledge_repository),
+):
     try:
+        kwargs = {"execution_runner": get_agent_execution_runner()}
+        if "knowledge_store" in inspect.signature(prepare_interview).parameters:
+            kwargs["knowledge_store"] = knowledge_store
         plan = prepare_interview(
             payload.job_description,
             payload.resume_text,
-            execution_runner=get_agent_execution_runner(),
+            **kwargs,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

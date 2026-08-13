@@ -15,6 +15,10 @@ from app.services.agent_runtime import AgentExecutionContext
 from app.services.interview_generation_store import ChunkCoalescer
 from app.services.interview_generation_store import GenerationAlreadyCompleted
 from app.services.knowledge_binding import resolve_evidence_by_ids
+from app.application.knowledge.followup_gap_service import (
+    FollowupGapService,
+    append_followup_gap_message,
+)
 from app.adapters.reliability.runtime_failure import (
     RuntimeFailure,
     classify_runtime_failure,
@@ -108,6 +112,7 @@ class DurableInterviewGraphDependencies:
     generation_store: Any | None = None
     examiner: Any | None = None
     knowledge_repository: Any | None = None
+    followup_gap_service: FollowupGapService | None = None
     report_job_queue: Any | None = None
     context_builder: Callable[[DurableInterviewState], list[dict[str, str]]] | None = None
     context_runtime: ContextRuntime | None = None
@@ -296,6 +301,7 @@ def generate_followup(state, deps) -> dict:
             else _build_examiner_context(
                 state,
                 deps.knowledge_repository,
+                deps.followup_gap_service,
                 deps.context_runtime,
             )
         )
@@ -329,6 +335,7 @@ def generate_followup(state, deps) -> dict:
                     ) = _build_examiner_context_selection(
                         state,
                         deps.knowledge_repository,
+                        deps.followup_gap_service,
                         deps.context_runtime,
                     )
                 question_memory_enabled = (
@@ -729,11 +736,13 @@ def _recent_conversation_selection(
 def _build_examiner_context(
     state,
     repository,
+    followup_gap_service: FollowupGapService | None = None,
     context_runtime: ContextRuntime | None = None,
 ) -> list[dict[str, str]]:
     return _build_examiner_context_selection(
         state,
         repository,
+        followup_gap_service,
         context_runtime,
     )[0]
 
@@ -741,6 +750,7 @@ def _build_examiner_context(
 def _build_examiner_context_selection(
     state,
     repository,
+    followup_gap_service: FollowupGapService | None = None,
     context_runtime: ContextRuntime | None = None,
 ) -> tuple[list[dict[str, str]], ContextSelectionStats]:
     question = _current_question(state)
@@ -756,7 +766,12 @@ def _build_examiner_context_selection(
         ),
     )
     if resolution.retrieval_path == "bound_evidence_ids":
-        evidence_messages = resolution.messages
+        evidence_messages = append_followup_gap_message(
+            resolution.messages,
+            candidate_answer=_latest_candidate_answer(state, question["id"]),
+            bound_references=resolution.references,
+            service=followup_gap_service,
+        )
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
         recent, stats = _recent_conversation_selection(state, context_runtime)
         return [*recent, *evidence_messages], ContextSelectionStats(
@@ -788,6 +803,18 @@ def _build_examiner_context_selection(
         model=model,
     )
     return context, stats
+
+
+def _latest_candidate_answer(state, question_id: str) -> str:
+    return next(
+        (
+            str(message.get("content") or "")
+            for message in reversed(state["messages"])
+            if message.get("role") == "candidate"
+            and message.get("question_id") == question_id
+        ),
+        "",
+    )
 
 
 def build_durable_interview_graph(

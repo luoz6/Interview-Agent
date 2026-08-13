@@ -23,13 +23,13 @@ ALLOWED_TAXONOMY: dict[str, frozenset[str]] = {
         {"backend", "frontend", "fullstack", "data", "platform", "mobile", "qa", "security"}
     ),
     "focus_topic": frozenset(
-        {"python", "java", "sql", "fastapi", "redis", "mysql", "postgresql", "kafka", "system-design", "reliability"}
+        {"python", "java", "sql", "fastapi", "redis", "mysql", "postgresql", "kafka", "rocketmq", "system-design", "reliability"}
     ),
     "confirmed_skill": frozenset(
-        {"python", "java", "sql", "fastapi", "redis", "mysql", "postgresql", "kafka", "system-design", "reliability"}
+        {"python", "java", "sql", "fastapi", "redis", "mysql", "postgresql", "kafka", "rocketmq", "system-design", "reliability"}
     ),
     "learning_goal": frozenset(
-        {"python", "java", "sql", "fastapi", "redis", "mysql", "postgresql", "kafka", "system-design", "reliability"}
+        {"python", "java", "sql", "fastapi", "redis", "mysql", "postgresql", "kafka", "rocketmq", "system-design", "reliability"}
     ),
     "accessibility_preference": frozenset(
         {"reduced_motion", "high_contrast", "keyboard_only", "screen_reader", "extra_time", "text_only"}

@@ -24,6 +24,7 @@ from app.services.report import (
 from app.services.report_microbatch import (
     MicrobatchReportUnavailable,
     ReportMicrobatchStats,
+    finalize_report_with_microbatch_feedback,
     generate_microbatch_report,
 )
 from app.services.report_runtime_quality import evaluate_runtime_report_quality
@@ -274,6 +275,14 @@ class QuestionEvaluationService:
                 "retrieval_path": record.retrieval_path,
                 "degraded_reason": record.degraded_reason,
                 "evidence_content_sha256": dict(record.evidence_content_sha256),
+                "evaluation_confidence": record.evaluation_confidence,
+                "evidence_availability": record.evidence_availability,
+                "evidence_sufficiency": record.evidence_sufficiency,
+                "evidence_consistency": record.evidence_consistency,
+                "evidence_ids": list(record.evidence_ids),
+                "gate_reason_codes": list(record.gate_reason_codes),
+                "evidence_binding_id": record.evidence_binding_id,
+                "review_evidence_binding": record.review_evidence_binding,
             }
             for record in store.list_question_evaluations(session_id)
         }
@@ -301,6 +310,30 @@ class QuestionEvaluationService:
                 evidence_content_sha256=metadata.get(
                     feedback.question_id, {}
                 ).get("evidence_content_sha256"),
+                evaluation_confidence=metadata.get(feedback.question_id, {}).get(
+                    "evaluation_confidence"
+                ),
+                evidence_availability=metadata.get(feedback.question_id, {}).get(
+                    "evidence_availability"
+                ),
+                evidence_sufficiency=metadata.get(feedback.question_id, {}).get(
+                    "evidence_sufficiency"
+                ),
+                evidence_consistency=metadata.get(feedback.question_id, {}).get(
+                    "evidence_consistency"
+                ),
+                evidence_ids=metadata.get(feedback.question_id, {}).get(
+                    "evidence_ids"
+                ),
+                gate_reason_codes=metadata.get(feedback.question_id, {}).get(
+                    "gate_reason_codes"
+                ),
+                evidence_binding_id=metadata.get(feedback.question_id, {}).get(
+                    "evidence_binding_id"
+                ),
+                review_evidence_binding=metadata.get(
+                    feedback.question_id, {}
+                ).get("review_evidence_binding"),
             )
             for feedback in report.feedbacks
         ]
@@ -330,6 +363,15 @@ class QuestionEvaluationService:
             }
         if all(path == "legacy_semantic_search" for path in paths):
             return {"knowledge_path": "legacy_semantic_search"}
+        if all(
+            path in {"bound_evidence_ids", "bound_evidence_plus_targeted"}
+            for path in paths
+        ) and any(path == "bound_evidence_plus_targeted" for path in paths):
+            return {
+                "knowledge_path": "bound_evidence_with_targeted_supplementation"
+            }
+        if all(path == "targeted_retrieval" for path in paths):
+            return {"knowledge_path": "targeted_retrieval"}
         return {"knowledge_path": "mixed"}
 
 
@@ -370,6 +412,11 @@ class ReportGenerationPipeline:
             execution_runner=execution_runner,
             attempt_number=attempt_number,
         )
+        # Reject malformed aggregate output before the full-session
+        # compatibility path derives records from it. Existing microbatch
+        # records are already authoritative and intentionally remain reusable.
+        # The locked report is checked again below because record reuse may
+        # intentionally replace aggregate score fields.
         self._quality_policy.validate(
             assembly.report,
             expected_question_count=len(state["plan"].questions),
@@ -381,11 +428,20 @@ class ReportGenerationPipeline:
             report=assembly.report,
             full_session_retrieval=assembly.full_session_retrieval,
         )
+        report = finalize_report_with_microbatch_feedback(
+            assembly.report,
+            records,
+        )
+        self._quality_policy.validate(
+            report,
+            expected_question_count=len(state["plan"].questions),
+            progress=progress,
+        )
         progress.complete(
             {
                 **assembly.path_metadata,
                 **self._question_evaluations.knowledge_path_metadata(records),
             }
         )
-        store.save_report(session_id, assembly.report)
-        return assembly.report
+        store.save_report(session_id, report)
+        return report

@@ -6,8 +6,8 @@ from app.services.knowledge_query import build_knowledge_queries
 
 def test_build_queries_is_deterministic_and_has_stable_unique_ids():
     profile = build_role_profile(
-        "Senior Backend Engineer building FastAPI, Redis, Kafka, and PostgreSQL services.",
-        "Delivered FastAPI APIs with Redis and Kafka.",
+        "Senior Backend Engineer building FastAPI, Redis, RocketMQ, and PostgreSQL services.",
+        "Delivered FastAPI APIs with Redis and RocketMQ.",
     )
 
     first = build_knowledge_queries(profile)
@@ -18,7 +18,7 @@ def test_build_queries_is_deterministic_and_has_stable_unique_ids():
         "topic-fastapi",
         "topic-redis",
         "topic-postgresql",
-        "topic-kafka",
+        "topic-rocketmq",
     ]
     assert len({query.query_id for query in first}) == len(first)
     assert all(query.query_id.startswith("kq-") for query in first)
@@ -26,7 +26,7 @@ def test_build_queries_is_deterministic_and_has_stable_unique_ids():
         ["fastapi"],
         ["redis"],
         ["postgresql"],
-        ["kafka"],
+        ["rocketmq"],
     ]
 
 

@@ -99,7 +99,7 @@ def test_evaluation_group_domain_mapping_is_explicit():
         "fastapi": {"python", "fastapi"},
         "redis": {"redis"},
         "relational-database": {"mysql", "postgresql"},
-        "kafka": {"kafka"},
+        "rocketmq": {"rocketmq"},
         "system-design": {"system-design"},
         "reliability": {"reliability", "system-design", "postgresql"},
     }
@@ -113,7 +113,7 @@ def test_memory_p1_dataset_has_18_balanced_cases_with_current_manifest_ids():
         manifest=manifest,
     )
 
-    assert dataset.version == "memory-p1-knowledge-retrieval-v3"
+    assert dataset.version == "memory-p1-knowledge-retrieval-v4"
     assert len(dataset.cases) == 18
     counts = {group: 0 for group in EVALUATION_GROUP_DOMAIN_MAP}
     for case in dataset.cases:
@@ -122,7 +122,7 @@ def test_memory_p1_dataset_has_18_balanced_cases_with_current_manifest_ids():
 
 
 def test_pilot_has_12_cases_and_two_cases_per_group_with_manifest_ids():
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest = json.loads(MEMORY_P1_MANIFEST_PATH.read_text(encoding="utf-8"))
     dataset = load_knowledge_retrieval_dataset_v2(
         PILOT_PATH,
         expected_case_count=12,
@@ -147,7 +147,7 @@ def test_pilot_has_12_cases_and_two_cases_per_group_with_manifest_ids():
 
 
 def test_pilot_exclusions_are_cross_domain_filter_controls():
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest = json.loads(MEMORY_P1_MANIFEST_PATH.read_text(encoding="utf-8"))
     dataset = load_knowledge_retrieval_dataset_v2(
         PILOT_PATH,
         expected_case_count=12,
@@ -184,7 +184,7 @@ def test_v2_loader_rejects_wrong_case_count(tmp_path):
         load_knowledge_retrieval_dataset_v2(
             path,
             expected_case_count=12,
-            manifest=json.loads(MANIFEST_PATH.read_text(encoding="utf-8")),
+            manifest=json.loads(MEMORY_P1_MANIFEST_PATH.read_text(encoding="utf-8")),
         )
 
 
@@ -206,7 +206,7 @@ def test_v2_loader_rejects_uneven_evaluation_groups(tmp_path):
         load_knowledge_retrieval_dataset_v2(
             path,
             expected_case_count=12,
-            manifest=json.loads(MANIFEST_PATH.read_text(encoding="utf-8")),
+            manifest=json.loads(MEMORY_P1_MANIFEST_PATH.read_text(encoding="utf-8")),
         )
 
 

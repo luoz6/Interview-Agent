@@ -1,0 +1,434 @@
+{
+  "cases": [
+    {
+      "bound_evidence_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "case_id": "fastapi-request-lifecycle",
+      "latency_ms": 405.299,
+      "replayed_evidence_ids": [
+        "fastapi_request_lifecycle"
+      ],
+      "retrieved_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle"
+      ],
+      "scores": {
+        "fastapi_blocking_io": 0.694192,
+        "fastapi_dependency_lifecycle": 0.683843,
+        "fastapi_request_lifecycle": 0.859161
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "fastapi_blocking_io"
+      ],
+      "case_id": "fastapi-blocking-io",
+      "latency_ms": 374.339,
+      "replayed_evidence_ids": [
+        "fastapi_blocking_io"
+      ],
+      "retrieved_ids": [
+        "fastapi_blocking_io",
+        "fastapi_request_lifecycle",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "scores": {
+        "fastapi_blocking_io": 0.775657,
+        "fastapi_dependency_lifecycle": 0.561336,
+        "fastapi_production": 0.557533,
+        "fastapi_request_lifecycle": 0.596117
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "case_id": "fastapi-dependency-cleanup",
+      "latency_ms": 763.426,
+      "replayed_evidence_ids": [
+        "fastapi_dependency_lifecycle"
+      ],
+      "retrieved_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_request_lifecycle"
+      ],
+      "scores": {
+        "fastapi_blocking_io": 0.744633,
+        "fastapi_dependency_lifecycle": 0.788993,
+        "fastapi_request_lifecycle": 0.736303
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "redis_consistency"
+      ],
+      "case_id": "redis-consistency",
+      "latency_ms": 327.631,
+      "replayed_evidence_ids": [
+        "redis_consistency"
+      ],
+      "retrieved_ids": [
+        "redis_consistency",
+        "cache_breakdown",
+        "redis_operations",
+        "redis_distributed_lock"
+      ],
+      "scores": {
+        "cache_breakdown": 0.695112,
+        "redis_consistency": 0.718275,
+        "redis_distributed_lock": 0.527787,
+        "redis_operations": 0.557658
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "cache_breakdown"
+      ],
+      "case_id": "redis-hot-key-breakdown",
+      "latency_ms": 437.232,
+      "replayed_evidence_ids": [
+        "cache_breakdown"
+      ],
+      "retrieved_ids": [
+        "cache_breakdown",
+        "redis_consistency",
+        "redis_operations",
+        "redis_distributed_lock"
+      ],
+      "scores": {
+        "cache_breakdown": 0.798962,
+        "redis_consistency": 0.672958,
+        "redis_distributed_lock": 0.578243,
+        "redis_operations": 0.629245
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "redis_distributed_lock"
+      ],
+      "case_id": "redis-lock-release",
+      "latency_ms": 804.899,
+      "replayed_evidence_ids": [
+        "redis_distributed_lock"
+      ],
+      "retrieved_ids": [
+        "redis_distributed_lock",
+        "redis_consistency",
+        "cache_breakdown"
+      ],
+      "scores": {
+        "cache_breakdown": 0.557697,
+        "redis_consistency": 0.703656,
+        "redis_distributed_lock": 0.833973
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "mysql_indexing"
+      ],
+      "case_id": "mysql-covering-index",
+      "latency_ms": 346.25,
+      "replayed_evidence_ids": [
+        "mysql_indexing"
+      ],
+      "retrieved_ids": [
+        "mysql_indexing",
+        "mysql_deadlocks",
+        "mysql_backend",
+        "mysql_isolation"
+      ],
+      "scores": {
+        "mysql_backend": 0.52065,
+        "mysql_deadlocks": 0.53368,
+        "mysql_indexing": 0.76243,
+        "mysql_isolation": 0.506798
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "mysql_deadlocks"
+      ],
+      "case_id": "mysql-deadlock",
+      "latency_ms": 343.58,
+      "replayed_evidence_ids": [
+        "mysql_deadlocks"
+      ],
+      "retrieved_ids": [
+        "mysql_deadlocks",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "mysql_indexing"
+      ],
+      "scores": {
+        "mysql_deadlocks": 0.899135,
+        "mysql_indexing": 0.467508,
+        "mysql_isolation": 0.622127,
+        "mysql_online_migration": 0.543744
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "case_id": "postgresql-connection-capacity",
+      "latency_ms": 333.016,
+      "replayed_evidence_ids": [
+        "postgresql_connection_capacity"
+      ],
+      "retrieved_ids": [
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_monitoring_baseline",
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary"
+      ],
+      "scores": {
+        "postgresql_backup_restore_boundary": 0.630177,
+        "postgresql_connection_capacity": 0.820484,
+        "postgresql_connection_saturation": 0.726037,
+        "postgresql_ha_failover_boundary": 0.66984,
+        "postgresql_monitoring_baseline": 0.672308
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "case_id": "rocketmq-delivery",
+      "latency_ms": 406.662,
+      "replayed_evidence_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "retrieved_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_backend"
+      ],
+      "scores": {
+        "rocketmq_backend": 0.692058,
+        "rocketmq_delivery": 0.771871,
+        "rocketmq_load_balancing": 0.724329,
+        "rocketmq_retry_dead_letter": 0.78621
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "case_id": "rocketmq-retry-dead-letter",
+      "latency_ms": 283.121,
+      "replayed_evidence_ids": [
+        "rocketmq_retry_dead_letter"
+      ],
+      "retrieved_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations"
+      ],
+      "scores": {
+        "rocketmq_delivery": 0.781927,
+        "rocketmq_load_balancing": 0.74864,
+        "rocketmq_operations": 0.733157,
+        "rocketmq_retry_dead_letter": 0.910032
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "case_id": "rocketmq-load-balancing-boundary",
+      "latency_ms": 298.081,
+      "replayed_evidence_ids": [
+        "rocketmq_load_balancing"
+      ],
+      "retrieved_ids": [
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_delivery"
+      ],
+      "scores": {
+        "rocketmq_delivery": 0.731296,
+        "rocketmq_load_balancing": 0.856166,
+        "rocketmq_retry_dead_letter": 0.736434
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "service_scaling"
+      ],
+      "case_id": "service-scaling",
+      "latency_ms": 360.434,
+      "replayed_evidence_ids": [
+        "service_scaling"
+      ],
+      "retrieved_ids": [
+        "service_scaling",
+        "capacity_planning",
+        "queue_backpressure",
+        "cascading_failures",
+        "system_design_backend"
+      ],
+      "scores": {
+        "capacity_planning": 0.635905,
+        "cascading_failures": 0.630465,
+        "queue_backpressure": 0.630563,
+        "service_scaling": 0.769721,
+        "system_design_backend": 0.547562
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "queue_backpressure"
+      ],
+      "case_id": "queue-backpressure",
+      "latency_ms": 530.092,
+      "replayed_evidence_ids": [
+        "queue_backpressure"
+      ],
+      "retrieved_ids": [
+        "queue_backpressure",
+        "capacity_planning",
+        "cascading_failures",
+        "service_scaling"
+      ],
+      "scores": {
+        "capacity_planning": 0.536236,
+        "cascading_failures": 0.478796,
+        "queue_backpressure": 0.69596,
+        "service_scaling": 0.454873
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "cascading_failures"
+      ],
+      "case_id": "system-design-retry-amplification",
+      "latency_ms": 342.69,
+      "replayed_evidence_ids": [
+        "cascading_failures"
+      ],
+      "retrieved_ids": [
+        "cascading_failures",
+        "queue_backpressure",
+        "service_scaling"
+      ],
+      "scores": {
+        "cascading_failures": 0.783387,
+        "queue_backpressure": 0.649757,
+        "service_scaling": 0.568633
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "capacity_planning"
+      ],
+      "case_id": "capacity-planning",
+      "latency_ms": 440.456,
+      "replayed_evidence_ids": [
+        "capacity_planning"
+      ],
+      "retrieved_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "service_scaling",
+        "queue_backpressure",
+        "cascading_failures"
+      ],
+      "scores": {
+        "capacity_planning": 0.762589,
+        "cascading_failures": 0.552917,
+        "queue_backpressure": 0.570324,
+        "service_scaling": 0.570727,
+        "system_design_backend": 0.578874
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "cascading_failures"
+      ],
+      "case_id": "cascading-failure",
+      "latency_ms": 351.711,
+      "replayed_evidence_ids": [
+        "cascading_failures"
+      ],
+      "retrieved_ids": [
+        "cascading_failures",
+        "queue_backpressure",
+        "service_scaling"
+      ],
+      "scores": {
+        "cascading_failures": 0.826734,
+        "queue_backpressure": 0.652023,
+        "service_scaling": 0.555668
+      },
+      "status": "completed"
+    },
+    {
+      "bound_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "case_id": "postgresql-failover-recovery",
+      "latency_ms": 315.931,
+      "replayed_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "retrieved_ids": [
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_connection_capacity",
+        "postgresql_replica_lag"
+      ],
+      "scores": {
+        "postgresql_backup_restore_boundary": 0.761876,
+        "postgresql_connection_capacity": 0.720338,
+        "postgresql_connection_saturation": 0.756179,
+        "postgresql_ha_failover_boundary": 0.787465,
+        "postgresql_replica_lag": 0.719288
+      },
+      "status": "completed"
+    }
+  ],
+  "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84",
+  "corpus_version": "memory-p1-zh-v4",
+  "dataset_version": "memory-p1-knowledge-retrieval-v4",
+  "metrics": {
+    "evidence_replay_stability_rate": 1.0,
+    "excluded_chunk_violation_rate": 0.0,
+    "failed_gates": [],
+    "filter_correctness_rate": 1.0,
+    "mrr_at_5": 0.9722222222222222,
+    "ndcg_at_5": 0.9581125683541415,
+    "observation_completeness_rate": 1.0,
+    "p95_latency_ms": 804.899,
+    "passed": true,
+    "recall_at_5": 1.0,
+    "vector_validity_rate": 1.0
+  },
+  "model": "BAAI/bge-m3",
+  "model_revision": "siliconflow-bge-m3-rmqv4-2026-08-13",
+  "provider": "siliconflow",
+  "warmup_ms": 0.0
+}

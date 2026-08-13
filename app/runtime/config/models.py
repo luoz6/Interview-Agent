@@ -49,8 +49,87 @@ class WorkerRuntimeSettings:
 
 
 @dataclass(frozen=True)
+class KnowledgeProfileBudget:
+    semantic_timeout_ms: int
+    lexical_timeout_ms: int
+    rerank_timeout_ms: int
+    total_timeout_ms: int
+    absolute_p95_budget_ms: int
+    max_relative_p95_multiplier: float = 1.25
+
+    def safe_summary(self) -> dict[str, int | float]:
+        return {
+            "semantic_timeout_ms": self.semantic_timeout_ms,
+            "lexical_timeout_ms": self.lexical_timeout_ms,
+            "rerank_timeout_ms": self.rerank_timeout_ms,
+            "total_timeout_ms": self.total_timeout_ms,
+            "absolute_p95_budget_ms": self.absolute_p95_budget_ms,
+            "max_relative_p95_multiplier": self.max_relative_p95_multiplier,
+        }
+
+
+@dataclass(frozen=True)
 class KnowledgeRuntimeSettings:
     minimum_score: float
+    engine: str = "legacy"
+    hybrid_rollout_percent: int = 0
+    assignment_version: str = "knowledge-assignment-v1"
+    shadow_enabled: bool = False
+    semantic_enabled: bool = True
+    lexical_enabled: bool = True
+    remote_reranker_enabled: bool = False
+    evidence_gate_enabled: bool = True
+    rrf_k: int = 60
+    semantic_weight: float = 1.0
+    lexical_weight: float = 1.0
+    profile_prep: str = "prep@hybrid-v1"
+    profile_followup: str = "followup@hybrid-v1"
+    profile_question_review: str = "question-review@hybrid-v1"
+    profile_report_repair: str = "report-repair@hybrid-v1"
+    prep_budget: KnowledgeProfileBudget = field(
+        default_factory=lambda: KnowledgeProfileBudget(1200, 400, 300, 1500, 1500)
+    )
+    followup_budget: KnowledgeProfileBudget = field(
+        default_factory=lambda: KnowledgeProfileBudget(600, 250, 200, 800, 800)
+    )
+    question_review_budget: KnowledgeProfileBudget = field(
+        default_factory=lambda: KnowledgeProfileBudget(900, 350, 250, 1200, 1200)
+    )
+    report_repair_budget: KnowledgeProfileBudget = field(
+        default_factory=lambda: KnowledgeProfileBudget(900, 350, 250, 1200, 1200)
+    )
+    retrieval_engine_version: str = "hybrid-v2"
+    fusion_version: str = "weighted-rrf-v1"
+    reranker_version: str = "deterministic-v1"
+    evidence_gate_version: str = "retrieval-gate-v1"
+    taxonomy_version: str = "pilot-v1"
+
+    def safe_summary(self) -> dict[str, object]:
+        return {
+            "engine": self.engine,
+            "hybrid_rollout_percent": self.hybrid_rollout_percent,
+            "assignment_version": self.assignment_version,
+            "shadow_enabled": self.shadow_enabled,
+            "semantic_enabled": self.semantic_enabled,
+            "lexical_enabled": self.lexical_enabled,
+            "remote_reranker_enabled": self.remote_reranker_enabled,
+            "evidence_gate_enabled": self.evidence_gate_enabled,
+            "profile_prep": self.profile_prep,
+            "profile_followup": self.profile_followup,
+            "profile_question_review": self.profile_question_review,
+            "profile_report_repair": self.profile_report_repair,
+            "profile_budgets": {
+                "prep": self.prep_budget.safe_summary(),
+                "followup": self.followup_budget.safe_summary(),
+                "question_review": self.question_review_budget.safe_summary(),
+                "report_repair": self.report_repair_budget.safe_summary(),
+            },
+            "retrieval_engine_version": self.retrieval_engine_version,
+            "fusion_version": self.fusion_version,
+            "reranker_version": self.reranker_version,
+            "evidence_gate_version": self.evidence_gate_version,
+            "taxonomy_version": self.taxonomy_version,
+        }
 
 
 @dataclass(frozen=True)
@@ -120,4 +199,5 @@ class EffectiveRuntimeConfig:
                 self.credentials.siliconflow_configured
             ),
             "memory_schema_version": self.memory.schema_version,
+            "knowledge": self.knowledge.safe_summary(),
         }

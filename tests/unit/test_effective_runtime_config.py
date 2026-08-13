@@ -13,6 +13,8 @@ from app.runtime.config import (
     use_environment,
 )
 from app.runtime.config.compatibility import get_runtime_store
+from app.application.knowledge.retrieval_profiles import resolve_runtime_profile
+from app.domain.knowledge.retrieval import RetrievalIntent
 
 def test_effective_config_can_be_built_from_an_explicit_mapping():
     config = load_effective_runtime_config(
@@ -103,3 +105,83 @@ def test_effective_config_repr_and_summary_do_not_expose_credentials_or_dsns():
 def test_effective_config_rejects_invalid_values(loader, environment, message):
     with pytest.raises(ValueError, match=message):
         loader(environment)
+
+
+def test_knowledge_v2_settings_are_unified_and_safe_to_summarize():
+    settings = load_knowledge_runtime_settings(
+        {
+            "KNOWLEDGE_ENGINE": "hybrid-v2",
+            "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "5",
+            "KNOWLEDGE_ASSIGNMENT_VERSION": "assignment-v2",
+            "KNOWLEDGE_REMOTE_RERANKER_ENABLED": "false",
+        }
+    )
+    assert settings.engine == "hybrid-v2"
+    assert settings.hybrid_rollout_percent == 5
+    assert settings.assignment_version == "assignment-v2"
+    assert settings.safe_summary()["retrieval_engine_version"] == "hybrid-v2"
+    assert settings.safe_summary()["profile_budgets"]["followup"][
+        "absolute_p95_budget_ms"
+    ] == 800
+
+
+def test_knowledge_profiles_keep_independent_runtime_budgets():
+    settings = load_knowledge_runtime_settings(
+        {
+            "KNOWLEDGE_PREP_TOTAL_TIMEOUT_MS": "1400",
+            "KNOWLEDGE_PREP_ABSOLUTE_P95_BUDGET_MS": "1500",
+            "KNOWLEDGE_FOLLOWUP_TOTAL_TIMEOUT_MS": "700",
+            "KNOWLEDGE_FOLLOWUP_ABSOLUTE_P95_BUDGET_MS": "800",
+        }
+    )
+
+    prep = resolve_runtime_profile(RetrievalIntent.PREP, settings)
+    followup = resolve_runtime_profile(RetrievalIntent.FOLLOWUP, settings)
+
+    assert prep.total_timeout_ms == 1400
+    assert followup.total_timeout_ms == 700
+    assert prep.semantic_timeout_ms != followup.semantic_timeout_ms
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {"KNOWLEDGE_FOLLOWUP_TOTAL_TIMEOUT_MS": "500"},
+        {
+            "KNOWLEDGE_FOLLOWUP_TOTAL_TIMEOUT_MS": "900",
+            "KNOWLEDGE_FOLLOWUP_ABSOLUTE_P95_BUDGET_MS": "800",
+        },
+        {"KNOWLEDGE_FOLLOWUP_MAX_RELATIVE_P95_MULTIPLIER": "0.9"},
+    ],
+)
+def test_knowledge_profile_budget_configuration_fails_closed(environment):
+    with pytest.raises(ValueError, match="FOLLOWUP"):
+        load_knowledge_runtime_settings(environment)
+
+
+def test_knowledge_v2_settings_fail_closed_on_invalid_rollout_or_engine():
+    with pytest.raises(ValueError, match="legacy or hybrid-v2"):
+        load_knowledge_runtime_settings({"KNOWLEDGE_ENGINE": "experimental"})
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        load_knowledge_runtime_settings({
+            "KNOWLEDGE_ENGINE": "hybrid-v2",
+            "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "101",
+        })
+    with pytest.raises(ValueError, match="requires KNOWLEDGE_ENGINE"):
+        load_knowledge_runtime_settings({"KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "1"})
+    with pytest.raises(ValueError, match="Shadow requires"):
+        load_knowledge_runtime_settings({"KNOWLEDGE_SHADOW_ENABLED": "true"})
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        load_knowledge_runtime_settings(
+            {
+                "KNOWLEDGE_ENGINE": "hybrid-v2",
+                "KNOWLEDGE_SHADOW_ENABLED": "true",
+                "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "1",
+            }
+        )
+    with pytest.raises(ValueError, match="<profile-id>@<version>"):
+        load_knowledge_runtime_settings({"KNOWLEDGE_PROFILE_PREP": "prep"})
+    with pytest.raises(ValueError, match="ranking-gap evidence gate"):
+        load_knowledge_runtime_settings(
+            {"KNOWLEDGE_REMOTE_RERANKER_ENABLED": "true"}
+        )

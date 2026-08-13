@@ -33,3 +33,16 @@ def test_static_knowledge_store_supports_bound_id_lookup():
     assert [item.chunk_id for item in result.found] == ["preview-theory-1"]
     assert result.missing == ["missing"]
     assert result.version_mismatch == []
+
+
+def test_static_knowledge_store_honors_explicit_domain_filter():
+    store = StaticKnowledgeStore()
+
+    result = store.search(
+        "preview",
+        job_tags=["general"],
+        domains=["interview"],
+        limit=5,
+    )
+
+    assert [item.chunk_id for item in result] == ["preview-theory-1"]

@@ -1,5 +1,5 @@
 {
-  "version": "memory-p1-knowledge-retrieval-v3",
+  "version": "memory-p1-knowledge-retrieval-v4",
   "cases": [
     {
       "case_id": "fastapi-request-lifecycle",
@@ -10,7 +10,7 @@
       "allowed_domains": ["fastapi"],
       "primary_relevant_chunk_ids": ["fastapi_request_lifecycle"],
       "accepted_related_chunk_ids": ["fastapi_dependency_lifecycle"],
-      "excluded_chunk_ids": ["kafka_delivery"],
+      "excluded_chunk_ids": ["rocketmq_delivery"],
       "top_k": 5
     },
     {
@@ -46,7 +46,7 @@
       "allowed_domains": ["redis"],
       "primary_relevant_chunk_ids": ["redis_consistency"],
       "accepted_related_chunk_ids": ["redis_operations"],
-      "excluded_chunk_ids": ["kafka_delivery"],
+      "excluded_chunk_ids": ["rocketmq_delivery"],
       "top_k": 5
     },
     {
@@ -110,38 +110,38 @@
       "top_k": 5
     },
     {
-      "case_id": "kafka-delivery",
-      "evaluation_group": "kafka",
-      "query_text": "Kafka 至少一次投递下如何避免重复副作用？",
-      "canonical_tags": ["kafka", "delivery"],
+      "case_id": "rocketmq-delivery",
+      "evaluation_group": "rocketmq",
+      "query_text": "RocketMQ 至少一次投递下如何避免重复副作用？",
+      "canonical_tags": ["rocketmq", "delivery"],
       "source_types": ["theory", "expert_benchmark"],
-      "allowed_domains": ["kafka"],
-      "primary_relevant_chunk_ids": ["kafka_delivery"],
-      "accepted_related_chunk_ids": ["kafka_backend"],
+      "allowed_domains": ["rocketmq"],
+      "primary_relevant_chunk_ids": ["rocketmq_delivery"],
+      "accepted_related_chunk_ids": ["rocketmq_backend"],
       "excluded_chunk_ids": ["redis_consistency"],
       "top_k": 5
     },
     {
-      "case_id": "kafka-poison-message",
-      "evaluation_group": "kafka",
-      "query_text": "坏消息反复失败导致分区阻塞时应如何处理？",
-      "canonical_tags": ["kafka", "retry"],
+      "case_id": "rocketmq-retry-dead-letter",
+      "evaluation_group": "rocketmq",
+      "query_text": "RocketMQ 消息反复消费失败时如何限制重试并治理死信？",
+      "canonical_tags": ["rocketmq", "retry"],
       "source_types": ["theory", "engineering_guide"],
-      "allowed_domains": ["kafka"],
-      "primary_relevant_chunk_ids": ["kafka_poison_messages"],
-      "accepted_related_chunk_ids": ["kafka_operations"],
+      "allowed_domains": ["rocketmq"],
+      "primary_relevant_chunk_ids": ["rocketmq_retry_dead_letter"],
+      "accepted_related_chunk_ids": ["rocketmq_operations"],
       "excluded_chunk_ids": ["cascading_failures"],
       "top_k": 5
     },
     {
-      "case_id": "kafka-rebalance-boundary",
-      "evaluation_group": "kafka",
-      "query_text": "Kafka 消费者再平衡为什么会造成暂停，如何减少重复处理和抖动？",
-      "canonical_tags": ["kafka", "consumer-group"],
+      "case_id": "rocketmq-load-balancing-boundary",
+      "evaluation_group": "rocketmq",
+      "query_text": "RocketMQ 消费组扩缩容时如何减少队列重新分配造成的暂停和重复？",
+      "canonical_tags": ["rocketmq", "consumer-group"],
       "source_types": ["theory"],
-      "allowed_domains": ["kafka"],
-      "primary_relevant_chunk_ids": ["kafka_rebalancing"],
-      "accepted_related_chunk_ids": ["kafka_delivery"],
+      "allowed_domains": ["rocketmq"],
+      "primary_relevant_chunk_ids": ["rocketmq_load_balancing"],
+      "accepted_related_chunk_ids": ["rocketmq_delivery"],
       "excluded_chunk_ids": ["postgresql_replica_lag"],
       "top_k": 5
     },
@@ -166,7 +166,7 @@
       "allowed_domains": ["system-design"],
       "primary_relevant_chunk_ids": ["queue_backpressure"],
       "accepted_related_chunk_ids": ["capacity_planning"],
-      "excluded_chunk_ids": ["kafka_poison_messages"],
+      "excluded_chunk_ids": ["rocketmq_retry_dead_letter"],
       "top_k": 5
     },
     {

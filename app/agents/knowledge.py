@@ -7,6 +7,7 @@ from app.services.knowledge_grounding import (
     degraded_grounding,
     provider_knowledge_context,
     retrieve_grounding,
+    supplement_question_grounding,
 )
 from app.services.knowledge_profile import build_role_profile
 from app.services.knowledge_query import build_knowledge_queries
@@ -51,7 +52,11 @@ class KnowledgeAgent:
         queries = build_knowledge_queries(role_profile)
         try:
             repository = vector_store or self._default_vector_store()
-            grounding = retrieve_grounding(queries, repository)
+            grounding = retrieve_grounding(
+                queries,
+                repository,
+                prep_run_id=prep_run_id,
+            )
         except Exception:
             grounding = degraded_grounding(queries, "knowledge_unavailable")
         plan = validate_launchable_interview_plan(
@@ -61,6 +66,13 @@ class KnowledgeAgent:
                 resume_text=resume_text,
                 knowledge_context=provider_knowledge_context(grounding),
             )
+        )
+        grounding = supplement_question_grounding(
+            plan,
+            role_profile=role_profile,
+            result=grounding,
+            repository=repository,
+            prep_run_id=prep_run_id,
         )
         grounded_plan = attach_grounded_prep_context(
             plan,

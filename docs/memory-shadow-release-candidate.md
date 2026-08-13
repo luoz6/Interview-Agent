@@ -1,5 +1,9 @@
 # Memory Shadow Release Candidate Record
 
+> Historical release-candidate snapshot: the `memory-p1-zh-v3` corpus below is
+> superseded by the active `memory-p1-zh-v4` RocketMQ corpus. No v4 production
+> promotion is implied by this historical record.
+
 Status: `MEMORY_SHADOW_RC=REPRODUCIBLE`.
 
 This record is a Release Candidate preparation artifact. It is not a production

@@ -38,8 +38,17 @@ class FakeRepository:
             score=0.91,
         )
 
-    def search(self, query_text, *, job_tags, source_types=None, limit=5):
+    def search(
+        self,
+        query_text,
+        *,
+        job_tags,
+        source_types=None,
+        domains=None,
+        limit=5,
+    ):
         assert "缓存" in query_text
+        assert domains == ["redis"]
         assert limit == 5
         return [self.chunk]
 

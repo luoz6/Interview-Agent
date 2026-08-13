@@ -5,10 +5,14 @@ from app.services.job_tags import extract_job_tags
 
 def test_extract_job_tags_matches_known_keywords():
     tags = extract_job_tags(
-        "Backend role using Python, FastAPI, Redis, PostgreSQL and Kafka."
+        "Backend role using Python, FastAPI, Redis, PostgreSQL and RocketMQ."
     )
 
-    assert tags == ["python", "fastapi", "redis", "postgresql", "kafka"]
+    assert tags == ["python", "fastapi", "redis", "postgresql", "rocketmq"]
+
+
+def test_extract_job_tags_keeps_legacy_kafka_compatibility():
+    assert extract_job_tags("Legacy backend role using Kafka.") == ["kafka"]
 
 
 def test_extract_job_tags_returns_general_when_no_match():

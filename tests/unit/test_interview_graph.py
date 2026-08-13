@@ -15,6 +15,8 @@ from app.services.prep import (
     PrepQuestionHint,
 )
 from app.services.knowledge_binding import KnowledgeBindingResolver
+from app.application.knowledge.followup_gap_service import FollowupGapService
+from app.domain.knowledge.knowledge_unit import KnowledgeUnit
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.report import InterviewReport
 from tests.unit.test_knowledge_binding_resolver import make_repository, make_v2_plan
@@ -336,9 +338,9 @@ def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles()
     state = runner.start(
         session_id="s-v2-evidence",
         plan=make_v2_plan(),
-        job_description="Redis and Kafka role",
-        resume_text="Built Redis and Kafka services",
-        job_tags=["redis", "kafka"],
+        job_description="Redis and RocketMQ role",
+        resume_text="Built Redis and RocketMQ services",
+        job_tags=["redis", "rocketmq"],
     )
 
     result = runner.submit_answer(state, "I update the database and delete the cache.")
@@ -354,9 +356,49 @@ def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles()
         "I update the database and delete the cache."
     )
     assert "Redis internal consistency evidence" in captured_context[3]["content"]
-    assert "Kafka internal delivery evidence" not in str(captured_context)
+    assert "RocketMQ internal delivery evidence" not in str(captured_context)
     assert resolver.last_resolution.retrieval_path == "bound_evidence_ids"
     assert repository.search_calls == 0
+
+
+def test_v2_runner_adds_safe_answer_gap_after_bound_evidence():
+    captured_context = []
+
+    class Agent:
+        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
+            captured_context.extend(context)
+            return "How do you verify lock ownership before release?"
+
+    class UnitResolver:
+        def resolve(self, references):
+            assert [item.chunk_id for item in references] == ["redis_consistency"]
+            return KnowledgeUnit(
+                knowledge_unit_id="redis-lock",
+                domain="redis",
+                topic="lock",
+                technical_terms=("expire", "delete"),
+                expected_signals=("owner token", "atomic compare-and-delete"),
+                follow_up_triggers=("probe ownership verification",),
+            )
+
+    runner = InterviewGraphRunner(
+        examiner=Agent(),
+        knowledge_binding_resolver=KnowledgeBindingResolver(make_repository()),
+        followup_gap_service=FollowupGapService(UnitResolver()),
+    )
+    state = runner.start(
+        session_id="s-v2-gap",
+        plan=make_v2_plan(),
+        job_description="Redis role",
+        resume_text="Built Redis",
+        job_tags=["redis"],
+    )
+
+    runner.submit_answer(state, "I set expire and then delete the lock.")
+
+    gap = next(item for item in captured_context if item["role"] == "knowledge_gap")
+    assert '"target_signal":"owner token"' in gap["content"]
+    assert "Redis internal consistency evidence" not in gap["content"]
 
 
 def test_examiner_trace_uses_current_command_not_previous_state_command():

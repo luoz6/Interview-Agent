@@ -9,6 +9,7 @@ from app.runtime.config.models import (
     CoreRuntimeSettings,
     EffectiveRuntimeConfig,
     KnowledgeRuntimeSettings,
+    KnowledgeProfileBudget,
     LLMRuntimeSettings,
     ProviderCredentialSettings,
     ReportGraphRuntimeSettings,
@@ -266,12 +267,140 @@ def _load_worker_runtime_settings() -> WorkerRuntimeSettings:
 
 
 def _load_knowledge_runtime_settings() -> KnowledgeRuntimeSettings:
+    env = process_environment()
+    engine = env.get("KNOWLEDGE_ENGINE", "legacy").strip().lower()
+    if engine not in {"legacy", "hybrid-v2"}:
+        raise ValueError("KNOWLEDGE_ENGINE must be legacy or hybrid-v2")
+    assignment_version = env.get(
+        "KNOWLEDGE_ASSIGNMENT_VERSION", "knowledge-assignment-v1"
+    ).strip()
+    if not assignment_version:
+        raise ValueError("KNOWLEDGE_ASSIGNMENT_VERSION must not be blank")
+    rollout_percent = _percent(env, "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT", 0)
+    shadow_enabled = _strict_bool(env, "KNOWLEDGE_SHADOW_ENABLED", False)
+    remote_reranker_enabled = _strict_bool(
+        env, "KNOWLEDGE_REMOTE_RERANKER_ENABLED", False
+    )
+    if rollout_percent and engine != "hybrid-v2":
+        raise ValueError("knowledge Hybrid rollout requires KNOWLEDGE_ENGINE=hybrid-v2")
+    if shadow_enabled and engine != "hybrid-v2":
+        raise ValueError("knowledge Shadow requires KNOWLEDGE_ENGINE=hybrid-v2")
+    if shadow_enabled and rollout_percent:
+        raise ValueError(
+            "knowledge Shadow and non-zero Hybrid rollout are mutually exclusive"
+        )
+    if remote_reranker_enabled:
+        raise ValueError(
+            "knowledge remote reranker is blocked until the ranking-gap evidence gate passes"
+        )
+    component_versions = {
+        "retrieval_engine_version": env.get(
+            "KNOWLEDGE_RETRIEVAL_ENGINE_VERSION", "hybrid-v2"
+        ).strip(),
+        "fusion_version": env.get(
+            "KNOWLEDGE_FUSION_VERSION", "weighted-rrf-v1"
+        ).strip(),
+        "reranker_version": env.get(
+            "KNOWLEDGE_RERANKER_VERSION", "deterministic-v1"
+        ).strip(),
+        "evidence_gate_version": env.get(
+            "KNOWLEDGE_EVIDENCE_GATE_VERSION", "retrieval-gate-v1"
+        ).strip(),
+        "taxonomy_version": env.get(
+            "KNOWLEDGE_TAXONOMY_VERSION", "pilot-v1"
+        ).strip(),
+    }
+    if any(not value for value in component_versions.values()):
+        raise ValueError("knowledge component versions must not be blank")
+    profile_values = {
+        "profile_prep": env.get("KNOWLEDGE_PROFILE_PREP", "prep@hybrid-v1").strip(),
+        "profile_followup": env.get(
+            "KNOWLEDGE_PROFILE_FOLLOWUP", "followup@hybrid-v1"
+        ).strip(),
+        "profile_question_review": env.get(
+            "KNOWLEDGE_PROFILE_QUESTION_REVIEW", "question-review@hybrid-v1"
+        ).strip(),
+        "profile_report_repair": env.get(
+            "KNOWLEDGE_PROFILE_REPORT_REPAIR", "report-repair@hybrid-v1"
+        ).strip(),
+    }
+    if any(
+        "@" not in value
+        or not value.rpartition("@")[0]
+        or not value.rpartition("@")[2]
+        for value in profile_values.values()
+    ):
+        raise ValueError("knowledge profiles must use <profile-id>@<version>")
+
+    def profile_budget(prefix: str, defaults: tuple[int, int, int, int, int]):
+        semantic, lexical, rerank, total, p95 = defaults
+        budget = KnowledgeProfileBudget(
+            semantic_timeout_ms=_positive_int(
+                env, f"KNOWLEDGE_{prefix}_SEMANTIC_TIMEOUT_MS", semantic
+            ),
+            lexical_timeout_ms=_positive_int(
+                env, f"KNOWLEDGE_{prefix}_LEXICAL_TIMEOUT_MS", lexical
+            ),
+            rerank_timeout_ms=_positive_int(
+                env, f"KNOWLEDGE_{prefix}_RERANK_TIMEOUT_MS", rerank
+            ),
+            total_timeout_ms=_positive_int(
+                env, f"KNOWLEDGE_{prefix}_TOTAL_TIMEOUT_MS", total
+            ),
+            absolute_p95_budget_ms=_positive_int(
+                env, f"KNOWLEDGE_{prefix}_ABSOLUTE_P95_BUDGET_MS", p95
+            ),
+            max_relative_p95_multiplier=_positive_float(
+                env, f"KNOWLEDGE_{prefix}_MAX_RELATIVE_P95_MULTIPLIER", 1.25
+            ),
+        )
+        if max(
+            budget.semantic_timeout_ms,
+            budget.lexical_timeout_ms,
+            budget.rerank_timeout_ms,
+        ) > budget.total_timeout_ms:
+            raise ValueError(
+                f"KNOWLEDGE_{prefix} channel timeouts must not exceed total timeout"
+            )
+        if budget.total_timeout_ms > budget.absolute_p95_budget_ms:
+            raise ValueError(
+                f"KNOWLEDGE_{prefix} total timeout must not exceed absolute P95 budget"
+            )
+        if budget.max_relative_p95_multiplier < 1:
+            raise ValueError(
+                f"KNOWLEDGE_{prefix} relative P95 multiplier must be at least 1"
+            )
+        return budget
+
     return KnowledgeRuntimeSettings(
         minimum_score=_finite_float(
-            process_environment(),
+            env,
             "KNOWLEDGE_MIN_SCORE",
             0.45,
-        )
+        ),
+        engine=engine,
+        hybrid_rollout_percent=rollout_percent,
+        assignment_version=assignment_version,
+        shadow_enabled=shadow_enabled,
+        semantic_enabled=_strict_bool(env, "KNOWLEDGE_SEMANTIC_ENABLED", True),
+        lexical_enabled=_strict_bool(env, "KNOWLEDGE_LEXICAL_ENABLED", True),
+        remote_reranker_enabled=remote_reranker_enabled,
+        evidence_gate_enabled=_strict_bool(
+            env, "KNOWLEDGE_EVIDENCE_GATE_ENABLED", True
+        ),
+        rrf_k=_positive_int(env, "KNOWLEDGE_RRF_K", 60),
+        semantic_weight=_positive_float(env, "KNOWLEDGE_SEMANTIC_WEIGHT", 1.0),
+        lexical_weight=_positive_float(env, "KNOWLEDGE_LEXICAL_WEIGHT", 1.0),
+        prep_budget=profile_budget("PREP", (1200, 400, 300, 1500, 1500)),
+        followup_budget=profile_budget("FOLLOWUP", (600, 250, 200, 800, 800)),
+        question_review_budget=profile_budget(
+            "QUESTION_REVIEW", (900, 350, 250, 1200, 1200)
+        ),
+        report_repair_budget=profile_budget(
+            "REPORT_REPAIR", (900, 350, 250, 1200, 1200)
+        ),
+        **profile_values,
+        **component_versions,
     )
 
 
@@ -306,6 +435,13 @@ def _non_negative_int(env: Mapping[str, str], name: str, default: int) -> int:
     value = _integer(env, name, default)
     if value < 0:
         raise ValueError(f"{name} must be non-negative")
+    return value
+
+
+def _percent(env: Mapping[str, str], name: str, default: int) -> int:
+    value = _integer(env, name, default)
+    if value < 0 or value > 100:
+        raise ValueError(f"{name} must be between 0 and 100")
     return value
 
 

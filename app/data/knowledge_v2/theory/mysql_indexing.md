@@ -6,6 +6,8 @@ source_type: theory
 content_kind: mechanism
 tags: [mysql, 索引, 查询优化]
 aliases: [最左前缀, 覆盖索引]
+technical_terms: [leftmost-prefix, covering-index, b-tree]
+topic: indexing
 difficulty: beginner
 question_patterns:
   - 如何利用联合索引和覆盖索引减少回表？

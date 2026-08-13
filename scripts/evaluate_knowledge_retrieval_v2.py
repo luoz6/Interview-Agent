@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -42,12 +43,7 @@ def evaluate_knowledge_retrieval_v2(
         started_at = perf_counter()
         status = "completed"
         try:
-            raw_chunks = repository.search(
-                case.query_text,
-                job_tags=case.canonical_tags,
-                source_types=case.source_types,
-                limit=case.top_k,
-            )
+            raw_chunks = _search_repository(repository, case)
             chunks = [
                 chunk
                 if isinstance(chunk, KnowledgeChunk)
@@ -180,6 +176,28 @@ def _active_corpus_version(repository) -> str:
         return getter() or ""
     except Exception:
         return ""
+
+
+def _search_repository(repository, case):
+    """Pass V2 domain constraints while retaining legacy test-double support."""
+
+    search = repository.search
+    kwargs = {
+        "job_tags": case.canonical_tags,
+        "source_types": case.source_types,
+        "limit": case.top_k,
+    }
+    try:
+        parameters = inspect.signature(search).parameters.values()
+    except (TypeError, ValueError):
+        parameters = ()
+    if any(
+        parameter.name == "domains"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    ):
+        kwargs["domains"] = case.allowed_domains
+    return search(case.query_text, **kwargs)
 
 
 def main() -> int:

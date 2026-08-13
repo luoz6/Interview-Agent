@@ -1,3 +1,4 @@
+from hashlib import sha256
 import json
 
 from app.agents.knowledge import KnowledgeAgent
@@ -36,7 +37,7 @@ def make_chunk(
         domain=domain,
         tags=tags,
         metadata={
-            "content_sha256": (chunk_id[0] * 64),
+            "content_sha256": sha256(chunk_id.encode("utf-8")).hexdigest(),
             "corpus_manifest_sha256": MANIFEST_HASH,
             "content_kind": "mechanism",
         },
@@ -58,8 +59,8 @@ class GroundedPlanLLM:
                 InterviewQuestion(
                     id="q2",
                     kind="technical",
-                    prompt="Explain Kafka delivery and retries.",
-                    focus="Kafka delivery",
+                    prompt="Explain RocketMQ delivery and retries.",
+                    focus="RocketMQ delivery",
                 ),
                 InterviewQuestion(
                     id="q3",
@@ -102,10 +103,10 @@ def make_repository() -> InMemoryKnowledgeRepository:
                 source_type="expert_benchmark",
             ),
             make_chunk(
-                "kafka_delivery",
-                title="Kafka Delivery Semantics",
-                domain="kafka",
-                tags=["kafka", "delivery"],
+                "rocketmq_delivery",
+                title="RocketMQ Delivery Semantics",
+                domain="rocketmq",
+                tags=["rocketmq", "delivery"],
                 score=0.93,
             ),
         ]
@@ -117,8 +118,8 @@ def test_grounded_agent_binds_each_question_to_relevant_trusted_candidates():
     llm = GroundedPlanLLM()
 
     plan = KnowledgeAgent(llm=llm, vector_store=repository).generate_plan(
-        job_description="Backend Engineer using Redis and Kafka.",
-        resume_text="Built Redis caching and Kafka consumers.",
+        job_description="Backend Engineer using Redis and RocketMQ.",
+        resume_text="Built Redis caching and RocketMQ consumers.",
     )
 
     context = plan.prep_context
@@ -127,7 +128,7 @@ def test_grounded_agent_binds_each_question_to_relevant_trusted_candidates():
     assert {item.evidence_id for item in context.evidence_refs} == {
         "redis_consistency",
         "redis_backend",
-        "kafka_delivery",
+        "rocketmq_delivery",
     }
     hints = {hint.question_id: hint for hint in context.question_hints}
     assert 1 <= len(hints["q1"].evidence_ids) <= 3
@@ -135,7 +136,7 @@ def test_grounded_agent_binds_each_question_to_relevant_trusted_candidates():
         "redis_consistency",
         "redis_backend",
     }
-    assert hints["q2"].evidence_ids == ["kafka_delivery"]
+    assert hints["q2"].evidence_ids == ["rocketmq_delivery"]
     assert all(
         evidence_id in {item.evidence_id for item in context.evidence_refs}
         for hint in context.question_hints
@@ -152,12 +153,85 @@ def test_grounded_agent_binds_each_question_to_relevant_trusted_candidates():
     assert len(repository.search_calls) == 2
 
 
+def test_grounded_agent_retrieves_only_for_questions_missing_from_role_pool():
+    plan = InterviewPlan(
+        title="Mixed topic plan",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain Redis cache consistency.",
+                focus="Redis consistency",
+            ),
+            InterviewQuestion(
+                id="q2",
+                kind="technical",
+                prompt="Explain MySQL covering indexes.",
+                focus="MySQL indexing",
+            ),
+            InterviewQuestion(
+                id="q3",
+                kind="system-design",
+                prompt="Design a Redis-backed service.",
+                focus="Redis scalability",
+            ),
+        ],
+    )
+    repository = InMemoryKnowledgeRepository(
+        [
+            make_chunk(
+                "redis_consistency",
+                title="Redis Cache Consistency",
+                domain="redis",
+                tags=["redis", "cache"],
+                score=0.91,
+            ),
+            make_chunk(
+                "mysql_indexing",
+                title="MySQL Covering Index",
+                domain="mysql",
+                tags=["mysql", "index"],
+                score=0.93,
+            ),
+        ]
+    )
+
+    grounded = KnowledgeAgent(
+        llm=GroundedPlanLLM(plan),
+        vector_store=repository,
+    ).generate_plan(
+        job_description="Backend Engineer using Redis.",
+        resume_text="Built Redis caching.",
+        prep_run_id="prep-question-supplement",
+    )
+
+    hints = {
+        hint.question_id: hint for hint in grounded.prep_context.question_hints
+    }
+    assert hints["q1"].evidence_ids == ["redis_consistency"]
+    assert hints["q2"].evidence_ids == ["mysql_indexing"]
+    assert hints["q3"].evidence_ids == ["redis_consistency"]
+    assert len(repository.search_calls) == 2
+    assert repository.search_calls[0]["job_tags"] == ["redis"]
+    assert repository.search_calls[1]["job_tags"] == []
+    snapshots = grounded.prep_context.binding_snapshot.queries
+    assert [snapshot.query_id.startswith("question-kq-") for snapshot in snapshots] == [
+        False,
+        True,
+    ]
+    bundle_ids = {
+        ref.evidence_id
+        for ref in grounded.prep_context.binding_snapshot.base_evidence_bundle.candidate_evidence_refs
+    }
+    assert bundle_ids == {"redis_consistency", "mysql_indexing"}
+
+
 def test_provider_receives_only_safe_candidate_metadata_not_chunk_content():
     llm = GroundedPlanLLM()
 
     KnowledgeAgent(llm=llm, vector_store=make_repository()).generate_plan(
-        job_description="Backend Engineer using Redis and Kafka.",
-        resume_text="Built Redis caching and Kafka consumers.",
+        job_description="Backend Engineer using Redis and RocketMQ.",
+        resume_text="Built Redis caching and RocketMQ consumers.",
     )
 
     serialized = json.dumps(llm.knowledge_context, ensure_ascii=False)
@@ -180,8 +254,8 @@ def test_provider_cannot_invent_evidence_or_override_repository_score():
             InterviewQuestion(
                 id="q2",
                 kind="technical",
-                prompt="Explain Kafka delivery.",
-                focus="Kafka",
+                prompt="Explain RocketMQ delivery.",
+                focus="RocketMQ",
             ),
             InterviewQuestion(
                 id="q3",
@@ -278,8 +352,8 @@ def test_grounded_agent_keeps_two_argument_plan_provider_compatible():
         llm=LegacyPlanLLM(),
         vector_store=make_repository(),
     ).generate_plan(
-        job_description="Backend Engineer using Redis and Kafka.",
-        resume_text="Built Redis caching and Kafka consumers.",
+        job_description="Backend Engineer using Redis and RocketMQ.",
+        resume_text="Built Redis caching and RocketMQ consumers.",
     )
 
     assert plan.title == "Provider grounded plan"

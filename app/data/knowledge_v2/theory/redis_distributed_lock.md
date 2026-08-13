@@ -6,6 +6,8 @@ source_type: theory
 content_kind: hard_negative
 tags: [redis, 分布式锁, 幂等]
 aliases: [Redis 锁, owner token]
+technical_terms: [owner token, compare-and-delete, fencing token]
+topic: distributed-lock
 difficulty: intermediate
 question_patterns:
   - Redis 分布式锁为什么必须校验唯一所有者？

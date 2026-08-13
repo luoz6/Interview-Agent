@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
+from app.domain.knowledge.evidence import (
+    EvaluationConfidence,
+    EvidenceAvailability,
+    EvidenceDecision,
+    EvidenceSufficiency,
+    ReviewEvidenceBinding,
+)
 from app.services.prep import InterviewPlan, InterviewQuestion
 from app.services.question_evaluations import (
     QuestionEvaluationRecord,
@@ -157,3 +167,64 @@ def test_question_evaluation_record_requires_error_for_failed_status():
         assert "failed question evaluations require error" in str(exc)
     else:
         raise AssertionError("expected validation failure")
+
+
+def test_question_evaluation_record_rejects_flat_metadata_that_drifts_from_binding():
+    binding = ReviewEvidenceBinding(
+        parent_question_binding_id="question-binding-1",
+        replayed_evidence_ids=("redis-1",),
+        final_evidence_ids=("redis-1",),
+        decision=EvidenceDecision(
+            availability=EvidenceAvailability.AVAILABLE,
+            sufficiency=EvidenceSufficiency.SUFFICIENT,
+            evaluation_confidence=EvaluationConfidence.HIGH,
+            reason_codes=("reviewed",),
+            gate_version="evaluation-support-gate-v1",
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="evaluation_confidence must match"):
+        QuestionEvaluationRecord(
+            session_id="s1",
+            question_id="q1",
+            status="failed",
+            error="scoring failed after evidence resolution",
+            evidence_binding_id=binding.binding_id,
+            review_evidence_binding=binding,
+            evaluation_confidence="low",
+        )
+    with pytest.raises(ValidationError, match="evidence_ids must match"):
+        QuestionEvaluationRecord(
+            session_id="s1",
+            question_id="q1",
+            status="failed",
+            error="scoring failed after evidence resolution",
+            evidence_binding_id=binding.binding_id,
+            review_evidence_binding=binding,
+            evidence_ids=["different-id"],
+        )
+
+
+def test_question_evaluation_record_keeps_legacy_sparse_binding_metadata_readable():
+    binding = ReviewEvidenceBinding(
+        parent_question_binding_id="question-binding-1",
+        replayed_evidence_ids=("redis-1",),
+        final_evidence_ids=("redis-1",),
+        decision=EvidenceDecision(
+            availability=EvidenceAvailability.AVAILABLE,
+            sufficiency=EvidenceSufficiency.NOT_EVALUATED,
+            evaluation_confidence=EvaluationConfidence.NOT_SCORABLE,
+            gate_version="retrieval-gate-v1",
+        ),
+    )
+
+    record = QuestionEvaluationRecord(
+        session_id="s1",
+        question_id="q1",
+        status="failed",
+        error="historic sparse metadata",
+        review_evidence_binding=binding,
+    )
+
+    assert record.evaluation_confidence is None
+    assert record.evidence_ids == []

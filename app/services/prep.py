@@ -4,6 +4,8 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.llm import InterviewLLM
+from app.domain.knowledge.evidence import BaseEvidenceBundle, QuestionEvidenceBinding
+from app.domain.knowledge.rollout import KnowledgeEngineAssignment
 
 if TYPE_CHECKING:
     from app.ports.runtime import KnowledgeRepository
@@ -51,6 +53,11 @@ class KnowledgeBindingSnapshot(BaseModel):
     queries: list[KnowledgeQuerySnapshot] = Field(default_factory=list)
     status: Literal["completed", "empty", "degraded"]
     degraded_reason: str | None = None
+    knowledge_engine_assignment: KnowledgeEngineAssignment | None = None
+    base_evidence_bundle: BaseEvidenceBundle | None = None
+    question_evidence_bindings: list[QuestionEvidenceBinding] = Field(
+        default_factory=list
+    )
 
 
 class PrepKnowledgeTopic(BaseModel):
@@ -268,6 +275,7 @@ _TOPIC_LABELS = {
     "java": "Java",
     "spring": "Spring",
     "kafka": "Kafka",
+    "rocketmq": "RocketMQ",
     "rabbitmq": "RabbitMQ",
     "system-design": "系统设计",
     "general": "通用后端能力",
@@ -282,6 +290,7 @@ _TOPIC_HINTS = {
     "java": "追问 JVM、并发模型、集合框架和服务稳定性。",
     "spring": "追问 Spring Bean 生命周期、事务边界和依赖注入。",
     "kafka": "追问消息可靠性、消费语义、重试和积压处理。",
+    "rocketmq": "追问消息可靠性、消费语义、重试死信和积压处理。",
     "rabbitmq": "追问消息确认、死信队列、重试和削峰策略。",
     "system-design": "追问容量估算、瓶颈定位、故障隔离和演进方案。",
     "general": "追问项目背景、职责边界、技术取舍和量化结果。",
@@ -414,7 +423,7 @@ def _topic_evidence_focus(tag: str) -> str:
         return "缓存一致性、穿透保护和高并发"
     if tag in {"mysql", "postgresql"}:
         return "索引设计、事务边界和慢查询优化"
-    if tag in {"kafka", "rabbitmq"}:
+    if tag in {"kafka", "rocketmq", "rabbitmq"}:
         return "消息可靠性、重试和削峰"
     if tag == "fastapi":
         return "接口设计、依赖注入和异步服务"

@@ -44,6 +44,7 @@ class KnowledgeRepositoryPort(Protocol):
         *,
         job_tags: list[str],
         source_types: list[str] | None = None,
+        domains: list[str] | None = None,
         limit: int = 5,
     ) -> list[Any]:
         ...

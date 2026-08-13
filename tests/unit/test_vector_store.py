@@ -11,8 +11,14 @@ from app.adapters.pgvector.repository import (
     _normalize_technical_terms,
     _rerank_chunks,
 )
+from app.domain.knowledge.retrieval import RetrievalIntent, RetrievalRequest
 from app.adapters.pgvector.codec import PgVectorCodec
 from tests.vector_store_fixtures import FakeEmbeddingProvider
+
+
+class FailingEmbeddingProvider(FakeEmbeddingProvider):
+    def embed_query(self, text):
+        raise RuntimeError("private provider detail")
 
 
 def make_store() -> PgVectorKnowledgeStore:
@@ -72,6 +78,25 @@ def test_embed_text_uses_injected_provider():
     assert vector == pytest.approx([0.1, 0.2, 0.3])
 
 
+def test_semantic_retrieval_reports_embedding_provider_failure_without_detail():
+    store = PgVectorKnowledgeStore(
+        dsn="postgresql://placeholder",
+        table_name="knowledge_chunks",
+        embedding_provider=FailingEmbeddingProvider(),
+    )
+    request = RetrievalRequest(
+        query_text="private query",
+        intent=RetrievalIntent.PREP,
+        profile_id="prep",
+    )
+
+    result = store.retrieve_semantic(request, candidate_limit=5)
+
+    assert result.availability.value == "unavailable"
+    assert result.trace.reason_code == "embedding_provider_error"
+    assert "private provider detail" not in result.model_dump_json()
+
+
 def test_vector_literal_format_is_pgvector_compatible():
     literal = PgVectorCodec.vector_literal([0.1, 0.2, 0.3])
 
@@ -93,6 +118,17 @@ def test_normalize_technical_terms_has_a_fixed_dependency_free_contract():
         "cache",
         "database",
     }
+
+
+def test_retrieval_request_has_stable_explicit_intent():
+    request = RetrievalRequest(
+        query_text="Redis",
+        intent=RetrievalIntent.PREP,
+        profile_id="legacy",
+    )
+
+    assert request.intent == RetrievalIntent.PREP
+    assert request.request_id.startswith("retrieval-")
 
 
 @pytest.mark.parametrize(

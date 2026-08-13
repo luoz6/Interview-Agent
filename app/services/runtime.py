@@ -4,7 +4,10 @@ from datetime import timedelta
 from threading import Lock, RLock
 from uuid import uuid4
 
-from app.runtime.config import load_worker_runtime_settings
+from app.runtime.config import (
+    load_knowledge_runtime_settings,
+    load_worker_runtime_settings,
+)
 from app.runtime.container import RuntimeContainer
 from app.runtime.lifecycle import (
     RuntimeCloser,
@@ -75,13 +78,20 @@ from app.adapters.pgvector.repository import PgVectorKnowledgeStore, get_knowled
 class ReportExecutor:
     store: InterviewSessionStore
     llm: InterviewLLM
-    vector_store: PgVectorKnowledgeStore
+    vector_store: object
     execution_runner: AgentExecutionRunner | None = None
+
+    def close(self) -> None:
+        close = getattr(self.vector_store, "close", None)
+        if callable(close):
+            close()
 
 
 _runtime_container = RuntimeContainer()
 
 _RUNTIME_CLOSERS = (
+    RuntimeCloser("report_executor", close_without_wait_argument),
+    RuntimeCloser("runtime_knowledge_repository", close_without_wait_argument),
     RuntimeCloser("runtime_outbox_service", shutdown_with_optional_wait),
     RuntimeCloser(
         "durable_workflow_maintenance_service",
@@ -103,6 +113,76 @@ _RUNTIME_CLOSERS = (
 
 def get_runtime_container() -> RuntimeContainer:
     return _runtime_container
+
+
+def build_runtime_knowledge_repository(
+    repository: PgVectorKnowledgeStore | None = None,
+):
+    from app.adapters.knowledge import (
+        ExactTermLexicalRetriever,
+        RuntimeKnowledgeRepository,
+    )
+    from app.application.knowledge import (
+        HybridKnowledgeRetrievalService,
+        KnowledgeRetrievalService,
+        RuntimeKnowledgeRetrievalService,
+    )
+    from app.services.knowledge_trace import KnowledgeTraceRecorder
+    from app.domain.knowledge.evidence_gate import RetrievalEvidenceGate
+
+    resolved = repository or get_knowledge_store()
+    settings = load_knowledge_runtime_settings()
+    if not callable(getattr(resolved, "retrieve_semantic", None)) or not callable(
+        getattr(resolved, "load_active_candidates", None)
+    ):
+        return resolved
+    component_versions = {
+        "embedding_provider": str(
+            getattr(getattr(resolved, "embedding_provider", None), "provider_name", "")
+        ),
+        "embedding_model": str(
+            getattr(getattr(resolved, "embedding_provider", None), "model_name", "")
+        ),
+        "model_revision": str(
+            getattr(getattr(resolved, "embedding_provider", None), "model_revision", "")
+        ),
+        "fusion_version": settings.fusion_version,
+        "reranker_version": settings.reranker_version,
+        "evidence_gate_version": settings.evidence_gate_version,
+        "taxonomy_version": settings.taxonomy_version,
+        "knowledge_unit_schema_version": "knowledge-unit-v2",
+    }
+    evidence_gate = RetrievalEvidenceGate(
+        enabled=settings.evidence_gate_enabled,
+        version=settings.evidence_gate_version,
+    )
+    legacy = KnowledgeRetrievalService(
+        resolved,
+        component_versions=component_versions,
+        evidence_gate=evidence_gate,
+    )
+    hybrid = HybridKnowledgeRetrievalService(
+        resolved,
+        ExactTermLexicalRetriever(resolved),
+        component_versions=component_versions,
+        evidence_gate=evidence_gate,
+    )
+    coordinator = RuntimeKnowledgeRetrievalService(
+        legacy,
+        hybrid,
+        rollout_percent=settings.hybrid_rollout_percent,
+        assignment_version=settings.assignment_version,
+        shadow_enabled=settings.shadow_enabled,
+        trace_sink=KnowledgeTraceRecorder.from_env(),
+    )
+    return RuntimeKnowledgeRepository(resolved, coordinator, settings)
+
+
+def get_runtime_knowledge_repository():
+    return _runtime_container.get_or_create(
+        "runtime_knowledge_repository",
+        build_runtime_knowledge_repository,
+    )
 
 
 def get_principal_identity_resolver():
@@ -757,10 +837,14 @@ def build_report_executor(
     resolved_store = store or get_session_store()
     resolved_llm = resolve_runtime_llm(resolved_store, llm)
     domains = get_postgres_connection_domains()
-    resolved_vector_store = vector_store or get_knowledge_store(
-        connection_provider=domains.business if domains is not None else None,
-        schema_mode="validate",
-    )
+    if vector_store is not None:
+        resolved_vector_store = vector_store
+    else:
+        base_vector_store = get_knowledge_store(
+            connection_provider=domains.business if domains is not None else None,
+            schema_mode="validate",
+        )
+        resolved_vector_store = build_runtime_knowledge_repository(base_vector_store)
     return ReportExecutor(
         store=resolved_store,
         llm=resolved_llm,
@@ -1022,6 +1106,10 @@ def build_interview_workflow_service():
     from app.services.langgraph_runtime import (
         VersionedGraphRegistry,
     )
+    from app.adapters.knowledge.pilot_unit_resolver import (
+        default_knowledge_unit_resolver,
+    )
+    from app.application.knowledge.followup_gap_service import FollowupGapService
 
     if get_runtime_store() != "postgres":
         raise RuntimeError("durable interview workflow requires PostgreSQL")
@@ -1053,10 +1141,8 @@ def build_interview_workflow_service():
             execution_runner=get_agent_execution_runner(),
         ),
         context_runtime=get_context_runtime(),
-        knowledge_repository=get_knowledge_store(
-            connection_provider=domains.business,
-            schema_mode="validate",
-        ),
+        knowledge_repository=get_runtime_knowledge_repository(),
+        followup_gap_service=FollowupGapService(default_knowledge_unit_resolver()),
         report_job_queue=get_report_job_store(),
         worker_id=_runtime_worker_id("interview-graph"),
         principal_memory_shadow=get_principal_memory_shadow_service(),
@@ -1227,7 +1313,10 @@ def build_review_workflow_service():
         build_durable_review_graph,
     )
     from app.services.agent_runtime import AgentExecutionContext, correlation_id_from_plan
-    from app.services.report_microbatch import build_report_coach_items_from_question_evaluations
+    from app.services.report_microbatch import (
+        build_report_coach_items_from_question_evaluations,
+        finalize_report_with_microbatch_feedback,
+    )
     from app.services.question_evaluations import QuestionEvaluationRecord
     from app.services.report import InterviewReport
     from app.services.report_runtime_quality import evaluate_runtime_report_quality
@@ -1248,10 +1337,7 @@ def build_review_workflow_service():
         schema_mode="validate",
     )
     runner = get_agent_execution_runner()
-    vector_store = get_knowledge_store(
-        connection_provider=get_postgres_connection_domains().business,
-        schema_mode="validate",
-    )
+    vector_store = get_runtime_knowledge_repository()
     from app.services.context_compression_gating import ContextCompressionGates
 
     review_compression_gates = ContextCompressionGates.from_env()
@@ -1354,6 +1440,7 @@ def build_review_workflow_service():
                     session_id=state["session_id"], attempt_number=graph_state["provider_attempt"],
                 ),
             )
+            report = finalize_report_with_microbatch_feedback(report, records)
             return report.model_dump(mode="json")
 
         effect = workflow_store.run_effect(
@@ -1411,6 +1498,7 @@ def build_review_workflow_service():
                     session_id=state["session_id"], attempt_number=graph_state["quality_repair_count"],
                 ),
             )
+            report = finalize_report_with_microbatch_feedback(report, records)
             return report.model_dump(mode="json")
 
         effect = workflow_store.run_effect(

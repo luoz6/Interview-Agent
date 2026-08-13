@@ -28,6 +28,7 @@ class KnowledgeBindingResolution:
     references: list[Any] = field(default_factory=list)
     retrieval_path: RetrievalPath = "legacy_no_context"
     degraded_reason: str | None = None
+    question_binding_id: str | None = None
 
 
 class KnowledgeBindingResolver:
@@ -54,8 +55,42 @@ class KnowledgeBindingResolver:
             )
 
         hint = get_question_prep_hint(plan, question_id)
-        if hint is None or not hint.evidence_ids:
+        if hint is None:
             return self._degraded(plan, question_id, "missing_evidence_binding")
+
+        snapshot = context.binding_snapshot
+        question_binding = None
+        if snapshot is not None and snapshot.question_evidence_bindings:
+            question_binding = next(
+                (
+                    item
+                    for item in snapshot.question_evidence_bindings
+                    if item.question_id == question_id
+                ),
+                None,
+            )
+            if question_binding is None:
+                return self._degraded(
+                    plan, question_id, "missing_question_evidence_binding"
+                )
+            base_bundle = snapshot.base_evidence_bundle
+            if (
+                base_bundle is None
+                or question_binding.bundle_id != base_bundle.bundle_id
+                or tuple(hint.evidence_ids) != question_binding.selected_evidence_ids
+            ):
+                return self._degraded(
+                    plan, question_id, "question_evidence_binding_mismatch"
+                )
+        if not hint.evidence_ids:
+            return self._degraded(
+                plan,
+                question_id,
+                "missing_evidence_binding",
+                question_binding_id=(
+                    question_binding.binding_id if question_binding is not None else None
+                ),
+            )
 
         reference_lookup = {
             reference.evidence_id: reference for reference in context.evidence_refs
@@ -64,8 +99,8 @@ class KnowledgeBindingResolver:
             return self._degraded(plan, question_id, "invalid_evidence_reference")
 
         snapshot_hash = (
-            context.binding_snapshot.corpus_manifest_sha256
-            if context.binding_snapshot is not None
+            snapshot.corpus_manifest_sha256
+            if snapshot is not None
             else ""
         )
         references = [reference_lookup[evidence_id] for evidence_id in hint.evidence_ids]
@@ -87,6 +122,9 @@ class KnowledgeBindingResolver:
                 plan,
                 question_id,
                 resolution.degraded_reason or "knowledge_unavailable",
+                question_binding_id=(
+                    question_binding.binding_id if question_binding is not None else None
+                ),
             )
         guidance = build_question_prep_context_messages(plan, question_id)
         return self._remember(
@@ -95,6 +133,9 @@ class KnowledgeBindingResolver:
                 evidence_ids=resolution.evidence_ids,
                 references=resolution.references,
                 retrieval_path="bound_evidence_ids",
+                question_binding_id=(
+                    question_binding.binding_id if question_binding is not None else None
+                ),
             )
         )
 
@@ -124,7 +165,7 @@ class KnowledgeBindingResolver:
         if lookup.version_mismatch:
             return KnowledgeBindingResolution(
                 retrieval_path="degraded",
-                degraded_reason="evidence_version_mismatch",
+                degraded_reason="evidence_hash_mismatch",
             )
         if lookup.missing:
             return KnowledgeBindingResolution(
@@ -174,12 +215,15 @@ class KnowledgeBindingResolver:
         plan: InterviewPlan,
         question_id: str | None,
         reason: str,
+        *,
+        question_binding_id: str | None = None,
     ) -> KnowledgeBindingResolution:
         return self._remember(
             KnowledgeBindingResolution(
                 messages=build_question_prep_context_messages(plan, question_id),
                 retrieval_path="degraded",
                 degraded_reason=reason,
+                question_binding_id=question_binding_id,
             )
         )
 

@@ -1,3 +1,5 @@
+import json
+
 from app.services.knowledge_grounding import (
     attach_grounded_prep_context,
     provider_knowledge_context,
@@ -69,6 +71,23 @@ def test_grounding_summaries_are_chinese():
     assert all(
         phrase not in summary for phrase in ("Retrieved", "No trusted", "provides evidence")
     )
+    snapshot = grounded.prep_context.binding_snapshot
+    bundle = snapshot.base_evidence_bundle
+    binding = snapshot.question_evidence_bindings[0]
+    assert bundle.prep_run_id == "prep-test"
+    assert bundle.corpus_manifest_sha256 == "b" * 64
+    assert [ref.evidence_id for ref in bundle.candidate_evidence_refs] == [
+        "postgresql_indexing"
+    ]
+    assert binding.bundle_id == bundle.bundle_id
+    assert binding.question_id == "q1"
+    assert binding.selected_evidence_ids == ("postgresql_indexing",)
+    serialized = json.dumps(bundle.model_dump(mode="json"), ensure_ascii=False)
+    assert "鍐呴儴姝ｆ枃涓嶅簲杩涘叆鎽樿" not in serialized
+    assert all(
+        retrieval.query.query_text not in serialized
+        for retrieval in result.retrievals
+    )
 
 
 def test_empty_grounding_summary_is_chinese():
@@ -110,3 +129,40 @@ def test_degraded_grounding_context_summary_is_chinese():
         "知识检索已降级，模型服务生成的面试计划仍可使用。"
     )
     assert "Provider" not in grounded.prep_context.summary
+
+
+def test_invalid_sha256_metadata_degrades_before_bundle_persistence():
+    chunk = make_chunk().model_copy(
+        update={
+            "metadata": {
+                **make_chunk().metadata,
+                "content_sha256": "not-a-real-sha256",
+            }
+        }
+    )
+    profile = build_role_profile("PostgreSQL backend engineer", "PostgreSQL")
+
+    result = retrieve_grounding(
+        build_knowledge_queries(profile), Repository([chunk])
+    )
+    plan = InterviewPlan(
+        title="Interview",
+        questions=[
+            InterviewQuestion(
+                id="q1",
+                kind="technical",
+                prompt="Explain PostgreSQL indexing",
+                focus="PostgreSQL",
+            )
+        ],
+    )
+    grounded = attach_grounded_prep_context(
+        plan,
+        role_profile=profile,
+        result=result,
+        prep_run_id="prep-invalid-hash",
+    )
+
+    assert result.status == "degraded"
+    assert result.degraded_reason == "invalid_knowledge_metadata"
+    assert grounded.prep_context.binding_snapshot.base_evidence_bundle.candidate_evidence_refs == ()

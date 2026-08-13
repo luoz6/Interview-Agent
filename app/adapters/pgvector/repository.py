@@ -6,8 +6,20 @@ from time import perf_counter
 from typing import Any
 
 from app.adapters.pgvector.codec import PgVectorCodec
+from app.application.knowledge import KnowledgeRetrievalService
 from app.domain.knowledge.models import KnowledgeChunk
 from app.domain.knowledge.reranking import KnowledgeReranker
+from app.domain.knowledge.retrieval import (
+    ResolvedRetrievalProfile,
+    RetrievalAvailability,
+    RetrievalCandidate,
+    RetrievalChannelResult,
+    RetrievalChannelTrace,
+    RetrievalHardConstraints,
+    RetrievalIntent,
+    RetrievalRequest,
+    RetrievalRoutingHints,
+)
 from app.ports.runtime import KnowledgeLookupResult, KnowledgeRepository
 from app.runtime.config import load_knowledge_runtime_settings
 from app.runtime.config.compatibility import (
@@ -115,13 +127,111 @@ class PgVectorKnowledgeStore:
         *,
         job_tags: list[str],
         source_types: list[str] | None = None,
+        domains: list[str] | None = None,
         limit: int = 5,
     ) -> list[KnowledgeChunk]:
+        request = RetrievalRequest(
+            query_text=query_text,
+            intent=RetrievalIntent.PREP,
+            hard_constraints=RetrievalHardConstraints(
+                source_types=tuple(source_types or ()),
+                filters={
+                    "tags": tuple(job_tags),
+                    "domains": tuple(domains or ()),
+                    "include_general_tag": True,
+                },
+            ),
+            routing_hints=RetrievalRoutingHints(
+                canonical_tags=tuple(job_tags)
+            ),
+            profile_id="legacy-compatibility",
+        )
+        profile = ResolvedRetrievalProfile(
+            profile_id="legacy-compatibility",
+            profile_version="legacy-v1",
+            semantic_candidate_limit=max(12, int(limit)),
+            fusion_candidate_limit=max(12, int(limit)),
+            rerank_candidate_limit=max(12, int(limit)),
+            evidence_limit=max(1, int(limit)),
+            minimum_score=self.minimum_score,
+        )
+        result = KnowledgeRetrievalService(self).retrieve(request, profile)
+        if result.availability == RetrievalAvailability.UNAVAILABLE:
+            raise RuntimeError("pgvector knowledge store is unavailable")
+        channel = result.trace.channels[0]
+        self.last_search_trace = {
+            "provider_name": self.embedding_provider.provider_name,
+            "model_name": self.embedding_provider.model_name,
+            "model_revision": self.embedding_provider.model_revision,
+            "corpus_version": (
+                result.candidates[0].chunk.metadata.get("corpus_version")
+                if result.candidates
+                else None
+            ),
+            "candidate_count": channel.candidate_count,
+            "latency_ms": result.latency_ms,
+            "filters": {
+                "job_tags": self._normalize_tags(job_tags),
+                "source_types": self._normalize_source_types(source_types) or [],
+                "domains": self._normalize_domains(domains),
+                "minimum_score": self.minimum_score,
+                "limit": limit,
+            },
+            "hit_ids": [chunk.chunk_id for chunk in result.selected_evidence],
+            "scores": [
+                round(float(chunk.score or 0.0), 6)
+                for chunk in result.selected_evidence
+            ],
+            "request_id": result.request_id,
+            "retrieval_engine_version": result.retrieval_engine_version,
+            "profile_version": result.profile_version,
+        }
+        return result.selected_evidence
+
+    def retrieve_semantic(
+        self,
+        request: RetrievalRequest,
+        *,
+        candidate_limit: int,
+    ) -> RetrievalChannelResult:
         started_at = perf_counter()
         psycopg2, sql = self._import_psycopg2()
-        normalized_tags = self._normalize_tags(job_tags)
-        normalized_sources = self._normalize_source_types(source_types)
-        query_embedding = self.embed_text(query_text)
+        normalized_sources = self._normalize_source_types(
+            list(request.hard_constraints.source_types)
+        )
+        raw_hard_tags = request.hard_constraints.filters.get("tags", ())
+        if isinstance(raw_hard_tags, str):
+            raw_hard_tags = [raw_hard_tags]
+        normalized_tags = [
+            str(tag).strip().lower()
+            for tag in raw_hard_tags
+            if str(tag).strip()
+        ]
+        if request.hard_constraints.filters.get("include_general_tag"):
+            normalized_tags.append("general")
+        normalized_tags = list(dict.fromkeys(normalized_tags))
+        raw_hard_domains = request.hard_constraints.filters.get("domains", ())
+        if isinstance(raw_hard_domains, str):
+            raw_hard_domains = [raw_hard_domains]
+        normalized_domains = [
+            str(domain).strip().lower()
+            for domain in raw_hard_domains
+            if str(domain).strip()
+        ]
+        try:
+            query_embedding = self.embed_text(request.query_text)
+        except Exception:
+            latency_ms = round((perf_counter() - started_at) * 1000, 3)
+            return RetrievalChannelResult(
+                availability=RetrievalAvailability.UNAVAILABLE,
+                trace=RetrievalChannelTrace(
+                    channel="semantic",
+                    status="unavailable",
+                    latency_ms=latency_ms,
+                    candidate_count=0,
+                    reason_code="embedding_provider_error",
+                ),
+            )
         vector_literal = self.codec.vector_literal(query_embedding)
 
         clauses: list[Any] = [sql.SQL("r.status = 'active'")]
@@ -142,11 +252,14 @@ class PgVectorKnowledgeStore:
                 )
             )
             params.append(normalized_tags)
+        if normalized_domains:
+            clauses.append(sql.SQL("LOWER(v.domain) = ANY(%s)"))
+            params.append(normalized_domains)
 
         where_sql = (
             sql.SQL("WHERE ") + sql.SQL(" AND ").join(clauses)
         )
-        candidate_limit = max(12, int(limit))
+        candidate_limit = max(1, int(candidate_limit))
         statement = sql.SQL(
             """
             SELECT
@@ -201,8 +314,19 @@ class PgVectorKnowledgeStore:
                             ],
                         )
                         rows = cursor.fetchall()
-        except Exception as exc:
-            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+        except Exception:
+            latency_ms = round((perf_counter() - started_at) * 1000, 3)
+            return RetrievalChannelResult(
+                availability=RetrievalAvailability.UNAVAILABLE,
+                trace=RetrievalChannelTrace(
+                    channel="semantic",
+                    status="unavailable",
+                    latency_ms=latency_ms,
+                    candidate_count=0,
+                    reason_code="semantic_unavailable",
+                ),
+                corpus_version=corpus_version,
+            )
 
         candidates: list[KnowledgeChunk] = []
         for row in rows:
@@ -210,32 +334,91 @@ class PgVectorKnowledgeStore:
             chunk.metadata = {
                 **chunk.metadata,
                 "corpus_manifest_sha256": row[9],
+                "corpus_version": row[8],
             }
             candidates.append(chunk)
-        results = _rerank_chunks(
-            candidates,
-            query_text=query_text,
-            requested_tags=normalized_tags,
-            minimum_score=self.minimum_score,
-            limit=limit,
+        latency_ms = round((perf_counter() - started_at) * 1000, 3)
+        return RetrievalChannelResult(
+            availability=RetrievalAvailability.AVAILABLE,
+            candidates=[
+                RetrievalCandidate(
+                    chunk=chunk,
+                    semantic_score=float(chunk.score or 0.0),
+                    semantic_rank=rank,
+                    channel_hits=["semantic"],
+                )
+                for rank, chunk in enumerate(candidates, start=1)
+            ],
+            trace=RetrievalChannelTrace(
+                channel="semantic",
+                status="completed" if candidates else "empty",
+                latency_ms=latency_ms,
+                candidate_count=len(candidates),
+                hit_ids=[chunk.chunk_id for chunk in candidates],
+            ),
+            corpus_version=corpus_version,
+            corpus_manifest_sha256=(
+                str(candidates[0].metadata.get("corpus_manifest_sha256"))
+                if candidates
+                else None
+            ),
         )
-        self.last_search_trace = {
-            "provider_name": self.embedding_provider.provider_name,
-            "model_name": self.embedding_provider.model_name,
-            "model_revision": self.embedding_provider.model_revision,
-            "corpus_version": corpus_version,
-            "candidate_count": len(candidates),
-            "latency_ms": round((perf_counter() - started_at) * 1000, 3),
-            "filters": {
-                "job_tags": normalized_tags,
-                "source_types": normalized_sources or [],
-                "minimum_score": self.minimum_score,
-                "limit": limit,
-            },
-            "hit_ids": [chunk.chunk_id for chunk in results],
-            "scores": [round(float(chunk.score or 0.0), 6) for chunk in results],
-        }
-        return results
+
+    def load_active_candidates(
+        self,
+        *,
+        source_types: list[str] | None = None,
+    ) -> list[KnowledgeChunk]:
+        """Load active corpus metadata for the exact-term channel without embedding."""
+        _, sql = self._import_psycopg2()
+        normalized_sources = self._normalize_source_types(source_types)
+        clauses: list[Any] = [sql.SQL("r.status = 'active'")]
+        params: list[Any] = []
+        if normalized_sources:
+            clauses.append(sql.SQL("v.source_type = ANY(%s)"))
+            params.append(normalized_sources)
+        statement = sql.SQL(
+            """
+            SELECT
+                v.chunk_id,
+                v.title,
+                v.content,
+                v.source_type,
+                v.domain,
+                v.tags,
+                v.metadata,
+                NULL::double precision AS score,
+                r.corpus_version,
+                r.manifest_sha256
+            FROM {releases} AS r
+            JOIN {versions} AS v ON v.corpus_version = r.corpus_version
+            WHERE {where_sql}
+            ORDER BY v.chunk_id ASC
+            """
+        ).format(
+            releases=sql.Identifier(self.releases_table),
+            versions=sql.Identifier(self.versions_table),
+            where_sql=sql.SQL(" AND ").join(clauses),
+        )
+        try:
+            with self._connection_provider.connection() as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute(statement, params)
+                    rows = cursor.fetchall()
+        except Exception as exc:
+            raise RuntimeError("pgvector lexical candidate source is unavailable") from exc
+
+        chunks: list[KnowledgeChunk] = []
+        for row in rows:
+            chunk = self._row_to_chunk(row)
+            chunk.metadata = {
+                **chunk.metadata,
+                "corpus_version": row[8],
+                "corpus_manifest_sha256": row[9],
+            }
+            chunks.append(chunk)
+        return chunks
 
     def get_by_ids(
         self,
@@ -950,6 +1133,15 @@ class PgVectorKnowledgeStore:
             if normalized and normalized not in deduped:
                 deduped.append(normalized)
         return deduped or None
+
+    @staticmethod
+    def _normalize_domains(domains: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        for domain in domains or ():
+            value = domain.strip().lower()
+            if value and value not in normalized:
+                normalized.append(value)
+        return normalized
 
     @staticmethod
     def _import_psycopg2():

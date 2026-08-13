@@ -275,9 +275,9 @@ def test_v2_examiner_uses_same_bound_ids_after_postgres_store_reinstantiation():
     )
     turn = store.start(
         make_bound_v2_plan(),
-        job_description="Redis and Kafka role",
-        resume_text="Built Redis and Kafka services",
-        job_tags=["redis", "kafka"],
+        job_description="Redis and RocketMQ role",
+        resume_text="Built Redis and RocketMQ services",
+        job_tags=["redis", "rocketmq"],
     )
     llm = CapturingLLM()
 
@@ -298,7 +298,7 @@ def test_v2_examiner_uses_same_bound_ids_after_postgres_store_reinstantiation():
     ]
     assert repository.search_calls == 0
     assert any(item["role"] == "knowledge_evidence" for item in llm.context)
-    assert "Kafka internal delivery evidence" not in str(llm.context)
+    assert "RocketMQ internal delivery evidence" not in str(llm.context)
 
 
 def test_snapshot_survives_store_reinstantiation():

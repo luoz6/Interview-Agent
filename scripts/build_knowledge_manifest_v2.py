@@ -17,14 +17,14 @@ from app.services.knowledge_corpus_schema import KnowledgeDocumentV2, load_knowl
 
 KNOWLEDGE_V2_ROOT = Path("app/data/knowledge_v2")
 DEFAULT_OUTPUT_PATH = KNOWLEDGE_V2_ROOT / "manifest.json"
-DEFAULT_CORPUS_VERSION = "memory-p1-zh-v3"
+DEFAULT_CORPUS_VERSION = "memory-p1-zh-v4"
 _COVERAGE_TAGS = {
     "python",
     "fastapi",
     "redis",
     "mysql",
     "postgresql",
-    "kafka",
+    "rocketmq",
     "system-design",
     "reliability",
 }
@@ -122,6 +122,9 @@ def build_manifest_v2(
                 "content_kind": metadata.content_kind,
                 "tags": metadata.tags,
                 "aliases": metadata.aliases,
+                "technical_terms": metadata.technical_terms,
+                "topic": metadata.topic,
+                "metadata_schema_version": metadata.metadata_schema_version,
                 "difficulty": metadata.difficulty,
                 "question_patterns": metadata.question_patterns,
                 "source_path": path.relative_to(root).as_posix(),

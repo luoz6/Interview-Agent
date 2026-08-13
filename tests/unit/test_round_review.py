@@ -22,6 +22,13 @@ except ModuleNotFoundError:
     sys.modules["celery"] = fake_celery
 
 from app.services.agent_runtime import AgentExecutionRunner
+from app.domain.knowledge.evidence import (
+    EvaluationConfidence,
+    EvidenceAvailability,
+    EvidenceDecision,
+    EvidenceSufficiency,
+    ReviewEvidenceBinding,
+)
 from app.services.prep import (
     PrepContext,
     PrepQuestionHint,
@@ -130,6 +137,18 @@ class CapturingRecorder:
 
 
 def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch):
+    review_binding = ReviewEvidenceBinding(
+        binding_id="review-binding-q1",
+        parent_question_binding_id="question-binding-q1",
+        replayed_evidence_ids=("redis-1",),
+        final_evidence_ids=("redis-1",),
+        decision=EvidenceDecision(
+            availability=EvidenceAvailability.AVAILABLE,
+            sufficiency=EvidenceSufficiency.NOT_EVALUATED,
+            evaluation_confidence=EvaluationConfidence.NOT_SCORABLE,
+            gate_version="retrieval-gate-v1",
+        ),
+    )
     class FakeStore:
         def __init__(self):
             self.llm = object()
@@ -151,6 +170,8 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
                     "retrieval_path": "bound_evidence_ids",
                     "degraded_reason": None,
                     "evidence_content_sha256": {"redis-1": "a" * 64},
+                    "evidence_binding_id": review_binding.binding_id,
+                    "review_evidence_binding": review_binding.model_dump(mode="json"),
                 }
             }
 
@@ -195,6 +216,8 @@ def test_run_round_review_event_saves_completed_question_evaluation(monkeypatch)
     assert record.retrieval_path == "bound_evidence_ids"
     assert record.degraded_reason is None
     assert record.evidence_content_sha256 == {"redis-1": "a" * 64}
+    assert record.review_evidence_binding == review_binding
+    assert record.evidence_binding_id == review_binding.binding_id
     assert store.saved == [("s1", record)]
     trace = recorder.records[0]
     assert trace.agent == "shadow_reviewer"

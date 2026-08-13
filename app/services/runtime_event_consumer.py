@@ -181,9 +181,9 @@ def _resolve_runtime_llm(store):
 
 
 def _get_knowledge_store():
-    from app.adapters.pgvector.repository import get_knowledge_store
+    from app.services.runtime import get_runtime_knowledge_repository
 
-    return get_knowledge_store()
+    return get_runtime_knowledge_repository()
 
 
 def _get_agent_execution_runner():

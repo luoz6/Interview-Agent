@@ -17,6 +17,7 @@ CANONICAL_TAXONOMY: dict[str, dict[str, str]] = {
     "java": {"label": "Java", "domain": "backend"},
     "spring": {"label": "Spring", "domain": "backend"},
     "kafka": {"label": "Kafka", "domain": "messaging"},
+    "rocketmq": {"label": "RocketMQ", "domain": "messaging"},
     "rabbitmq": {"label": "RabbitMQ", "domain": "messaging"},
     "system-design": {"label": "系统设计", "domain": "system-design"},
     "reliability": {"label": "可靠性", "domain": "可靠性"},
@@ -30,7 +31,7 @@ LEGACY_KNOWLEDGE_COVERED_TAGS = {
     "redis",
     "mysql",
     "postgresql",
-    "kafka",
+    "rocketmq",
     "system-design",
     "reliability",
 }

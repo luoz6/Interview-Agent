@@ -260,7 +260,9 @@ def finalize_report_with_microbatch_feedback(
         raise MicrobatchReportUnavailable("microbatch report feedback is incomplete")
     overall_score, overall_dimension_scores = aggregate_feedback_scores(feedbacks)
     summary = report.summary
-    if not any("\u4e00" <= char <= "\u9fff" for char in summary):
+    if not report.is_fallback and not any(
+        "\u4e00" <= char <= "\u9fff" for char in summary
+    ):
         summary = (
             f"本次面试共评估 {len(feedbacks)} 道题，"
             f"后端规则聚合得分为 {overall_score} 分。"

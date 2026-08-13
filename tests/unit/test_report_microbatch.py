@@ -315,6 +315,25 @@ def test_finalize_report_replaces_non_chinese_coach_summary_with_deterministic_s
     assert report.summary == "本次面试共评估 2 道题，后端规则聚合得分为 80 分。"
 
 
+def test_finalize_report_preserves_fallback_diagnostic_summary_while_locking_scores():
+    records = [completed_record("s1", "q1", 78)]
+    fallback = InterviewReport(
+        session_id="s1",
+        overall_score=0,
+        overall_dimension_scores=make_dimension_scores(0),
+        summary="Evidence was insufficient for a grounded expert report.",
+        highlights=["Evidence availability was insufficient."],
+        feedbacks=[make_feedback(question_id="q1", score=0)],
+        is_fallback=True,
+    )
+
+    report = finalize_report_with_microbatch_feedback(fallback, records)
+
+    assert report.summary == fallback.summary
+    assert report.overall_score == 78
+    assert report.feedbacks[0].score == 78
+
+
 def test_ensure_completed_question_evaluations_logs_unknown_answer_state(caplog):
     state = make_state()
     state["skipped_question_ids"] = []

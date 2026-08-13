@@ -78,7 +78,7 @@ FOCUS_KEYWORDS: list[tuple[tuple[str, ...], list[DimensionName]]] = [
         ["architecture", "engineering", "depth", "communication"],
     ),
     (
-        ("技术", "原理", "源码", "Redis", "Kafka", "MySQL", "一致性", "缓存"),
+        ("技术", "原理", "源码", "Redis", "RocketMQ", "MySQL", "一致性", "缓存"),
         ["depth", "engineering", "breadth", "communication"],
     ),
     (

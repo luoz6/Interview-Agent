@@ -1,0 +1,78 @@
+{
+  "receipt_version": "knowledge-rag-v2-legacy-baseline-receipt-v1",
+  "recorded_on": "2026-08-13",
+  "source_code_parent_revision": "184e2552e46283a5c7f0b0ed083f3a6d39afd9a7",
+  "corpus": {
+    "version": "memory-p1-zh-v4",
+    "manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84",
+    "active_chunk_count": 31,
+    "active_rocketmq_chunk_count": 5,
+    "active_kafka_chunk_count": 0
+  },
+  "embedding": {
+    "provider": "siliconflow",
+    "model": "BAAI/bge-m3",
+    "revision": "siliconflow-bge-m3-rmqv4-2026-08-13",
+    "dimension": 1024
+  },
+  "runtime_safety": {
+    "engine": "legacy",
+    "hybrid_rollout_percent": 0,
+    "shadow_enabled": false
+  },
+  "database_verification": {
+    "protected_suite_collected": 224,
+    "protected_suite_passed": 223,
+    "expected_permission_boundary_skips": 1,
+    "failed": 0,
+    "test_table_residue_count": 0
+  },
+  "embedding_query_calls": {
+    "initial_baseline": 30,
+    "corrective_after_domain_filter_fix": 4,
+    "http_attempts": 34,
+    "provider_retries": 0,
+    "provider_errors": 0
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/knowledge-rag-v2/baseline/legacy-pilot-rmqv4.json",
+      "byte_sha256": "cdd83f67240ef9bcc37329fe82e58ba6b0517206494304acc9b3e06cde6c902c",
+      "canonical_json_sha256": "c2780cd66f856f1328014b30278fae34587543c1d39bc1ffa74fa7b8abc36ce1",
+      "case_count": 12,
+      "passed": true,
+      "recall_at_5": 1.0,
+      "mrr_at_5": 0.9583333333333334,
+      "ndcg_at_5": 0.94317878031177,
+      "p95_latency_ms": 551.763
+    },
+    {
+      "path": "artifacts/knowledge-rag-v2/baseline/legacy-memory-p1-rmqv4.json",
+      "byte_sha256": "d69c44c38860c6a1710c65779b3d940f3d9812e9cd2233c7d64b9609ab9c0435",
+      "canonical_json_sha256": "8b259f7353930b87d9b00865e1c9cd6e2c52f244531f1f589930ff02f16ee2e1",
+      "case_count": 18,
+      "passed": true,
+      "recall_at_5": 1.0,
+      "mrr_at_5": 0.9722222222222222,
+      "ndcg_at_5": 0.9581125683541415,
+      "p95_latency_ms": 804.899
+    }
+  ],
+  "privacy_exclusions": [
+    "query_text",
+    "knowledge_body",
+    "credentials",
+    "database_dsn",
+    "resume",
+    "job_description",
+    "answers",
+    "authorization_headers",
+    "source_urls"
+  ],
+  "limitations": [
+    "The two historical datasets overlap in purpose and are not additive independent evidence.",
+    "This receipt does not represent Eval V3 independent annotation or agreement.",
+    "This receipt does not authorize Hybrid, Shadow, Canary, or Legacy retirement.",
+    "Offline retrieval success is not production-readiness evidence."
+  ]
+}

@@ -31,6 +31,7 @@ _ALLOWED_TECHNICAL_TERMS = {
     "mysql",
     "postgresql",
     "kafka",
+    "rocketmq",
     "sql",
     "http",
     "https",
@@ -112,6 +113,7 @@ class KnowledgeMetadataV2(BaseModel):
         "mysql",
         "postgresql",
         "kafka",
+        "rocketmq",
         "system-design",
         "reliability",
     ]
@@ -125,6 +127,11 @@ class KnowledgeMetadataV2(BaseModel):
     ]
     tags: list[str] = Field(min_length=2)
     aliases: list[str] = Field(min_length=1, max_length=8)
+    technical_terms: list[str] = Field(default_factory=list, max_length=12)
+    topic: str = ""
+    metadata_schema_version: Literal["knowledge-metadata-v2.1"] = (
+        "knowledge-metadata-v2.1"
+    )
     difficulty: Literal["beginner", "intermediate", "advanced"]
     question_patterns: list[str] = Field(min_length=2, max_length=5)
     references: list[KnowledgeReferenceV2] = Field(min_length=1)
@@ -143,7 +150,7 @@ class KnowledgeMetadataV2(BaseModel):
             raise ValueError("question patterns must contain Chinese characters")
         return values
 
-    @field_validator("tags", "aliases")
+    @field_validator("tags", "aliases", "technical_terms")
     @classmethod
     def validate_nonempty_unique_values(cls, values: list[str]) -> list[str]:
         normalized = [value.strip() for value in values]
@@ -155,6 +162,10 @@ class KnowledgeMetadataV2(BaseModel):
 
     @model_validator(mode="after")
     def validate_metadata_contract(self):
+        if not self.topic:
+            self.topic = self.id.replace("_", "-")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,127}", self.topic):
+            raise ValueError("topic must be a stable lowercase identifier")
         if self.domain.casefold() not in {tag.casefold() for tag in self.tags}:
             raise ValueError("tags must include the domain tag")
 

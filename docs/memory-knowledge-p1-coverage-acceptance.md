@@ -1,5 +1,11 @@
 # Memory Knowledge P1 Coverage Acceptance
 
+> Historical acceptance snapshot: this record describes the superseded
+> `memory-p1-zh-v3` Kafka corpus. The active RocketMQ corpus is
+> `memory-p1-zh-v4`; its repository identity and verification state are tracked
+> in `docs/architecture/knowledge-rag-v2-implementation-status.md`. This old
+> acceptance is retained as evidence and is not a promotion record for v4.
+
 Status: repository coverage gate passed; production promotion is not
 authorized by this record.
 

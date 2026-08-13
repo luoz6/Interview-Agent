@@ -37,6 +37,7 @@ from app.services.runtime import (
     get_principal_memory_safe_ref_store,
     get_question_memory_index_store,
     get_report_job_store,
+    get_runtime_knowledge_repository,
     get_runtime_control_store,
     get_session_deletion_service,
     get_session_deletion_worker,
@@ -56,6 +57,10 @@ def get_report_job_queue():
 
 def get_prep_question_regenerator() -> PrepQuestionRegenerator:
     return PrepQuestionRegenerator()
+
+
+def get_prep_knowledge_repository():
+    return get_runtime_knowledge_repository()
 
 
 def get_interview_application_service(
@@ -141,6 +146,7 @@ __all__ = [
     "get_legacy_interview_start_service",
     "get_memory_metric_store",
     "get_prep_plan_store",
+    "get_prep_knowledge_repository",
     "get_prep_question_regenerator",
     "get_principal_identity_resolver",
     "get_principal_memory_consent_store",

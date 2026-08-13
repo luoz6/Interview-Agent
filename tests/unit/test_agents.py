@@ -275,6 +275,28 @@ def test_report_coach_agent_generates_report():
     assert "summary" not in trace.model_dump_json()
 
 
+def test_report_coach_repair_requires_explicit_quality_issues():
+    plan = PlanLLM().generate_plan("jd", "resume")
+    agent = ReportCoachAgent(llm=ReportLLM())
+    prior = ReportLLM().generate_report(plan, [], "s1")
+
+    with pytest.raises(ValueError, match="requires explicit issues"):
+        agent.repair_report_attempt(
+            plan=plan,
+            evaluation_items=[],
+            session_id="s1",
+            issues=[],
+            prior_report=prior,
+            execution_context=AgentExecutionContext(
+                correlation_id="repair-1",
+                agent="report_coach",
+                operation="repair_report",
+                phase="review",
+                session_id="s1",
+            ),
+        )
+
+
 def test_shadow_reviewer_agent_wraps_expert_evaluator():
     agent = ShadowReviewerAgent(llm=ReportLLM(), vector_store=VectorStore())
     expected_metadata = {"q1": {"retrieval_path": "bound_evidence_ids"}}

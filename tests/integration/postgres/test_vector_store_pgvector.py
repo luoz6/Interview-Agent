@@ -438,6 +438,7 @@ def test_search_reads_active_release_fetches_twelve_and_returns_five():
             )
             for index in range(13)
         ]
+        active_chunks[-1].chunk.domain = "postgresql"
         store.activate_corpus(
             corpus_version="stage44a-v2",
             manifest_sha256="2" * 64,
@@ -449,6 +450,7 @@ def test_search_reads_active_release_fetches_twelve_and_returns_five():
             "redis consistency",
             job_tags=["redis"],
             source_types=["theory"],
+            domains=["redis"],
             limit=5,
         )
 
@@ -463,6 +465,7 @@ def test_search_reads_active_release_fetches_twelve_and_returns_five():
         assert provider.query_calls == 1
         assert store.last_search_trace["corpus_version"] == "stage44a-v2"
         assert store.last_search_trace["candidate_count"] == 12
+        assert store.last_search_trace["filters"]["domains"] == ["redis"]
     finally:
         drop_store_tables(store)
 

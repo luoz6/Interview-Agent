@@ -18,6 +18,7 @@ class ShadowReviewerAgent:
         execution_runner: AgentExecutionRunner | None = None,
         context_runtime: ContextRuntime | None = None,
         reference_transform: Callable | None = None,
+        knowledge_unit_resolver=None,
     ) -> None:
         self.llm = llm
         self.vector_store = vector_store
@@ -26,6 +27,7 @@ class ShadowReviewerAgent:
             vector_store=vector_store,
             context_runtime=context_runtime,
             reference_transform=reference_transform,
+            knowledge_unit_resolver=knowledge_unit_resolver,
         )
         self._execution_runner = execution_runner or AgentExecutionRunner()
 

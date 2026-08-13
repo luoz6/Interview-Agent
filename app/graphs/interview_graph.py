@@ -20,6 +20,13 @@ from app.services.agent_runtime import (
     evidence_ids_for_question,
 )
 from app.services.knowledge_binding import KnowledgeBindingResolver
+from app.application.knowledge.followup_gap_service import (
+    FollowupGapService,
+    append_followup_gap_message,
+)
+from app.adapters.knowledge.pilot_unit_resolver import (
+    default_knowledge_unit_resolver,
+)
 from app.services.prep import InterviewPlan
 from app.services.context_budget import (
     FOLLOWUP_CONTEXT_POLICY,
@@ -37,6 +44,7 @@ class InterviewGraphRunner:
         llm: InterviewLLM | None = None,
         examiner=None,
         knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+        followup_gap_service: FollowupGapService | None = None,
         execution_runner: AgentExecutionRunner | None = None,
         context_runtime: ContextRuntime | None = None,
     ) -> None:
@@ -47,6 +55,9 @@ class InterviewGraphRunner:
         )
         self._knowledge_binding_resolver = (
             knowledge_binding_resolver or KnowledgeBindingResolver()
+        )
+        self._followup_gap_service = followup_gap_service or FollowupGapService(
+            default_knowledge_unit_resolver()
         )
         # Reuse the LLM's runtime when available, but keep global resolution
         # lazy. With enforcement disabled, the legacy graph must not require
@@ -88,6 +99,7 @@ class InterviewGraphRunner:
             self._llm,
             examiner=self._examiner,
             knowledge_binding_resolver=self._knowledge_binding_resolver,
+            followup_gap_service=self._followup_gap_service,
             context_runtime=self._context_runtime,
             command_id=command_id,
         )
@@ -106,6 +118,7 @@ class InterviewGraphRunner:
             self._llm,
             examiner=self._examiner,
             knowledge_binding_resolver=self._knowledge_binding_resolver,
+            followup_gap_service=self._followup_gap_service,
             context_runtime=self._context_runtime,
             generate_followup_text=False,
             command_id=command_id,
@@ -130,6 +143,7 @@ class InterviewGraphRunner:
             context=_build_followup_context(
                 state,
                 self._knowledge_binding_resolver,
+                followup_gap_service=self._followup_gap_service,
                 context_runtime=self._context_runtime,
             ),
             focus=focus,
@@ -143,6 +157,7 @@ def brain_node(
     *,
     examiner=None,
     knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
+    followup_gap_service: FollowupGapService | None = None,
     context_runtime: ContextRuntime | None = None,
     generate_followup_text: bool = True,
     command_id: str | None = None,
@@ -181,6 +196,7 @@ def brain_node(
             context=_build_followup_context(
                 state,
                 knowledge_binding_resolver,
+                followup_gap_service=followup_gap_service,
                 context_runtime=context_runtime,
             ),
             focus=question.focus,
@@ -277,18 +293,25 @@ def _build_followup_context(
     state: InterviewState,
     knowledge_binding_resolver: KnowledgeBindingResolver | None = None,
     *,
+    followup_gap_service: FollowupGapService | None = None,
     context_runtime: ContextRuntime | None = None,
 ) -> list[dict[str, str]]:
     question = get_current_question(state)
     question_id = question.id if question is not None else ""
     resolver = knowledge_binding_resolver or KnowledgeBindingResolver()
     resolution = resolver.resolve(state["plan"], question_id)
+    evidence_messages = append_followup_gap_message(
+        resolution.messages,
+        candidate_answer=_latest_candidate_answer(state, question_id),
+        bound_references=resolution.references,
+        service=followup_gap_service,
+    )
     if not context_enforcement_enabled(FOLLOWUP_CONTEXT_POLICY.operation):
         recent_messages = [
             {"role": message["role"], "content": message["content"]}
             for message in state["messages"][-4:]
         ]
-        return recent_messages + resolution.messages
+        return recent_messages + evidence_messages
     runtime = context_runtime or get_context_runtime()
     estimator = runtime.estimator_resolution.estimator
     model = runtime.model_profile.model
@@ -303,13 +326,25 @@ def _build_followup_context(
     context, _ = build_interview_context(
         state["messages"],
         current_question_id=question_id,
-        evidence_messages=resolution.messages,
+        evidence_messages=evidence_messages,
         policy=FOLLOWUP_CONTEXT_POLICY,
         selection_budget=selection_budget,
         estimator=estimator,
         model=model,
     )
     return context
+
+
+def _latest_candidate_answer(state: InterviewState, question_id: str) -> str:
+    return next(
+        (
+            str(message.get("content") or "")
+            for message in reversed(state["messages"])
+            if message.get("role") == "candidate"
+            and message.get("question_id") == question_id
+        ),
+        "",
+    )
 
 
 def _examiner_execution_context(

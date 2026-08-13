@@ -7,6 +7,7 @@ TAG_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("java", ("java",)),
     ("spring", ("spring",)),
     ("kafka", ("kafka",)),
+    ("rocketmq", ("rocketmq", "rocket mq")),
     ("rabbitmq", ("rabbitmq",)),
     ("system-design", ("system-design", "系统设计")),
     ("reliability", ("reliability", "稳定性", "可靠性", "可观测性", "容量规划")),

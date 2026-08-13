@@ -16,7 +16,7 @@ EvaluationGroup = Literal[
     "fastapi",
     "redis",
     "relational-database",
-    "kafka",
+    "rocketmq",
     "system-design",
     "reliability",
 ]
@@ -26,7 +26,7 @@ EVALUATION_GROUP_DOMAIN_MAP: dict[str, set[str]] = {
     "fastapi": {"python", "fastapi"},
     "redis": {"redis"},
     "relational-database": {"mysql", "postgresql"},
-    "kafka": {"kafka"},
+    "rocketmq": {"rocketmq"},
     "system-design": {"system-design"},
     "reliability": {"reliability", "system-design", "postgresql"},
 }

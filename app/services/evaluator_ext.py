@@ -1,5 +1,6 @@
 import logging
 import json
+from hashlib import sha256
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -24,6 +25,25 @@ from app.services.report import (
     ReportProgress,
 )
 from app.domain.knowledge.models import KnowledgeChunk
+from app.domain.knowledge.evidence import (
+    EvidenceAvailability,
+    EvidenceDecision,
+    EvidenceRef,
+    EvidenceSufficiency,
+    ReviewEvidenceBinding,
+)
+from app.domain.knowledge.evidence_gate import (
+    EvaluationSupportGate,
+    RetrievalEvidenceGate,
+)
+from app.domain.knowledge.knowledge_unit import KnowledgeUnit
+from app.domain.knowledge.retrieval import (
+    RetrievalAvailability,
+    RetrievalIntent,
+    RetrievalResult,
+    RetrievalTrace,
+)
+from app.domain.knowledge.rollout import KnowledgeEngineAssignment
 from app.adapters.pgvector.repository import KnowledgeSearchStore
 from app.services.context_budget import (
     QUESTION_REVIEW_CONTEXT_POLICY,
@@ -43,12 +63,20 @@ class ReviewerReferenceResolution:
     references: list[KnowledgeChunk | dict] = field(default_factory=list)
     retrieval_path: str = "legacy_semantic_search"
     degraded_reason: str | None = None
+    replayed_evidence_ids: list[str] = field(default_factory=list)
+    supplemental_evidence_ids: list[str] = field(default_factory=list)
+    decision: EvidenceDecision | None = None
+    evidence_binding_id: str | None = None
+    review_binding: ReviewEvidenceBinding | None = None
 
 
 def resolve_reviewer_references(
     state: InterviewState,
     chunk,
     vector_store: KnowledgeSearchStore,
+    *,
+    unit_resolver=None,
+    support_gate: EvaluationSupportGate | None = None,
 ) -> ReviewerReferenceResolution:
     context = state["plan"].prep_context
     if context is not None and context.schema_version == "v2":
@@ -56,26 +84,371 @@ def resolve_reviewer_references(
             state["plan"],
             chunk.question_id,
         )
+        if binding.retrieval_path == "bound_evidence_ids":
+            replayed_references = list(binding.references)
+            unit = (
+                unit_resolver.resolve(replayed_references)
+                if unit_resolver is not None
+                else None
+            )
+            decision = _review_evidence_decision(
+                replayed_references,
+                unit=unit,
+                evaluation_level=_evaluation_level(state, chunk),
+                support_gate=support_gate,
+            )
+            supplemental_references: list = []
+            targeted_unavailable = False
+            if unit is not None and decision.sufficiency in {
+                EvidenceSufficiency.WEAK,
+                EvidenceSufficiency.INSUFFICIENT,
+            }:
+                try:
+                    supplemental_references = _targeted_reviewer_search(
+                        state, chunk, vector_store
+                    )
+                except Exception:
+                    supplemental_references = []
+                    targeted_unavailable = True
+                references = _merge_references(
+                    replayed_references,
+                    supplemental_references,
+                )
+                if targeted_unavailable:
+                    decision = (support_gate or EvaluationSupportGate()).decide(
+                        [_as_chunk(reference) for reference in replayed_references],
+                        unit,
+                        evaluation_level=_evaluation_level(state, chunk),
+                        availability=EvidenceAvailability.DEGRADED,
+                    )
+                    decision = _with_reason(
+                        decision,
+                        "supplemental_retrieval_unavailable",
+                    )
+                else:
+                    decision = _review_evidence_decision(
+                        references,
+                        unit=unit,
+                        evaluation_level=_evaluation_level(state, chunk),
+                        support_gate=support_gate,
+                    )
+                decision = _with_reason(
+                    decision,
+                    "supplemental_retrieval_required",
+                )
+                retrieval_path = "bound_evidence_plus_targeted"
+            else:
+                references = replayed_references
+                retrieval_path = "bound_evidence_ids"
+            replayed_ids = [_reference_id(item) for item in replayed_references]
+            supplemental_ids = [
+                _reference_id(item) for item in supplemental_references
+            ]
+            review_binding = ReviewEvidenceBinding(
+                binding_id=_review_binding_id(
+                    state["session_id"],
+                    chunk.question_id,
+                    replayed_ids=replayed_ids,
+                    supplemental_ids=supplemental_ids,
+                ),
+                parent_question_binding_id=(
+                    binding.question_binding_id
+                    or _legacy_question_binding_id(
+                        state["session_id"], chunk.question_id
+                    )
+                ),
+                replayed_evidence_ids=tuple(replayed_ids),
+                supplemental_evidence_ids=tuple(supplemental_ids),
+                supplemental_evidence_refs=tuple(
+                    _evidence_ref(reference)
+                    for reference in supplemental_references
+                ),
+                final_evidence_ids=tuple(
+                    dict.fromkeys((*replayed_ids, *supplemental_ids))
+                ),
+                decision=decision,
+            )
+            return ReviewerReferenceResolution(
+                references=references,
+                retrieval_path=retrieval_path,
+                degraded_reason=(
+                    "supplemental_retrieval_unavailable"
+                    if targeted_unavailable
+                    else None
+                ),
+                replayed_evidence_ids=replayed_ids,
+                supplemental_evidence_ids=supplemental_ids,
+                decision=decision,
+                evidence_binding_id=review_binding.binding_id,
+                review_binding=review_binding,
+            )
+
+        targeted_unavailable = False
+        try:
+            references = _targeted_reviewer_search(state, chunk, vector_store)
+        except Exception:
+            references = []
+            targeted_unavailable = True
+        unit = (
+            unit_resolver.resolve(references)
+            if unit_resolver is not None and references
+            else None
+        )
+        decision = _review_evidence_decision(
+            references,
+            unit=unit,
+            evaluation_level=_evaluation_level(state, chunk),
+            support_gate=support_gate,
+            unavailable=targeted_unavailable,
+        )
+        decision = EvidenceDecision.model_validate(
+            {
+                **decision.model_dump(),
+                "reason_codes": tuple(
+                    dict.fromkeys(
+                        (*decision.reason_codes, "supplemental_retrieval_required")
+                    )
+                ),
+            }
+        )
+        supplemental_ids = [_reference_id(reference) for reference in references]
+        parent_binding_id = binding.question_binding_id
+        if parent_binding_id is None and not (
+            context.binding_snapshot
+            and context.binding_snapshot.question_evidence_bindings
+        ):
+            parent_binding_id = _legacy_question_binding_id(
+                state["session_id"], chunk.question_id
+            )
+        review_binding = (
+            ReviewEvidenceBinding(
+                binding_id=_review_binding_id(
+                    state["session_id"],
+                    chunk.question_id,
+                    supplemental_ids=supplemental_ids,
+                ),
+                parent_question_binding_id=parent_binding_id,
+                supplemental_evidence_ids=tuple(supplemental_ids),
+                supplemental_evidence_refs=tuple(
+                    _evidence_ref(reference) for reference in references
+                ),
+                final_evidence_ids=tuple(supplemental_ids),
+                decision=decision,
+            )
+            if parent_binding_id is not None
+            else None
+        )
         return ReviewerReferenceResolution(
-            references=list(binding.references),
-            retrieval_path=binding.retrieval_path,
+            references=references,
+            retrieval_path="targeted_retrieval",
             degraded_reason=binding.degraded_reason,
+            supplemental_evidence_ids=supplemental_ids,
+            decision=decision,
+            evidence_binding_id=(review_binding.binding_id if review_binding else None),
+            review_binding=review_binding,
         )
 
-    references = vector_store.search(
-        ExpertShadowEvaluator._build_query_text(
-            chunk.question_text,
-            chunk.focus,
-            chunk.messages,
-        ),
-        job_tags=state["job_tags"],
-        source_types=["theory", "expert_benchmark"],
-        limit=5,
-    )
+    references = _targeted_reviewer_search(state, chunk, vector_store)
+    decision = _review_retrieval_decision(references)
     return ReviewerReferenceResolution(
         references=list(references),
         retrieval_path="legacy_semantic_search",
+        supplemental_evidence_ids=[_reference_id(reference) for reference in references],
+        decision=decision,
     )
+
+
+def _targeted_reviewer_search(state, chunk, vector_store) -> list:
+    if callable(getattr(vector_store, "search_runtime", None)):
+        context = state["plan"].prep_context
+        snapshot = context.binding_snapshot if context is not None else None
+        raw_assignment = (
+            snapshot.knowledge_engine_assignment if snapshot is not None else None
+        )
+        assignment = (
+            raw_assignment
+            if isinstance(raw_assignment, KnowledgeEngineAssignment)
+            else KnowledgeEngineAssignment.model_validate(raw_assignment)
+            if raw_assignment
+            else None
+        )
+        outcome = vector_store.search_runtime(
+            ExpertShadowEvaluator._build_query_text(
+                chunk.question_text,
+                chunk.focus,
+                chunk.messages,
+            ),
+            intent=RetrievalIntent.QUESTION_REVIEW,
+            job_tags=state["job_tags"],
+            source_types=["theory", "expert_benchmark"],
+            limit=5,
+            session_id=state["session_id"],
+            question_id=chunk.question_id,
+            prep_run_id=(snapshot.prep_run_id if snapshot is not None else None),
+            existing_assignment=assignment,
+        )
+        return list(outcome.result.selected_evidence)
+    return list(
+        vector_store.search(
+            ExpertShadowEvaluator._build_query_text(
+                chunk.question_text,
+                chunk.focus,
+                chunk.messages,
+            ),
+            job_tags=state["job_tags"],
+            source_types=["theory", "expert_benchmark"],
+            limit=5,
+        )
+    )
+
+
+def _review_retrieval_decision(
+    references: list,
+    *,
+    unavailable: bool = False,
+) -> EvidenceDecision:
+    chunks = [
+        reference
+        if isinstance(reference, KnowledgeChunk)
+        else KnowledgeChunk.model_validate(reference)
+        for reference in references
+    ]
+    availability = (
+        RetrievalAvailability.UNAVAILABLE
+        if unavailable
+        else RetrievalAvailability.AVAILABLE
+    )
+    result = RetrievalResult(
+        request_id="review-evidence-gate",
+        availability=availability,
+        selected_evidence=chunks,
+        trace=RetrievalTrace(
+            request_id="review-evidence-gate",
+            profile_id="question-review",
+            profile_version="v1",
+            latency_ms=0,
+        ),
+        retrieval_engine_version="review-resolution-v1",
+        profile_version="v1",
+        latency_ms=0,
+    )
+    return RetrievalEvidenceGate().decide(result)
+
+
+def _review_evidence_decision(
+    references: list,
+    *,
+    unit: KnowledgeUnit | None,
+    evaluation_level: str | None,
+    support_gate: EvaluationSupportGate | None,
+    unavailable: bool = False,
+) -> EvidenceDecision:
+    retrieval_decision = _review_retrieval_decision(
+        references,
+        unavailable=unavailable,
+    )
+    if (
+        unit is None
+        or unavailable
+        or retrieval_decision.sufficiency
+        != EvidenceSufficiency.NOT_EVALUATED
+    ):
+        return retrieval_decision
+    chunks = [_as_chunk(reference) for reference in references]
+    return (support_gate or EvaluationSupportGate()).decide(
+        chunks,
+        unit,
+        evaluation_level=evaluation_level,
+        availability=retrieval_decision.availability,
+    )
+
+
+def _evaluation_level(state: InterviewState, chunk) -> str | None:
+    context = state["plan"].prep_context
+    profile = context.role_profile if context is not None else None
+    seniority = profile.seniority if profile is not None else ""
+    if seniority:
+        return {
+            "principal": "advanced",
+            "staff": "advanced",
+            "lead": "advanced",
+            "senior": "advanced",
+            "mid": "intermediate",
+            "junior": "beginner",
+        }.get(seniority, seniority)
+    focus = str(getattr(chunk, "focus", "")).casefold()
+    return next(
+        (
+            level
+            for level in ("principal", "staff", "lead", "senior", "advanced")
+            if level in focus
+        ),
+        None,
+    )
+
+
+def _merge_references(replayed: list, supplemental: list) -> list:
+    merged = []
+    seen: set[str] = set()
+    for reference in (*replayed, *supplemental):
+        evidence_id = _reference_id(reference)
+        if evidence_id and evidence_id not in seen:
+            seen.add(evidence_id)
+            merged.append(reference)
+    return merged
+
+
+def _with_reason(decision: EvidenceDecision, reason: str) -> EvidenceDecision:
+    return EvidenceDecision.model_validate(
+        {
+            **decision.model_dump(),
+            "reason_codes": tuple(
+                dict.fromkeys((*decision.reason_codes, reason))
+            ),
+        }
+    )
+
+
+def _as_chunk(reference) -> KnowledgeChunk:
+    return (
+        reference
+        if isinstance(reference, KnowledgeChunk)
+        else KnowledgeChunk.model_validate(reference)
+    )
+
+
+def _evidence_ref(reference) -> EvidenceRef:
+    return EvidenceRef.from_chunk(_as_chunk(reference))
+
+
+def _reference_id(reference) -> str:
+    if isinstance(reference, dict):
+        return str(reference.get("chunk_id") or "")
+    return str(reference.chunk_id)
+
+
+def _legacy_question_binding_id(session_id: str, question_id: str) -> str:
+    digest = sha256(f"{session_id}:{question_id}".encode("utf-8")).hexdigest()[:24]
+    return f"question-binding-{digest}"
+
+
+def _review_binding_id(
+    session_id: str,
+    question_id: str,
+    *,
+    replayed_ids: list[str] | None = None,
+    supplemental_ids: list[str] | None = None,
+) -> str:
+    identity = ":".join(
+        [
+            session_id,
+            question_id,
+            ",".join(replayed_ids or []),
+            ",".join(supplemental_ids or []),
+        ]
+    )
+    digest = sha256(identity.encode("utf-8")).hexdigest()[:24]
+    return f"review-binding-{digest}"
 
 
 class ExpertShadowEvaluator:
@@ -86,6 +459,8 @@ class ExpertShadowEvaluator:
         execution_runner: AgentExecutionRunner | None = None,
         context_runtime: ContextRuntime | None = None,
         reference_transform: Callable | None = None,
+        knowledge_unit_resolver=None,
+        evaluation_support_gate: EvaluationSupportGate | None = None,
     ) -> None:
         self._llm = llm
         self._vector_store = vector_store
@@ -100,6 +475,16 @@ class ExpertShadowEvaluator:
         )
         self.last_retrieval_by_question: dict[str, dict] = {}
         self._reference_transform = reference_transform
+        if knowledge_unit_resolver is None:
+            from app.adapters.knowledge.pilot_unit_resolver import (
+                default_knowledge_unit_resolver,
+            )
+
+            knowledge_unit_resolver = default_knowledge_unit_resolver()
+        self._knowledge_unit_resolver = knowledge_unit_resolver
+        self._evaluation_support_gate = (
+            evaluation_support_gate or EvaluationSupportGate()
+        )
 
     def evaluate(
         self,
@@ -124,6 +509,8 @@ class ExpertShadowEvaluator:
                     state,
                     chunk,
                     self._vector_store,
+                    unit_resolver=self._knowledge_unit_resolver,
+                    support_gate=self._evaluation_support_gate,
                 )
             except Exception as exc:
                 raise ReportGenerationFailed("pgvector knowledge store is unavailable") from exc
@@ -150,6 +537,14 @@ class ExpertShadowEvaluator:
             else:
                 bounded_messages = chunk.model_dump()["messages"]
                 bounded_references = effective_reference_dicts
+            retrieval = _align_review_binding_with_scoring_input(
+                retrieval,
+                bounded_references,
+            )
+            final_evidence_ids = [
+                _reference_id(reference) for reference in bounded_references
+                if _reference_id(reference)
+            ]
             self.last_retrieval_by_question[chunk.question_id] = {
                 "retrieval_path": retrieval.retrieval_path,
                 "degraded_reason": retrieval.degraded_reason,
@@ -161,6 +556,38 @@ class ExpertShadowEvaluator:
                     if reference.get("chunk_id")
                     and reference.get("metadata", {}).get("content_sha256")
                 },
+                "evaluation_confidence": (
+                    retrieval.decision.evaluation_confidence.value
+                    if retrieval.decision
+                    else None
+                ),
+                "evidence_availability": (
+                    retrieval.decision.availability.value
+                    if retrieval.decision
+                    else None
+                ),
+                "evidence_sufficiency": (
+                    retrieval.decision.sufficiency.value
+                    if retrieval.decision
+                    else None
+                ),
+                "evidence_consistency": (
+                    retrieval.decision.consistency.value
+                    if retrieval.decision
+                    else None
+                ),
+                "evidence_ids": final_evidence_ids,
+                "gate_reason_codes": (
+                    list(retrieval.decision.reason_codes)
+                    if retrieval.decision
+                    else []
+                ),
+                "evidence_binding_id": retrieval.evidence_binding_id,
+                "review_evidence_binding": (
+                    retrieval.review_binding.model_dump(mode="json")
+                    if retrieval.review_binding
+                    else None
+                ),
             }
             evaluation_items.append(
                 {
@@ -173,6 +600,11 @@ class ExpertShadowEvaluator:
                     "answer_references": [],
                     "retrieval_path": retrieval.retrieval_path,
                     "degraded_reason": retrieval.degraded_reason,
+                    "evidence_decision": (
+                        retrieval.decision.model_dump(mode="json")
+                        if retrieval.decision
+                        else None
+                    ),
                 }
             )
 
@@ -318,6 +750,55 @@ def _budget_question_review_input(
         selected_references.append(bounded)
         remaining -= cost
     return messages, selected_references
+
+
+def _align_review_binding_with_scoring_input(
+    retrieval: ReviewerReferenceResolution,
+    scoring_references: list[dict],
+) -> ReviewerReferenceResolution:
+    binding = retrieval.review_binding
+    if binding is None:
+        return retrieval
+    final_ids = tuple(
+        dict.fromkeys(
+            evidence_id
+            for reference in scoring_references
+            if (evidence_id := _reference_id(reference))
+        )
+    )
+    replayed = tuple(
+        evidence_id
+        for evidence_id in binding.replayed_evidence_ids
+        if evidence_id in final_ids
+    )
+    supplemental = tuple(
+        evidence_id
+        for evidence_id in binding.supplemental_evidence_ids
+        if evidence_id in final_ids
+    )
+    aligned = ReviewEvidenceBinding.model_validate(
+        {
+            **binding.model_dump(),
+            "replayed_evidence_ids": replayed,
+            "supplemental_evidence_ids": supplemental,
+            "supplemental_evidence_refs": tuple(
+                reference
+                for reference in binding.supplemental_evidence_refs
+                if reference.evidence_id in supplemental
+            ),
+            "final_evidence_ids": tuple(dict.fromkeys((*replayed, *supplemental))),
+        }
+    )
+    return ReviewerReferenceResolution(
+        references=retrieval.references,
+        retrieval_path=retrieval.retrieval_path,
+        degraded_reason=retrieval.degraded_reason,
+        replayed_evidence_ids=list(replayed),
+        supplemental_evidence_ids=list(supplemental),
+        decision=retrieval.decision,
+        evidence_binding_id=aligned.binding_id,
+        review_binding=aligned,
+    )
 
 
 def _enforce_v2_report_references(

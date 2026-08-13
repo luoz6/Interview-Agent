@@ -14,6 +14,10 @@ from app.graphs.durable_interview_graph import (
 )
 from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.workflow_thread_lock import GenerationLeaseLost
+from app.application.knowledge.followup_gap_service import FollowupGapService
+from app.domain.knowledge.knowledge_unit import KnowledgeUnit
+from app.domain.knowledge.models import KnowledgeChunk
+from tests.knowledge_repository_fakes import InMemoryKnowledgeRepository
 from tests.unit.test_durable_interview_state import make_start_kwargs
 
 
@@ -223,6 +227,54 @@ def test_generation_heartbeat_is_throttled_independently_of_chunk_flushes():
 
     assert result["generated_text"] == "abcd"
     assert generation_store.heartbeats == 1
+
+
+def test_durable_context_uses_same_safe_answer_gap_helper():
+    from app.graphs.durable_interview_graph import _build_examiner_context
+
+    unit = KnowledgeUnit(
+        knowledge_unit_id="redis-lock",
+        domain="redis",
+        topic="lock",
+        technical_terms=("delete",),
+        expected_signals=("owner token",),
+    )
+
+    class UnitResolver:
+        def resolve(self, references):
+            return unit
+
+    chunk = KnowledgeChunk(
+        chunk_id="redis-lock",
+        title="Redis lock",
+        content="Bound private evidence",
+        source_type="theory",
+        domain="redis",
+        tags=["redis"],
+        metadata={
+            "content_sha256": "a" * 64,
+            "corpus_manifest_sha256": "b" * 64,
+        },
+    )
+    state = make_initial_input()
+    state["plan_snapshot"]["corpus_manifest_sha256"] = "b" * 64
+    state["plan_snapshot"]["questions"][0]["evidence_ids"] = ["redis-lock"]
+    state["plan_snapshot"]["questions"][0]["evidence_sha256"] = {
+        "redis-lock": "a" * 64
+    }
+    state["messages"].append(
+        {"role": "candidate", "content": "I call delete.", "question_id": "q1"}
+    )
+
+    context = _build_examiner_context(
+        state,
+        InMemoryKnowledgeRepository([chunk]),
+        FollowupGapService(UnitResolver()),
+    )
+
+    gap = next(item for item in context if item["role"] == "knowledge_gap")
+    assert '"target_signal":"owner token"' in gap["content"]
+    assert "Bound private evidence" not in gap["content"]
 
 
 def test_generation_heartbeat_exception_fails_closed_with_original_cause():

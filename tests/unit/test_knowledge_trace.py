@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 
 from app.agents.knowledge import KnowledgeAgent
 from app.services.knowledge_trace import KnowledgeTraceRecorder
@@ -31,7 +32,13 @@ def test_trace_recorder_writes_only_sanitized_operational_fields(tmp_path):
     saved = path.read_text(encoding="utf-8")
     payload = json.loads(saved)
     assert payload["prep_run_id"] == "prep-1"
-    assert payload["query_text"] == "redis consistency interview evidence"
+    assert "query_text" not in payload
+    assert payload["query_sha256"] == sha256(
+        b"redis consistency interview evidence"
+    ).hexdigest()
+    assert payload["query_character_count"] == len(
+        "redis consistency interview evidence"
+    )
     assert payload["hit_ids"] == ["redis_consistency"]
     assert "postgresql://" not in saved
     assert "sk-secret" not in saved
@@ -51,8 +58,8 @@ def test_grounded_agent_records_compact_trace_without_knowledge_content(
         llm=GroundedPlanLLM(),
         vector_store=make_repository(),
     ).generate_plan(
-        job_description="Backend Engineer using Redis and Kafka.",
-        resume_text="Alice built private Redis and Kafka systems.",
+        job_description="Backend Engineer using Redis and RocketMQ.",
+        resume_text="Alice built private Redis and RocketMQ systems.",
     )
 
     files = list(tmp_path.rglob("*.json"))
@@ -66,6 +73,8 @@ def test_grounded_agent_records_compact_trace_without_knowledge_content(
         isinstance(query["latency_ms"], float) and query["latency_ms"] >= 0
         for query in payload["queries"]
     )
+    assert all("query_text" not in query for query in payload["queries"])
+    assert all(len(query["query_sha256"]) == 64 for query in payload["queries"])
     assert "Internal benchmark answer" not in saved
     assert "Alice" not in saved
     assert "content_sha256" not in saved

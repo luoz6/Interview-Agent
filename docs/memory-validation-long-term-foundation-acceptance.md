@@ -1,5 +1,9 @@
 # Memory Validation and Long-Term Memory Foundation Acceptance
 
+> Historical acceptance snapshot: the knowledge identity recorded below is the
+> superseded `memory-p1-zh-v3` Kafka corpus. The active RocketMQ corpus is
+> `memory-p1-zh-v4`; this document is not evidence of a v4 production approval.
+
 Status: repository implementation and isolated operational validation complete.
 This record is a repository and isolated test-environment gate only. It does
 not authorize production rollout, real candidate data processing, long-term

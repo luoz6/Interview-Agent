@@ -420,7 +420,7 @@ class OpenAIInterviewLLM:
             "Return valid JSON only. Do not return markdown.\n"
             "Return exactly one question_results item for each evaluation item.\n"
             "All user-facing fields must be written in Simplified Chinese.\n"
-            "Keep literal identifiers like Redis, Kafka, MySQL, p95, and API names unchanged when needed.\n"
+            "Keep literal identifiers like Redis, RocketMQ, MySQL, p95, and API names unchanged when needed.\n"
             "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
             "Do not invent new chunk ids.\n"
             "The backend computes all numeric scores from evidence.\n"
@@ -640,13 +640,15 @@ class OpenAIInterviewLLM:
         conversation = [
             dict(item)
             for item in context
-            if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
+            if item.get("role")
+            not in {"knowledge_agent", "knowledge_evidence", "knowledge_gap"}
             and item.get("context_kind") != ASSISTANCE_CONTEXT_KIND
         ]
         evidence = [
             dict(item)
             for item in context
-            if item.get("role") in {"knowledge_agent", "knowledge_evidence"}
+            if item.get("role")
+            in {"knowledge_agent", "knowledge_evidence", "knowledge_gap"}
         ]
         latest_candidate = next(
             (
@@ -791,6 +793,8 @@ def _build_followup_prompt(context: list[dict[str, str]]) -> str:
         "The follow-up must be grounded in the candidate's latest answer.\n"
         "Use knowledge_agent entries as interview guidance, not as candidate answers.\n"
         "Use knowledge_evidence entries only as reference material, never as candidate answers.\n"
+        "Use knowledge_gap entries as deterministic targeting instructions: focus on the selected missing or incorrect signal.\n"
+        "Do not reveal the complete expected answer, repeat the previous question, or invent claims beyond bound evidence.\n"
         "Prefer tradeoffs, edge cases, fallback plans, performance bottlenecks, or source-code reasoning.\n"
         "Return only the follow-up question, without explanation.\n\n"
         f"Recent context:\n{transcript}"

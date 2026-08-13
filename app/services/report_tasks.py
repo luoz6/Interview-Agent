@@ -8,10 +8,10 @@ from app.services.report import (
 from app.services.report_pipeline import ReportGenerationPipeline
 from app.services.runtime import (
     get_agent_execution_runner,
+    get_runtime_knowledge_repository as get_knowledge_store,
     resolve_runtime_llm,
 )
 from app.services.session import InterviewSessionStore
-from app.adapters.pgvector.repository import get_knowledge_store
 
 
 def execute_report_generation(

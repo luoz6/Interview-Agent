@@ -37,16 +37,19 @@ class StaticKnowledgeStore:
         *,
         job_tags: list[str],
         source_types: list[str] | None = None,
+        domains: list[str] | None = None,
         limit: int = 5,
     ):
         del query_text, job_tags
         from app.domain.knowledge.models import KnowledgeChunk
 
         allowed = set(source_types or ())
+        allowed_domains = {domain.strip().lower() for domain in domains or ()}
         values = [
             KnowledgeChunk(**chunk)
             for chunk in self._chunks.values()
             if not allowed or chunk["source_type"] in allowed
+            if not allowed_domains or chunk["domain"].lower() in allowed_domains
         ][:limit]
         self.last_search_trace = {
             "provider_name": self.provider_name,

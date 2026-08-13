@@ -1,5 +1,18 @@
 import pytest
 
+from app.domain.knowledge.evidence import (
+    BaseEvidenceBundle,
+    EvaluationConfidence,
+    EvidenceAvailability,
+    EvidenceDecision,
+    EvidenceRef,
+    EvidenceSufficiency,
+    QuestionEvidenceBinding,
+)
+from app.domain.knowledge.retrieval import RetrievalIntent
+from app.domain.knowledge.rollout import assign_knowledge_engine
+from app.domain.knowledge.knowledge_unit import KnowledgeReviewStatus, KnowledgeUnit
+
 from app.graphs.interview_state import build_initial_state
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.agent_runtime import AgentExecutionRunner
@@ -118,7 +131,85 @@ def make_v2_state():
     )
     state["status"] = "finished"
     state["current_index"] = 1
+    context = state["plan"].prep_context
+    bundle = BaseEvidenceBundle(
+        bundle_id="bundle-v2",
+        retrieval_request_id="retrieval-v2",
+        prep_run_id="prep-v2",
+        query_sha256="c" * 64,
+        candidate_evidence_refs=(
+            EvidenceRef(
+                evidence_id="redis-1",
+                title="Redis cache consistency",
+                safe_excerpt="Redis safe summary",
+                domain="redis",
+                source_type="theory",
+                content_sha256="a" * 64,
+                corpus_manifest_sha256="b" * 64,
+            ),
+        ),
+        retrieval_engine_version="legacy-v1",
+        profile_version="prep-v1",
+        corpus_manifest_sha256="b" * 64,
+    )
+    question_binding = QuestionEvidenceBinding(
+        binding_id="question-binding-authoritative-q1",
+        bundle_id=bundle.bundle_id,
+        question_id="q1",
+        selected_evidence_ids=("redis-1",),
+        selection_version="question-evidence-selection-v1",
+        decision=EvidenceDecision(
+            availability=EvidenceAvailability.AVAILABLE,
+            sufficiency=EvidenceSufficiency.NOT_EVALUATED,
+            evaluation_confidence=EvaluationConfidence.NOT_SCORABLE,
+            gate_version="retrieval-gate-v1",
+        ),
+    )
+    state["plan"] = state["plan"].model_copy(
+        update={
+            "prep_context": context.model_copy(
+                update={
+                    "binding_snapshot": context.binding_snapshot.model_copy(
+                        update={
+                            "base_evidence_bundle": bundle,
+                            "question_evidence_bindings": [question_binding],
+                        }
+                    )
+                }
+            )
+        }
+    )
     return state
+
+
+def make_v2_state_without_bound_evidence():
+    state = make_v2_state()
+    context = state["plan"].prep_context
+    assignment = assign_knowledge_engine(
+        "prep-v2", rollout_percent=100, assignment_version="v1"
+    )
+    state["plan"] = state["plan"].model_copy(
+        update={
+            "prep_context": context.model_copy(
+                update={
+                    "question_hints": [
+                        PrepQuestionHint(question_id="q1", evidence_ids=[])
+                    ],
+                    "binding_snapshot": context.binding_snapshot.model_copy(
+                        update={
+                            "knowledge_engine_assignment": assignment,
+                            "question_evidence_bindings": [
+                                context.binding_snapshot.question_evidence_bindings[0].model_copy(
+                                    update={"selected_evidence_ids": ()}
+                                )
+                            ],
+                        }
+                    ),
+                }
+            )
+        }
+    )
+    return state, assignment
 
 
 class CapturingRecorder:
@@ -187,6 +278,25 @@ class V2VectorStore:
                 }
             ]
         )
+
+
+class StaticUnitResolver:
+    def __init__(self, unit):
+        self.unit = unit
+
+    def resolve(self, references):
+        return self.unit
+
+
+def review_unit(*, expected_signals):
+    return KnowledgeUnit(
+        knowledge_unit_id="redis-review",
+        domain="redis",
+        topic="cache-consistency",
+        expected_signals=tuple(expected_signals),
+        source_references=("redis-1",),
+        review_status=KnowledgeReviewStatus.REVIEWED,
+    )
 
 
 class FakeExpertLLM:
@@ -294,6 +404,26 @@ def test_reference_transform_changes_only_provider_context_not_provenance():
     )
 
 
+def test_v2_review_binding_matches_references_that_reach_scoring_input():
+    def drop_all(*, state, chunk, references):
+        return []
+
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(),
+        vector_store=V2VectorStore(),
+        reference_transform=drop_all,
+    )
+
+    evaluator.evaluate(make_v2_state())
+
+    retrieval = evaluator.last_retrieval_by_question["q1"]
+    binding = retrieval["review_evidence_binding"]
+    assert retrieval["evidence_ids"] == []
+    assert binding["replayed_evidence_ids"] == []
+    assert binding["supplemental_evidence_ids"] == []
+    assert binding["final_evidence_ids"] == []
+
+
 def test_expert_evaluator_accepts_round_review_state_without_version_metadata():
     state = make_state()
     state.pop("state_version")
@@ -365,11 +495,23 @@ def test_v2_evaluator_reuses_bound_ids_without_semantic_search():
     assert llm.last_items[0]["retrieval_path"] == "bound_evidence_ids"
     assert llm.last_items[0]["scoring_references"][0]["chunk_id"] == "redis-1"
     assert report.feedbacks[0].references[0].chunk_id == "redis-1"
-    assert evaluator.last_retrieval_by_question["q1"] == {
-        "retrieval_path": "bound_evidence_ids",
-        "degraded_reason": None,
-        "evidence_content_sha256": {"redis-1": "a" * 64},
-    }
+    retrieval = evaluator.last_retrieval_by_question["q1"]
+    assert retrieval["retrieval_path"] == "bound_evidence_ids"
+    assert retrieval["degraded_reason"] is None
+    assert retrieval["evidence_content_sha256"] == {"redis-1": "a" * 64}
+    assert retrieval["evaluation_confidence"] == "not_scorable"
+    assert retrieval["evidence_availability"] == "available"
+    assert retrieval["evidence_sufficiency"] == "not_evaluated"
+    assert retrieval["evidence_ids"] == ["redis-1"]
+    assert retrieval["evidence_binding_id"].startswith("review-binding-")
+    review_binding = retrieval["review_evidence_binding"]
+    assert review_binding["binding_id"] == retrieval["evidence_binding_id"]
+    assert (
+        review_binding["parent_question_binding_id"]
+        == "question-binding-authoritative-q1"
+    )
+    assert review_binding["replayed_evidence_ids"] == ["redis-1"]
+    assert review_binding["final_evidence_ids"] == ["redis-1"]
     trace = recorder.records[0]
     assert trace.agent == "report_coach"
     assert trace.operation == "generate_full_session_report"
@@ -381,6 +523,101 @@ def test_v2_evaluator_reuses_bound_ids_without_semantic_search():
         "question_count": 1,
         "report_path": "full_session",
     }
+
+
+def test_v2_review_support_gate_skips_targeted_search_when_replay_is_sufficient():
+    vector_store = V2VectorStore()
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(),
+        vector_store=vector_store,
+        knowledge_unit_resolver=StaticUnitResolver(
+            review_unit(expected_signals=("delete cache", "race conditions"))
+        ),
+    )
+
+    evaluator.evaluate(make_v2_state())
+
+    retrieval = evaluator.last_retrieval_by_question["q1"]
+    assert vector_store.search_calls == 0
+    assert retrieval["retrieval_path"] == "bound_evidence_ids"
+    assert retrieval["evidence_sufficiency"] == "sufficient"
+    assert retrieval["evaluation_confidence"] == "high"
+    assert retrieval["gate_reason_codes"] == []
+
+
+def test_v2_review_support_gate_supplements_weak_replay_and_recalibrates():
+    class SupplementingVectorStore(V2VectorStore):
+        def search(self, *args, **kwargs):
+            self.search_calls += 1
+            return [
+                {
+                    "chunk_id": "redis-supplemental",
+                    "title": "Redis retry guidance",
+                    "content": "Use retry with bounded backoff.",
+                    "source_type": "theory",
+                    "domain": "redis",
+                    "tags": ["redis", "cache consistency"],
+                    "metadata": {
+                        "content_sha256": "c" * 64,
+                        "corpus_manifest_sha256": "b" * 64,
+                    },
+                    "score": 0.9,
+                }
+            ]
+
+    vector_store = SupplementingVectorStore()
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(),
+        vector_store=vector_store,
+        knowledge_unit_resolver=StaticUnitResolver(
+            review_unit(expected_signals=("delete cache", "retry"))
+        ),
+    )
+
+    evaluator.evaluate(make_v2_state())
+
+    retrieval = evaluator.last_retrieval_by_question["q1"]
+    binding = retrieval["review_evidence_binding"]
+    assert vector_store.search_calls == 1
+    assert retrieval["retrieval_path"] == "bound_evidence_plus_targeted"
+    assert retrieval["evidence_sufficiency"] == "sufficient"
+    assert retrieval["evaluation_confidence"] == "high"
+    assert retrieval["gate_reason_codes"] == ["supplemental_retrieval_required"]
+    assert binding["replayed_evidence_ids"] == ["redis-1"]
+    assert binding["supplemental_evidence_ids"] == ["redis-supplemental"]
+    assert binding["supplemental_evidence_refs"][0]["content_sha256"] == "c" * 64
+    assert binding["final_evidence_ids"] == ["redis-1", "redis-supplemental"]
+
+
+def test_v2_review_support_gate_fails_closed_when_supplementation_is_unavailable():
+    class FailingSupplementStore(V2VectorStore):
+        def search(self, *args, **kwargs):
+            self.search_calls += 1
+            raise RuntimeError("supplement unavailable")
+
+    vector_store = FailingSupplementStore()
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(),
+        vector_store=vector_store,
+        knowledge_unit_resolver=StaticUnitResolver(
+            review_unit(expected_signals=("delete cache", "retry"))
+        ),
+    )
+
+    evaluator.evaluate(make_v2_state())
+
+    retrieval = evaluator.last_retrieval_by_question["q1"]
+    assert vector_store.search_calls == 1
+    assert retrieval["retrieval_path"] == "bound_evidence_plus_targeted"
+    assert retrieval["degraded_reason"] == "supplemental_retrieval_unavailable"
+    assert retrieval["evidence_availability"] == "degraded"
+    assert retrieval["evidence_sufficiency"] == "weak"
+    assert retrieval["evaluation_confidence"] == "low"
+    assert retrieval["gate_reason_codes"] == [
+        "insufficient_signal_coverage",
+        "supplemental_retrieval_unavailable",
+        "supplemental_retrieval_required",
+    ]
 
 
 def test_v2_evaluator_drops_provider_references_outside_prep_binding():
@@ -429,7 +666,7 @@ def test_v2_evaluator_fallback_preserves_backend_bound_references():
     assert report.feedbacks[0].references[0].excerpt == "Redis safe summary"
 
 
-def test_v2_evaluator_hash_mismatch_degrades_without_searching():
+def test_v2_evaluator_hash_mismatch_attempts_targeted_retrieval_and_fails_closed():
     llm = FakeExpertLLM()
     vector_store = V2VectorStore(content_hash="changed")
 
@@ -437,8 +674,117 @@ def test_v2_evaluator_hash_mismatch_degrades_without_searching():
         make_v2_state()
     )
 
-    assert vector_store.search_calls == 0
-    assert llm.last_items[0]["retrieval_path"] == "degraded"
-    assert llm.last_items[0]["degraded_reason"] == "evidence_version_mismatch"
+    assert vector_store.search_calls == 1
+    assert llm.last_items[0]["retrieval_path"] == "targeted_retrieval"
+    assert llm.last_items[0]["degraded_reason"] == "evidence_hash_mismatch"
+    assert "supplemental_retrieval_required" in llm.last_items[0][
+        "evidence_decision"
+    ]["reason_codes"]
     assert llm.last_items[0]["scoring_references"] == []
+    decision = llm.last_items[0]["evidence_decision"]
+    assert decision["availability"] == "unavailable"
+    assert decision["evaluation_confidence"] == "not_scorable"
     assert report.feedbacks[0].references == []
+
+
+def test_targeted_reviewer_reuses_prep_assignment_and_question_review_profile():
+    state, assignment = make_v2_state_without_bound_evidence()
+
+    class RuntimeVectorStore:
+        def __init__(self):
+            self.kwargs = None
+
+        def search_runtime(self, query_text, **kwargs):
+            self.kwargs = kwargs
+            return type(
+                "Outcome",
+                (),
+                {
+                    "result": type(
+                        "Result",
+                        (),
+                        {
+                            "selected_evidence": [
+                                {
+                                    "chunk_id": "redis-targeted",
+                                    "title": "Redis targeted",
+                                    "content": "Use versioned invalidation.",
+                                    "source_type": "theory",
+                                    "domain": "redis",
+                                    "tags": ["redis"],
+                                    "metadata": {
+                                        "content_sha256": "c" * 64,
+                                        "corpus_manifest_sha256": "b" * 64,
+                                    },
+                                    "score": 0.9,
+                                }
+                            ]
+                        },
+                    )()
+                },
+            )()
+
+        def get_by_ids(self, ids, *, expected_hashes=None):
+            raise AssertionError("missing binding must use one targeted retrieval")
+
+    store = RuntimeVectorStore()
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(), vector_store=store
+    )
+    evaluator.evaluate(state)
+
+    assert store.kwargs["intent"] == RetrievalIntent.QUESTION_REVIEW
+    assert store.kwargs["session_id"] == "s-v2"
+    assert store.kwargs["question_id"] == "q1"
+    assert store.kwargs["prep_run_id"] == "prep-v2"
+    assert store.kwargs["existing_assignment"] is assignment
+    review_binding = evaluator.last_retrieval_by_question["q1"][
+        "review_evidence_binding"
+    ]
+    assert (
+        review_binding["parent_question_binding_id"]
+        == "question-binding-authoritative-q1"
+    )
+    assert review_binding["supplemental_evidence_ids"] == ["redis-targeted"]
+    assert review_binding["final_evidence_ids"] == ["redis-targeted"]
+
+
+def test_targeted_reviewer_runs_support_gate_when_no_bound_evidence_can_replay():
+    state, _ = make_v2_state_without_bound_evidence()
+
+    class TargetedVectorStore:
+        def search_runtime(self, query_text, **kwargs):
+            chunk = {
+                "chunk_id": "redis-targeted",
+                "title": "Redis targeted",
+                "content": "Use versioned invalidation and bounded retry.",
+                "source_type": "theory",
+                "domain": "redis",
+                "tags": ["redis"],
+                "metadata": {
+                    "content_sha256": "c" * 64,
+                    "corpus_manifest_sha256": "b" * 64,
+                },
+                "score": 0.9,
+            }
+            return type(
+                "Outcome",
+                (),
+                {"result": type("Result", (), {"selected_evidence": [chunk]})()},
+            )()
+
+    evaluator = ExpertShadowEvaluator(
+        llm=FakeExpertLLM(),
+        vector_store=TargetedVectorStore(),
+        knowledge_unit_resolver=StaticUnitResolver(
+            review_unit(expected_signals=("versioned invalidation", "bounded retry"))
+        ),
+    )
+
+    evaluator.evaluate(state)
+
+    retrieval = evaluator.last_retrieval_by_question["q1"]
+    assert retrieval["retrieval_path"] == "targeted_retrieval"
+    assert retrieval["evidence_sufficiency"] == "sufficient"
+    assert retrieval["evaluation_confidence"] == "high"
+    assert retrieval["gate_reason_codes"] == ["supplemental_retrieval_required"]

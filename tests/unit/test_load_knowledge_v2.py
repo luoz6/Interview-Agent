@@ -16,6 +16,8 @@ source_type: theory
 content_kind: mechanism
 tags: [redis, 缓存]
 aliases: [缓存一致性]
+technical_terms: [cache-aside]
+topic: cache-consistency
 difficulty: intermediate
 question_patterns:
   - 缓存和数据库怎样保持一致
@@ -65,17 +67,35 @@ def test_v2_loader_runtime_metadata_contains_safe_manifest_identity(tmp_path: Pa
     assert chunk.metadata["content_sha256"] == manifest["chunks"][0]["content_sha256"]
     assert chunk.metadata["metadata_sha256"] == manifest["chunks"][0]["metadata_sha256"]
     assert chunk.metadata["aliases"] == ["缓存一致性"]
+    assert chunk.metadata["technical_terms"] == ["cache-aside"]
+    assert chunk.metadata["topic"] == "cache-consistency"
+    assert chunk.metadata["metadata_schema_version"] == "knowledge-metadata-v2.1"
     assert chunk.metadata["question_patterns"]
     assert set(chunk.metadata) == {
         "source_path",
         "content_kind",
         "aliases",
+        "technical_terms",
+        "topic",
+        "metadata_schema_version",
         "difficulty",
         "question_patterns",
         "content_sha256",
         "metadata_sha256",
         "corpus_manifest_sha256",
         "corpus_version",
+        "authority_metadata",
+        "provenance",
+    }
+    assert chunk.metadata["authority_metadata"] == {
+        "policy_version": "knowledge-authority-v1",
+        "status": "schema_validated",
+        "has_official_reference": True,
+        "independent_secondary_source_count": 0,
+    }
+    assert chunk.metadata["provenance"] == {
+        "source_path": "redis/item.md",
+        "metadata_sha256": manifest["chunks"][0]["metadata_sha256"],
     }
     assert "references" not in chunk.metadata
     assert all("url" not in key.casefold() for key in chunk.metadata)

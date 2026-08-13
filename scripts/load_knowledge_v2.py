@@ -62,12 +62,37 @@ def build_chunks_v2(
             "source_path": relative_path,
             "content_kind": metadata.content_kind,
             "aliases": list(metadata.aliases),
+            "technical_terms": list(metadata.technical_terms),
+            "topic": metadata.topic,
+            "metadata_schema_version": metadata.metadata_schema_version,
             "difficulty": metadata.difficulty,
             "question_patterns": list(metadata.question_patterns),
             "content_sha256": expected_content_hash,
             "metadata_sha256": expected_metadata_hash,
             "corpus_manifest_sha256": resolved_manifest["corpus_manifest_sha256"],
             "corpus_version": resolved_manifest["corpus_version"],
+            "authority_metadata": {
+                "policy_version": "knowledge-authority-v1",
+                "status": "schema_validated",
+                "has_official_reference": any(
+                    reference.source_kind == "official_cn"
+                    for reference in metadata.references
+                ),
+                "independent_secondary_source_count": len(
+                    {
+                        (
+                            reference.publisher.casefold(),
+                            str(reference.url.host or "").casefold(),
+                        )
+                        for reference in metadata.references
+                        if reference.source_kind == "secondary_cn"
+                    }
+                ),
+            },
+            "provenance": {
+                "source_path": relative_path,
+                "metadata_sha256": expected_metadata_hash,
+            },
         }
         chunks.append(
             KnowledgeChunk(

@@ -2,6 +2,15 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.knowledge.evidence import (
+    BaseEvidenceBundle,
+    EvaluationConfidence,
+    EvidenceAvailability,
+    EvidenceDecision,
+    EvidenceRef,
+    EvidenceSufficiency,
+    QuestionEvidenceBinding,
+)
 from app.adapters.postgres.row_mappers import (
     MessageRowMapper,
     QuestionEvaluationRowMapper,
@@ -45,7 +54,7 @@ def make_plan():
 
 
 def make_v2_plan():
-    return InterviewPlan(
+    plan = InterviewPlan(
         title="Grounded Backend Interview",
         questions=[
             InterviewQuestion(
@@ -99,6 +108,58 @@ def make_v2_plan():
                 ],
             ),
         ),
+    )
+    context = plan.prep_context
+    bundle = BaseEvidenceBundle(
+        bundle_id="bundle-redis",
+        retrieval_request_id="retrieval-redis",
+        prep_run_id="prep-1",
+        query_sha256="c" * 64,
+        structured_query_snapshot={
+            "queries": [
+                {
+                    "query_id": "query-redis",
+                    "query_sha256": "d" * 64,
+                    "filter_keys": ["tags"],
+                }
+            ]
+        },
+        candidate_evidence_refs=(
+            EvidenceRef(
+                evidence_id="redis-consistency",
+                title="Redis consistency",
+                safe_excerpt="Safe Redis consistency summary.",
+                domain="redis",
+                source_type="theory",
+                content_sha256="a" * 64,
+                corpus_manifest_sha256="b" * 64,
+            ),
+        ),
+        retrieval_engine_version="legacy-v1",
+        profile_version="prep-v1",
+        corpus_manifest_sha256="b" * 64,
+    )
+    binding = QuestionEvidenceBinding(
+        binding_id="question-binding-redis",
+        bundle_id=bundle.bundle_id,
+        question_id="q1",
+        selected_evidence_ids=("redis-consistency",),
+        selection_version="question-evidence-selection-v1",
+        decision=EvidenceDecision(
+            availability=EvidenceAvailability.AVAILABLE,
+            sufficiency=EvidenceSufficiency.NOT_EVALUATED,
+            evaluation_confidence=EvaluationConfidence.NOT_SCORABLE,
+            gate_version="retrieval-gate-v1",
+        ),
+    )
+    snapshot = context.binding_snapshot.model_copy(
+        update={
+            "base_evidence_bundle": bundle,
+            "question_evidence_bindings": [binding],
+        }
+    )
+    return plan.model_copy(
+        update={"prep_context": context.model_copy(update={"binding_snapshot": snapshot})}
     )
 
 
@@ -227,6 +288,14 @@ def test_v2_plan_round_trip_preserves_evidence_hashes_and_binding_snapshot():
     assert context.binding_snapshot.queries[0].hit_content_sha256 == {
         "redis-consistency": "a" * 64
     }
+    assert context.binding_snapshot.base_evidence_bundle.bundle_id == "bundle-redis"
+    assert (
+        context.binding_snapshot.question_evidence_bindings[0].binding_id
+        == "question-binding-redis"
+    )
+    assert row["plan_json"]["prep_context"]["binding_snapshot"][
+        "base_evidence_bundle"
+    ]["structured_query_snapshot"]["queries"][0]["query_sha256"] == "d" * 64
 
 
 def test_session_serialization_preserves_skip_and_timing_metadata():

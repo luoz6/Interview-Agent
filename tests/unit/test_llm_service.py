@@ -301,6 +301,27 @@ def test_openai_interview_llm_followup_prompt_includes_knowledge_guidance():
     )
 
 
+def test_openai_interview_llm_followup_prompt_enforces_gap_constraints():
+    chat_model = FakeFollowupChatModel()
+    llm = OpenAIInterviewLLM(chat_model=chat_model)
+    context = [
+        {"role": "interviewer", "content": "How do you release a Redis lock?"},
+        {"role": "candidate", "content": "I call delete."},
+        {
+            "role": "knowledge_gap",
+            "content": '{"brief":{"target_signal":"owner token"}}',
+        },
+    ]
+
+    llm.generate_followup(context)
+
+    assert "knowledge_gap:" in chat_model.last_prompt
+    assert "focus on the selected missing or incorrect signal" in chat_model.last_prompt
+    assert "Do not reveal the complete expected answer" in chat_model.last_prompt
+    assert "repeat the previous question" in chat_model.last_prompt
+    assert "invent claims beyond bound evidence" in chat_model.last_prompt
+
+
 def test_openai_interview_llm_streams_followup_from_context():
     chat_model = FakeFollowupChatModel()
     llm = OpenAIInterviewLLM(chat_model=chat_model)

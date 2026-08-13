@@ -302,9 +302,9 @@ def test_build_prep_context_extracts_topics_and_question_hints():
     )
 
     context = build_prep_context(
-        job_description="Backend role using Python, FastAPI, Redis, MySQL, and Kafka.",
+        job_description="Backend role using Python, FastAPI, Redis, MySQL, and RocketMQ.",
         resume_text="Built a FastAPI API with Redis cache and MySQL indexes.",
-        job_tags=["python", "fastapi", "redis", "mysql", "kafka"],
+        job_tags=["python", "fastapi", "redis", "mysql", "rocketmq"],
         plan=plan,
     )
 
@@ -314,7 +314,7 @@ def test_build_prep_context_extracts_topics_and_question_hints():
         "topic-fastapi",
         "topic-redis",
         "topic-mysql",
-        "topic-kafka",
+        "topic-rocketmq",
     ]
     redis_topic = context.topics[2]
     assert redis_topic.label == "Redis"

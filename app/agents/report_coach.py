@@ -79,6 +79,8 @@ class ReportCoachAgent:
         prior_report: InterviewReport,
         execution_context: AgentExecutionContext,
     ) -> InterviewReport:
+        if not issues:
+            raise ValueError("report quality repair requires explicit issues")
         repair_items = [
             *evaluation_items,
             {

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
+import json
+import re
 from time import perf_counter
 from typing import Literal
 from uuid import uuid4
 
+from app.domain.knowledge.evidence import BaseEvidenceBundle, EvidenceRef, QuestionEvidenceBinding
+from app.domain.knowledge.evidence_gate import RetrievalEvidenceGate
 from app.ports.runtime import KnowledgeRepository
 from app.services.knowledge_profile import CANONICAL_TAXONOMY
 from app.domain.knowledge.models import KnowledgeChunk, KnowledgeQuery
+from app.domain.knowledge.retrieval import RetrievalAvailability, RetrievalIntent
+from app.domain.knowledge.rollout import KnowledgeEngineAssignment
 from app.services.prep import (
     InterviewPlan,
     KnowledgeBindingSnapshot,
@@ -30,6 +37,7 @@ CONTENT_KIND_LABELS = {
     "mechanism": "机制",
     "knowledge": "知识",
 }
+SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 
 @dataclass
@@ -39,6 +47,11 @@ class QueryRetrieval:
     status: RetrievalStatus = "empty"
     degraded_reason: str | None = None
     latency_ms: float = 0.0
+    retrieval_request_id: str | None = None
+    retrieval_engine_version: str | None = None
+    profile_version: str | None = None
+    resolved_profile_snapshot: dict = field(default_factory=dict)
+    component_versions: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -55,26 +68,67 @@ class GroundingResult:
     status: RetrievalStatus
     degraded_reason: str | None
     corpus_manifest_sha256: str
+    knowledge_engine_assignment: KnowledgeEngineAssignment | None = None
 
 
 def retrieve_grounding(
     queries: list[KnowledgeQuery],
     repository: KnowledgeRepository,
+    *,
+    prep_run_id: str | None = None,
+    existing_assignment: KnowledgeEngineAssignment | None = None,
+    expected_manifest_sha256: str | None = None,
 ) -> GroundingResult:
     retrievals: list[QueryRetrieval] = []
     candidate_lookup: dict[str, GroundedCandidate] = {}
-    corpus_manifest_sha256 = ""
+    corpus_manifest_sha256 = expected_manifest_sha256 or ""
     overall_degraded_reason: str | None = None
+    assignment: KnowledgeEngineAssignment | None = existing_assignment
 
     for query in queries:
         started_at = perf_counter()
+        runtime_degraded_reason: str | None = None
         try:
-            raw_chunks = repository.search(
-                query.query_text,
-                job_tags=query.filters.get("tags", []),
-                source_types=query.source_types,
-                limit=query.top_k,
-            )
+            if prep_run_id and callable(getattr(repository, "search_runtime", None)):
+                outcome = repository.search_runtime(
+                    query.query_text,
+                    intent=RetrievalIntent.PREP,
+                    job_tags=query.filters.get("tags", []),
+                    source_types=query.source_types,
+                    limit=query.top_k,
+                    prep_run_id=prep_run_id,
+                    existing_assignment=assignment,
+                )
+                assignment = outcome.assignment
+                raw_chunks = outcome.result.selected_evidence
+                runtime_result = outcome.result
+                runtime_reasons = [
+                    *outcome.result.degraded_reasons,
+                    *(
+                        [outcome.runtime_reason_code]
+                        if outcome.runtime_reason_code
+                        else []
+                    ),
+                ]
+                if outcome.runtime_reason_code:
+                    runtime_degraded_reason = outcome.runtime_reason_code
+                elif outcome.result.availability == RetrievalAvailability.DEGRADED:
+                    runtime_degraded_reason = next(
+                        iter(runtime_reasons), "knowledge_degraded"
+                    )
+                if runtime_degraded_reason:
+                    overall_degraded_reason = (
+                        overall_degraded_reason
+                        or runtime_degraded_reason
+                    )
+            else:
+                raw_chunks = repository.search(
+                    query.query_text,
+                    job_tags=query.filters.get("tags", []),
+                    source_types=query.source_types,
+                    limit=query.top_k,
+                )
+                runtime_result = None
         except Exception:
             retrievals.append(
                 QueryRetrieval(
@@ -88,7 +142,7 @@ def retrieve_grounding(
             continue
 
         trusted: list[KnowledgeChunk] = []
-        query_degraded_reason: str | None = None
+        query_degraded_reason: str | None = runtime_degraded_reason
         for raw_chunk in raw_chunks:
             try:
                 chunk = (
@@ -101,10 +155,14 @@ def retrieve_grounding(
                 continue
             content_hash = chunk.metadata.get("content_sha256")
             manifest_hash = chunk.metadata.get("corpus_manifest_sha256")
-            if not isinstance(content_hash, str) or not content_hash:
+            if not isinstance(content_hash, str) or not SHA256_PATTERN.fullmatch(
+                content_hash
+            ):
                 query_degraded_reason = "invalid_knowledge_metadata"
                 continue
-            if not isinstance(manifest_hash, str) or not manifest_hash:
+            if not isinstance(manifest_hash, str) or not SHA256_PATTERN.fullmatch(
+                manifest_hash
+            ):
                 query_degraded_reason = "invalid_knowledge_metadata"
                 continue
             if corpus_manifest_sha256 and manifest_hash != corpus_manifest_sha256:
@@ -133,6 +191,31 @@ def retrieve_grounding(
                 status=status,
                 degraded_reason=query_degraded_reason,
                 latency_ms=round((perf_counter() - started_at) * 1000, 3),
+                retrieval_request_id=(
+                    runtime_result.request_id if runtime_result is not None else None
+                ),
+                retrieval_engine_version=(
+                    runtime_result.retrieval_engine_version
+                    if runtime_result is not None
+                    else "legacy-compatibility-v1"
+                ),
+                profile_version=(
+                    runtime_result.profile_version
+                    if runtime_result is not None
+                    else "legacy-compatibility-v1"
+                ),
+                resolved_profile_snapshot=(
+                    runtime_result.trace.resolved_profile.model_dump(mode="json")
+                    if runtime_result is not None
+                    and runtime_result.trace.resolved_profile is not None
+                    else {}
+                ),
+                component_versions=(
+                    runtime_result.trace.component_versions.model_dump(mode="json")
+                    if runtime_result is not None
+                    and runtime_result.trace.component_versions is not None
+                    else {}
+                ),
             )
         )
 
@@ -152,7 +235,39 @@ def retrieve_grounding(
         status=overall_status,
         degraded_reason=overall_degraded_reason,
         corpus_manifest_sha256=corpus_manifest_sha256,
+        knowledge_engine_assignment=assignment,
     )
+
+
+def supplement_question_grounding(
+    plan: InterviewPlan,
+    *,
+    role_profile: RoleProfile,
+    result: GroundingResult,
+    repository: KnowledgeRepository,
+    prep_run_id: str | None = None,
+) -> GroundingResult:
+    """Retrieve only for questions that the role-level candidate pool cannot bind."""
+
+    missing_questions = [
+        question
+        for question in plan.questions
+        if not _select_candidates(question, result.candidates)
+    ]
+    if not missing_questions:
+        return result
+    supplemental_queries = [
+        _question_specific_query(question, role_profile)
+        for question in missing_questions
+    ]
+    supplemental = retrieve_grounding(
+        supplemental_queries,
+        repository,
+        prep_run_id=prep_run_id,
+        existing_assignment=result.knowledge_engine_assignment,
+        expected_manifest_sha256=result.corpus_manifest_sha256 or None,
+    )
+    return _merge_grounding_results(result, supplemental)
 
 
 def provider_knowledge_context(result: GroundingResult) -> list[dict]:
@@ -196,12 +311,23 @@ def attach_grounded_prep_context(
         _build_question_hint(question, result.candidates, role_profile)
         for question in plan.questions
     ]
+    resolved_prep_run_id = prep_run_id or f"prep-{uuid4().hex}"
+    base_bundle = _base_evidence_bundle(result, resolved_prep_run_id)
+    question_bindings = _question_evidence_bindings(
+        question_hints,
+        result.candidates,
+        base_bundle,
+        result.status,
+    )
     snapshot = KnowledgeBindingSnapshot(
-        prep_run_id=prep_run_id or f"prep-{uuid4().hex}",
+        prep_run_id=resolved_prep_run_id,
         corpus_manifest_sha256=result.corpus_manifest_sha256,
         queries=[_query_snapshot(retrieval) for retrieval in result.retrievals],
         status=result.status,
         degraded_reason=result.degraded_reason,
+        knowledge_engine_assignment=result.knowledge_engine_assignment,
+        base_evidence_bundle=base_bundle,
+        question_evidence_bindings=question_bindings,
     )
     context = PrepContext(
         schema_version="v2",
@@ -295,7 +421,7 @@ def _select_candidates(question, candidates: list[GroundedCandidate]) -> list[Gr
         scored.append((relevance, candidate))
     relevant = [item for item in scored if item[0] > 0]
     if not relevant:
-        return candidates[:1]
+        return []
     relevant.sort(
         key=lambda item: (
             -item[0],
@@ -333,6 +459,215 @@ def _query_snapshot(retrieval: QueryRetrieval) -> KnowledgeQuerySnapshot:
         status=retrieval.status,
         degraded_reason=retrieval.degraded_reason,
     )
+
+
+def _question_specific_query(question, role_profile: RoleProfile) -> KnowledgeQuery:
+    question_text = f"{question.prompt} {question.focus}".strip()
+    normalized = question_text.casefold().replace("-", " ")
+    matched_tags = [
+        tag
+        for tag in role_profile.canonical_tags
+        if tag.replace("-", " ") in normalized
+        or str(CANONICAL_TAXONOMY.get(tag, {}).get("label") or "").casefold()
+        in normalized
+    ]
+    canonical_tag = matched_tags[0] if matched_tags else "general"
+    identity = {
+        "question_id": question.id,
+        "query_sha256": sha256(question_text.encode("utf-8")).hexdigest(),
+        "canonical_tag": canonical_tag,
+    }
+    return KnowledgeQuery(
+        query_id=f"question-kq-{_stable_sha256(identity)[:16]}",
+        topic_id=f"question-{question.id}",
+        query_text=question_text[:4000],
+        canonical_tag=canonical_tag,
+        filters={"tags": matched_tags[:1]} if matched_tags else {},
+        top_k=5,
+    )
+
+
+def _merge_grounding_results(
+    role_result: GroundingResult,
+    supplemental: GroundingResult,
+) -> GroundingResult:
+    candidate_lookup: dict[str, GroundedCandidate] = {}
+    for source in (*role_result.candidates, *supplemental.candidates):
+        candidate = candidate_lookup.setdefault(
+            source.chunk.chunk_id,
+            GroundedCandidate(chunk=source.chunk),
+        )
+        candidate.topic_ids = _dedupe((*candidate.topic_ids, *source.topic_ids))
+        candidate.canonical_tags = _dedupe(
+            (*candidate.canonical_tags, *source.canonical_tags)
+        )
+        if float(source.chunk.score or 0.0) > float(candidate.chunk.score or 0.0):
+            candidate.chunk = source.chunk
+    candidates = sorted(
+        candidate_lookup.values(),
+        key=lambda item: (-float(item.chunk.score or 0.0), item.chunk.chunk_id),
+    )
+    degraded_reason = role_result.degraded_reason or supplemental.degraded_reason
+    if degraded_reason:
+        status: RetrievalStatus = "degraded"
+    elif candidates:
+        status = "completed"
+    else:
+        status = "empty"
+    return GroundingResult(
+        retrievals=[*role_result.retrievals, *supplemental.retrievals],
+        candidates=candidates,
+        status=status,
+        degraded_reason=degraded_reason,
+        corpus_manifest_sha256=(
+            role_result.corpus_manifest_sha256
+            or supplemental.corpus_manifest_sha256
+        ),
+        knowledge_engine_assignment=(
+            supplemental.knowledge_engine_assignment
+            or role_result.knowledge_engine_assignment
+        ),
+    )
+
+
+def _base_evidence_bundle(
+    result: GroundingResult,
+    prep_run_id: str,
+) -> BaseEvidenceBundle:
+    query_facts = [
+        {
+            "query_id": retrieval.query.query_id,
+            "topic_id": retrieval.query.topic_id,
+            "query_sha256": sha256(
+                retrieval.query.query_text.encode("utf-8")
+            ).hexdigest(),
+            "filter_keys": sorted(retrieval.query.filters),
+            "source_types": sorted(retrieval.query.source_types),
+            "top_k": retrieval.query.top_k,
+            "retrieval_request_id": retrieval.retrieval_request_id,
+            "retrieval_engine_version": retrieval.retrieval_engine_version,
+            "profile_version": retrieval.profile_version,
+            "component_versions": retrieval.component_versions,
+        }
+        for retrieval in result.retrievals
+    ]
+    query_sha256 = _stable_sha256(
+        [item["query_sha256"] for item in query_facts]
+    )
+    request_ids = [
+        retrieval.retrieval_request_id
+        for retrieval in result.retrievals
+        if retrieval.retrieval_request_id
+    ]
+    retrieval_request_id = (
+        request_ids[0]
+        if len(request_ids) == 1
+        else f"prep-retrieval-set-{_stable_sha256(request_ids)[:24]}"
+    )
+    if not request_ids:
+        retrieval_request_id = (
+            f"legacy-prep-retrieval-set-"
+            f"{_stable_sha256([prep_run_id, *[item['query_id'] for item in query_facts]])[:24]}"
+        )
+    engine_versions = {
+        retrieval.retrieval_engine_version
+        for retrieval in result.retrievals
+        if retrieval.retrieval_engine_version
+    }
+    profile_versions = {
+        retrieval.profile_version
+        for retrieval in result.retrievals
+        if retrieval.profile_version
+    }
+    profile_snapshots = [
+        retrieval.resolved_profile_snapshot
+        for retrieval in result.retrievals
+        if retrieval.resolved_profile_snapshot
+    ]
+    component_versions = [
+        retrieval.component_versions
+        for retrieval in result.retrievals
+        if retrieval.component_versions
+    ]
+    return BaseEvidenceBundle(
+        retrieval_request_id=retrieval_request_id,
+        prep_run_id=prep_run_id,
+        query_sha256=query_sha256,
+        structured_query_snapshot={"queries": query_facts},
+        candidate_evidence_refs=tuple(
+            EvidenceRef.from_chunk(candidate.chunk) for candidate in result.candidates
+        ),
+        retrieval_engine_version=(
+            next(iter(engine_versions))
+            if len(engine_versions) == 1
+            else "mixed"
+            if engine_versions
+            else "unavailable"
+        ),
+        profile_version=(
+            next(iter(profile_versions))
+            if len(profile_versions) == 1
+            else "mixed"
+            if profile_versions
+            else "unavailable"
+        ),
+        resolved_profile_snapshot=(
+            profile_snapshots[0]
+            if profile_snapshots
+            and all(item == profile_snapshots[0] for item in profile_snapshots)
+            else {}
+        ),
+        component_versions=(
+            component_versions[0]
+            if component_versions
+            and all(item == component_versions[0] for item in component_versions)
+            else {}
+        ),
+        corpus_manifest_sha256=result.corpus_manifest_sha256,
+    )
+
+
+def _question_evidence_bindings(
+    hints: list[PrepQuestionHint],
+    candidates: list[GroundedCandidate],
+    bundle: BaseEvidenceBundle,
+    status: RetrievalStatus,
+) -> list[QuestionEvidenceBinding]:
+    chunk_lookup = {
+        candidate.chunk.chunk_id: candidate.chunk for candidate in candidates
+    }
+    availability = {
+        "completed": RetrievalAvailability.AVAILABLE,
+        "empty": RetrievalAvailability.AVAILABLE,
+        "degraded": RetrievalAvailability.DEGRADED,
+    }[status]
+    gate = RetrievalEvidenceGate()
+    bindings: list[QuestionEvidenceBinding] = []
+    bundle_ids = {ref.evidence_id for ref in bundle.candidate_evidence_refs}
+    for hint in hints:
+        if any(evidence_id not in bundle_ids for evidence_id in hint.evidence_ids):
+            raise ValueError("question evidence binding references evidence outside bundle")
+        selected = [chunk_lookup[evidence_id] for evidence_id in hint.evidence_ids]
+        bindings.append(
+            QuestionEvidenceBinding(
+                bundle_id=bundle.bundle_id,
+                question_id=hint.question_id,
+                selected_evidence_ids=tuple(hint.evidence_ids),
+                selection_version="question-evidence-selection-v1",
+                decision=gate.decide_selection(availability, selected),
+            )
+        )
+    return bindings
+
+
+def _stable_sha256(value) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _candidate_summary(chunk: KnowledgeChunk) -> str:

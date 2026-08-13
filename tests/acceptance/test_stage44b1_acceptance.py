@@ -16,7 +16,10 @@ from scripts.build_knowledge_manifest_v2 import (
 )
 from scripts.knowledge_acceptance import main
 from scripts.knowledge_acceptance_stage44b1 import run_stage44b1_acceptance
-from scripts.release_artifact_audit import audit_stage44b1_artifacts
+from scripts.release_artifact_audit import (
+    ArtifactAuditError,
+    audit_stage44b1_artifacts,
+)
 from scripts.load_knowledge_v2 import build_chunks_v2
 
 
@@ -192,17 +195,24 @@ def test_stage44b1_runner_requires_25_v2_chunks_and_12_pilot_cases(tmp_path):
     assert ingestor.calls == []
 
 
-def test_stage44b1_runner_records_first_run_as_25_embedded(tmp_path):
+def test_stage44b1_runner_records_rocketmq_replacement_as_v1_gate_failure(tmp_path):
     metrics, (repository, ingestor, chunks, _, _, _) = run_acceptance(tmp_path)
 
-    assert metrics["passed"] is True
+    # The frozen V1 gate intentionally remains Kafka-based. A RocketMQ corpus
+    # must not manufacture V1 recall by treating different messaging semantics
+    # or chunk IDs as equivalent.
+    assert metrics["passed"] is False
+    assert metrics["failure_reasons"] == [
+        "incomplete_or_degraded_v1_cases",
+        "v1_metrics_failed",
+    ]
     assert metrics["chunk_count"] == 25
     assert metrics["ingestion"]["embedded"] == 25
     assert metrics["ingestion"]["reused"] == 0
     assert metrics["ingestion"]["activated"] == 25
     assert metrics["pilot_metrics"]["observation_completeness_rate"] == 1.0
     assert metrics["pilot_metrics"]["passed"] is True
-    assert metrics["v1_metrics"]["passed"] is True
+    assert metrics["v1_metrics"]["passed"] is False
     assert metrics["storage_strategy"] == "exact_pgvector_cosine"
     assert len(chunks) == 25
     assert len(ingestor.calls) == 1
@@ -213,7 +223,9 @@ def test_stage44b1_runner_records_first_run_as_25_embedded(tmp_path):
 def test_stage44b1_runner_accepts_idempotent_25_reused(tmp_path):
     metrics, _ = run_acceptance(tmp_path, embedded=0, reused=25)
 
-    assert metrics["passed"] is True
+    assert metrics["passed"] is False
+    assert metrics["pilot_metrics"]["passed"] is True
+    assert metrics["v1_metrics"]["passed"] is False
     assert metrics["ingestion"] == {
         "discovered": 25,
         "embedded": 0,
@@ -226,7 +238,8 @@ def test_stage44b1_artifacts_never_include_queries_content_or_sources(tmp_path):
     metrics, (_, _, chunks, _, pilot_dataset, _) = run_acceptance(tmp_path)
     run_dir = tmp_path / "stage44b1-test"
 
-    assert metrics["passed"] is True
+    assert metrics["passed"] is False
+    assert metrics["pilot_metrics"]["passed"] is True
     assert len(list((run_dir / "retrieval-cases").rglob("*.json"))) == 42
     assert {path.name for path in run_dir.iterdir()} == {
         "manifest.json",
@@ -260,9 +273,13 @@ def test_stage44b1_artifacts_never_include_queries_content_or_sources(tmp_path):
         "latency_p50_ms": 10.0,
         "latency_p95_ms": 12.0,
     }
-    assert audit_stage44b1_artifacts(
-        run_dir, expected_run_id="stage44b1-test"
-    )["run_id"] == "stage44b1-test"
+    with pytest.raises(
+        ArtifactAuditError,
+        match="metrics do not record a passing release run",
+    ):
+        audit_stage44b1_artifacts(
+            run_dir, expected_run_id="stage44b1-test"
+        )
 
 
 @pytest.mark.parametrize(
