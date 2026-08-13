@@ -53,6 +53,7 @@ class PostgresSessionSchemaAdapter:
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             finished_at TIMESTAMPTZ,
+                            plan_binding_json JSONB,
                             row_schema_version TEXT NOT NULL DEFAULT 'session-row-v1'
                         )
                         """
@@ -61,6 +62,11 @@ class PostgresSessionSchemaAdapter:
                 cursor.execute(
                     sql.SQL(
                         "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS skipped_question_ids JSONB NOT NULL DEFAULT '[]'::jsonb"
+                    ).format(sessions=sql.Identifier(self.sessions_table))
+                )
+                cursor.execute(
+                    sql.SQL(
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS plan_binding_json JSONB"
                     ).format(sessions=sql.Identifier(self.sessions_table))
                 )
                 _ensure_row_schema_version(
@@ -111,7 +117,7 @@ class PostgresSessionSchemaAdapter:
                 )
                 cursor.execute(
                     sql.SQL(
-                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS workflow_engine TEXT NOT NULL DEFAULT 'legacy' CHECK (workflow_engine IN ('legacy', 'langgraph-v1'))"
+                        "ALTER TABLE {sessions} ADD COLUMN IF NOT EXISTS workflow_engine TEXT NOT NULL DEFAULT 'legacy' CHECK (workflow_engine IN ('legacy', 'langgraph-v1', 'langgraph-v2'))"
                     ).format(sessions=sql.Identifier(self.sessions_table))
                 )
                 cursor.execute(

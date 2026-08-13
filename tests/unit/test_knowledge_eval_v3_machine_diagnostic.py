@@ -24,3 +24,17 @@ def test_machine_diagnostic_rejects_candidate_claiming_independent_evidence(
             split="tuning",
             output_path=Path("artifact.json"),
         )
+
+
+def test_machine_paired_diagnostic_refuses_unregistered_holdout(monkeypatch):
+    class Artifact:
+        split = "holdout"
+
+    monkeypatch.setattr(diagnostic, "load_eval_artifact_v3", lambda path: Artifact())
+
+    with pytest.raises(ValueError, match="limited to tuning"):
+        diagnostic.compare_machine_diagnostics(
+            baseline_path=Path("baseline.json"),
+            candidate_path=Path("candidate.json"),
+            output_path=Path("paired.json"),
+        )

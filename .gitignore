@@ -26,6 +26,9 @@ tmp-*.pid
 tmp-stage*.log
 tmp-stage*.pid
 
+# Restricted blind-evaluation inputs, raw outputs, and unblinding keys
+artifacts/private/
+
 # Stage 40 real-model evaluation artifacts
 reports/stage40/*/
 reports/stage40-group*/

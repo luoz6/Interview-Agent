@@ -1,0 +1,5622 @@
+{
+  "schema_version": "knowledge-eval-artifact-v3",
+  "created_at": "2026-08-13T08:44:25.823283Z",
+  "dataset_version": "knowledge-eval-v3-machine-preannotation-rmqv4-2026-08-13-v1",
+  "dataset_sha256": "8de7f88b14940958ffb0ab9aff4d069fd089f603f5b4e4d57a120d1ddc6b072f",
+  "split": "tuning",
+  "identity": {
+    "engine_version": "hybrid-v2:rank-normalized-score",
+    "code_revision": "8fda828f4a5994b71f15e8c44d1b09f7b385e7ae",
+    "code_tree_sha256": "a4ac693e410a654d7dcbfb10b9278638dea88206db8839718c68e1aabc10da65",
+    "profile_id": "eval-rank-normalized-score-v3",
+    "profile_version": "hybrid-v1",
+    "profile_sha256": "558fdac9e12f7a011185b60a1325cc41d07d3aba94114b06b16ec100b88f7370",
+    "provider_name": "siliconflow",
+    "model_name": "BAAI/bge-m3",
+    "model_revision": "siliconflow-bge-m3-rmqv4-2026-08-13",
+    "embedding_dimension": 1024,
+    "corpus_version": "memory-p1-zh-v4",
+    "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84"
+  },
+  "vector_validity_rate": 1.0,
+  "metrics": {
+    "split": "tuning",
+    "engine_version": "hybrid-v2:rank-normalized-score",
+    "case_count": 75,
+    "observation_completeness_rate": 1.0,
+    "filter_correctness_rate": 0.8149466192170819,
+    "vector_validity_rate": 1.0,
+    "recall_at_5": 0.8880597014925373,
+    "mrr_at_5": 0.6848258706467663,
+    "ndcg_at_5": 0.6992983030959559,
+    "hit_at_1": 0.5522388059701493,
+    "hard_negative_false_positive_rate": 0.0,
+    "no_evidence_precision": 0.0,
+    "no_evidence_recall": 0.0,
+    "no_evidence_f1": 0.0,
+    "evidence_precision_at_5": 0.3096085409252669,
+    "domain_routing_accuracy": 0.8149466192170819,
+    "topic_routing_accuracy": 0.8540925266903915,
+    "cross_channel_contribution_rate": 1.0,
+    "evidence_replay_stability_rate": 0.9402985074626866,
+    "excluded_chunk_violation_rate": 0.22388059701492538,
+    "p95_latency_ms": 1339.216,
+    "semantic_only_win_rate": 0.13114754098360656,
+    "lexical_only_win_rate": 0.5737704918032787,
+    "hybrid_win_rate": 0.29508196721311475,
+    "case_type_counts": {
+      "exact_technical_term": 6,
+      "alias_only": 6,
+      "acronym": 4,
+      "semantic_paraphrase": 6,
+      "chinese_paraphrase": 6,
+      "weak_keyword": 5,
+      "multi_topic": 5,
+      "ambiguous": 5,
+      "hard_negative": 6,
+      "out_of_domain": 4,
+      "no_evidence": 4,
+      "cross_domain_confusion": 6,
+      "metadata_routing_error": 6,
+      "filter_boundary": 6
+    },
+    "case_type_breakdown": {
+      "acronym": {
+        "case_count": 4,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.9247408700803631,
+        "evidence_precision_at_5": 0.3684210526315789,
+        "domain_routing_accuracy": 0.9473684210526315,
+        "topic_routing_accuracy": 0.9473684210526315,
+        "excluded_chunk_violation_rate": 0.25,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "alias_only": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.8333333333333334,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 0.8888888888888888,
+        "ndcg_at_5": 0.8436377146870204,
+        "evidence_precision_at_5": 0.45454545454545453,
+        "domain_routing_accuracy": 0.9545454545454546,
+        "topic_routing_accuracy": 0.9545454545454546,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "ambiguous": {
+        "case_count": 5,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.884710385589053,
+        "evidence_precision_at_5": 0.28,
+        "domain_routing_accuracy": 0.56,
+        "topic_routing_accuracy": 0.76,
+        "excluded_chunk_violation_rate": 0.8,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "chinese_paraphrase": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.3333333333333333,
+        "recall_at_5": 0.6666666666666666,
+        "mrr_at_5": 0.47222222222222215,
+        "ndcg_at_5": 0.5120198555611156,
+        "evidence_precision_at_5": 0.35,
+        "domain_routing_accuracy": 0.65,
+        "topic_routing_accuracy": 0.65,
+        "excluded_chunk_violation_rate": 0.16666666666666666,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "cross_domain_confusion": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.0,
+        "recall_at_5": 0.6666666666666666,
+        "mrr_at_5": 0.18333333333333335,
+        "ndcg_at_5": 0.29858136254584705,
+        "evidence_precision_at_5": 0.13333333333333333,
+        "domain_routing_accuracy": 0.5333333333333333,
+        "topic_routing_accuracy": 0.5333333333333333,
+        "excluded_chunk_violation_rate": 0.5,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "exact_technical_term": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.8855413068440728,
+        "evidence_precision_at_5": 0.42857142857142855,
+        "domain_routing_accuracy": 0.9047619047619048,
+        "topic_routing_accuracy": 0.9047619047619048,
+        "excluded_chunk_violation_rate": 0.3333333333333333,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "filter_boundary": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.8333333333333334,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 0.9166666666666666,
+        "ndcg_at_5": 0.9384882922619097,
+        "evidence_precision_at_5": 0.375,
+        "domain_routing_accuracy": 0.875,
+        "topic_routing_accuracy": 0.875,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "hard_negative": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.5,
+        "recall_at_5": 1.0,
+        "mrr_at_5": 0.75,
+        "ndcg_at_5": 0.8154648767857288,
+        "evidence_precision_at_5": 0.20689655172413793,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "metadata_routing_error": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.16666666666666666,
+        "recall_at_5": 0.8333333333333334,
+        "mrr_at_5": 0.4166666666666667,
+        "ndcg_at_5": 0.5218216255952429,
+        "evidence_precision_at_5": 0.16666666666666666,
+        "domain_routing_accuracy": 0.7666666666666667,
+        "topic_routing_accuracy": 0.9333333333333333,
+        "excluded_chunk_violation_rate": 0.16666666666666666,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "multi_topic": {
+        "case_count": 5,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 1.0,
+        "recall_at_5": 0.9,
+        "mrr_at_5": 1.0,
+        "ndcg_at_5": 0.857459722517949,
+        "evidence_precision_at_5": 0.375,
+        "domain_routing_accuracy": 0.9166666666666666,
+        "topic_routing_accuracy": 0.9166666666666666,
+        "excluded_chunk_violation_rate": 0.4,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "no_evidence": {
+        "case_count": 4,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "mrr_at_5": 0.0,
+        "ndcg_at_5": 0.0,
+        "evidence_precision_at_5": 1.0,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "out_of_domain": {
+        "case_count": 4,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "mrr_at_5": 0.0,
+        "ndcg_at_5": 0.0,
+        "evidence_precision_at_5": 1.0,
+        "domain_routing_accuracy": 1.0,
+        "topic_routing_accuracy": 1.0,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "semantic_paraphrase": {
+        "case_count": 6,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.0,
+        "recall_at_5": 0.8333333333333334,
+        "mrr_at_5": 0.31111111111111106,
+        "ndcg_at_5": 0.47076781404132023,
+        "evidence_precision_at_5": 0.4,
+        "domain_routing_accuracy": 0.84,
+        "topic_routing_accuracy": 0.88,
+        "excluded_chunk_violation_rate": 0.0,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      },
+      "weak_keyword": {
+        "case_count": 5,
+        "observation_completeness_rate": 1.0,
+        "hit_at_1": 0.2,
+        "recall_at_5": 0.8,
+        "mrr_at_5": 0.45,
+        "ndcg_at_5": 0.5450470393278083,
+        "evidence_precision_at_5": 0.35,
+        "domain_routing_accuracy": 0.95,
+        "topic_routing_accuracy": 0.95,
+        "excluded_chunk_violation_rate": 0.2,
+        "hard_negative_false_positive_rate": 0.0,
+        "no_evidence_recall": 0.0,
+        "no_evidence_precision": 0.0
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "kev3-tuning-001",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 1,
+          "score": 2.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 1.7973684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 3,
+          "score": 1.3894736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 4,
+          "score": 1.1921052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 5,
+          "score": 0.9947368421052631,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_production",
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io"
+      ],
+      "lexical_hit_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 369.942,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-002",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_backend",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 2,
+          "score": 1.6087719298245613,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 1.3280701754385966,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 1.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_deadlocks",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations",
+        "mysql_deadlocks"
+      ],
+      "bound_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations",
+        "mysql_deadlocks"
+      ],
+      "replayed_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations",
+        "mysql_deadlocks"
+      ],
+      "semantic_hit_ids": [
+        "redis_operations",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_consistency",
+        "mysql_deadlocks"
+      ],
+      "lexical_hit_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 348.824,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-003",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 2.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 2,
+          "score": 1.5421052631578949,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 3,
+          "score": 1.4473684210526316,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 4,
+          "score": 1.3210526315789475,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 1.0894736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "redis_backend",
+        "postgresql_connection_saturation",
+        "postgresql_monitoring_baseline"
+      ],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 364.808,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-004",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.9947368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 1.7973684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 1.4421052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 1.1394736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 1.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_delivery",
+        "rocketmq_backend",
+        "rocketmq_load_balancing",
+        "rocketmq_operations"
+      ],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 396.337,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-005",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "queue_backpressure",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 3,
+          "score": 0.8947368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.8421052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "queue_backpressure",
+        "system_design_backend",
+        "rocketmq_operations",
+        "fastapi_production",
+        "rocketmq_backend"
+      ],
+      "bound_evidence_ids": [
+        "queue_backpressure",
+        "system_design_backend",
+        "rocketmq_operations",
+        "fastapi_production",
+        "rocketmq_backend"
+      ],
+      "replayed_evidence_ids": [
+        "queue_backpressure",
+        "system_design_backend",
+        "rocketmq_operations",
+        "fastapi_production",
+        "rocketmq_backend"
+      ],
+      "semantic_hit_ids": [
+        "queue_backpressure",
+        "system_design_backend",
+        "rocketmq_operations",
+        "fastapi_production",
+        "rocketmq_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 335.148,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-006",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 1,
+          "score": 1.7947368421052632,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 2,
+          "score": 1.7000000000000002,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 3,
+          "score": 1.468421052631579,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 4,
+          "score": 1.2473684210526317,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 5,
+          "score": 1.236842105263158,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_backup_restore_boundary",
+        "postgresql_monitoring_baseline",
+        "postgresql_ha_failover_boundary"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_backup_restore_boundary",
+        "postgresql_monitoring_baseline",
+        "postgresql_ha_failover_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_backup_restore_boundary",
+        "postgresql_monitoring_baseline",
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_connection_saturation",
+        "postgresql_monitoring_baseline",
+        "postgresql_connection_capacity",
+        "fastapi_production",
+        "postgresql_replica_lag"
+      ],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 317.499,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-007",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 1.6921052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 3,
+          "score": 1.3894736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 4,
+          "score": 1.35,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.9947368421052631,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io"
+      ],
+      "lexical_hit_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 334.342,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-008",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 1,
+          "score": 2.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 2,
+          "score": 1.759248120300752,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 1.578796992481203,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 4,
+          "score": 1.280451127819549,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 5,
+          "score": 1.2254135338345864,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_consistency",
+        "mysql_backend",
+        "mysql_isolation",
+        "redis_backend",
+        "mysql_online_migration"
+      ],
+      "bound_evidence_ids": [
+        "redis_consistency",
+        "mysql_backend",
+        "mysql_isolation",
+        "redis_backend",
+        "mysql_online_migration"
+      ],
+      "replayed_evidence_ids": [
+        "redis_consistency",
+        "mysql_backend",
+        "mysql_isolation",
+        "redis_backend",
+        "mysql_online_migration"
+      ],
+      "semantic_hit_ids": [
+        "redis_consistency",
+        "mysql_isolation",
+        "redis_backend",
+        "mysql_backend",
+        "cache_breakdown"
+      ],
+      "lexical_hit_ids": [
+        "redis_consistency",
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 354.308,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-009",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.9421052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 1.9000000000000001,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 1.6473684210526316,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 4,
+          "score": 1.3947368421052633,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 0.8789473684210527,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary",
+        "service_scaling"
+      ],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 320.415,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-010",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 1.7447368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 1.4421052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 1.1394736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 1.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations"
+      ],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 335.537,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-011",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 3,
+          "score": 0.8947368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "service_scaling",
+          "rank": 4,
+          "score": 0.8821052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "rocketmq_backend",
+        "service_scaling",
+        "redis_backend"
+      ],
+      "bound_evidence_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "rocketmq_backend",
+        "service_scaling",
+        "redis_backend"
+      ],
+      "replayed_evidence_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "rocketmq_backend",
+        "service_scaling",
+        "redis_backend"
+      ],
+      "semantic_hit_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "rocketmq_backend",
+        "service_scaling",
+        "redis_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 445.358,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-012",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 2.0073684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 1.6521052631578947,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 1.296842105263158,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 4,
+          "score": 1.06,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 5,
+          "score": 0.9942105263157894,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_operations"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_operations"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_operations"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_retry_dead_letter",
+        "rocketmq_backend",
+        "cascading_failures",
+        "rocketmq_delivery",
+        "redis_operations"
+      ],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 623.235,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-013",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 2,
+          "score": 1.8171052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 3,
+          "score": 1.5144736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 4,
+          "score": 1.4947368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 5,
+          "score": 1.171842105263158,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "redis_backend"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "redis_backend"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle",
+        "redis_backend"
+      ],
+      "semantic_hit_ids": [
+        "redis_operations",
+        "fastapi_backend",
+        "fastapi_request_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_production"
+      ],
+      "lexical_hit_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 778.333,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-014",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 1,
+          "score": 2.041176470588235,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cache_breakdown",
+          "rank": 2,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 0.9823529411764707,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 4,
+          "score": 0.8235294117647058,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 5,
+          "score": 0.7647058823529411,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_consistency",
+        "cache_breakdown",
+        "redis_distributed_lock",
+        "rocketmq_retry_dead_letter",
+        "mysql_isolation"
+      ],
+      "bound_evidence_ids": [
+        "redis_consistency",
+        "cache_breakdown",
+        "redis_distributed_lock",
+        "rocketmq_retry_dead_letter",
+        "mysql_isolation"
+      ],
+      "replayed_evidence_ids": [
+        "redis_consistency",
+        "cache_breakdown",
+        "redis_distributed_lock",
+        "rocketmq_retry_dead_letter",
+        "mysql_isolation"
+      ],
+      "semantic_hit_ids": [
+        "cache_breakdown",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "rocketmq_retry_dead_letter",
+        "mysql_isolation"
+      ],
+      "lexical_hit_ids": [
+        "redis_consistency",
+        "redis_distributed_lock"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 653.849,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-015",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "mysql_deadlocks",
+          "rank": 1,
+          "score": 2.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.9473684210526315,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 3,
+          "score": 0.9347368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 4,
+          "score": 0.8821052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_deadlocks",
+        "redis_backend",
+        "mysql_backend",
+        "mysql_isolation",
+        "fastapi_backend"
+      ],
+      "bound_evidence_ids": [
+        "mysql_deadlocks",
+        "redis_backend",
+        "mysql_backend",
+        "mysql_isolation",
+        "fastapi_backend"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_deadlocks",
+        "redis_backend",
+        "mysql_backend",
+        "mysql_isolation",
+        "fastapi_backend"
+      ],
+      "semantic_hit_ids": [
+        "mysql_deadlocks",
+        "redis_backend",
+        "mysql_backend",
+        "mysql_isolation",
+        "fastapi_backend"
+      ],
+      "lexical_hit_ids": [
+        "mysql_deadlocks"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1027.459,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-016",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 1,
+          "score": 2.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 2,
+          "score": 1.7973684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 3,
+          "score": 1.3894736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 1.1921052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.9947368421052631,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_load_balancing",
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_load_balancing",
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_load_balancing",
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_load_balancing",
+        "rocketmq_backend",
+        "rocketmq_retry_dead_letter",
+        "rocketmq_operations",
+        "rocketmq_delivery"
+      ],
+      "lexical_hit_ids": [
+        "rocketmq_load_balancing",
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 981.824,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-017",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "service_scaling",
+          "rank": 3,
+          "score": 0.9347368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 4,
+          "score": 0.8421052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 5,
+          "score": 0.8294736842105264,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "service_scaling",
+        "rocketmq_backend",
+        "cascading_failures"
+      ],
+      "bound_evidence_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "service_scaling",
+        "rocketmq_backend",
+        "cascading_failures"
+      ],
+      "replayed_evidence_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "service_scaling",
+        "rocketmq_backend",
+        "cascading_failures"
+      ],
+      "semantic_hit_ids": [
+        "capacity_planning",
+        "system_design_backend",
+        "service_scaling",
+        "rocketmq_backend",
+        "cascading_failures"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 1079.306,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-018",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_replica_lag",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 3,
+          "score": 0.8947368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 4,
+          "score": 0.8821052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cache_breakdown",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "cascading_failures",
+        "postgresql_replica_lag",
+        "redis_operations",
+        "postgresql_monitoring_baseline",
+        "cache_breakdown"
+      ],
+      "bound_evidence_ids": [
+        "cascading_failures",
+        "postgresql_replica_lag",
+        "redis_operations",
+        "postgresql_monitoring_baseline",
+        "cache_breakdown"
+      ],
+      "replayed_evidence_ids": [
+        "cascading_failures",
+        "postgresql_replica_lag",
+        "redis_operations",
+        "postgresql_monitoring_baseline",
+        "cache_breakdown"
+      ],
+      "semantic_hit_ids": [
+        "cascading_failures",
+        "postgresql_replica_lag",
+        "redis_operations",
+        "postgresql_monitoring_baseline",
+        "cache_breakdown"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 1126.372,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-019",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 2,
+          "score": 1.4947368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 3,
+          "score": 1.35,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 4,
+          "score": 1.0605263157894738,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 5,
+          "score": 0.8421052631578947,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_blocking_io",
+        "system_design_backend"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_blocking_io",
+        "system_design_backend"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_blocking_io",
+        "system_design_backend"
+      ],
+      "semantic_hit_ids": [
+        "fastapi_production",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "system_design_backend",
+        "redis_operations"
+      ],
+      "lexical_hit_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1018.647,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-020",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_backend",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 2,
+          "score": 1.6614035087719299,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 1.275438596491228,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 1.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "bound_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "replayed_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "semantic_hit_ids": [
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "fastapi_production"
+      ],
+      "lexical_hit_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 742.324,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-021",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 1,
+          "score": 2.1,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 2,
+          "score": 1.5842105263157897,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 1.3421052631578947,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 4,
+          "score": 1.2789473684210528,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 5,
+          "score": 1.1947368421052633,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_connection_capacity",
+        "postgresql_ha_failover_boundary"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_connection_capacity",
+        "postgresql_ha_failover_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_connection_capacity",
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_replica_lag",
+        "postgresql_ha_failover_boundary",
+        "postgresql_connection_saturation",
+        "redis_backend"
+      ],
+      "lexical_hit_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 899.815,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-022",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 1,
+          "score": 1.9947368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 1.8823684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 3,
+          "score": 1.6,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 4,
+          "score": 1.5994736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 5,
+          "score": 1.3171052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "redis_operations",
+        "redis_consistency",
+        "rocketmq_backend"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "redis_operations",
+        "redis_consistency",
+        "rocketmq_backend"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "redis_operations",
+        "redis_consistency",
+        "rocketmq_backend"
+      ],
+      "semantic_hit_ids": [
+        "redis_operations",
+        "redis_backend",
+        "rocketmq_operations",
+        "rocketmq_backend",
+        "redis_consistency"
+      ],
+      "lexical_hit_ids": [
+        "rocketmq_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1368.9,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-023",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "service_scaling",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 3,
+          "score": 0.9347368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 4,
+          "score": 0.8821052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "queue_backpressure",
+          "rank": 5,
+          "score": 0.8294736842105264,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "cascading_failures",
+        "capacity_planning",
+        "queue_backpressure"
+      ],
+      "bound_evidence_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "cascading_failures",
+        "capacity_planning",
+        "queue_backpressure"
+      ],
+      "replayed_evidence_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "cascading_failures",
+        "capacity_planning",
+        "queue_backpressure"
+      ],
+      "semantic_hit_ids": [
+        "service_scaling",
+        "system_design_backend",
+        "cascading_failures",
+        "capacity_planning",
+        "queue_backpressure"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 1416.933,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-024",
+      "availability": "degraded",
+      "candidates": [],
+      "selected_evidence_ids": [],
+      "bound_evidence_ids": [],
+      "replayed_evidence_ids": [],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 1515.595,
+      "reason_codes": [
+        "semantic_timeout"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-025",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 32.244,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-026",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 1,
+          "score": 1.06,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 2,
+          "score": 0.917142857142857,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.7742857142857142,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 4,
+          "score": 0.6314285714285715,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 5,
+          "score": 0.5285714285714286,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "redis_backend"
+      ],
+      "bound_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "redis_backend"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "redis_backend"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "redis_backend"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.5,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-027",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 2,
+          "score": 0.9888888888888889,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.8777777777777778,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 4,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 5,
+          "score": 0.6155555555555556,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "bound_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 36.156,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-028",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 30.914,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-029",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "system_design_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "system_design_backend"
+      ],
+      "bound_evidence_ids": [
+        "system_design_backend"
+      ],
+      "replayed_evidence_ids": [
+        "system_design_backend"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "system_design_backend"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.3,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-030",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.71,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-031",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 36.267,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-032",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "redis_backend",
+          "rank": 1,
+          "score": 1.7842105263157895,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 2,
+          "score": 1.6087719298245613,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 1.4333333333333333,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_deadlocks",
+          "rank": 4,
+          "score": 0.9473684210526315,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "cache_breakdown",
+          "rank": 5,
+          "score": 0.9347368421052632,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "mysql_deadlocks",
+        "cache_breakdown"
+      ],
+      "bound_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "mysql_deadlocks",
+        "cache_breakdown"
+      ],
+      "replayed_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "mysql_deadlocks",
+        "cache_breakdown"
+      ],
+      "semantic_hit_ids": [
+        "redis_distributed_lock",
+        "mysql_deadlocks",
+        "cache_breakdown",
+        "redis_consistency",
+        "mysql_isolation"
+      ],
+      "lexical_hit_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1339.216,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-033",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 3,
+          "score": 0.8947368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 4,
+          "score": 0.8421052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "mysql_backend",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "mysql_backend",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "mysql_backend",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_ha_failover_boundary",
+        "mysql_backend",
+        "redis_backend",
+        "fastapi_backend"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 907.53,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-034",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 1.85,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 1.4421052631578948,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 1.2447368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.8894736842105264,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [
+        "rocketmq_delivery",
+        "rocketmq_backend",
+        "rocketmq_operations",
+        "rocketmq_load_balancing",
+        "rocketmq_retry_dead_letter"
+      ],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1017.414,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-035",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "cascading_failures",
+          "rank": 1,
+          "score": 1.04,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "queue_backpressure",
+          "rank": 2,
+          "score": 0.9873684210526316,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 3,
+          "score": 0.9347368421052632,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 0.8421052631578947,
+          "channels": [
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 5,
+          "score": 0.7894736842105263,
+          "channels": [
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "cascading_failures",
+        "queue_backpressure",
+        "capacity_planning",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "bound_evidence_ids": [
+        "cascading_failures",
+        "queue_backpressure",
+        "capacity_planning",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "replayed_evidence_ids": [
+        "cascading_failures",
+        "queue_backpressure",
+        "capacity_planning",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "semantic_hit_ids": [
+        "cascading_failures",
+        "queue_backpressure",
+        "capacity_planning",
+        "redis_operations",
+        "fastapi_production"
+      ],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 970.34,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-036",
+      "availability": "available",
+      "candidates": [
+        {
+          "chunk_id": "capacity_planning",
+          "rank": 1,
+          "score": 2.0473684210526315,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 1.7666666666666666,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 3,
+          "score": 1.7228070175438597,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 4,
+          "score": 1.4947368421052634,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 5,
+          "score": 1.275438596491228,
+          "channels": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "capacity_planning",
+        "postgresql_connection_capacity",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "bound_evidence_ids": [
+        "capacity_planning",
+        "postgresql_connection_capacity",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "capacity_planning",
+        "postgresql_connection_capacity",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_hit_ids": [
+        "postgresql_connection_capacity",
+        "capacity_planning",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_backup_restore_boundary"
+      ],
+      "lexical_hit_ids": [
+        "capacity_planning",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 658.784,
+      "reason_codes": []
+    },
+    {
+      "case_id": "kev3-tuning-037",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1514.661,
+      "reason_codes": [
+        "semantic_timeout"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-038",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "redis_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 2,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 0.4333333333333333,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 50.689,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-039",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 2,
+          "score": 0.9888888888888889,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.8777777777777778,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 4,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 5,
+          "score": 0.6555555555555557,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "bound_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration",
+        "postgresql_backup_restore_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 37.238,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-040",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 39.989,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-041",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 0.9000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 0.7,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 4,
+          "score": 0.5,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 0.3,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 45.123,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-042",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 3,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 32.401,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-043",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_blocking_io",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_blocking_io",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_blocking_io",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_blocking_io",
+        "fastapi_backend",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 47.501,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-044",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "cache_breakdown",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "cache_breakdown",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "cache_breakdown",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "cache_breakdown",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "cache_breakdown",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 47.831,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-045",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 2,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 3,
+          "score": 0.4333333333333333,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 4,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_isolation",
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_online_migration"
+      ],
+      "bound_evidence_ids": [
+        "mysql_isolation",
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_online_migration"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_isolation",
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_online_migration"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_isolation",
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_online_migration"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.839,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-046",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 31.9,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-047",
+      "availability": "degraded",
+      "candidates": [],
+      "selected_evidence_ids": [],
+      "bound_evidence_ids": [],
+      "replayed_evidence_ids": [],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 33.253,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-048",
+      "availability": "degraded",
+      "candidates": [],
+      "selected_evidence_ids": [],
+      "bound_evidence_ids": [],
+      "replayed_evidence_ids": [],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 33.087,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-049",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 2,
+          "score": 0.9571428571428571,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 3,
+          "score": 0.8142857142857143,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.6714285714285715,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.5285714285714286,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 31.89,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-050",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "redis_operations",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.9750000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 3,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 4,
+          "score": 0.7250000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 5,
+          "score": 0.56,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "rocketmq_backend"
+      ],
+      "bound_evidence_ids": [
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "rocketmq_backend"
+      ],
+      "replayed_evidence_ids": [
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "rocketmq_backend"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "redis_operations",
+        "redis_backend",
+        "redis_consistency",
+        "redis_distributed_lock",
+        "rocketmq_backend"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 36.972,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-051",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 2,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.4333333333333333,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_online_migration",
+          "rank": 4,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration"
+      ],
+      "bound_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_backend",
+        "mysql_indexing",
+        "mysql_isolation",
+        "mysql_online_migration"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 43.037,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-052",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 1509.331,
+      "reason_codes": [
+        "semantic_timeout"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-053",
+      "availability": "degraded",
+      "candidates": [],
+      "selected_evidence_ids": [],
+      "bound_evidence_ids": [],
+      "replayed_evidence_ids": [],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 37.961,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-054",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 0.9888888888888889,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 0.8777777777777778,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 4,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 0.6555555555555557,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 29.98,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-055",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 36.448,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-056",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "redis_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_backend"
+      ],
+      "bound_evidence_ids": [
+        "redis_backend"
+      ],
+      "replayed_evidence_ids": [
+        "redis_backend"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "redis_backend"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 30.26,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-057",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_ha_failover_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.481,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-058",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.637,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-059",
+      "availability": "degraded",
+      "candidates": [],
+      "selected_evidence_ids": [],
+      "bound_evidence_ids": [],
+      "replayed_evidence_ids": [],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 34.448,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-060",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 0.9000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 0.7,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 4,
+          "score": 0.5,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 0.3,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 30.936,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-061",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_request_lifecycle",
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 34.558,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-062",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 0.4333333333333333,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 33.278,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-063",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 2,
+          "score": 0.9000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 3,
+          "score": 0.7,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 4,
+          "score": 0.5,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 5,
+          "score": 0.3,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_monitoring_baseline",
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.057,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-064",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 34.309,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-065",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.06,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.81,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.56,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.31,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.06,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 32.233,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-066",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 0.9000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 0.7,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 4,
+          "score": 0.5,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 0.3,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 34.333,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-067",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 2,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 3,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_dependency_lifecycle",
+        "fastapi_blocking_io",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 34.981,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-068",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "redis_consistency",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_backend",
+          "rank": 2,
+          "score": 0.7666666666666666,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_distributed_lock",
+          "rank": 3,
+          "score": 0.4333333333333333,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "redis_operations",
+          "rank": 4,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "bound_evidence_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "replayed_evidence_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "redis_consistency",
+        "redis_backend",
+        "redis_distributed_lock",
+        "redis_operations"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 33.585,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-069",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_indexing"
+      ],
+      "bound_evidence_ids": [
+        "mysql_indexing"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_indexing"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_indexing"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 34.592,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-070",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 38.25,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-071",
+      "availability": "degraded",
+      "candidates": [],
+      "selected_evidence_ids": [],
+      "bound_evidence_ids": [],
+      "replayed_evidence_ids": [],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [],
+      "declared_no_evidence": false,
+      "latency_ms": 34.716,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-072",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "fastapi_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_blocking_io",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_dependency_lifecycle",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_production",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "fastapi_request_lifecycle",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "bound_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "replayed_evidence_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "fastapi_backend",
+        "fastapi_blocking_io",
+        "fastapi_dependency_lifecycle",
+        "fastapi_production",
+        "fastapi_request_lifecycle"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 32.436,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-073",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "postgresql_backup_restore_boundary",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_capacity",
+          "rank": 2,
+          "score": 0.9000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_connection_saturation",
+          "rank": 3,
+          "score": 0.7,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_ha_failover_boundary",
+          "rank": 4,
+          "score": 0.5,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "postgresql_monitoring_baseline",
+          "rank": 5,
+          "score": 0.3,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "bound_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "replayed_evidence_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "postgresql_backup_restore_boundary",
+        "postgresql_connection_capacity",
+        "postgresql_connection_saturation",
+        "postgresql_ha_failover_boundary",
+        "postgresql_monitoring_baseline"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 36.874,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-074",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "rocketmq_backend",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_delivery",
+          "rank": 2,
+          "score": 0.8500000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_load_balancing",
+          "rank": 3,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_operations",
+          "rank": 4,
+          "score": 0.35,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "rocketmq_retry_dead_letter",
+          "rank": 5,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "bound_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "replayed_evidence_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "rocketmq_backend",
+        "rocketmq_delivery",
+        "rocketmq_load_balancing",
+        "rocketmq_operations",
+        "rocketmq_retry_dead_letter"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 38.415,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    },
+    {
+      "case_id": "kev3-tuning-075",
+      "availability": "degraded",
+      "candidates": [
+        {
+          "chunk_id": "mysql_deadlocks",
+          "rank": 1,
+          "score": 1.1,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_indexing",
+          "rank": 2,
+          "score": 0.6000000000000001,
+          "channels": [
+            "lexical"
+          ]
+        },
+        {
+          "chunk_id": "mysql_isolation",
+          "rank": 3,
+          "score": 0.1,
+          "channels": [
+            "lexical"
+          ]
+        }
+      ],
+      "selected_evidence_ids": [
+        "mysql_deadlocks",
+        "mysql_indexing",
+        "mysql_isolation"
+      ],
+      "bound_evidence_ids": [
+        "mysql_deadlocks",
+        "mysql_indexing",
+        "mysql_isolation"
+      ],
+      "replayed_evidence_ids": [
+        "mysql_deadlocks",
+        "mysql_indexing",
+        "mysql_isolation"
+      ],
+      "semantic_hit_ids": [],
+      "lexical_hit_ids": [
+        "mysql_deadlocks",
+        "mysql_indexing",
+        "mysql_isolation"
+      ],
+      "declared_no_evidence": false,
+      "latency_ms": 35.006,
+      "reason_codes": [
+        "semantic_capacity_exhausted"
+      ]
+    }
+  ],
+  "artifact_sha256": "c6454f3acb0a57835a195d2ec60f382e5888eb868bf73a507c84807436ba9a7e"
+}

@@ -13,7 +13,9 @@ if str(ROOT) not in sys.path:
 from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from app.services.knowledge_eval_artifacts_v3 import (
     build_engine_identity_v3,
+    compare_knowledge_eval_artifacts_v3,
     evaluate_knowledge_engine_v3,
+    load_eval_artifact_v3,
     write_frozen_eval_artifact,
 )
 from app.services.knowledge_eval_dataset_v3 import load_knowledge_retrieval_dataset_v3
@@ -31,13 +33,15 @@ from scripts.evaluate_knowledge_retrieval_v3 import (
 )
 
 
-def run_legacy_machine_diagnostic(
+def run_machine_diagnostic(
     *,
     dataset_path: Path,
     provenance_path: Path,
     manifest_path: Path,
     split: str,
     output_path: Path,
+    engine_name: str = "legacy",
+    ablation: str = "weighted-rrf",
 ) -> dict:
     candidate_summary = validate_machine_dataset(
         dataset_path,
@@ -56,11 +60,11 @@ def run_legacy_machine_diagnostic(
         raise ValueError("machine diagnostic cannot claim human governance")
 
     repository = PgVectorKnowledgeStore.from_env(schema_mode="validate")
-    profile = _profile("legacy")
-    engine = _engine("legacy", repository)
+    profile = _profile(engine_name, ablation=ablation)
+    engine = _engine(engine_name, repository, ablation=ablation)
     try:
         identity = build_engine_identity_v3(
-            engine_version=_engine_version("legacy", "weighted-rrf"),
+            engine_version=_engine_version(engine_name, ablation),
             code_revision=_git_revision(),
             code_tree_sha256=_code_tree_sha256(),
             profile=profile,
@@ -85,12 +89,14 @@ def run_legacy_machine_diagnostic(
 
     metrics = artifact.metrics
     return {
-        "status": "machine_preannotation_legacy_diagnostic_complete",
+        "status": "machine_preannotation_diagnostic_complete",
         "independent_eval_evidence": False,
         "artifact": str(output_path),
         "artifact_sha256": artifact.artifact_sha256,
         "dataset_sha256": artifact.dataset_sha256,
         "split": split,
+        "engine": engine_name,
+        "ablation": ablation if engine_name != "legacy" else None,
         "case_count": metrics.case_count,
         "recall_at_5": metrics.recall_at_5,
         "mrr_at_5": metrics.mrr_at_5,
@@ -109,25 +115,84 @@ def run_legacy_machine_diagnostic(
     }
 
 
+def run_legacy_machine_diagnostic(**kwargs) -> dict:
+    return run_machine_diagnostic(engine_name="legacy", **kwargs)
+
+
+def compare_machine_diagnostics(
+    *,
+    baseline_path: Path,
+    candidate_path: Path,
+    output_path: Path,
+) -> dict:
+    baseline = load_eval_artifact_v3(baseline_path)
+    candidate = load_eval_artifact_v3(candidate_path)
+    if baseline.split != "tuning" or candidate.split != "tuning":
+        raise ValueError(
+            "machine paired diagnostics are limited to tuning without a "
+            "pre-registered formal holdout policy"
+        )
+    paired = compare_knowledge_eval_artifacts_v3(baseline, candidate)
+    write_frozen_eval_artifact(paired, output_path)
+    return {
+        "status": "machine_preannotation_paired_diagnostic_complete",
+        "independent_eval_evidence": False,
+        "artifact": str(output_path),
+        "artifact_sha256": paired.artifact_sha256,
+        "baseline_artifact_sha256": paired.baseline_artifact_sha256,
+        "candidate_artifact_sha256": paired.candidate_artifact_sha256,
+        "split": paired.split,
+        "thresholds_passed": None,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run a Legacy diagnostic for a non-independent Eval V3 machine candidate"
+        description="Run or pair diagnostics for a non-independent Eval V3 machine candidate"
     )
+    parser.add_argument("--compare", action="store_true")
     parser.add_argument("--dataset", type=Path, default=DEFAULT_OUTPUT_DIR / "dataset.json")
     parser.add_argument(
         "--provenance", type=Path, default=DEFAULT_OUTPUT_DIR / "provenance.json"
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--split", choices=("tuning", "holdout"), required=True)
+    parser.add_argument("--split", choices=("tuning", "holdout"))
+    parser.add_argument("--engine", choices=("legacy", "hybrid-v2"), default="legacy")
+    parser.add_argument(
+        "--ablation",
+        choices=(
+            "semantic-only",
+            "lexical-only",
+            "unweighted-rrf",
+            "weighted-rrf",
+            "rank-normalized-score",
+        ),
+        default="weighted-rrf",
+    )
+    parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--candidate", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    summary = run_legacy_machine_diagnostic(
-        dataset_path=args.dataset,
-        provenance_path=args.provenance,
-        manifest_path=args.manifest,
-        split=args.split,
-        output_path=args.output,
-    )
+    if args.compare:
+        if args.baseline is None or args.candidate is None:
+            parser.error("--compare requires --baseline and --candidate")
+        summary = compare_machine_diagnostics(
+            baseline_path=args.baseline,
+            candidate_path=args.candidate,
+            output_path=args.output,
+        )
+    else:
+        if args.split is None:
+            parser.error("a diagnostic run requires --split")
+        summary = run_machine_diagnostic(
+            dataset_path=args.dataset,
+            provenance_path=args.provenance,
+            manifest_path=args.manifest,
+            split=args.split,
+            output_path=args.output,
+            engine_name=args.engine,
+            ablation=args.ablation,
+        )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0
 

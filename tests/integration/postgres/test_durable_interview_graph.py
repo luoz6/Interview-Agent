@@ -9,7 +9,6 @@ import psycopg2
 from psycopg2 import sql
 import pytest
 
-from app.agents.examiner import fallback_followup
 from app.graphs.durable_interview_graph import (
     DurableInterviewGraphDependencies,
     build_durable_interview_graph,
@@ -18,6 +17,10 @@ from app.graphs.durable_interview_state import make_durable_initial_state
 from app.services.interview_generation_store import (
     PostgresInterviewGenerationStore,
 )
+from app.services.followup_decision_service import (
+    FollowupDecisionExecutionService,
+)
+from app.services.postgres_decision_store import PostgresDecisionStore
 from app.services.interview_workflow_store import (
     PostgresInterviewWorkflowStore,
 )
@@ -105,6 +108,10 @@ def make_postgres_graph(*, fail: bool = False):
         dsn=require_dsn(),
         table_prefix=prefix,
     )
+    decision_store = PostgresDecisionStore(
+        dsn=require_dsn(),
+        table_prefix=prefix,
+    )
     examiner = FakeExaminer(fail=fail)
     report_jobs = PostgresReportJobStore(
         dsn=require_dsn(),
@@ -114,6 +121,10 @@ def make_postgres_graph(*, fail: bool = False):
     deps = DurableInterviewGraphDependencies(
         workflow_store=workflow_store,
         generation_store=generation_store,
+        decision_service=FollowupDecisionExecutionService(
+            store=decision_store,
+            provider=None,
+        ),
         examiner=examiner,
         report_job_queue=report_jobs,
     )
@@ -193,7 +204,9 @@ def test_retry_interrupt_waits_for_due_event(durable_graph_table_cleanup):
     assert stale.values["generation_attempt"] == 1
 
 
-def test_third_failure_commits_template_fallback(durable_graph_table_cleanup):
+def test_third_failure_terminates_followup_without_template_answer(
+    durable_graph_table_cleanup,
+):
     graph, config, store, examiner = make_postgres_graph(fail=True)
     session_id = config["configurable"]["thread_id"]
     store.enqueue_command(
@@ -221,8 +234,9 @@ def test_third_failure_commits_template_fallback(durable_graph_table_cleanup):
         )
 
     state = graph.get_state(config).values
-    assert state["messages"][-1]["content"] == fallback_followup("Architecture")
+    assert state["messages"][-1]["content"] == "I used cache-aside."
     assert state["last_error_code"] == "provider_unavailable"
+    assert state["termination_reason_code"] == "generation_retry_exhausted"
     assert state["state_version"] == 3
     assert examiner.attempt_count == 3
 

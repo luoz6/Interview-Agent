@@ -132,7 +132,7 @@ class HybridKnowledgeRetrievalService:
             limit=profile.fusion_candidate_limit,
         )
         rerank_candidates = fused[: profile.rerank_candidate_limit]
-        ranked_chunks, reranker_reason = self._run_reranker(
+        ranked_candidates, reranker_reason = self._run_reranker(
             rerank_candidates,
             request=request,
             profile=profile,
@@ -142,21 +142,25 @@ class HybridKnowledgeRetrievalService:
             degraded_reasons.append(reranker_reason)
             if availability == RetrievalAvailability.AVAILABLE:
                 availability = RetrievalAvailability.DEGRADED
-        rank_by_id = {
-            chunk.chunk_id: rank for rank, chunk in enumerate(ranked_chunks, 1)
-        }
-        score_by_id = {
-            chunk.chunk_id: float(chunk.score or 0.0) for chunk in ranked_chunks
-        }
+        reranked_by_id = {item.chunk_id: item for item in ranked_candidates}
         fused = [
             item.model_copy(
                 update={
-                    "rerank_rank": rank_by_id.get(item.chunk_id),
-                    "rerank_score": score_by_id.get(item.chunk_id),
+                    "rerank_rank": (
+                        reranked_by_id[item.chunk_id].rerank_rank
+                        if item.chunk_id in reranked_by_id
+                        else None
+                    ),
+                    "rerank_score": (
+                        reranked_by_id[item.chunk_id].rerank_score
+                        if item.chunk_id in reranked_by_id
+                        else None
+                    ),
                 }
             )
             for item in fused
         ]
+        ranked_chunks = [item.chunk for item in ranked_candidates]
         latency = round((perf_counter() - started_at) * 1000, 3)
         evidence_decision = self._evidence_gate.decide_selection(
             availability,
@@ -253,11 +257,10 @@ class HybridKnowledgeRetrievalService:
         profile: ResolvedRetrievalProfile,
         started_at: float,
     ):
-        chunks = [item.chunk for item in candidates]
         future = self._submit_channel(
             "reranker",
-            self._reranker.rerank,
-            chunks,
+            self._reranker.rerank_candidates,
+            candidates,
             query_text=request.query_text,
             requested_tags=list(
                 request.routing_hints.domains
@@ -283,8 +286,13 @@ class HybridKnowledgeRetrievalService:
     @staticmethod
     def _fusion_fallback(candidates, profile):
         return [
-            item.chunk
-            for item in candidates
+            item.model_copy(
+                update={
+                    "rerank_rank": rank,
+                    "rerank_score": item.fusion_score,
+                }
+            )
+            for rank, item in enumerate(candidates, 1)
             if float(item.chunk.score or 0.0) >= profile.minimum_score
         ][: profile.evidence_limit]
 

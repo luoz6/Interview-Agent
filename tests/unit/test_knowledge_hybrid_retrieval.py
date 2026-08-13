@@ -195,9 +195,12 @@ def test_hybrid_service_applies_rerank_candidate_limit_before_reranking():
     seen = []
 
     class RecordingReranker:
-        def rerank(self, candidates, **kwargs):
+        def rerank_candidates(self, candidates, **kwargs):
             seen.extend(item.chunk_id for item in candidates)
-            return candidates[: kwargs["limit"]]
+            return [
+                item.model_copy(update={"rerank_rank": rank, "rerank_score": 1.0})
+                for rank, item in enumerate(candidates[: kwargs["limit"]], 1)
+            ]
 
     service = HybridKnowledgeRetrievalService(
         Semantic([_semantic_candidate(chunk, index + 1) for index, chunk in enumerate(chunks)]),
@@ -342,7 +345,7 @@ def test_hybrid_service_bounds_reranker_and_uses_fused_order_on_timeout():
     ]
 
     class BlockingReranker:
-        def rerank(self, candidates, **kwargs):
+        def rerank_candidates(self, candidates, **kwargs):
             release.wait(timeout=1)
             return list(reversed(candidates))
 
@@ -363,3 +366,30 @@ def test_hybrid_service_bounds_reranker_and_uses_fused_order_on_timeout():
     assert result.availability == RetrievalAvailability.DEGRADED
     assert "reranker_timeout" in result.degraded_reasons
     assert [item.chunk_id for item in result.selected_evidence] == ["alpha", "beta"]
+
+
+def test_fusion_order_is_authoritative_when_raw_scores_conflict():
+    fusion_first = _chunk("fusion-first", "unrelated one", score=0.55)
+    raw_first = _chunk("raw-first", "unrelated two", score=0.99)
+    service = HybridKnowledgeRetrievalService(
+        Semantic(
+            [
+                _semantic_candidate(fusion_first, 1),
+                _semantic_candidate(raw_first, 2),
+            ]
+        ),
+        ExactTermLexicalRetriever(Source([])),
+    )
+
+    result = service.retrieve(_request("neutral query"), _profile())
+    service.close()
+
+    assert fusion_first.score < raw_first.score
+    assert [item.chunk_id for item in result.selected_evidence[:2]] == [
+        "fusion-first",
+        "raw-first",
+    ]
+    candidates = {item.chunk_id: item for item in result.candidates}
+    assert candidates["fusion-first"].fusion_rank == 1
+    assert candidates["fusion-first"].rerank_rank == 1
+    assert candidates["fusion-first"].rerank_score > candidates["raw-first"].rerank_score

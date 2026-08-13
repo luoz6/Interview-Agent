@@ -669,7 +669,7 @@ class PostgresPrincipalMemorySafeRefStore(_PostgresPrincipalMemoryStore):
             )
         if fact.version != record.fact_version:
             raise PrincipalMemorySafeRefVersionConflict(
-                "principal memory safe reference version changed"
+                "principal memory safe reference is stale because its version changed"
             )
         return fact
 

@@ -65,3 +65,35 @@ Dataset canonical SHA-256:
 
 Provenance SHA-256:
 `0268952fb9b3400d5ae4f8659b45d0c46c4623a9bf09aea568613b23d9ea7a44`.
+
+## Four-way tuning ablation snapshot
+
+The 75-case tuning split was also executed through four real retrieval paths
+after latest-master integration. Each artifact is bound to the dataset SHA
+above and the same `memory-p1-zh-v4` / SiliconFlow BGE-M3 identity. These are
+real runtime Candidate Artifacts, but they remain machine-preannotation
+diagnostics and are not independent release evidence.
+
+| Engine | Recall@5 | MRR@5 | NDCG@5 | Hit@1 | Filter correctness | No-evidence F1 | P95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Legacy | 1.000000 | 0.872388 | 0.879023 | 0.791045 | 0.749254 | 0.000000 | 410.057 ms |
+| Semantic-only | 0.970149 | 0.864925 | 0.870257 | 0.791045 | 0.770149 | 0.000000 | 457.933 ms |
+| Lexical-only | 0.783582 | 0.603483 | 0.612997 | 0.492537 | 0.900415 | 0.285714 | 41.313 ms |
+| Hybrid weighted RRF | 0.955224 | 0.849502 | 0.846150 | 0.761194 | 0.802985 | 0.000000 | 498.850 ms |
+| Rank-normalized fusion | 0.888060 | 0.684826 | 0.699298 | 0.552239 | 0.814947 | 0.000000 | 1339.216 ms |
+
+Candidate artifact SHA-256 values:
+
+- semantic-only: `77a8f2ee0060b73e9beb20877cf64b0da13e52ae8287774fbd8ebd1103c003c1`;
+- lexical-only: `7c20bb3180cd4cb52bbd05ea3b0f4ed3f3b9533835bcd5c5f61831c389b39a08`;
+- Hybrid weighted RRF: `b12198a5a8fc909f87282b42fd94172a5d7237ee2d277d833a5b474ae7c172bd`;
+- rank-normalized: `c6454f3acb0a57835a195d2ec60f382e5888eb868bf73a507c84807436ba9a7e`.
+
+The four paired Legacy comparison artifacts are committed beside the
+Candidate Artifacts. Every comparison is restricted to tuning, has
+`thresholds_passed: null`, and explicitly records
+`independent_eval_evidence: false`. No Hybrid variant beats Legacy overall in
+this run. Weighted RRF is the representative Hybrid path for business blind
+A/B because it improves filtering relative to Legacy, but it is not a
+retrieval-gate winner. Rank-normalized fusion is rejected for this run because
+of its lower quality, 1.34-second P95, and sub-1.0 replay stability.

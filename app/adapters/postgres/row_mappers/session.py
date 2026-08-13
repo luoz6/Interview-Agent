@@ -138,12 +138,30 @@ class SessionRowMapper:
             if raw_plan_binding is not None
             else legacy_session_plan_binding(session_row["plan_json"])
         )
+        plan = InterviewPlan.model_validate(session_row["plan_json"])
+        current_index = int(session_row["current_index"])
+        current_question_id = (
+            plan.questions[current_index].id
+            if 0 <= current_index < len(plan.questions)
+            else None
+        )
+        messages = [MessageRowMapper.from_row(row) for row in ordered_messages]
+        current_followup_count = max(
+            0,
+            sum(
+                message["role"] == "interviewer"
+                and message.get("question_id") == current_question_id
+                for message in messages
+            )
+            - (1 if current_question_id is not None else 0),
+        )
         return {
             "session_id": session_row["session_id"],
-            "plan": InterviewPlan.model_validate(session_row["plan_json"]),
-            "current_index": int(session_row["current_index"]),
-            "messages": [MessageRowMapper.from_row(row) for row in ordered_messages],
+            "plan": plan,
+            "current_index": current_index,
+            "messages": messages,
             "decision": session_row.get("decision_json"),
+            "current_followup_count": current_followup_count,
             "pending_output": session_row.get("pending_output"),
             "status": session_row["status"],
             "phase": session_row.get("phase", "interview"),

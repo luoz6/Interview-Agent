@@ -71,6 +71,8 @@ def test_session_schema_adapter_owns_session_schema_sql():
     assert "test_schema_reports" in rendered
     assert "test_schema_question_evaluations" in rendered
     assert "test_schema_messages_session_idx" in rendered
+    assert "plan_binding_json" in rendered
+    assert "langgraph-v2" in rendered
 
 
 def test_runtime_control_schema_adapter_owns_runtime_schema_and_indexes():

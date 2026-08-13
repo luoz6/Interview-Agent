@@ -21,6 +21,24 @@ adjudication, or consensus. The annotation template deliberately contains
 empty `records` and `consensus` arrays. Engine outputs are not acceptable as
 human annotations.
 
+For the RocketMQ V4 evaluation, the real engine-output builder is:
+
+```powershell
+$env:PYTHONPATH='.'
+$env:LLM_CONTEXT_WINDOW_TOKENS='128000'
+F:\python3.11\python.exe scripts/build_knowledge_business_blind_ab.py `
+  --output-dir artifacts/private/knowledge-business-rmqv4-20260813 `
+  --seed <confidential-random-seed>
+```
+
+It consumes the frozen Legacy and weighted-RRF tuning Candidate Artifacts,
+generates 25 Follow-up and 25 Reviewer cases, performs two Reviewer passes per
+engine option, and writes a resumable private Provider-output cache. It then
+freezes tuning/holdout packages, restricted mappings, and blank annotation
+templates. Exclusive file creation prevents accidental replacement of an
+existing frozen package. The confidential seed and unblinding keys must not be
+given to annotators.
+
 ## Privacy boundary
 
 The source dataset and blind package contain raw questions, candidate answers,

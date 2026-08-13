@@ -168,9 +168,23 @@ Report evaluation is intentionally not duplicated. The existing Stage 40
 Report evaluator remains authoritative for report stability, grounding,
 ranking, fallback, and forbidden-claim checks.
 
-No independent business dataset, annotation, agreement, or passing holdout
-artifact is committed. This implementation supplies the gate; it does not
-constitute release evidence.
+A real 50-case engine-output source dataset and randomized blind package now
+exist under `artifacts/private/knowledge-business-rmqv4-20260813/`. The source
+contains 25 family-isolated inputs, each evaluated for both Follow-up and
+Reviewer: 38 tuning cases and 12 holdout cases, all eight required scenarios,
+and two repeated Reviewer scores for every engine option. Its dataset SHA-256
+is `9c76fb0664023ccf2a6cddba379d06654a47a86ceff05dfaaa6f4a548ccd630a`.
+Legacy evidence IDs come from the real Legacy artifact; Candidate evidence IDs
+come from the real weighted-RRF artifact. Fifty Provider bundles produced the
+frozen Follow-up and Reviewer outputs.
+
+The tuning and holdout blind packages, restricted unblinding keys, and empty
+annotation templates are self-hashed and validated. The blind packages expose
+neither engine ID. A credential/DSN/authorization scan passed. The annotation
+templates deliberately retain empty `records` and `consensus`, so human
+annotation status remains pending and the package is not release evidence.
+Two independent qualified interviewers plus adjudication are still required;
+no business A/B winner or holdout gate decision has been claimed.
 
 Evidence calibration has a separate, non-retrieving evaluator in
 `app/services/knowledge_evidence_eval.py`. It computes the Plan's binding,
@@ -182,6 +196,32 @@ independent calibration dataset or holdout artifact is committed.
 ## Local verification snapshot
 
 The RocketMQ migration review on 2026-08-13 produced:
+
+- latest `master` was integrated into feature branch
+  `codex/frontend-optimization-v031` as merge commit `8fda828`; `master` itself
+  was not changed;
+- a real 75-case Legacy-vs-four-way tuning ablation produced semantic-only,
+  lexical-only, weighted-RRF, and rank-normalized Candidate/paired artifacts.
+  No Hybrid variant beat Legacy overall, so promotion and Shadow remain
+  blocked;
+- Fusion-to-Rerank now passes the complete `RetrievalCandidate`, preserves the
+  fusion prior as the authoritative ordering signal, applies exact/tag boosts,
+  and uses fusion rank then chunk ID as deterministic tie-breaks. An
+  adversarial test proves that a raw chunk score of `0.99` cannot displace a
+  fusion-first candidate with raw score `0.55` merely because reranking used to
+  discard fusion metadata;
+- a 50-case Follow-up/Reviewer blind A/B execution package was generated from
+  real Legacy and weighted-RRF evidence. It is ready for external human blind
+  annotation, but contains no fabricated human labels, agreement, consensus,
+  threshold decision, or release approval;
+- the post-merge regression passed 303 knowledge/RAG selections (302
+  non-PostgreSQL plus one protected PostgreSQL audit), 63 architecture tests,
+  371 acceptance tests, and the complete protected PostgreSQL matrix with 305
+  passed and 10 conditionally skipped. PostgreSQL integration exposed and
+  closed a missing `plan_binding_json` create-schema column, restarted
+  follow-up-count replay asymmetry, stale Decision-test wiring, and safe-ref
+  error-semantic drift. All generated `test_*` relations were removed after
+  verification;
 
 - 2,503 tests collected in total;
 - 224 protected PostgreSQL tests executed under explicit target and ownership
