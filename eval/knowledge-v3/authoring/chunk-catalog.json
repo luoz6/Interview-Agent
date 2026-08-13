@@ -1,0 +1,563 @@
+{
+  "schema_version": "knowledge-eval-v3-authoring-chunk-catalog-v1",
+  "corpus_version": "memory-p1-zh-v4",
+  "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84",
+  "chunks": [
+    {
+      "chunk_id": "cache_breakdown",
+      "title": "热点缓存失效与缓存击穿",
+      "domain": "redis",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "缓存",
+        "缓存击穿"
+      ],
+      "aliases": [
+        "热点键失效",
+        "并发回源"
+      ],
+      "technical_terms": [],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "capacity_planning",
+      "title": "服务容量规划方法",
+      "domain": "system-design",
+      "source_type": "engineering_guide",
+      "tags": [
+        "system-design",
+        "reliability",
+        "容量规划"
+      ],
+      "aliases": [
+        "容量估算",
+        "峰值流量规划"
+      ],
+      "technical_terms": [],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "cascading_failures",
+      "title": "服务级联故障与放大链路",
+      "domain": "system-design",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "reliability",
+        "级联故障"
+      ],
+      "aliases": [
+        "重试风暴",
+        "故障放大"
+      ],
+      "technical_terms": [],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "fastapi_backend",
+      "title": "FastAPI 后端项目评价基准",
+      "domain": "fastapi",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "fastapi",
+        "python",
+        "后端工程"
+      ],
+      "aliases": [
+        "FastAPI 项目评价",
+        "后端项目证据"
+      ],
+      "technical_terms": [],
+      "content_kind": "benchmark"
+    },
+    {
+      "chunk_id": "fastapi_blocking_io",
+      "title": "FastAPI 异步接口中的阻塞 I/O",
+      "domain": "fastapi",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "阻塞调用"
+      ],
+      "aliases": [
+        "事件循环阻塞",
+        "同步客户端阻塞"
+      ],
+      "technical_terms": [],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "fastapi_dependency_lifecycle",
+      "title": "FastAPI 依赖项生命周期边界",
+      "domain": "fastapi",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "依赖注入"
+      ],
+      "aliases": [
+        "yield 依赖",
+        "lifespan 资源"
+      ],
+      "technical_terms": [],
+      "content_kind": "mechanism"
+    },
+    {
+      "chunk_id": "fastapi_production",
+      "title": "FastAPI 生产工程实践",
+      "domain": "fastapi",
+      "source_type": "engineering_guide",
+      "tags": [
+        "fastapi",
+        "python",
+        "生产运行"
+      ],
+      "aliases": [
+        "FastAPI 生产部署",
+        "服务运行治理"
+      ],
+      "technical_terms": [],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "fastapi_request_lifecycle",
+      "title": "FastAPI 请求生命周期",
+      "domain": "fastapi",
+      "source_type": "theory",
+      "tags": [
+        "fastapi",
+        "python",
+        "请求生命周期"
+      ],
+      "aliases": [
+        "ASGI 请求链路",
+        "请求处理顺序"
+      ],
+      "technical_terms": [],
+      "content_kind": "hard_negative"
+    },
+    {
+      "chunk_id": "mysql_backend",
+      "title": "MySQL 后端项目评价基准",
+      "domain": "mysql",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "mysql",
+        "数据库",
+        "后端工程"
+      ],
+      "aliases": [
+        "MySQL 项目评价",
+        "数据库工程证据"
+      ],
+      "technical_terms": [],
+      "content_kind": "benchmark"
+    },
+    {
+      "chunk_id": "mysql_deadlocks",
+      "title": "InnoDB 死锁识别与恢复",
+      "domain": "mysql",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "innodb",
+        "死锁"
+      ],
+      "aliases": [
+        "事务死锁",
+        "锁等待环"
+      ],
+      "technical_terms": [],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "mysql_indexing",
+      "title": "MySQL 联合索引与覆盖索引",
+      "domain": "mysql",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "索引",
+        "查询优化"
+      ],
+      "aliases": [
+        "最左前缀",
+        "覆盖索引"
+      ],
+      "technical_terms": [
+        "leftmost-prefix",
+        "covering-index",
+        "b-tree"
+      ],
+      "content_kind": "mechanism"
+    },
+    {
+      "chunk_id": "mysql_isolation",
+      "title": "MySQL 事务隔离与锁边界",
+      "domain": "mysql",
+      "source_type": "theory",
+      "tags": [
+        "mysql",
+        "事务",
+        "隔离级别"
+      ],
+      "aliases": [
+        "RC 与 RR",
+        "next-key lock"
+      ],
+      "technical_terms": [],
+      "content_kind": "hard_negative"
+    },
+    {
+      "chunk_id": "mysql_online_migration",
+      "title": "MySQL 在线表结构迁移",
+      "domain": "mysql",
+      "source_type": "engineering_guide",
+      "tags": [
+        "mysql",
+        "在线迁移",
+        "ddl"
+      ],
+      "aliases": [
+        "Online DDL",
+        "无停机迁移"
+      ],
+      "technical_terms": [],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "postgresql_backup_restore_boundary",
+      "title": "PostgreSQL 备份恢复与时间点恢复边界",
+      "domain": "postgresql",
+      "source_type": "engineering_guide",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "备份恢复"
+      ],
+      "aliases": [
+        "时间点恢复",
+        "恢复演练"
+      ],
+      "technical_terms": [],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "postgresql_connection_capacity",
+      "title": "PostgreSQL 连接容量与池化预算",
+      "domain": "postgresql",
+      "source_type": "engineering_guide",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "连接池"
+      ],
+      "aliases": [
+        "连接预算",
+        "连接池容量"
+      ],
+      "technical_terms": [],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "postgresql_connection_saturation",
+      "title": "PostgreSQL 连接耗尽与排队放大",
+      "domain": "postgresql",
+      "source_type": "theory",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "连接耗尽"
+      ],
+      "aliases": [
+        "连接风暴",
+        "连接池饱和"
+      ],
+      "technical_terms": [],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "postgresql_ha_failover_boundary",
+      "title": "PostgreSQL 高可用切换的恢复边界",
+      "domain": "postgresql",
+      "source_type": "theory",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "高可用"
+      ],
+      "aliases": [
+        "主备切换",
+        "故障转移"
+      ],
+      "technical_terms": [],
+      "content_kind": "hard_negative"
+    },
+    {
+      "chunk_id": "postgresql_monitoring_baseline",
+      "title": "PostgreSQL 运行监控与证据基线",
+      "domain": "postgresql",
+      "source_type": "engineering_guide",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "可观测性"
+      ],
+      "aliases": [
+        "数据库监控",
+        "PostgreSQL 指标"
+      ],
+      "technical_terms": [],
+      "content_kind": "mechanism"
+    },
+    {
+      "chunk_id": "postgresql_replica_lag",
+      "title": "PostgreSQL 只读副本延迟与陈旧读取",
+      "domain": "postgresql",
+      "source_type": "theory",
+      "tags": [
+        "postgresql",
+        "reliability",
+        "复制延迟"
+      ],
+      "aliases": [
+        "副本延迟",
+        "陈旧读"
+      ],
+      "technical_terms": [],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "queue_backpressure",
+      "title": "队列背压与准入控制",
+      "domain": "system-design",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "reliability",
+        "背压"
+      ],
+      "aliases": [
+        "队列调平",
+        "流量准入"
+      ],
+      "technical_terms": [],
+      "content_kind": "mechanism"
+    },
+    {
+      "chunk_id": "redis_backend",
+      "title": "Redis 后端项目评价基准",
+      "domain": "redis",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "redis",
+        "缓存",
+        "后端工程"
+      ],
+      "aliases": [
+        "Redis 项目评价",
+        "缓存工程证据"
+      ],
+      "technical_terms": [],
+      "content_kind": "benchmark"
+    },
+    {
+      "chunk_id": "redis_consistency",
+      "title": "Redis 缓存一致性的边界",
+      "domain": "redis",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "缓存",
+        "一致性"
+      ],
+      "aliases": [
+        "Cache-Aside 一致性",
+        "缓存更新顺序"
+      ],
+      "technical_terms": [],
+      "content_kind": "mechanism"
+    },
+    {
+      "chunk_id": "redis_distributed_lock",
+      "title": "Redis 分布式锁的安全边界",
+      "domain": "redis",
+      "source_type": "theory",
+      "tags": [
+        "redis",
+        "分布式锁",
+        "幂等"
+      ],
+      "aliases": [
+        "Redis 锁",
+        "owner token"
+      ],
+      "technical_terms": [
+        "owner token",
+        "compare-and-delete",
+        "fencing token"
+      ],
+      "content_kind": "hard_negative"
+    },
+    {
+      "chunk_id": "redis_operations",
+      "title": "Redis 生产运维观察点",
+      "domain": "redis",
+      "source_type": "engineering_guide",
+      "tags": [
+        "redis",
+        "监控",
+        "容量"
+      ],
+      "aliases": [
+        "Redis 运维",
+        "缓存监控"
+      ],
+      "technical_terms": [],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "rocketmq_backend",
+      "title": "RocketMQ 后端项目评价基准",
+      "domain": "rocketmq",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "rocketmq",
+        "消息系统",
+        "后端工程"
+      ],
+      "aliases": [
+        "RocketMQ 项目评价",
+        "消息工程证据"
+      ],
+      "technical_terms": [
+        "topic",
+        "consumer-group",
+        "transaction-message"
+      ],
+      "content_kind": "benchmark"
+    },
+    {
+      "chunk_id": "rocketmq_delivery",
+      "title": "RocketMQ 投递语义与幂等消费",
+      "domain": "rocketmq",
+      "source_type": "theory",
+      "tags": [
+        "rocketmq",
+        "投递语义",
+        "幂等"
+      ],
+      "aliases": [
+        "至少一次投递",
+        "消费确认"
+      ],
+      "technical_terms": [
+        "at-least-once",
+        "message-id",
+        "idempotency"
+      ],
+      "content_kind": "mechanism"
+    },
+    {
+      "chunk_id": "rocketmq_load_balancing",
+      "title": "RocketMQ 消费组负载均衡边界",
+      "domain": "rocketmq",
+      "source_type": "theory",
+      "tags": [
+        "rocketmq",
+        "消费组",
+        "负载均衡"
+      ],
+      "aliases": [
+        "consumer group",
+        "消息队列分配"
+      ],
+      "technical_terms": [
+        "clustering",
+        "broadcasting",
+        "message-queue",
+        "rebalance"
+      ],
+      "content_kind": "hard_negative"
+    },
+    {
+      "chunk_id": "rocketmq_operations",
+      "title": "RocketMQ 消费运行指标",
+      "domain": "rocketmq",
+      "source_type": "engineering_guide",
+      "tags": [
+        "rocketmq",
+        "监控",
+        "消费治理"
+      ],
+      "aliases": [
+        "消费积压",
+        "消费延迟"
+      ],
+      "technical_terms": [
+        "consumer-lag",
+        "inflight",
+        "drain-time"
+      ],
+      "content_kind": "engineering_practice"
+    },
+    {
+      "chunk_id": "rocketmq_retry_dead_letter",
+      "title": "RocketMQ 重试与死信消息治理",
+      "domain": "rocketmq",
+      "source_type": "theory",
+      "tags": [
+        "rocketmq",
+        "重试",
+        "死信队列"
+      ],
+      "aliases": [
+        "消费重试",
+        "DLQ"
+      ],
+      "technical_terms": [
+        "retry-topic",
+        "dead-letter-queue",
+        "max-reconsume-times"
+      ],
+      "content_kind": "failure_mode"
+    },
+    {
+      "chunk_id": "service_scaling",
+      "title": "无状态服务扩容边界",
+      "domain": "system-design",
+      "source_type": "theory",
+      "tags": [
+        "system-design",
+        "扩容",
+        "无状态服务"
+      ],
+      "aliases": [
+        "横向扩容",
+        "自动扩缩容"
+      ],
+      "technical_terms": [],
+      "content_kind": "hard_negative"
+    },
+    {
+      "chunk_id": "system_design_backend",
+      "title": "后端系统设计评价基准",
+      "domain": "system-design",
+      "source_type": "expert_benchmark",
+      "tags": [
+        "system-design",
+        "后端架构",
+        "可靠性"
+      ],
+      "aliases": [
+        "系统设计评分",
+        "后端架构证据"
+      ],
+      "technical_terms": [],
+      "content_kind": "benchmark"
+    }
+  ]
+}

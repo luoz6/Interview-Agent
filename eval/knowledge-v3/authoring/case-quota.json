@@ -1,0 +1,95 @@
+{
+  "schema_version": "knowledge-eval-v3-case-quota-v1",
+  "package_version": "knowledge-eval-v3-authoring-rmqv4-2026-08-13-v1",
+  "total_slots": 100,
+  "split_quotas": {
+    "tuning": 75,
+    "holdout": 25
+  },
+  "case_type_quotas": {
+    "exact_technical_term": {
+      "tuning": 6,
+      "holdout": 2
+    },
+    "alias_only": {
+      "tuning": 6,
+      "holdout": 2
+    },
+    "acronym": {
+      "tuning": 4,
+      "holdout": 2
+    },
+    "semantic_paraphrase": {
+      "tuning": 6,
+      "holdout": 2
+    },
+    "chinese_paraphrase": {
+      "tuning": 6,
+      "holdout": 2
+    },
+    "weak_keyword": {
+      "tuning": 5,
+      "holdout": 2
+    },
+    "multi_topic": {
+      "tuning": 5,
+      "holdout": 2
+    },
+    "ambiguous": {
+      "tuning": 5,
+      "holdout": 2
+    },
+    "hard_negative": {
+      "tuning": 6,
+      "holdout": 2
+    },
+    "out_of_domain": {
+      "tuning": 4,
+      "holdout": 1
+    },
+    "no_evidence": {
+      "tuning": 4,
+      "holdout": 1
+    },
+    "cross_domain_confusion": {
+      "tuning": 6,
+      "holdout": 2
+    },
+    "metadata_routing_error": {
+      "tuning": 6,
+      "holdout": 1
+    },
+    "filter_boundary": {
+      "tuning": 6,
+      "holdout": 2
+    }
+  },
+  "evaluation_group_quotas": {
+    "fastapi": {
+      "tuning": 13,
+      "holdout": 4
+    },
+    "redis": {
+      "tuning": 12,
+      "holdout": 4
+    },
+    "relational-database": {
+      "tuning": 14,
+      "holdout": 4
+    },
+    "rocketmq": {
+      "tuning": 13,
+      "holdout": 4
+    },
+    "system-design": {
+      "tuning": 12,
+      "holdout": 4
+    },
+    "reliability": {
+      "tuning": 11,
+      "holdout": 5
+    }
+  },
+  "minimum_cases_per_case_type": 3,
+  "family_assignment": "one pre-frozen unique family per slot"
+}

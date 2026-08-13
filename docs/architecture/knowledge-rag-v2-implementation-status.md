@@ -120,6 +120,24 @@ following authoritative records exist:
 
 Historical 30-, 18-, and 12-case datasets are not interchangeable with item 1
 and must not be concatenated or duplicated to manufacture it.
+
+## Eval V3 annotation authoring package
+
+The repository now includes a deterministic blank authoring scaffold at
+`eval/knowledge-v3/authoring/`, bound to baseline revision
+`a73b15bdf38c9f8f012f1dce4854de878e20f7dd` and the active RocketMQ V4
+manifest. It allocates exactly 100 new slots: 75 tuning and 25 holdout, with
+100 unique pre-frozen families and all 14 V3 case types represented by at least
+five slots. It also provides two independent annotation templates, an
+adjudication template, a privacy-safe chunk catalog, a family-isolation map,
+file hashes, and a deterministic validator.
+
+Every query and label field is blank, and no historical case ID is reused.
+Accordingly, this package is not item 1 above: qualified humans must author the
+new queries, label them independently while blinded to engine output, measure
+the pre-registered agreement metric, adjudicate, and freeze a separate runnable
+dataset. The holdout files must be controlled by an owner who does not tune
+Hybrid.
 ## Business quality evaluation
 
 Follow-up and Reviewer share the privacy-aware blind A/B contract in

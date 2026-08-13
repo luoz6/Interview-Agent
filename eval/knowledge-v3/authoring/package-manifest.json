@@ -1,0 +1,42 @@
+{
+  "schema_version": "knowledge-eval-v3-authoring-package-manifest-v1",
+  "package_version": "knowledge-eval-v3-authoring-rmqv4-2026-08-13-v1",
+  "package_status": "blank_authoring_scaffold",
+  "runnable_v3_dataset": false,
+  "independent_evaluation_complete": false,
+  "baseline_revision": "a73b15bdf38c9f8f012f1dce4854de878e20f7dd",
+  "corpus_version": "memory-p1-zh-v4",
+  "corpus_manifest_sha256": "deb709817c6ea1ac89db8f0452f1183d0168952d5d568e08b704869c90555e84",
+  "annotation_protocol_version": "knowledge-eval-v3-annotation-protocol-2026-08-13-v1",
+  "annotation_protocol_sha256": "0407843cfe606c1a1c29a3c30299ef9f029b7569386a62dfd4323c825063f615",
+  "slot_count": 100,
+  "tuning_count": 75,
+  "holdout_count": 25,
+  "family_count": 100,
+  "case_type_count": 14,
+  "minimum_annotators_per_case": 2,
+  "implementation_output_blinded": true,
+  "file_sha256": {
+    "README.md": "f356772a94524523343382c24e7d52e3b76997ff9e2b3ef98f6ea8d0c2505e59",
+    "annotation-protocol.md": "0407843cfe606c1a1c29a3c30299ef9f029b7569386a62dfd4323c825063f615",
+    "case-quota.json": "fa10c67887879144eac37e3ed6bc9d2a81e5966566f273e071799152bbdbb6a6",
+    "tuning-authoring-template.jsonl": "80ed898e394e5c51abf1ee57df0ab3e990f4d8228be2a2e6ef0acf4919f29d5c",
+    "holdout-authoring-template.jsonl": "60572ab16da7ff10a848a25a3a9b58af08d4d541bb76a2e78aeca5d75ea86c42",
+    "family-isolation-map.json": "c43e42feee0dccf4077485c98765e564add656c7140c1f11764b05d0aba4a67b",
+    "annotator-a-template.jsonl": "13a029f5c87901e8bf9432cea7fc246302f237641a84d83fb302c286bb72d6d5",
+    "annotator-b-template.jsonl": "36959ff4ba05e38b01d9999261e086d7663296251f3995cc09aae333b0ba3c91",
+    "adjudication-template.jsonl": "0f64d8319b2e7ae4ff7506e1a8c9917766b8ed117e1900c79f77a3d399823cda",
+    "chunk-catalog.json": "d8bd11b803540e8750b68aca66e621a52d75459a593e3c20bd973496421654c5"
+  },
+  "historical_sources_reused": false,
+  "blocked_claims": [
+    "independent annotation complete",
+    "inter-rater agreement measured",
+    "Eval V3 dataset release-ready",
+    "Hybrid approved",
+    "Shadow approved",
+    "Canary approved",
+    "production ready"
+  ],
+  "package_manifest_sha256": "8a725f278e2a8c0659aa9dd8752fae295e95708c3cb176bc7b52fbff9784eca9"
+}
