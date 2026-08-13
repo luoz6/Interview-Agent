@@ -194,21 +194,32 @@ class FallbackReportLLM(ReportLLM):
     ) -> InterviewReport:
         return InterviewReport(
             session_id=session_id,
-            overall_score=60,
-            overall_dimension_scores=make_dimension_scores(60),
-            summary="Evidence was insufficient for a grounded expert report.",
-            highlights=["Completed the mock interview"],
+            overall_score=None,
+            overall_dimension_scores=DimensionScores(),
+            generation_status="degraded",
+            generation_reason_code="evidence_generation_failed",
+            score_status="unscored",
+            score_reason_code="insufficient_evidence",
+            coverage_status="none",
+            evaluated_count=0,
+            total_eligible_count=1,
+            evidence_count=0,
+            report_path="heuristic",
+            summary="当前证据不足，未发布数字评分。",
+            highlights=["本次模拟面试已经完成"],
             is_fallback=True,
             feedbacks=[
                 InterviewFeedback(
                     question_id="q1",
                     question_text="Introduce a project.",
                     user_answer="I built a cache service.",
-                    score=60,
-                    dimension_scores=make_dimension_scores(60),
-                    rationale="Fallback report generated because grounded evidence was insufficient.",
-                    critique="Needs sharper metrics.",
-                    better_answer="I reduced p95 latency with Redis and fallback.",
+                    score=None,
+                    dimension_scores=DimensionScores(),
+                    evaluation_status="insufficient_evidence",
+                    evaluation_reason_code="evidence_generation_failed",
+                    rationale="当前没有足够的直接证据支持数字评分。",
+                    critique="请补充可验证的技术步骤和量化指标。",
+                    better_answer="可以按背景、动作、取舍、结果组织回答。",
                     references=[],
                 )
             ],
@@ -736,7 +747,7 @@ def test_run_report_generation_marks_failed_for_invalid_grounded_report():
     assert saved[0].question_id == "q1"
 
 
-def test_execute_report_generation_records_warning_for_fallback_quality_bypass(
+def test_execute_report_generation_applies_quality_gate_to_valid_fallback(
     tmp_path,
     monkeypatch,
 ):
@@ -759,11 +770,9 @@ def test_execute_report_generation_records_warning_for_fallback_quality_bypass(
 
     trace_files = sorted((tmp_path / session.session_id).glob("*_runtime_quality.json"))
     assert report.is_fallback is True
-    assert trace_files
-    assert (
-        "fallback report bypassed runtime quality enforcement"
-        in trace_files[0].read_text(encoding="utf-8")
-    )
+    assert report.overall_score is None
+    assert report.score_status == "unscored"
+    assert trace_files == []
 
 
 def test_run_report_generation_marks_failed_status_when_execution_raises():
@@ -908,7 +917,7 @@ def test_generate_report_for_session_saves_failed_record_when_knowledge_store_is
     assert record.report is None
 
 
-def test_generate_report_for_session_saves_completed_fallback_when_evidence_is_insufficient():
+def test_generate_report_for_session_saves_unscored_fallback_when_evidence_is_insufficient():
     class FakeVectorStore:
         def search(self, query_text: str, *, job_tags: list[str], source_types=None, limit=5):
             return []
@@ -927,7 +936,8 @@ def test_generate_report_for_session_saves_completed_fallback_when_evidence_is_i
     assert record.status == "completed"
     assert record.report is not None
     assert record.report.is_fallback is True
-    assert record.report.summary == "Evidence was insufficient for a grounded expert report."
+    assert record.report.summary == "当前证据不足，未发布数字评分。"
+    assert record.report.overall_score is None
     assert record.report.feedbacks[0].references == []
 
 

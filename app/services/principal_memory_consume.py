@@ -152,6 +152,12 @@ class PrincipalMemoryLocalConsumeService:
             or not long_term.local_consumption_enabled
         ):
             return ()
+        try:
+            target_session = self.session_store.get(session_id)
+        except Exception:
+            return ()
+        if target_session.get("principal_memory_mode", "inherit") == "ignore":
+            return ()
         identity = self.identity_resolver.resolve()
         if (
             identity is None

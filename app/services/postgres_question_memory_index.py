@@ -82,11 +82,12 @@ class PostgresQuestionMemoryIndexStore:
                             artifact_sha256, artifact_type, policy_version,
                             source_manifest_sha256, source_message_count,
                             source_max_sequence_no, taxonomy_version, status,
-                            supersedes_artifact_ref, created_at
+                            supersedes_artifact_ref, created_at,
+                            resolved_target_output_tokens
                         ) VALUES (
                             %s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,
                             %s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,
-                            'active',%s,%s
+                            'active',%s,%s,%s
                         )
                         """
                     ).format(table=sql.Identifier(self.table)),
@@ -110,6 +111,7 @@ class PostgresQuestionMemoryIndexStore:
                         entry.taxonomy_version,
                         previous_ref,
                         entry.created_at,
+                        entry.resolved_target_output_tokens,
                     ),
                 )
             connection.commit()
@@ -196,7 +198,8 @@ class PostgresQuestionMemoryIndexStore:
             "unresolved_topic_sha256,artifact_ref,artifact_sha256,artifact_type,"
             "policy_version,source_manifest_sha256,source_message_count,"
             "source_max_sequence_no,taxonomy_version,status,"
-            "supersedes_artifact_ref,created_at,superseded_at,deleted_at"
+            "supersedes_artifact_ref,created_at,superseded_at,deleted_at,"
+            "resolved_target_output_tokens"
         )
 
     @staticmethod
@@ -224,12 +227,19 @@ class PostgresQuestionMemoryIndexStore:
             created_at=row[19],
             superseded_at=row[20],
             deleted_at=row[21],
+            resolved_target_output_tokens=row[22],
         )
 
     def _ensure_schema(self):
         from psycopg2 import sql
 
         table = sql.Identifier(self.table)
+        resolved_target_check = sql.Identifier(
+            runtime_schema_identifier(
+                self.table_prefix,
+                "question_memory_resolved_target_check",
+            )
+        )
         with self._connection_provider.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -257,10 +267,16 @@ class PostgresQuestionMemoryIndexStore:
                             supersedes_artifact_ref TEXT,
                             created_at TIMESTAMPTZ NOT NULL,
                             superseded_at TIMESTAMPTZ,
-                            deleted_at TIMESTAMPTZ
+                            deleted_at TIMESTAMPTZ,
+                            resolved_target_output_tokens INTEGER,
+                            CONSTRAINT {resolved_target_check}
+                                CHECK (resolved_target_output_tokens > 0)
                         )
                         """
-                    ).format(table=table)
+                    ).format(
+                        table=table,
+                        resolved_target_check=resolved_target_check,
+                    )
                 )
                 active_index = runtime_schema_identifier(
                     self.table_prefix,

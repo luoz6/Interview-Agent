@@ -12,6 +12,11 @@ from app.graphs.interview_state import (
     default_memory_policy_for_engine,
 )
 from app.services.prep import InterviewPlan
+from app.services.session_plan_binding import (
+    SessionPlanBinding,
+    legacy_session_plan_binding,
+    session_plan_binding_from_state,
+)
 
 
 SESSION_ROW_SCHEMA_VERSION = "session-row-v1"
@@ -77,6 +82,7 @@ class SessionRowMapper:
 
     @classmethod
     def to_row(cls, state: InterviewState) -> dict[str, Any]:
+        plan_binding = session_plan_binding_from_state(state)
         return {
             "session_id": state["session_id"],
             "plan_json": state["plan"].model_dump(mode="json"),
@@ -102,6 +108,7 @@ class SessionRowMapper:
             "projection_sha256": state.get("projection_sha256"),
             "memory_policy_version": state["memory_policy_version"],
             "deletion_status": state.get("deletion_status", "active"),
+            "plan_binding_json": plan_binding.model_dump(mode="json"),
             "row_schema_version": cls.CURRENT_VERSION,
         }
 
@@ -124,6 +131,12 @@ class SessionRowMapper:
         ordered_messages = sorted(
             message_rows,
             key=lambda row: int(row["sequence_no"]),
+        )
+        raw_plan_binding = session_row.get("plan_binding_json")
+        plan_binding = (
+            SessionPlanBinding.model_validate(raw_plan_binding)
+            if raw_plan_binding is not None
+            else legacy_session_plan_binding(session_row["plan_json"])
         )
         return {
             "session_id": session_row["session_id"],
@@ -153,4 +166,5 @@ class SessionRowMapper:
             "projection_sha256": session_row.get("projection_sha256"),
             "memory_policy_version": memory_policy_version,
             "deletion_status": session_row.get("deletion_status", "active"),
+            **plan_binding.model_dump(mode="json"),
         }

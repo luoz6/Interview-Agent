@@ -10,6 +10,9 @@ from app.services.in_memory_interview_launch_repository import (
 )
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
 from app.services.interview_launch import InterviewLaunchCoordinator
+from app.services.interview_plan_revision_store import (
+    InMemoryInterviewPlanRevisionStore,
+)
 from app.services.session import InterviewSessionStore
 from tests.interview_fixtures import sample_interview_plan
 
@@ -31,6 +34,9 @@ def test_new_api_uses_authoritative_plan_without_preparing_twice(monkeypatch):
 
     monkeypatch.setattr(prep_route_module, "prepare_interview", prepare)
     app.dependency_overrides[api_dependencies.get_prep_plan_store] = lambda: plans
+    app.dependency_overrides[api_dependencies.get_plan_revision_store] = (
+        lambda: InMemoryInterviewPlanRevisionStore()
+    )
     monkeypatch.setattr(
         api_dependencies,
         "get_interview_launch_coordinator",
@@ -83,6 +89,9 @@ def test_launch_dependency_uses_same_overridden_session_store_as_session_routes(
         lambda: runtime_coordinator,
     )
     app.dependency_overrides[api_dependencies.get_prep_plan_store] = lambda: plans
+    app.dependency_overrides[api_dependencies.get_plan_revision_store] = (
+        lambda: InMemoryInterviewPlanRevisionStore()
+    )
     app.dependency_overrides[api_dependencies.get_session_store] = (
         lambda: route_sessions
     )

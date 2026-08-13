@@ -350,6 +350,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.interview-followup-progress {
+  margin-left: var(--start-space-2xs);
+  padding-left: var(--start-space-2xs);
+  border-left: var(--start-rule-thin) solid var(--interview-rule);
+  color: var(--interview-muted);
+  font-size: var(--start-text-micro);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .interview-focus-button[aria-pressed="true"] {
   border-color: var(--interview-action);
   background: var(--interview-surface-accent);
@@ -432,6 +442,67 @@
   letter-spacing: -.006em;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.interview-turn-status {
+  display: flex;
+  align-items: center;
+  gap: var(--start-space-2xs);
+  min-height: 2.75rem;
+  padding: var(--start-space-2xs) var(--start-space-sm);
+  border: var(--start-rule-thin) solid var(--interview-rule);
+  border-left: var(--start-rule-strong) solid var(--interview-action);
+  border-radius: var(--start-radius-control);
+  background: var(--interview-surface-accent);
+  color: var(--interview-action-hover);
+  animation: interview-state-enter var(--interview-duration-content) var(--start-ease-out) both;
+}
+
+.interview-turn-status.is-idle {
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  animation: none;
+}
+
+.interview-turn-status[data-turn-state="next_question"] {
+  border-left-color: var(--interview-success);
+  background: var(--interview-success-soft);
+  color: var(--interview-success);
+}
+
+.interview-turn-status[data-turn-state="degraded"] {
+  border-left-color: var(--interview-warning);
+  background: var(--interview-warning-soft);
+  color: var(--interview-warning);
+}
+
+.interview-turn-status-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.interview-turn-status-copy {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--start-space-2xs);
+}
+
+.interview-turn-status-copy strong {
+  color: currentColor;
+  font-size: var(--start-text-ui-sm);
+  font-weight: var(--start-font-weight-semibold);
+}
+
+.interview-turn-status-copy small {
+  color: var(--interview-muted);
+  font-size: var(--start-text-micro);
+  white-space: nowrap;
 }
 
 .interview-assistance .assistance-notice {
@@ -1402,6 +1473,15 @@
 
   .interview-command-context > span {
     display: none;
+  }
+
+  .interview-followup-progress {
+    margin-left: 0;
+  }
+
+  .interview-turn-status-copy {
+    display: grid;
+    gap: 0;
   }
 
   .interview-focus-button {

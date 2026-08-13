@@ -1,4 +1,6 @@
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from threading import RLock
 from typing import Any, Callable, Dict, Iterator
 from uuid import uuid4
 
@@ -38,10 +40,19 @@ from app.graphs.interview_transitions import (
 from app.services.llm import InterviewLLM
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.services.prep import InterviewPlan
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    public_interview_plan_v2_payload,
+)
+from app.services.interview_plan_revision import InterviewPlanV2
 from app.services.question_evaluations import QuestionEvaluationRecord
 from app.services.report import InterviewReport, ReportProgress, ReportRecord
 from app.services.report import utc_now_iso as report_utc_now_iso
+from app.services.session_plan_binding import (
+    SessionPlanBinding,
+    session_plan_binding_from_state,
+)
 from app.services.memory_retention import (
     InMemorySessionCapacityExceeded,
     InMemorySessionRetentionPolicy,
@@ -59,6 +70,7 @@ class InterviewSessionStore:
     ) -> None:
         self.runtime_event_delivery = "direct"
         self._sessions: Dict[str, InterviewState] = {}
+        self._start_lock = RLock()
         self._reports: Dict[str, ReportRecord] = {}
         self._question_evaluations: Dict[str, list[QuestionEvaluationRecord]] = {}
         self._llm = llm
@@ -92,20 +104,31 @@ class InterviewSessionStore:
         job_tags: list[str],
         session_id: str | None = None,
         memory_policy_version: MemoryPolicyVersion = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewTurn:
-        self.cleanup_retention()
-        self._ensure_capacity_for_new_session()
-        session_id = session_id or str(uuid4())
-        state = self._runner.start(
-            session_id=session_id,
-            plan=plan,
-            job_description=job_description,
-            resume_text=resume_text,
-            job_tags=job_tags,
-            memory_policy_version=memory_policy_version,
-        )
-        self._sessions[session_id] = state
-        return self._to_turn(state, follow_up=None)
+        with self._start_lock:
+            if session_id is not None and session_id in self._sessions:
+                existing = self._sessions[session_id]
+                if (
+                    plan_binding is not None
+                    and session_plan_binding_from_state(existing) != plan_binding
+                ):
+                    raise ValueError("session id is bound to another plan")
+                return self._to_turn(existing, follow_up=None)
+            self.cleanup_retention()
+            self._ensure_capacity_for_new_session()
+            session_id = session_id or str(uuid4())
+            state = self._runner.start(
+                session_id=session_id,
+                plan=plan,
+                job_description=job_description,
+                resume_text=resume_text,
+                job_tags=job_tags,
+                memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
+            )
+            self._sessions[session_id] = state
+            return self._to_turn(state, follow_up=None)
 
     def cleanup_retention(self) -> int:
         cutoff = self._clock() - timedelta(
@@ -178,6 +201,7 @@ class InterviewSessionStore:
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
         return SessionSnapshotProjector().project(self.get(session_id))
+
     def submit_answer(
         self,
         session_id: str,
@@ -591,3 +615,11 @@ def _merge_question_evaluation_records(
         merged_by_question_id[record.question_id] = record
 
     return [merged_by_question_id[question_id] for question_id in ordered_question_ids]
+
+
+def _public_session_plan_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    public_snapshot = deepcopy(snapshot)
+    if public_snapshot.get("schema_version") != "interview-plan-v2":
+        return public_snapshot
+    plan = InterviewPlanV2.model_validate(public_snapshot)
+    return public_interview_plan_v2_payload(plan)

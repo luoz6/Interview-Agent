@@ -1,0 +1,63 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T47",
+  "implementation_revision_base": "aa8a8fe5bd9001b694b2dd4201059a81aa1107fb",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "provider_calls": 0,
+  "primary_information_architecture": [
+    "本轮结论与评分状态",
+    "覆盖度和限制",
+    "主要优势",
+    "Top 1–3 改进动作",
+    "逐题证据与回答建议",
+    "评估限制"
+  ],
+  "secondary_folded_information": [
+    "agent_runs",
+    "runtime_events",
+    "retrieval_paths",
+    "job_artifact_revision",
+    "reason_codes",
+    "public_diagnostic_trace",
+    "reference_inventory"
+  ],
+  "interaction_contract": {
+    "candidate_report_understandable_without_appendix": true,
+    "action_jumps_to_question_evidence": true,
+    "action_opens_target_disclosure": true,
+    "action_restores_keyboard_focus": true,
+    "score_and_coverage_adjacent": true,
+    "revision_and_timestamp_visible": true,
+    "failed_update_preserves_active_report": true,
+    "unscored_numeric_overall_score_visible": false
+  },
+  "artifact_projection": {
+    "artifact_first_wrapper_supported": true,
+    "legacy_payload_supported": true,
+    "immutable_artifact_axes_override_payload": true,
+    "latest_job_state_kept_independent": true
+  },
+  "automatic_review_fixes": [
+    "normalized artifact-first wrapper and legacy report responses through one projection",
+    "moved engineering diagnostics out of primary candidate navigation into a closed appendix",
+    "bound priority actions to evidence questions and opened/focused the target disclosure",
+    "added clear revision/time and failed-update-active-preservation messaging",
+    "added page-level unscored no-numeric-score regression coverage"
+  ],
+  "verification": {
+    "report_detail_focused_passed": 4,
+    "report_contract_focused_passed": 9,
+    "frontend_full_vitest_passed": 26,
+    "frontend_build": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS",
+    "lint": "NOT_RUN_ESLINT_DEPENDENCY_NOT_INSTALLED"
+  },
+  "truthfulness_limits": [
+    "T47 makes no Provider call.",
+    "T47 does not claim that T45 independent human review has run.",
+    "T47 does not claim Web/PDF semantic parity; that remains T48.",
+    "The existing npm check script could not run because ESLint is not installed, and no lint PASS is claimed."
+  ]
+}

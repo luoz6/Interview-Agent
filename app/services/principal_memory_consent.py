@@ -12,6 +12,9 @@ PrincipalMemoryPurpose = Literal[
     "read_shadow",
     "local_consume",
 ]
+PRINCIPAL_MEMORY_PURPOSES = frozenset(
+    {"proposal_write", "fact_storage", "read_shadow", "local_consume"}
+)
 
 
 class PrincipalMemoryConsent(BaseModel):

@@ -38,6 +38,9 @@ test("help route is a truthful single-column recovery manual", async ({ page }) 
   await expect(page.getByRole("heading", { name: "恢复会话" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "报告失败" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "草稿与数据" })).toBeVisible();
+  await expect(page.locator("#recovery .help-manual-cases > div")).toHaveCount(3);
+  await expect(page.locator("#report-failure")).toContainText("从报告中心继续");
+  await expect(page.locator("#report-failure")).toContainText("重新排队");
   await expect(page.locator("body")).not.toContainText("帮助可用");
   await expect(page.locator("body")).not.toContainText("手册就绪");
   await expect(page.locator("#drafts-data")).toContainText("进程内临时保存");

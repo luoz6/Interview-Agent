@@ -1,6 +1,8 @@
-from __future__ import annotations
+from types import SimpleNamespace
 
-from app.graphs.interview_graph import InterviewGraphRunner
+import pytest
+
+from app.graphs.interview_graph import INTERVIEW_FINISHED_MESSAGE, InterviewGraphRunner
 from app.graphs.interview_state import (
     InterviewDecision,
     InterviewMessage,
@@ -15,8 +17,6 @@ from app.services.prep import (
     PrepQuestionHint,
 )
 from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.application.knowledge.followup_gap_service import FollowupGapService
-from app.domain.knowledge.knowledge_unit import KnowledgeUnit
 from app.services.agent_runtime import AgentExecutionRunner
 from app.services.report import InterviewReport
 from tests.unit.test_knowledge_binding_resolver import make_repository, make_v2_plan
@@ -133,6 +133,24 @@ class FakeLLM:
         raise AssertionError("Graph tests do not generate reports")
 
 
+def test_runner_wires_followup_protocol_from_exact_llm_model():
+    llm = SimpleNamespace(
+        chat_model=object(),
+        config=SimpleNamespace(model="deepseek-v4-pro"),
+    )
+    runner = InterviewGraphRunner(llm=llm, examiner=object())
+
+    provider = runner._decision_service.provider
+    assert provider.output_mode == "raw_only"
+    assert provider.expected_model == "deepseek-v4-pro"
+
+    with pytest.raises(ValueError, match="requires an exact configured model"):
+        InterviewGraphRunner(
+            llm=SimpleNamespace(chat_model=object()),
+            examiner=object(),
+        )
+
+
 def test_runner_start_returns_initial_state():
     runner = InterviewGraphRunner(llm=FakeLLM())
 
@@ -172,7 +190,7 @@ def test_runner_submit_answer_generates_followup_decision():
     assert new_state["decision"] == {
         "action": "follow_up",
         "follow_up": "Please explain the cache invalidation strategy.",
-        "reason": "candidate_answer_needs_depth",
+        "reason": "fixed_policy_followup",
     }
     assert new_state["pending_output"] == "Please explain the cache invalidation strategy."
     assert new_state["messages"][-2] == {
@@ -185,6 +203,40 @@ def test_runner_submit_answer_generates_followup_decision():
         "content": "Please explain the cache invalidation strategy.",
         "question_id": "q1",
     }
+
+
+def test_legacy_duplicate_followup_safely_advances_with_same_reason_code():
+    class DuplicateFollowupLLM(FakeLLM):
+        def generate_followup(self, context: list[dict[str, str]]) -> str:
+            return "Introduce the project."
+
+    runner = InterviewGraphRunner(llm=DuplicateFollowupLLM())
+    state = runner.start(**make_start_kwargs())
+
+    result = runner.submit_answer(
+        state, "I used Redis to cache hot records."
+    )
+
+    assert result["current_index"] == 1
+    assert result["pending_output"] == "Explain Redis."
+    assert result["messages"][-1]["content"] == "Explain Redis."
+    assert result["current_followup_count"] == 0
+    assert result["decision_reason_code"] == "duplicate_question"
+    assert result["termination_reason_code"] == "duplicate_question"
+    assert result["termination_diagnostic"]["event_type"] == "followup_terminated"
+
+
+def test_legacy_stream_has_a_hard_event_limit():
+    class ChattyExaminer:
+        def stream_followup(self, **kwargs):
+            for _ in range(129):
+                yield "x"
+
+    runner = InterviewGraphRunner(llm=FakeLLM(), examiner=ChattyExaminer())
+    state = runner.start(**make_start_kwargs())
+
+    with pytest.raises(RuntimeError, match="event_limit_reached"):
+        list(runner.stream_followup(state))
 
 
 def test_runner_accepts_examiner_agent_boundary():
@@ -318,7 +370,12 @@ def test_runner_preserves_followup_context_without_prep_context():
 
     runner.submit_answer(state, "I used Redis.")
 
-    assert [item["role"] for item in captured_context] == ["interviewer", "candidate"]
+    assert [item["role"] for item in captured_context] == [
+        "system",
+        "interviewer",
+        "candidate",
+    ]
+    assert "FOLLOWUP_DECISION_TARGET" in captured_context[0]["content"]
 
 
 def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles():
@@ -347,58 +404,19 @@ def test_v2_runner_resolves_only_current_question_evidence_with_distinct_roles()
 
     assert result["pending_output"] == "How do concurrent reads affect the cache?"
     assert [item["role"] for item in captured_context] == [
+        "system",
         "interviewer",
         "candidate",
         "knowledge_agent",
         "knowledge_evidence",
     ]
-    assert captured_context[1]["content"] == (
+    assert captured_context[2]["content"] == (
         "I update the database and delete the cache."
     )
-    assert "Redis internal consistency evidence" in captured_context[3]["content"]
+    assert "Redis internal consistency evidence" in captured_context[4]["content"]
     assert "RocketMQ internal delivery evidence" not in str(captured_context)
     assert resolver.last_resolution.retrieval_path == "bound_evidence_ids"
     assert repository.search_calls == 0
-
-
-def test_v2_runner_adds_safe_answer_gap_after_bound_evidence():
-    captured_context = []
-
-    class Agent:
-        def generate_followup(self, *, context: list[dict[str, str]], focus: str) -> str:
-            captured_context.extend(context)
-            return "How do you verify lock ownership before release?"
-
-    class UnitResolver:
-        def resolve(self, references):
-            assert [item.chunk_id for item in references] == ["redis_consistency"]
-            return KnowledgeUnit(
-                knowledge_unit_id="redis-lock",
-                domain="redis",
-                topic="lock",
-                technical_terms=("expire", "delete"),
-                expected_signals=("owner token", "atomic compare-and-delete"),
-                follow_up_triggers=("probe ownership verification",),
-            )
-
-    runner = InterviewGraphRunner(
-        examiner=Agent(),
-        knowledge_binding_resolver=KnowledgeBindingResolver(make_repository()),
-        followup_gap_service=FollowupGapService(UnitResolver()),
-    )
-    state = runner.start(
-        session_id="s-v2-gap",
-        plan=make_v2_plan(),
-        job_description="Redis role",
-        resume_text="Built Redis",
-        job_tags=["redis"],
-    )
-
-    runner.submit_answer(state, "I set expire and then delete the lock.")
-
-    gap = next(item for item in captured_context if item["role"] == "knowledge_gap")
-    assert '"target_signal":"owner token"' in gap["content"]
-    assert "Redis internal consistency evidence" not in gap["content"]
 
 
 def test_examiner_trace_uses_current_command_not_previous_state_command():
@@ -512,7 +530,7 @@ def test_runner_prepare_answer_defers_followup_text_for_streaming():
     assert prepared["decision"] == {
         "action": "follow_up",
         "follow_up": None,
-        "reason": "candidate_answer_needs_depth",
+        "reason": "fixed_policy_followup",
     }
     assert prepared["messages"][-1]["role"] == "candidate"
 
@@ -561,4 +579,10 @@ def test_runner_finishes_after_last_question_followup_answer():
     assert state["status"] == "finished"
     assert state["current_index"] == 3
     assert state["decision"]["action"] == "finish"
+    assert state["pending_output"] == INTERVIEW_FINISHED_MESSAGE
+    assert state["messages"][-1] == {
+        "role": "interviewer",
+        "content": INTERVIEW_FINISHED_MESSAGE,
+        "question_id": None,
+    }
     assert state["pending_output"] == "本次模拟面试已结束。"

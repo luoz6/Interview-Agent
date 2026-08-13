@@ -11,7 +11,10 @@ from app.graphs.interview_state import (
     is_durable_interview_version,
 )
 from app.graphs.durable_interview_state_v2 import make_durable_initial_state_v2
-from app.services.interview_workflow import InterviewWorkflowService
+from app.services.interview_workflow import (
+    InterviewWorkflowService,
+    _followup_ui_state,
+)
 from app.services.langgraph_runtime import VersionedGraphRegistry
 from app.services.report_jobs import choose_report_workflow_engine
 from tests.interview_fixtures import sample_interview_plan
@@ -206,6 +209,31 @@ class FakeLegacyStore:
     def get(self, session_id):
         return dict(self.state)
 
+    def snapshot(self, session_id):
+        return {
+            "session_id": session_id,
+            "workflow_engine": self.state.get("workflow_engine", "legacy"),
+            "followup_policy_version": self.state.get(
+                "followup_policy_version", "fixed_v1"
+            ),
+            "current_followup_count": self.state.get(
+                "current_followup_count", 0
+            ),
+        }
+
+
+class FakeGraph:
+    def __init__(self, values, next_node):
+        self.values = values
+        self.next_node = next_node
+
+    def get_state(self, config):
+        return type(
+            "GraphState",
+            (),
+            {"values": self.values, "next": (self.next_node,)},
+        )()
+
 
 def _workflow(state, workflow_store):
     return InterviewWorkflowService(
@@ -218,6 +246,97 @@ def _workflow(state, workflow_store):
         rollout_percent=100,
         default_graph_version="langgraph-v1",
     )
+
+
+@pytest.mark.parametrize(
+    ("policy_version", "next_node", "expected"),
+    [
+        ("adaptive_v1", "execute_decision_attempt", "decision_pending"),
+        ("fixed_v1", "execute_decision_attempt", "generation_pending"),
+        ("adaptive_v1", "generate_followup", "generation_pending"),
+    ],
+)
+def test_followup_ui_state_exposes_only_policy_safe_stage(
+    policy_version, next_node, expected
+):
+    values = {
+        "active_command_id": "command-1",
+        "gap_summary": "internal gap detail",
+        "decision_confidence": "low",
+        "reason_code": "internal_reason",
+    }
+
+    result = _followup_ui_state(
+        values,
+        next_node=next_node,
+        policy_version=policy_version,
+    )
+
+    assert result == expected
+    assert "gap" not in result
+    assert "confidence" not in result
+    assert "reason" not in result
+
+
+def test_followup_ui_state_prioritizes_safe_degraded_semantics():
+    result = _followup_ui_state(
+        {
+            "active_command_id": "command-1",
+            "termination_reason_code": "provider_unavailable",
+            "gap_summary": "internal gap detail",
+        },
+        next_node="execute_decision_attempt",
+        policy_version="adaptive_v1",
+    )
+
+    assert result == "degraded"
+
+
+def test_decision_stage_snapshot_can_recover_before_generation_exists():
+    state = {
+        "workflow_engine": "langgraph-v1",
+        "graph_schema_version": "langgraph-v1",
+        "memory_policy_version": "question-memory-v1",
+        "messages": [],
+    }
+    values = {
+        "workflow_engine": "langgraph-v1",
+        "active_command_id": "command-1",
+        "generation_id": None,
+        "followup_policy_version": "adaptive_v1",
+        "current_followup_count": 1,
+        "gap_summary": "internal gap detail",
+        "decision_confidence": "low",
+        "reason_code": "internal_reason",
+    }
+    registry = VersionedGraphRegistry()
+    registry.register(
+        "langgraph-v1",
+        FakeGraph(values, "execute_decision_attempt"),
+    )
+    workflow = InterviewWorkflowService(
+        legacy_store=FakeLegacyStore(state),
+        workflow_store=FakeWorkflowStore(),
+        generation_store=object(),
+        graph_registry=registry,
+        runtime_store="postgres",
+        runtime_enabled=True,
+        rollout_percent=100,
+        default_graph_version="langgraph-v1",
+    )
+
+    snapshot = workflow.snapshot("s1")
+
+    assert snapshot["followup_ui_state"] == "decision_pending"
+    assert snapshot["active_command_id"] == "command-1"
+    assert snapshot["active_generation_id"] is None
+    assert snapshot["active_stream_url"] == (
+        "/api/interviews/s1/commands/command-1/stream"
+    )
+    assert snapshot["current_followup_count"] == 1
+    assert "gap_summary" not in snapshot
+    assert "decision_confidence" not in snapshot
+    assert "reason_code" not in snapshot
 
 
 def test_new_answer_after_finish_is_rejected_before_inbox_write():

@@ -1,0 +1,352 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { downloadFile, getJson } from "../api/client";
+import { ReportDetailPage } from "./ReportDetailPage";
+
+vi.mock("../api/client", () => ({
+  downloadFile: vi.fn(),
+  getJson: vi.fn(),
+}));
+
+const feedback = (questionId, questionText, score) => ({
+  question_id: questionId,
+  question_text: questionText,
+  user_answer: "候选人回答",
+  answer_state: "answered",
+  score,
+  evaluation_status: "evaluated",
+  applicable_dimensions: ["depth"],
+  dimension_evidence: [],
+  highlights: ["回答有清楚边界"],
+  rationale: "回答包含可验证的技术依据。",
+  critique: "还可以补充权衡。",
+  better_answer: "先说明结论，再用候选人已经陈述的事实解释权衡。",
+  references: [],
+});
+
+const reportResponse = {
+  active_artifact: {
+    report_id: "report-2",
+    session_id: "session-1",
+    revision: 2,
+    created_at: "2026-08-06T07:30:00Z",
+    active: true,
+    schema_version: "report-artifact-v2",
+    report_schema_version: "report-schema-v2",
+    scoring_rubric_version: "rubric-v1",
+    generation_status: "complete",
+    generation_reason_code: "normal",
+    score_status: "partial",
+    score_reason_code: "partial_coverage",
+    coverage_status: "partial",
+    report_path: "microbatch",
+    overall_score: 81,
+    overall_dimension_scores: {
+      breadth: null,
+      depth: 81,
+      architecture: null,
+      engineering: 80,
+      communication: 82,
+    },
+    evaluated_count: 2,
+    total_eligible_count: 3,
+    evidence_count: 2,
+    dimension_evaluations: {
+      breadth: { status: "insufficient_evidence" },
+      depth: { status: "evaluated" },
+      architecture: { status: "not_evaluated" },
+      engineering: { status: "evaluated" },
+      communication: { status: "evaluated" },
+    },
+    source_job_id: "job-success",
+    payload: {
+      summary: "本轮回答技术边界清楚，但覆盖尚不完整。",
+      highlights: ["能够主动说明技术边界"],
+      strengths: [{
+        claim_id: "strength-1",
+        text: "能够主动说明技术边界",
+        evidence_refs: ["candidate:q1"],
+      }],
+      priority_actions: [{
+        action_id: "action-1",
+        title: "补足缓存一致性权衡",
+        why_it_matters: "这是当前最明显的技术缺口。",
+        practice: "重答第二题，并比较两种一致性策略。",
+        completion_criteria: "能说明选择条件和失败边界。",
+        question_refs: ["q2"],
+        evidence_refs: ["candidate:q2"],
+      }],
+      limitations: [{
+        limitation_id: "coverage-limit",
+        text: "有一道题未形成有效回答。",
+        reason_code: "partial_coverage",
+      }],
+      evidence_refs: [
+        { evidence_ref_id: "candidate:q1", question_id: "q1" },
+        { evidence_ref_id: "candidate:q2", question_id: "q2" },
+      ],
+      technical_appendix: { reason_codes: ["partial_coverage"] },
+      feedbacks: [
+        feedback("q1", "如何定位线上延迟？", 82),
+        feedback("q2", "如何选择缓存一致性策略？", 80),
+      ],
+    },
+  },
+  latest_job: {
+    job_id: "job-failed-rescore",
+    status: "failed",
+    job_kind: "rescore",
+    error_code: "provider_timeout",
+  },
+};
+
+beforeEach(() => {
+  window.history.replaceState({}, "", "/report-detail?session_id=session-1");
+  downloadFile.mockResolvedValue(undefined);
+  getJson.mockImplementation((path) => {
+    if (path.endsWith("/report")) return Promise.resolve(reportResponse);
+    if (path.endsWith("/reports")) {
+      return Promise.resolve({
+        items: [
+          { report_id: "report-1", revision: 1, created_at: "2026-08-05T07:30:00Z", active: false },
+          reportResponse.active_artifact,
+        ],
+      });
+    }
+    if (path.includes("question-evaluations")) {
+      return Promise.resolve({ items: [{ question_id: "q2", status: "completed", retrieval_path: "vector" }] });
+    }
+    if (path.includes("agent-runs") || path.includes("runtime-events")) {
+      return Promise.resolve({ items: [] });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+describe("ReportDetailPage candidate information architecture", () => {
+  it("keeps six candidate sections primary and expands only enabled diagnostics", async () => {
+    render(<ReportDetailPage showDiagnostics />);
+
+    const primaryHeadings = [
+      await screen.findByRole("heading", { name: "01 · 本轮结论与评分状态" }),
+      screen.getByRole("heading", { name: "02 · 覆盖度和限制" }),
+      screen.getByRole("heading", { name: "03 · 主要优势" }),
+      screen.getByRole("heading", { name: "04 · Top 1–3 改进动作" }),
+      screen.getByRole("heading", { name: "05 · 逐题证据与回答建议" }),
+      screen.getByRole("heading", { name: "06 · 评估限制" }),
+    ];
+    primaryHeadings.forEach((heading) => expect(heading.closest("details")).toBeNull());
+
+    const appendix = screen.getByText("技术附录").closest("details");
+    expect(appendix).toHaveAttribute("open");
+    expect(appendix).toHaveTextContent("逐题评审与检索路径");
+    expect(appendix).toHaveTextContent("Agent 执行与运行事件");
+    expect(appendix).toHaveTextContent("Report Artifact");
+    expect(appendix).toHaveTextContent("partial_coverage");
+
+    cleanup();
+    getJson.mockClear();
+    render(<ReportDetailPage showDiagnostics={false} />);
+    await screen.findByRole("heading", { name: "01 · 本轮结论与评分状态" });
+    expect(screen.getByText("技术附录").closest("details")).not.toHaveAttribute("open");
+    expect(getJson.mock.calls.some(([path]) => (
+      path.includes("question-evaluations")
+      || path.includes("agent-runs")
+      || path.includes("runtime-events")
+    ))).toBe(false);
+    expect(document.querySelector(".report-detail-evaluation-ledger")).toBeNull();
+    expect(document.querySelector(".report-detail-trace-section")).toBeNull();
+  });
+
+  it("keeps the active revision visible after a failed update", async () => {
+    render(<ReportDetailPage />);
+
+    expect(await screen.findByText("重评分失败，旧报告仍有效")).toBeInTheDocument();
+    expect(screen.getByText(/失败的重评分没有覆盖或使这份 active 报告失效/)).toBeInTheDocument();
+    expect(screen.getAllByText("第 2 版").length).toBeGreaterThan(0);
+    expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    expect(screen.getAllByText("部分评分").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("部分覆盖").length).toBeGreaterThan(0);
+    const statePair = screen.getByLabelText("评分和覆盖状态");
+    expect(statePair).toHaveTextContent("部分评分");
+    expect(statePair).toHaveTextContent("部分覆盖");
+    expect(screen.getByLabelText("知识广度 证据不足")).toBeInTheDocument();
+    expect(screen.getByLabelText("系统设计 未评估")).toBeInTheDocument();
+    expect(screen.getByText("数字结果只覆盖已评估题目；未评估题目和维度不会按 0 分处理。")).toBeInTheDocument();
+    expect(screen.queryByText("未评分")).not.toBeInTheDocument();
+  });
+
+  it("polls an updating active report and switches to the completed revision", async () => {
+    vi.useFakeTimers();
+    const updating = structuredClone(reportResponse);
+    updating.active_artifact.payload.summary = "revision-two-active";
+    updating.latest_job = { job_id: "job-rescore-3", status: "running", job_kind: "rescore" };
+    const completed = structuredClone(updating);
+    Object.assign(completed.active_artifact, {
+      report_id: "report-3",
+      revision: 3,
+      source_job_id: "job-rescore-3",
+    });
+    completed.active_artifact.payload.summary = "revision-three-complete";
+    completed.latest_job = { job_id: "job-rescore-3", status: "completed", job_kind: "rescore" };
+    let reportRequests = 0;
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) {
+        reportRequests += 1;
+        return Promise.resolve(reportRequests === 1 ? updating : completed);
+      }
+      if (path.endsWith("/reports")) {
+        return Promise.resolve({ items: [reportRequests === 1 ? updating.active_artifact : completed.active_artifact] });
+      }
+      return Promise.resolve({ items: [] });
+    });
+
+    render(<ReportDetailPage />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("revision-two-active")).toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+
+    expect(screen.getByText("revision-three-complete")).toBeInTheDocument();
+    expect(screen.queryByText("revision-two-active")).not.toBeInTheDocument();
+    expect(reportRequests).toBe(2);
+  });
+
+  it("refreshes on visibility and aborts an in-flight update refresh on cleanup", async () => {
+    const updating = structuredClone(reportResponse);
+    updating.active_artifact.payload.summary = "revision-two-visible";
+    updating.latest_job = { job_id: "job-rescore-3", status: "running", job_kind: "rescore" };
+    let reportRequests = 0;
+    let refreshSignal;
+    getJson.mockImplementation((path, options = {}) => {
+      if (path.endsWith("/report")) {
+        reportRequests += 1;
+        if (reportRequests === 1) return Promise.resolve(updating);
+        refreshSignal = options.signal;
+        return new Promise(() => {});
+      }
+      if (path.endsWith("/reports")) return Promise.resolve({ items: [updating.active_artifact] });
+      return Promise.resolve({ items: [] });
+    });
+    const { unmount } = render(<ReportDetailPage />);
+    expect(await screen.findByText("revision-two-visible")).toBeInTheDocument();
+
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(refreshSignal).toBeInstanceOf(AbortSignal));
+    expect(refreshSignal.aborted).toBe(false);
+
+    unmount();
+    expect(refreshSignal.aborted).toBe(true);
+  });
+
+  it("retries optional diagnostics without hiding the active report", async () => {
+    let agentRunRequests = 0;
+    let runtimeEventRequests = 0;
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) return Promise.resolve(reportResponse);
+      if (path.endsWith("/reports")) return Promise.resolve({ items: [reportResponse.active_artifact] });
+      if (path.includes("question-evaluations")) return Promise.resolve({ items: [] });
+      if (path.includes("agent-runs")) {
+        agentRunRequests += 1;
+        return agentRunRequests === 1
+          ? Promise.reject(new Error("agent diagnostics unavailable"))
+          : Promise.resolve({ items: [] });
+      }
+      if (path.includes("runtime-events")) {
+        runtimeEventRequests += 1;
+        return runtimeEventRequests === 1
+          ? Promise.reject(new Error("runtime diagnostics unavailable"))
+          : Promise.resolve({ items: [] });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<ReportDetailPage showDiagnostics />);
+
+    expect(await screen.findByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("技术附录"));
+    const retry = await screen.findByRole("button", { name: "重新同步诊断" });
+    fireEvent.click(retry);
+
+    expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("本次运行没有可公开轨迹")).toBeInTheDocument());
+    expect(screen.getByText("本轮回答技术边界清楚，但覆盖尚不完整。")).toBeInTheDocument();
+    expect(agentRunRequests).toBe(2);
+    expect(runtimeEventRequests).toBe(2);
+  });
+
+  it("jumps from an action to its evidence question and opens it", async () => {
+    render(<ReportDetailPage />);
+
+    const jump = await screen.findByRole("link", { name: "查看对应题目" });
+    const target = document.getElementById("question-q2");
+    expect(target).not.toHaveAttribute("open");
+
+    fireEvent.click(jump);
+
+    await waitFor(() => expect(target).toHaveAttribute("open"));
+    expect(target.querySelector("summary")).toHaveFocus();
+  });
+
+  it("does not display a numeric overall score for an unscored artifact", async () => {
+    const unscored = structuredClone(reportResponse);
+    Object.assign(unscored.active_artifact, {
+      score_status: "unscored",
+      score_reason_code: "insufficient_evidence",
+      coverage_status: "none",
+      overall_score: null,
+      overall_dimension_scores: {
+        breadth: null,
+        depth: null,
+        architecture: null,
+        engineering: null,
+        communication: null,
+      },
+      evaluated_count: 0,
+      total_eligible_count: 3,
+    });
+    getJson.mockImplementation((path) => {
+      if (path.endsWith("/report")) return Promise.resolve(unscored);
+      if (path.endsWith("/reports")) return Promise.resolve({ items: [unscored.active_artifact] });
+      return Promise.resolve({ items: [] });
+    });
+
+    render(<ReportDetailPage />);
+
+    expect((await screen.findAllByLabelText(/综合评分未发布/)).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("评分和覆盖状态")).toHaveTextContent("未评分");
+    expect(screen.getByText("证据不足，未发布数字")).toBeInTheDocument();
+    expect(screen.getAllByText("未评分").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("无有效覆盖").length).toBeGreaterThan(0);
+    expect(screen.queryByText("部分评分")).not.toBeInTheDocument();
+  });
+
+  it("downloads the active PDF by immutable report ID and revision", async () => {
+    render(<ReportDetailPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "下载完整报告" }));
+
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledWith(
+      "/api/reports/report-2.pdf",
+      "interview-report-r2-report-2.pdf",
+    ));
+  });
+
+  it("downloads a historical revision without following the active pointer", async () => {
+    render(<ReportDetailPage />);
+
+    fireEvent.click(await screen.findByText("技术附录"));
+    fireEvent.click(screen.getByRole("button", { name: "下载第 1 版" }));
+
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledWith(
+      "/api/reports/report-1.pdf",
+      "interview-report-r1-report-1.pdf",
+    ));
+  });
+});

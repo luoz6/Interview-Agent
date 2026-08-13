@@ -6,6 +6,9 @@ from typing import Any, Iterator
 
 from app.runtime.config.compatibility import derive_pgvector_table_names
 from app.adapters.postgres.context_artifacts import ContextArtifactPostgresAdapter
+from app.services.context_compression_failure_store import (
+    PostgresContextCompressionFailureStore,
+)
 from app.services.interview_generation_store import PostgresInterviewGenerationStore
 from app.services.interview_workflow_store import PostgresInterviewWorkflowStore
 from app.services.postgres_identifiers import (
@@ -37,13 +40,14 @@ from app.adapters.pgvector.repository import PgVectorKnowledgeStore
 from app.services.postgres_schema_contract import (
     LATEST_RUNTIME_MIGRATION,
     RUNTIME_MIGRATIONS,
-    RUNTIME_SCHEMA_V16_MANIFEST,
+    RUNTIME_SCHEMA_V29_MANIFEST,
+    is_strict_positive_when_present_check,
 )
 from app.services.workflow_thread_lock import advisory_lock_key
 
 
 RUNTIME_MIGRATION_ID = LATEST_RUNTIME_MIGRATION.migration_id
-RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V16_MANIFEST
+RUNTIME_MIGRATION_MANIFEST = RUNTIME_SCHEMA_V29_MANIFEST
 RUNTIME_MIGRATION_CHECKSUM = LATEST_RUNTIME_MIGRATION.checksum
 
 
@@ -157,12 +161,6 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
-            PostgresInterviewGenerationStore(
-                dsn=dsn,
-                connection_provider=provider,
-                table_prefix=table_prefix,
-                schema_mode="migrate",
-            )
             PostgresInterviewWorkflowStore(
                 dsn=dsn,
                 connection_provider=provider,
@@ -193,11 +191,25 @@ def migrate_postgres_runtime(
                 table_prefix=table_prefix,
                 schema_mode="migrate",
             )
+            _upgrade_context_artifact_identity_v1(
+                connection,
+                table_prefix=table_prefix,
+            )
             from app.services.postgres_question_memory_index import (
                 PostgresQuestionMemoryIndexStore,
             )
 
             PostgresQuestionMemoryIndexStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            _upgrade_question_memory_resolved_target_v1(
+                connection,
+                table_prefix=table_prefix,
+            )
+            PostgresContextCompressionFailureStore(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,
@@ -280,12 +292,31 @@ def migrate_postgres_runtime(
             from app.services.postgres_interview_launch_repository import (
                 PostgresInterviewLaunchRepository,
             )
+            from app.services.postgres_report_artifact_store import (
+                PostgresReportArtifactStore,
+            )
+            from app.services.postgres_decision_store import PostgresDecisionStore
+            from app.services.postgres_plan_revision_store import (
+                PostgresInterviewPlanRevisionStore,
+            )
 
+            # V17 plan revisions must exist before V18 draft binding installs
+            # its restrictive foreign key.
+            PostgresInterviewPlanRevisionStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
             PostgresDraftStore(
                 dsn=dsn,
                 connection_provider=provider,
                 table_prefix=table_prefix,
                 schema_mode="migrate",
+            )
+            _upgrade_interview_draft_plan_binding(
+                connection,
+                table_prefix=table_prefix,
             )
             PostgresPrepPlanStore(
                 dsn=dsn,
@@ -298,6 +329,31 @@ def migrate_postgres_runtime(
                 connection_provider=provider,
                 table_prefix=table_prefix,
                 schema_mode="migrate",
+            )
+            PostgresReportArtifactStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            PostgresDecisionStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            # Generation is installed after Decision so the durable
+            # Generation→Decision foreign key is present on both fresh and
+            # upgraded runtime schemas.
+            PostgresInterviewGenerationStore(
+                dsn=dsn,
+                connection_provider=provider,
+                table_prefix=table_prefix,
+                schema_mode="migrate",
+            )
+            _upgrade_session_plan_bindings(
+                connection,
+                table_prefix=table_prefix,
             )
             _upgrade_interview_workflow_engine_constraint(
                 connection,
@@ -323,21 +379,23 @@ def migrate_postgres_runtime(
             with connection.cursor() as cursor:
                 from psycopg2 import sql
 
-                cursor.execute(
-                    sql.SQL(
-                        """
-                        INSERT INTO {migrations} (
-                            migration_id, checksum, transaction_mode
-                        ) VALUES (%s, %s, %s)
-                        ON CONFLICT (migration_id) DO NOTHING
-                        """
-                    ).format(migrations=sql.Identifier(migrations_table)),
-                    (
-                        RUNTIME_MIGRATION_ID,
-                        RUNTIME_MIGRATION_CHECKSUM,
-                        LATEST_RUNTIME_MIGRATION.transaction_mode,
-                    ),
-                )
+                insert_migration = sql.SQL(
+                    """
+                    INSERT INTO {migrations} (
+                        migration_id, checksum, transaction_mode
+                    ) VALUES (%s, %s, %s)
+                    ON CONFLICT (migration_id) DO NOTHING
+                    """
+                ).format(migrations=sql.Identifier(migrations_table))
+                for spec in RUNTIME_MIGRATIONS:
+                    cursor.execute(
+                        insert_migration,
+                        (
+                            spec.migration_id,
+                            spec.checksum,
+                            spec.transaction_mode,
+                        ),
+                    )
             connection.commit()
             applied = True
         elif run_checkpointer_setup:
@@ -381,6 +439,112 @@ def _setup_langgraph_checkpointer(dsn: str) -> None:
 
     with PostgresSaver.from_conn_string(dsn) as saver:
         saver.setup()
+
+
+def _upgrade_context_artifact_identity_v1(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Add nullable v1 identity material without rewriting legacy v0 rows."""
+
+    from psycopg2 import sql
+
+    table = f"{table_prefix}_context_artifacts"
+    constraint_name = runtime_schema_identifier(
+        table_prefix,
+        "context_artifacts_identity_v1_check",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {table} "
+                "ADD COLUMN IF NOT EXISTS identity_schema_version TEXT, "
+                "ADD COLUMN IF NOT EXISTS compression_intent_sha256 TEXT"
+            ).format(table=sql.Identifier(table))
+        )
+        cursor.execute(
+            "SELECT 1 FROM pg_constraint "
+            "WHERE conname=%s AND conrelid=to_regclass(%s)",
+            (constraint_name, f"public.{table}"),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {table} ADD CONSTRAINT {constraint} CHECK ("
+                    "(identity_schema_version IS NULL AND "
+                    "compression_intent_sha256 IS NULL) OR "
+                    "(identity_schema_version IS NOT NULL AND "
+                    "identity_schema_version = 'identity-v1' AND "
+                    "compression_intent_sha256 IS NOT NULL AND "
+                    "compression_intent_sha256 ~ '^[0-9a-f]{{64}}$'))"
+                ).format(
+                    table=sql.Identifier(table),
+                    constraint=sql.Identifier(constraint_name),
+                )
+            )
+
+
+def _upgrade_interview_draft_plan_binding(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    from app.services.postgres_draft_store import (
+        ensure_postgres_draft_plan_binding_schema,
+    )
+
+    ensure_postgres_draft_plan_binding_schema(
+        connection,
+        table_prefix=table_prefix,
+    )
+
+
+def _upgrade_question_memory_resolved_target_v1(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Add nullable persisted target authority without rewriting legacy rows."""
+
+    from psycopg2 import sql
+
+    table = f"{table_prefix}_question_memory_refs"
+    constraint_name = runtime_schema_identifier(
+        table_prefix,
+        "question_memory_resolved_target_check",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "
+                "resolved_target_output_tokens INTEGER"
+            ).format(table=sql.Identifier(table))
+        )
+        cursor.execute(
+            "SELECT pg_get_constraintdef(rule.oid) "
+            "FROM pg_constraint AS rule "
+            "WHERE rule.conname=%s AND rule.conrelid=to_regclass(%s)",
+            (constraint_name, f"public.{table}"),
+        )
+        existing_constraint = cursor.fetchone()
+        if existing_constraint is None:
+            cursor.execute(
+                sql.SQL(
+                    "ALTER TABLE {table} ADD CONSTRAINT {constraint} "
+                    "CHECK (resolved_target_output_tokens > 0)"
+                ).format(
+                    table=sql.Identifier(table),
+                    constraint=sql.Identifier(constraint_name),
+                )
+            )
+        elif not is_strict_positive_when_present_check(
+            existing_constraint[0],
+            column="resolved_target_output_tokens",
+        ):
+            raise PostgresMigrationConflict(
+                "question memory resolved target constraint is incompatible"
+            )
 
 
 def _upgrade_principal_memory_exclusive_scope(
@@ -624,3 +788,50 @@ def _upgrade_interview_memory_policy_constraint(
                 "ALTER TABLE {sessions} ALTER COLUMN memory_policy_version SET DEFAULT 'deterministic-v1'"
             ).format(sessions=sql.Identifier(sessions_table))
         )
+
+
+def _upgrade_session_plan_bindings(
+    connection: Any,
+    *,
+    table_prefix: str,
+) -> None:
+    """Backfill legacy session provenance without consulting Plan Revisions."""
+
+    import json
+
+    from psycopg2 import sql
+
+    from app.services.interview_plan_revision import canonical_sha256
+
+    sessions_table = f"{table_prefix}_sessions"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {sessions} "
+                "ADD COLUMN IF NOT EXISTS plan_binding_json JSONB"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "SELECT session_id,plan_json FROM {sessions} "
+                "WHERE plan_binding_json IS NULL"
+            ).format(sessions=sql.Identifier(sessions_table))
+        )
+        rows = cursor.fetchall()
+        for session_id, plan_json in rows:
+            binding = {
+                "plan_origin": "legacy_session_snapshot",
+                "plan_revision_id": None,
+                "plan_family_id": None,
+                "revision": None,
+                "plan_sha256": canonical_sha256(plan_json),
+                "configuration_snapshot": None,
+                "plan_snapshot": plan_json,
+            }
+            cursor.execute(
+                sql.SQL(
+                    "UPDATE {sessions} SET plan_binding_json=%s::jsonb "
+                    "WHERE session_id=%s AND plan_binding_json IS NULL"
+                ).format(sessions=sql.Identifier(sessions_table)),
+                (json.dumps(binding, ensure_ascii=False), session_id),
+            )

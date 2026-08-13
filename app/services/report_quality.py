@@ -1,5 +1,5 @@
 from app.services.report import InterviewFeedback, InterviewReport
-from app.services.report_rule_score import aggregate_feedback_scores
+from app.services.report_coverage import aggregate_report_coverage
 
 
 _PLACEHOLDER_TEXTS = {
@@ -26,13 +26,17 @@ def collect_report_quality_issues(
         return issues
     if not _contains_chinese(report.summary):
         issues.append("summary must include Simplified Chinese text")
-    expected_score, expected_dimensions = aggregate_feedback_scores(report.feedbacks)
-    if report.overall_score != expected_score:
+    coverage = aggregate_report_coverage(report.feedbacks)
+    if report.overall_score != coverage.overall_score:
         issues.append("overall_score must equal backend aggregate score")
-    if report.overall_dimension_scores != expected_dimensions:
+    if report.overall_dimension_scores != coverage.overall_dimension_scores:
         issues.append(
             "overall_dimension_scores must equal backend aggregate dimension scores"
         )
+    if report.score_status != coverage.score_status:
+        issues.append("score_status must equal backend aggregate score status")
+    if report.coverage_status != coverage.coverage_status:
+        issues.append("coverage_status must equal backend aggregate coverage status")
     for feedback in report.feedbacks:
         issues.extend(_feedback_quality_issues(feedback))
     return issues
@@ -52,7 +56,7 @@ def _feedback_quality_issues(feedback: InterviewFeedback) -> list[str]:
         if _is_placeholder_text(value):
             issues.append(f"{prefix}.{field_name} must not be placeholder text")
 
-    if feedback.answer_state == "answered":
+    if feedback.answer_state == "answered" and feedback.evaluation_status == "evaluated":
         if not feedback.applicable_dimensions:
             issues.append(
                 f"{prefix}.applicable_dimensions must not be empty for answered questions"
@@ -61,9 +65,9 @@ def _feedback_quality_issues(feedback: InterviewFeedback) -> list[str]:
             issues.append(
                 f"{prefix}.dimension_evidence must not be empty for answered questions"
             )
-    if feedback.answer_state != "answered" and feedback.score != 0:
+    if feedback.answer_state != "answered" and feedback.score is not None:
         issues.append(
-            f"{prefix}.score must be 0 when answer_state is {feedback.answer_state}"
+            f"{prefix}.score must be null when answer_state is {feedback.answer_state}"
         )
     if feedback.answer_state == "skipped" and "跳过" not in feedback.user_answer:
         issues.append(f"{prefix}.user_answer must explain that the question was skipped")

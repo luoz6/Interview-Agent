@@ -111,27 +111,71 @@ def _principal_memory_writer_guard(identity):
     )
 
 
-def _principal_memory_safe_items(*, request, limit):
+_SAFE_FACT_STATUSES = (
+    "active",
+    "proposed",
+    "revoked",
+    "rejected",
+    "superseded",
+    "expired",
+)
+
+
+def _principal_memory_safe_page(*, request, limit, cursor, statuses):
     identity = _require_trusted_local_principal_memory(request)
     store = get_principal_memory_fact_store()
     refs = get_principal_memory_safe_ref_store()
-    facts = store.list_by_principal(
+    facts = store.list_all_by_principal(
         deployment_id=identity.deployment_id,
         principal_id=identity.principal_id,
-        limit=limit,
         include_terminal=True,
     )
-    return [
+    visible = [fact for fact in facts if fact.status in _SAFE_FACT_STATUSES]
+    summary = {status: 0 for status in _SAFE_FACT_STATUSES}
+    for fact in visible:
+        summary[fact.status] += 1
+    selected_statuses = set(statuses or _SAFE_FACT_STATUSES)
+    filtered = [fact for fact in visible if fact.status in selected_statuses]
+    if cursor:
+        try:
+            cursor_fact = refs.resolve(
+                cursor,
+                deployment_id=identity.deployment_id,
+                principal_id=identity.principal_id,
+                fact_store=store,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "principal_memory_safe_ref_invalid"},
+            ) from exc
+        cursor_key = (cursor_fact.created_at, cursor_fact.fact_id)
+        filtered = [
+            fact for fact in filtered
+            if (fact.created_at, fact.fact_id) < cursor_key
+        ]
+    page = filtered[:limit]
+    items = [
         {
             **_principal_memory_lifecycle(identity).safe_payload(fact),
             "safe_ref": refs.issue(fact),
         }
-        for fact in facts
+        for fact in page
     ]
+    return {
+        "schema_version": "principal-memory-safe-list-v2",
+        "summary": summary,
+        "items": items,
+        "next_cursor": refs.issue(page[-1]) if len(filtered) > limit else None,
+    }
 
 
 def _resolve_principal_memory_safe_ref(request, safe_ref):
     identity = _require_trusted_local_principal_memory(request)
+    from app.services.principal_memory_safe_refs import (
+        PrincipalMemorySafeRefVersionConflict,
+    )
+
     try:
         fact = get_principal_memory_safe_ref_store().resolve(
             safe_ref,
@@ -139,8 +183,16 @@ def _resolve_principal_memory_safe_ref(request, safe_ref):
             principal_id=identity.principal_id,
             fact_store=get_principal_memory_fact_store(),
         )
+    except PrincipalMemorySafeRefVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_version_conflict"},
+        ) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_safe_ref_invalid"},
+        ) from exc
     return identity, fact
 
 
@@ -193,6 +245,35 @@ def principal_memory_status(request: Request):
     }
 
 
+@router.get("/runtime/principal-memory/capabilities")
+def principal_memory_capabilities(request: Request):
+    _require_trusted_local_principal_memory(request)
+    from app.domain.memory.contracts import (
+        ALLOWED_TAXONOMY,
+        USER_DECLARABLE_TAXONOMY_KEYS,
+        USER_EDITABLE_TAXONOMY_KEYS,
+        principal_memory_fact_type_for_taxonomy_key,
+        principal_memory_input_policy_for_taxonomy_key,
+    )
+    from app.services.principal_memory_consent import PRINCIPAL_MEMORY_PURPOSES
+
+    return {
+        "schema_version": "principal-memory-capabilities-v1",
+        "fact_types": [
+            {
+                "key": key,
+                "fact_type": principal_memory_fact_type_for_taxonomy_key(key),
+                "values": sorted(values),
+                "editable": key in USER_EDITABLE_TAXONOMY_KEYS,
+                "user_declarable": key in USER_DECLARABLE_TAXONOMY_KEYS,
+                **principal_memory_input_policy_for_taxonomy_key(key),
+            }
+            for key, values in ALLOWED_TAXONOMY.items()
+        ],
+        "consent_purposes": sorted(PRINCIPAL_MEMORY_PURPOSES),
+    }
+
+
 @router.put("/runtime/principal-memory/consent")
 def grant_principal_memory_consent(
     payload: PrincipalConsentRequest,
@@ -215,7 +296,10 @@ def grant_principal_memory_consent(
                 )
             )
     except PermissionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_deletion_fenced"},
+        ) from exc
     return {
         "schema_version": consent.schema_version,
         "policy_version": consent.policy_version,
@@ -239,7 +323,10 @@ def revoke_principal_memory_consent(request: Request):
                 revoked_at=now,
             )
     except PermissionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_deletion_fenced"},
+        ) from exc
     return {
         "revoked": consent is not None,
         "facts_retained": True,
@@ -250,11 +337,21 @@ def revoke_principal_memory_consent(request: Request):
 def list_principal_memory_facts(
     request: Request,
     limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=128),
+    status: list[str] | None = Query(default=None),
 ):
-    return {
-        "schema_version": "principal-memory-safe-list-v1",
-        "items": _principal_memory_safe_items(request=request, limit=limit),
-    }
+    invalid = set(status or ()) - set(_SAFE_FACT_STATUSES)
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "principal_memory_fact_status_invalid"},
+        )
+    return _principal_memory_safe_page(
+        request=request,
+        limit=limit,
+        cursor=cursor,
+        statuses=status,
+    )
 
 
 @router.post("/runtime/principal-memory/disable")
@@ -311,29 +408,51 @@ def declare_principal_memory_fact(
     from app.domain.memory.contracts import canonical_principal_fact
 
     try:
+        normalized_fact = canonical_principal_fact(payload.normalized_value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "principal_memory_fact_value_invalid"},
+        ) from exc
+    try:
         return _principal_memory_lifecycle(identity).declare(
             fact_type=payload.fact_type,
-            normalized_fact=canonical_principal_fact(payload.normalized_value),
+            normalized_fact=normalized_fact,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "principal_memory_consent_required"},
+        ) from exc
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_version_conflict"},
+        ) from exc
 
 
 def _principal_fact_ref_action(request, safe_ref, payload, action):
     identity, fact = _resolve_principal_memory_safe_ref(request, safe_ref)
     if fact.version != payload.expected_version:
-        raise HTTPException(status_code=409, detail="principal memory version changed")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_version_conflict"},
+        )
     try:
         return getattr(_principal_memory_lifecycle(identity), action)(
             fact_id=fact.fact_id,
             expected_version=payload.expected_version,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "principal_memory_consent_required"},
+        ) from exc
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_version_conflict"},
+        ) from exc
 
 
 @router.post("/runtime/principal-memory/facts/{safe_ref}/confirm")
@@ -379,13 +498,25 @@ def correct_principal_memory_fact(
     _require_local_memory_mutation(request)
     identity, fact = _resolve_principal_memory_safe_ref(request, safe_ref)
     if fact.version != payload.expected_version or fact.status != "active":
-        raise HTTPException(status_code=409, detail="principal memory version changed")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_version_conflict"},
+        )
     from app.domain.memory.contracts import canonical_principal_fact
     import json
 
-    normalized = canonical_principal_fact(payload.normalized_value)
+    try:
+        normalized = canonical_principal_fact(payload.normalized_value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "principal_memory_fact_value_invalid"},
+        ) from exc
     if next(iter(json.loads(normalized))) != next(iter(json.loads(fact.normalized_fact))):
-        raise HTTPException(status_code=409, detail="principal memory taxonomy key changed")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_taxonomy_key_changed"},
+        )
     try:
         return _principal_memory_lifecycle(identity).declare(
             fact_type=fact.fact_type,
@@ -394,9 +525,15 @@ def correct_principal_memory_fact(
             expected_predecessor_version=payload.expected_version,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "principal_memory_consent_required"},
+        ) from exc
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "principal_memory_version_conflict"},
+        ) from exc
 
 
 @router.post("/runtime/principal-memory/export")
@@ -414,7 +551,10 @@ def export_principal_memory(request: Request):
             export_store=get_principal_memory_export_store(),
         ).export_current_principal()
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="memory export unavailable") from exc
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "principal_memory_export_unavailable"},
+        ) from exc
 
 
 @router.delete("/runtime/principal-memory")
@@ -433,7 +573,10 @@ def delete_principal_memory(request: Request):
             raise RuntimeError("TOMBSTONE_LEDGER_REQUIRED")
         durable_ledger.require_ready()
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="memory deletion unavailable") from exc
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "principal_memory_deletion_unavailable"},
+        ) from exc
 
     try:
         return PrincipalMemoryRightsService(
@@ -451,10 +594,16 @@ def delete_principal_memory(request: Request):
     except PrincipalMemoryDeletionIncomplete as exc:
         raise HTTPException(
             status_code=503,
-            detail={"code": "memory_delete_retryable", "stage": exc.stage},
+            detail={
+                "code": "principal_memory_deletion_unavailable",
+                "stage": exc.stage,
+            },
         ) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="memory deletion unavailable") from exc
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "principal_memory_deletion_unavailable"},
+        ) from exc
 
 
 __all__ = [
@@ -469,6 +618,7 @@ __all__ = [
     "grant_principal_memory_consent",
     "ignore_principal_memory_session",
     "list_principal_memory_facts",
+    "principal_memory_capabilities",
     "principal_memory_status",
     "reject_principal_memory_fact",
     "revoke_principal_memory_consent",

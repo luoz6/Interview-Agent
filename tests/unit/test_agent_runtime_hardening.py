@@ -73,7 +73,7 @@ def test_stream_snapshots_context_at_call_before_first_next():
 def test_stream_latency_clock_starts_at_first_next(monkeypatch):
     recorder = CapturingRecorder()
     runner = AgentExecutionRunner(recorder=recorder)
-    ticks = iter([100.0, 104.0])
+    ticks = iter([100.0, 104.0, 105.0])
     perf_counter_calls = []
 
     def fake_perf_counter():
@@ -90,8 +90,9 @@ def test_stream_latency_clock_starts_at_first_next(monkeypatch):
     assert perf_counter_calls == []
 
     assert list(stream) == ["chunk"]
-    assert len(perf_counter_calls) == 2
-    assert recorder.records[0].latency_ms == 4000.0
+    assert len(perf_counter_calls) == 3
+    assert recorder.records[0].latency_ms == 5000.0
+    assert recorder.records[0].safe_metadata["first_item_latency_ms"] == 4000.0
 
 
 def test_metadata_callback_failure_does_not_replace_successful_output(caplog):

@@ -1,0 +1,1118 @@
+{
+  "schema_version": "interview-quality-dataset-contract-v1",
+  "dataset_id": "initial-question-quality-v2",
+  "dataset_version": "initial-question-quality-v2",
+  "description": "T57 synthetic, stratified JD/resume dataset for configured initial interview-plan quality and budget evaluation.",
+  "fixture_only": false,
+  "cases": [
+    {
+      "case_id": "backend-api-foundation-zh-train-001",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "foundation",
+      "quality_label": "strong",
+      "partition": "train",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "backend",
+        "job_description": "负责 Python API 的接口实现、数据库访问、日志排障和基础单元测试，能够清晰解释请求处理链路与常见错误。",
+        "resume_summary": "合成候选人完成过 FastAPI 订单接口练习，使用 PostgreSQL 保存数据，并为异常响应和核心服务编写过测试。",
+        "configuration": {
+          "difficulty": "foundation",
+          "target_duration_minutes": 15,
+          "focus_preset": "technical_depth",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 1,
+            "system-design": 1
+          },
+          "expected_followup_budget": 3,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "FastAPI",
+          "PostgreSQL",
+          "请求链路"
+        ],
+        "focus_evidence": [
+          "实现细节",
+          "错误处理"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "backend evaluation topic",
+            "summary": "FastAPI dependency lifecycle and safe database transaction boundaries."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "3078c95532b853f7a512f1d516961c9ca8ea6dda6117642437ce4980f824165d",
+        "content_sha256": "dbed534f1f813a5083d0dc76a74d0beb96195bcc72468b5f8ca8249b224cfa5b"
+      }
+    },
+    {
+      "case_id": "frontend-performance-intermediate-zh-train-002",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "intermediate",
+      "quality_label": "strong",
+      "partition": "train",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "frontend",
+        "job_description": "负责 React 业务页面、状态管理、性能优化和可访问性改进，需要与接口团队协作并能定位线上交互问题。",
+        "resume_summary": "合成候选人重构过数据看板，减少重复渲染并补充键盘操作，曾通过性能指标和用户反馈验证改动效果。",
+        "configuration": {
+          "difficulty": "intermediate",
+          "target_duration_minutes": 30,
+          "focus_preset": "balanced",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 2,
+            "system-design": 1,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 5,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "React",
+          "性能优化",
+          "可访问性"
+        ],
+        "focus_evidence": [
+          "项目证据",
+          "技术取舍",
+          "协作"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "frontend evaluation topic",
+            "summary": "React rendering diagnostics, accessibility semantics, and measurable web performance."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "ba9ecbff992a0f60686a17a509dfec3e900e18fd6879bfe5302d94b1731a8c82",
+        "content_sha256": "4b2dbf579f37b1e9c59b43b740580cdb4675bc7deb0daf2846337bea72fd2cd6"
+      }
+    },
+    {
+      "case_id": "data-pipeline-advanced-zh-train-003",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "advanced",
+      "quality_label": "strong",
+      "partition": "train",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "data",
+        "job_description": "设计批流一体数据平台，处理迟到数据、幂等写入、血缘追踪和质量告警，并对容量、成本与恢复目标负责。",
+        "resume_summary": "合成候选人设计过 Kafka 到湖仓的处理链路，处理事件乱序和回放，记录了吞吐、延迟及失败恢复方案。",
+        "configuration": {
+          "difficulty": "advanced",
+          "target_duration_minutes": 45,
+          "focus_preset": "system_design",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 2,
+            "system-design": 3,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 7,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "Kafka",
+          "迟到数据",
+          "幂等写入"
+        ],
+        "focus_evidence": [
+          "容量估算",
+          "故障恢复",
+          "架构取舍"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "data evaluation topic",
+            "summary": "Event-time processing, idempotent sinks, lineage, and replay-safe pipeline design."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "d0af0e5a0af0f4bc075393e8092c5ac47d5edefa8cc3100a80455b2e888ce8ca",
+        "content_sha256": "ef316819f9d182748f98d2f84a4c901cb51ea5b32645cfcd7e7f5263f3a01141"
+      }
+    },
+    {
+      "case_id": "platform-multiregion-advanced-zh-train-004",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "advanced",
+      "quality_label": "strong",
+      "partition": "train",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "platform",
+        "job_description": "负责多区域平台的发布、可观测性、容量治理和故障隔离，推动服务等级目标、演练与自动化恢复机制落地。",
+        "resume_summary": "合成候选人维护过 Kubernetes 平台，主导过区域故障演练和发布回滚改造，并用指标衡量恢复时间变化。",
+        "configuration": {
+          "difficulty": "advanced",
+          "target_duration_minutes": 60,
+          "focus_preset": "system_design",
+          "question_type_budget": {
+            "project": 2,
+            "technical": 2,
+            "system-design": 4,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 9,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "Kubernetes",
+          "多区域",
+          "故障隔离"
+        ],
+        "focus_evidence": [
+          "可靠性",
+          "容量治理",
+          "演进成本"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "platform evaluation topic",
+            "summary": "Multi-region failure isolation, SLO-based operations, and controlled deployment rollback."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "cb508da8dc6b4d2b9da075306850c3e797743c52c383a807ebf34e5cb8cce1f8",
+        "content_sha256": "a402c8e55256bc96558e036d01b8c0348806a6cb8fe78204988152ee6e809825"
+      }
+    },
+    {
+      "case_id": "project-delivery-foundation-zh-dev-005",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "foundation",
+      "quality_label": "strong",
+      "partition": "dev",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "general_project",
+        "job_description": "参与通用业务项目交付，能够说明任务拆解、沟通协作、风险处理和结果验证，并对个人职责边界保持清晰。",
+        "resume_summary": "合成候选人参与过内部审批工具开发，负责表单和接口联调，处理过延期风险并根据使用反馈完成迭代。",
+        "configuration": {
+          "difficulty": "foundation",
+          "target_duration_minutes": 15,
+          "focus_preset": "project_review",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 1,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 3,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "任务拆解",
+          "接口联调",
+          "结果验证"
+        ],
+        "focus_evidence": [
+          "职责边界",
+          "项目结果"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "general_project evaluation topic",
+            "summary": "Evidence-based project review with clear ownership, constraints, decisions, and outcomes."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "0e605f9fd0c28f3652588a3e3c939478ead064d8cbc150ee798657731be16636",
+        "content_sha256": "aa635fbfbc2d5e120f014aeb5898a0e35cda4a20eb73749590d052bc149225c8"
+      }
+    },
+    {
+      "case_id": "system-jobqueue-intermediate-zh-dev-006",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "intermediate",
+      "quality_label": "strong",
+      "partition": "dev",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "system_design",
+        "job_description": "设计异步任务系统，覆盖任务提交、优先级、重试、幂等、积压处理与监控，需要解释关键一致性和可用性取舍。",
+        "resume_summary": "合成候选人实现过基于 Redis 和消息队列的任务处理服务，处理重复消费、失败重试及工作节点扩缩容。",
+        "configuration": {
+          "difficulty": "intermediate",
+          "target_duration_minutes": 30,
+          "focus_preset": "system_design",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 1,
+            "system-design": 2,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 5,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "异步任务",
+          "幂等",
+          "积压处理"
+        ],
+        "focus_evidence": [
+          "架构边界",
+          "可靠性取舍"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "system_design evaluation topic",
+            "summary": "Durable job queues, idempotency keys, backpressure, retries, and worker scaling."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "281b1ac943b7502409c70acef0374f63fd454ee036136c3a5417cabab67cab41",
+        "content_sha256": "97ece82c8aec71d32ae6cfc4b7d14d1f9daaa7e4bcf168c6b6a07d8df8d86e4a"
+      }
+    },
+    {
+      "case_id": "backend-consistency-intermediate-zh-dev-007",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "intermediate",
+      "quality_label": "strong",
+      "partition": "dev",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "backend",
+        "job_description": "负责高并发交易服务的缓存一致性、数据库事务、接口幂等和故障诊断，要求能用证据解释技术选择。",
+        "resume_summary": "合成候选人优化过 Redis 缓存与 MySQL 查询，处理过超时重试造成的重复写入，并补充监控和压测。",
+        "configuration": {
+          "difficulty": "intermediate",
+          "target_duration_minutes": 45,
+          "focus_preset": "technical_depth",
+          "question_type_budget": {
+            "project": 2,
+            "technical": 3,
+            "system-design": 1,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 7,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "Redis",
+          "事务",
+          "接口幂等"
+        ],
+        "focus_evidence": [
+          "实现边界",
+          "诊断证据",
+          "失败模式"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "backend evaluation topic",
+            "summary": "Cache consistency, transaction boundaries, idempotent writes, and timeout diagnosis."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "b4a7140f2c48d1dd081aa1cea9e9341d18b36cd3e010d506cda742b3d6afdcaf",
+        "content_sha256": "52e432201a07a4748191521baebe184595c91c28e729eacae62c85cd890c9517"
+      }
+    },
+    {
+      "case_id": "frontend-migration-advanced-zh-dev-008",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "advanced",
+      "quality_label": "strong",
+      "partition": "dev",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "frontend",
+        "job_description": "主导大型前端迁移，兼顾模块边界、渐进发布、性能预算、可访问性和跨团队协作，并量化风险与收益。",
+        "resume_summary": "合成候选人推动过旧管理端迁移到 React，设计兼容层和灰度方案，跟踪包体、错误率与交付周期变化。",
+        "configuration": {
+          "difficulty": "advanced",
+          "target_duration_minutes": 60,
+          "focus_preset": "project_review",
+          "question_type_budget": {
+            "project": 4,
+            "technical": 2,
+            "system-design": 1,
+            "behavioral": 2
+          },
+          "expected_followup_budget": 9,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "渐进迁移",
+          "性能预算",
+          "灰度发布"
+        ],
+        "focus_evidence": [
+          "所有权",
+          "迁移决策",
+          "量化结果"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "frontend evaluation topic",
+            "summary": "Incremental frontend migration, compatibility boundaries, release safety, and performance budgets."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "df48df37e2819d56bbe48842b4679ed7ce213cc7c3f98e07a0df4976e93cb079",
+        "content_sha256": "be4046d3405df15b83ec74edbcb030787183c59e6f5d5d6c3543e563893f075a"
+      }
+    },
+    {
+      "case_id": "data-quality-foundation-zh-blind-009",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "foundation",
+      "quality_label": "strong",
+      "partition": "blind-test",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "data",
+        "job_description": "维护分析数据任务，完成字段校验、失败重跑、基础 SQL 优化和数据质量记录，并能与需求方确认口径。",
+        "resume_summary": "合成候选人编写过定时 ETL 和质量检查，定位过空值与重复记录问题，并为报表口径建立说明文档。",
+        "configuration": {
+          "difficulty": "foundation",
+          "target_duration_minutes": 30,
+          "focus_preset": "balanced",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 2,
+            "system-design": 1,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 5,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "ETL",
+          "数据质量",
+          "SQL"
+        ],
+        "focus_evidence": [
+          "基础实现",
+          "问题定位",
+          "需求沟通"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "data evaluation topic",
+            "summary": "Data validation, safe reruns, SQL diagnostics, and metric definition alignment."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "983618ef2c658dcee495d7f5641720e55451dab9dfa488e9eaa3517c28601c4d",
+        "content_sha256": "96c545170a8327c265cabec4e2d2c24e37e7f8a1f3ea98c61aabed3fa50979e7"
+      }
+    },
+    {
+      "case_id": "platform-observability-intermediate-en-blind-010",
+      "case_version": 1,
+      "language": "en",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "intermediate",
+      "quality_label": "strong",
+      "partition": "blind-test",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "platform",
+        "job_description": "Build observability tooling for container services, including actionable metrics, tracing, alert design, incident diagnosis, and safe operational automation.",
+        "resume_summary": "The synthetic candidate instrumented Kubernetes services, reduced noisy alerts, and documented an incident investigation using traces and service-level indicators.",
+        "configuration": {
+          "difficulty": "intermediate",
+          "target_duration_minutes": 15,
+          "focus_preset": "technical_depth",
+          "question_type_budget": {
+            "project": 1,
+            "technical": 1,
+            "system-design": 1
+          },
+          "expected_followup_budget": 3,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "Kubernetes",
+          "tracing",
+          "alert design"
+        ],
+        "focus_evidence": [
+          "diagnostic depth",
+          "operational boundaries"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "platform evaluation topic",
+            "summary": "Telemetry cardinality, trace-based diagnosis, actionable alerts, and safe automation."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "4d19d25f10a7391746754713ac8a9d7732c251ffba3bc36dcf259878e9f97ea6",
+        "content_sha256": "2dfa52ec502a21503dd3c26dc7a256f504f67ebbcca4179579599b7387fbac20"
+      }
+    },
+    {
+      "case_id": "project-incident-advanced-zh-blind-011",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "advanced",
+      "quality_label": "strong",
+      "partition": "blind-test",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "general_project",
+        "job_description": "复盘关键线上事故与改进项目，区分事实、假设和责任边界，推动跨团队修复并用长期指标验证治理效果。",
+        "resume_summary": "合成候选人负责过支付链路事故复盘，协调多个团队完成限流和降级改造，并追踪后续告警与恢复指标。",
+        "configuration": {
+          "difficulty": "advanced",
+          "target_duration_minutes": 45,
+          "focus_preset": "project_review",
+          "question_type_budget": {
+            "project": 3,
+            "technical": 2,
+            "system-design": 1,
+            "behavioral": 1
+          },
+          "expected_followup_budget": 7,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "事故复盘",
+          "降级",
+          "恢复指标"
+        ],
+        "focus_evidence": [
+          "因果边界",
+          "跨团队推动",
+          "长期效果"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "general_project evaluation topic",
+            "summary": "Blameless incident analysis, causal evidence, remediation ownership, and durable outcome metrics."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "689854fcc46d9fdee8b569983066d225330753f8036179dd2a77e9dbc91e4c50",
+        "content_sha256": "0db4c4ee524dd1240e89b6f45be752696acb48f935b8f9bde7a7b378492144ba"
+      }
+    },
+    {
+      "case_id": "system-collaboration-foundation-en-blind-012",
+      "case_version": 1,
+      "language": "en",
+      "case_type": "initial_question",
+      "question_type": "mixed",
+      "difficulty": "foundation",
+      "quality_label": "strong",
+      "partition": "blind-test",
+      "source_boundary": {
+        "classification": "synthetic",
+        "description": "Synthetic JD and resume paired with a public technical-topic summary; no real person, employer, or confidential material.",
+        "contains_real_candidate_data": false,
+        "contains_employer_confidential_data": false,
+        "contains_principal_memory": false
+      },
+      "input": {
+        "scenario_domain": "system_design",
+        "job_description": "Design a small collaboration service while explaining core API, storage, reliability, project delivery, and teamwork choices at a foundation-friendly level.",
+        "resume_summary": "The synthetic candidate built a team notes application with authentication, PostgreSQL storage, basic caching, tests, and a documented deployment process.",
+        "configuration": {
+          "difficulty": "foundation",
+          "target_duration_minutes": 60,
+          "focus_preset": "balanced",
+          "question_type_budget": {
+            "project": 2,
+            "technical": 3,
+            "system-design": 2,
+            "behavioral": 2
+          },
+          "expected_followup_budget": 9,
+          "max_followups_per_question": 2,
+          "generator_version": "plan-generator-v2",
+          "followup_policy_version": "fixed_v1"
+        },
+        "runs_per_case": 2,
+        "role_keywords": [
+          "collaboration service",
+          "PostgreSQL",
+          "deployment"
+        ],
+        "focus_evidence": [
+          "fundamentals",
+          "project evidence",
+          "design choices"
+        ],
+        "forbidden_leak_markers": [
+          "参考答案",
+          "reference answer",
+          "内部证据",
+          "internal evidence",
+          "knowledge_binding",
+          "evidence_ref"
+        ],
+        "knowledge_context": [
+          {
+            "source": "public_technical_material",
+            "title": "system_design evaluation topic",
+            "summary": "Foundational API design, relational storage, caching, testing, and deployment trade-offs."
+          }
+        ]
+      },
+      "expectation": {
+        "action": "accept_plan",
+        "score_range": null
+      },
+      "must_have_evidence": [
+        "Questions connect to at least one declared role keyword or resume project.",
+        "The configured focus and difficulty are observable without leaking an answer.",
+        "Question count, type budget, follow-up budget, and duration estimate match the frozen configuration."
+      ],
+      "forbidden_inference": [
+        "Do not infer a real candidate identity or employer.",
+        "Do not treat public technical material as candidate experience.",
+        "Do not expose reference answers, evidence identifiers, or internal prompt text."
+      ],
+      "annotation": {
+        "annotator_id": "synthetic-initial-question-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "dispute_status": "none",
+        "resolution": null,
+        "rationale": "Pending independent review before blocking quality use.",
+        "review_notes": []
+      },
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {
+        "algorithm": "sha256-canonical-json-v1",
+        "source_sha256": "fb935eb1ac303b74f634871cc9e4ff9f370ac46081cef6ef5abfa7294166514c",
+        "content_sha256": "51536efd95832dfd9fb4903b576c84efda8b7487c937886e054136379f29bf54"
+      }
+    }
+  ]
+}

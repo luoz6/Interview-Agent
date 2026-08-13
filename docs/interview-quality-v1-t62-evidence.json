@@ -1,0 +1,129 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T62",
+  "generated_at": "2026-08-07T01:23:11.9177000+08:00",
+  "implementation_revision_base": "9ece7592c6394ac022f940dc9c76aecd7cc0199a",
+  "implementation_tree_base": "135102f1ef3e57aff38c89bcd0633d193925ef34",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED_DETERMINISTIC_ENGINEERING",
+  "overall_status": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "screenshots": 0,
+  "playwright_trace": "off",
+  "open_findings": 0,
+  "acceptance": {
+    "path": "tests/golden/interview_quality_v1/t62-migration-acceptance-v1.json",
+    "schema_version": "interview-quality-v1-t62-migration-acceptance-v1",
+    "acceptance_id": "t62-migration-acceptance-v1",
+    "canonical_sha256": "23bbc137075c7fdf49035891593b6929cac09e735b96d7642446d1b0dfeca3ae",
+    "file_sha256": "a7438b06c5dbf3a6e9ff42f8c9efecd58af950c3b74ea47213dfe8201e65f0a5",
+    "file_bytes": 6726,
+    "builder": "scripts/build_t62_migration_acceptance.py",
+    "runner": "scripts/run_t62_migration_acceptance.py",
+    "postgresql_required": true,
+    "backup_tools_required": ["pg_dump", "pg_restore"],
+    "skip_policy": "forbidden",
+    "requirement_count": 10,
+    "acceptance_invariant_count": 5,
+    "unique_test_node_count": 7,
+    "collected_test_count": 7
+  },
+  "rollback_runbook": {
+    "path": "docs/interview-quality-v1-t62-rollback-runbook.md",
+    "file_sha256": "ed93eab9113c7a348330f5810484e5752a2f207d5345efd444ae46b19d305961",
+    "file_bytes": 6805,
+    "non_destructive": true,
+    "stop_conditions_explicit": true
+  },
+  "requirements": [
+    {"id": "T62-W01", "status": "PASS", "evidence": "old runtime schema upgraded additively while legacy payload and columns remain readable"},
+    {"id": "T62-W02", "status": "PASS", "evidence": "repeat migration returns applied=false and preserves a single latest marker"},
+    {"id": "T62-W03", "status": "PASS", "evidence": "injected interruption rolls back Artifact DDL and marker, then resumes successfully"},
+    {"id": "T62-W04", "status": "PASS", "evidence": "single-session lazy and bounded batch legacy JSON promotion with terminal empty batch"},
+    {"id": "T62-W05", "status": "PASS", "evidence": "new Artifact write remains readable through the legacy compatibility reader"},
+    {"id": "T62-W06", "status": "PASS", "evidence": "switching back to artifact_first preserves active head and Artifact hash"},
+    {"id": "T62-W07", "status": "PASS", "evidence": "real custom pg_dump/pg_restore preserves rows, Artifact history hashes and Head"},
+    {"id": "T62-W08", "status": "PASS", "evidence": "restored constraints, indexes and Artifact history index plan validated"},
+    {"id": "T62-W09", "status": "PASS", "evidence": "legacy reports relation and columns remain after migration, rollback and restore"},
+    {"id": "T62-W10", "status": "PASS", "evidence": "checked-in fail-closed non-destructive rollback runbook"}
+  ],
+  "acceptance_invariants": [
+    {"id": "T62-A01", "status": "PASS", "invariant": "old data remains readable"},
+    {"id": "T62-A02", "status": "PASS", "invariant": "rollback does not delete new data"},
+    {"id": "T62-A03", "status": "PASS", "invariant": "the active pointer never dangles"},
+    {"id": "T62-A04", "status": "PASS", "invariant": "migration loses zero rows"},
+    {"id": "T62-A05", "status": "PASS", "invariant": "restored historical hashes do not change"}
+  ],
+  "automatic_review_findings_closed": [
+    "Bounded selection initially applied LIMIT before excluding already migrated sessions; NOT EXISTS now filters before ORDER BY/LIMIT.",
+    "The bounded-batch regression relied on random UUID ordering; it now pre-migrates the lexicographically first session deterministically.",
+    "Concurrent batch readers could select the same legacy row; FOR UPDATE OF legacy SKIP LOCKED now partitions selected rows.",
+    "Direct script invocation could not import app; repository-root path setup now supports direct and module entry points.",
+    "Lazy dry-run displayed the batch default while apply used limit one; both now use one effective limit and blank session IDs fail closed.",
+    "Migration interruption originally required the pre-existing registry table to disappear; the correct invariant is rolled-back Artifact DDL and no latest marker.",
+    "A deletion contract test hard-coded an obsolete latest migration; it now verifies historical presence and registry-tail identity."
+  ],
+  "verification": {
+    "official_acceptance_after_final_fixes": {
+      "tests_collected": 7,
+      "tests_passed": 7,
+      "tests_failed": 0,
+      "tests_skipped": 0,
+      "warnings": 1,
+      "warning_detail": "Starlette TestClient/httpx deprecation",
+      "duration_seconds": 20.55,
+      "exit_code": 0,
+      "preflight_status": "PASS",
+      "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+      "pgvector_version": "0.8.6",
+      "pg_dump_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+      "pg_restore_version": "16.14 (Debian 16.14-1.pgdg12+1)"
+    },
+    "expanded_adjacent_regression_after_final_fixes": {
+      "tests_passed": 86,
+      "tests_failed": 0,
+      "tests_skipped": 0,
+      "warnings": 1,
+      "duration_seconds": 59.33
+    },
+    "runner_fail_closed": {
+      "missing_dsn_status": "BLOCKED_MIGRATION_ENVIRONMENT_UNAVAILABLE",
+      "missing_dsn_exit_code": 3,
+      "missing_backup_container_status": "BLOCKED_MIGRATION_ENVIRONMENT_UNAVAILABLE",
+      "missing_backup_container_exit_code": 3,
+      "provider_calls": 0
+    },
+    "cli": {
+      "direct_dry_run": "PASS",
+      "module_dry_run": "PASS",
+      "dry_run_without_dsn": "PASS",
+      "lazy_effective_limit": 1,
+      "invalid_limit_exit_code": 2,
+      "blank_session_id_exit_code": 2,
+      "secret_or_identifier_output": false
+    },
+    "builder_check": "PASS",
+    "diff_check": "PASS"
+  },
+  "diagnostic_attempts_not_accepted_as_pass": [
+    "A detached official T62 runner from the preceding execution was not captured and is not used as evidence; no matching process remained before the accepted serial run.",
+    "A read-only combined container version command had shell quoting errors; versions were re-queried with separate unambiguous commands.",
+    "An adjacent regression command referenced the absent stale path tests/test_postgres_schema_mode.py and exited before collection; the accepted regression used only current files and ran 86 tests serially."
+  ],
+  "phase_boundaries": {
+    "t62_complete": true,
+    "next_task": "T63",
+    "t72_plan_complete": false,
+    "goal_status": "active"
+  },
+  "truthfulness_limits": [
+    "No real Provider was called and no first data request was sent.",
+    "The custom backup archive remained only in process memory and was not persisted or printed.",
+    "Restore deletion was restricted to generated test prefixes and a fixed table allowlist.",
+    "No screenshot, image operation, browser trace or Playwright run was produced.",
+    "T62 Engineering PASS does not establish blocked Gate 2-5 Quality status or overall Plan completion."
+  ]
+}

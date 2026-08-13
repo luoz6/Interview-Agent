@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from app.graphs.interview_graph import fallback_followup
@@ -54,8 +55,30 @@ class SessionSnapshotProjector:
             "last_command_id": state["last_command_id"],
             "workflow_engine": state.get("workflow_engine", "legacy"),
             "graph_schema_version": state.get("graph_schema_version"),
+            "followup_policy_version": state.get(
+                "followup_policy_version", "fixed_v1"
+            ),
+            "current_followup_count": max(
+                0, min(2, int(state.get("current_followup_count", 0)))
+            ),
+            "followup_ui_state": (
+                "degraded"
+                if state.get("termination_reason_code")
+                else "idle"
+            ),
             "memory_policy_version": state["memory_policy_version"],
             "deletion_status": state.get("deletion_status", "active"),
+            "plan_origin": state["plan_origin"],
+            "plan_revision_id": state.get("plan_revision_id"),
+            "plan_family_id": state.get("plan_family_id"),
+            "revision": state.get("revision"),
+            "plan_sha256": state["plan_sha256"],
+            "configuration_snapshot": deepcopy(
+                state.get("configuration_snapshot")
+            ),
+            "plan_snapshot": _public_session_plan_snapshot(
+                state["plan_snapshot"]
+            ),
             **interview_assistance_metadata(state),
             "job_tags": list(state["job_tags"]),
             "current_question": (
@@ -120,3 +143,23 @@ def interview_assistance_metadata(
 
 
 __all__ = ["SessionSnapshotProjector", "interview_assistance_metadata"]
+
+
+def _public_session_plan_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    from app.services.interview_plan_revision import InterviewPlanV2
+    from app.services.prep import public_interview_plan_v2_payload
+
+    public_snapshot = deepcopy(snapshot)
+    public_snapshot.pop("source_id", None)
+    public_snapshot.pop("source_sha256", None)
+    questions = public_snapshot.get("questions") or []
+    if (
+        "configuration_snapshot" not in public_snapshot
+        or not questions
+        or "question_id" not in questions[0]
+    ):
+        # Prep-plan and legacy launch snapshots already use the public V1
+        # schema. Keep that schema stable while stripping source ownership.
+        return public_snapshot
+    plan = InterviewPlanV2.model_validate(public_snapshot)
+    return public_interview_plan_v2_payload(plan)

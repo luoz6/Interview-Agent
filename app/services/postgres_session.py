@@ -35,6 +35,7 @@ from app.domain.interview.state_machine import (
     is_duplicate_command as _is_duplicate_command,
     should_stream_follow_up as _should_stream_follow_up,
 )
+from app.services.session_plan_binding import SessionPlanBinding
 from app.services.session import InterviewSessionStore
 from app.services.runtime_domain_events import RoundClosedEvent
 
@@ -163,6 +164,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_tags: list[str],
         session_id: str | None = None,
         memory_policy_version: str = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> InterviewTurn:
         session_id = session_id or str(uuid4())
         state = self._runner.start(
@@ -172,6 +174,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         self._insert_state(state)
         return self._to_turn(state, follow_up=None)
@@ -186,6 +189,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
         job_tags: list[str],
         graph_version: str = "langgraph-v1",
         memory_policy_version: str = "deterministic-v1",
+        plan_binding: SessionPlanBinding | None = None,
     ) -> None:
         from app.graphs.interview_state import build_initial_state
 
@@ -196,6 +200,7 @@ class PostgresInterviewSessionStore(InterviewSessionStore):
             resume_text=resume_text,
             job_tags=job_tags,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         if graph_version not in {"langgraph-v1", "langgraph-v2"}:
             raise ValueError("unsupported durable interview graph version")

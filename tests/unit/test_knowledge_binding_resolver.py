@@ -1,13 +1,4 @@
 from app.services.knowledge_binding import KnowledgeBindingResolver
-from app.domain.knowledge.evidence import (
-    BaseEvidenceBundle,
-    EvaluationConfidence,
-    EvidenceAvailability,
-    EvidenceDecision,
-    EvidenceRef,
-    EvidenceSufficiency,
-    QuestionEvidenceBinding,
-)
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -42,7 +33,7 @@ def make_chunk(chunk_id: str, *, title: str, content: str, domain: str) -> Knowl
 
 
 def make_v2_plan() -> InterviewPlan:
-    plan = InterviewPlan(
+    return InterviewPlan(
         title="Bound plan",
         questions=[
             InterviewQuestion(
@@ -54,8 +45,8 @@ def make_v2_plan() -> InterviewPlan:
             InterviewQuestion(
                 id="q2",
                 kind="technical",
-                prompt="Explain RocketMQ delivery.",
-                focus="RocketMQ",
+                prompt="Explain Kafka delivery.",
+                focus="Kafka",
             ),
         ],
         prep_context=PrepContext(
@@ -72,12 +63,12 @@ def make_v2_plan() -> InterviewPlan:
                     evidence_ids=["redis_consistency"],
                 ),
                 PrepKnowledgeTopic(
-                    id="topic-rocketmq",
-                    label="RocketMQ",
+                    id="topic-kafka",
+                    label="Kafka",
                     source="retrieval",
-                    evidence="RocketMQ safe summary",
-                    tags=["rocketmq"],
-                    evidence_ids=["rocketmq_delivery"],
+                    evidence="Kafka safe summary",
+                    tags=["kafka"],
+                    evidence_ids=["kafka_delivery"],
                 ),
             ],
             evidence_refs=[
@@ -92,14 +83,14 @@ def make_v2_plan() -> InterviewPlan:
                     candidate_summary="Redis safe summary",
                 ),
                 KnowledgeEvidenceRef(
-                    evidence_id="rocketmq_delivery",
-                    title="RocketMQ delivery",
-                    domain="rocketmq",
+                    evidence_id="kafka_delivery",
+                    title="Kafka delivery",
+                    domain="kafka",
                     source_type="theory",
                     score=0.9,
                     content_sha256="b" * 64,
                     corpus_manifest_sha256=MANIFEST_HASH,
-                    candidate_summary="RocketMQ safe summary",
+                    candidate_summary="Kafka safe summary",
                 ),
             ],
             question_hints=[
@@ -111,9 +102,9 @@ def make_v2_plan() -> InterviewPlan:
                 ),
                 PrepQuestionHint(
                     question_id="q2",
-                    topic_ids=["topic-rocketmq"],
-                    evidence_ids=["rocketmq_delivery"],
-                    follow_up_hints=["Probe RocketMQ retry semantics."],
+                    topic_ids=["topic-kafka"],
+                    evidence_ids=["kafka_delivery"],
+                    follow_up_hints=["Probe Kafka retry semantics."],
                 ),
             ],
             binding_snapshot=KnowledgeBindingSnapshot(
@@ -122,54 +113,6 @@ def make_v2_plan() -> InterviewPlan:
                 status="completed",
             ),
         ),
-    )
-    context = plan.prep_context
-    bundle = BaseEvidenceBundle(
-        bundle_id="bundle-prep-1",
-        retrieval_request_id="retrieval-prep-1",
-        prep_run_id="prep-1",
-        query_sha256="e" * 64,
-        candidate_evidence_refs=tuple(
-            EvidenceRef(
-                evidence_id=reference.evidence_id,
-                title=reference.title,
-                safe_excerpt=reference.candidate_summary,
-                domain=reference.domain,
-                source_type=reference.source_type,
-                content_sha256=reference.content_sha256,
-                corpus_manifest_sha256=reference.corpus_manifest_sha256,
-            )
-            for reference in context.evidence_refs
-        ),
-        retrieval_engine_version="legacy-v1",
-        profile_version="prep-v1",
-        corpus_manifest_sha256=MANIFEST_HASH,
-    )
-    decision = EvidenceDecision(
-        availability=EvidenceAvailability.AVAILABLE,
-        sufficiency=EvidenceSufficiency.NOT_EVALUATED,
-        evaluation_confidence=EvaluationConfidence.NOT_SCORABLE,
-        gate_version="retrieval-gate-v1",
-    )
-    bindings = [
-        QuestionEvidenceBinding(
-            binding_id=f"question-binding-{hint.question_id}",
-            bundle_id=bundle.bundle_id,
-            question_id=hint.question_id,
-            selected_evidence_ids=tuple(hint.evidence_ids),
-            selection_version="question-evidence-selection-v1",
-            decision=decision,
-        )
-        for hint in context.question_hints
-    ]
-    snapshot = context.binding_snapshot.model_copy(
-        update={
-            "base_evidence_bundle": bundle,
-            "question_evidence_bindings": bindings,
-        }
-    )
-    return plan.model_copy(
-        update={"prep_context": context.model_copy(update={"binding_snapshot": snapshot})}
     )
 
 
@@ -193,10 +136,10 @@ def make_repository() -> SearchForbiddenRepository:
                 domain="redis",
             ),
             make_chunk(
-                "rocketmq_delivery",
-                title="RocketMQ delivery",
-                content="RocketMQ internal delivery evidence.",
-                domain="rocketmq",
+                "kafka_delivery",
+                title="Kafka delivery",
+                content="Kafka internal delivery evidence.",
+                domain="kafka",
             ),
         ]
     )
@@ -214,12 +157,22 @@ def test_v2_resolver_uses_only_current_question_ids_and_never_searches():
     ]
     assert resolution.retrieval_path == "bound_evidence_ids"
     assert resolution.evidence_ids == ["redis_consistency"]
-    assert resolution.question_binding_id == "question-binding-q1"
     evidence_messages = [
         message for message in resolution.messages if message["role"] == "knowledge_evidence"
     ]
     assert len(evidence_messages) == 1
     assert "Redis internal consistency evidence" in evidence_messages[0]["content"]
+    assert evidence_messages[0] | {"content": "provider-visible"} == {
+        "role": "knowledge_evidence",
+        "content": "provider-visible",
+        "evidence_id": "redis_consistency",
+        "chunk_id": "redis_consistency",
+        "provenance": "theory",
+        "content_sha256": "a" * 64,
+        "corpus_manifest_sha256": MANIFEST_HASH,
+        "representation": "authoritative_raw",
+        "mandatory_bounded_raw": True,
+    }
     assert "RocketMQ internal delivery evidence" not in str(resolution.messages)
 
 
@@ -289,39 +242,12 @@ def test_v2_deleted_chunk_degrades_without_semantic_search():
 def test_v2_missing_binding_degrades_without_semantic_search():
     plan = make_v2_plan()
     plan.prep_context.question_hints[0].evidence_ids = []
-    snapshot = plan.prep_context.binding_snapshot
-    bindings = list(snapshot.question_evidence_bindings)
-    bindings[0] = bindings[0].model_copy(update={"selected_evidence_ids": ()})
-    plan.prep_context.binding_snapshot = snapshot.model_copy(
-        update={"question_evidence_bindings": bindings}
-    )
     repository = make_repository()
 
     resolution = KnowledgeBindingResolver(repository).resolve(plan, "q1")
 
     assert resolution.retrieval_path == "degraded"
     assert resolution.degraded_reason == "missing_evidence_binding"
-    assert resolution.question_binding_id == "question-binding-q1"
-    assert repository.get_by_ids_calls == []
-    assert repository.search_calls == 0
-
-
-def test_v2_question_binding_mismatch_fails_closed_before_repository_reads():
-    plan = make_v2_plan()
-    snapshot = plan.prep_context.binding_snapshot
-    bindings = list(snapshot.question_evidence_bindings)
-    bindings[0] = bindings[0].model_copy(
-        update={"selected_evidence_ids": ("rocketmq_delivery",)}
-    )
-    plan.prep_context.binding_snapshot = snapshot.model_copy(
-        update={"question_evidence_bindings": bindings}
-    )
-    repository = make_repository()
-
-    resolution = KnowledgeBindingResolver(repository).resolve(plan, "q1")
-
-    assert resolution.retrieval_path == "degraded"
-    assert resolution.degraded_reason == "question_evidence_binding_mismatch"
     assert repository.get_by_ids_calls == []
     assert repository.search_calls == 0
 

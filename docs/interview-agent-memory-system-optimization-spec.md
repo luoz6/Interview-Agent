@@ -6,7 +6,7 @@
 |---|---|
 | 文档类型 | 工程优化规范 / Reference + Explanation |
 | 文档状态 | Draft for Technical Review |
-| 版本 | 1.1.1-draft |
+| 版本 | 1.1.2-draft |
 | 编写日期 | 2026-07-30 |
 | 适用项目 | Interview Agent |
 | 目标读者 | 后端工程师、Agent 工程师、数据库工程师、SRE、QA、技术负责人、安全与合规评审人员 |
@@ -21,6 +21,7 @@
 | 1.0.0-draft | 2026-07-30 | 初始完整 Spec |
 | 1.1.0-draft | 2026-07-30 | 明确 Question Memory manifest 和 supersede 语义；调整长期记忆 deployment scope；澄清自然语言忠实性边界；增加配置迁移表；拆分 Knowledge/Retention/Config 工作包；补充多语言预算与前端降级契约 |
 | 1.1.1-draft | 2026-07-30 | 消除语义忠实性边界与自动化测试之间的矛盾：可编程违规必须失败，自由语义反例保持 non-authoritative 并禁止进入评分 Evidence |
+| 1.1.2-draft | 2026-08-08 | 钉住自适应、任务感知上下文压缩的 27 项规范需求及其唯一验证映射；增加自动化缺失、重复和未引用检查 |
 
 ### 变更控制
 
@@ -40,6 +41,7 @@
 - `MEM-SEC-*`：安全与隐私要求。
 - `MEM-LTM-*`：跨会话长期记忆要求。
 - `MEM-TST-*`：测试与验收要求。
+- `MEM-CTX-*`：自适应、任务感知上下文压缩要求。
 
 对本规范的实质性修改必须记录：变更原因、兼容性影响、数据迁移影响、灰度影响和回滚方式。
 
@@ -2217,3 +2219,74 @@ Context Artifact 在重试和进程替换后安全复用；
 7. 小比例生产 shadow 和 consumption 有观察记录。
 8. 技术负责人、SRE、QA 和安全/隐私负责人明确批准扩容。
 9. 默认配置保持保守，未批准环境不会自动启用长期语义记忆。
+
+---
+
+## 26. Adaptive Task-Aware Context Compression Requirements
+
+This section is the normative requirement baseline for
+`2026-08-07-adaptive-task-aware-context-compression-optimization.md`. The
+keywords MUST, MUST NOT, SHALL, and SHALL NOT are normative. Each
+`MEM-CTX-*` identifier appears once as a normative statement and once in the
+verification mapping. The repository acceptance runner rejects a missing,
+duplicate, or unreferenced statement or mapping.
+
+### 26.1 Normative statements
+
+- `MEM-CTX-PLAN-001`: The adaptive plan and this Spec MUST maintain exact bidirectional traceability, with every planned MEM-CTX requirement represented by one normative statement and one verification mapping.
+- `MEM-CTX-CFG-001`: All selection limits, exact-recent policy, and proactive eligibility thresholds MUST be resolved through one immutable, validated effective configuration whose committed defaults preserve current behavior.
+- `MEM-CTX-CFG-002`: Deduplication mode, target tiers, provider-circuit policy, validation-quarantine policy, cooldown, and lease settings MUST use explicit validated fields and privacy-safe readiness output.
+- `MEM-CTX-INTENT-001`: CompressionIntent v1 MUST be bounded, canonically normalized, built only from trusted workflow metadata, and hashed from the same canonical representation used by intent-aware identity.
+- `MEM-CTX-INTENT-002`: The compressor MUST receive the actual canonical semantic intent and preservation contract, while prompts and validation continue to prohibit invented facts, unsupported excerpts, and authoritative scoring use.
+- `MEM-CTX-ID-001`: Artifact identity-v0 serialization MUST remain byte-compatible, while identity-v1 MUST include the intent digest and schema version without re-keying or rewriting completed v0 Artifacts.
+- `MEM-CTX-ID-002`: In-memory and PostgreSQL persistence MUST reconstruct and verify complete versioned Artifact identity, and any version, digest, owner, scope, or key mismatch MUST fail closed.
+- `MEM-CTX-AUTH-001`: Original messages and raw Evidence MUST remain authoritative and retrievable; compressed outputs and Evidence projections MUST remain non-authoritative, source-verifiable, and excluded from scoring provenance.
+- `MEM-CTX-AUTH-002`: Interview Semantic Status MUST expose only fields with declared authoritative or explicitly advisory provenance and MUST NOT inject runtime-control, identity, circuit, or private content metadata into Provider prompts.
+- `MEM-CTX-ELIG-001`: Proactive compression eligibility MUST use mode-aware pre-loss estimates from the same model, tokenizer resolution, and Provider-message framing estimator as final input, require compressible history, and decide thresholds by integer cross-multiplication rather than rounded telemetry.
+- `MEM-CTX-TARGET-001`: One immutable ResolvedCompressionRequest MUST select an allowed target tier and bind that same target to Artifact identity, compressor prompt, Provider output limit, validation, and prompt measurement.
+- `MEM-CTX-BUD-001`: Selectable content MUST derive from resolved model availability minus fixed prompt reserve, and mandatory bounded-raw overflow MUST use the stable budget failure or business fallback with zero semantic-compressor calls.
+- `MEM-CTX-SOURCE-001`: Conversation and Evidence units MUST use versioned canonical source identities containing authoritative scope, sequence or provenance, role, and content digest; content text alone MUST NOT establish identity.
+- `MEM-CTX-DEDUP-001`: Exact deduplication MUST remove only identity-proven equivalent representations, preserve distinct provenance, prefer mandatory bounded-raw representations, and produce deterministic ordering and aggregate counts.
+- `MEM-CTX-DEDUP-002`: Deduplication MUST support disabled, shadow, and enforce modes; shadow results MUST remain counterfactual and MUST NOT alter business eligibility, target, source segments, Artifact identity, compressor input, deterministic selection, or final Provider input.
+- `MEM-CTX-RAW-001`: The current question, latest candidate answer, configured exact-recent questions, and authoritative raw Evidence MUST remain stored authoritatively and non-semantically-compressed in deterministically bounded Provider representations.
+- `MEM-CTX-MEMORY-001`: Question Memory MUST remain reusable, non-authoritative, owner-bound, source-verifiable, identity-safe when subtracting raw units, deterministically ranked, and bounded by configured unit and token caps.
+- `MEM-CTX-STATUS-001`: Interview Semantic Status MUST be bounded and deterministic, derive progress and focus from authoritative records, label optional unresolved-topic codes advisory, and preserve checkpoint compatibility.
+- `MEM-CTX-FAIL-001`: Provider failures MUST use a durable owner-scoped circuit with atomic transitions, configured thresholds and cooldown, fenced probe leases, deterministic fallback, and at most one half-open probe per scope.
+- `MEM-CTX-FAIL-002`: Repeatable source or intent validation failures MUST use a separately keyed durable quarantine whose reset and expiry boundaries cannot disable unrelated work or weaken fail-closed ownership and privacy checks.
+- `MEM-CTX-PRIV-001`: Failure-state records MUST persist only approved irreversible digests and stable codes required for correctness; exported telemetry, checkpoints, and acceptance artifacts MUST remain owner-scoped and MUST NOT expose raw candidate, Evidence, prompt, summary, identifier, credential, or those digests as metric dimensions.
+- `MEM-CTX-OBS-001`: Observability MUST report bounded aggregate business and counterfactual measurements separately, including eligibility, preservation, fallback, cost, latency, compression ratio, and estimate error without logging source content.
+- `MEM-CTX-EVAL-001`: Evaluation MUST cover grounded relevance, preservation, multilingual behavior, adversarial fact changes, deterministic fallback, cost, and latency while treating model-judge output as non-authoritative.
+- `MEM-CTX-ACCEPT-001`: Repository acceptance MUST run the fixed declared test matrix with fake Providers, make zero real-Provider calls, enforce plan/spec traceability and privacy scans, and emit only repository readiness.
+- `MEM-CTX-RECOVERY-001`: Recovery acceptance MUST cover identity-v0/v1 reload, lease and fencing races, circuit and quarantine persistence, checkpoint compatibility, deletion and retention boundaries, and rollback-safe defaults.
+- `MEM-CTX-SHADOW-001`: Deployed shadow observation MUST require separate authorization, preserve business Provider input and source authority, record privacy-safe quality and cost evidence, and satisfy promotion and hold gates before consumption.
+- `MEM-CTX-CANARY-001`: Consume canary MUST require separate authorization, use a low stable assignment, preserve scoring provenance and owner isolation, and roll back automatically on declared correctness, privacy, availability, cost, or latency triggers.
+
+### 26.2 Verification mappings
+
+- Verification `MEM-CTX-PLAN-001`: `tests/acceptance/test_memory_system_optimization_acceptance.py` validates the exact 27-ID bidirectional traceability contract and its negative cases.
+- Verification `MEM-CTX-CFG-001`: `tests/unit/test_memory_config.py`, `tests/unit/test_agent_runtime_composition.py`, and `tests/architecture/test_runtime_boundaries.py` verify immutable selection configuration, safe defaults, and centralized configuration access.
+- Verification `MEM-CTX-CFG-002`: `tests/unit/test_memory_config.py` and `tests/architecture/test_runtime_boundaries.py` verify mode, tier, cooldown, lease, readiness validation, and configuration boundaries.
+- Verification `MEM-CTX-INTENT-001`: `tests/contracts/test_context_artifact_contracts.py` and `tests/unit/test_context_compressor.py` verify bounded canonical intent, normalization, and digests.
+- Verification `MEM-CTX-INTENT-002`: `tests/unit/test_context_compressor.py`, `tests/contracts/test_context_compression_validation.py`, and `tests/unit/test_context_compression_runner.py` verify semantic prompt material and grounding.
+- Verification `MEM-CTX-ID-001`: `tests/contracts/test_context_artifact_contracts.py`, `tests/unit/test_interview_context_artifacts.py`, and `tests/unit/test_evidence_context_artifacts.py` verify byte-compatible v0 and intent-aware v1 identities.
+- Verification `MEM-CTX-ID-002`: `tests/contracts/test_context_artifacts.py`, `tests/integration/postgres/test_context_artifact_store_postgres.py`, and `tests/unit/test_in_memory_context_artifact_store.py` verify complete identity persistence and fail-closed reload.
+- Verification `MEM-CTX-AUTH-001`: `tests/contracts/test_context_compression_validation.py`, `tests/unit/test_evidence_context_artifacts.py`, and `tests/unit/test_durable_interview_graph.py` verify source authority and scoring separation.
+- Verification `MEM-CTX-AUTH-002`: `tests/unit/test_interview_status_projection.py` and `tests/unit/test_durable_interview_graph.py` verify declared status provenance and excluded runtime metadata.
+- Verification `MEM-CTX-ELIG-001`: `tests/unit/test_context_compression_eligibility.py` and `tests/unit/test_context_selection.py` verify pre-loss equations, integer threshold decisions, and compressible-history gating.
+- Verification `MEM-CTX-TARGET-001`: `tests/unit/test_context_compression_eligibility.py`, `tests/contracts/test_context_artifact_contracts.py`, and `tests/unit/test_context_compressor.py` verify one bound target tier.
+- Verification `MEM-CTX-BUD-001`: `tests/unit/test_context_budget.py`, `tests/unit/test_context_selection.py`, and `tests/unit/test_interview_context_artifacts.py` verify resolved availability and mandatory overflow behavior.
+- Verification `MEM-CTX-SOURCE-001`: `tests/unit/test_context_source_identity.py`, `tests/unit/test_evidence_context_artifacts.py`, and `tests/unit/test_question_memory.py` verify canonical identity and replay stability.
+- Verification `MEM-CTX-DEDUP-001`: `tests/unit/test_context_source_identity.py` and `tests/unit/test_context_selection.py` verify identity-only deterministic exact deduplication.
+- Verification `MEM-CTX-DEDUP-002`: `tests/unit/test_context_selection.py` and `tests/unit/test_context_compression_eligibility.py` verify disabled, shadow, and enforce business-path semantics.
+- Verification `MEM-CTX-RAW-001`: `tests/unit/test_context_selection.py`, `tests/unit/test_question_memory.py`, and `tests/unit/test_durable_interview_graph.py` verify bounded-raw preservation.
+- Verification `MEM-CTX-MEMORY-001`: `tests/unit/test_question_memory.py` and `tests/unit/test_question_memory_retrieval.py` verify identity-safe subtraction, source verification, ranking, and caps.
+- Verification `MEM-CTX-STATUS-001`: `tests/unit/test_interview_status_projection.py`, `tests/unit/test_durable_interview_state.py`, and `tests/unit/test_durable_interview_graph.py` verify deterministic status projection and compatibility.
+- Verification `MEM-CTX-FAIL-001`: `tests/unit/test_context_compression_failure_containment.py` and `tests/integration/postgres/test_context_compression_failure_store_postgres.py` verify the durable fenced provider circuit.
+- Verification `MEM-CTX-FAIL-002`: `tests/unit/test_context_compression_failure_containment.py`, `tests/unit/test_context_compression_runner.py`, and `tests/contracts/test_context_compression_validation.py` verify scoped validation quarantine.
+- Verification `MEM-CTX-PRIV-001`: `tests/unit/test_trace_sanitization.py`, `tests/unit/test_memory_metrics.py`, and `tests/unit/test_context_compression_failure_containment.py` verify privacy-safe state and artifacts.
+- Verification `MEM-CTX-OBS-001`: `tests/unit/test_memory_metrics.py` and `tests/acceptance/test_context_compression_shadow_acceptance.py` verify separated bounded aggregate metrics.
+- Verification `MEM-CTX-EVAL-001`: `tests/acceptance/test_context_compression_shadow_acceptance.py` and `tests/contracts/test_context_compression_validation.py` verify golden, multilingual, adversarial, cost, and latency evaluation.
+- Verification `MEM-CTX-ACCEPT-001`: `tests/acceptance/test_context_compression_repository_acceptance.py`, `tests/acceptance/test_memory_system_optimization_acceptance.py`, and `tests/acceptance/test_context_compression_shadow_acceptance.py` verify the versioned fake-Provider repository gate while preserving the historical acceptance contract.
+- Verification `MEM-CTX-RECOVERY-001`: `tests/unit/test_context_compression_failure_containment.py`, `tests/integration/postgres/test_context_artifact_store_postgres.py`, `tests/unit/test_durable_interview_state.py`, `tests/unit/test_durable_interview_graph.py`, and `tests/unit/test_session_deletion_worker.py` verify recovery, compatibility, and deletion.
+- Verification `MEM-CTX-SHADOW-001`: `tests/acceptance/test_context_compression_shadow_acceptance.py` plus the signed Task 11 observation packet verify deployed-shadow evidence, promotion gates, and unchanged business input.
+- Verification `MEM-CTX-CANARY-001`: The signed Task 12 promotion packet and Section 11.2 deployment gate verify stable assignment, rollback triggers, provenance, and isolation.

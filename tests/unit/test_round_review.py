@@ -518,8 +518,13 @@ def test_run_closed_round_review_short_circuits_empty_answer_agents(
     assert record.status == "completed"
     assert record.answer_state == answer_state
     assert record.feedback.answer_state == answer_state
-    assert record.feedback.score == 0
-    assert record.feedback.dimension_scores == make_dimension_scores(0)
+    assert record.feedback.score is None
+    assert record.feedback.evaluation_status == "not_evaluated"
+    assert record.feedback.evaluation_reason_code == answer_state
+    assert all(
+        value is None
+        for value in record.feedback.dimension_scores.model_dump().values()
+    )
 
 
 def make_dimension_scores(score: int) -> DimensionScores:

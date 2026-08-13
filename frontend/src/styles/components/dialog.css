@@ -63,8 +63,8 @@
 .confirm-dialog-close {
   display: grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: var(--start-control-height-touch);
+  height: var(--start-control-height-touch);
   padding: 0;
   border: 0;
   border-radius: var(--start-radius-control);
@@ -80,6 +80,17 @@
 
 .confirm-dialog-body {
   padding: 0 var(--start-space-md) var(--start-space-md);
+}
+
+.confirm-dialog-error {
+  margin: var(--start-space-sm) var(--start-space-md);
+  padding: var(--start-space-sm);
+  border-left: .1875rem solid var(--start-color-danger);
+  border-radius: var(--start-radius-control);
+  background: var(--start-color-danger-soft);
+  color: var(--start-color-ink-soft);
+  font-size: var(--start-text-sm);
+  line-height: 1.6;
 }
 
 .confirm-dialog-metrics {
@@ -118,12 +129,16 @@
   background: var(--start-color-canvas);
 }
 
+.confirm-dialog .confirm-dialog-actions > .button {
+  min-height: var(--start-control-height-touch);
+}
+
 @keyframes confirm-backdrop-in {
   from { opacity: 0; }
 }
 
 @keyframes confirm-dialog-in {
-  from { opacity: 0; transform: translateY(.5rem) scale(.985); }
+  from { opacity: 0; transform: translateY(.5rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

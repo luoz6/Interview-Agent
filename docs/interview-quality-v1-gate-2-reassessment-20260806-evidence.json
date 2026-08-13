@@ -1,0 +1,117 @@
+{
+  "schema_version": "interview-quality-v1-gate-reassessment-v1",
+  "gate": "Gate 2",
+  "generated_at": "2026-08-06T23:22:36+08:00",
+  "reassessment_kind": "APPEND_ONLY_CLASSIFICATION_CORRECTION",
+  "plan": {
+    "version": "v0.2.2",
+    "path": "C:/Users/admin/Downloads/Interview-Agent-INTERVIEW_QUALITY_V1-plan-v0.2-detailed.md",
+    "sha256": "3cc4c8e573521018d361f8f8fc09d28e3d3c4195acbfaccce5ac72ef0773370c",
+    "bytes": 140251
+  },
+  "implementation_revision": "e4c798343e8e281e610a4d08b8bd9043f50264ea",
+  "branch": "codex/interview-quality-v1",
+  "historical_evidence": {
+    "path": "docs/interview-quality-v1-gate-2-evidence.json",
+    "sha256": "de471e6e62ce606bd1da61ebe158fd602d49cad0071ee78b693f8d7673f0100d",
+    "engineering_status": "BLOCKED",
+    "quality_status": "NOT_RUN",
+    "preserved_unchanged": true
+  },
+  "historical_review": {
+    "path": "docs/interview-quality-v1-gate-2-review.md",
+    "sha256": "887795fdd96c0b7c3cf7bec2126ee046ef6889b6d0fd05d6af318030c55365ff",
+    "preserved_unchanged": true
+  },
+  "engineering_status": "PASS",
+  "quality_status": "BLOCKED",
+  "overall_status": "BLOCKED",
+  "automatic_review": "PASS",
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "automatic_model_fallback_used": false,
+  "classification": {
+    "engineering_scope": [
+      "T19-T24 deterministic scoring, coverage, aggregation, schema, Web/API/PDF, rubric, metrics, and replay",
+      "T25 frozen calibration dataset structure, partitions, annotation schema, and fail-closed review state",
+      "T26 deterministic replay, diagnostic, taxonomy, versioning, blind-access lock, append-only output, and runner implementation"
+    ],
+    "quality_scope": [
+      "T25 independent technical judgment and dispute arbitration",
+      "T26 formal one-time blind-test execution and thresholds",
+      "T27 real Provider scoring acceptance"
+    ],
+    "quality_thresholds_lowered": false,
+    "historical_evidence_rewritten": false
+  },
+  "tasks": {
+    "T19": "PASS",
+    "T20": "PASS",
+    "T21": "PASS",
+    "T22": "PASS",
+    "T23": "PASS",
+    "T24": "PASS",
+    "T25": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "T26": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "T27": "QUALITY_NOT_RUN"
+  },
+  "engineering_acceptance": {
+    "fixed_score_60_paths": 0,
+    "fallback_quality_bypass_paths": 0,
+    "unevaluated_dimension_rendered_as_zero": 0,
+    "web_api_pdf_shared_state_semantics": true,
+    "historical_70_percent_baseline_remains_failed": true,
+    "v3_candidate_deterministic_engineering_thresholds_pass": true,
+    "saved_response_replay_provider_calls": 0,
+    "saved_response_replay_delta": 0.0,
+    "blind_partition_fail_closed": true,
+    "append_only_evaluation_outputs": true
+  },
+  "verification": {
+    "focused_gate_2_regression": {
+      "tests_passed": 135,
+      "tests_failed": 0,
+      "duration_seconds": 6.57
+    },
+    "current_full_pytest_baseline": {
+      "tests_passed": 2668,
+      "tests_failed": 5,
+      "tests_skipped": 218,
+      "warnings": 1,
+      "gate_2_related_failures": 0
+    },
+    "json_validation": "PASS",
+    "diff_check": "PASS"
+  },
+  "quality_blockers": [
+    {
+      "kind": "PENDING_INDEPENDENT_REVIEW",
+      "detail": "No independent technical reviewer has completed and arbitrated the calibration dataset."
+    },
+    {
+      "kind": "BLIND_TEST_NOT_RUN",
+      "detail": "The blind partition remains sealed and the formal one-time blind evaluation has not run."
+    },
+    {
+      "kind": "T27_NOT_RUN",
+      "detail": "No real Provider scoring acceptance run exists."
+    },
+    {
+      "kind": "MODEL_VERSION_DRIFT",
+      "detail": "The authorized deepseek-chat model is unavailable in the current Provider model catalog and fallback is prohibited."
+    }
+  ],
+  "phase_continuation": {
+    "t60_gate_2_engineering_dependency_satisfied": true,
+    "gate_2_quality_complete": false,
+    "engineering_may_continue": true,
+    "next_task": "T60",
+    "user_checkpoint_required": false
+  },
+  "truthfulness_limits": [
+    "This reassessment corrects state classification and does not claim that the independent review or blind test ran.",
+    "No real Provider scoring result, token, cost, latency, or saved response is claimed.",
+    "The historical Gate 2 BLOCKED evidence remains immutable and addressable by its original hash.",
+    "Gate 2 Engineering PASS does not establish Gate 2 Quality PASS or overall PASS."
+  ]
+}

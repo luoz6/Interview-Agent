@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from app.services.durable_workflow_maintenance import (
     DurableWorkflowMaintenanceService,
     MaintenanceResult,
@@ -45,6 +47,16 @@ class ContextArtifactStore:
     def cleanup(self, policy):
         self.policies.append(policy)
         return ContextArtifactCleanupResult(1, 2, 3)
+
+
+class FailureStateStore:
+    def __init__(self, result=2):
+        self.result = result
+        self.calls = []
+
+    def cleanup_expired(self, *, before, now, batch_size):
+        self.calls.append((before, now, batch_size))
+        return self.result
 
 
 def make_service(workflow=None, generations=None, signals=None):
@@ -107,6 +119,29 @@ def test_context_artifact_cleanup_is_bounded_and_reported():
     assert result.deleted_completed_context_artifacts == 2
     assert result.deleted_failed_context_artifacts == 3
     assert artifacts.policies[0].batch_size == 6
+
+
+def test_failure_state_cleanup_is_bounded_and_reported():
+    failures = FailureStateStore()
+    service = DurableWorkflowMaintenanceService(
+        workflow_store=WorkflowStore(),
+        generation_store=GenerationStore(),
+        failure_state_store=failures,
+        retention_hours=24,
+        failure_state_retention_hours=48,
+        failure_state_cleanup_batch_size=7,
+        interval_seconds=3600,
+    )
+
+    result = service.run_once()
+
+    assert result.deleted_context_compression_failure_states == 2
+    assert len(failures.calls) == 1
+    before, now, batch_size = failures.calls[0]
+    assert batch_size == 7
+    assert before.tzinfo is not None
+    assert now.tzinfo is not None
+    assert now - before == timedelta(hours=48)
 
 
 def test_start_is_idempotent_and_shutdown_joins():

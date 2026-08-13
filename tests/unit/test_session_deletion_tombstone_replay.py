@@ -31,6 +31,7 @@ FAULT_BOUNDARIES = (
     "after_workflow_purge",
     "after_question_memory_purge",
     "after_artifact_ref_purge",
+    "after_report_history_purge",
     "after_principal_memory_purge",
     "after_business_session_purge",
     "after_tombstone_complete",

@@ -13,54 +13,6 @@ test.beforeEach(async ({}, testInfo) => {
   test.skip(desktopOnly(testInfo), "desktop project owns explicit viewport matrix");
 });
 
-function reportReliability(overrides = {}) {
-  return {
-    planned_question_count: 3,
-    answered_question_count: 1,
-    skipped_question_count: 2,
-    unanswered_question_count: 0,
-    reviewed_answer_count: 1,
-    review_failed_answer_count: 0,
-    evidence_bound_question_count: 1,
-    degraded_question_count: 0,
-    generation_path: "structured",
-    degraded_reasons: [],
-    score_applicability: "normal",
-    ...overrides,
-  };
-}
-
-function practiceReadyReport(baseline) {
-  const dimensions = {
-    breadth: 78,
-    depth: 72,
-    architecture: 70,
-    engineering: 54,
-    communication: 76,
-  };
-  return {
-    ...baseline,
-    is_fallback: false,
-    overall_score: 69,
-    overall_dimension_scores: dimensions,
-    reliability: reportReliability(),
-    feedbacks: [{
-      question_id: "q1",
-      question_text: "如何设计一个可恢复的缓存服务？",
-      user_answer: "使用 cache-aside，并设置超时和回源保护。",
-      answer_state: "answered",
-      score: 62,
-      dimension_scores: dimensions,
-      applicable_dimensions: ["engineering"],
-      rationale: "说明了基本路径。",
-      critique: "缺少回滚与观测指标。",
-      better_answer: "补充失败边界、监控和回滚。",
-      references: [],
-      dimension_evidence: [],
-    }],
-  };
-}
-
 test("report detail uses the shared Calm Cobalt workbench across viewports", async ({
   page,
   request,
@@ -77,13 +29,21 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     await expectGeometry(page);
 
     const detail = await page.evaluate(() => {
-      const shell = document.querySelector(".report-detail-shell");
-      const workspace = document.querySelector(".report-detail-workspace");
-      const inspector = document.querySelector(".report-detail-inspector");
-      const overview = document.querySelector(".report-detail-overview");
-      const score = document.querySelector(".report-detail-score-mark");
-      const title = document.querySelector("#report-detail-title");
-      const referencePanel = document.querySelector(".report-detail-dimension-panel");
+      const required = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing required report element: ${selector}`);
+        return element;
+      };
+      const shell = required(".report-detail-shell");
+      const workspace = required(".report-detail-workspace");
+      const inspector = required(".report-detail-inspector");
+      const overview = required(".report-detail-overview");
+      const score = required(".report-detail-score-mark");
+      const title = required("#report-detail-title");
+      const coveragePanel = required("#coverage");
+      const technicalAppendix = required(".report-detail-technical-appendix");
+      const scoreTrack = document.querySelector(".report-detail-score-track > span");
+      const dimensionTrack = document.querySelector(".report-detail-dimension-track > span");
       const workspaceRect = workspace.getBoundingClientRect();
       const inspectorRect = inspector.getBoundingClientRect();
       return {
@@ -96,16 +56,16 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
         overviewBackground: getComputedStyle(overview).backgroundColor,
         scoreBackground: getComputedStyle(score).backgroundImage,
         scoreWidth: score.getBoundingClientRect().width,
-        scoreTrackAnimation: getComputedStyle(
-          document.querySelector(".report-detail-score-track > span"),
-        ).animationName,
+        scoreLabel: score.getAttribute("aria-label"),
+        scoreTrackCount: document.querySelectorAll(".report-detail-score-track > span").length,
+        scoreTrackAnimation: scoreTrack ? getComputedStyle(scoreTrack).animationName : "none",
         scoreOrbitCount: document.querySelectorAll(
           ".report-detail-score-orbit, .report-detail-head-score",
         ).length,
         dimensionRows: document.querySelectorAll(
           ".report-detail-dimensions > li",
         ).length,
-        introRevealCount: document.querySelectorAll(
+        primaryRevealCount: document.querySelectorAll(
           "[data-report-reveal]",
         ).length,
         horizontalOverflow:
@@ -123,13 +83,23 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           ".report-detail-section-icon svg",
         ).length,
         scoreAnimations: getComputedStyle(score).animationName,
-        dimensionAnimation: getComputedStyle(
-          document.querySelector(".report-detail-dimension-track > span"),
-        ).animationName,
-        referencePanelBackground: getComputedStyle(referencePanel).backgroundColor,
+        dimensionTrackCount: document.querySelectorAll(".report-detail-dimension-track > span").length,
+        dimensionProgressCount: document.querySelectorAll(
+          '.report-detail-dimension-track[role="progressbar"]',
+        ).length,
+        dimensionAnimation: dimensionTrack ? getComputedStyle(dimensionTrack).animationName : "none",
+        coveragePanelBackground: getComputedStyle(coveragePanel).backgroundColor,
         workspaceColor: getComputedStyle(workspace).color,
-        reliabilityVisible: Boolean(document.querySelector(".report-detail-reliability")),
-        practiceVisible: Boolean(document.querySelector("#practice")),
+        candidateSectionCount: document.querySelectorAll(
+          "#overview, #coverage, #strengths, #actions, #questions, #limitations",
+        ).length,
+        technicalAppendixCount: document.querySelectorAll(
+          ".report-detail-technical-appendix",
+        ).length,
+        technicalAppendixOpen: technicalAppendix.open,
+        revisionHistoryCount: document.querySelectorAll(
+          "#report-revision-history-title",
+        ).length,
         runtimeTraceCount: document.querySelectorAll("#runtime-trace").length,
         evaluationLedgerCount: document.querySelectorAll(".report-detail-evaluation-ledger").length,
         inspectorScoreCount: document.querySelectorAll(".report-detail-inspector-score").length,
@@ -148,7 +118,7 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
           ".report-detail-inspector-actions button",
         )].map((button) => button.getBoundingClientRect().height),
         workspaceOverflow: getComputedStyle(
-          document.querySelector(".report-detail-workspace-scroll"),
+          required(".report-detail-workspace-scroll"),
         ).overflowY,
         oldPosterScoreCount: document.querySelectorAll(
           ".overall-score, .score-overview, .highlight-field",
@@ -162,24 +132,30 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
     expect(detail.scoreBackground).toBe("none");
     expect(detail.scoreWidth).toBeGreaterThanOrEqual(180);
     expect(detail.scoreWidth).toBeLessThanOrEqual(320);
-    expect(detail.scoreTrackAnimation).toBe("report-detail-score-fill");
+    expect(detail.scoreLabel).toContain("综合评分未发布");
+    expect(detail.scoreTrackCount).toBe(0);
+    expect(detail.scoreTrackAnimation).toBe("none");
     expect(detail.scoreOrbitCount).toBe(0);
     expect(detail.dimensionRows).toBe(5);
-    expect(detail.introRevealCount).toBe(4);
+    expect(detail.primaryRevealCount).toBe(6);
     expect(detail.horizontalOverflow).toBe(false);
     expect(detail.wrappedActionLabels).toBe(0);
-    expect(detail.railIconCount).toBe(5);
-    expect(detail.sectionIconCount).toBe(7);
+    expect(detail.railIconCount).toBe(6);
+    expect(detail.sectionIconCount).toBe(5);
     expect(detail.scoreAnimations).toContain("report-detail-score-enter");
+    expect(detail.dimensionTrackCount).toBe(5);
+    expect(detail.dimensionProgressCount).toBe(0);
     expect(detail.dimensionAnimation).toBe("report-detail-dimension-fill");
-    expect(detail.referencePanelBackground).not.toBe("");
+    expect(detail.coveragePanelBackground).not.toBe("");
     expect(detail.workspaceColor).not.toBe("");
-    expect(detail.reliabilityVisible).toBe(true);
-    expect(detail.practiceVisible).toBe(true);
+    expect(detail.candidateSectionCount).toBe(6);
+    expect(detail.technicalAppendixCount).toBe(1);
+    expect(detail.technicalAppendixOpen).toBe(false);
+    expect(detail.revisionHistoryCount).toBe(1);
     expect(detail.runtimeTraceCount).toBe(0);
     expect(detail.evaluationLedgerCount).toBe(0);
-    expect(detail.inspectorScoreCount).toBe(0);
-    expect(detail.statusBarCount).toBe(0);
+    expect(detail.inspectorScoreCount).toBe(1);
+    expect(detail.statusBarCount).toBe(1);
     expect(detail.legacyTraceIdCount).toBe(0);
     expect(detail.traceEmptyCount).toBe(0);
     expect(detail.traceGridCount).toBe(0);
@@ -218,7 +194,10 @@ test("report detail uses the shared Calm Cobalt workbench across viewports", asy
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载完整报告" }).click();
   await downloadPromise;
-  await expect(page.locator(".report-detail-download-action")).toContainText("下载已开始");
+  await expect(
+    page.locator(".report-detail-inspector-actions")
+      .getByRole("button", { name: "下载已开始" }),
+  ).toBeVisible();
   await expect(firstFeedback).not.toHaveAttribute("open", "");
 });
 
@@ -242,7 +221,10 @@ test("report detail error state explains the failure and reloads in place", asyn
   });
 
   await page.goto("/report-detail?session_id=" + sessionId);
-  await expect(page.locator(".report-detail-error")).toContainText("报告存储暂时不可用");
+  const errorState = page.getByRole("alert");
+  await expect(errorState.getByRole("heading", { name: "报告暂时无法读取" })).toBeVisible();
+  await expect(errorState).toContainText("服务正在恢复中，请稍后重试。");
+  await expect(errorState).not.toContainText("报告存储暂时不可用");
   const reload = page.getByRole("button", { name: "重新加载" });
   await expect(reload).toBeEnabled();
   await reload.click();
@@ -277,6 +259,7 @@ test("report detail motion and focus states remain accessible", async ({
   await page.goto("/report-detail?session_id=" + sessionId);
 
   const download = page.getByRole("button", { name: "下载完整报告" });
+  await expect(download).toBeEnabled();
   await download.focus();
   const focus = await download.evaluate((button) => {
     const style = getComputedStyle(button);
@@ -343,12 +326,15 @@ test("React report detail shows only safe runtime fields and tracks sections", a
   await expect(page.locator("body")).not.toContainText("secret-event");
 });
 
-test("report reliability states remain explicit and compatibility lowers score authority", async ({ page, request }) => {
+test("score and coverage states remain explicit without fabricating missing scores", async ({ page, request }) => {
   test.setTimeout(60_000);
   const sessionId = await createCompletedReport(request);
   const response = await request.get(`/api/interviews/${sessionId}/report`);
   expect(response.ok()).toBe(true);
-  const baseline = practiceReadyReport(await response.json());
+  const baseline = await response.json();
+  const activeArtifact = baseline.active_artifact || baseline;
+  const wrappedArtifact = Boolean(baseline.active_artifact);
+
   let payload = baseline;
   await page.route(`**/api/interviews/${sessionId}/report`, (route) => route.fulfill({
     status: 200,
@@ -357,105 +343,87 @@ test("report reliability states remain explicit and compatibility lowers score a
   }));
 
   const cases = [
-    ["normal", "依据完整", reportReliability()],
-    ["limited", "部分依据受限", reportReliability({
-      score_applicability: "limited",
-      generation_path: "mixed",
-      degraded_question_count: 1,
-      degraded_reasons: ["KNOWLEDGE_RETRIEVAL_DEGRADED"],
-    })],
-    ["insufficient", "依据不足", reportReliability({
-      score_applicability: "insufficient",
-      reviewed_answer_count: 0,
-      evidence_bound_question_count: 0,
-      degraded_question_count: 1,
-      generation_path: "fallback",
-      degraded_reasons: ["REPORT_FALLBACK"],
-    })],
+    {
+      score_status: "scored",
+      coverage_status: "complete",
+      overall_score: 82,
+      evaluated_count: 1,
+      total_eligible_count: 1,
+      scoreLabel: "已评分",
+      coverageLabel: "完整覆盖",
+      note: "五个维度仍只代表本轮已回答题目的证据",
+    },
+    {
+      score_status: "partial",
+      coverage_status: "partial",
+      overall_score: 67,
+      evaluated_count: 1,
+      total_eligible_count: 2,
+      scoreLabel: "部分评分",
+      coverageLabel: "部分覆盖",
+      note: "未评估题目和维度不会按 0 分处理",
+    },
+    {
+      score_status: "unscored",
+      coverage_status: "none",
+      overall_score: null,
+      overall_dimension_scores: {},
+      evaluated_count: 0,
+      total_eligible_count: 1,
+      scoreLabel: "未评分",
+      coverageLabel: "无有效覆盖",
+      note: "不显示任何假分",
+    },
   ];
 
-  for (const [state, label, nextReliability] of cases) {
-    payload = { ...baseline, reliability: nextReliability };
+  for (const state of cases) {
+    const overrides = { ...state };
+    delete overrides.scoreLabel;
+    delete overrides.coverageLabel;
+    delete overrides.note;
+    payload = wrappedArtifact
+      ? {
+          ...baseline,
+          active_artifact: {
+            ...activeArtifact,
+            ...overrides,
+            payload: {
+              ...(activeArtifact.payload || {}),
+              ...overrides,
+            },
+          },
+        }
+      : { ...baseline, ...overrides };
     await page.goto(`/report-detail?session_id=${sessionId}`);
-    await expect(page.locator(".report-detail-overview")).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".report-detail-overview")).toHaveAttribute("data-score-applicability", state);
-    await expect(page.locator(".report-detail-reliability")).toContainText(label);
-    await expect(page.locator(".report-detail-score-mark")).toContainText("不代表录用概率");
+    const statePair = page.getByLabel("评分和覆盖状态");
+    await expect(statePair).toBeVisible({ timeout: 15_000 });
+    await expect(statePair).toContainText(state.scoreLabel);
+    await expect(statePair).toContainText(state.coverageLabel);
+    await expect(page.locator(".report-detail-coverage-note")).toContainText(state.note);
   }
 
-  payload = { ...baseline };
-  delete payload.reliability;
-  await page.goto(`/report-detail?session_id=${sessionId}`);
-  await expect(page.locator(".report-detail-overview")).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator(".report-detail-overview")).toHaveAttribute("data-score-applicability", "compatibility");
-  await expect(page.locator(".report-detail-reliability")).toContainText("旧版兼容报告");
-  await expect(page.getByRole("button", { name: "创建针对性练习" })).toBeDisabled();
+  await expect(page.locator(".report-detail-score-mark")).toContainText("未评分");
+  await expect(page.locator(".report-detail-dimension")).toHaveCount(5);
+  await expect(page.locator(".report-detail-dimension").first()).toContainText(/未评估|证据不足/);
 });
 
-test("targeted practice opens the authoritative editable plan", async ({ page, request }) => {
+test("report detail excludes the legacy targeted-practice facade", async ({ page, request }) => {
   const sessionId = await createCompletedReport(request);
-  const response = await request.get(`/api/interviews/${sessionId}/report`);
-  const report = practiceReadyReport(await response.json());
-  const planId = "3ad42c35-60d4-47bd-923a-0fd5f87ef802";
-  let requestBody;
-
-  await page.route(`**/api/interviews/${sessionId}/report`, (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify(report),
-  }));
-  await page.route(`**/api/interviews/${sessionId}/practice-plan`, async (route) => {
-    requestBody = route.request().postDataJSON();
-    await route.fulfill({
-      status: 201,
-      contentType: "application/json",
-      body: JSON.stringify({ plan_id: planId }),
-    });
+  let legacyRequests = 0;
+  await page.route("**/api/interviews/*/practice-plan", (route) => {
+    legacyRequests += 1;
+    return route.abort();
   });
-  await page.route(`**/api/prep-plans/${planId}`, (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      plan_id: planId,
-      plan_version: 1,
-      state: "editable",
-      expires_at: "2026-08-06T12:00:00Z",
-      source_sha256: "practice-source",
-      title: "工程实践针对性练习",
-      questions: [1, 2, 3].map((position) => ({
-        question_id: `pq-${position}`,
-        position,
-        kind: "technical",
-        prompt: `针对性练习 ${position}`,
-        focus: "工程实践针对性复盘",
-        required: false,
-        enabled: true,
-        source_signals: [],
-        topic_labels: [],
-        evidence_ids: [],
-      })),
-      prep_context: {},
-      job_tags: ["reliability"],
-      durability: "memory",
-      practice_provenance: {
-        source_session_id: sessionId,
-        source_session_question_ids: ["q1"],
-        source_plan_question_ids: ["pq-source-1"],
-        source_report_id: sessionId,
-        focus_dimension: "engineering",
-      },
-    }),
-  }));
+  await page.route("**/api/prep-plans/**", (route) => {
+    legacyRequests += 1;
+    return route.abort();
+  });
 
   await page.goto(`/report-detail?session_id=${sessionId}`);
-  await page.getByRole("button", { name: "创建针对性练习" }).click();
-  await expect(page).toHaveURL(new RegExp(`/prep\\?plan_id=${planId}`));
-  await expect(page.getByRole("heading", { name: "工程实践针对性练习" })).toBeVisible();
-  expect(requestBody).toEqual({
-    focus_dimension: "engineering",
-    session_question_ids: ["q1"],
-    mode: "targeted",
-  });
+  await expect(page.locator(".report-detail-score-mark")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建针对性练习" })).toHaveCount(0);
+  await expect(page.locator('a[href*="/prep?plan_id="]')).toHaveCount(0);
+  expect(legacyRequests).toBe(0);
 });
 
 test("runtime diagnostics follow the explicit build capability", async ({ page, request }) => {

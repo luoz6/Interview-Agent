@@ -150,7 +150,8 @@ def test_prepare_interview_falls_back_when_provider_plan_violates_contract():
     )
 
     assert plan.title == fallback_interview_plan().title
-    assert [question.id for question in plan.questions] == ["q1", "q2", "q3"]
+    assert len({question.id for question in plan.questions}) == 3
+    assert all(not question.id.startswith("q") for question in plan.questions)
 
 
 def test_interview_plan_strips_required_text():
@@ -223,9 +224,14 @@ def test_prepare_interview_provider_failure_keeps_complete_v1_fallback():
     )
 
     assert plan.title == expected.title
-    assert [question.id for question in plan.questions] == [
-        question.id for question in expected.questions
+    assert [
+        (question.kind, question.prompt, question.focus)
+        for question in plan.questions
+    ] == [
+        (question.kind, question.prompt, question.focus)
+        for question in expected.questions
     ]
+    assert all(not question.id.startswith("q") for question in plan.questions)
     assert plan.prep_context is not None
     assert plan.prep_context.schema_version == "v1"
     assert plan.prep_context.binding_snapshot is None
@@ -379,7 +385,8 @@ def test_prepare_interview_attaches_prep_context_to_llm_plan():
         "Redis",
         "MySQL",
     ]
-    assert plan.prep_context.question_hints[1].question_id == "q2"
+    assert plan.prep_context.question_hints[1].question_id == plan.questions[1].id
+    assert not plan.questions[1].id.startswith("q")
     assert "topic-redis" in plan.prep_context.question_hints[1].topic_ids
 
 

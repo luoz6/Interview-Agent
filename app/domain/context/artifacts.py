@@ -34,6 +34,7 @@ ArtifactPurpose = Literal[
     "review_evidence_context",
 ]
 ArtifactStatus = Literal["running", "completed", "failed"]
+IdentitySchemaVersion = Literal["identity-v1"]
 
 _ARTIFACT_TYPES = frozenset(
     {
@@ -68,9 +69,27 @@ class ContextArtifactMissing(RuntimeError):
 class ContextArtifactValidationFailed(ValueError):
     """A compressed payload failed a stable, content-free validation rule."""
 
+    def __init__(
+        self,
+        message: str = "context artifact validation failed",
+        *,
+        failure_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+
 
 class ContextArtifactProviderFailed(RuntimeError):
     """The dedicated Context Compressor provider failed."""
+
+    def __init__(
+        self,
+        message: str = "context artifact provider failed",
+        *,
+        failure_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
 
 
 def _require_nonempty(value: str, *, field_name: str) -> None:
@@ -117,6 +136,15 @@ def build_question_memory_source_manifest(
 
     items = []
     seen_sequences: set[int] = set()
+    source_identity_presence = [
+        "source_identity_sha256" in message for message in messages
+    ]
+    if any(source_identity_presence) and not all(source_identity_presence):
+        raise ValueError(
+            "question memory source identities must be provided for all or no messages"
+        )
+    identity_aware = bool(messages) and all(source_identity_presence)
+    seen_source_identities: set[str] = set()
     for message in messages:
         sequence_no = message.get("sequence_no")
         if (
@@ -144,16 +172,31 @@ def build_question_memory_source_manifest(
             raise ValueError(
                 "question memory source content must be valid UTF-8"
             ) from exc
-        items.append(
-            {
-                "sequence_no": sequence_no,
-                "role": role,
-                "question_id_sha256": sha256(
-                    question_id.encode("utf-8")
-                ).hexdigest(),
-                "content_sha256": sha256(encoded_content).hexdigest(),
-            }
-        )
+        item = {
+            "sequence_no": sequence_no,
+            "role": role,
+            "question_id_sha256": sha256(
+                question_id.encode("utf-8")
+            ).hexdigest(),
+            "content_sha256": sha256(encoded_content).hexdigest(),
+        }
+        if identity_aware:
+            source_identity_sha256 = message.get("source_identity_sha256")
+            if (
+                not isinstance(source_identity_sha256, str)
+                or _SHA256_RE.fullmatch(source_identity_sha256) is None
+            ):
+                raise ValueError(
+                    "question memory source identity must be a lowercase "
+                    "SHA-256 digest"
+                )
+            if source_identity_sha256 in seen_source_identities:
+                raise ValueError(
+                    "question memory source identities must be unique"
+                )
+            seen_source_identities.add(source_identity_sha256)
+            item["source_identity_sha256"] = source_identity_sha256
+        items.append(item)
     items.sort(key=lambda item: item["sequence_no"])
     payload = canonical_json(items)
     return QuestionMemorySourceManifest(
@@ -286,6 +329,8 @@ class ContextArtifactIdentityMaterial:
     compressor_model: str
     compressor_settings_sha256: str
     target_output_tokens: int
+    identity_schema_version: IdentitySchemaVersion | None = None
+    compression_intent_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if self.artifact_type not in _ARTIFACT_TYPES:
@@ -308,12 +353,48 @@ class ContextArtifactIdentityMaterial:
             _require_nonempty(getattr(self, field_name), field_name=field_name)
         if self.target_output_tokens <= 0:
             raise ValueError("target_output_tokens must be positive")
+        if (
+            self.identity_schema_version is None
+            and self.compression_intent_sha256 is None
+        ):
+            return
+        if (
+            self.identity_schema_version != "identity-v1"
+            or self.compression_intent_sha256 is None
+        ):
+            raise ValueError(
+                "identity_schema_version and compression_intent_sha256 "
+                "must form a valid identity-v1 pair"
+            )
+        _require_sha256(
+            self.compression_intent_sha256,
+            field_name="compression_intent_sha256",
+        )
 
 
 def canonical_identity_payload(material: ContextArtifactIdentityMaterial) -> str:
     if not isinstance(material, ContextArtifactIdentityMaterial):
         raise TypeError("canonical identity requires identity material")
-    return canonical_json(material)
+    payload = {
+        "artifact_type": material.artifact_type,
+        "privacy_scope_sha256": material.privacy_scope_sha256,
+        "source_sha256": material.source_sha256,
+        "source_manifest_sha256": material.source_manifest_sha256,
+        "semantic_focus_sha256": material.semantic_focus_sha256,
+        "compression_policy_version": material.compression_policy_version,
+        "prompt_contract_version": material.prompt_contract_version,
+        "output_schema_version": material.output_schema_version,
+        "compressor_provider": material.compressor_provider,
+        "compressor_model": material.compressor_model,
+        "compressor_settings_sha256": material.compressor_settings_sha256,
+        "target_output_tokens": material.target_output_tokens,
+    }
+    if material.identity_schema_version == "identity-v1":
+        payload["identity_schema_version"] = material.identity_schema_version
+        payload["compression_intent_sha256"] = (
+            material.compression_intent_sha256
+        )
+    return canonical_json(payload)
 
 
 @dataclass(frozen=True)

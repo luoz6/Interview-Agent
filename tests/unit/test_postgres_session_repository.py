@@ -34,6 +34,15 @@ SESSION_ROW = {
     "memory_policy_version": "deterministic-v1",
     "projection_sha256": None,
     "deletion_status": "active",
+    "plan_binding_json": {
+        "plan_origin": "legacy_session_snapshot",
+        "plan_revision_id": None,
+        "plan_family_id": None,
+        "revision": None,
+        "plan_sha256": "0" * 64,
+        "configuration_snapshot": None,
+        "plan_snapshot": {},
+    },
     "row_schema_version": "session-row-v1",
 }
 

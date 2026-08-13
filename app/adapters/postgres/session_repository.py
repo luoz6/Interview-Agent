@@ -47,7 +47,8 @@ class PostgresSessionRepository:
                                checkpoint_version, last_checkpoint_at, last_command_id,
                                workflow_engine, graph_schema_version,
                                memory_policy_version, projection_sha256,
-                               deletion_status, row_schema_version
+                               deletion_status, row_schema_version,
+                               plan_binding_json
                         FROM {sessions}
                         WHERE session_id = %s
                         """
@@ -97,7 +98,7 @@ class PostgresSessionRepository:
                     checkpoint_version, last_checkpoint_at, last_command_id,
                     workflow_engine, graph_schema_version,
                     memory_policy_version, projection_sha256,
-                    deletion_status, row_schema_version
+                    deletion_status, row_schema_version, plan_binding_json
                 )
                 VALUES (
                     %s, %s::jsonb, %s, %s,
@@ -106,7 +107,7 @@ class PostgresSessionRepository:
                     %s::jsonb, %s, %s::jsonb,
                     %s, %s, %s,
                     %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s::jsonb
                 )
                 """
             ).format(sessions=sql.Identifier(self.sessions_table)),
@@ -138,6 +139,10 @@ class PostgresSessionRepository:
                 session_row["projection_sha256"],
                 session_row["deletion_status"],
                 session_row["row_schema_version"],
+                json.dumps(
+                    session_row["plan_binding_json"],
+                    ensure_ascii=False,
+                ),
             ),
         )
         self._messages.insert_messages(cursor, state)
@@ -215,6 +220,10 @@ class PostgresSessionRepository:
             session_row["workflow_engine"],
             session_row["graph_schema_version"],
             session_row["projection_sha256"],
+            json.dumps(
+                session_row["plan_binding_json"],
+                ensure_ascii=False,
+            ),
             session_row["row_schema_version"],
             session_row["status"],
             session_row["finished_at"],
@@ -244,6 +253,7 @@ class PostgresSessionRepository:
                     workflow_engine = %s,
                     graph_schema_version = %s,
                     projection_sha256 = %s,
+                    plan_binding_json = %s::jsonb,
                     row_schema_version = %s,
                     updated_at = NOW(),
                     finished_at = CASE
@@ -309,6 +319,7 @@ class PostgresSessionRepository:
             "projection_sha256": row[22],
             "deletion_status": row[23],
             "row_schema_version": row[24],
+            "plan_binding_json": row[25],
         }
 
 

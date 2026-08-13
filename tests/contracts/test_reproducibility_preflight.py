@@ -132,6 +132,13 @@ def test_dependency_inventory_digest_is_order_independent_and_content_sensitive(
     assert dependency_inventory_sha256([]) == hashlib.sha256(b"[]").hexdigest()
 
 
+def test_frozen_config_jsons_are_forced_to_lf_for_windows_hash_stability():
+    root = Path(__file__).resolve().parents[2]
+    attributes = (root / ".gitattributes").read_text(encoding="utf-8").splitlines()
+
+    assert "config/*.json text eol=lf" in attributes
+
+
 def test_dependency_source_generator_and_lock_metadata_are_bound():
     root = Path(__file__).resolve().parents[2]
     source = (root / "requirements.txt").read_text(encoding="utf-8")

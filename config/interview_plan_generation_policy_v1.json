@@ -1,0 +1,158 @@
+{
+  "schema_version": "interview-plan-generation-policy-v1",
+  "policy_version": "interview-plan-config-strategy-v1",
+  "plan_schema_version": "interview-plan-v2",
+  "allowed_difficulties": [
+    "foundation",
+    "intermediate",
+    "advanced"
+  ],
+  "allowed_target_duration_minutes": [
+    15,
+    30,
+    45,
+    60
+  ],
+  "allowed_focus_presets": [
+    "technical_depth",
+    "system_design",
+    "project_review",
+    "balanced"
+  ],
+  "allowed_question_types": [
+    "project",
+    "technical",
+    "system-design",
+    "behavioral"
+  ],
+  "allowed_followup_policy_versions": [
+    "fixed_v1",
+    "adaptive_v1"
+  ],
+  "max_followups_per_question": 2,
+  "snapshot_hash_fields": [
+    "difficulty",
+    "target_duration_minutes",
+    "focus_preset",
+    "question_type_budget",
+    "expected_followup_budget",
+    "max_followups_per_question",
+    "generator_version",
+    "followup_policy_version"
+  ],
+  "configuration_effects": [
+    {
+      "field": "difficulty",
+      "generation_effects": [
+        "question_complexity",
+        "user_configuration_summary"
+      ],
+      "user_visible_semantics": "Changes requested question depth and complexity, never scoring strictness.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "target_duration_minutes",
+      "generation_effects": [
+        "question_budget_profile",
+        "duration_estimate",
+        "user_configuration_summary",
+        "user_duration_warning"
+      ],
+      "user_visible_semantics": "Selects an estimated duration budget profile; it is not an exact-time SLA.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "focus_preset",
+      "generation_effects": [
+        "question_type_allocation",
+        "prompt_emphasis",
+        "user_configuration_summary"
+      ],
+      "user_visible_semantics": "Changes topic and question-type emphasis without changing the rubric.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "question_type_budget",
+      "generation_effects": [
+        "question_type_allocation",
+        "generator_prompt_and_enforcement",
+        "user_configuration_summary"
+      ],
+      "user_visible_semantics": "Stores the exact generated main-question target per type; omitted types mean zero.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "expected_followup_budget",
+      "generation_effects": [
+        "followup_estimate",
+        "duration_estimate",
+        "user_configuration_summary"
+      ],
+      "user_visible_semantics": "Stores an aggregate estimate, not a runtime quota or promise.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "max_followups_per_question",
+      "generation_effects": [
+        "runtime_followup_hard_limit",
+        "user_configuration_summary"
+      ],
+      "user_visible_semantics": "Is the immutable runtime safety ceiling of two follow-ups per main question.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "generator_version",
+      "generation_effects": [
+        "generator_prompt_and_enforcement"
+      ],
+      "user_visible_semantics": "Identifies the exact prompt and deterministic budget-enforcement implementation.",
+      "scoring_rubric_effect": "none"
+    },
+    {
+      "field": "followup_policy_version",
+      "generation_effects": [
+        "runtime_followup_decision_policy"
+      ],
+      "user_visible_semantics": "Selects fixed_v1 or adaptive_v1 runtime decisions from the immutable session snapshot.",
+      "scoring_rubric_effect": "none"
+    }
+  ],
+  "question_type_budget": {
+    "mode": "exact_generation_target_by_type",
+    "sparse_missing_type_count": 0,
+    "zero_count_allowed": true,
+    "zero_total_allowed": false,
+    "negative_count_allowed": false,
+    "boolean_count_allowed": false,
+    "manual_edit_may_diverge_from_generation_target": true
+  },
+  "expected_followup_budget": {
+    "mode": "aggregate_expected_count_for_estimation",
+    "runtime_hard_cap": false,
+    "adaptive_runtime_may_use_fewer": true,
+    "per_question_hard_cap_field": "max_followups_per_question"
+  },
+  "duration": {
+    "meaning": "target_estimate_not_sla",
+    "question_budget_model_owner": "T51",
+    "launch_validation_owner": "T51_T52",
+    "provider_budget_enforcement_owner": "T52",
+    "user_warning_owner": "T54",
+    "configuration_values_frozen_in_t50": true,
+    "question_ranges_frozen_in_t50": false
+  },
+  "scoring_separation": {
+    "configuration_may_change_rubric": false,
+    "configuration_may_change_passing_threshold": false,
+    "rubric_source": "report_rule_score",
+    "evaluation_uses_answer_evidence_not_plan_preset": true
+  },
+  "legacy_compatibility": {
+    "v1_parser_retained": true,
+    "v1_default_difficulty": "intermediate",
+    "v1_default_target_duration_minutes": 30,
+    "v1_default_focus_preset": "balanced",
+    "v1_default_followup_policy_version": "fixed_v1",
+    "legacy_parse_does_not_call_provider": true
+  }
+}

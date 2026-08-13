@@ -1,11 +1,12 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Protocol
 
 from pydantic import ValidationError
 
 from app.runtime.config import load_llm_runtime_settings, load_provider_credentials
+from app.runtime.config.environment import environment_value
 from app.services.context_budget import (
     context_enforcement_enabled,
     FOLLOWUP_CONTEXT_POLICY,
@@ -22,6 +23,7 @@ from app.services.provider_usage import (
     begin_provider_attempt,
     publish_prompt_measurement,
     publish_provider_response,
+    publish_plan_context_selection,
 )
 from app.services.context_runtime import (
     ContextRuntime,
@@ -30,6 +32,10 @@ from app.services.context_runtime import (
 )
 from app.services.context_language import classify_context_language
 from app.services.model_capabilities import ContextConfigurationError
+from app.services.interview_status_projection import (
+    INTERVIEW_STATUS_ROLE,
+    is_valid_interview_status_message,
+)
 from app.services.principal_memory_sink_policy import (
     ASSISTANCE_CONTEXT_KIND,
     FOLLOWUP_GENERATION_SINK,
@@ -37,15 +43,25 @@ from app.services.principal_memory_sink_policy import (
 )
 
 if TYPE_CHECKING:
+    from app.services.interview_plan_revision import PlanConfigurationSnapshot
     from app.services.report import InterviewReport
 
 logger = logging.getLogger(__name__)
 
 REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
+RAW_ONLY_PLAN_MODELS = frozenset({"deepseek-v4-pro"})
 
 
 class MissingLLMConfigError(RuntimeError):
     """LLM configuration is missing, usually OPENAI_API_KEY."""
+
+
+def resolve_plan_output_mode(
+    model: str,
+) -> Literal["structured_first", "raw_only"]:
+    """Choose the production plan protocol before any Provider request."""
+
+    return "raw_only" if model in RAW_ONLY_PLAN_MODELS else "structured_first"
 
 
 @dataclass(frozen=True)
@@ -61,16 +77,18 @@ class LLMConfig:
     structured_output_reserve_tokens: int = 2048
     context_safety_margin_tokens: int = 1024
     tokenizer_family: str | None = None
+    plan_output_mode: Literal["structured_first", "raw_only"] = "structured_first"
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
+    def from_env(cls, *, memory=None) -> "LLMConfig":
         from app.runtime.config.memory import load_effective_memory_config
 
         api_key = load_provider_credentials().openai_api_key
         if not api_key:
             raise MissingLLMConfigError("OPENAI_API_KEY is required")
 
-        memory = load_effective_memory_config().model
+        if memory is None:
+            memory = load_effective_memory_config().model
         runtime_settings = load_llm_runtime_settings()
         return cls(
             api_key=api_key,
@@ -86,15 +104,20 @@ class LLMConfig:
             ),
             context_safety_margin_tokens=memory.safety_margin_tokens,
             tokenizer_family=memory.tokenizer_family,
+            plan_output_mode=resolve_plan_output_mode(memory.model),
         )
 
 
 class InterviewLLM(Protocol):
+    config: LLMConfig
+    chat_model: Any
+
     def generate_plan(
         self,
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict] | None = None,
+        configuration: "PlanConfigurationSnapshot | None" = None,
     ):
         """Generate the interview plan from JD and resume."""
 
@@ -121,6 +144,7 @@ class OpenAIInterviewLLM:
         trace_recorder=None,
         report_output_mode: Literal["structured_first", "raw_only"] | None = None,
         context_runtime: ContextRuntime | None = None,
+        provider_attempt_hook: Callable[[], None] | None = None,
     ) -> None:
         from app.services.report_trace import ReportTraceRecorder
 
@@ -129,6 +153,11 @@ class OpenAIInterviewLLM:
             if chat_model is not None
             else LLMConfig.from_env()
         )
+        if resolved_config.plan_output_mode not in {"structured_first", "raw_only"}:
+            raise ValueError(
+                "unsupported plan_output_mode: "
+                f"{resolved_config.plan_output_mode}"
+            )
         self.config = resolved_config
         self.chat_model = chat_model or self._build_chat_model(resolved_config)
         runtime = context_runtime or build_context_runtime(
@@ -156,6 +185,8 @@ class OpenAIInterviewLLM:
         self._budget_resolver = runtime.budget_resolver
         self._prompt_guard = RenderedPromptGuard()
         self.trace_recorder = trace_recorder or ReportTraceRecorder.from_env()
+        self._provider_attempt_hook = provider_attempt_hook
+        self.plan_output_mode = resolved_config.plan_output_mode
         configured_mode = (
             report_output_mode or load_llm_runtime_settings().report_output_mode
         )
@@ -168,38 +199,77 @@ class OpenAIInterviewLLM:
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict] | None = None,
+        configuration: "PlanConfigurationSnapshot | None" = None,
     ):
-        from app.services.prep import InterviewPlan
+        from app.services.prep import (
+            enforce_generated_interview_plan,
+            InterviewPlan,
+            validate_generation_configuration,
+        )
+
+        configuration = (
+            validate_generation_configuration(configuration)
+            if configuration is not None
+            else None
+        )
 
         assert_principal_memory_sink(
             operation="plan_generation",
             payload={"knowledge_context": knowledge_context},
         )
-        if context_enforcement_enabled(PLAN_CONTEXT_POLICY.operation):
-            job_description, resume_text, knowledge_context = self._fit_plan_inputs(
-                job_description=job_description,
-                resume_text=resume_text,
-                knowledge_context=knowledge_context,
-            )
-        prompt = self._build_plan_prompt(
+        knowledge_candidate_count = len(knowledge_context or [])
+        job_description, resume_text, knowledge_context = self._fit_plan_inputs(
             job_description=job_description,
             resume_text=resume_text,
             knowledge_context=knowledge_context,
         )
-        self._guard_prompt(prompt, PLAN_CONTEXT_POLICY)
-        try:
-            return self._invoke_structured_plan(prompt, InterviewPlan)
-        except Exception as exc:
-            logger.warning(
-                "Structured interview plan output failed, trying raw JSON path",
-                extra={"reason": str(exc)},
+        publish_plan_context_selection(
+            candidate_count=knowledge_candidate_count,
+            retained_count=len(knowledge_context or []),
+        )
+        prompt = self._build_plan_prompt(
+            job_description=job_description,
+            resume_text=resume_text,
+            knowledge_context=knowledge_context,
+            configuration=configuration,
+        )
+        self._guard_prompt(
+            prompt,
+            PLAN_CONTEXT_POLICY,
+            force_enforcement=True,
+        )
+        if self.plan_output_mode == "raw_only":
+            payload = self._invoke_raw_json_plan(
+                prompt,
+                force_context_enforcement=True,
             )
-
-        payload = self._invoke_raw_json_plan(prompt)
-        try:
-            return InterviewPlan.model_validate(payload)
-        except ValidationError as exc:
-            raise ValueError(f"raw interview plan JSON schema validation failed: {exc}") from exc
+            try:
+                generated = InterviewPlan.model_validate(payload)
+            except ValidationError as exc:
+                raise ValueError(
+                    f"raw interview plan JSON schema validation failed: {exc}"
+                ) from exc
+        else:
+            try:
+                generated = self._invoke_structured_plan(prompt, InterviewPlan)
+            except Exception as exc:
+                logger.warning(
+                    "Structured interview plan output failed, trying raw JSON path",
+                    extra={"error_code": type(exc).__name__},
+                )
+                payload = self._invoke_raw_json_plan(
+                    prompt,
+                    force_context_enforcement=True,
+                )
+                try:
+                    generated = InterviewPlan.model_validate(payload)
+                except ValidationError as exc:
+                    raise ValueError(
+                        f"raw interview plan JSON schema validation failed: {exc}"
+                    ) from exc
+        if configuration is None:
+            return generated
+        return enforce_generated_interview_plan(generated, configuration)
 
     def _build_plan_prompt(
         self,
@@ -207,28 +277,82 @@ class OpenAIInterviewLLM:
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict] | None = None,
+        configuration: "PlanConfigurationSnapshot | None" = None,
     ) -> str:
+        from app.services.interview_plan_budget import QUESTION_TYPE_ORDER
+
+        if configuration is None:
+            question_kinds = ["project", "technical", "system-design"]
+            count_instruction = "Return exactly 3 to 5 questions."
+            id_instruction = (
+                "Use unique consecutive ids q1, q2, q3, and continue in order "
+                "if more questions are returned."
+            )
+            configuration_section = ""
+        else:
+            question_kinds = [
+                question_type
+                for question_type in QUESTION_TYPE_ORDER
+                for _ in range(
+                    configuration.question_type_budget.get(question_type, 0)
+                )
+            ]
+            target_count = len(question_kinds)
+            difficulty_guidance = {
+                "foundation": (
+                    "Prefer clear fundamentals and concrete examples; avoid hidden "
+                    "advanced prerequisites."
+                ),
+                "intermediate": (
+                    "Require real constraints, implementation choices, and trade-offs."
+                ),
+                "advanced": (
+                    "Probe complex constraints, failure modes, scale, and evolution cost."
+                ),
+            }[configuration.difficulty]
+            focus_guidance = {
+                "technical_depth": (
+                    "Emphasize implementation depth, boundaries, diagnostics, and failure modes."
+                ),
+                "system_design": (
+                    "Emphasize architecture, capacity, reliability, and system trade-offs."
+                ),
+                "project_review": (
+                    "Emphasize ownership, decisions, evidence, delivery, and outcomes."
+                ),
+                "balanced": (
+                    "Balance project evidence, technical depth, design, and collaboration."
+                ),
+            }[configuration.focus_preset]
+            count_instruction = (
+                f"Return exactly {target_count} questions with this exact kind budget: "
+                f"{json.dumps(configuration.question_type_budget, sort_keys=True)}."
+            )
+            id_instruction = (
+                f"Use unique consecutive ids q1 through q{target_count} in order."
+            )
+            configuration_section = (
+                "\nConfigured generation contract:\n"
+                f"- target_duration_minutes: {configuration.target_duration_minutes}\n"
+                f"- difficulty: {configuration.difficulty}\n"
+                f"- focus_preset: {configuration.focus_preset}\n"
+                f"- expected_followup_budget: {configuration.expected_followup_budget}\n"
+                f"- max_followups_per_question: {configuration.max_followups_per_question}\n"
+                f"- difficulty guidance: {difficulty_guidance}\n"
+                f"- focus guidance: {focus_guidance}\n"
+                "The duration is an estimate, not an exact-time promise. The service "
+                "assigns per-question minute and follow-up estimates locally.\n"
+            )
         expected_shape = {
             "title": "Backend interview plan",
             "questions": [
                 {
-                    "id": "q1",
-                    "kind": "project",
+                    "id": f"q{index}",
+                    "kind": kind,
                     "prompt": "Ask one concrete interview question.",
                     "focus": "What this question evaluates.",
-                },
-                {
-                    "id": "q2",
-                    "kind": "technical",
-                    "prompt": "Ask one concrete interview question.",
-                    "focus": "What this question evaluates.",
-                },
-                {
-                    "id": "q3",
-                    "kind": "system-design",
-                    "prompt": "Ask one concrete interview question.",
-                    "focus": "What this question evaluates.",
-                },
+                }
+                for index, kind in enumerate(question_kinds, start=1)
             ],
         }
         knowledge_section = ""
@@ -242,12 +366,13 @@ class OpenAIInterviewLLM:
         return (
             "You are a senior technical interviewer.\n"
             "Create a focused mock interview plan from the job description and resume.\n"
-            "Return exactly 3 to 5 questions.\n"
+            f"{count_instruction}\n"
             "Each question kind must be one of: project, technical, system-design, behavioral.\n"
-            "Use stable ids q1, q2, q3, and continue in order if more questions are needed.\n"
+            f"{id_instruction}\n"
             "Questions should be specific to the candidate's resume and the target job.\n"
             "Do not generate prep_context; the service enriches the plan with Knowledge Agent metadata locally.\n"
             "Return valid JSON only. Do not return markdown.\n"
+            f"{configuration_section}"
             "Use this JSON shape exactly:\n"
             f"{json.dumps(expected_shape, ensure_ascii=False, indent=2)}\n\n"
             f"Job description:\n{job_description}\n\n"
@@ -256,28 +381,56 @@ class OpenAIInterviewLLM:
         )
 
     def _invoke_structured_plan(self, prompt: str, schema):
-        structured_model = self.chat_model.with_structured_output(
-            schema,
-            method="json_schema",
-        )
+        try:
+            structured_model = self.chat_model.with_structured_output(
+                schema,
+                method="json_schema",
+                include_raw=True,
+            )
+        except TypeError:
+            # Older adapters and lightweight test doubles may not expose
+            # include_raw. Production requests it so plan evaluation can prove
+            # that every outbound request has usage and model metadata.
+            structured_model = self.chat_model.with_structured_output(
+                schema,
+                method="json_schema",
+            )
         if hasattr(structured_model, "bind"):
             structured_model = structured_model.bind(
                 max_tokens=PLAN_CONTEXT_POLICY.max_output_tokens
             )
-        begin_provider_attempt()
+        self._begin_provider_attempt()
         result = structured_model.invoke(prompt)
-        publish_provider_response(result)
-        if isinstance(result, schema):
-            return result
-        return schema.model_validate(result)
+        wrapped = isinstance(result, dict) and any(
+            key in result for key in ("raw", "parsed", "parsing_error")
+        )
+        raw = result.get("raw") if wrapped else None
+        parsed = result.get("parsed") if wrapped else result
+        publish_provider_response(raw or result)
+        if wrapped and result.get("parsing_error") is not None:
+            raise ValueError("structured interview plan response failed parsing")
+        if parsed is None:
+            raise ValueError("structured interview plan response has no parsed value")
+        if isinstance(parsed, schema):
+            return parsed
+        return schema.model_validate(parsed)
 
-    def _invoke_raw_json_plan(self, prompt: str) -> dict[str, Any]:
+    def _invoke_raw_json_plan(
+        self,
+        prompt: str,
+        *,
+        force_context_enforcement: bool = False,
+    ) -> dict[str, Any]:
         fallback_prompt = (
             f"{prompt}\n\n"
             "Return valid JSON only. Use the JSON shape exactly. "
             "Do not wrap the JSON in markdown code fences."
         )
-        self._guard_prompt(fallback_prompt, PLAN_CONTEXT_POLICY)
+        self._guard_prompt(
+            fallback_prompt,
+            PLAN_CONTEXT_POLICY,
+            force_enforcement=force_context_enforcement,
+        )
         message = self._invoke_chat(fallback_prompt, PLAN_CONTEXT_POLICY)
         content = str(getattr(message, "content", message)).strip()
         return self._parse_raw_json_payload(content)
@@ -317,13 +470,16 @@ class OpenAIInterviewLLM:
         from app.services.report import ReportGenerationFailed, ReportOutputFormatError
         from app.services.report_provider_adapter import ProviderQuestionResultsEnvelope
 
+        provider_evaluation_items = _provider_visible_report_items(
+            evaluation_items
+        )
         assert_principal_memory_sink(
             operation="report_generation",
-            payload={"plan": plan, "evaluation_items": evaluation_items},
+            payload={"plan": plan, "evaluation_items": provider_evaluation_items},
         )
         prompt = self._build_report_prompt(
             plan=plan,
-            evaluation_items=evaluation_items,
+            evaluation_items=provider_evaluation_items,
             session_id=session_id,
         )
         self._guard_prompt(prompt, REPORT_CONTEXT_POLICY)
@@ -344,22 +500,28 @@ class OpenAIInterviewLLM:
                 self._record_trace(
                     session_id,
                     "structured_output_error",
-                    {"error": str(exc), "error_type": type(exc).__name__},
+                    {"error_code": type(exc).__name__},
                 )
                 logger.warning(
                     "Structured report output was invalid",
-                    extra={"session_id": session_id, "reason": str(exc)},
+                    extra={
+                        "session_id": session_id,
+                        "error_code": type(exc).__name__,
+                    },
                 )
             except Exception as exc:
                 structured_error = exc
                 self._record_trace(
                     session_id,
                     "structured_output_error",
-                    {"error": str(exc), "error_type": type(exc).__name__},
+                    {"error_code": type(exc).__name__},
                 )
                 logger.warning(
                     "Structured report output failed, trying raw JSON path",
-                    extra={"session_id": session_id, "reason": str(exc)},
+                    extra={
+                        "session_id": session_id,
+                        "error_code": type(exc).__name__,
+                    },
                 )
 
         try:
@@ -376,7 +538,7 @@ class OpenAIInterviewLLM:
             self._record_trace(
                 session_id,
                 "report_output_format_error",
-                {"error": str(exc), "error_type": type(exc).__name__},
+                {"error_code": type(exc).__name__},
             )
             raise
         except Exception as exc:
@@ -408,7 +570,6 @@ class OpenAIInterviewLLM:
                     ],
                     "rationale": "Explain the evidence in Simplified Chinese.",
                     "critique": "State the biggest missing point in Simplified Chinese.",
-                    "better_answer": "Give a concise improved answer in Simplified Chinese.",
                     "reference_chunk_ids": ["redis-1", "redis-2"],
                     "highlights": ["Mentioned cache-aside tradeoffs."],
                 }
@@ -421,11 +582,13 @@ class OpenAIInterviewLLM:
             "Return exactly one question_results item for each evaluation item.\n"
             "All user-facing fields must be written in Simplified Chinese.\n"
             "Keep literal identifiers like Redis, RocketMQ, MySQL, p95, and API names unchanged when needed.\n"
-            "Only use reference_chunk_ids that appear in the supplied evaluation_items references.\n"
+            "When non_authoritative_reference_context is present, only use reference_chunk_ids listed there; otherwise use ids from the supplied evaluation_items references.\n"
+            "Non-authoritative reference context is guidance only: never treat it as a candidate exact quote or authoritative scoring evidence.\n"
             "Do not invent new chunk ids.\n"
             "The backend computes all numeric scores from evidence.\n"
             "Do not return score or dimension_scores for any question.\n"
             "Do not return overall_score, overall_dimension_scores, summary, or reference objects.\n"
+            "Do not return better_answer or any rewritten candidate experience; the backend derives bounded answer guidance.\n"
             "For each question, return exactly one dimension_evidence item for every applicable dimension listed in the evaluation item context.\n"
             "If an applicable dimension has no support, return observed as an empty list and explain the missing evidence in missing.\n"
             "Do not merge evidence for several dimensions into one dimension item.\n"
@@ -454,7 +617,7 @@ class OpenAIInterviewLLM:
             structured_model = structured_model.bind(
                 max_tokens=REPORT_CONTEXT_POLICY.max_output_tokens
             )
-        begin_provider_attempt()
+        self._begin_provider_attempt()
         result = structured_model.invoke(prompt)
         publish_provider_response(result)
         return self._coerce_report_result(result, schema)
@@ -562,7 +725,6 @@ class OpenAIInterviewLLM:
             logger.debug(
                 "Failed to record report trace artifact",
                 extra={"session_id": session_id, "stage": stage},
-                exc_info=True,
             )
 
     @staticmethod
@@ -578,12 +740,39 @@ class OpenAIInterviewLLM:
         }
         if config.base_url:
             kwargs["base_url"] = config.base_url
+        transport_mode = str(
+            environment_value("T65_PROVIDER_TRANSPORT_MODE", "")
+        ).strip()
+        if transport_mode:
+            if transport_mode != "builtin_production":
+                raise ContextConfigurationError(
+                    "unsupported T65 Provider transport mode"
+                )
+            if (
+                config.model != "deepseek-v4-pro"
+                or (config.base_url or "").rstrip("/")
+                != "https://api.deepseek.com"
+                or config.max_retries != 0
+            ):
+                raise ContextConfigurationError(
+                    "formal T65 transport requires the frozen DeepSeek model, endpoint, and zero SDK retries"
+                )
+            from app.services.t65_provider_http_transport import (
+                get_t65_provider_http_clients,
+            )
+
+            clients = get_t65_provider_http_clients()
+            kwargs["http_client"] = clients.sync_client
+            kwargs["http_async_client"] = clients.async_client
+            kwargs["http_socket_options"] = ()
         return ChatOpenAI(**kwargs)
 
     def _guard_prompt(
         self,
         prompt: str,
         policy: OperationContextPolicy,
+        *,
+        force_enforcement: bool = False,
     ):
         budget = self._budget_resolver.resolve(
             profile=self.model_profile,
@@ -601,7 +790,7 @@ class OpenAIInterviewLLM:
         # Publish the privacy-safe measurement before enforcement. Calling
         # validate() directly would raise before rejected requests can be
         # observed by Agent telemetry and Context Canary.
-        if context_enforcement_enabled(policy.operation):
+        if force_enforcement or context_enforcement_enabled(policy.operation):
             self._prompt_guard.enforce(measurement, budget=budget)
         return measurement
 
@@ -637,18 +826,26 @@ class OpenAIInterviewLLM:
         ]
         if len(assistance) != 1:
             assistance = []
+        status_candidates = [
+            dict(item)
+            for item in context
+            if item.get("role") == INTERVIEW_STATUS_ROLE
+            and is_valid_interview_status_message(item)
+        ]
+        status_message = (
+            status_candidates[0] if len(status_candidates) == 1 else None
+        )
         conversation = [
             dict(item)
             for item in context
-            if item.get("role")
-            not in {"knowledge_agent", "knowledge_evidence", "knowledge_gap"}
+            if item.get("role") not in {"knowledge_agent", "knowledge_evidence"}
             and item.get("context_kind") != ASSISTANCE_CONTEXT_KIND
+            and item.get("role") != INTERVIEW_STATUS_ROLE
         ]
         evidence = [
             dict(item)
             for item in context
-            if item.get("role")
-            in {"knowledge_agent", "knowledge_evidence", "knowledge_gap"}
+            if item.get("role") in {"knowledge_agent", "knowledge_evidence"}
         ]
         latest_candidate = next(
             (
@@ -710,7 +907,73 @@ class OpenAIInterviewLLM:
                 )
                 if cost <= selection_budget.selectable_content_tokens:
                     selected = with_assistance
+        if status_message is not None:
+            return self._fit_status_prefixed_followup_context(
+                status_message=status_message,
+                selected=selected,
+                available_input_tokens=budget.available_input_tokens,
+            )
         return selected
+
+    def _fit_status_prefixed_followup_context(
+        self,
+        *,
+        status_message: dict[str, str],
+        selected: list[dict[str, str]],
+        available_input_tokens: int,
+    ) -> list[dict[str, str]]:
+        fitted = [dict(status_message), *[dict(item) for item in selected]]
+        estimator = self.token_estimator.estimator
+        model = self.model_profile.model
+
+        def fits(items):
+            return estimator.estimate_text(
+                _build_followup_prompt(items),
+                model=model,
+            ) <= available_input_tokens
+
+        if fits(fitted):
+            return fitted
+        latest_candidate = next(
+            (
+                index
+                for index in range(len(selected) - 1, -1, -1)
+                if selected[index].get("role") == "candidate"
+            ),
+            None,
+        )
+        current_interviewer = (
+            next(
+                (
+                    index
+                    for index in range(latest_candidate - 1, -1, -1)
+                    if selected[index].get("role") == "interviewer"
+                ),
+                None,
+            )
+            if latest_candidate is not None
+            else None
+        )
+        mandatory_indexes = {latest_candidate, current_interviewer} - {None}
+        retained = [
+            (index, dict(item)) for index, item in enumerate(selected)
+        ]
+        for index in range(len(selected)):
+            if index in mandatory_indexes:
+                continue
+            retained = [item for item in retained if item[0] != index]
+            candidate = [
+                dict(status_message),
+                *[item for _source_index, item in retained],
+            ]
+            if fits(candidate):
+                return candidate
+        # Status is optional relative to the Task-7-preexisting mandatory
+        # business context. If the minimum status-prefixed business set cannot
+        # fit, omit status and preserve the exact prior fitted context. The
+        # existing rendered prompt guard remains authoritative when the
+        # business context itself cannot fit.
+        return [dict(item) for item in selected]
 
     def _fit_plan_inputs(
         self,
@@ -764,7 +1027,7 @@ class OpenAIInterviewLLM:
         model = self.chat_model
         if hasattr(model, "bind"):
             model = model.bind(max_tokens=policy.max_output_tokens)
-        begin_provider_attempt()
+        self._begin_provider_attempt()
         response = model.invoke(prompt)
         publish_provider_response(response)
         return response
@@ -773,7 +1036,7 @@ class OpenAIInterviewLLM:
         model = self.chat_model
         if hasattr(model, "bind"):
             model = model.bind(max_tokens=policy.max_output_tokens)
-        begin_provider_attempt()
+        self._begin_provider_attempt()
 
         def iterate():
             for chunk in model.stream(prompt):
@@ -782,23 +1045,29 @@ class OpenAIInterviewLLM:
 
         return iterate()
 
+    def _begin_provider_attempt(self) -> None:
+        if self._provider_attempt_hook is not None:
+            self._provider_attempt_hook()
+        begin_provider_attempt()
+
+
+def _provider_visible_report_items(
+    evaluation_items: list[dict],
+) -> list[dict]:
+    provider_items = []
+    for evaluation_item in evaluation_items:
+        provider_item = dict(evaluation_item)
+        if "non_authoritative_reference_context" in provider_item:
+            provider_item.pop("scoring_references", None)
+            provider_item.pop("answer_references", None)
+        provider_items.append(provider_item)
+    return provider_items
+
 
 def _build_followup_prompt(context: list[dict[str, str]]) -> str:
-    transcript = "\n".join(
-        f"{item['role']}: {item['content']}" for item in context if item.get("content")
-    )
-    return (
-        "You are a professional technical interviewer.\n"
-        "Based on the recent interview context, ask exactly one sharp follow-up question.\n"
-        "The follow-up must be grounded in the candidate's latest answer.\n"
-        "Use knowledge_agent entries as interview guidance, not as candidate answers.\n"
-        "Use knowledge_evidence entries only as reference material, never as candidate answers.\n"
-        "Use knowledge_gap entries as deterministic targeting instructions: focus on the selected missing or incorrect signal.\n"
-        "Do not reveal the complete expected answer, repeat the previous question, or invent claims beyond bound evidence.\n"
-        "Prefer tradeoffs, edge cases, fallback plans, performance bottlenecks, or source-code reasoning.\n"
-        "Return only the follow-up question, without explanation.\n\n"
-        f"Recent context:\n{transcript}"
-    )
+    from app.services.followup_prompts import render_followup_generation_prompt
+
+    return render_followup_generation_prompt(context)
 
 
 def _extract_json_object(content: str) -> str:

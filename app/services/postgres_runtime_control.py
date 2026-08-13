@@ -155,21 +155,39 @@ class PostgresRuntimeControlStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT tc.table_name, kcu.column_name, rc.delete_rule
-                    FROM information_schema.table_constraints AS tc
-                    JOIN information_schema.key_column_usage AS kcu
-                      ON tc.constraint_name = kcu.constraint_name
-                     AND tc.constraint_schema = kcu.constraint_schema
-                    JOIN information_schema.referential_constraints AS rc
-                      ON tc.constraint_name = rc.constraint_name
-                     AND tc.constraint_schema = rc.constraint_schema
-                    JOIN information_schema.constraint_column_usage AS ccu
-                      ON rc.unique_constraint_name = ccu.constraint_name
-                     AND rc.unique_constraint_schema = ccu.constraint_schema
-                    WHERE tc.constraint_type = 'FOREIGN KEY'
-                      AND tc.table_name = ANY(%s)
-                      AND ccu.table_name = %s
-                    ORDER BY tc.table_name
+                    SELECT child.relname,
+                           child_column.attname,
+                           CASE constraint_row.confdeltype
+                             WHEN 'a' THEN 'NO ACTION'
+                             WHEN 'r' THEN 'RESTRICT'
+                             WHEN 'c' THEN 'CASCADE'
+                             WHEN 'n' THEN 'SET NULL'
+                             WHEN 'd' THEN 'SET DEFAULT'
+                           END
+                    FROM pg_catalog.pg_constraint AS constraint_row
+                    JOIN pg_catalog.pg_class AS child
+                      ON child.oid = constraint_row.conrelid
+                    JOIN pg_catalog.pg_namespace AS child_namespace
+                      ON child_namespace.oid = child.relnamespace
+                    JOIN pg_catalog.pg_class AS parent
+                      ON parent.oid = constraint_row.confrelid
+                    JOIN pg_catalog.pg_namespace AS parent_namespace
+                      ON parent_namespace.oid = parent.relnamespace
+                    JOIN LATERAL unnest(constraint_row.conkey)
+                      WITH ORDINALITY AS child_key(attnum, position)
+                      ON TRUE
+                    JOIN LATERAL unnest(constraint_row.confkey)
+                      WITH ORDINALITY AS parent_key(attnum, position)
+                      ON parent_key.position = child_key.position
+                    JOIN pg_catalog.pg_attribute AS child_column
+                      ON child_column.attrelid = child.oid
+                     AND child_column.attnum = child_key.attnum
+                    WHERE constraint_row.contype = 'f'
+                      AND child_namespace.nspname = current_schema()
+                      AND parent_namespace.nspname = current_schema()
+                      AND child.relname = ANY(%s)
+                      AND parent.relname = %s
+                    ORDER BY child.relname, child_key.position
                     """,
                     (table_names, self.sessions_table),
                 )

@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from app.services.interview_plan_knowledge import (
+    parse_question_knowledge_binding,
+)
 from app.services.prep import InterviewPlan
 from app.services.prep_context import (
     build_question_prep_context_messages,
@@ -23,7 +26,7 @@ RetrievalPath = Literal[
 
 @dataclass(frozen=True)
 class KnowledgeBindingResolution:
-    messages: list[dict[str, str]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
     evidence_ids: list[str] = field(default_factory=list)
     references: list[Any] = field(default_factory=list)
     retrieval_path: RetrievalPath = "legacy_no_context"
@@ -51,6 +54,36 @@ class KnowledgeBindingResolver:
                         "legacy_prep_hint" if messages else "legacy_no_context"
                     ),
                     degraded_reason="legacy_plan" if context is None else None,
+                )
+            )
+
+        binding_payload = context.question_bindings.get(question_id or "")
+        if binding_payload is not None:
+            binding = parse_question_knowledge_binding(binding_payload)
+            if binding.status != "valid":
+                return self._degraded(
+                    plan,
+                    question_id,
+                    binding.reason_code,
+                )
+            resolution = self.resolve_bound_evidence(
+                evidence_ids=list(binding.evidence_ids),
+                expected_hashes=dict(binding.evidence_content_sha256),
+                expected_manifest_sha256=binding.corpus_manifest_sha256,
+            )
+            if resolution.retrieval_path != "bound_evidence_ids":
+                return self._degraded(
+                    plan,
+                    question_id,
+                    resolution.degraded_reason or "knowledge_unavailable",
+                )
+            guidance = build_question_prep_context_messages(plan, question_id)
+            return self._remember(
+                KnowledgeBindingResolution(
+                    messages=[*guidance, *resolution.messages],
+                    evidence_ids=resolution.evidence_ids,
+                    references=resolution.references,
+                    retrieval_path="bound_evidence_ids",
                 )
             )
 
@@ -200,6 +233,20 @@ class KnowledgeBindingResolver:
                     f"[source={_chunk_value(found_lookup[evidence_id], 'source_type')}]: "
                     f"{_chunk_value(found_lookup[evidence_id], 'content')}"
                 ),
+                "evidence_id": evidence_id,
+                "chunk_id": evidence_id,
+                "provenance": _chunk_value(
+                    found_lookup[evidence_id],
+                    "source_type",
+                ),
+                "content_sha256": (
+                    _chunk_value(found_lookup[evidence_id], "metadata") or {}
+                ).get("content_sha256"),
+                "corpus_manifest_sha256": (
+                    _chunk_value(found_lookup[evidence_id], "metadata") or {}
+                ).get("corpus_manifest_sha256"),
+                "representation": "authoritative_raw",
+                "mandatory_bounded_raw": True,
             }
             for evidence_id in evidence_ids
         ]

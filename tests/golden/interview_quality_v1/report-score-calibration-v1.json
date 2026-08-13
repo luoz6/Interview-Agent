@@ -1,0 +1,2749 @@
+{
+  "schema_version": "report-score-calibration-v1",
+  "dataset_id": "report-score-calibration-v1",
+  "dataset_version": "2026-08-05.2",
+  "description": "Synthetic 80-case report scoring calibration set; no real candidate, employer-confidential, or Principal Memory data.",
+  "blind_policy": "The 20 blind cases may be loaded by the blind evaluator only after a rubric version and hash are frozen; tuning tools expose aggregate results only.",
+  "cases": [
+    {
+      "case_id": "cal-redis-consistency-strong",
+      "group_id": "redis-consistency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "strong",
+      "question": "如何处理 Redis 与数据库一致性？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-redis-consistency-medium",
+      "group_id": "redis-consistency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "medium",
+      "question": "如何处理 Redis 与数据库一致性？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-redis-consistency-incorrect",
+      "group_id": "redis-consistency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "incorrect",
+      "question": "如何处理 Redis 与数据库一致性？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-redis-consistency-off_topic",
+      "group_id": "redis-consistency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "off_topic",
+      "question": "如何处理 Redis 与数据库一致性？",
+      "answer": "我会调整页面颜色和按钮阴影，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-mysql-index-strong",
+      "group_id": "mysql-index",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "strong",
+      "question": "如何诊断 MySQL 联合索引未生效？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-mysql-index-medium",
+      "group_id": "mysql-index",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "medium",
+      "question": "如何诊断 MySQL 联合索引未生效？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-mysql-index-incorrect",
+      "group_id": "mysql-index",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "incorrect",
+      "question": "如何诊断 MySQL 联合索引未生效？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-mysql-index-empty",
+      "group_id": "mysql-index",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "empty",
+      "question": "如何诊断 MySQL 联合索引未生效？",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-kafka-reliability-strong",
+      "group_id": "kafka-reliability",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "strong",
+      "question": "如何降低 Kafka 消息丢失和重复消费风险？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-kafka-reliability-medium",
+      "group_id": "kafka-reliability",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "medium",
+      "question": "如何降低 Kafka 消息丢失和重复消费风险？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-kafka-reliability-incorrect",
+      "group_id": "kafka-reliability",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "incorrect",
+      "question": "如何降低 Kafka 消息丢失和重复消费风险？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-kafka-reliability-off_topic",
+      "group_id": "kafka-reliability",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "off_topic",
+      "question": "如何降低 Kafka 消息丢失和重复消费风险？",
+      "answer": "我会调整页面颜色和按钮阴影，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-api-idempotency-strong",
+      "group_id": "api-idempotency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "strong",
+      "question": "如何设计支付 API 的幂等处理？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-api-idempotency-medium",
+      "group_id": "api-idempotency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "medium",
+      "question": "如何设计支付 API 的幂等处理？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-api-idempotency-incorrect",
+      "group_id": "api-idempotency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "incorrect",
+      "question": "如何设计支付 API 的幂等处理？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-api-idempotency-empty",
+      "group_id": "api-idempotency",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "empty",
+      "question": "如何设计支付 API 的幂等处理？",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-transaction-boundary-strong",
+      "group_id": "transaction-boundary",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "strong",
+      "question": "如何确定事务边界并处理失败补偿？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-transaction-boundary-medium",
+      "group_id": "transaction-boundary",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "medium",
+      "question": "如何确定事务边界并处理失败补偿？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-transaction-boundary-incorrect",
+      "group_id": "transaction-boundary",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "incorrect",
+      "question": "如何确定事务边界并处理失败补偿？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-transaction-boundary-off_topic",
+      "group_id": "transaction-boundary",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "technical",
+      "quality_label": "off_topic",
+      "question": "如何确定事务边界并处理失败补偿？",
+      "answer": "我会调整页面颜色和按钮阴影，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for technical; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-queue-capacity-strong",
+      "group_id": "queue-capacity",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "strong",
+      "question": "如何设计可扩展任务队列并估算容量？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-queue-capacity-medium",
+      "group_id": "queue-capacity",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "medium",
+      "question": "如何设计可扩展任务队列并估算容量？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-queue-capacity-incorrect",
+      "group_id": "queue-capacity",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "incorrect",
+      "question": "如何设计可扩展任务队列并估算容量？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-queue-capacity-empty",
+      "group_id": "queue-capacity",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "empty",
+      "question": "如何设计可扩展任务队列并估算容量？",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-service-isolation-strong",
+      "group_id": "service-isolation",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "strong",
+      "question": "如何隔离服务故障并控制级联风险？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-service-isolation-medium",
+      "group_id": "service-isolation",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "medium",
+      "question": "如何隔离服务故障并控制级联风险？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-service-isolation-incorrect",
+      "group_id": "service-isolation",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "incorrect",
+      "question": "如何隔离服务故障并控制级联风险？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-service-isolation-off_topic",
+      "group_id": "service-isolation",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "off_topic",
+      "question": "如何隔离服务故障并控制级联风险？",
+      "answer": "我会调整页面颜色和按钮阴影，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-hot-key-strong",
+      "group_id": "hot-key",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "strong",
+      "question": "如何设计热点 Key 的保护方案？",
+      "answer": "首先明确边界，然后执行变更；因为超时、重复和不一致存在风险，需要权衡一致性与延迟。失败时采用幂等重试、回滚或降级，线上监控 p95、错误率和告警，并准备值班手册和演练。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "重试",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-hot-key-medium",
+      "group_id": "hot-key",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "medium",
+      "question": "如何设计热点 Key 的保护方案？",
+      "answer": "先执行主流程，然后对失败步骤重试并设置超时。回答覆盖基本机制，但没有生产指标和完整取舍。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "重试",
+        "超时"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少可验证度量",
+        "production_gap: 缺少生产闭环",
+        "tradeoff_gap: 取舍不完整",
+        "recovery_gap: 缺少补偿或恢复闭环"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-hot-key-incorrect",
+      "group_id": "hot-key",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "incorrect",
+      "question": "如何设计热点 Key 的保护方案？",
+      "answer": "内存状态天然可靠并且永远不会丢失，所以不需要监控、回滚、租约或幂等。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "天然可靠"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-hot-key-empty",
+      "group_id": "hot-key",
+      "partition": "dev",
+      "language": "zh",
+      "question_type": "system_design",
+      "quality_label": "empty",
+      "question": "如何设计热点 Key 的保护方案？",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-audit-log-strong",
+      "group_id": "audit-log",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "strong",
+      "question": "如何设计可追溯审计日志系统？",
+      "answer": "First define the boundary, then execute the change. Because timeout and duplicate effects are risks, I compare consistency with latency, retry with idempotency, roll back or degrade on failure, and monitor p95, error rate, alerts, and a production runbook.",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "failure",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-audit-log-medium",
+      "group_id": "audit-log",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "medium",
+      "question": "如何设计可追溯审计日志系统？",
+      "answer": "First execute the main path, then retry a failed step and use a timeout. This covers the basic mechanism but does not include production metrics or a complete tradeoff.",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: missing measurable metrics",
+        "production_gap: missing production feedback loop",
+        "tradeoff_gap: incomplete tradeoff",
+        "recovery_gap: missing compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-audit-log-incorrect",
+      "group_id": "audit-log",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "incorrect",
+      "question": "如何设计可追溯审计日志系统？",
+      "answer": "The in-memory state is always reliable and never loses data, so we do not need monitoring, rollback, leases, or idempotency.",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-audit-log-off_topic",
+      "group_id": "audit-log",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "off_topic",
+      "question": "如何设计可追溯审计日志系统？",
+      "answer": "I would change the page colors and button shadows. This does not answer the technical or experience question.",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-rate-limit-strong",
+      "group_id": "rate-limit",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "strong",
+      "question": "如何设计多租户限流系统？",
+      "answer": "First define the boundary, then execute the change. Because timeout and duplicate effects are risks, I compare consistency with latency, retry with idempotency, roll back or degrade on failure, and monitor p95, error rate, alerts, and a production runbook.",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "failure",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-rate-limit-medium",
+      "group_id": "rate-limit",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "medium",
+      "question": "如何设计多租户限流系统？",
+      "answer": "First execute the main path, then retry a failed step and use a timeout. This covers the basic mechanism but does not include production metrics or a complete tradeoff.",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: missing measurable metrics",
+        "production_gap: missing production feedback loop",
+        "tradeoff_gap: incomplete tradeoff",
+        "recovery_gap: missing compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-rate-limit-incorrect",
+      "group_id": "rate-limit",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "incorrect",
+      "question": "如何设计多租户限流系统？",
+      "answer": "The in-memory state is always reliable and never loses data, so we do not need monitoring, rollback, leases, or idempotency.",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-rate-limit-empty",
+      "group_id": "rate-limit",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "system_design",
+      "quality_label": "empty",
+      "question": "如何设计多租户限流系统？",
+      "answer": "I do not know.",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for system_design; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-incident-review-strong",
+      "group_id": "incident-review",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "strong",
+      "question": "请复盘一次线上故障和改进闭环。",
+      "answer": "First define the boundary, then execute the change. Because timeout and duplicate effects are risks, I compare consistency with latency, retry with idempotency, roll back or degrade on failure, and monitor p95, error rate, alerts, and a production runbook.",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "failure",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-incident-review-medium",
+      "group_id": "incident-review",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "medium",
+      "question": "请复盘一次线上故障和改进闭环。",
+      "answer": "First execute the main path, then retry a failed step and use a timeout. This covers the basic mechanism but does not include production metrics or a complete tradeoff.",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: missing measurable metrics",
+        "production_gap: missing production feedback loop",
+        "tradeoff_gap: incomplete tradeoff",
+        "recovery_gap: missing compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-incident-review-incorrect",
+      "group_id": "incident-review",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "incorrect",
+      "question": "请复盘一次线上故障和改进闭环。",
+      "answer": "The in-memory state is always reliable and never loses data, so we do not need monitoring, rollback, leases, or idempotency.",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-incident-review-off_topic",
+      "group_id": "incident-review",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "off_topic",
+      "question": "请复盘一次线上故障和改进闭环。",
+      "answer": "I would change the page colors and button shadows. This does not answer the technical or experience question.",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-latency-optimization-strong",
+      "group_id": "latency-optimization",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "strong",
+      "question": "请说明一次延迟优化的过程和度量。",
+      "answer": "First define the boundary, then execute the change. Because timeout and duplicate effects are risks, I compare consistency with latency, retry with idempotency, roll back or degrade on failure, and monitor p95, error rate, alerts, and a production runbook.",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "failure",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-latency-optimization-medium",
+      "group_id": "latency-optimization",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "medium",
+      "question": "请说明一次延迟优化的过程和度量。",
+      "answer": "First execute the main path, then retry a failed step and use a timeout. This covers the basic mechanism but does not include production metrics or a complete tradeoff.",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: missing measurable metrics",
+        "production_gap: missing production feedback loop",
+        "tradeoff_gap: incomplete tradeoff",
+        "recovery_gap: missing compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-latency-optimization-incorrect",
+      "group_id": "latency-optimization",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "incorrect",
+      "question": "请说明一次延迟优化的过程和度量。",
+      "answer": "The in-memory state is always reliable and never loses data, so we do not need monitoring, rollback, leases, or idempotency.",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-latency-optimization-empty",
+      "group_id": "latency-optimization",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "empty",
+      "question": "请说明一次延迟优化的过程和度量。",
+      "answer": "I do not know.",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-migration-strong",
+      "group_id": "migration",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "strong",
+      "question": "请复盘一次数据库迁移及回退设计。",
+      "answer": "First define the boundary, then execute the change. Because timeout and duplicate effects are risks, I compare consistency with latency, retry with idempotency, roll back or degrade on failure, and monitor p95, error rate, alerts, and a production runbook.",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "failure",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-migration-medium",
+      "group_id": "migration",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "medium",
+      "question": "请复盘一次数据库迁移及回退设计。",
+      "answer": "First execute the main path, then retry a failed step and use a timeout. This covers the basic mechanism but does not include production metrics or a complete tradeoff.",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: missing measurable metrics",
+        "production_gap: missing production feedback loop",
+        "tradeoff_gap: incomplete tradeoff",
+        "recovery_gap: missing compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-migration-incorrect",
+      "group_id": "migration",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "incorrect",
+      "question": "请复盘一次数据库迁移及回退设计。",
+      "answer": "The in-memory state is always reliable and never loses data, so we do not need monitoring, rollback, leases, or idempotency.",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-migration-off_topic",
+      "group_id": "migration",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "off_topic",
+      "question": "请复盘一次数据库迁移及回退设计。",
+      "answer": "I would change the page colors and button shadows. This does not answer the technical or experience question.",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cost-reduction-strong",
+      "group_id": "cost-reduction",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "strong",
+      "question": "请说明一次成本优化及其取舍。",
+      "answer": "First define the boundary, then execute the change. Because timeout and duplicate effects are risks, I compare consistency with latency, retry with idempotency, roll back or degrade on failure, and monitor p95, error rate, alerts, and a production runbook.",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "failure",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cost-reduction-medium",
+      "group_id": "cost-reduction",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "medium",
+      "question": "请说明一次成本优化及其取舍。",
+      "answer": "First execute the main path, then retry a failed step and use a timeout. This covers the basic mechanism but does not include production metrics or a complete tradeoff.",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: missing measurable metrics",
+        "production_gap: missing production feedback loop",
+        "tradeoff_gap: incomplete tradeoff",
+        "recovery_gap: missing compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cost-reduction-incorrect",
+      "group_id": "cost-reduction",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "incorrect",
+      "question": "请说明一次成本优化及其取舍。",
+      "answer": "The in-memory state is always reliable and never loses data, so we do not need monitoring, rollback, leases, or idempotency.",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cost-reduction-empty",
+      "group_id": "cost-reduction",
+      "partition": "dev",
+      "language": "en",
+      "question_type": "project_review",
+      "quality_label": "empty",
+      "question": "请说明一次成本优化及其取舍。",
+      "answer": "I do not know.",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-delivery-risk-strong",
+      "group_id": "delivery-risk",
+      "partition": "dev",
+      "language": "mixed",
+      "question_type": "project_review",
+      "quality_label": "strong",
+      "question": "请复盘一次延期风险的处理。",
+      "answer": "首先定义 boundary，然后执行 change；因为 timeout 和 duplicate effect 有风险，需要权衡 consistency 与 latency。失败时 retry + idempotency，并准备 rollback、degrade；线上监控 p95、error rate、告警和 runbook。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-delivery-risk-medium",
+      "group_id": "delivery-risk",
+      "partition": "dev",
+      "language": "mixed",
+      "question_type": "project_review",
+      "quality_label": "medium",
+      "question": "请复盘一次延期风险的处理。",
+      "answer": "先走 main path，然后对失败步骤 retry 并设置 timeout。覆盖了基本机制，但没有 production metrics 和完整 tradeoff。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少 measurable metrics",
+        "production_gap: 缺少 production feedback loop",
+        "tradeoff_gap: tradeoff 不完整",
+        "recovery_gap: 缺少 compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-delivery-risk-incorrect",
+      "group_id": "delivery-risk",
+      "partition": "dev",
+      "language": "mixed",
+      "question_type": "project_review",
+      "quality_label": "incorrect",
+      "question": "请复盘一次延期风险的处理。",
+      "answer": "内存状态 always reliable，never 丢数据，所以不需要 monitoring、rollback、lease 或 idempotency。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-delivery-risk-off_topic",
+      "group_id": "delivery-risk",
+      "partition": "dev",
+      "language": "mixed",
+      "question_type": "project_review",
+      "quality_label": "off_topic",
+      "question": "请复盘一次延期风险的处理。",
+      "answer": "我会调整 CSS color 和 button shadow，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for project_review; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-technical-conflict-strong",
+      "group_id": "technical-conflict",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "strong",
+      "question": "如何处理团队中的技术方案分歧？",
+      "answer": "首先定义 boundary，然后执行 change；因为 timeout 和 duplicate effect 有风险，需要权衡 consistency 与 latency。失败时 retry + idempotency，并准备 rollback、degrade；线上监控 p95、error rate、告警和 runbook。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-technical-conflict-medium",
+      "group_id": "technical-conflict",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "medium",
+      "question": "如何处理团队中的技术方案分歧？",
+      "answer": "先走 main path，然后对失败步骤 retry 并设置 timeout。覆盖了基本机制，但没有 production metrics 和完整 tradeoff。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少 measurable metrics",
+        "production_gap: 缺少 production feedback loop",
+        "tradeoff_gap: tradeoff 不完整",
+        "recovery_gap: 缺少 compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-technical-conflict-incorrect",
+      "group_id": "technical-conflict",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "incorrect",
+      "question": "如何处理团队中的技术方案分歧？",
+      "answer": "内存状态 always reliable，never 丢数据，所以不需要 monitoring、rollback、lease 或 idempotency。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-technical-conflict-empty",
+      "group_id": "technical-conflict",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "empty",
+      "question": "如何处理团队中的技术方案分歧？",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-priority-change-strong",
+      "group_id": "priority-change",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "strong",
+      "question": "需求优先级突然变化时如何处理？",
+      "answer": "首先定义 boundary，然后执行 change；因为 timeout 和 duplicate effect 有风险，需要权衡 consistency 与 latency。失败时 retry + idempotency，并准备 rollback、degrade；线上监控 p95、error rate、告警和 runbook。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-priority-change-medium",
+      "group_id": "priority-change",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "medium",
+      "question": "需求优先级突然变化时如何处理？",
+      "answer": "先走 main path，然后对失败步骤 retry 并设置 timeout。覆盖了基本机制，但没有 production metrics 和完整 tradeoff。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少 measurable metrics",
+        "production_gap: 缺少 production feedback loop",
+        "tradeoff_gap: tradeoff 不完整",
+        "recovery_gap: 缺少 compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-priority-change-incorrect",
+      "group_id": "priority-change",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "incorrect",
+      "question": "需求优先级突然变化时如何处理？",
+      "answer": "内存状态 always reliable，never 丢数据，所以不需要 monitoring、rollback、lease 或 idempotency。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-priority-change-off_topic",
+      "group_id": "priority-change",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "off_topic",
+      "question": "需求优先级突然变化时如何处理？",
+      "answer": "我会调整 CSS color 和 button shadow，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-ownership-strong",
+      "group_id": "ownership",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "strong",
+      "question": "请说明一次主动承担责任的经历。",
+      "answer": "首先定义 boundary，然后执行 change；因为 timeout 和 duplicate effect 有风险，需要权衡 consistency 与 latency。失败时 retry + idempotency，并准备 rollback、degrade；线上监控 p95、error rate、告警和 runbook。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-ownership-medium",
+      "group_id": "ownership",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "medium",
+      "question": "请说明一次主动承担责任的经历。",
+      "answer": "先走 main path，然后对失败步骤 retry 并设置 timeout。覆盖了基本机制，但没有 production metrics 和完整 tradeoff。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少 measurable metrics",
+        "production_gap: 缺少 production feedback loop",
+        "tradeoff_gap: tradeoff 不完整",
+        "recovery_gap: 缺少 compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-ownership-incorrect",
+      "group_id": "ownership",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "incorrect",
+      "question": "请说明一次主动承担责任的经历。",
+      "answer": "内存状态 always reliable，never 丢数据，所以不需要 monitoring、rollback、lease 或 idempotency。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-ownership-empty",
+      "group_id": "ownership",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "empty",
+      "question": "请说明一次主动承担责任的经历。",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-feedback-strong",
+      "group_id": "feedback",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "strong",
+      "question": "收到负面反馈后你如何改进？",
+      "answer": "首先定义 boundary，然后执行 change；因为 timeout 和 duplicate effect 有风险，需要权衡 consistency 与 latency。失败时 retry + idempotency，并准备 rollback、degrade；线上监控 p95、error rate、告警和 runbook。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-feedback-medium",
+      "group_id": "feedback",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "medium",
+      "question": "收到负面反馈后你如何改进？",
+      "answer": "先走 main path，然后对失败步骤 retry 并设置 timeout。覆盖了基本机制，但没有 production metrics 和完整 tradeoff。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少 measurable metrics",
+        "production_gap: 缺少 production feedback loop",
+        "tradeoff_gap: tradeoff 不完整",
+        "recovery_gap: 缺少 compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-feedback-incorrect",
+      "group_id": "feedback",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "incorrect",
+      "question": "收到负面反馈后你如何改进？",
+      "answer": "内存状态 always reliable，never 丢数据，所以不需要 monitoring、rollback、lease 或 idempotency。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-feedback-off_topic",
+      "group_id": "feedback",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "off_topic",
+      "question": "收到负面反馈后你如何改进？",
+      "answer": "我会调整 CSS color 和 button shadow，但这没有回答当前问题。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "off_topic_detection"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic off_topic calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cross-team-strong",
+      "group_id": "cross-team",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "strong",
+      "question": "如何推动跨团队依赖按时交付？",
+      "answer": "首先定义 boundary，然后执行 change；因为 timeout 和 duplicate effect 有风险，需要权衡 consistency 与 latency。失败时 retry + idempotency，并准备 rollback、degrade；线上监控 p95、error rate、告警和 runbook。",
+      "expected_score_range": [
+        80,
+        95
+      ],
+      "required_evidence": [
+        "失败",
+        "retry",
+        "p95"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "strong_underestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic strong calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cross-team-medium",
+      "group_id": "cross-team",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "medium",
+      "question": "如何推动跨团队依赖按时交付？",
+      "answer": "先走 main path，然后对失败步骤 retry 并设置 timeout。覆盖了基本机制，但没有 production metrics 和完整 tradeoff。",
+      "expected_score_range": [
+        45,
+        75
+      ],
+      "required_evidence": [
+        "retry",
+        "timeout"
+      ],
+      "required_missing_points": [
+        "metric_gap: 缺少 measurable metrics",
+        "production_gap: 缺少 production feedback loop",
+        "tradeoff_gap: tradeoff 不完整",
+        "recovery_gap: 缺少 compensation or recovery loop"
+      ],
+      "forbidden_claims": [],
+      "error_tags": [
+        "medium_overestimate"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic medium calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cross-team-incorrect",
+      "group_id": "cross-team",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "incorrect",
+      "question": "如何推动跨团队依赖按时交付？",
+      "answer": "内存状态 always reliable，never 丢数据，所以不需要 monitoring、rollback、lease 或 idempotency。",
+      "expected_score_range": [
+        0,
+        40
+      ],
+      "required_evidence": [
+        "always reliable"
+      ],
+      "required_missing_points": [],
+      "forbidden_claims": [
+        "天然可靠",
+        "always reliable"
+      ],
+      "error_tags": [
+        "technical_error_cap"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic incorrect calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    },
+    {
+      "case_id": "cal-cross-team-empty",
+      "group_id": "cross-team",
+      "partition": "blind",
+      "language": "mixed",
+      "question_type": "behavioral",
+      "quality_label": "empty",
+      "question": "如何推动跨团队依赖按时交付？",
+      "answer": "不知道。",
+      "expected_score_range": [
+        0,
+        10
+      ],
+      "required_evidence": [],
+      "required_missing_points": [],
+      "forbidden_claims": [],
+      "error_tags": [
+        "empty_semantics"
+      ],
+      "source_classification": "synthetic",
+      "contains_real_candidate_data": false,
+      "contains_principal_memory": false,
+      "annotation": {
+        "author_id": "synthetic-calibration-author-v1",
+        "reviewer_id": null,
+        "review_status": "pending",
+        "rationale": "Synthetic empty calibration example for behavioral; independent technical review is pending.",
+        "dispute_resolution": null
+      }
+    }
+  ]
+}

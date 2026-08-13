@@ -18,20 +18,29 @@ async function fillPrepSources(page, jobDescription = jd, resumeText = resume) {
   await page.getByLabel("简历内容").fill(resumeText);
 }
 
+async function openEvidencePanel(page) {
+  await page.getByRole("tab", { name: "证据", exact: true }).click();
+  const evidence = page.getByRole("region", { name: "知识证据" });
+  await expect(evidence).toBeVisible();
+  return evidence;
+}
+
 async function startInterview(page) {
   await page.goto("/prep");
   await fillPrepSources(page);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
   await expect(page.locator(".start-plan-question")).toHaveCount(5);
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence.locator("code")).toContainText("redis_consistency");
+  const evidence = await openEvidencePanel(page);
   const prepEvidenceIds = ["redis_consistency", "system_design_backend"];
-  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
+  for (const evidenceId of prepEvidenceIds) {
+    await expect(evidence.locator(`[data-evidence-id="${evidenceId}"]`)).toBeVisible();
+  }
+  await expect(evidence.locator("[data-evidence-id='redis_consistency'] code")).toContainText("redis_consistency");
+  await page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
-  await expect(
-    page.getByRole("status").filter({ hasText: "当前会话" }),
-  ).toContainText("面试进行中");
+  const runtimeStatus = page.getByRole("status").filter({ hasText: "当前会话" });
+  await expect(runtimeStatus).toHaveCount(1);
+  await expect(runtimeStatus).toContainText("面试进行中");
   return { sessionId: new URL(page.url()).searchParams.get("session_id"), prepEvidenceIds };
 }
 
@@ -47,12 +56,15 @@ test("independent React flow completes prep, SSE interview, report and PDF", asy
   await expect(page.locator(".agent-console")).toContainText("cache-aside");
 
   await page.getByRole("button", { name: "结束面试" }).click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", { name: "结束并生成报告" }).click();
+  const finishDialog = page.getByRole("dialog", { name: "结束面试并生成报告？" });
+  await expect(finishDialog).toBeVisible();
+  await finishDialog.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   await expect(page.locator(".report-detail-score-mark")).toContainText(String(reportBody.overall_score));
-  await expect(page.locator('[data-evidence-id="redis_consistency"]')).toBeVisible();
+  await expect(page.locator(".report-detail-feedback-references").first()).toContainText(
+    "redis_consistency",
+  );
 
   expect(reportBody.feedbacks[0].references.map((item) => item.chunk_id)).toEqual(["redis_consistency"]);
   const pdf = await request.get(`/api/interviews/${sessionId}/report.pdf`);
@@ -65,10 +77,9 @@ test("React preparation evidence is visible and bounded on mobile", async ({ pag
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/prep");
   await fillPrepSources(page);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence.locator("code")).toContainText("redis_consistency");
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
+  const evidence = await openEvidencePanel(page);
+  await expect(evidence.locator("[data-evidence-id='redis_consistency'] code")).toContainText("redis_consistency");
   const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
   expect(widths.document).toBeLessThanOrEqual(widths.viewport);
   await expect(page.locator("body")).not.toContainText("Internal benchmark answer");
@@ -77,19 +88,22 @@ test("React preparation evidence is visible and bounded on mobile", async ({ pag
 test("degraded knowledge is explicit and report completes without fake references", async ({ page, request }) => {
   await page.goto("/prep");
   await fillPrepSources(page, "Backend Redis role simulate degraded", "Built Redis APIs");
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  const evidence = page.locator(".start-plan-question-evidence").first();
-  await evidence.click();
-  await expect(evidence).toContainText("知识证据不可用");
+  await page.getByRole("button", { name: /生成(?:并检查)?面试计划/ }).click();
+  const evidence = await openEvidencePanel(page);
+  await expect(evidence).toContainText("知识检索已降级");
+  await expect(evidence.locator("[data-evidence-id]")).toHaveCount(0);
   await expect(evidence.locator("code")).toHaveCount(0);
-  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
+  await page.getByRole("button", { name: /^(?:确认版本并)?开始(?:本次)?面试$/ }).click();
   await expect(page).toHaveURL(/\/interview\?session_id=/);
   const sessionId = new URL(page.url()).searchParams.get("session_id");
   await page.getByRole("button", { name: "结束面试" }).click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", { name: "结束并生成报告" }).click();
+  const finishDialog = page.getByRole("dialog", { name: "结束面试并生成报告？" });
+  await expect(finishDialog).toBeVisible();
+  await finishDialog.getByRole("button", { name: "确认结束面试" }).click();
   await expect(page).toHaveURL(/\/report-detail\?session_id=/, { timeout: 15_000 });
-  await expect(page.locator("#evidence")).toContainText("没有可公开的知识引用");
+  await expect(page.locator(".report-detail-feedback-references").first()).toContainText(
+    "没有可公开的知识引用",
+  );
   const reportBody = await (await request.get(`/api/interviews/${sessionId}/report`)).json();
   expect(reportBody.feedbacks[0].references).toEqual([]);
 });

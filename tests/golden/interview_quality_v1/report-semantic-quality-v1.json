@@ -1,0 +1,28 @@
+{
+  "schema_version": "interview-quality-dataset-contract-v1",
+  "dataset_id": "report-semantic-quality-v1",
+  "dataset_version": "report-semantic-quality-v1",
+  "description": "Synthetic schema fixture for report semantic boundaries.",
+  "fixture_only": true,
+  "cases": [
+    {
+      "case_id": "semantic-experience-boundary-zh-dev-001",
+      "case_version": 1,
+      "language": "zh-Hans",
+      "case_type": "report_semantic",
+      "question_type": "project",
+      "difficulty": "intermediate",
+      "quality_label": "incorrect",
+      "partition": "dev",
+      "source_boundary": {"classification": "synthetic", "description": "Synthetic answer and a report claim that exceeds its evidence.", "contains_real_candidate_data": false, "contains_employer_confidential_data": false, "contains_principal_memory": false},
+      "input": {"answer": "我会先查看指标，再决定是否回滚。", "candidate_report_claim": "候选人曾主导大型支付系统事故处理。"},
+      "expectation": {"action": "reject_claim", "score_range": null},
+      "must_have_evidence": ["回答只描述处理方法，没有陈述真实项目经历"],
+      "forbidden_inference": ["不得补充支付系统、大型规模或主导角色"],
+      "annotation": {"annotator_id": "synthetic-fixture-author-v1", "reviewer_id": null, "review_status": "pending", "dispute_status": "none", "resolution": null},
+      "provider_allowed": true,
+      "gate_eligible": false,
+      "hashes": {"algorithm": "sha256-canonical-json-v1", "source_sha256": "4bf0cb4d13383c7a5372271de3ada0ecf937f6d50d7181333f0e20d21bfe9337", "content_sha256": "deab747e9f8552741db2459a2afd6390df70f12c5227618b34a0dfbbafa04139"}
+    }
+  ]
+}

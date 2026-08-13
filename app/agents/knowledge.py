@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import inspect
+from typing import TYPE_CHECKING
 
 from app.ports.runtime import KnowledgeRepository
 from app.services.job_tags import extract_job_tags
@@ -15,8 +18,12 @@ from app.services.llm import InterviewLLM
 from app.services.prep import (
     InterviewPlan,
     attach_prep_context,
+    enforce_generated_interview_plan,
     validate_launchable_interview_plan,
 )
+
+if TYPE_CHECKING:
+    from app.services.interview_plan_revision import PlanConfigurationSnapshot
 
 
 class KnowledgeAgent:
@@ -34,12 +41,20 @@ class KnowledgeAgent:
         job_description: str,
         resume_text: str,
         prep_run_id: str | None = None,
+        configuration: PlanConfigurationSnapshot | None = None,
     ) -> InterviewPlan:
         llm = self.llm or self._default_llm()
         vector_store = self.vector_store
         if vector_store is None and self.llm is not None:
-            plan = validate_launchable_interview_plan(
-                llm.generate_plan(job_description, resume_text)
+            plan = self._validate_generated_plan(
+                self._generate_provider_plan(
+                    llm,
+                    job_description=job_description,
+                    resume_text=resume_text,
+                    knowledge_context=[],
+                    configuration=configuration,
+                ),
+                configuration,
             )
             return attach_prep_context(
                 plan,
@@ -59,13 +74,15 @@ class KnowledgeAgent:
             )
         except Exception:
             grounding = degraded_grounding(queries, "knowledge_unavailable")
-        plan = validate_launchable_interview_plan(
+        plan = self._validate_generated_plan(
             self._generate_provider_plan(
                 llm,
                 job_description=job_description,
                 resume_text=resume_text,
                 knowledge_context=provider_knowledge_context(grounding),
-            )
+                configuration=configuration,
+            ),
+            configuration,
         )
         grounding = supplement_question_grounding(
             plan,
@@ -90,22 +107,38 @@ class KnowledgeAgent:
         job_description: str,
         resume_text: str,
         knowledge_context: list[dict],
+        configuration: PlanConfigurationSnapshot | None,
     ) -> InterviewPlan:
         try:
             signature = inspect.signature(llm.generate_plan)
-            supports_context = "knowledge_context" in signature.parameters or any(
+            supports_kwargs = any(
                 parameter.kind is inspect.Parameter.VAR_KEYWORD
                 for parameter in signature.parameters.values()
             )
+            supports_context = (
+                "knowledge_context" in signature.parameters or supports_kwargs
+            )
+            supports_configuration = (
+                "configuration" in signature.parameters or supports_kwargs
+            )
         except (TypeError, ValueError):
             supports_context = False
+            supports_configuration = False
+        kwargs = {}
         if supports_context:
-            return llm.generate_plan(
-                job_description,
-                resume_text,
-                knowledge_context=knowledge_context,
-            )
-        return llm.generate_plan(job_description, resume_text)
+            kwargs["knowledge_context"] = knowledge_context
+        if supports_configuration and configuration is not None:
+            kwargs["configuration"] = configuration
+        return llm.generate_plan(job_description, resume_text, **kwargs)
+
+    @staticmethod
+    def _validate_generated_plan(
+        plan: InterviewPlan,
+        configuration: PlanConfigurationSnapshot | None,
+    ) -> InterviewPlan:
+        if configuration is None:
+            return validate_launchable_interview_plan(plan)
+        return enforce_generated_interview_plan(plan, configuration)
 
     @staticmethod
     def _default_vector_store() -> KnowledgeRepository:

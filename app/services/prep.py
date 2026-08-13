@@ -1,14 +1,17 @@
-from typing import TYPE_CHECKING, Literal
+from collections import Counter
+from typing import Any, TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
+from app.services.interview_plan_knowledge import PlanQuestionKnowledgeBinding
 from app.services.llm import InterviewLLM
 from app.domain.knowledge.evidence import BaseEvidenceBundle, QuestionEvidenceBinding
 from app.domain.knowledge.rollout import KnowledgeEngineAssignment
 
 if TYPE_CHECKING:
     from app.ports.runtime import KnowledgeRepository
+    from app.services.interview_plan_revision import PlanConfigurationSnapshot
 
 
 class RoleProfile(BaseModel):
@@ -96,6 +99,9 @@ class PrepContext(BaseModel):
     role_profile: RoleProfile | None = None
     evidence_refs: list[KnowledgeEvidenceRef] = Field(default_factory=list)
     binding_snapshot: KnowledgeBindingSnapshot | None = None
+    question_bindings: dict[str, PlanQuestionKnowledgeBinding] = Field(
+        default_factory=dict
+    )
 
 
 class InterviewQuestion(BaseModel):
@@ -118,6 +124,8 @@ class InterviewPlan(BaseModel):
     title: str
     questions: list[InterviewQuestion]
     prep_context: PrepContext | None = None
+    _revision_plan: Any = PrivateAttr(default=None)
+    _generation_enforcement: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @field_validator("title", mode="before")
     @classmethod
@@ -127,11 +135,247 @@ class InterviewPlan(BaseModel):
         return value.strip()
 
 
+class PlanGenerationValidationError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
-def validate_launchable_interview_plan(plan: InterviewPlan) -> InterviewPlan:
-    question_ids = [question.id for question in plan.questions]
-    if not 3 <= len(question_ids) <= 5:
-        raise ValueError("launchable interview plans require 3 to 5 questions")
+
+def validate_generation_configuration(
+    configuration: "PlanConfigurationSnapshot",
+) -> "PlanConfigurationSnapshot":
+    from app.services.interview_plan_budget import (
+        MAX_SAFE_MAIN_QUESTION_COUNT,
+        MIN_SAFE_MAIN_QUESTION_COUNT,
+    )
+    from app.services.interview_plan_revision import (
+        DEFAULT_PLAN_GENERATOR_VERSION,
+        PlanConfigurationSnapshot,
+    )
+
+    validated = PlanConfigurationSnapshot.model_validate(
+        configuration.model_dump(mode="json", warnings=False)
+    )
+    if validated.generator_version != DEFAULT_PLAN_GENERATOR_VERSION:
+        raise PlanGenerationValidationError(
+            "unsupported_plan_generator_version",
+            "requested plan generator version is not deployed",
+        )
+    question_count = sum(validated.question_type_budget.values())
+    if not (
+        MIN_SAFE_MAIN_QUESTION_COUNT
+        <= question_count
+        <= MAX_SAFE_MAIN_QUESTION_COUNT
+    ):
+        raise PlanGenerationValidationError(
+            "configured_question_count_out_of_range",
+            "configured generation question count must be 1 to 10",
+        )
+    if (
+        validated.expected_followup_budget
+        > question_count * validated.max_followups_per_question
+    ):
+        raise PlanGenerationValidationError(
+            "configured_followup_budget_exceeds_hard_limit",
+            "configured expected follow-up budget exceeds the per-question hard limit",
+        )
+    return validated
+
+
+def enforce_generated_interview_plan(
+    plan: InterviewPlan,
+    configuration: "PlanConfigurationSnapshot",
+) -> InterviewPlan:
+    """Validate and deterministically enforce one configured Provider result.
+
+    Over-budget output may only be trimmed to its consecutive q1..qN prefix.
+    The retained prefix must still match the exact per-type generation target;
+    otherwise the Provider result is rejected rather than silently rewritten.
+    """
+    from app.services.interview_plan_budget import (
+        MAX_SAFE_MAIN_QUESTION_COUNT,
+        QUESTION_TYPE_ORDER,
+    )
+
+    prior_enforcement = dict(plan._generation_enforcement)
+    configuration = validate_generation_configuration(configuration)
+    validated = InterviewPlan.model_validate(
+        plan.model_dump(mode="json", warnings=False)
+    )
+    provider_count = len(validated.questions)
+    target_count = sum(configuration.question_type_budget.values())
+    expected_ids = [f"q{index}" for index in range(1, provider_count + 1)]
+    actual_ids = [question.id for question in validated.questions]
+    if actual_ids != expected_ids:
+        raise PlanGenerationValidationError(
+            "provider_question_sequence_invalid",
+            "Provider question IDs must be unique and consecutive q1..qN",
+        )
+    if provider_count < target_count:
+        raise PlanGenerationValidationError(
+            "provider_question_count_under_budget",
+            "Provider returned fewer questions than the configured target",
+        )
+    if provider_count > MAX_SAFE_MAIN_QUESTION_COUNT:
+        raise PlanGenerationValidationError(
+            "provider_question_count_above_safe_maximum",
+            "Provider returned more than the safe maximum of 10 questions",
+        )
+
+    retained = list(validated.questions[:target_count])
+    normalized_prompts = [
+        " ".join(question.prompt.casefold().split()) for question in retained
+    ]
+    if len(normalized_prompts) != len(set(normalized_prompts)):
+        raise PlanGenerationValidationError(
+            "provider_duplicate_question",
+            "Provider returned duplicate question text",
+        )
+    expected_types = {
+        question_type: configuration.question_type_budget.get(question_type, 0)
+        for question_type in QUESTION_TYPE_ORDER
+    }
+    actual_counter = Counter(question.kind for question in retained)
+    actual_types = {
+        question_type: actual_counter.get(question_type, 0)
+        for question_type in QUESTION_TYPE_ORDER
+    }
+    if actual_types != expected_types:
+        raise PlanGenerationValidationError(
+            "provider_question_type_budget_mismatch",
+            "Provider question types do not match the configured exact budget",
+        )
+
+    enforced = validated.model_copy(update={"questions": retained})
+    enforced._generation_enforcement = prior_enforcement or {
+        "action": "trimmed" if provider_count > target_count else "accepted",
+        "provider_question_count": provider_count,
+        "retained_question_count": target_count,
+    }
+    return validate_launchable_interview_plan(enforced, configuration)
+
+
+def bind_prepared_plan_revision(
+    plan: InterviewPlan,
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    from app.services.interview_plan_budget import assess_interview_plan_budget
+    from app.services.interview_plan_revision import (
+        legacy_plan_to_v2,
+        v2_plan_to_legacy,
+    )
+
+    revision_plan = legacy_plan_to_v2(
+        plan,
+        configuration_snapshot=configuration,
+    )
+    assessment = assess_interview_plan_budget(revision_plan)
+    if not assessment.launch_allowed:
+        raise PlanGenerationValidationError(
+            "generated_plan_not_launchable",
+            "generated plan violates the launch safety boundary",
+        )
+    bound_legacy = v2_plan_to_legacy(revision_plan)
+    plan.questions = bound_legacy.questions
+    plan.prep_context = bound_legacy.prep_context
+    plan._revision_plan = revision_plan
+    return plan
+
+
+def prepared_plan_revision(
+    plan: InterviewPlan,
+    configuration: "PlanConfigurationSnapshot | None" = None,
+):
+    from app.services.interview_plan_revision import (
+        InterviewPlanV2,
+        v2_plan_to_legacy,
+    )
+
+    revision_plan = plan._revision_plan
+    if revision_plan is None:
+        bind_prepared_plan_revision(plan, configuration)
+        revision_plan = plan._revision_plan
+    validated = InterviewPlanV2.model_validate(
+        revision_plan.model_dump(mode="json", warnings=False)
+    )
+    current_legacy = InterviewPlan.model_validate(
+        plan.model_dump(mode="json", warnings=False)
+    )
+    round_tripped_legacy = v2_plan_to_legacy(validated)
+    if [item.id for item in current_legacy.questions] != [
+        item.question_id for item in validated.questions
+    ]:
+        raise PlanGenerationValidationError(
+            "prepared_plan_identity_mismatch",
+            "prepared legacy plan identity changed after its V2 revision was bound",
+        )
+    if _legacy_plan_semantics(current_legacy) != _legacy_plan_semantics(
+        round_tripped_legacy
+    ):
+        raise PlanGenerationValidationError(
+            "prepared_plan_payload_mismatch",
+            "prepared legacy plan changed after its V2 revision was bound",
+        )
+    if (
+        configuration is not None
+        and validated.configuration_snapshot
+        != validate_generation_configuration(configuration)
+    ):
+        raise PlanGenerationValidationError(
+            "prepared_configuration_mismatch",
+            "prepared plan configuration does not match the requested snapshot",
+        )
+    return validated
+
+
+def _legacy_plan_semantics(plan: InterviewPlan) -> dict[str, Any]:
+    return {
+        "title": plan.title,
+        "questions": [
+            {
+                "kind": question.kind,
+                "prompt": question.prompt,
+                "focus": question.focus,
+            }
+            for question in plan.questions
+        ],
+        "prep_context": (
+            plan.prep_context.model_dump(mode="json")
+            if plan.prep_context is not None
+            else None
+        ),
+    }
+
+
+
+def validate_launchable_interview_plan(
+    plan: InterviewPlan,
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    validated_plan = InterviewPlan.model_validate(
+        plan.model_dump(mode="json", warnings=False)
+    )
+    question_ids = [question.id for question in validated_plan.questions]
+    if configuration is None:
+        minimum, maximum = 3, 5
+    else:
+        from app.services.interview_plan_budget import (
+            MAX_SAFE_MAIN_QUESTION_COUNT,
+            MIN_SAFE_MAIN_QUESTION_COUNT,
+        )
+        from app.services.interview_plan_revision import (
+            PlanConfigurationSnapshot,
+        )
+
+        PlanConfigurationSnapshot.model_validate(
+            configuration.model_dump(mode="json", warnings=False)
+        )
+        minimum = MIN_SAFE_MAIN_QUESTION_COUNT
+        maximum = MAX_SAFE_MAIN_QUESTION_COUNT
+    if not minimum <= len(question_ids) <= maximum:
+        raise ValueError(
+            f"launchable interview plans require {minimum} to {maximum} questions"
+        )
     if len(question_ids) != len(set(question_ids)):
         raise ValueError("launchable interview question ids must be unique")
     expected_ids = [f"q{index}" for index in range(1, len(question_ids) + 1)]
@@ -142,9 +386,33 @@ def validate_launchable_interview_plan(plan: InterviewPlan) -> InterviewPlan:
 
 def public_interview_plan_payload(plan: InterviewPlan) -> dict:
     payload = plan.model_dump(mode="json", exclude_none=True)
-    context = payload.get("prep_context")
+    _sanitize_public_prep_context(payload.get("prep_context"))
+    return payload
+
+
+def public_interview_plan_v2_payload(plan) -> dict:
+    payload = plan.model_dump(mode="json", exclude_none=True)
+    _sanitize_public_prep_context(payload.get("prep_context"))
+    for question in payload.get("questions", []):
+        binding = question.get("knowledge_binding")
+        if not isinstance(binding, dict):
+            continue
+        question["knowledge_binding"] = {
+            key: binding[key]
+            for key in (
+                "schema_version",
+                "status",
+                "evidence_ids",
+                "reason_code",
+            )
+            if key in binding
+        }
+    return payload
+
+
+def _sanitize_public_prep_context(context: object) -> None:
     if not isinstance(context, dict):
-        return payload
+        return
 
     public_evidence = []
     for evidence in context.get("evidence_refs", []):
@@ -163,11 +431,11 @@ def public_interview_plan_payload(plan: InterviewPlan) -> dict:
         )
     context["evidence_refs"] = public_evidence
     context.pop("binding_snapshot", None)
+    context.pop("question_bindings", None)
 
     role_profile = context.get("role_profile")
     if isinstance(role_profile, dict):
         role_profile.pop("resume_signals", None)
-    return payload
 
 
 def prepare_interview(
@@ -176,9 +444,16 @@ def prepare_interview(
     llm: InterviewLLM | None = None,
     knowledge_store: "KnowledgeRepository | None" = None,
     execution_runner=None,
+    configuration: "PlanConfigurationSnapshot | None" = None,
+    allow_fallback: bool = True,
 ) -> InterviewPlan:
     job_description = _require_text("job_description", job_description)
     resume_text = _require_text("resume_text", resume_text)
+    effective_configuration = (
+        validate_generation_configuration(configuration)
+        if configuration is not None
+        else None
+    )
 
     from app.agents.knowledge import KnowledgeAgent
     from app.services.agent_runtime import (
@@ -198,31 +473,76 @@ def prepare_interview(
     )
     agent = KnowledgeAgent(llm=llm, vector_store=knowledge_store)
 
-    def fallback_plan(_exc: Exception) -> AgentFallback[InterviewPlan]:
+    def fallback_plan(exc: Exception) -> AgentFallback[InterviewPlan]:
         from app.services.job_tags import extract_job_tags
 
         plan = attach_prep_context(
-            fallback_interview_plan(),
+            fallback_interview_plan(effective_configuration),
             job_description=job_description,
             resume_text=resume_text,
             job_tags=extract_job_tags(job_description),
         )
-        return AgentFallback(plan, "plan_generation_failed")
+        return AgentFallback(
+            bind_prepared_plan_revision(plan, effective_configuration),
+            (
+                exc.code
+                if isinstance(exc, PlanGenerationValidationError)
+                else "plan_generation_failed"
+            ),
+        )
 
-    return runner.run(
-        context,
-        lambda: agent.generate_plan(
+    def invoke_plan() -> InterviewPlan:
+        plan = agent.generate_plan(
             job_description=job_description,
             resume_text=resume_text,
             prep_run_id=correlation_id,
-        ),
-        fallback=fallback_plan,
-        metadata=lambda plan: {
+            configuration=effective_configuration,
+        )
+        return bind_prepared_plan_revision(plan, effective_configuration)
+
+    def trace_metadata(plan: InterviewPlan) -> dict[str, Any]:
+        from app.services.interview_plan_budget import (
+            INTERVIEW_PLAN_BUDGET_VERSION,
+        )
+        from app.services.interview_plan_revision import (
+            plan_configuration_sha256,
+            plan_payload_sha256,
+        )
+
+        revision_plan = prepared_plan_revision(plan, effective_configuration)
+        enforcement = dict(plan._generation_enforcement)
+        return {
             "question_count": len(plan.questions),
             "knowledge_status": (
-                plan.prep_context.knowledge_status if plan.prep_context else "legacy"
+                plan.prep_context.knowledge_status
+                if plan.prep_context
+                else "legacy"
             ),
-        },
+            "configuration_sha256": plan_configuration_sha256(
+                revision_plan.configuration_snapshot
+            ),
+            "plan_sha256": plan_payload_sha256(revision_plan),
+            "generator_version": (
+                revision_plan.configuration_snapshot.generator_version
+            ),
+            "budget_version": INTERVIEW_PLAN_BUDGET_VERSION,
+            "target_duration_minutes": (
+                revision_plan.configuration_snapshot.target_duration_minutes
+            ),
+            "generation_enforcement_action": enforcement.get("action"),
+            "provider_question_count": enforcement.get(
+                "provider_question_count"
+            ),
+            "retained_question_count": enforcement.get(
+                "retained_question_count"
+            ),
+        }
+
+    return runner.run(
+        context,
+        invoke_plan,
+        fallback=fallback_plan if allow_fallback else None,
+        metadata=trace_metadata,
         classify=lambda plan: (
             AgentOutcome(
                 status="degraded",
@@ -240,7 +560,18 @@ def prepare_interview(
     )
 
 
-def fallback_interview_plan() -> InterviewPlan:
+def fallback_interview_plan(
+    configuration: "PlanConfigurationSnapshot | None" = None,
+) -> InterviewPlan:
+    if configuration is not None:
+        from app.services.interview_plan_revision import (
+            PlanConfigurationSnapshot,
+        )
+
+        validated_configuration = PlanConfigurationSnapshot.model_validate(
+            configuration.model_dump(mode="json", warnings=False)
+        )
+        return _configured_fallback_interview_plan(validated_configuration)
     return InterviewPlan(
         title="基础模拟面试",
         questions=[
@@ -263,6 +594,117 @@ def fallback_interview_plan() -> InterviewPlan:
                 focus="系统设计",
             ),
         ],
+    )
+
+
+_CONFIGURED_FALLBACK_TEMPLATES = {
+    "project": (
+        (
+            "请选择一个最匹配岗位的真实项目，说明背景、你的职责、关键决策和结果。",
+            "项目职责与结果",
+        ),
+        (
+            "请复盘一个项目中的困难取舍，说明备选方案、选择依据和验证方式。",
+            "项目取舍",
+        ),
+        (
+            "请说明一次跨角色协作经历，以及你如何推动风险收敛和结果交付。",
+            "项目协作",
+        ),
+    ),
+    "technical": (
+        (
+            "请选择一个核心技术点，说明原理、边界、失败场景和兜底方案。",
+            "技术深度",
+        ),
+        (
+            "请分析一次性能或稳定性问题，说明证据、根因、修复和复测。",
+            "故障诊断",
+        ),
+        (
+            "请比较两个可行技术方案，并说明适用条件、代价和决策依据。",
+            "技术取舍",
+        ),
+    ),
+    "system-design": (
+        (
+            "请设计一个可扩展服务，说明容量、数据、故障隔离和演进路径。",
+            "系统设计",
+        ),
+        (
+            "如果流量扩大十倍，请说明瓶颈判断、扩容顺序和可观测性方案。",
+            "容量规划",
+        ),
+        (
+            "请设计跨区域故障恢复方案，并说明一致性、可用性和成本取舍。",
+            "可靠性设计",
+        ),
+    ),
+    "behavioral": (
+        (
+            "请说明一次你主动发现并推动解决工程风险的经历。",
+            "主动性",
+        ),
+        (
+            "请说明一次意见分歧，以及你如何用事实促成决策。",
+            "沟通协作",
+        ),
+        (
+            "请复盘一次未达到预期的结果，以及后续改进如何验证。",
+            "复盘成长",
+        ),
+    ),
+}
+
+_DIFFICULTY_PREFIX = {
+    "foundation": "请先清楚说明基础概念，再结合实际例子回答：",
+    "intermediate": "请结合真实约束和取舍回答：",
+    "advanced": "请在复杂约束、失败模式和演进成本下深入回答：",
+}
+
+
+def _configured_fallback_interview_plan(
+    configuration: "PlanConfigurationSnapshot",
+) -> InterviewPlan:
+    from app.services.interview_plan_budget import (
+        MAX_SAFE_MAIN_QUESTION_COUNT,
+        MIN_SAFE_MAIN_QUESTION_COUNT,
+        QUESTION_TYPE_ORDER,
+    )
+
+    question_count = sum(configuration.question_type_budget.values())
+    if not (
+        MIN_SAFE_MAIN_QUESTION_COUNT
+        <= question_count
+        <= MAX_SAFE_MAIN_QUESTION_COUNT
+    ):
+        raise ValueError("configured fallback question count must be 1 to 10")
+    questions: list[InterviewQuestion] = []
+    prefix = _DIFFICULTY_PREFIX[configuration.difficulty]
+    for question_type in QUESTION_TYPE_ORDER:
+        type_count = configuration.question_type_budget.get(question_type, 0)
+        templates = _CONFIGURED_FALLBACK_TEMPLATES[question_type]
+        for type_index in range(type_count):
+            prompt, focus = templates[type_index % len(templates)]
+            if type_index >= len(templates):
+                prompt = (
+                    f"{prompt} 请使用与前面不同的场景"
+                    f"（{type_index + 1}）。"
+                )
+            questions.append(
+                InterviewQuestion(
+                    id=f"q{len(questions) + 1}",
+                    kind=question_type,
+                    prompt=f"{prefix}{prompt}",
+                    focus=f"{focus} · {configuration.focus_preset}",
+                )
+            )
+    return InterviewPlan(
+        title=(
+            f"{configuration.target_duration_minutes} 分钟"
+            f"{configuration.difficulty} 模拟面试"
+        ),
+        questions=questions,
     )
 
 

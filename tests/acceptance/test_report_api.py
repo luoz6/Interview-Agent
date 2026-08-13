@@ -1,15 +1,25 @@
 """HTTP acceptance tests for report lifecycle and public API contracts."""
 
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 
 import app.api.reports.routes as report_route_module
+import app.api.prep.routes as prep_route_module
 import app.api.shared.dependencies as api_dependencies
 from app.api.shared.dependencies import get_session_store
 from app.main import app
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    prepare_interview as prepare_interview_service,
+)
 from app.services.in_memory_interview_launch_repository import InMemoryInterviewLaunchRepository
 from app.services.in_memory_prep_plan_store import InMemoryPrepPlanStore
+from app.services.interview_plan_revision_store import (
+    InMemoryInterviewPlanRevisionStore,
+)
 from app.services.question_evaluations import question_evaluation_from_feedback
 from app.services.report import (
     DimensionScores,
@@ -22,13 +32,20 @@ from app.domain.knowledge.models import KnowledgeChunk
 
 
 _ORIGINAL_GET_REPORT_JOB_STORE = api_dependencies.get_report_job_store
+_ORIGINAL_PREPARE_INTERVIEW = prep_route_module.prepare_interview
 
 
 class ReportApiLLM:
     def __init__(self) -> None:
         self.report_calls = 0
 
-    def generate_plan(self, job_description: str, resume_text: str) -> InterviewPlan:
+    def generate_plan(
+        self,
+        job_description: str,
+        resume_text: str,
+        knowledge_context=None,
+        configuration=None,
+    ) -> InterviewPlan:
         return InterviewPlan(
             title="Backend mock interview",
             questions=[
@@ -134,6 +151,7 @@ def make_report_model(
     *,
     score: int = 81,
     summary: str = "Clear project story with practical tradeoffs.",
+    question_id: str = "q1",
 ) -> InterviewReport:
     return InterviewReport(
         session_id=session_id,
@@ -143,7 +161,7 @@ def make_report_model(
         highlights=["Explained tradeoffs"],
         feedbacks=[
             InterviewFeedback(
-                question_id="q1",
+                question_id=question_id,
                 question_text="Introduce a backend project.",
                 user_answer="The candidate built a backend cache service.",
                 score=score,
@@ -224,11 +242,27 @@ def make_client():
     store = InterviewSessionStore(llm=llm)
     job_store = FakeReportJobStore(store)
     prep_plan_store = InMemoryPrepPlanStore()
+    plan_revision_store = InMemoryInterviewPlanRevisionStore()
     launch_repository = InMemoryInterviewLaunchRepository()
     app.dependency_overrides[get_session_store] = lambda: store
     app.dependency_overrides[api_dependencies.get_prep_plan_store] = lambda: prep_plan_store
+    app.dependency_overrides[api_dependencies.get_plan_revision_store] = (
+        lambda: plan_revision_store
+    )
     app.dependency_overrides[api_dependencies.get_interview_launch_repository] = (
         lambda: launch_repository
+    )
+    prep_route_module.prepare_interview = (
+        lambda job_description,
+        resume_text,
+        execution_runner=None,
+        configuration=None: prepare_interview_service(
+            job_description,
+            resume_text,
+            llm=llm,
+            execution_runner=execution_runner,
+            configuration=configuration,
+        )
     )
     api_dependencies.get_report_job_store = lambda: job_store
     client = TestClient(app)
@@ -240,6 +274,7 @@ def make_client():
 def teardown_function():
     app.dependency_overrides.clear()
     api_dependencies.get_report_job_store = _ORIGINAL_GET_REPORT_JOB_STORE
+    prep_route_module.prepare_interview = _ORIGINAL_PREPARE_INTERVIEW
 
 
 def test_public_report_error_fallback_only_classifies_explicit_queue_failure():
@@ -260,15 +295,51 @@ def test_retry_exhaustion_is_explicitly_terminal_even_with_frontend_guidance():
 
 
 def start_interview(client: TestClient) -> str:
-    response = client.post(
-        "/api/interviews",
+    prepared = client.post(
+        "/api/prep",
         json={
             "job_description": "Backend role using Python and Redis.",
             "resume_text": "Built a Python API with Redis.",
+            "configuration": {
+                "difficulty": "intermediate",
+                "target_duration_minutes": 15,
+                "focus_preset": "balanced",
+                "question_type_budget": {
+                    "project": 1,
+                    "technical": 1,
+                    "system-design": 1,
+                },
+                "expected_followup_budget": 3,
+                "generator_version": "plan-generator-v2",
+                "followup_policy_version": "fixed_v1",
+            },
+        },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    response = client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": revision["plan_revision_id"],
+            "expected_revision": revision["revision"],
+            "plan_sha256": revision["plan_sha256"],
+            "request_id": f"report-api-start-{uuid4()}",
         },
     )
     assert response.status_code == 200
     return response.json()["session_id"]
+
+
+def start_legacy_interview(client: TestClient) -> str:
+    # Practice-plan behavior is independent of the deprecated raw-source
+    # launch path; use the authoritative saved revision contract here.
+    session_id = start_interview(client)
+    practice_plan_store = InMemoryPrepPlanStore()
+    app.dependency_overrides[api_dependencies.get_prep_plan_store] = (
+        lambda: practice_plan_store
+    )
+    client.practice_plan_store = practice_plan_store
+    return session_id
 
 
 def finish_session(store: InterviewSessionStore, session_id: str) -> None:
@@ -398,7 +469,7 @@ def test_reports_endpoint_lists_completed_failed_and_processing_reports():
     ]
     assert body["items"][0]["overall_score"] is None
     assert body["items"][0]["report_pdf_url"] is None
-    assert body["items"][1]["error"] == "llm timeout"
+    assert body["items"][1]["error"] == "Report generation timed out."
     assert body["items"][2]["overall_score"] == 81
     assert body["items"][2]["summary"] == "Completed summary."
     assert body["items"][2]["answered_question_count"] == 1
@@ -599,10 +670,11 @@ def test_completed_report_endpoint_returns_authoritative_reliability_object():
 
 def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
     client, store, _, _ = make_client()
-    session_id = start_interview(client)
+    session_id = start_legacy_interview(client)
+    question_ids = [item.id for item in store.get(session_id)["plan"].questions]
     responses = answer_all_questions(client, session_id)
     assert all(response.status_code == 200 for response in responses)
-    report = make_report_model(session_id)
+    report = make_report_model(session_id, question_id=question_ids[0])
     report = report.model_copy(
         update={
             "overall_dimension_scores": report.overall_dimension_scores.model_copy(
@@ -628,7 +700,7 @@ def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
         mappings=[
             {
                 "plan_question_id": f"pq-source-{index}",
-                "session_question_id": f"q{index}",
+                "session_question_id": question_ids[index - 1],
                 "position": index,
                 "kind": "technical",
             }
@@ -640,7 +712,7 @@ def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
         f"/api/interviews/{session_id}/practice-plan",
         json={
             "focus_dimension": "engineering",
-            "session_question_ids": ["q1"],
+            "session_question_ids": [question_ids[0]],
             "mode": "targeted",
         },
     )
@@ -652,7 +724,7 @@ def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
     assert len(body["questions"]) == 3
     assert body["practice_provenance"] == {
         "source_session_id": session_id,
-        "source_session_question_ids": ["q1"],
+        "source_session_question_ids": [question_ids[0]],
         "source_plan_question_ids": ["pq-source-1"],
         "source_report_id": session_id,
         "focus_dimension": "engineering",
@@ -661,7 +733,7 @@ def test_practice_plan_endpoint_returns_new_editable_plan_with_provenance():
 
 def test_practice_plan_endpoint_rejects_unfinished_report_without_creating_plan():
     client, _, _, _ = make_client()
-    session_id = start_interview(client)
+    session_id = start_legacy_interview(client)
 
     response = client.post(
         f"/api/interviews/{session_id}/practice-plan",
@@ -719,10 +791,11 @@ def test_practice_plan_endpoint_returns_stable_semantic_validation_errors(
     expected_code,
 ):
     client, store, _, _ = make_client()
-    session_id = start_interview(client)
+    session_id = start_legacy_interview(client)
+    question_ids = [item.id for item in store.get(session_id)["plan"].questions]
     responses = answer_all_questions(client, session_id)
     assert all(response.status_code == 200 for response in responses)
-    report = make_report_model(session_id)
+    report = make_report_model(session_id, question_id=question_ids[0])
     report = report.model_copy(
         update={
             "overall_dimension_scores": report.overall_dimension_scores.model_copy(
@@ -741,9 +814,20 @@ def test_practice_plan_endpoint_returns_stable_semantic_validation_errors(
         ],
     )
 
+    token_to_question_id = {
+        f"q{index}": question_id
+        for index, question_id in enumerate(question_ids, start=1)
+    }
+    request_payload = {
+        **payload,
+        "session_question_ids": [
+            token_to_question_id.get(item, item)
+            for item in payload["session_question_ids"]
+        ],
+    }
     response = client.post(
         f"/api/interviews/{session_id}/practice-plan",
-        json=payload,
+        json=request_payload,
     )
 
     assert response.status_code == 422
@@ -1169,7 +1253,7 @@ def test_finished_answer_fails_report_without_process_coupled_fallback_when_job_
 
     report_response = client.get(f"/api/interviews/{session_id}/report")
     assert report_response.status_code == 500
-    assert report_response.json()["detail"] == "report queue unavailable"
+    assert report_response.json()["detail"] == "Report queue is unavailable."
 
 
 def test_report_endpoint_returns_500_for_failed_report():
@@ -1182,7 +1266,7 @@ def test_report_endpoint_returns_500_for_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "report generation timed out"
+    assert response.json()["detail"] == "Report generation timed out."
 
 
 def test_report_pdf_endpoint_rejects_failed_report():
@@ -1195,7 +1279,7 @@ def test_report_pdf_endpoint_rejects_failed_report():
     response = client.get(f"/api/interviews/{session_id}/report.pdf")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "report generation timed out"
+    assert response.json()["detail"] == "Report generation timed out."
 
 
 def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
@@ -1208,7 +1292,7 @@ def test_report_endpoint_returns_retrieval_unavailable_failure_detail():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "pgvector knowledge store is unavailable"
+    assert response.json()["detail"] == "Report knowledge retrieval is unavailable."
 
 
 def test_report_endpoint_returns_quality_failure_detail():
@@ -1224,10 +1308,7 @@ def test_report_endpoint_returns_quality_failure_detail():
     response = client.get(f"/api/interviews/{session_id}/report")
 
     assert response.status_code == 500
-    assert (
-        response.json()["detail"]
-        == "runtime report quality check failed: summary must include Simplified Chinese text"
-    )
+    assert response.json()["detail"] == "Report generation failed."
 
 
 def test_report_endpoint_returns_fallback_report_for_evidence_insufficient():

@@ -6,8 +6,10 @@ const { spawn } = require("child_process");
 const { pythonArgs, resolvePythonRuntime } = require("./python_runtime");
 
 const ROOT = path.resolve(__dirname, "..");
-const BACKEND_HEALTH_URL = "http://127.0.0.1:8011/api/health";
-const FRONTEND_URL = "http://127.0.0.1:4173/prep";
+const backendPort = process.env.BROWSER_BACKEND_PORT || "8011";
+const frontendPort = process.env.BROWSER_FRONTEND_PORT || "4173";
+const BACKEND_HEALTH_URL = `http://127.0.0.1:${backendPort}/api/health`;
+const FRONTEND_URL = `http://127.0.0.1:${frontendPort}/prep`;
 if (!process.env.AGENT_TRACE_DIR) {
   process.env.AGENT_TRACE_DIR = fs.mkdtempSync(
     path.join(os.tmpdir(), "stage43-agent-traces-"),
@@ -81,7 +83,7 @@ async function run() {
 
   if ((backendAvailable || frontendAvailable) && !reuseExisting) {
     throw new Error(
-      "Browser test ports 8011 or 4173 are already in use; stop existing services or set REUSE_EXISTING_SERVER=true",
+      `Browser test ports ${backendPort} or ${frontendPort} are already in use; stop existing services or set REUSE_EXISTING_SERVER=true`,
     );
   }
 
@@ -96,7 +98,7 @@ async function run() {
           "--host",
           "127.0.0.1",
           "--port",
-          "8011",
+          backendPort,
         ]),
         {
           cwd: ROOT,
@@ -120,12 +122,13 @@ async function run() {
       );
       frontend = spawn(
         process.execPath,
-        [viteCli, "--host", "127.0.0.1", "--port", "4173"],
+        [viteCli, "--host", "127.0.0.1", "--port", frontendPort],
         {
           cwd: path.join(ROOT, "frontend"),
           env: {
             ...runtimeEnv,
-            VITE_API_TARGET: "http://127.0.0.1:8011",
+            VITE_API_TARGET: `http://127.0.0.1:${backendPort}`,
+            PLAYWRIGHT_BASE_URL: `http://127.0.0.1:${frontendPort}`,
           },
           shell: false,
           stdio: ["ignore", "inherit", "inherit"],
@@ -145,6 +148,7 @@ async function run() {
           ...runtimeEnv,
           PLAYWRIGHT_EXTERNAL_WEB_SERVER: "true",
           REUSE_EXISTING_SERVER: "true",
+          PLAYWRIGHT_BASE_URL: `http://127.0.0.1:${frontendPort}`,
         },
         shell: false,
         stdio: "inherit",

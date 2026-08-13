@@ -9,6 +9,7 @@ import pytest
 import app.services.runtime as runtime_module
 from app.services.runtime import (
     build_report_executor,
+    build_runtime_followup_decision_provider,
     build_event_publisher,
     build_report_job_store,
     build_session_store,
@@ -153,6 +154,134 @@ def test_build_report_job_store_uses_memory_queue_for_preview(monkeypatch):
     assert isinstance(store, InMemoryReportJobStore)
 
 
+def test_context_compression_failure_containment_is_interview_only(monkeypatch):
+    from app.runtime.config.memory import load_effective_memory_config
+
+    monkeypatch.setenv("INTERVIEW_RUNTIME_STORE", "memory")
+    reset_runtime_for_tests()
+    try:
+        interview = runtime_module.get_context_compression_runner(
+            workflow="interview",
+            lease_seconds=30,
+        )
+        review = runtime_module.get_context_compression_runner(
+            workflow="review",
+            lease_seconds=30,
+        )
+        prep = runtime_module.get_context_compression_runner(
+            workflow="prep",
+            lease_seconds=30,
+        )
+    finally:
+        reset_runtime_for_tests()
+
+    effective = load_effective_memory_config({}).compression
+    assert interview is not review
+    assert interview is not prep
+    assert interview.failure_containment is not None
+    assert review.failure_containment is None
+    assert prep.failure_containment is None
+    actual = interview.failure_containment.config
+    assert actual.provider_circuit_threshold == (
+        effective.provider_circuit_threshold
+    )
+    assert actual.provider_circuit_cooldown_seconds == (
+        effective.provider_circuit_cooldown_seconds
+    )
+    assert actual.validation_quarantine_threshold == (
+        effective.validation_quarantine_threshold
+    )
+    assert actual.validation_quarantine_cooldown_seconds == (
+        effective.validation_quarantine_cooldown_seconds
+    )
+    assert actual.failure_state_lease_seconds == (
+        effective.failure_state_lease_seconds
+    )
+
+
+def test_runtime_session_deletion_worker_receives_authoritative_failure_store(
+    monkeypatch,
+):
+    captured = {}
+    failure_store = object()
+    service = SimpleNamespace(
+        job_store=object(),
+        tombstone_store=object(),
+    )
+
+    class FakeWorker:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    reset_runtime_for_tests()
+    monkeypatch.setattr(runtime_module, "get_runtime_store", lambda: "memory")
+    monkeypatch.setattr(
+        runtime_module,
+        "get_session_deletion_service",
+        lambda: service,
+    )
+    monkeypatch.setattr(runtime_module, "get_session_store", object)
+    monkeypatch.setattr(runtime_module, "get_question_memory_index_store", object)
+    monkeypatch.setattr(runtime_module, "get_context_artifact_store", object)
+    monkeypatch.setattr(runtime_module, "get_report_job_store", object)
+    monkeypatch.setattr(runtime_module, "get_report_artifact_store", object)
+    monkeypatch.setattr(runtime_module, "get_principal_memory_fact_store", object)
+    monkeypatch.setattr(runtime_module, "get_principal_memory_control_store", object)
+    monkeypatch.setattr(
+        runtime_module,
+        "get_context_compression_failure_store",
+        lambda: failure_store,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.services.session_deletion_worker.SessionDeletionWorker",
+        FakeWorker,
+    )
+
+    runtime_module.get_session_deletion_worker()
+
+    assert captured["failure_state_store"] is failure_store
+    reset_runtime_for_tests()
+
+
+def test_runtime_maintenance_receives_authoritative_failure_store(monkeypatch):
+    captured = {}
+    failure_store = object()
+
+    class FakeMaintenance:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(runtime_module, "get_runtime_store", lambda: "postgres")
+    monkeypatch.setattr(runtime_module, "get_postgres_dsn", lambda: "fake-dsn")
+    monkeypatch.setattr(runtime_module, "get_runtime_table_prefix", lambda: "fake")
+    monkeypatch.setattr(runtime_module, "get_runtime_signal_store", object)
+    monkeypatch.setattr(runtime_module, "get_context_artifact_store", object)
+    monkeypatch.setattr(
+        runtime_module,
+        "get_context_compression_failure_store",
+        lambda: failure_store,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.services.durable_workflow_maintenance.DurableWorkflowMaintenanceService",
+        FakeMaintenance,
+    )
+    monkeypatch.setattr(
+        "app.services.interview_generation_store.PostgresInterviewGenerationStore",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "app.services.interview_workflow_store.PostgresInterviewWorkflowStore",
+        lambda **kwargs: object(),
+    )
+
+    runtime_module.build_durable_workflow_maintenance_service()
+
+    assert captured["failure_state_store"] is failure_store
+    assert captured["failure_state_cleanup_batch_size"] > 0
+
+
 def test_config_exposes_event_backend_and_redis_defaults(monkeypatch):
     monkeypatch.delenv("INTERVIEW_EVENT_BACKEND", raising=False)
     monkeypatch.delenv("REDIS_URL", raising=False)
@@ -210,6 +339,26 @@ def test_build_report_executor_reuses_session_store_llm_and_vector_store(monkeyp
     assert executor.llm is fake_llm
     assert executor.vector_store is fake_vector_store
     assert created["llm_factory_called"] is False
+
+
+def test_runtime_followup_decision_provider_uses_exact_llm_config():
+    store = SimpleNamespace(
+        llm=SimpleNamespace(
+            chat_model=object(),
+            config=SimpleNamespace(model="deepseek-v4-pro"),
+        )
+    )
+
+    provider = build_runtime_followup_decision_provider(store)
+
+    assert provider.output_mode == "raw_only"
+    assert provider.expected_model == "deepseek-v4-pro"
+
+    missing_model = SimpleNamespace(
+        llm=SimpleNamespace(chat_model=object())
+    )
+    with pytest.raises(ValueError, match="requires an exact configured model"):
+        build_runtime_followup_decision_provider(missing_model)
 
 
 def test_build_report_executor_creates_llm_when_store_has_none(monkeypatch):

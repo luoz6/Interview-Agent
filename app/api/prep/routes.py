@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.shared.dependencies import (
     get_agent_execution_runner,
     get_prep_knowledge_repository,
+    get_plan_revision_store,
     get_prep_plan_store,
     get_prep_question_regenerator,
 )
@@ -14,8 +15,14 @@ from app.api.shared.models import (
     PrepQuestionRegenerateRequest,
     PrepRequest,
 )
+from app.api.shared.projections import plan_revision_payload
 from app.services.job_tags import extract_job_tags
-from app.services.prep import prepare_interview
+from app.services.interview_plan_revision import default_plan_configuration
+from app.services.prep import (
+    PlanGenerationValidationError,
+    prepare_interview,
+    prepared_plan_revision,
+)
 from app.services.prep_plans import PrepPlanError
 from app.services.prep_question_regeneration import PrepQuestionRegenerator
 
@@ -27,10 +34,15 @@ router = APIRouter()
 def prep_interview(
     payload: PrepRequest,
     plan_store=Depends(get_prep_plan_store),
+    revision_store=Depends(get_plan_revision_store),
     knowledge_store=Depends(get_prep_knowledge_repository),
 ):
+    configuration = payload.configuration or default_plan_configuration()
     try:
-        kwargs = {"execution_runner": get_agent_execution_runner()}
+        kwargs = {
+            "execution_runner": get_agent_execution_runner(),
+            "configuration": configuration,
+        }
         if "knowledge_store" in inspect.signature(prepare_interview).parameters:
             kwargs["knowledge_store"] = knowledge_store
         plan = prepare_interview(
@@ -38,11 +50,17 @@ def prep_interview(
             payload.resume_text,
             **kwargs,
         )
+        revision_plan = prepared_plan_revision(plan, configuration)
+    except PlanGenerationValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     job_tags = extract_job_tags(payload.job_description)
     try:
-        return plan_store.create(
+        response = plan_store.create(
             plan=plan,
             job_description=payload.job_description,
             resume_text=payload.resume_text,
@@ -60,6 +78,19 @@ def prep_interview(
                 "retryable": True,
             },
         ) from exc
+    revision = revision_store.create_initial(
+        source_payload={
+            "job_description": payload.job_description,
+            "resume_text": payload.resume_text,
+            "job_tags": job_tags,
+        },
+        plan=revision_plan,
+        retention_policy="local-v1",
+        generator_version=configuration.generator_version,
+    )
+    response.update(plan_revision_payload(revision))
+    response["job_tags"] = job_tags
+    return response
 
 
 @router.get("/prep-plans/{plan_id}")

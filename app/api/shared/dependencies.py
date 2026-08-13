@@ -27,6 +27,7 @@ from app.services.runtime import (
     get_interview_launch_repository,
     get_interview_workflow_service,
     get_memory_metric_store,
+    get_plan_revision_store,
     get_prep_plan_store,
     get_principal_identity_resolver,
     get_principal_memory_consent_store,
@@ -36,6 +37,7 @@ from app.services.runtime import (
     get_principal_memory_fact_store,
     get_principal_memory_safe_ref_store,
     get_question_memory_index_store,
+    get_report_artifact_store,
     get_report_job_store,
     get_runtime_knowledge_repository,
     get_runtime_control_store,
@@ -61,6 +63,21 @@ def get_prep_question_regenerator() -> PrepQuestionRegenerator:
 
 def get_prep_knowledge_repository():
     return get_runtime_knowledge_repository()
+
+
+def get_plan_regenerator():
+    from app.services.interview_plan_regenerator import ProviderPlanRegenerator
+    from app.services.prep import prepare_interview
+
+    return ProviderPlanRegenerator(
+        lambda job_description, resume_text, configuration: prepare_interview(
+            job_description,
+            resume_text,
+            execution_runner=get_agent_execution_runner(),
+            configuration=configuration,
+            allow_fallback=False,
+        )
+    )
 
 
 def get_interview_application_service(
@@ -134,6 +151,46 @@ def get_request_interview_launch_coordinator(
     )
 
 
+def get_request_plan_revision_store(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    """Resolve revision storage only for revision-bound launch requests."""
+
+    if payload.plan_revision_id is None:
+        return None
+    override = request.app.dependency_overrides.get(get_plan_revision_store)
+    return override() if override is not None else get_plan_revision_store()
+
+
+def get_request_principal_memory_control_store(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    if payload.plan_revision_id is None or payload.principal_memory_mode != "ignore":
+        return None
+    from app.runtime.config.memory import load_effective_memory_config
+
+    if not load_effective_memory_config().long_term.local_principal_enabled:
+        return None
+    override = request.app.dependency_overrides.get(get_principal_memory_control_store)
+    return override() if override is not None else get_principal_memory_control_store()
+
+
+def get_request_principal_identity_resolver(
+    request: Request,
+    payload: StartInterviewRequest,
+):
+    if payload.plan_revision_id is None or payload.principal_memory_mode != "ignore":
+        return None
+    from app.runtime.config.memory import load_effective_memory_config
+
+    if not load_effective_memory_config().long_term.local_principal_enabled:
+        return None
+    override = request.app.dependency_overrides.get(get_principal_identity_resolver)
+    return override() if override is not None else get_principal_identity_resolver()
+
+
 __all__ = [
     "get_agent_execution_runner",
     "get_draft_store",
@@ -145,6 +202,8 @@ __all__ = [
     "get_legacy_launch_session_store",
     "get_legacy_interview_start_service",
     "get_memory_metric_store",
+    "get_plan_regenerator",
+    "get_plan_revision_store",
     "get_prep_plan_store",
     "get_prep_knowledge_repository",
     "get_prep_question_regenerator",
@@ -156,9 +215,13 @@ __all__ = [
     "get_principal_memory_fact_store",
     "get_principal_memory_safe_ref_store",
     "get_question_memory_index_store",
+    "get_report_artifact_store",
     "get_report_job_queue",
     "get_report_job_store",
     "get_request_interview_launch_coordinator",
+    "get_request_principal_identity_resolver",
+    "get_request_principal_memory_control_store",
+    "get_request_plan_revision_store",
     "get_runtime_control_store",
     "get_session_deletion_service",
     "get_session_deletion_worker",

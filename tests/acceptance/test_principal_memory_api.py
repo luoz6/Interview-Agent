@@ -15,7 +15,11 @@ from app.services.principal_memory_rights import (
 )
 from app.services.principal_memory_safe_refs import InMemoryPrincipalMemorySafeRefStore
 from app.services.principal_identity import ExplicitPrincipalIdentityResolver
-from app.domain.memory.contracts import derive_principal_fact_id
+from app.domain.memory.contracts import (
+    PrincipalMemoryFact,
+    canonical_principal_fact,
+    derive_principal_fact_id,
+)
 from tests.principal_memory_fixtures import make_fact
 
 
@@ -120,6 +124,107 @@ def test_trusted_local_fact_list_returns_no_internal_locators(monkeypatch):
         fact.source_manifest_sha256,
     ):
         assert forbidden not in rendered
+
+
+def test_memory_capabilities_are_projected_from_domain_policy(monkeypatch):
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="principal-a",
+        assurance="trusted_local",
+    )
+    enable_local_consume(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.memory.routes.get_principal_identity_resolver", lambda: resolver
+    )
+
+    response = local_client().get("/api/runtime/principal-memory/capabilities")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == "principal-memory-capabilities-v1"
+    types = {item["key"]: item for item in body["fact_types"]}
+    assert types["focus_topic"]["fact_type"] == "declared_preference"
+    assert "system-design" in types["focus_topic"]["values"]
+    assert types["focus_topic"]["input_mode"] == "text"
+    assert types["focus_topic"]["max_length"] == 120
+    assert types["confirmed_skill"]["input_mode"] == "text"
+    assert types["confirmed_skill"]["max_length"] == 120
+    assert types["learning_goal"]["input_mode"] == "text"
+    assert types["learning_goal"]["max_length"] == 160
+    assert types["interview_language"]["input_mode"] == "select"
+    assert "max_length" not in types["interview_language"]
+    assert types["interview_language"]["editable"] is True
+    assert types["confirmed_skill"]["editable"] is False
+    assert set(body["consent_purposes"]) == {
+        "proposal_write", "fact_storage", "read_shadow", "local_consume"
+    }
+
+
+def test_safe_fact_list_v2_owns_summary_filter_and_cursor(monkeypatch):
+    resolver = ExplicitPrincipalIdentityResolver(
+        deployment_id="single-tenant-local",
+        principal_id="principal-a",
+        assurance="trusted_local",
+    )
+    facts = InMemoryPrincipalMemoryFactStore()
+    first_fact = make_fact(session_id="session-a")
+    second_identity = {
+        "deployment_id": first_fact.deployment_id,
+        "principal_id": first_fact.principal_id,
+        "fact_type": "confirmed_skill",
+        "normalized_fact": canonical_principal_fact({"confirmed_skill": "java"}),
+        "source_manifest_sha256": first_fact.source_manifest_sha256,
+        "source_excerpt_sha256": "c" * 64,
+        "consent_policy_version": first_fact.consent_policy_version,
+        "taxonomy_version": first_fact.taxonomy_version,
+    }
+    second_fact = PrincipalMemoryFact(
+        fact_id=derive_principal_fact_id(**second_identity),
+        **second_identity,
+        confidence=0.9,
+        authority="model_proposed",
+        source_session_id="session-b",
+        created_at=first_fact.created_at,
+    )
+    facts.create_proposal(first_fact)
+    facts.create_proposal(second_fact)
+    enable_local_consume(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.memory.routes.get_principal_identity_resolver", lambda: resolver
+    )
+    monkeypatch.setattr("app.api.memory.routes.get_principal_memory_fact_store", lambda: facts)
+    monkeypatch.setattr(
+        "app.api.memory.routes.get_principal_memory_consent_store",
+        lambda: InMemoryPrincipalMemoryConsentStore(),
+    )
+    monkeypatch.setattr(
+        "app.api.memory.routes.get_principal_memory_control_store",
+        lambda: InMemoryPrincipalMemoryControlStore(),
+    )
+    refs = InMemoryPrincipalMemorySafeRefStore()
+    monkeypatch.setattr("app.api.memory.routes.get_principal_memory_safe_ref_store", lambda: refs)
+    monkeypatch.setattr("app.api.memory.routes.get_session_store", lambda: Sessions())
+
+    first = local_client().get("/api/runtime/principal-memory/facts?limit=1")
+
+    assert first.status_code == 200
+    body = first.json()
+    assert body["schema_version"] == "principal-memory-safe-list-v2"
+    assert body["summary"]["proposed"] == 2
+    assert len(body["items"]) == 1
+    assert body["next_cursor"].startswith("pm-ref-")
+    second = local_client().get(
+        "/api/runtime/principal-memory/facts",
+        params={"limit": 1, "cursor": body["next_cursor"]},
+    )
+    assert second.status_code == 200
+    assert len(second.json()["items"]) == 1
+    assert second.json()["next_cursor"] is None
+    filtered = local_client().get(
+        "/api/runtime/principal-memory/facts", params={"status": "active"}
+    ).json()
+    assert filtered["items"] == []
+    assert filtered["summary"]["proposed"] == 2
 
 
 def test_revoking_consent_does_not_delete_principal_facts(monkeypatch):
@@ -294,12 +399,51 @@ def test_memory_center_api_full_local_workflow_and_forbidden_fields(monkeypatch)
         headers=mutation,
     )
     assert corrected.status_code == 200
+    for fact_type, normalized_value in (
+        ("declared_preference", {"focus_topic": "高并发缓存一致性"}),
+        ("confirmed_skill", {"confirmed_skill": "Kubernetes 1.32"}),
+        ("learning_goal", {"learning_goal": "掌握 Kafka 消息可靠性设计"}),
+    ):
+        custom = client.post(
+            "/api/runtime/principal-memory/facts",
+            json={
+                "fact_type": fact_type,
+                "normalized_value": normalized_value,
+            },
+            headers=mutation,
+        )
+        assert custom.status_code == 200
+    invalid = client.post(
+        "/api/runtime/principal-memory/facts",
+        json={
+            "fact_type": "declared_preference",
+            "normalized_value": {"focus_topic": "   "},
+        },
+        headers=mutation,
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == (
+        "principal_memory_fact_value_invalid"
+    )
+    invalid_enum = client.post(
+        "/api/runtime/principal-memory/facts",
+        json={
+            "fact_type": "declared_preference",
+            "normalized_value": {"interview_language": "unknown"},
+        },
+        headers=mutation,
+    )
+    assert invalid_enum.status_code == 422
+    assert invalid_enum.json()["detail"]["code"] == (
+        "principal_memory_fact_value_invalid"
+    )
     stale = client.post(
         f"/api/runtime/principal-memory/facts/{item['safe_ref']}/revoke",
         json={"expected_version": item["version"]},
         headers=mutation,
     )
     assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "principal_memory_version_conflict"
     ignored = client.post(
         "/api/runtime/principal-memory/sessions/session-local/ignore",
         headers=mutation,
@@ -440,6 +584,7 @@ def test_memory_center_openapi_contract_uses_safe_ref_routes():
     paths = app.openapi()["paths"]
     expected = {
         "/api/runtime/principal-memory/status": {"get"},
+        "/api/runtime/principal-memory/capabilities": {"get"},
         "/api/runtime/principal-memory/consent": {"put", "delete"},
         "/api/runtime/principal-memory/disable": {"post"},
         "/api/runtime/principal-memory/enable": {"post"},

@@ -76,8 +76,13 @@ def build_prep_plan_record(
     plan_id = f"prep_{uuid4()}"
     questions = []
     question_contexts: dict[str, dict[str, Any]] = {}
+    bound_question_ids = _bound_revision_question_ids(plan)
     for position, question in enumerate(plan.questions, start=1):
-        question_id = f"pq_{uuid4()}"
+        question_id = (
+            bound_question_ids[position - 1]
+            if bound_question_ids is not None
+            else f"pq_{uuid4()}"
+        )
         metadata = question_metadata(plan, question.id)
         questions.append(
             {
@@ -131,6 +136,18 @@ def build_prep_plan_record(
             1: version_snapshot(public, change_type="created")
         },
     }
+
+
+def _bound_revision_question_ids(plan: InterviewPlan) -> list[str] | None:
+    if getattr(plan, "_revision_plan", None) is None:
+        return None
+    # The preparation boundary already owns the one-time opaque identity
+    # allocation. Revalidate that immutable binding before the product-plan
+    # projection reuses it; unbound legacy/practice plans retain their pq_* IDs.
+    from app.services.prep import prepared_plan_revision
+
+    revision_plan = prepared_plan_revision(plan)
+    return [question.question_id for question in revision_plan.questions]
 
 
 def public_from_record(record: dict[str, Any]) -> dict[str, Any]:

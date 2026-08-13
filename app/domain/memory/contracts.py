@@ -46,15 +46,57 @@ FACT_TYPE_KEYS = {
 EXCLUSIVE_TAXONOMY_KEYS = frozenset(
     {"interview_language", "target_role_family", "accessibility_preference"}
 )
+# These policies are intentionally domain-owned.  API and UI projections must
+# consume them instead of inferring permissions from the taxonomy shape.
+USER_DECLARABLE_TAXONOMY_KEYS = frozenset(ALLOWED_TAXONOMY)
+USER_EDITABLE_TAXONOMY_KEYS = EXCLUSIVE_TAXONOMY_KEYS
+FREE_TEXT_TAXONOMY_LIMITS: dict[str, int] = {
+    "focus_topic": 120,
+    "confirmed_skill": 120,
+    "learning_goal": 160,
+}
 
 
-def _canonical_scalar(value: str) -> str:
-    if not isinstance(value, str) or not value or len(value) > 128:
+def principal_memory_fact_type_for_taxonomy_key(key: str) -> str:
+    matches = [fact_type for fact_type, keys in FACT_TYPE_KEYS.items() if key in keys]
+    if len(matches) != 1:
+        raise ValueError("principal memory taxonomy key has no unique fact type")
+    return matches[0]
+
+
+def _canonical_scalar(value: str, *, max_length: int = 128) -> str:
+    if not isinstance(value, str) or not value or len(value) > max_length:
         raise ValueError("principal fact scalar must be a bounded non-empty string")
     normalized = unicodedata.normalize("NFC", value)
     if any(ord(char) < 32 or 0xD800 <= ord(char) <= 0xDFFF for char in normalized):
         raise ValueError("principal fact scalar contains unsupported characters")
     return normalized
+
+
+def principal_memory_input_policy_for_taxonomy_key(key: str) -> dict[str, str | int]:
+    if key not in ALLOWED_TAXONOMY:
+        raise ValueError("principal memory taxonomy key is not approved")
+    max_length = FREE_TEXT_TAXONOMY_LIMITS.get(key)
+    if max_length is None:
+        return {"input_mode": "select"}
+    return {"input_mode": "text", "max_length": max_length}
+
+
+def _canonical_taxonomy_value(*, key: str, value: str) -> str:
+    max_length = FREE_TEXT_TAXONOMY_LIMITS.get(key)
+    if max_length is None:
+        normalized = _canonical_scalar(value)
+        if normalized not in ALLOWED_TAXONOMY[key]:
+            raise ValueError("principal fact is outside the approved taxonomy")
+        return normalized
+
+    if not isinstance(value, str):
+        raise ValueError("principal fact scalar must be a bounded non-empty string")
+    normalized = unicodedata.normalize("NFC", value)
+    if any(ord(char) < 32 or 0xD800 <= ord(char) <= 0xDFFF for char in normalized):
+        raise ValueError("principal fact scalar contains unsupported characters")
+    normalized = " ".join(normalized.split())
+    return _canonical_scalar(normalized, max_length=max_length)
 
 
 def canonical_principal_fact(value: dict[str, str]) -> str:
@@ -63,12 +105,15 @@ def canonical_principal_fact(value: dict[str, str]) -> str:
     normalized: dict[str, str] = {}
     for key, item in value.items():
         normalized_key = _canonical_scalar(key)
-        normalized_value = _canonical_scalar(item)
         if normalized_key in normalized:
             raise ValueError("principal fact keys collide after NFC")
         allowed = ALLOWED_TAXONOMY.get(normalized_key)
-        if allowed is None or normalized_value not in allowed:
+        if allowed is None:
             raise ValueError("principal fact is outside the approved taxonomy")
+        normalized_value = _canonical_taxonomy_value(
+            key=normalized_key,
+            value=item,
+        )
         normalized[normalized_key] = normalized_value
     return json.dumps(
         normalized,

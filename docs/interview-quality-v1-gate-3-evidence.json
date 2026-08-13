@@ -1,0 +1,202 @@
+{
+  "schema_version": "interview-quality-gate-evidence-v1",
+  "gate": "Gate 3",
+  "generated_at": "2026-08-06T00:16:55+08:00",
+  "implementation_revision": "77f70d0ccfafb31e422c12086481d0d7eb1a3060",
+  "implementation_tree": "0e69d5e9a1c39eaef63b4b09f01dfd232f68f35e",
+  "branch": "codex/interview-quality-v1",
+  "engineering_status": "PASS",
+  "quality_status": "BLOCKED",
+  "quality_reason": "BLOCKED_MODEL_VERSION_DRIFT_PENDING_INDEPENDENT_REVIEW_AND_NOT_RUN_REAL_PROVIDER",
+  "overall_status": "BLOCKED",
+  "automatic_review": "PASS",
+  "open_findings": 0,
+  "blocking_skips": 0,
+  "provider_calls": 0,
+  "first_data_request_sent": false,
+  "tasks": {
+    "T28": "PASS",
+    "T29": "PASS",
+    "T30": "PASS",
+    "T31": "PASS",
+    "T32": "PASS",
+    "T33": "PASS",
+    "T34": "PASS",
+    "T35": "PASS",
+    "T36": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "T37": "ENGINEERING_PASS_QUALITY_BLOCKED",
+    "T38": "PASS"
+  },
+  "frozen_inputs": {
+    "plan": {
+      "path": "C:/Users/admin/Downloads/Interview-Agent-INTERVIEW_QUALITY_V1-plan-v0.2-detailed.md",
+      "document_version": "v0.2.1",
+      "sha256": "3e513ea0bda3f2116a956fb191abbaa094f2da0b38f6208cf3f00f887c1600fe"
+    },
+    "gate_config": {
+      "path": "config/interview_quality_v1_gate.json",
+      "sha256": "2b650efab1242c00d8e501046fba985ad6a6db191d6043058be0671f9f851535"
+    },
+    "provider_authorization": {
+      "path": "config/interview_quality_v1_provider_authorization.json",
+      "authorization_id": "interview-quality-v1-20260805-unlimited-01",
+      "sha256": "ca6c10bcdd9d95d213d56b553bd889dc261cbe678a0fc405027c072899dbf5ac",
+      "provider": "DeepSeek",
+      "model": "deepseek-chat",
+      "budget": "unlimited",
+      "requests": "unlimited",
+      "tokens": "unlimited",
+      "fallback": "prohibited"
+    },
+    "followup_dataset": {
+      "path": "tests/golden/interview_quality_v1/followup-decision-quality-v2.json",
+      "sha256": "da5cb380dad6c391a77a6d65293d56e4b908db0461c2ce85d3c1c77867e172a6",
+      "case_count": 100,
+      "gate_eligible_count": 0,
+      "independent_review_status": "PENDING"
+    },
+    "frontend_lockfile": {
+      "path": "frontend/package-lock.json",
+      "sha256": "32a50cadfc9454a5e446a7a145bbca75731a2d2134e9c97164b5d4a190c7c891"
+    }
+  },
+  "t38_contract": {
+    "public_states": [
+      "idle",
+      "decision_pending",
+      "generation_pending",
+      "generation_streaming",
+      "next_question",
+      "degraded",
+      "recovery"
+    ],
+    "adaptive_decision_visible": true,
+    "fixed_decision_visible": false,
+    "followup_count_min": 0,
+    "followup_count_max": 2,
+    "main_question_index_independent_of_followup_count": true,
+    "conversation_is_live_region": false,
+    "turn_status_aria_live": "polite",
+    "turn_status_aria_atomic": true,
+    "recovery_state_survives_replayed_chunks": true,
+    "decision_stage_reconnect_before_generation": true,
+    "status_event_precedes_generation_chunk": true,
+    "status_payload_fields": [
+      "stage",
+      "generation_id"
+    ],
+    "internal_reasoning_fields_exposed": false,
+    "screenshots_captured": 0
+  },
+  "inherited_engineering_evidence": {
+    "T36": {
+      "path": "docs/interview-quality-v1-t36-evidence.json",
+      "sha256": "df07b500bb279847f3dd305c440fef34fb11cc502e7b52e85e79dafceb47b887",
+      "engineering_status": "PASS",
+      "quality_status": "BLOCKED",
+      "provider_calls": 0
+    },
+    "T37": {
+      "path": "docs/interview-quality-v1-t37-evidence.json",
+      "sha256": "14eecc050bcac2b5499f2c415c9631e6c996511f343d4440406c178aacfffabc",
+      "engineering_status": "PASS",
+      "quality_status": "BLOCKED",
+      "provider_calls": 0,
+      "synthetic_observation_count": 360,
+      "automated_result_counts": {
+        "PASS": 19,
+        "RECORDED": 3
+      }
+    }
+  },
+  "verification": {
+    "backend_targeted_regression": {
+      "command": "py -3.11 -m pytest -q tests/test_interview_event_stream.py tests/test_session_service.py tests/test_api.py tests/test_durable_interview_graph.py tests/test_dual_langgraph_rollout.py tests/test_react_frontend.py",
+      "passed": 122,
+      "failed": 0,
+      "warnings": 1,
+      "warning_classification": "Starlette TestClient httpx deprecation; non-blocking"
+    },
+    "frontend_unit": {
+      "command": "npm --prefix frontend test",
+      "test_files_passed": 3,
+      "passed": 20,
+      "failed": 0
+    },
+    "frontend_build": {
+      "command": "npm --prefix frontend run build",
+      "status": "PASS",
+      "modules_transformed": 4592
+    },
+    "browser": {
+      "command": "node scripts/run_browser_tests.js tests/browser/langgraph-recovery.spec.js tests/browser/interview-ui.spec.js --project=desktop-chromium",
+      "backend_port": 8111,
+      "frontend_port": 4273,
+      "passed": 13,
+      "failed": 0,
+      "screenshots": 0
+    },
+    "compileall": "PASS",
+    "node_syntax": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS_NO_SECRET_MARKERS",
+    "frontend_lint": {
+      "status": "NOT_RUN_TOOL_NOT_INSTALLED",
+      "gate_required": false,
+      "detail": "package script exists but the frozen frontend lockfile does not install an eslint executable"
+    }
+  },
+  "toolchain": {
+    "python": "3.11.3",
+    "node": "22.21.0",
+    "npm": "10.9.4",
+    "postgresql": "16.14",
+    "pgvector": "0.8.6"
+  },
+  "automatic_review_findings_closed": [
+    "Decision-stage refresh now receives an active command stream URL even before a Generation row exists.",
+    "Fixed policy cannot display dynamic Decision state; adaptive policy can display only the bounded public Decision stage.",
+    "Recovered status/reset/chunk events keep recovery stable and do not create duplicate live-region announcements.",
+    "SSE status is emitted before chunks and contains only bounded stage and generation identity fields.",
+    "Browser test servers can use isolated ports without stopping another workspace's processes.",
+    "Browser session fixtures use immutable Plan Revision identity, revision number, and plan hash."
+  ],
+  "quality_blockers": [
+    {
+      "kind": "MODEL_VERSION_DRIFT",
+      "authorized_model": "deepseek-chat",
+      "available_models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro"
+      ],
+      "automatic_model_substitution_used": false,
+      "first_data_request_sent": false,
+      "preflight_manifest_path": "tmp/interview-quality-v1-provider-runs/t36-provider-smoke-20260805-v4/manifest.json",
+      "preflight_manifest_sha256": "134cd3540f0627c08a5b161e4e396a15247e143bf6107c65b62f17d044c8e160"
+    },
+    {
+      "kind": "PENDING_INDEPENDENT_REVIEW",
+      "dataset_case_count": 100,
+      "gate_eligible_count": 0
+    },
+    {
+      "kind": "BLOCKED_NOT_RUN_REAL_PROVIDER",
+      "real_same_path_performance_capture_available": false
+    }
+  ],
+  "phase_continuation": {
+    "next_phase": "Phase 4",
+    "next_task": "T39",
+    "engineering_may_continue": true,
+    "user_checkpoint_required": false
+  },
+  "candidate_data_used": false,
+  "principal_memory_used": false,
+  "automatic_model_fallback_used": false,
+  "destructive_database_changes": false,
+  "reviewer": {
+    "automatic": "primary-agent",
+    "independent_followup_reviewer": null,
+    "independent_performance_reviewer": null
+  }
+}

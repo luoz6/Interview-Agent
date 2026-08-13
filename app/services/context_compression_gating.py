@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.domain.context.artifacts import ArtifactType
-from app.runtime.config.memory import load_effective_memory_config
+from app.runtime.config.memory import (
+    CompressionMemoryConfig,
+    load_effective_memory_config,
+)
 
 
 CompressionWorkflow = Literal["prep", "interview", "review"]
@@ -20,13 +23,22 @@ class ContextCompressionGates:
 
     @classmethod
     def from_env(cls) -> "ContextCompressionGates":
-        config = load_effective_memory_config().compression
+        return cls.from_config(load_effective_memory_config().compression)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: CompressionMemoryConfig,
+    ) -> "ContextCompressionGates":
+        consume_enabled = config.mode == "consume"
         return cls(
-            shadow_enabled=config.mode == "shadow" or config.mode == "consume",
-            prep_enabled=config.prep,
-            interview_enabled=config.interview_question_memory,
-            evidence_enabled=config.evidence,
-            review_enabled=config.review,
+            shadow_enabled=config.mode in {"shadow", "consume"},
+            prep_enabled=consume_enabled and config.prep,
+            interview_enabled=(
+                consume_enabled and config.interview_question_memory
+            ),
+            evidence_enabled=consume_enabled and config.evidence,
+            review_enabled=consume_enabled and config.review,
         )
 
     def creation_enabled(

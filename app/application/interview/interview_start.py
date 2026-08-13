@@ -7,6 +7,10 @@ from app.services.job_tags import extract_job_tags
 from app.services.prep import prepare_interview, validate_launchable_interview_plan
 
 
+class InterviewPlanNotLaunchable(ValueError):
+    """Generated legacy plan failed the launch contract."""
+
+
 class InterviewStartService:
     """Prepare and start the legacy-compatible interview entry flow."""
 
@@ -39,7 +43,10 @@ class InterviewStartService:
             llm=self.store.llm,
             execution_runner=self.execution_runner_factory(),
         )
-        validate_launchable_interview_plan(plan)
+        try:
+            validate_launchable_interview_plan(plan)
+        except ValueError as exc:
+            raise InterviewPlanNotLaunchable(str(exc)) from exc
         job_tags = extract_job_tags(job_description)
         if (
             self.runtime_store_factory() == "postgres"
@@ -59,4 +66,4 @@ class InterviewStartService:
         )
 
 
-__all__ = ["InterviewStartService"]
+__all__ = ["InterviewPlanNotLaunchable", "InterviewStartService"]

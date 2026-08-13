@@ -25,14 +25,30 @@ async function prepareRecoveryPlan(page) {
   const resumeTab = page.getByRole("tab", { name: /候选人经历/ });
   if (await resumeTab.isVisible()) await resumeTab.click();
   await page.getByLabel("简历内容").fill(recoveryResumeText);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
+  await page.getByRole("button", { name: /生成面试计划/ }).click();
   await expect(page.locator(".start-plan-question")).toHaveCount(5);
 }
 
 test("refresh replays an active durable generation", async ({ page, request }) => {
   const { session_id: sessionId } = await seed(request, "refresh");
 
+  let releaseStream;
+  const streamReleased = new Promise((resolve) => {
+    releaseStream = resolve;
+  });
+  await page.route("**/commands/**/stream", async (route) => {
+    await streamReleased;
+    await route.continue();
+  });
+
   await page.goto(`/interview?session_id=${sessionId}`);
+  const turnStatus = page.locator(".interview-live-state");
+  await expect(turnStatus).toHaveAttribute("data-state", "generating");
+  await expect(turnStatus).toContainText("正在恢复回答流");
+  await expect(page.locator('.interview-runtime[role="status"]')).toHaveCount(1);
+  await expect(page.locator(".agent-console")).not.toHaveAttribute("aria-live", /.+/);
+  await expect(turnStatus).not.toContainText(/gap|confidence|reason|chain.of.thought/i);
+  releaseStream();
   await expect(page.locator(".agent-console")).toContainText("Recovered after refresh.");
 
   await page.reload();
@@ -85,6 +101,9 @@ test("replacement attempt resets abandoned partial text", async ({ page, request
   await expect(page.locator(".agent-console")).not.toContainText(
     "abandoned old partial",
   );
+  await expect(
+    page.locator('.message-agent', { hasText: "replacement complete" }),
+  ).toHaveCount(1);
 });
 
 test("duplicate command commits one candidate message", async ({ request }) => {
@@ -314,13 +333,13 @@ test("joint durable handoff stays private across refresh", async ({ page, reques
   await request.delete(`/test-support/reports/${sessionId}`);
 });
 
-test("bootstrap recovery retries with the same pending start command", async ({ page }) => {
+test("bootstrap retry reuses the same revision-bound request identity", async ({ page }) => {
   await prepareRecoveryPlan(page);
   const attempts = [];
   await page.route("**/api/interviews", async (route) => {
     const payload = route.request().postDataJSON();
     attempts.push(payload);
-    if (attempts.length < 3) {
+    if (attempts.length === 1) {
       await route.fulfill({
         status: 503,
         contentType: "application/json",
@@ -348,14 +367,19 @@ test("bootstrap recovery retries with the same pending start command", async ({ 
     });
   });
 
-  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
-  await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(3);
-  expect(new Set(attempts.map((item) => item.command_id)).size).toBe(1);
-  expect(attempts[0].command_id.replace(/^start_/, "")).toMatch(recoveryUuidPattern);
-  expect(new Set(attempts.map((item) => item.expected_plan_version)).size).toBe(1);
+  await page.getByRole("button", { name: /开始本次面试/ }).click();
+  await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(1);
+  await expect(page.getByRole("button", { name: /开始本次面试/ })).toBeEnabled();
+  await page.getByRole("button", { name: /开始本次面试/ }).click();
+  await expect.poll(() => attempts.length, { timeout: 5_000 }).toBe(2);
+  expect(new Set(attempts.map((item) => item.request_id)).size).toBe(1);
+  expect(attempts[0].request_id).toMatch(recoveryUuidPattern);
+  expect(new Set(attempts.map((item) => item.plan_revision_id)).size).toBe(1);
+  expect(new Set(attempts.map((item) => item.expected_revision)).size).toBe(1);
+  expect(new Set(attempts.map((item) => item.plan_sha256)).size).toBe(1);
   await expect(page).toHaveURL(/\/interview\?session_id=recovering-session/);
   const pendingKeys = await page.evaluate(() => (
-    Object.keys(localStorage).filter((key) => key.startsWith("interview-agent:pending-start:"))
+    Object.keys(sessionStorage).filter((key) => key.startsWith("interview-agent:request-id:session-start:"))
   ));
   expect(pendingKeys).toEqual([]);
 });

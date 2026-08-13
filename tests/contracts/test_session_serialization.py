@@ -37,6 +37,12 @@ from app.services.report import (
     ReportProgress,
     ReportRecord,
 )
+from app.services.interview_plan_revision import v2_plan_to_legacy
+from app.services.interview_plan_revision_store import (
+    InMemoryInterviewPlanRevisionStore,
+)
+from app.services.session_plan_binding import session_plan_binding_from_revision
+from tests.unit.test_interview_plan_revision import plan as revision_plan, source
 
 
 def make_plan():
@@ -233,6 +239,48 @@ def test_state_round_trips_from_session_and_message_rows():
     assert restored["workflow_engine"] == "legacy"
     assert restored["graph_schema_version"] is None
     assert restored["memory_policy_version"] == "deterministic-v1"
+    assert restored["plan_origin"] == "legacy_session_snapshot"
+    assert restored["plan_revision_id"] is None
+    assert restored["plan_snapshot"] == state["plan_snapshot"]
+
+
+def test_revision_plan_binding_round_trips_without_reading_latest_revision():
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    initial = revision_store.create_initial(
+        source_payload=source(),
+        plan=revision_plan(),
+        retention_policy="test-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    state = build_initial_state(
+        session_id="revision-session",
+        plan=v2_plan_to_legacy(initial.plan),
+        job_description="Backend role",
+        resume_text="Backend resume",
+        job_tags=["backend"],
+        plan_binding=session_plan_binding_from_revision(initial),
+    )
+    row = SessionRowMapper.to_row(state)
+    messages = [
+        MessageRowMapper.to_row("revision-session", index + 1, message)
+        for index, message in enumerate(state["messages"])
+    ]
+    revision_store.create_next_revision(
+        plan_family_id=initial.plan_family_id,
+        expected_revision=1,
+        plan=initial.plan.model_copy(update={"title": "Later revision"}),
+        source_kind="edited",
+        created_reason="batch_edit",
+        generator_version=initial.generator_version,
+    )
+
+    restored = SessionRowMapper.from_rows(row, messages)
+
+    assert restored["plan_origin"] == "plan_revision"
+    assert restored["plan_revision_id"] == initial.plan_revision_id
+    assert restored["revision"] == 1
+    assert restored["plan_sha256"] == initial.plan_sha256
+    assert restored["plan_snapshot"] == initial.plan.model_dump(mode="json")
 
 
 def test_memory_policy_round_trip_and_old_v2_backfill_are_stable():

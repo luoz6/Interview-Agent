@@ -466,7 +466,7 @@ def test_expert_evaluator_zeroes_skipped_question_feedback():
 
     feedback = report.feedbacks[0]
     assert feedback.answer_state == "skipped"
-    assert feedback.score == 0
+    assert feedback.score is None
     assert feedback.user_answer == "候选人跳过了这道题。"
 
 

@@ -2,7 +2,10 @@ import json
 
 import pytest
 
-from app.services.report_eval_artifacts import EvaluationArtifactStore
+from app.services.report_eval_artifacts import (
+    EvaluationArtifactStore,
+    EvaluationRunLockUnavailable,
+)
 
 
 def test_attempt_is_saved_and_removed_from_pending(tmp_path):
@@ -50,7 +53,17 @@ def test_error_artifact_does_not_mark_attempt_complete(tmp_path):
 
 def test_open_requires_existing_manifest(tmp_path):
     with pytest.raises(FileNotFoundError, match="manifest"):
-        EvaluationArtifactStore.open(tmp_path / "missing")
+        EvaluationArtifactStore.open(root=tmp_path, run_id="missing")
+
+
+def test_open_rejects_unsafe_run_id_before_reading_outside_root(tmp_path):
+    outside = tmp_path.parent / "outside-evaluation"
+    outside.mkdir(exist_ok=True)
+    marker = outside / "manifest.json"
+    marker.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="safe relative path segment"):
+        EvaluationArtifactStore.open(root=tmp_path, run_id="../outside-evaluation")
 
 
 def test_load_normalized_attempts_uses_case_and_run_order(tmp_path):
@@ -64,3 +77,59 @@ def test_load_normalized_attempts_uses_case_and_run_order(tmp_path):
         {"case_id": "c1", "run_number": 2},
         {"case_id": "c2", "run_number": 1},
     ]
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        "",
+        ".",
+        "..",
+        "../outside",
+        "safe/child",
+        r"safe\child",
+        r"C:\outside\run",
+        r"C:drive-relative",
+        r"\\server\share\run",
+    ],
+)
+def test_windows_and_posix_unsafe_run_ids_are_rejected(tmp_path, run_id):
+    with pytest.raises(ValueError, match="safe relative path segment"):
+        EvaluationArtifactStore.create(root=tmp_path, run_id=run_id, manifest={})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_safe_run_id_is_created_directly_below_resolved_root(tmp_path):
+    store = EvaluationArtifactStore.create(
+        root=tmp_path, run_id="safe-run_20260808", manifest={}
+    )
+
+    assert store.run_dir.parent == tmp_path.resolve()
+
+
+def test_create_never_overwrites_an_existing_run_directory(tmp_path):
+    store = EvaluationArtifactStore.create(
+        root=tmp_path, run_id="same-run", manifest={"marker": "original"}
+    )
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        EvaluationArtifactStore.create(
+            root=tmp_path, run_id="same-run", manifest={"marker": "new"}
+        )
+
+    assert store.read_manifest()["marker"] == "original"
+
+
+def test_run_lock_is_nonblocking_mutually_exclusive_and_reacquirable(tmp_path):
+    store = EvaluationArtifactStore.create(
+        root=tmp_path, run_id="locked-run", manifest={}
+    )
+    second = EvaluationArtifactStore.open(root=tmp_path, run_id="locked-run")
+
+    with store.exclusive_run_lock():
+        with pytest.raises(EvaluationRunLockUnavailable, match="already locked"):
+            with second.exclusive_run_lock():
+                pytest.fail("second process-equivalent handle acquired the lock")
+
+    with second.exclusive_run_lock():
+        assert (store.run_dir / ".evaluation.lock").exists()

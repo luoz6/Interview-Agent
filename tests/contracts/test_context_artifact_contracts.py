@@ -19,6 +19,12 @@ from app.domain.context.artifacts import (
     canonical_identity_payload,
     compressor_settings_sha256,
 )
+from app.services.context_compression_intent import (
+    CompressionIntent,
+    canonical_compression_intent_payload,
+    compression_intent_sha256,
+    validate_compression_intent_digest,
+)
 
 
 def make_material(**changes):
@@ -47,6 +53,330 @@ def test_artifact_key_is_derived_only_from_canonical_identity_material():
     assert "artifact_key" not in json.loads(canonical)
     assert identity.artifact_key == sha256(canonical.encode("utf-8")).hexdigest()
     assert ContextArtifactIdentity.from_material(material) == identity
+
+
+def test_identity_v0_canonical_payload_and_key_remain_byte_compatible():
+    expected_payload = (
+        '{"artifact_type":"question_conversation",'
+        '"compression_policy_version":"conversation-v1",'
+        '"compressor_model":"gpt-4o",'
+        '"compressor_provider":"openai-compatible",'
+        '"compressor_settings_sha256":"'
+        + "5" * 64
+        + '","output_schema_version":"question-conversation-v1",'
+        '"privacy_scope_sha256":"'
+        + "1" * 64
+        + '","prompt_contract_version":"compressor-prompt-v1",'
+        '"semantic_focus_sha256":"'
+        + "4" * 64
+        + '","source_manifest_sha256":"'
+        + "3" * 64
+        + '","source_sha256":"'
+        + "2" * 64
+        + '","target_output_tokens":256}'
+    )
+
+    material = make_material()
+
+    assert canonical_identity_payload(material).encode("utf-8") == (
+        expected_payload.encode("utf-8")
+    )
+    assert len(expected_payload.encode("utf-8")) == 737
+    assert ContextArtifactIdentity.from_material(material).artifact_key == (
+        "2cd02f25e64dd470830308603a9b93eb2685d06f1a2080233877c82466b50dd8"
+    )
+
+
+def test_identity_v0_existing_2000_token_payload_remains_byte_compatible():
+    expected_payload = (
+        '{"artifact_type":"question_conversation",'
+        '"compression_policy_version":"conversation-v1",'
+        '"compressor_model":"gpt-4o",'
+        '"compressor_provider":"openai-compatible",'
+        '"compressor_settings_sha256":"'
+        + "5" * 64
+        + '","output_schema_version":"question-conversation-v1",'
+        '"privacy_scope_sha256":"'
+        + "1" * 64
+        + '","prompt_contract_version":"compressor-prompt-v1",'
+        '"semantic_focus_sha256":"'
+        + "4" * 64
+        + '","source_manifest_sha256":"'
+        + "3" * 64
+        + '","source_sha256":"'
+        + "2" * 64
+        + '","target_output_tokens":2000}'
+    )
+    material = make_material(target_output_tokens=2_000)
+
+    assert canonical_identity_payload(material).encode("utf-8") == (
+        expected_payload.encode("utf-8")
+    )
+    assert len(expected_payload.encode("utf-8")) == 738
+    assert ContextArtifactIdentity.from_material(material).artifact_key == (
+        "5098cc7d3a0d36efa3ecb8170197d6d4cb81a8cb06e88911dfe9f471bc278181"
+    )
+
+
+def test_semantically_equivalent_compression_intent_has_one_canonical_digest():
+    first = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="  Cafe\u0301\t platform  migration  ",
+        current_focus="  failure\n boundaries ",
+        preserve=["numbers", "candidate_claims", "numbers"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact", "candidate_exact_quote"],
+    )
+    second = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="Caf\u00e9 platform migration",
+        current_focus="failure boundaries",
+        preserve=["candidate_claims", "numbers"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["candidate_exact_quote", "new_fact"],
+    )
+
+    assert first == second
+    assert canonical_compression_intent_payload(first) == (
+        canonical_compression_intent_payload(second)
+    )
+    assert compression_intent_sha256(first) == compression_intent_sha256(second)
+
+
+def test_compression_intent_is_bounded_and_digest_mismatch_fails_closed():
+    with pytest.raises(ValueError, match="source_focus"):
+        CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus="x" * 513,
+            current_focus=None,
+            preserve=["candidate_claims"],
+            authority="non_authoritative",
+            prohibited_authority_upgrades=["new_fact"],
+        )
+
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="platform migration",
+        current_focus=None,
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    with pytest.raises(ValueError, match="digest mismatch"):
+        validate_compression_intent_digest(intent, "0" * 64)
+
+
+def test_canonical_intent_revalidates_untrusted_model_instances():
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="platform migration",
+        current_focus=None,
+        preserve=["candidate_claims"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    unvalidated = intent.model_copy(update={"source_focus": "x" * 513})
+
+    with pytest.raises(ValueError, match="source_focus"):
+        canonical_compression_intent_payload(unvalidated)
+
+
+def test_compression_intent_rejects_nul_and_normalizes_blank_focus_to_none():
+    with pytest.raises(ValueError, match="NUL"):
+        CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus="platform\x00migration",
+            current_focus=None,
+            preserve=[],
+            authority="non_authoritative",
+            prohibited_authority_upgrades=[],
+        )
+
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=" \t\n ",
+        current_focus=None,
+        preserve=[],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=[],
+    )
+
+    assert intent.source_focus is None
+    assert intent.preserve == ()
+    assert intent.prohibited_authority_upgrades == ()
+    assert json.loads(canonical_compression_intent_payload(intent))["preserve"] == []
+
+
+@pytest.mark.parametrize("unsafe_focus", ("cache\x01plan", "cache\u202eplan"))
+def test_compression_intent_rejects_unsafe_unicode_controls(unsafe_focus):
+    with pytest.raises(ValueError, match="control"):
+        CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus=unsafe_focus,
+            current_focus=None,
+            preserve=[],
+            authority="non_authoritative",
+            prohibited_authority_upgrades=[],
+        )
+
+
+def test_compression_intent_bounds_raw_focus_before_whitespace_normalization():
+    with pytest.raises(ValueError, match="raw focus"):
+        CompressionIntent(
+            schema_version="compression-intent-v1",
+            consumer_operation="followup",
+            phase="interview",
+            source_focus=" " * 4097,
+            current_focus=None,
+            preserve=[],
+            authority="non_authoritative",
+            prohibited_authority_upgrades=[],
+        )
+
+
+def test_compression_intent_allows_zero_width_joiner():
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="engineer \U0001f469\u200d\U0001f4bb",
+        current_focus=None,
+        preserve=[],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=[],
+    )
+
+    assert intent.source_focus == "engineer \U0001f469\u200d\U0001f4bb"
+
+
+def test_compression_intent_digest_validation_rejects_invalid_digest_format():
+    intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus=None,
+        current_focus=None,
+        preserve=[],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=[],
+    )
+
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        validate_compression_intent_digest(intent, "not-a-digest")
+
+
+def test_identity_v1_includes_intent_version_and_digest_in_key():
+    first_intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="platform migration",
+        current_focus="failure boundaries",
+        preserve=["candidate_claims", "numbers"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    second_intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="platform migration",
+        current_focus="failure boundaries",
+        preserve=["candidate_claims", "numbers", "tradeoffs"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    first = make_material(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(first_intent),
+    )
+    second = make_material(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(second_intent),
+    )
+
+    payload = json.loads(canonical_identity_payload(first))
+    assert payload["identity_schema_version"] == "identity-v1"
+    assert payload["compression_intent_sha256"] == compression_intent_sha256(
+        first_intent
+    )
+    assert ContextArtifactIdentity.from_material(first).artifact_key != (
+        ContextArtifactIdentity.from_material(second).artifact_key
+    )
+
+
+def test_identity_v1_focus_change_produces_a_different_key():
+    first_intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="platform migration",
+        current_focus="failure boundaries",
+        preserve=["candidate_claims", "numbers"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    second_intent = CompressionIntent(
+        schema_version="compression-intent-v1",
+        consumer_operation="followup",
+        phase="interview",
+        source_focus="distributed transactions",
+        current_focus="failure boundaries",
+        preserve=["candidate_claims", "numbers"],
+        authority="non_authoritative",
+        prohibited_authority_upgrades=["new_fact"],
+    )
+    first = make_material(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(first_intent),
+    )
+    second = make_material(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256=compression_intent_sha256(second_intent),
+    )
+
+    assert ContextArtifactIdentity.from_material(first).artifact_key != (
+        ContextArtifactIdentity.from_material(second).artifact_key
+    )
+
+
+def test_identity_v1_rejects_invalid_intent_digest_format():
+    with pytest.raises(ValueError, match="compression_intent_sha256"):
+        make_material(
+            identity_schema_version="identity-v1",
+            compression_intent_sha256="not-a-digest",
+        )
+
+
+@pytest.mark.parametrize(
+    ("identity_schema_version", "intent_digest"),
+    (("identity-v1", None), (None, "6" * 64), ("identity-v2", "6" * 64)),
+)
+def test_identity_version_and_intent_digest_must_form_a_valid_pair(
+    identity_schema_version,
+    intent_digest,
+):
+    with pytest.raises(ValueError, match="identity_schema_version"):
+        make_material(
+            identity_schema_version=identity_schema_version,
+            compression_intent_sha256=intent_digest,
+        )
 
 
 def test_every_immutable_identity_change_produces_a_different_key():

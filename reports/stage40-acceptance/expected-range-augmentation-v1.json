@@ -1,0 +1,36 @@
+{
+  "schema_version": "stage40-expected-range-augmentation-v1",
+  "source_run_id": "20260710T124843Z",
+  "source_artifact_manifest_sha256": "605fc91902d7a6439342dc5487f8d27b756da2256a99c5522b5eed761ef6b536",
+  "source_run_dataset_sha256": "c04ab13b65e58e0ce3e26d5791f88d6404c43118daae94a0107146ea190b89b5",
+  "gate_metric": "report_scoring.expected_range_attempt_hit_rate",
+  "expected_ranges": {
+    "redis-cache-consistency-strong": [80, 95],
+    "redis-cache-consistency-medium": [45, 75],
+    "redis-cache-consistency-incorrect": [0, 40],
+    "redis-cache-consistency-off_topic": [0, 10],
+    "mysql-index-transaction-strong": [80, 95],
+    "mysql-index-transaction-medium": [45, 75],
+    "mysql-index-transaction-incorrect": [0, 40],
+    "mysql-index-transaction-empty": [0, 10],
+    "kafka-reliability-strong": [80, 95],
+    "kafka-reliability-medium": [45, 75],
+    "kafka-reliability-incorrect": [0, 40],
+    "kafka-reliability-off_topic": [0, 10],
+    "system-design-job-queue-strong": [80, 95],
+    "system-design-job-queue-medium": [45, 75],
+    "system-design-job-queue-incorrect": [0, 40],
+    "system-design-job-queue-empty": [0, 10],
+    "project-incident-review-strong": [80, 95],
+    "project-incident-review-medium": [45, 75],
+    "project-incident-review-incorrect": [0, 40],
+    "project-incident-review-off_topic": [0, 10]
+  },
+  "observed": {
+    "attempt_count": 40,
+    "interval_hit_count": 28,
+    "interval_hit_rate": 0.70,
+    "expected_gate_status": "FAIL"
+  },
+  "immutability_note": "This sidecar augments rather than edits the completed Stage 40 run directory."
+}

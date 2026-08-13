@@ -7,6 +7,7 @@ from app.services.agent_runtime import (
     AgentFallback,
 )
 from app.services.llm import InterviewLLM
+from app.services.followup_prompts import validate_followup_output
 from app.services.principal_memory_sink_policy import (
     FOLLOWUP_GENERATION_SINK,
     assert_principal_memory_sink,
@@ -40,9 +41,13 @@ class ExaminerAgent:
         resolved_context = execution_context or self._standalone_context(
             operation="generate_followup"
         )
+        def provider_call():
+            output = (self.llm or self._default_llm()).generate_followup(context)
+            return validate_followup_output(output, context)
+
         return self._execution_runner.run(
             resolved_context,
-            lambda: (self.llm or self._default_llm()).generate_followup(context),
+            provider_call,
             fallback=lambda exc: AgentFallback(
                 fallback_followup(focus),
                 "provider_error",
@@ -66,14 +71,11 @@ class ExaminerAgent:
 
         def provider_stream():
             llm = self.llm or self._default_llm()
-            emitted = False
-            for chunk in llm.stream_followup(context):
-                if not chunk:
-                    continue
-                emitted = True
-                yield chunk
-            if not emitted:
+            chunks = [chunk for chunk in llm.stream_followup(context) if chunk]
+            if not chunks:
                 raise _EmptyFollowupStream()
+            validate_followup_output("".join(chunks), context)
+            yield from chunks
 
         yield from self._execution_runner.stream(
             resolved_context,
@@ -97,16 +99,17 @@ class ExaminerAgent:
             payload=context,
         )
         def provider_stream():
-            emitted = False
-            for chunk in (self.llm or self._default_llm()).stream_followup(
-                context
-            ):
-                if not chunk:
-                    continue
-                emitted = True
-                yield chunk
-            if not emitted:
+            chunks = [
+                chunk
+                for chunk in (self.llm or self._default_llm()).stream_followup(
+                    context
+                )
+                if chunk
+            ]
+            if not chunks:
                 raise _EmptyFollowupStream()
+            validate_followup_output("".join(chunks), context)
+            yield from chunks
 
         yield from self._execution_runner.stream(
             execution_context,

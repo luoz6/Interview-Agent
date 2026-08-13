@@ -1,0 +1,123 @@
+{
+  "schema_version": "interview-quality-v1-gate-evidence-v1",
+  "gate": "Gate 4",
+  "implementation_revision": "73750a8ef8143e11bd9cfa5977fa61e73357f3b3",
+  "engineering_status": "PASS",
+  "quality_status": "BLOCKED",
+  "quality_reason": "BLOCKED_INDEPENDENT_HUMAN_REVIEW_NOT_RUN",
+  "human_review_status": "NOT_RUN",
+  "automatic_review": "PASS",
+  "provider_calls": 0,
+  "task_chain": [
+    {
+      "task": "T39",
+      "commit": "e8ab7db153fdd379c485dc3baa4320d3f7dd4cb7",
+      "result": "report semantic schema v2"
+    },
+    {
+      "task": "T40",
+      "commit": "c59d02f43d034a7939ea0dff2ebe47d05b733dd2",
+      "result": "grounded observation aggregation"
+    },
+    {
+      "task": "T41",
+      "commit": "21fc9a3f2e9b6cd73e920535914bff4e9ea32d79",
+      "result": "grounded cross-question summary"
+    },
+    {
+      "task": "T42",
+      "commit": "4c8e9a6d5ba46153720dc0fcc9a62b53af6d33f7",
+      "result": "evidence-grounded priority actions"
+    },
+    {
+      "task": "T43",
+      "commit": "4561ad3880fbe7e68a40798d98bc825fbdc80191",
+      "result": "candidate fact boundaries"
+    },
+    {
+      "task": "T44",
+      "commit": "7f0b764da0460b6adbe1a963352638358c1e0520",
+      "result": "deterministic report publication gate"
+    },
+    {
+      "task": "T45",
+      "commit": "5c9576ee12946307c282ac31e1671d486175b363",
+      "result": "blinded semantic review protocol"
+    },
+    {
+      "task": "T46",
+      "commit": "aa8a8fe5bd9001b694b2dd4201059a81aa1107fb",
+      "result": "safe degraded publication truth table"
+    },
+    {
+      "task": "T47",
+      "commit": "751cacc1636dcfb4679c7808ec5c146f12806f13",
+      "result": "candidate report hierarchy"
+    },
+    {
+      "task": "T48",
+      "commit": "e777b85d36ebd825dd9cdd2c9b050aed4d53d35c",
+      "result": "Web PDF history revision parity"
+    },
+    {
+      "task": "T49",
+      "commit": "73750a8ef8143e11bd9cfa5977fa61e73357f3b3",
+      "result": "frozen semantic blind-test cohort"
+    }
+  ],
+  "engineering_acceptance": {
+    "runtime_gate_deterministic_only": true,
+    "online_semantic_judge_import_matches": 0,
+    "online_semantic_judge_provider_calls": 0,
+    "claim_action_reference_closure_enforced": true,
+    "degraded_unscored_failed_truth_table_verified": true,
+    "technical_diagnostics_primary_page_count": 0,
+    "web_pdf_history_core_semantics_consistent": true,
+    "historical_pdf_bound_to_immutable_report_id": true,
+    "export_failure_mutates_artifact": false
+  },
+  "quality_evidence": {
+    "dataset_id": "report-semantic-blind-test-v1",
+    "sample_size": 24,
+    "critical_case_count": 20,
+    "required_scenario_count": 17,
+    "source_classification": "synthetic",
+    "contains_real_candidate_data": false,
+    "contains_principal_memory": false,
+    "completed_judgment_count": 0,
+    "independent_reviewer_count": 0,
+    "v2_fabrication_observed_count": null,
+    "v2_fabrication_uncertain_count": null,
+    "false_positive_count": null,
+    "false_negative_count": null,
+    "v2_preferred_count": null,
+    "v1_preferred_count": null,
+    "tie_count": null,
+    "v2_technical_correctness_pass_rate": null,
+    "v2_answer_support_pass_rate": null,
+    "v2_summary_coverage_pass_rate": null,
+    "v2_actionability_pass_rate": null,
+    "v2_tone_calibration_pass_rate": null,
+    "v2_helpfulness_noninferiority_rate": null
+  },
+  "current_head_verification": {
+    "backend_report_regression_passed": 419,
+    "backend_report_regression_skipped": 0,
+    "frontend_test_files_passed": 4,
+    "frontend_vitest_passed": 28,
+    "frontend_build": "PASS",
+    "compileall": "PASS",
+    "online_runtime_import_scan": "PASS_ZERO_MATCHES",
+    "secret_scan": "PASS_ZERO_MATCHES",
+    "diff_check": "PASS"
+  },
+  "truthfulness_limits": [
+    "No independent technical reviewer has completed the frozen packet.",
+    "No human fabrication observed_count is published.",
+    "No v2-over-v1 preference, non-inferiority, or superiority is claimed.",
+    "No Provider or optional offline Judge was called for Gate 4.",
+    "No PNG screenshot or pixel-level PDF visual review was performed.",
+    "Gate 4 Engineering PASS does not establish Gate 4 Quality PASS.",
+    "The Quality blocker does not stop later Engineering tasks."
+  ]
+}

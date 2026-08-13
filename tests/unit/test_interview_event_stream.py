@@ -106,6 +106,33 @@ class PendingWorkflowStore:
         return type("Command", (), {"status": "pending"})()
 
 
+class AppliedWorkflowStore:
+    def get_command(self, session_id, command_id):
+        return type(
+            "Command",
+            (),
+            {"status": "applied", "result_state_version": 2},
+        )()
+
+
+def test_sse_announces_generation_pending_before_chunks_without_reasoning():
+    service = InterviewEventStreamService(
+        workflow_store=AppliedWorkflowStore(),
+        generation_store=FakeGenerationStore(),
+        page_size=20,
+    )
+
+    events = list(service.iter_sse("s1", "cmd-1"))
+
+    assert events[0].startswith("event: status\n")
+    assert '"stage": "generation_pending"' in events[0]
+    assert "gap" not in events[0]
+    assert "confidence" not in events[0]
+    assert "reason" not in events[0]
+    assert events[1].startswith("id: gen-1:1:1\nevent: chunk\n")
+    assert events[-1].startswith("event: done\n")
+
+
 def test_pending_sse_times_out_with_reconnect_cursor():
     clock = FakeClock()
     service = InterviewEventStreamService(

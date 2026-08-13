@@ -1,0 +1,107 @@
+{
+  "schema_version": "interview-quality-gate-config-v1",
+  "config_id": "interview-quality-v1-2026-08-05",
+  "effective_date": "2026-08-05",
+  "change_policy": {
+    "required_evidence": [
+      "change_reason",
+      "old_and_new_values",
+      "saved_evidence_replay_diff",
+      "independent_review"
+    ],
+    "lower_threshold_to_pass_current_run": false
+  },
+  "formulas": {
+    "attempt_interval_hit_rate": "count(lower <= attempt.score <= upper) / attempt_count",
+    "strong_interval_hit_rate": "count(label == strong and lower <= score <= upper) / count(label == strong)",
+    "stratum_interval_hit_rate": "interval hits in stratum / attempts in stratum",
+    "interval_outside_mae": "mean(max(lower - score, 0, score - upper))",
+    "spearman_expert": "Spearman rank correlation using expected-range midpoint and average ranks for ties",
+    "pairwise_ranking_accuracy": "correctly ordered unequal-label pairs / all unequal-label pairs",
+    "retry_amplification": "all provider attempts including failures and retries / planned provider requests",
+    "p95": "nearest-rank p95 within one path, startup class, and execution class; mixed cohorts prohibited"
+  },
+  "algorithm_parameters": {
+    "evidence_ngram_min_coverage": 0.75
+  },
+  "metric_groups": {
+    "report_scoring": {
+      "pairwise_ranking_accuracy": {"operator": "gte", "threshold": 0.95, "unit": "ratio", "severity": "blocking", "min_sample_size": 20, "formula": "pairwise_ranking_accuracy", "baseline_mode": "max_lower"},
+      "evidence_grounding_rate": {"operator": "gte", "threshold": 0.95, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "forbidden_claim_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 20},
+      "expected_range_attempt_hit_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 40, "formula": "attempt_interval_hit_rate"},
+      "strong_attempt_hit_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 10, "formula": "strong_interval_hit_rate"},
+      "blocking_stratum_hit_rate": {"operator": "gte", "threshold": 0.85, "unit": "ratio", "severity": "blocking", "min_sample_size": 8, "formula": "stratum_interval_hit_rate"},
+      "saved_response_replay_delta": {"operator": "eq", "threshold": 0, "unit": "score_points", "severity": "blocking", "min_sample_size": 40},
+      "provider_repeat_max_delta": {"operator": "lte", "threshold": 8, "unit": "score_points", "severity": "blocking", "min_sample_size": 20},
+      "fallback_rate": {"operator": "lte", "threshold": 0.05, "unit": "ratio", "severity": "blocking", "min_sample_size": 40},
+      "attempt_completeness_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "expert_score_spearman": {"operator": "gte", "threshold": 0.80, "unit": "correlation", "severity": "blocking", "min_sample_size": 20, "formula": "spearman_expert"},
+      "interval_outside_mae": {"operator": "lte", "threshold": 10, "unit": "score_points", "severity": "blocking", "min_sample_size": 20, "formula": "interval_outside_mae"},
+      "fallback_numeric_score_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 1},
+      "unevaluated_dimension_zero_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 1}
+    },
+    "followup_quality": {
+      "action_accuracy": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "max_gap_type_accuracy": {"operator": "gte", "threshold": 0.85, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "latest_answer_relevance_rate": {"operator": "gte", "threshold": 0.95, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "unnecessary_followup_rate_strong": {"operator": "lte", "threshold": 0.20, "unit": "ratio", "severity": "blocking", "min_sample_size": 10},
+      "effective_correction_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "repeat_original_question_rate": {"operator": "lte", "threshold": 0.02, "unit": "ratio", "severity": "blocking", "min_sample_size": 50},
+      "multi_question_rate": {"operator": "lte", "threshold": 0.02, "unit": "ratio", "severity": "blocking", "min_sample_size": 50},
+      "reference_answer_leak_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 20},
+      "decision_parse_rate": {"operator": "gte", "threshold": 0.98, "unit": "ratio", "severity": "blocking", "min_sample_size": 50},
+      "followup_count_within_zero_to_two_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "replay_action_drift_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 20}
+    },
+    "initial_question_quality": {
+      "jd_resume_relevance_rate": {"operator": "gte", "threshold": 0.95, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "configured_focus_coverage_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "within_plan_duplicate_rate": {"operator": "lte", "threshold": 0.05, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "difficulty_fit_rate": {"operator": "gte", "threshold": 0.85, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "single_clear_answerable_rate": {"operator": "gte", "threshold": 0.95, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "reference_or_internal_evidence_leak_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 20},
+      "preview_session_plan_hash_match_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1}
+    },
+    "report_quality": {
+      "backend_score_recompute_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "unscored_without_numeric_score_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "unevaluated_dimension_semantics_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "claim_with_legal_evidence_ref_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "evidence_ref_session_ownership_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "candidate_experience_boundary_violation_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 1},
+      "adversarial_experience_fabrication_observed_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 20},
+      "top_improvement_action_evidence_binding_rate": {"operator": "eq", "threshold": 1.0, "unit": "ratio", "severity": "blocking", "min_sample_size": 1},
+      "cross_question_summary_coverage_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "technical_correctness_blind_review_pass_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "actionability_blind_review_pass_rate": {"operator": "gte", "threshold": 0.90, "unit": "ratio", "severity": "blocking", "min_sample_size": 20},
+      "diagnostics_primary_page_count": {"operator": "eq", "threshold": 0, "unit": "count", "severity": "blocking", "min_sample_size": 1}
+    },
+    "operations": {
+      "decision_output_tokens": {"operator": "lte", "threshold": 300, "unit": "tokens", "severity": "blocking", "min_sample_size": 1},
+      "followup_output_tokens": {"operator": "lte", "threshold": 120, "unit": "tokens", "severity": "blocking", "min_sample_size": 1},
+      "provider_calls_per_answer": {"operator": "lte", "threshold": 2, "unit": "calls", "severity": "blocking", "min_sample_size": 1},
+      "provider_calls_per_main_question": {"operator": "lte", "threshold": 4, "unit": "calls", "severity": "blocking", "min_sample_size": 1},
+      "provider_calls_after_second_followup": {"operator": "eq", "threshold": 0, "unit": "calls", "severity": "blocking", "min_sample_size": 1},
+      "adaptive_decision_p95_seconds": {"operator": "lte", "threshold": 3.0, "unit": "seconds", "severity": "blocking", "min_sample_size": 30},
+      "adaptive_followup_e2e_ttft_p95_seconds": {"operator": "lte", "threshold": 3.0, "unit": "seconds", "severity": "blocking", "min_sample_size": 30, "baseline_mode": "min_upper", "baseline_multiplier": 1.20},
+      "adaptive_next_question_p95_seconds": {"operator": "lte", "threshold": 3.0, "unit": "seconds", "severity": "blocking", "min_sample_size": 30},
+      "sse_resume_p95_seconds": {"operator": "lte", "threshold": 5.0, "unit": "seconds", "severity": "blocking", "min_sample_size": 30},
+      "report_completion_p95_seconds": {"operator": "lte", "threshold": 120.0, "unit": "seconds", "severity": "blocking", "min_sample_size": 30, "baseline_mode": "min_upper", "baseline_multiplier": 1.20, "requires_comparable_baseline": true},
+      "retry_amplification": {"operator": "lte", "threshold": 1.15, "unit": "ratio", "severity": "blocking", "min_sample_size": 20, "formula": "retry_amplification"},
+      "decision_degradation_rate": {"operator": "lte", "threshold": 0.02, "unit": "ratio", "severity": "blocking", "min_sample_size": 50},
+      "session_input_tokens": {"operator": "record", "threshold": null, "unit": "tokens", "severity": "warning", "min_sample_size": 1},
+      "session_output_tokens": {"operator": "record", "threshold": null, "unit": "tokens", "severity": "warning", "min_sample_size": 1},
+      "session_estimated_cost": {"operator": "record", "threshold": null, "unit": "provider_currency", "severity": "warning", "min_sample_size": 1}
+    }
+  },
+  "cohort_dimensions": [
+    "cold_or_warm",
+    "fixed_or_adaptive",
+    "followup_or_next_question",
+    "first_or_recovery",
+    "schema_version",
+    "question_count",
+    "provider_path"
+  ]
+}

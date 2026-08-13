@@ -1,0 +1,120 @@
+{
+  "schema_version": "interview-quality-v1-stage-evidence-v1",
+  "task": "T50",
+  "implementation_revision_base": "3526efbeb76b34e17470ef5ff202d55a430da765",
+  "engineering_status": "PASS",
+  "automatic_review": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "provider_calls": 0,
+  "policy": {
+    "path": "config/interview_plan_generation_policy_v1.json",
+    "schema_version": "interview-plan-generation-policy-v1",
+    "policy_version": "interview-plan-config-strategy-v1",
+    "plan_schema_version": "interview-plan-v2",
+    "canonical_sha256": "d37b1172bba95aa1623882fa630e6817955570e708af6b830e0c028bdcc1cbb7",
+    "configuration_field_count": 8,
+    "allowed_difficulties": [
+      "foundation",
+      "intermediate",
+      "advanced"
+    ],
+    "allowed_target_duration_minutes": [
+      15,
+      30,
+      45,
+      60
+    ],
+    "allowed_focus_presets": [
+      "technical_depth",
+      "system_design",
+      "project_review",
+      "balanced"
+    ],
+    "allowed_question_types": [
+      "project",
+      "technical",
+      "system-design",
+      "behavioral"
+    ],
+    "allowed_followup_policy_versions": [
+      "fixed_v1",
+      "adaptive_v1"
+    ],
+    "max_followups_per_question": 2
+  },
+  "budget_semantics": {
+    "question_type_budget": "exact_generation_target_by_type",
+    "sparse_missing_type_count": 0,
+    "zero_total_allowed": false,
+    "strict_integer_counts": true,
+    "expected_followup_budget": "aggregate_expected_count_for_estimation",
+    "expected_followup_budget_is_runtime_hard_cap": false,
+    "duration_meaning": "target_estimate_not_sla"
+  },
+  "snapshot_hash_contract": {
+    "all_configuration_fields_in_snapshot": true,
+    "all_configuration_fields_in_plan_hash": true,
+    "question_type_budget_key_order_canonical": true,
+    "configuration_revalidated_before_hash": true,
+    "plan_revalidated_before_hash": true,
+    "policy_revalidated_before_evaluation": true,
+    "policy_canonical_hash_required": true,
+    "revision_generator_matches_snapshot": true
+  },
+  "scoring_separation": {
+    "configuration_may_change_rubric": false,
+    "configuration_may_change_passing_threshold": false,
+    "rubric_source": "report_rule_score",
+    "scoring_module_configuration_import_matches": 0
+  },
+  "legacy_compatibility": {
+    "v1_parser_retained": true,
+    "provider_calls": 0,
+    "default_difficulty": "intermediate",
+    "default_target_duration_minutes": 30,
+    "default_focus_preset": "balanced",
+    "default_followup_policy_version": "fixed_v1",
+    "max_followups_per_question": 2,
+    "opaque_v2_ids_allocated": true
+  },
+  "phase_boundaries": {
+    "t50_configuration_values_frozen": true,
+    "t50_question_ranges_implemented": false,
+    "t51_question_budget_model_owner": true,
+    "t52_generation_and_launch_validation_owner": true,
+    "t54_user_warning_interaction_owner": true,
+    "existing_3_to_5_validation_changed": false
+  },
+  "automatic_review_fixes": [
+    "required revision-level generator_version to match the configuration snapshot",
+    "rejected Boolean and coerced string budget values",
+    "froze followup_policy_version to fixed_v1 or adaptive_v1",
+    "required a positive total question_type_budget",
+    "revalidated configuration and plan payloads before canonical hashing",
+    "pinned the complete policy semantics to a canonical SHA-256",
+    "made the legacy API test conversion write one generator version at the boundary"
+  ],
+  "verification": {
+    "t50_policy_focused_passed": 17,
+    "plan_revision_editor_api_postgres_passed": 45,
+    "plan_revision_editor_api_postgres_skipped": 0,
+    "session_serialization_postgres_passed": 39,
+    "session_serialization_postgres_skipped": 0,
+    "api_prep_context_passed": 60,
+    "api_prep_context_skipped": 0,
+    "postgresql": "16.14",
+    "pgvector": "0.8.6",
+    "policy_hash_closure": "PASS",
+    "scoring_configuration_import_scan": "PASS_ZERO_MATCHES",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "secret_scan": "PASS_ZERO_MATCHES"
+  },
+  "truthfulness_limits": [
+    "No Provider was called by T50.",
+    "T50 does not claim that T51 duration-to-question ranges or estimation are implemented.",
+    "T50 does not claim that T52 generation, fallback, trimming, or launch validation are implemented.",
+    "T50 does not claim that T54 user-facing duration warnings are implemented.",
+    "Plan configuration cannot change the scoring rubric or passing threshold."
+  ]
+}

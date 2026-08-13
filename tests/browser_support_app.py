@@ -15,6 +15,7 @@ from app.main import app
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.agent_runtime import AgentExecutionContext, AgentExecutionRunner
 from app.services.event_publisher import NoopRuntimeEventPublisher
+from app.services.interview_plan_regenerator import ProviderPlanRegenerator
 from app.services.runtime_events import _format_sse
 from app.services.runtime_events import AcceptedInterviewCommand
 from app.services.question_evaluations import question_evaluation_from_feedback
@@ -26,6 +27,8 @@ from app.services.prep import (
     PrepContext,
     PrepKnowledgeTopic,
     PrepQuestionHint,
+    bind_prepared_plan_revision,
+    validate_generation_configuration,
 )
 from app.services.prep_question_regeneration import PrepQuestionRegenerator
 from app.services.report import (
@@ -597,8 +600,17 @@ def prepare_browser_interview(
     job_description,
     resume_text,
     llm=None,
+    knowledge_store=None,
     execution_runner=None,
+    configuration=None,
+    allow_fallback=True,
 ):
+    del knowledge_store, allow_fallback
+    effective_configuration = (
+        validate_generation_configuration(configuration)
+        if configuration is not None
+        else None
+    )
     prep_run_id = f"browser-{uuid4().hex}"
     runner = execution_runner or AgentExecutionRunner()
     return runner.run(
@@ -608,11 +620,14 @@ def prepare_browser_interview(
             operation="generate_plan",
             phase="prep",
         ),
-        lambda: _build_browser_interview(
-            job_description,
-            resume_text,
-            llm=llm,
-            prep_run_id=prep_run_id,
+        lambda: bind_prepared_plan_revision(
+            _build_browser_interview(
+                job_description,
+                resume_text,
+                llm=llm,
+                prep_run_id=prep_run_id,
+            ),
+            effective_configuration,
         ),
         metadata=lambda plan: {
             "question_count": len(plan.questions),
@@ -756,6 +771,55 @@ interview_start_module.prepare_interview = prepare_browser_interview
 prep_route_module.prepare_interview = prepare_browser_interview
 
 
+def generate_browser_revision_replacement(
+    job_description: str,
+    resume_text: str,
+    configuration,
+) -> InterviewPlan:
+    """Return a deterministic full-plan Provider response for revision tests."""
+    plan = _build_browser_interview(
+        job_description,
+        resume_text,
+        prep_run_id=f"browser-revision-regenerate-{uuid4().hex}",
+    )
+    replacements = [
+        (
+            "请设计一次灰度发布演练，并说明监控、回滚与验证边界。",
+            "灰度发布、可观测性与安全回滚",
+        ),
+        (
+            "Explain a Redis failover strategy that preserves cache consistency.",
+            "Redis failover and consistency",
+        ),
+        (
+            "Design a tenfold traffic migration with explicit rollback gates.",
+            "capacity migration and rollback",
+        ),
+        (
+            "Describe how you led a production incident under incomplete evidence.",
+            "incident leadership and evidence",
+        ),
+        (
+            "Design tests for database retries, idempotency, and partial failure.",
+            "retry safety and idempotency",
+        ),
+    ]
+    plan = plan.model_copy(
+        update={
+            "title": "Stage 41 browser regenerated interview",
+            "questions": [
+                question.model_copy(update={"prompt": prompt, "focus": focus})
+                for question, (prompt, focus) in zip(
+                    plan.questions,
+                    replacements,
+                    strict=True,
+                )
+            ],
+        }
+    )
+    return bind_prepared_plan_revision(plan, configuration)
+
+
 def generate_browser_replacement(context: dict) -> InterviewPlan:
     """Return a deterministic, non-duplicate replacement for browser tests."""
     target = context["target_question"]
@@ -816,6 +880,9 @@ app.dependency_overrides[original_report_job_dependency] = lambda: job_store
 app.dependency_overrides[original_report_queue_dependency] = lambda: job_store
 app.dependency_overrides[prep_route_module.get_prep_question_regenerator] = (
     lambda: PrepQuestionRegenerator(generate_browser_replacement)
+)
+app.dependency_overrides[api_dependencies.get_plan_regenerator] = (
+    lambda: ProviderPlanRegenerator(generate_browser_revision_replacement)
 )
 api_dependencies.get_report_job_store = lambda: job_store
 api_dependencies.get_interview_workflow_service = lambda: durable_workflow

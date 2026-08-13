@@ -78,7 +78,7 @@
 
   .mobile-nav-inner {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     width: min(100%, 28rem);
     height: 3.5rem;
     margin: 0 auto;

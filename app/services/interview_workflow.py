@@ -13,6 +13,7 @@ from app.graphs.interview_state import (
 )
 from app.services.interview_event_stream import InterviewEventStreamService
 from app.services.runtime_events import AcceptedInterviewCommand
+from app.services.session_plan_binding import session_plan_binding_from_state
 from app.services.workflow_thread_lock import (
     NoopWorkflowThreadLock,
     interview_thread_identity,
@@ -21,8 +22,21 @@ from app.services.workflow_thread_lock import (
 
 PENDING_ACTION_BY_NODE = {
     "wait_for_answer": "waiting_for_answer",
+    "validate_command": "validating_answer",
+    "append_candidate_answer": "accepting_answer",
+    "guard_after_answer": "analyzing_answer",
+    "prepare_or_load_decision": "analyzing_answer",
+    "execute_decision_attempt": "analyzing_answer",
+    "guard_after_decision": "analyzing_answer",
+    "guard_before_generation": "organizing_followup",
+    "prepare_generation": "organizing_followup",
     "generate_followup": "generating_followup",
     "wait_for_retry": "waiting_for_retry",
+    "validate_retry": "recovering_followup",
+    "prepare_retry": "recovering_followup",
+    "fallback_followup": "organizing_followup",
+    "terminate_followup_generation": "committing_state",
+    "commit_next_question": "committing_state",
     "project_state": "committing_state",
 }
 
@@ -65,8 +79,10 @@ class InterviewWorkflowService:
         job_description: str,
         resume_text: str,
         job_tags: list[str],
+        plan_binding=None,
+        session_id: str | None = None,
     ):
-        session_id = str(uuid4())
+        session_id = session_id or str(uuid4())
         engine = choose_workflow_engine(
             session_id,
             runtime_store=self.runtime_store,
@@ -83,6 +99,7 @@ class InterviewWorkflowService:
                 job_tags=job_tags,
                 session_id=session_id,
                 memory_policy_version=memory_policy_version,
+                plan_binding=plan_binding,
             )
         self.legacy_store.insert_durable_session_shell(
             session_id=session_id,
@@ -92,6 +109,7 @@ class InterviewWorkflowService:
             job_tags=job_tags,
             graph_version=self.default_graph_version,
             memory_policy_version=memory_policy_version,
+            plan_binding=plan_binding,
         )
         self.ensure_interview_bootstrapped(session_id, plan=plan)
         return self.legacy_store._to_turn(
@@ -154,6 +172,7 @@ class InterviewWorkflowService:
             if not version:
                 raise ValueError("durable graph version is missing")
             resolved_plan = plan or public_state["plan"]
+            plan_binding = session_plan_binding_from_state(public_state)
             initial_state = (
                 make_durable_initial_state_v2(
                     session_id,
@@ -161,9 +180,14 @@ class InterviewWorkflowService:
                     memory_policy_version=public_state[
                         "memory_policy_version"
                     ],
+                    plan_binding=plan_binding,
                 )
                 if version == "langgraph-v2"
-                else make_durable_initial_state(session_id, resolved_plan)
+                else make_durable_initial_state(
+                    session_id,
+                    resolved_plan,
+                    plan_binding=plan_binding,
+                )
             )
             canonical = json.dumps(
                 {
@@ -326,7 +350,20 @@ class InterviewWorkflowService:
         snapshot["active_attempt_number"] = values.get(
             "generation_attempt"
         )
-        if active_command_id and generation_id:
+        policy_version = values.get(
+            "followup_policy_version",
+            snapshot.get("followup_policy_version", "fixed_v1"),
+        )
+        snapshot["followup_policy_version"] = policy_version
+        snapshot["current_followup_count"] = max(
+            0, min(2, int(values.get("current_followup_count") or 0))
+        )
+        snapshot["followup_ui_state"] = _followup_ui_state(
+            values,
+            next_node=next_node,
+            policy_version=policy_version,
+        )
+        if active_command_id:
             snapshot["active_stream_url"] = (
                 f"/api/interviews/{session_id}/commands/"
                 f"{active_command_id}/stream"
@@ -349,3 +386,27 @@ class InterviewWorkflowService:
                 session_id
             ),
         }
+
+
+def _followup_ui_state(values, *, next_node, policy_version: str) -> str:
+    """Return the bounded public UI state without Decision reasoning fields."""
+
+    if values.get("termination_reason_code"):
+        return "degraded"
+    if not values.get("active_command_id"):
+        return "idle"
+    pending = PENDING_ACTION_BY_NODE.get(next_node)
+    if values.get("generation_id") or pending in {
+        "organizing_followup",
+        "generating_followup",
+        "waiting_for_retry",
+        "recovering_followup",
+    }:
+        return "generation_pending"
+    if policy_version == "adaptive_v1" and pending in {
+        "validating_answer",
+        "accepting_answer",
+        "analyzing_answer",
+    }:
+        return "decision_pending"
+    return "generation_pending"

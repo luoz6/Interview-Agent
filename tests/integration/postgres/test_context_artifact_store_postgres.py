@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from threading import Barrier
 
 import pytest
@@ -50,6 +50,14 @@ def make_payload():
         "unresolved_topics": [],
         "source_message_count": 1,
     }
+
+
+def database_clock(store):
+    """Return a cutoff in the same clock domain as PostgreSQL row timestamps."""
+    with store._connection_provider.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT clock_timestamp()")
+            return cursor.fetchone()[0]
 
 
 def age_failed_artifacts(store) -> None:
@@ -114,6 +122,100 @@ def test_claim_complete_reuse_and_owner_ref(store):
     assert loaded == record
 
 
+def test_identity_v0_columns_remain_null_and_reload_without_rekeying(store):
+    identity = make_identity()
+    record = store.complete(
+        store.claim(identity, worker_id="worker-v0", lease_seconds=30),
+        make_payload(),
+    )
+
+    with store._connection_provider.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                store._sql(
+                    "SELECT identity_schema_version, compression_intent_sha256 "
+                    "FROM {artifacts} WHERE artifact_id = %s::uuid"
+                ),
+                (record.artifact_id,),
+            )
+            stored_identity_version = cursor.fetchone()
+
+    reloaded = store.get_terminal_by_key(identity.artifact_key)
+
+    assert stored_identity_version == (None, None)
+    assert reloaded is not None
+    assert reloaded.identity == identity
+    assert reloaded.identity.artifact_key == identity.artifact_key
+
+
+def test_identity_v1_round_trips_through_direct_and_joined_ref_loaders(store):
+    identity = make_identity(
+        identity_schema_version="identity-v1",
+        compression_intent_sha256="6" * 64,
+    )
+    record = store.complete(
+        store.claim(identity, worker_id="worker-v1", lease_seconds=30),
+        make_payload(),
+    )
+    ref = store.create_owner_ref(
+        record,
+        owner_type="interview_session",
+        owner_key="session-v1",
+        purpose="interview_conversation_context",
+    )
+
+    direct = store.get_terminal_by_key(identity.artifact_key)
+    joined = store.load_ref(
+        ref,
+        owner_type="interview_session",
+        owner_key="session-v1",
+        purpose="interview_conversation_context",
+        expected_identity=identity,
+    )
+
+    assert direct is not None
+    assert direct.identity == identity
+    assert joined.identity == identity
+    assert joined.identity.material.identity_schema_version == "identity-v1"
+    assert joined.identity.material.compression_intent_sha256 == "6" * 64
+
+
+@pytest.mark.parametrize(
+    ("identity_schema_version", "compression_intent_sha256"),
+    (
+        ("identity-v1", None),
+        (None, "6" * 64),
+        ("identity-v2", "6" * 64),
+        ("identity-v1", "not-a-digest"),
+    ),
+)
+def test_database_rejects_invalid_identity_v1_material(
+    store,
+    identity_schema_version,
+    compression_intent_sha256,
+):
+    identity = make_identity()
+    claim = store.claim(identity, worker_id="worker-invalid-v1", lease_seconds=30)
+
+    import psycopg2
+
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        with store._connection_provider.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    store._sql(
+                        "UPDATE {artifacts} SET identity_schema_version = %s, "
+                        "compression_intent_sha256 = %s "
+                        "WHERE artifact_id = %s::uuid"
+                    ),
+                    (
+                        identity_schema_version,
+                        compression_intent_sha256,
+                        claim.artifact_id,
+                    ),
+                )
+
+
 def test_live_claim_busy_and_expired_claim_is_fenced(store):
     identity = make_identity()
     first = store.claim(identity, worker_id="worker-1", lease_seconds=30)
@@ -144,7 +246,7 @@ def test_failed_artifact_reclaims_and_cleanup_uses_one_global_batch(store):
     store.fail(current, error_code="provider_timeout")
     age_failed_artifacts(store)
 
-    now = datetime.now(timezone.utc)
+    now = database_clock(store)
     result = store.cleanup(
         ContextArtifactCleanupPolicy(
             completed_before=now + timedelta(seconds=1),
@@ -275,6 +377,10 @@ def test_load_ref_rejects_complete_identity_mismatch(store):
         make_identity(compressor_model="gpt-4.1"),
         make_identity(compressor_settings_sha256="8" * 64),
         make_identity(target_output_tokens=512),
+        make_identity(
+            identity_schema_version="identity-v1",
+            compression_intent_sha256="9" * 64,
+        ),
     ):
         with pytest.raises(ContextArtifactConflict):
             store.load_ref(
@@ -302,12 +408,11 @@ def test_concurrent_cleanup_uses_skip_locked_without_double_deletion(store):
     age_failed_artifacts(store)
 
     barrier = Barrier(2)
+    cutoff = database_clock(store) + timedelta(seconds=1)
     policy = ContextArtifactCleanupPolicy(
-        completed_before=datetime.now(timezone.utc) + timedelta(seconds=1),
-        failed_before=datetime.now(timezone.utc) + timedelta(seconds=1),
-        prep_ref_expires_before=(
-            datetime.now(timezone.utc) + timedelta(seconds=1)
-        ),
+        completed_before=cutoff,
+        failed_before=cutoff,
+        prep_ref_expires_before=cutoff,
         batch_size=2,
     )
 

@@ -72,6 +72,6 @@ def test_queue_failure_is_structured_and_retryable():
     assert detail["retryable"] is True
     assert detail["error"] == {
         "code": "report_enqueue_unavailable",
-        "message": "report queue unavailable",
+        "message": "Report queue is unavailable.",
         "retryable": True,
     }

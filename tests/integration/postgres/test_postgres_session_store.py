@@ -25,6 +25,10 @@ from app.services.report import (
     ReportProgress,
 )
 from app.domain.interview.errors import SessionVersionConflict
+from app.services.interview_plan_revision import v2_plan_to_legacy
+from app.services.interview_plan_revision_store import InMemoryInterviewPlanRevisionStore
+from app.services.session_plan_binding import session_plan_binding_from_revision
+from tests.unit.test_interview_plan_revision import plan as revision_plan, source
 from tests.unit.test_knowledge_binding_resolver import (
     make_repository as make_binding_repository,
     make_v2_plan as make_bound_v2_plan,
@@ -82,6 +86,36 @@ def make_plan():
             ),
         ],
     )
+
+
+def test_revision_binding_and_immutable_snapshot_round_trip_in_postgres():
+    revision_store = InMemoryInterviewPlanRevisionStore()
+    revision = revision_store.create_initial(
+        source_payload=source(),
+        plan=revision_plan(),
+        retention_policy="test-v1",
+        generator_version="plan-generator-v2-test",
+    )
+    store = PostgresInterviewSessionStore(
+        dsn=require_dsn(),
+        table_prefix=make_table_prefix(),
+    )
+
+    turn = store.start(
+        v2_plan_to_legacy(revision.plan),
+        job_description=source().job_description,
+        resume_text=source().resume_text,
+        job_tags=list(source().job_tags),
+        plan_binding=session_plan_binding_from_revision(revision),
+    )
+    restored = store.get(turn.session_id)
+
+    assert restored["plan_origin"] == "plan_revision"
+    assert restored["plan_revision_id"] == revision.plan_revision_id
+    assert restored["plan_family_id"] == revision.plan_family_id
+    assert restored["revision"] == 1
+    assert restored["plan_sha256"] == revision.plan_sha256
+    assert restored["plan_snapshot"] == revision.plan.model_dump(mode="json")
 
 
 def make_v2_plan():

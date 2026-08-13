@@ -8,6 +8,7 @@ DOMAIN_ROUTE_MODULES = (
     API / "deletion" / "routes.py",
     API / "interview" / "routes.py",
     API / "memory" / "routes.py",
+    API / "plans" / "routes.py",
     API / "prep" / "routes.py",
     API / "reports" / "routes.py",
     API / "runtime" / "routes.py",
@@ -56,6 +57,6 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
         if method in methods
     ]
 
-    assert len(schema["paths"]) == 39
-    assert len(operations) == 45
+    assert len(schema["paths"]) == 50
+    assert len(operations) == 56
     assert len(operations) == len(set(operations))

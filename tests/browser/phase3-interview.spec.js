@@ -261,6 +261,8 @@ test("interview layout contracts remain stable across viewports", async ({
     await page.setViewportSize({ width: viewport.width, height: 900 });
     await page.goto("/interview?session_id=" + sessionId);
     await expectGeometry(page);
+    await expect(page.locator(".interview-question-list li").first()).toBeVisible();
+    await expect(page.locator(".current-question h2")).toBeVisible();
     const interview = await page.evaluate(() => {
       const workspace = document.querySelector(".interview-workspace");
       const main = document.querySelector(".interview-main").getBoundingClientRect();
@@ -455,8 +457,8 @@ test("empty answer feedback explains the problem and returns focus to the editor
 test("React interview focus mode and answer draft survive refresh", async ({ page }) => {
   await page.goto("/prep");
   await fillReferencePrepSources(page);
-  await page.getByRole("button", { name: /生成并检查面试计划/ }).click();
-  await page.getByRole("button", { name: /确认版本并开始面试/ }).click();
+  await page.getByRole("button", { name: /生成面试计划/ }).click();
+  await page.getByRole("button", { name: /开始本次面试/ }).click();
   const draft = "Cache-aside with database fallback and timeout recovery.";
   await page.getByLabel("你的回答").fill(draft);
   await page.reload();
@@ -498,14 +500,14 @@ test("finish dialog sends no request until confirmed and restores focus on Escap
   const finishButton = page.getByRole("button", { name: "结束面试" });
 
   await finishButton.click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeVisible();
   expect(writes).toHaveLength(0);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(finishButton).toBeFocused();
 
   await finishButton.click();
-  await page.getByRole("button", { name: "结束并生成报告" }).click();
+  await page.getByRole("button", { name: "确认结束面试" }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].expected_version).toEqual(expect.any(Number));
   expect(writes[0].command_id).toMatch(commandUuidPattern);
@@ -520,7 +522,7 @@ test("leave and continue preserves the active session without finishing it", asy
   });
 
   await page.locator('a[href="/reports"]:visible').first().click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeVisible();
   expect(finishWrites).toBe(0);
   await page.getByRole("button", { name: "离开并稍后继续" }).click();
   await expect(page).toHaveURL(/\/reports$/);

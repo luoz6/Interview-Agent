@@ -4,8 +4,16 @@ from uuid import uuid4
 import pytest
 
 from app.services.interview_generation_store import (
+    ChunkCoalescer,
+    GenerationInputConflict,
     GenerationAlreadyCompleted,
     PostgresInterviewGenerationStore,
+)
+from app.services.followup_prompts import (
+    FOLLOWUP_DECISION_PROMPT_SHA256,
+    FOLLOWUP_DECISION_PROMPT_VERSION,
+    FOLLOWUP_GENERATION_PROMPT_SHA256,
+    FOLLOWUP_GENERATION_PROMPT_VERSION,
 )
 from app.services.workflow_thread_lock import GenerationLeaseLost
 from app.services.postgres_session import PostgresInterviewSessionStore
@@ -61,7 +69,73 @@ def test_generation_is_idempotent_per_source_command(store):
     )
 
     assert first.generation_id == second.generation_id
+
+
+def test_generation_binds_one_source_decision_and_rejects_rebinding(store):
+    decision_id = str(uuid4())
+    first = store.prepare_generation(
+        session_id=store.session_id,
+        source_command_id="command-decision-link",
+        question_id="q1",
+        source_decision_id=decision_id,
+        decision_prompt_version=FOLLOWUP_DECISION_PROMPT_VERSION,
+        decision_prompt_sha256=FOLLOWUP_DECISION_PROMPT_SHA256,
+        generation_prompt_version=FOLLOWUP_GENERATION_PROMPT_VERSION,
+        generation_prompt_sha256=FOLLOWUP_GENERATION_PROMPT_SHA256,
+    )
+    replay = store.prepare_generation(
+        session_id=store.session_id,
+        source_command_id="command-decision-link",
+        question_id="q1",
+        source_decision_id=decision_id,
+        decision_prompt_version=FOLLOWUP_DECISION_PROMPT_VERSION,
+        decision_prompt_sha256=FOLLOWUP_DECISION_PROMPT_SHA256,
+        generation_prompt_version=FOLLOWUP_GENERATION_PROMPT_VERSION,
+        generation_prompt_sha256=FOLLOWUP_GENERATION_PROMPT_SHA256,
+    )
+
+    assert first.source_decision_id == replay.source_decision_id == decision_id
+    assert first.decision_prompt_version == FOLLOWUP_DECISION_PROMPT_VERSION
+    assert first.decision_prompt_sha256 == FOLLOWUP_DECISION_PROMPT_SHA256
+    assert first.generation_prompt_version == FOLLOWUP_GENERATION_PROMPT_VERSION
+    assert first.generation_prompt_sha256 == FOLLOWUP_GENERATION_PROMPT_SHA256
+    with pytest.raises(GenerationInputConflict):
+        store.prepare_generation(
+            session_id=store.session_id,
+            source_command_id="command-decision-link",
+            question_id="q1",
+            source_decision_id=str(uuid4()),
+            decision_prompt_version=FOLLOWUP_DECISION_PROMPT_VERSION,
+            decision_prompt_sha256=FOLLOWUP_DECISION_PROMPT_SHA256,
+            generation_prompt_version=FOLLOWUP_GENERATION_PROMPT_VERSION,
+            generation_prompt_sha256=FOLLOWUP_GENERATION_PROMPT_SHA256,
+        )
     assert first.active_attempt == 1
+
+
+def test_generation_prompt_lineage_rejects_non_null_drift(store):
+    decision_id = str(uuid4())
+    kwargs = {
+        "session_id": store.session_id,
+        "source_command_id": "command-prompt-lineage",
+        "question_id": "q1",
+        "source_decision_id": decision_id,
+        "decision_prompt_version": FOLLOWUP_DECISION_PROMPT_VERSION,
+        "decision_prompt_sha256": FOLLOWUP_DECISION_PROMPT_SHA256,
+        "generation_prompt_version": FOLLOWUP_GENERATION_PROMPT_VERSION,
+        "generation_prompt_sha256": FOLLOWUP_GENERATION_PROMPT_SHA256,
+    }
+    first = store.prepare_generation(**kwargs)
+    assert store.prepare_generation(**kwargs).generation_id == first.generation_id
+
+    with pytest.raises(GenerationInputConflict, match="input conflicts"):
+        store.prepare_generation(
+            **{
+                **kwargs,
+                "generation_prompt_version": "followup-generation-v2",
+                "generation_prompt_sha256": "f" * 64,
+            }
+        )
 
 
 def test_chunks_are_ordered_and_attempt_scoped(store):
@@ -145,9 +219,7 @@ def test_cleanup_removes_only_old_completed_generation_chunks(store):
         with connection.cursor() as cursor:
             cursor.execute(
                 store._sql(
-                    "UPDATE {generations} "
-                    "SET completed_at = NOW() - INTERVAL '1 hour' "
-                    "WHERE generation_id = %s"
+                    "UPDATE {generations} SET completed_at = NOW() - INTERVAL '2 hours' WHERE generation_id = %s"
                 ),
                 (completed.generation_id,),
             )

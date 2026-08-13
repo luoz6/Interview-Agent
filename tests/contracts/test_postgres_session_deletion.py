@@ -61,10 +61,27 @@ def test_latest_migration_contract_preserves_deletion_and_adds_row_versions():
         migration.migration_id == "principal_memory_v1"
         for migration in RUNTIME_MIGRATIONS
     )
+    assert any(
+        migration.migration_id == "frontend_product_experience_v15"
+        for migration in RUNTIME_MIGRATIONS
+    )
+    assert any(
+        migration.migration_id == "followup_decision_v1"
+        for migration in RUNTIME_MIGRATIONS
+    )
+    assert any(
+        migration.migration_id == "context_artifact_identity_v1_v16"
+        for migration in RUNTIME_MIGRATIONS
+    )
+    assert any(
+        migration.migration_id == "question_memory_resolved_target_v1_v27"
+        for migration in RUNTIME_MIGRATIONS
+    )
     assert (
         LATEST_RUNTIME_MIGRATION.migration_id
-        == "row_serialization_versions_v16"
+        == "row_serialization_versions_v1_v29"
     )
+    assert LATEST_RUNTIME_MIGRATION == RUNTIME_MIGRATIONS[-1]
     columns = required_columns_for_relation(
         "memory_test_session_deletion_jobs"
     )

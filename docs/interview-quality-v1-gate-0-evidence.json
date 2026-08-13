@@ -1,0 +1,120 @@
+{
+  "schema_version": "interview-quality-v1-gate-evidence-v1",
+  "gate": 0,
+  "generated_at": "2026-08-05T16:56:22.7072079+08:00",
+  "engineering_status": "PASS",
+  "quality_status": "NOT_REQUIRED",
+  "automatic_review": {
+    "status": "PASS",
+    "review_kind": "primary_agent_automatic_phase_review",
+    "open_blocking_findings": [],
+    "open_warnings": [],
+    "closed_findings": [
+      "Active Stage 40 Python and Markdown consumers duplicated legacy thresholds; both now load GateConfig.",
+      "The completed Stage 40 run lacked expected ranges in its normalized attempts; an immutable sidecar now binds all case ranges and replays 28/40 as FAIL.",
+      "Internal report_jobs retrying state was ambiguous against the four-value public job axis; the Report ADR now freezes it as a running substate."
+    ]
+  },
+  "tasks": {
+    "T00": "PASS",
+    "T01": "PASS",
+    "T02": "PASS",
+    "T03": "PASS",
+    "T04": "PASS",
+    "T05": "PASS",
+    "T06": "PASS",
+    "T07": "PASS",
+    "T08": "PASS",
+    "T09": "PASS"
+  },
+  "artifacts": {
+    "gate_config": {
+      "path": "config/interview_quality_v1_gate.json",
+      "sha256": "2b650efab1242c00d8e501046fba985ad6a6db191d6043058be0671f9f851535"
+    },
+    "gate_config_schema": {
+      "path": "config/interview_quality_v1_gate.schema.json",
+      "sha256": "cbe88be26fb1252836b1c8e8250cd657227454ef3c78d7a1eac17b6c89ce3d43"
+    },
+    "dataset_schema": {
+      "path": "config/interview_quality_v1_dataset.schema.json",
+      "sha256": "cd338e97e2cc7643bda24f2f8278e815978849da6c1285ea638800aa59878027"
+    },
+    "dataset_file_manifest": {
+      "path": "tests/golden/interview_quality_v1/manifest.json",
+      "sha256": "621b170ceaaba6967ae56b6eda960e86ca2e80a74ed34dc698b7de2b3d75c3d9"
+    },
+    "provider_authorization": {
+      "path": "config/interview_quality_v1_provider_authorization.json",
+      "sha256": "ca6c10bcdd9d95d213d56b553bd889dc261cbe678a0fc405027c072899dbf5ac"
+    },
+    "stage40_expected_range_sidecar": {
+      "path": "reports/stage40-acceptance/expected-range-augmentation-v1.json",
+      "sha256": "f194a4f122121f4dfb4e710d61b44955b28ae49d8b9fb9f21c58c03da5922035"
+    },
+    "execution_baseline": {
+      "path": "docs/interview-quality-v1-execution-baseline.md",
+      "sha256": "1319f9cd4d5da8fe49cfcbf31abadae51d68229ca3bceec1cd04319276e4225e"
+    },
+    "toolchain_baseline": {
+      "path": "docs/interview-quality-v1-toolchain-baseline.md",
+      "sha256": "ccade3265cd234fd12a9e269689ec9661ca4356ee90b0d525cc4aaa3345107b0"
+    }
+  },
+  "contract_review": {
+    "p0_adrs": [
+      "docs/adr/interview-quality-v1-contract.md",
+      "docs/adr/interview-plan-revision-v2.md",
+      "docs/adr/report-job-artifact-v2.md",
+      "docs/adr/followup-decision-v1.md"
+    ],
+    "supporting_adrs": [
+      "docs/adr/interview-quality-provider-observability.md",
+      "docs/adr/interview-quality-frontend-testing.md"
+    ],
+    "review_confirmation": "primary_agent_automatic_contract_review_pass",
+    "independent_external_review_claimed": false
+  },
+  "tests": {
+    "command": "F:/python3.11/python.exe -m pytest -q tests/test_interview_quality_gate_config.py tests/test_interview_quality_provider_authorization.py tests/test_interview_quality_dataset_contract.py tests/test_stage40_expected_range_augmentation.py tests/test_report_eval_dataset.py tests/test_report_eval_metrics.py tests/test_report_eval_cli.py",
+    "passed": 50,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": 4.59,
+    "diff_check": "PASS"
+  },
+  "stage40_regression": {
+    "source_run_id": "20260710T124843Z",
+    "attempt_count": 40,
+    "expected_range_hit_count": 28,
+    "expected_range_hit_rate": 0.70,
+    "gate_threshold": 0.90,
+    "gate_result": "FAIL",
+    "cli_exit_code": 1
+  },
+  "toolchain_recheck": {
+    "postgresql": "16.14",
+    "pgvector": "0.8.6",
+    "postgres_blocking_skip_allowed": false
+  },
+  "scope_review": {
+    "prompt_changes": [],
+    "production_scoring_changes": [],
+    "offline_evaluation_consumers_changed": [
+      "app/services/report_eval_metrics.py",
+      "scripts/evaluate_report_quality.py"
+    ],
+    "real_provider_requests": 0,
+    "real_candidate_records": 0,
+    "hosted_or_production_actions": 0,
+    "destructive_database_actions": 0
+  },
+  "workspace_isolation": {
+    "execution_branch": "codex/interview-quality-v1",
+    "execution_head": "81ff57ce22842b2bc4fdb48274b4fa9952b29f0d",
+    "external_main_at_t00_head": "81ff57ce22842b2bc4fdb48274b4fa9952b29f0d",
+    "external_main_at_gate0_head": "2f16aeee2ce8d643b942b62da37a3033eb1f48dd",
+    "external_main_advanced_outside_this_worktree": true,
+    "external_main_changes_merged_into_execution": false
+  }
+}

@@ -48,10 +48,10 @@ EXPECTED_PHRASES = {
         "帮助",
     ),
     "frontend/src/pages/StartPage.jsx": (
-        "建立本轮面试的可信边界",
+        "编辑两份源文档，生成有证据约束的技术面试计划。",
         "岗位 JD",
         "候选人经历",
-        "生成并检查面试计划",
+        "生成面试计划",
     ),
     "frontend/src/pages/InterviewPage.jsx": (
         "围绕当前问题完整说明判断、方案、取舍与验证",

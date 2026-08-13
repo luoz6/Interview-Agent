@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 import app.api.shared.dependencies as api_dependencies
 from app.main import app
 from app.services.postgres_session import PostgresInterviewSessionStore
+from app.services.interview_plan_revision_store import InMemoryInterviewPlanRevisionStore
+from app.services.prep import InterviewQuestion
 from app.services.report_jobs import PostgresReportJobStore
 from app.services.runtime import reset_runtime_for_tests
 from scripts.stage38_acceptance_support import FakeStage38InterviewLLM
@@ -46,15 +48,66 @@ def postgres_api_client(monkeypatch, postgres_dsn, runtime_table_prefix):
         reset_runtime_for_tests()
 
 
-def test_stage38_postgres_api_versioned_stream_contract(postgres_api_client):
-    client, store, _job_store, publisher = postgres_api_client
-    started = client.post(
-        "/api/interviews",
+def start_versioned_interview(client):
+    prepared = client.post(
+        "/api/prep",
         json={
             "job_description": "Backend role with FastAPI, Redis, and PostgreSQL.",
             "resume_text": "Built FastAPI services with Redis cache-aside.",
         },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    return client.post(
+        "/api/interviews",
+        json={
+            "plan_revision_id": revision["plan_revision_id"],
+            "expected_revision": revision["revision"],
+            "plan_sha256": revision["plan_sha256"],
+            "request_id": "stage38-postgres-start",
+        },
     ).json()
+
+
+def test_duplicate_start_replays_after_session_store_reinstantiation(
+    postgres_api_client,
+):
+    client, store, _job_store, _publisher = postgres_api_client
+    prepared = client.post(
+        "/api/prep",
+        json={
+            "job_description": "Backend role with PostgreSQL recovery.",
+            "resume_text": "Built durable idempotent services.",
+        },
+    )
+    assert prepared.status_code == 200
+    revision = prepared.json()
+    payload = {
+        "plan_revision_id": revision["plan_revision_id"],
+        "expected_revision": revision["revision"],
+        "plan_sha256": revision["plan_sha256"],
+        "request_id": "postgres-response-lost-start",
+    }
+
+    first = client.post("/api/interviews", json=payload)
+    recovered_store = PostgresInterviewSessionStore(
+        dsn=store.dsn,
+        table_prefix=store.table_prefix,
+        schema_mode="migrate",
+    )
+    app.dependency_overrides[route_module.get_session_store] = (
+        lambda: recovered_store
+    )
+    replay = client.post("/api/interviews", json=payload)
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json() == first.json()
+    assert len(recovered_store.list_messages(first.json()["session_id"])) == 1
+
+
+def test_stage38_postgres_api_versioned_stream_contract(postgres_api_client):
+    client, store, _job_store, publisher = postgres_api_client
+    started = start_versioned_interview(client)
     session_id = started["session_id"]
 
     stale = client.post(
@@ -102,13 +155,7 @@ def test_stage38_postgres_api_finish_preserves_command_id_through_report_process
     postgres_api_client,
 ):
     client, store, job_store, _publisher = postgres_api_client
-    started = client.post(
-        "/api/interviews",
-        json={
-            "job_description": "Backend role with FastAPI, Redis, and PostgreSQL.",
-            "resume_text": "Built FastAPI services with Redis cache-aside.",
-        },
-    ).json()
+    started = start_versioned_interview(client)
     session_id = started["session_id"]
 
     finish = client.post(
