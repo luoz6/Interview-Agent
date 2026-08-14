@@ -11,7 +11,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import {
-  activateRagCorpusRelease,
+  createRagCorpusVersion,
   validateRagCorpusDraft,
 } from "../../rag/ragApi";
 
@@ -80,7 +80,7 @@ function splitValues(value) {
     .filter(Boolean);
 }
 
-function releaseVersion(base) {
+function nextCorpusVersion(base) {
   const now = new Date();
   const stamp = [
     now.getFullYear(),
@@ -117,14 +117,13 @@ function toPayload(draft) {
   };
 }
 
-export function CorpusEntryForm({ corpus, onCancel, onPublished }) {
+export function CorpusEntryForm({ corpus, onCancel, onCreated }) {
   const fileInput = useRef(null);
   const [draft, setDraft] = useState(initialDraft);
   const [fileName, setFileName] = useState("");
   const [validation, setValidation] = useState(null);
-  const [version, setVersion] = useState(() => releaseVersion(corpus.corpus_version));
-  const [confirmCost, setConfirmCost] = useState(false);
-  const [confirmActivation, setConfirmActivation] = useState(false);
+  const [version] = useState(() => nextCorpusVersion(corpus.corpus_version));
+  const [confirmCreate, setConfirmCreate] = useState(false);
   const [status, setStatus] = useState("editing");
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -132,8 +131,7 @@ export function CorpusEntryForm({ corpus, onCancel, onPublished }) {
   const change = (field, value) => {
     setDraft((current) => ({ ...current, [field]: value }));
     setValidation(null);
-    setConfirmCost(false);
-    setConfirmActivation(false);
+    setConfirmCreate(false);
     setError("");
   };
 
@@ -176,40 +174,41 @@ export function CorpusEntryForm({ corpus, onCancel, onPublished }) {
     setError("");
     setResult(null);
     try {
-      const response = await validateRagCorpusDraft({ entry: toPayload(draft) });
+      const response = await validateRagCorpusDraft({
+        entry: toPayload(draft),
+        corpus_version: version,
+      });
       setValidation(response);
-      setVersion(releaseVersion(response.current_corpus_version));
       setStatus(response.valid ? "validated" : "editing");
     } catch (requestError) {
       setStatus("editing");
-      setError(requestError.message || "预检失败，请检查资料后重试。");
+      setError(requestError.message || "校验失败，请检查资料后重试。");
     }
   };
 
-  const publish = async () => {
-    if (!validation?.valid || !confirmCost || !confirmActivation) return;
-    setStatus("publishing");
+  const createVersion = async () => {
+    if (!validation?.valid || !confirmCreate) return;
+    setStatus("creating");
     setError("");
     try {
-      const response = await activateRagCorpusRelease({
+      const response = await createRagCorpusVersion({
         entry: toPayload(draft),
         corpus_version: version,
         expected_active_manifest_sha256: validation.current_manifest_sha256,
+        expected_target_manifest_sha256: validation.target_manifest_sha256,
         validation_sha256: validation.validation_sha256,
-        confirm_provider_cost: confirmCost,
-        confirm_activation: confirmActivation,
+        confirm_create_version: confirmCreate,
       });
       setResult(response);
       setDraft(initialDraft());
       setFileName("");
       setValidation(null);
-      setConfirmCost(false);
-      setConfirmActivation(false);
-      setStatus("published");
-      onPublished?.();
+      setConfirmCreate(false);
+      setStatus("created");
+      onCreated?.();
     } catch (requestError) {
       setStatus("validated");
-      setError(requestError.message || "发布失败，当前语料保持不变。");
+      setError(requestError.message || "新版本创建失败，当前语料保持不变。");
     }
   };
 
@@ -222,12 +221,12 @@ export function CorpusEntryForm({ corpus, onCancel, onPublished }) {
     onCancel?.();
   };
 
-  if (status === "published" && result) {
+  if (status === "created" && result) {
     return (
       <section className="rag-corpus-workbench rag-corpus-success" aria-live="polite">
         <CheckCircle size={28} weight="fill" aria-hidden="true" />
         <div>
-          <p>资料已加入当前语料</p>
+          <p>新语料版本已创建</p>
           <h2>{result.corpus_version}</h2>
           <span>
             已激活 {result.activated} 个知识单元；复用 {result.reused} 条向量，
@@ -246,8 +245,8 @@ export function CorpusEntryForm({ corpus, onCancel, onPublished }) {
       <header className="rag-corpus-editor-head">
         <div>
           <p>新增资料</p>
-          <h2 id="corpus-entry-title">建立可发布的知识单元</h2>
-          <span>正文不会保存到浏览器；只有确认发布后才会进入新的语料版本。</span>
+          <h2 id="corpus-entry-title">建立新的知识单元</h2>
+          <span>正文不会保存到浏览器；完成校验和预览后才能创建新的语料版本。</span>
         </div>
         <button type="button" className="rag-editor-close" onClick={cancel} aria-label="取消新增资料">
           <X size={18} weight="bold" aria-hidden="true" />
@@ -373,36 +372,37 @@ export function CorpusEntryForm({ corpus, onCancel, onPublished }) {
         {error && <div className="rag-form-message" data-tone="danger" role="alert"><WarningCircle size={18} weight="fill" aria-hidden="true" /><span>{error}</span></div>}
         {validation && !validation.valid && (
           <div className="rag-validation-result" data-tone="danger" role="alert">
-            <strong>预检未通过</strong>
+            <strong>校验未通过</strong>
             <ul>{validation.issues.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul>
           </div>
         )}
 
         <div className="rag-form-actions">
           <button type="button" className="rag-secondary" onClick={cancel}>取消</button>
-          <button type="submit" className="rag-primary" disabled={status === "validating" || status === "publishing"}>
-            {status === "validating" ? <><SpinnerGap className="rag-spin" size={17} aria-hidden="true" />正在预检</> : <>预检资料<ArrowRight size={17} weight="bold" aria-hidden="true" /></>}
+          <button type="submit" className="rag-primary" disabled={status === "validating" || status === "creating"}>
+            {status === "validating" ? <><SpinnerGap className="rag-spin" size={17} aria-hidden="true" />正在校验</> : <>校验并预览<ArrowRight size={17} weight="bold" aria-hidden="true" /></>}
           </button>
         </div>
       </form>
 
       {validation?.valid && (
-        <div className="rag-release-confirmation">
+        <div className="rag-version-preview">
           <header>
             <CheckCircle size={22} weight="fill" aria-hidden="true" />
-            <div><strong>预检通过，可以生成新版本</strong><span>正文中文字符 {validation.chinese_character_count} 个，预计新增 {validation.estimated_embedding_count} 条向量。</span></div>
+            <div><strong>校验通过，Re-index 预览已生成</strong><span>正文中文字符 {validation.chinese_character_count} 个，预计新增 {validation.estimated_embedding_count} 条向量。</span></div>
           </header>
           <Field label="新语料版本">
-            <input required pattern="[a-z0-9][a-z0-9._-]{2,127}" value={version} onChange={(event) => setVersion(event.target.value.toLowerCase())} />
+            <input readOnly value={validation.target_corpus_version} />
           </Field>
-          <div className="rag-release-impact">
-            <p>发布将调用 {corpus.embedding.provider} / {corpus.embedding.model}，可能产生费用。</p>
-            <p>新版本激活后，当前版本 {validation.current_corpus_version} 将转为历史版本。</p>
+          <div className="rag-version-impact">
+            <p>知识单元：{validation.current_chunk_count} → {validation.target_chunk_count}；新增 {validation.added_chunk_count}，复用向量 {validation.reused_embedding_count}。</p>
+            <p>Embedding：{validation.provider_name} / {validation.model_name} / {validation.model_revision}，新增向量可能产生费用。</p>
+            <p>当前清单：{validation.current_manifest_sha256}</p>
+            <p>目标清单：{validation.target_manifest_sha256}</p>
           </div>
-          <label className="rag-check-row"><input type="checkbox" checked={confirmCost} onChange={(event) => setConfirmCost(event.target.checked)} /><span>我确认允许生成新增资料所需的向量并承担相应费用。</span></label>
-          <label className="rag-check-row"><input type="checkbox" checked={confirmActivation} onChange={(event) => setConfirmActivation(event.target.checked)} /><span>我确认激活新语料版本，并将当前版本转为历史版本。</span></label>
-          <button type="button" className="rag-primary rag-publish-button" disabled={!confirmCost || !confirmActivation || status === "publishing" || !version} onClick={publish}>
-            {status === "publishing" ? <><SpinnerGap className="rag-spin" size={17} aria-hidden="true" />正在生成向量并激活</> : <><CheckCircle size={17} weight="bold" aria-hidden="true" />确认发布</>}
+          <label className="rag-check-row"><input type="checkbox" checked={confirmCreate} onChange={(event) => setConfirmCreate(event.target.checked)} /><span>我确认创建并启用该语料版本，也确认新增 Embedding 可能产生费用。</span></label>
+          <button type="button" className="rag-primary rag-create-version-button" disabled={!confirmCreate || status === "creating"} onClick={createVersion}>
+            {status === "creating" ? <><SpinnerGap className="rag-spin" size={17} aria-hidden="true" />正在创建新版本</> : <><CheckCircle size={17} weight="bold" aria-hidden="true" />创建新版本</>}
           </button>
         </div>
       )}

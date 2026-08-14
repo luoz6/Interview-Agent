@@ -10,5 +10,5 @@ export const getRagNoEvidence = (sha, options) => getJson(`/api/rag/evaluations/
 export const getRagReplay = (sha, caseId, options) => getJson(`/api/rag/evaluations/${encodeURIComponent(sha)}/cases/${encodeURIComponent(caseId)}/diagnostic-snapshot`, options);
 export const getRagCorpus = (options) => getJson("/api/rag/corpus", options);
 export const validateRagCorpusDraft = (payload, options) => postJson("/api/rag/corpus/drafts/validate", payload, options);
-export const activateRagCorpusRelease = (payload, options) => postJson("/api/rag/corpus/releases/activate", payload, { timeoutMs: 120000, ...options });
+export const createRagCorpusVersion = (payload, options) => postJson("/api/rag/corpus/versions", payload, { timeoutMs: 120000, ...options });
 export const getRagEvidenceTrace = (traceId, options) => getJson(`/api/rag/evidence-traces/${encodeURIComponent(traceId)}`, options);

@@ -24,10 +24,9 @@ class FakeDiagnostics:
             "profiles": [],
             "component_versions": {},
             "capabilities": {
-                "diagnostic_ui": True,
-                "live_inspector": False,
-                "eval_artifacts": False,
-                "authored_eval_queries": False,
+                "console_read": True,
+                "live_execution": False,
+                "corpus_write": False,
                 "access_mode": "loopback",
             },
             "technologies": ["Semantic Retrieval", "Lexical Retrieval"],
@@ -72,27 +71,36 @@ class SaturatedDiagnostics(FakeDiagnostics):
 class FakeCorpusWriter:
     def __init__(self):
         self.validated = 0
-        self.released = 0
+        self.created = 0
 
-    def validate(self, entry):
+    def validate(self, entry, corpus_version):
         self.validated += 1
         return {
-            "schema_version": "rag-corpus-validation-v1",
+            "schema_version": "rag-corpus-validation-v2",
             "valid": True,
             "validation_sha256": "b" * 64,
             "current_corpus_version": "memory-p1-zh-v4",
             "current_manifest_sha256": "a" * 64,
+            "current_chunk_count": 31,
+            "target_corpus_version": corpus_version,
+            "target_manifest_sha256": "d" * 64,
+            "target_chunk_count": 32,
+            "added_chunk_count": 1,
+            "reused_embedding_count": 31,
             "content_sha256": "c" * 64,
             "chinese_character_count": 320,
             "provider_call_required": True,
             "estimated_embedding_count": 1,
+            "provider_name": "siliconflow",
+            "model_name": "BAAI/bge-m3",
+            "model_revision": "revision-v1",
             "issues": [],
         }
 
-    def release(self, payload):
-        self.released += 1
+    def create_version(self, payload):
+        self.created += 1
         return {
-            "schema_version": "rag-corpus-release-v1",
+            "schema_version": "rag-corpus-version-v1",
             "corpus_version": payload.corpus_version,
             "manifest_sha256": "d" * 64,
             "discovered": 32,
@@ -137,7 +145,7 @@ def test_console_is_404_by_default():
         "/api/rag/inspections/compare", json={"query_text": "Redis"}
     ).status_code == 404
     assert client.post(
-        "/api/rag/corpus/drafts/validate", json={"entry": _corpus_entry()}
+        "/api/rag/corpus/drafts/validate", json={"entry": _corpus_entry(), "corpus_version": "memory-p1-zh-v5"}
     ).status_code == 404
 
 
@@ -147,19 +155,19 @@ def test_corpus_write_requires_loopback_and_explicit_capability():
     try:
         with use_environment(
             {
-                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
+                "RAG_CONSOLE_ENABLED": "true",
                 "RAG_CORPUS_WRITE_ENABLED": "true",
             }
         ):
             remote = TestClient(app, client=("198.51.100.7", 50000))
             assert remote.post(
                 "/api/rag/corpus/drafts/validate",
-                json={"entry": _corpus_entry()},
+                json={"entry": _corpus_entry(), "corpus_version": "memory-p1-zh-v5"},
             ).status_code == 404
             local = TestClient(app, client=("127.0.0.1", 50000))
             response = local.post(
                 "/api/rag/corpus/drafts/validate",
-                json={"entry": _corpus_entry()},
+                json={"entry": _corpus_entry(), "corpus_version": "memory-p1-zh-v5"},
             )
             assert response.status_code == 200
             assert response.json()["estimated_embedding_count"] == 1
@@ -168,33 +176,33 @@ def test_corpus_write_requires_loopback_and_explicit_capability():
         app.dependency_overrides.pop(get_rag_corpus_write_service, None)
 
 
-def test_corpus_release_response_does_not_reflect_content():
+def test_corpus_version_response_does_not_reflect_content():
     private_content = "敏感资料" * 110
     writer = FakeCorpusWriter()
     app.dependency_overrides[get_rag_corpus_write_service] = lambda: writer
     try:
         with use_environment(
             {
-                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
+                "RAG_CONSOLE_ENABLED": "true",
                 "RAG_CORPUS_WRITE_ENABLED": "true",
             }
         ):
             client = TestClient(app, client=("127.0.0.1", 50000))
             entry = {**_corpus_entry(), "content": private_content}
             response = client.post(
-                "/api/rag/corpus/releases/activate",
+                "/api/rag/corpus/versions",
                 json={
                     "entry": entry,
                     "corpus_version": "memory-p1-zh-v5",
                     "expected_active_manifest_sha256": "a" * 64,
+                    "expected_target_manifest_sha256": "d" * 64,
                     "validation_sha256": "b" * 64,
-                    "confirm_provider_cost": True,
-                    "confirm_activation": True,
+                    "confirm_create_version": True,
                 },
             )
             assert response.status_code == 200
             assert private_content not in response.text
-            assert writer.released == 1
+            assert writer.created == 1
     finally:
         app.dependency_overrides.pop(get_rag_corpus_write_service, None)
 
@@ -202,7 +210,7 @@ def test_corpus_release_response_does_not_reflect_content():
 def test_loopback_capability_allows_safe_overview_but_not_live_inspection():
     app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
     try:
-        with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
+        with use_environment({"RAG_CONSOLE_ENABLED": "true"}):
             client = TestClient(app, client=("127.0.0.1", 50000))
             response = client.get("/api/rag/overview")
             assert response.status_code == 200
@@ -217,7 +225,7 @@ def test_loopback_capability_allows_safe_overview_but_not_live_inspection():
 def test_forwarded_header_does_not_turn_remote_client_into_loopback():
     app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
     try:
-        with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
+        with use_environment({"RAG_CONSOLE_ENABLED": "true"}):
             client = TestClient(app, client=("198.51.100.7", 50000))
             response = client.get(
                 "/api/rag/overview",
@@ -239,8 +247,8 @@ def test_invalid_live_query_is_not_reflected_by_validation_response():
     try:
         with use_environment(
             {
-                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
-                "RAG_LIVE_INSPECTOR_ENABLED": "true",
+                "RAG_CONSOLE_ENABLED": "true",
+                "RAG_LIVE_EXECUTION_ENABLED": "true",
             }
         ):
             client = TestClient(app, client=("127.0.0.1", 50000))
@@ -267,8 +275,8 @@ def test_live_diagnostic_saturation_has_stable_non_sensitive_error():
     try:
         with use_environment(
             {
-                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
-                "RAG_LIVE_INSPECTOR_ENABLED": "true",
+                "RAG_CONSOLE_ENABLED": "true",
+                "RAG_LIVE_EXECUTION_ENABLED": "true",
             }
         ):
             client = TestClient(app, client=("127.0.0.1", 50000))
@@ -291,7 +299,7 @@ def test_evidence_trace_is_capability_protected_and_safe():
     try:
         client = TestClient(app, client=("127.0.0.1", 50000))
         assert client.get("/api/rag/evidence-traces/session-1").status_code == 404
-        with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
+        with use_environment({"RAG_CONSOLE_ENABLED": "true"}):
             response = client.get("/api/rag/evidence-traces/session-1")
             assert response.status_code == 200
             rendered = response.text

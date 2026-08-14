@@ -11,7 +11,7 @@ from app.application.knowledge.corpus_write_service import (
 )
 from app.application.knowledge.diagnostic_models import (
     CorpusEntryInput,
-    CorpusReleaseRequest,
+    CorpusCreateVersionRequest,
 )
 from scripts.build_knowledge_manifest_v2 import build_manifest_v2, iter_markdown_files
 
@@ -125,11 +125,18 @@ def isolated_corpus(tmp_path, monkeypatch):
 
 
 def _service(manifest, *, provider=None):
+    provider = provider or FakeProvider()
     catalog = {
         "corpus_version": manifest["corpus_version"],
         "manifest_sha256": manifest["corpus_manifest_sha256"],
+        "chunk_count": manifest["chunk_count"],
+        "embedding": {
+            "provider": provider.provider_name,
+            "model": provider.model_name,
+            "revision": provider.model_revision,
+            "dimension": provider.dimension,
+        },
     }
-    provider = provider or FakeProvider()
     store = FakeStore(catalog)
     return CorpusWriteService(store=store, provider=provider), store, provider
 
@@ -138,34 +145,39 @@ def test_validate_is_provider_free_and_reports_governance_issues(isolated_corpus
     _root, manifest = isolated_corpus
     service, _store, provider = _service(manifest)
 
-    valid = service.validate(_entry())
-    invalid = service.validate(_entry(content="中文太短"))
+    valid = service.validate(_entry(), "base-v2")
+    invalid = service.validate(_entry(content="中文太短"), "base-v2")
 
     assert valid.valid is True
     assert valid.estimated_embedding_count == 1
     assert len(valid.validation_sha256) == 64
+    assert valid.current_chunk_count == 1
+    assert valid.target_chunk_count == 2
+    assert valid.added_chunk_count == 1
+    assert valid.reused_embedding_count == 1
+    assert len(valid.target_manifest_sha256) == 64
     assert provider.calls == []
     assert invalid.valid is False
     assert invalid.estimated_embedding_count == 0
     assert invalid.issues[0].code == "CONTENT_LENGTH_INVALID"
 
 
-def test_release_reuses_existing_embeddings_and_activates_complete_version(
+def test_create_version_reuses_embeddings_and_activates_complete_version(
     isolated_corpus,
 ):
     root, manifest = isolated_corpus
     service, store, provider = _service(manifest)
     entry = _entry()
-    validation = service.validate(entry)
+    validation = service.validate(entry, "base-v2")
 
-    response = service.release(
-        CorpusReleaseRequest(
+    response = service.create_version(
+        CorpusCreateVersionRequest(
             entry=entry,
             corpus_version="base-v2",
             expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+            expected_target_manifest_sha256=validation.target_manifest_sha256,
             validation_sha256=validation.validation_sha256,
-            confirm_provider_cost=True,
-            confirm_activation=True,
+            confirm_create_version=True,
         )
     )
 
@@ -183,27 +195,31 @@ def test_release_reuses_existing_embeddings_and_activates_complete_version(
     assert response.replayed is False
 
 
-def test_release_requires_both_confirmations_and_current_manifest(isolated_corpus):
+def test_create_version_requires_confirmation_and_current_manifest(isolated_corpus):
     _root, manifest = isolated_corpus
     service, store, _provider = _service(manifest)
     entry = _entry()
-    validation = service.validate(entry)
+    validation = service.validate(entry, "base-v2")
     base = {
         "entry": entry,
         "corpus_version": "base-v2",
         "expected_active_manifest_sha256": manifest["corpus_manifest_sha256"],
+        "expected_target_manifest_sha256": validation.target_manifest_sha256,
         "validation_sha256": validation.validation_sha256,
-        "confirm_provider_cost": True,
-        "confirm_activation": True,
+        "confirm_create_version": True,
     }
 
     with pytest.raises(ValueError):
-        service.release(CorpusReleaseRequest(**{**base, "confirm_provider_cost": False}))
-    with pytest.raises(ValueError):
-        service.release(CorpusReleaseRequest(**{**base, "confirm_activation": False}))
+        service.create_version(CorpusCreateVersionRequest(**{**base, "confirm_create_version": False}))
+    with pytest.raises(CorpusConflictError, match="target corpus manifest changed"):
+        service.create_version(
+            CorpusCreateVersionRequest(
+                **{**base, "expected_target_manifest_sha256": "e" * 64}
+            )
+        )
     store.catalog["manifest_sha256"] = "f" * 64
     with pytest.raises(CorpusWriteUnavailable, match="identity conflict"):
-        service.release(CorpusReleaseRequest(**base))
+        service.create_version(CorpusCreateVersionRequest(**base))
     assert store.activations == []
 
 
@@ -211,17 +227,17 @@ def test_provider_failure_does_not_activate_or_leave_managed_source(isolated_cor
     root, manifest = isolated_corpus
     service, store, _provider = _service(manifest, provider=FakeProvider(fail=True))
     entry = _entry()
-    validation = service.validate(entry)
+    validation = service.validate(entry, "base-v2")
 
     with pytest.raises(RuntimeError):
-        service.release(
-            CorpusReleaseRequest(
+        service.create_version(
+            CorpusCreateVersionRequest(
                 entry=entry,
                 corpus_version="base-v2",
                 expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+                expected_target_manifest_sha256=validation.target_manifest_sha256,
                 validation_sha256=validation.validation_sha256,
-                confirm_provider_cost=True,
-                confirm_activation=True,
+                confirm_create_version=True,
             )
         )
 
@@ -238,14 +254,14 @@ def test_manifest_write_failure_after_activation_is_recoverable(
     root, manifest = isolated_corpus
     service, store, provider = _service(manifest)
     entry = _entry()
-    validation = service.validate(entry)
-    request = CorpusReleaseRequest(
+    validation = service.validate(entry, "base-v2")
+    request = CorpusCreateVersionRequest(
         entry=entry,
         corpus_version="base-v2",
         expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+        expected_target_manifest_sha256=validation.target_manifest_sha256,
         validation_sha256=validation.validation_sha256,
-        confirm_provider_cost=True,
-        confirm_activation=True,
+        confirm_create_version=True,
     )
     original_write = subject._write_json_atomic
     attempts = 0
@@ -260,14 +276,14 @@ def test_manifest_write_failure_after_activation_is_recoverable(
     monkeypatch.setattr(subject, "_write_json_atomic", fail_once)
 
     with pytest.raises(OSError, match="simulated manifest write failure"):
-        service.release(request)
+        service.create_version(request)
 
     stale = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert stale["corpus_version"] == "base-v1"
     assert store.catalog["corpus_version"] == "base-v2"
     assert (root / "extensions" / "console" / "rocketmq_delay_queue.md").is_file()
 
-    replay = service.release(request)
+    replay = service.create_version(request)
 
     recovered = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert recovered["corpus_version"] == "base-v2"
@@ -283,14 +299,14 @@ def test_manifest_recovery_is_idempotent(isolated_corpus, monkeypatch):
     _root, manifest = isolated_corpus
     service, store, _provider = _service(manifest)
     entry = _entry()
-    validation = service.validate(entry)
-    request = CorpusReleaseRequest(
+    validation = service.validate(entry, "base-v2")
+    request = CorpusCreateVersionRequest(
         entry=entry,
         corpus_version="base-v2",
         expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+        expected_target_manifest_sha256=validation.target_manifest_sha256,
         validation_sha256=validation.validation_sha256,
-        confirm_provider_cost=True,
-        confirm_activation=True,
+        confirm_create_version=True,
     )
     original_write = subject._write_json_atomic
 
@@ -299,11 +315,11 @@ def test_manifest_recovery_is_idempotent(isolated_corpus, monkeypatch):
 
     monkeypatch.setattr(subject, "_write_json_atomic", fail_write)
     with pytest.raises(OSError, match="write failed"):
-        service.release(request)
+        service.create_version(request)
     monkeypatch.setattr(subject, "_write_json_atomic", original_write)
 
-    first = service.release(request)
-    second = service.release(request)
+    first = service.create_version(request)
+    second = service.create_version(request)
 
     assert first.replayed is True
     assert second == first
@@ -316,4 +332,4 @@ def test_manifest_recovery_refuses_hash_mismatch(isolated_corpus):
     store.catalog["manifest_sha256"] = "f" * 64
 
     with pytest.raises(CorpusWriteUnavailable, match="identity conflict"):
-        service.validate(_entry())
+        service.validate(_entry(), "base-v2")

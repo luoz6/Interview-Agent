@@ -377,10 +377,8 @@ class RagDiagnosticsService:
                 "taxonomy": settings.taxonomy_version,
             },
             capabilities=RagCapabilitySummary(
-                diagnostic_ui=console.diagnostic_ui_enabled,
-                live_inspector=console.live_inspector_enabled,
-                eval_artifacts=console.eval_artifact_access_enabled,
-                authored_eval_queries=console.authored_eval_query_access_enabled,
+                console_read=console.console_enabled,
+                live_execution=console.live_execution_enabled,
                 corpus_write=console.corpus_write_enabled,
             ),
             technologies=(

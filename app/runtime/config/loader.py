@@ -405,17 +405,9 @@ def _load_rag_console_runtime_settings() -> RagConsoleRuntimeSettings:
             "diagnostic principals are implemented"
         )
     return RagConsoleRuntimeSettings(
-        diagnostic_ui_enabled=_strict_bool(
-            env, "RAG_DIAGNOSTIC_UI_ENABLED", False
-        ),
-        live_inspector_enabled=_strict_bool(
-            env, "RAG_LIVE_INSPECTOR_ENABLED", False
-        ),
-        eval_artifact_access_enabled=_strict_bool(
-            env, "RAG_EVAL_ARTIFACT_ACCESS_ENABLED", False
-        ),
-        authored_eval_query_access_enabled=_strict_bool(
-            env, "RAG_EVAL_AUTHORED_QUERY_ACCESS_ENABLED", False
+        console_enabled=_strict_bool(env, "RAG_CONSOLE_ENABLED", False),
+        live_execution_enabled=_strict_bool(
+            env, "RAG_LIVE_EXECUTION_ENABLED", False
         ),
         corpus_write_enabled=_strict_bool(
             env, "RAG_CORPUS_WRITE_ENABLED", False

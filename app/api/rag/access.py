@@ -7,21 +7,14 @@ from app.runtime.config import load_rag_console_runtime_settings
 
 def require_rag_console(request: Request):
     settings = load_rag_console_runtime_settings()
-    if not settings.diagnostic_ui_enabled or not _is_loopback(request):
+    if not settings.console_enabled or not _is_loopback(request):
         raise HTTPException(status_code=404, detail="not found")
     return settings
 
 
-def require_live_inspector(request: Request):
+def require_live_execution(request: Request):
     settings = require_rag_console(request)
-    if not settings.live_inspector_enabled:
-        raise HTTPException(status_code=404, detail="not found")
-    return settings
-
-
-def require_eval_artifacts(request: Request):
-    settings = require_rag_console(request)
-    if not settings.eval_artifact_access_enabled:
+    if not settings.live_execution_enabled:
         raise HTTPException(status_code=404, detail="not found")
     return settings
 

@@ -5,16 +5,15 @@ from fastapi.routing import APIRoute
 
 from app.api.rag.access import (
     require_corpus_write,
-    require_eval_artifacts,
-    require_live_inspector,
+    require_live_execution,
     require_rag_console,
 )
 from app.api.rag.models import (
     ArtifactCatalogResponse,
     ArtifactDetailResponse,
     CorpusResponse,
-    CorpusReleaseRequest,
-    CorpusReleaseResponse,
+    CorpusCreateVersionRequest,
+    CorpusCreateVersionResponse,
     CorpusValidateRequest,
     CorpusValidateResponse,
     EvalCasesResponse,
@@ -83,7 +82,7 @@ def rag_overview(
 def run_inspection(
     payload: RetrievalInspectionRequest,
     request: Request,
-    _access=Depends(require_live_inspector),
+    _access=Depends(require_live_execution),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:
@@ -124,7 +123,7 @@ def run_inspection(
 def compare_inspections(
     payload: RetrievalCompareRequest,
     request: Request,
-    _access=Depends(require_live_inspector),
+    _access=Depends(require_live_execution),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:
@@ -170,7 +169,7 @@ def compare_inspections(
 @router.get("/evaluations", response_model=ArtifactCatalogResponse)
 def list_evaluations(
     request: Request,
-    _access=Depends(require_eval_artifacts),
+    _access=Depends(require_rag_console),
     service=Depends(get_rag_diagnostics_service),
 ):
     return service.evaluations()
@@ -183,7 +182,7 @@ def list_evaluations(
 def get_evaluation(
     artifact_sha256: str,
     request: Request,
-    _access=Depends(require_eval_artifacts),
+    _access=Depends(require_rag_console),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:
@@ -195,7 +194,7 @@ def get_evaluation(
 @router.get("/evaluations-paired", response_model=PairedEvaluationsResponse)
 def list_paired_evaluations(
     request: Request,
-    _access=Depends(require_eval_artifacts),
+    _access=Depends(require_rag_console),
     service=Depends(get_rag_diagnostics_service),
 ):
     return service.paired_evaluations()
@@ -208,7 +207,7 @@ def list_paired_evaluations(
 def evaluation_cases(
     artifact_sha256: str,
     request: Request,
-    _access=Depends(require_eval_artifacts),
+    _access=Depends(require_rag_console),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:
@@ -224,7 +223,7 @@ def evaluation_cases(
 def evaluation_no_evidence(
     artifact_sha256: str,
     request: Request,
-    _access=Depends(require_eval_artifacts),
+    _access=Depends(require_rag_console),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:
@@ -241,7 +240,7 @@ def evaluation_snapshot(
     artifact_sha256: str,
     case_id: str,
     request: Request,
-    _access=Depends(require_eval_artifacts),
+    _access=Depends(require_live_execution),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:
@@ -270,7 +269,7 @@ def validate_corpus_draft(
     service=Depends(get_rag_corpus_write_service),
 ):
     try:
-        return service.validate(payload.entry)
+        return service.validate(payload.entry, payload.corpus_version)
     except CorpusWriteUnavailable as exc:
         raise HTTPException(
             status_code=503,
@@ -283,23 +282,23 @@ def validate_corpus_draft(
 
 
 @router.post(
-    "/corpus/releases/activate",
-    response_model=CorpusReleaseResponse,
+    "/corpus/versions",
+    response_model=CorpusCreateVersionResponse,
 )
-def activate_corpus_release(
-    payload: CorpusReleaseRequest,
+def create_corpus_version(
+    payload: CorpusCreateVersionRequest,
     request: Request,
     _access=Depends(require_corpus_write),
     service=Depends(get_rag_corpus_write_service),
 ):
     try:
-        return service.release(payload)
+        return service.create_version(payload)
     except CorpusConflictError as exc:
         raise HTTPException(
             status_code=409,
             detail={
-                "code": "RAG_CORPUS_RELEASE_CONFLICT",
-                "message": "语料已发生变化，请重新加载并再次预检。",
+                "code": "RAG_CORPUS_VERSION_CONFLICT",
+                "message": "语料已发生变化，请重新加载并再次校验。",
                 "retryable": False,
             },
         ) from exc
@@ -307,8 +306,8 @@ def activate_corpus_release(
         raise HTTPException(
             status_code=422,
             detail={
-                "code": "RAG_CORPUS_RELEASE_REJECTED",
-                "message": "资料未通过发布校验，请重新预检。",
+                "code": "RAG_CORPUS_VERSION_REJECTED",
+                "message": "资料或版本预览已失效，请重新校验。",
                 "retryable": False,
             },
         ) from exc
@@ -316,8 +315,8 @@ def activate_corpus_release(
         raise HTTPException(
             status_code=503,
             detail={
-                "code": "RAG_CORPUS_RELEASE_UNAVAILABLE",
-                "message": "资料发布未完成，当前语料保持不变。",
+                "code": "RAG_CORPUS_VERSION_UNAVAILABLE",
+                "message": "新版本创建未完成，当前语料保持不变。",
                 "retryable": True,
             },
         ) from exc

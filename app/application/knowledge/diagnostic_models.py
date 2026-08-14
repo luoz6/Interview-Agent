@@ -14,10 +14,8 @@ class SafeModel(BaseModel):
 
 
 class RagCapabilitySummary(SafeModel):
-    diagnostic_ui: bool
-    live_inspector: bool
-    eval_artifacts: bool
-    authored_eval_queries: bool
+    console_read: bool
+    live_execution: bool
     corpus_write: bool = False
     access_mode: Literal["loopback"] = "loopback"
 
@@ -374,32 +372,42 @@ class CorpusValidationIssue(SafeModel):
 
 class CorpusValidateRequest(SafeModel):
     entry: CorpusEntryInput
+    corpus_version: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,127}$")
 
 
 class CorpusValidateResponse(SafeModel):
-    schema_version: str = "rag-corpus-validation-v1"
+    schema_version: str = "rag-corpus-validation-v2"
     valid: bool
     validation_sha256: str
     current_corpus_version: str
     current_manifest_sha256: str
+    current_chunk_count: int = Field(ge=0)
+    target_corpus_version: str
+    target_manifest_sha256: str | None
+    target_chunk_count: int = Field(ge=0)
+    added_chunk_count: int = Field(ge=0)
+    reused_embedding_count: int = Field(ge=0)
     content_sha256: str
     chinese_character_count: int = Field(ge=0)
     provider_call_required: bool
     estimated_embedding_count: int = Field(ge=0)
+    provider_name: str
+    model_name: str
+    model_revision: str
     issues: tuple[CorpusValidationIssue, ...]
 
 
-class CorpusReleaseRequest(SafeModel):
+class CorpusCreateVersionRequest(SafeModel):
     entry: CorpusEntryInput
     corpus_version: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{2,127}$")
     expected_active_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expected_target_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     validation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    confirm_provider_cost: bool
-    confirm_activation: bool
+    confirm_create_version: bool
 
 
-class CorpusReleaseResponse(SafeModel):
-    schema_version: str = "rag-corpus-release-v1"
+class CorpusCreateVersionResponse(SafeModel):
+    schema_version: str = "rag-corpus-version-v1"
     corpus_version: str
     manifest_sha256: str
     discovered: int = Field(ge=1)

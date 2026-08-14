@@ -35,9 +35,8 @@ from app.services.knowledge_eval_artifacts_v3 import (
 
 
 CONSOLE_ENV = {
-    "RAG_DIAGNOSTIC_UI_ENABLED": "true",
-    "RAG_LIVE_INSPECTOR_ENABLED": "true",
-    "RAG_EVAL_ARTIFACT_ACCESS_ENABLED": "true",
+    "RAG_CONSOLE_ENABLED": "true",
+    "RAG_LIVE_EXECUTION_ENABLED": "true",
 }
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MACHINE_ARTIFACT_ROOT = REPOSITORY_ROOT / "eval" / "knowledge-v3" / "machine-preannotation"
@@ -159,10 +158,20 @@ def test_default_off_and_learning_demo_runtime_remains_explicit_legacy():
     assert client.get("/api/rag/inspections/opaque-id").status_code == 404
 
     service = RagDiagnosticsService()
-    with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
-        overview = _client(service).get("/api/rag/overview")
+    with use_environment({"RAG_CONSOLE_ENABLED": "true"}):
+        console = _client(service)
+        overview = console.get("/api/rag/overview")
+        evaluations = console.get("/api/rag/evaluations")
+        tuning = service.evaluations().artifacts[0]
+        case = service.evaluation_cases(tuning.artifact_sha256).cases[0]
+        replay = console.get(
+            f"/api/rag/evaluations/{tuning.artifact_sha256}/cases/"
+            f"{case.case_id}/diagnostic-snapshot"
+        )
 
     assert overview.status_code == 200
+    assert evaluations.status_code == 200
+    assert replay.status_code == 404
     body = overview.json()
     assert body["current_engine"] == "legacy"
     assert body["project_scope"] == "learning_project_technical_showcase"

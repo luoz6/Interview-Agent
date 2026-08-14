@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 from threading import RLock
 
@@ -12,8 +13,8 @@ import yaml
 
 from app.application.knowledge.diagnostic_models import (
     CorpusEntryInput,
-    CorpusReleaseRequest,
-    CorpusReleaseResponse,
+    CorpusCreateVersionRequest,
+    CorpusCreateVersionResponse,
     CorpusValidateResponse,
     CorpusValidationIssue,
 )
@@ -43,7 +44,7 @@ class CorpusConflictError(RuntimeError):
 
 
 class CorpusWriteUnavailable(RuntimeError):
-    """The managed release path cannot be used safely."""
+    """The managed version-creation path cannot be used safely."""
 
 
 class CorpusWriteService:
@@ -51,15 +52,22 @@ class CorpusWriteService:
         self.store = store
         self.provider = provider
 
-    def validate(self, entry: CorpusEntryInput) -> CorpusValidateResponse:
+    def validate(
+        self,
+        entry: CorpusEntryInput,
+        corpus_version: str,
+    ) -> CorpusValidateResponse:
         with _WRITE_LOCK:
-            manifest = self._reconciled_manifest()
-            return self._validate_entry(entry, manifest)
+            catalog = self._active_catalog()
+            manifest = self._reconciled_manifest(catalog)
+            return self._validate_entry(entry, manifest, corpus_version, catalog)
 
     def _validate_entry(
         self,
         entry: CorpusEntryInput,
         manifest: dict,
+        corpus_version: str,
+        catalog: dict,
     ) -> CorpusValidateResponse:
         issues: list[CorpusValidationIssue] = []
         document = None
@@ -108,23 +116,61 @@ class CorpusWriteService:
                 f"{entry.title}\n{_normalized_text(entry.content)}".encode("utf-8")
             ).hexdigest()
         )
+        if catalog.get("corpus_version") == corpus_version:
+            issues.append(
+                CorpusValidationIssue(
+                    field="corpus_version",
+                    code="CORPUS_VERSION_EXISTS",
+                    message="目标语料版本已存在，请使用新的版本名称。",
+                )
+            )
+        target_manifest = None
+        if not issues:
+            target_manifest = _build_preview_manifest(entry, corpus_version)
+        embedding = catalog.get("embedding")
+        if not isinstance(embedding, dict):
+            embedding = {}
+        current_chunk_count = int(manifest.get("chunk_count", 0))
+        target_chunk_count = int(
+            target_manifest.get("chunk_count", 0) if target_manifest else 0
+        )
         return CorpusValidateResponse(
             valid=not issues,
-            validation_sha256=_entry_sha256(entry),
+            validation_sha256=_validation_sha256(
+                entry,
+                corpus_version,
+                str(manifest.get("corpus_manifest_sha256", "")),
+            ),
             current_corpus_version=str(manifest.get("corpus_version", "unknown")),
             current_manifest_sha256=str(
                 manifest.get("corpus_manifest_sha256", "")
             ),
+            current_chunk_count=current_chunk_count,
+            target_corpus_version=corpus_version,
+            target_manifest_sha256=(
+                str(target_manifest["corpus_manifest_sha256"])
+                if target_manifest is not None
+                else None
+            ),
+            target_chunk_count=target_chunk_count,
+            added_chunk_count=max(0, target_chunk_count - current_chunk_count),
+            reused_embedding_count=current_chunk_count if not issues else 0,
             content_sha256=content_hash,
             chinese_character_count=chinese_count,
             provider_call_required=not issues,
             estimated_embedding_count=1 if not issues else 0,
+            provider_name=str(embedding.get("provider", "unknown")),
+            model_name=str(embedding.get("model", "unknown")),
+            model_revision=str(embedding.get("revision", "unknown")),
             issues=tuple(issues),
         )
 
-    def release(self, payload: CorpusReleaseRequest) -> CorpusReleaseResponse:
-        if not payload.confirm_provider_cost or not payload.confirm_activation:
-            raise ValueError("release confirmations are required")
+    def create_version(
+        self,
+        payload: CorpusCreateVersionRequest,
+    ) -> CorpusCreateVersionResponse:
+        if not payload.confirm_create_version:
+            raise ValueError("corpus version creation must be confirmed")
 
         with _WRITE_LOCK:
             catalog = self._active_catalog()
@@ -132,11 +178,21 @@ class CorpusWriteService:
             if catalog.get("corpus_version") == payload.corpus_version:
                 return self._committed_response(payload, catalog, manifest)
 
-            validation = self._validate_entry(payload.entry, manifest)
+            validation = self._validate_entry(
+                payload.entry,
+                manifest,
+                payload.corpus_version,
+                catalog,
+            )
             if not validation.valid:
                 raise ValueError("corpus entry did not pass validation")
             if validation.validation_sha256 != payload.validation_sha256:
                 raise CorpusConflictError("validated content changed")
+            if (
+                validation.target_manifest_sha256
+                != payload.expected_target_manifest_sha256
+            ):
+                raise CorpusConflictError("target corpus manifest changed")
             if (
                 validation.current_manifest_sha256
                 != payload.expected_active_manifest_sha256
@@ -163,6 +219,11 @@ class CorpusWriteService:
                     CORPUS_ROOT,
                     corpus_version=payload.corpus_version,
                 )
+                if (
+                    manifest.get("corpus_manifest_sha256")
+                    != payload.expected_target_manifest_sha256
+                ):
+                    raise CorpusConflictError("target corpus manifest changed")
                 chunks = build_chunks_v2(CORPUS_ROOT, manifest=manifest)
                 summary = KnowledgeReleaseService(
                     store=self.store,
@@ -175,7 +236,7 @@ class CorpusWriteService:
                     target.unlink(missing_ok=True)
                 raise
 
-        return CorpusReleaseResponse(**summary.model_dump(mode="json"))
+        return CorpusCreateVersionResponse(**summary.model_dump(mode="json"))
 
     def _reconciled_manifest(self, catalog: dict | None = None) -> dict:
         active = catalog or self._active_catalog()
@@ -201,22 +262,34 @@ class CorpusWriteService:
             )
         except (OSError, ValueError, ValidationError) as exc:
             raise CorpusWriteUnavailable(
-                "corpus source and active release identity conflict"
+                "corpus source and active version identity conflict"
             ) from exc
         if rebuilt.get("corpus_manifest_sha256") != active_sha256:
             raise CorpusWriteUnavailable(
-                "corpus source and active release identity conflict"
+                "corpus source and active version identity conflict"
             )
         _write_json_atomic(MANIFEST_PATH, rebuilt)
         return rebuilt
 
     def _committed_response(
         self,
-        payload: CorpusReleaseRequest,
+        payload: CorpusCreateVersionRequest,
         catalog: dict,
         manifest: dict,
-    ) -> CorpusReleaseResponse:
-        if _entry_sha256(payload.entry) != payload.validation_sha256:
+    ) -> CorpusCreateVersionResponse:
+        if (
+            str(catalog.get("manifest_sha256", ""))
+            != payload.expected_target_manifest_sha256
+        ):
+            raise CorpusConflictError("committed target manifest changed")
+        if (
+            _validation_sha256(
+                payload.entry,
+                payload.corpus_version,
+                payload.expected_active_manifest_sha256,
+            )
+            != payload.validation_sha256
+        ):
             raise CorpusConflictError("validated content changed")
         target = CONSOLE_ENTRY_ROOT / f"{payload.entry.unit_id}.md"
         try:
@@ -254,7 +327,7 @@ class CorpusWriteService:
         if chunk_count < 1 or dimension < 1:
             raise CorpusWriteUnavailable("active corpus identity is unavailable")
 
-        return CorpusReleaseResponse(
+        return CorpusCreateVersionResponse(
             corpus_version=str(catalog["corpus_version"]),
             manifest_sha256=str(catalog["manifest_sha256"]),
             discovered=chunk_count,
@@ -308,6 +381,31 @@ def _entry_sha256(entry: CorpusEntryInput) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _validation_sha256(
+    entry: CorpusEntryInput,
+    corpus_version: str,
+    active_manifest_sha256: str,
+) -> str:
+    payload = {
+        "entry_sha256": _entry_sha256(entry),
+        "target_corpus_version": corpus_version,
+        "active_manifest_sha256": active_manifest_sha256,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _build_preview_manifest(entry: CorpusEntryInput, corpus_version: str) -> dict:
+    with tempfile.TemporaryDirectory(prefix="rag-corpus-preview-") as temp_name:
+        preview_root = Path(temp_name) / "knowledge_v2"
+        shutil.copytree(CORPUS_ROOT, preview_root)
+        target = preview_root / "extensions" / "console" / f"{entry.unit_id}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_serialize_entry(entry), encoding="utf-8", newline="\n")
+        return build_manifest_v2(preview_root, corpus_version=corpus_version)
 
 
 def _serialize_entry(entry: CorpusEntryInput) -> str:

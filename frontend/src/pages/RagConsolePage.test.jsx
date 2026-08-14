@@ -467,7 +467,7 @@ describe("RAG console diagnostics", () => {
     expect(document.body.textContent).not.toContain("source_url");
   });
 
-  it("validates and publishes a new corpus entry without persisting its body", async () => {
+  it("validates and creates a new corpus version without persisting its body", async () => {
     const user = userEvent.setup();
     const privateBody = "中".repeat(320);
     const corpus = {
@@ -486,26 +486,36 @@ describe("RAG console diagnostics", () => {
       if (url === "/api/rag/corpus/drafts/validate") {
         const payload = JSON.parse(options.body);
         expect(payload.entry.content).toBe(privateBody);
+        expect(payload.corpus_version).toMatch(/console/);
         return response({
-          schema_version: "rag-corpus-validation-v1",
+          schema_version: "rag-corpus-validation-v2",
           valid: true,
           validation_sha256: "b".repeat(64),
           current_corpus_version: corpus.corpus_version,
           current_manifest_sha256: corpus.manifest_sha256,
+          current_chunk_count: 31,
+          target_corpus_version: payload.corpus_version,
+          target_manifest_sha256: "d".repeat(64),
+          target_chunk_count: 32,
+          added_chunk_count: 1,
+          reused_embedding_count: 31,
           content_sha256: "c".repeat(64),
           chinese_character_count: 320,
           provider_call_required: true,
           estimated_embedding_count: 1,
+          provider_name: "siliconflow",
+          model_name: "BAAI/bge-m3",
+          model_revision: "v1",
           issues: [],
         });
       }
-      if (url === "/api/rag/corpus/releases/activate") {
+      if (url === "/api/rag/corpus/versions") {
         const payload = JSON.parse(options.body);
         expect(payload.entry.content).toBe(privateBody);
-        expect(payload.confirm_provider_cost).toBe(true);
-        expect(payload.confirm_activation).toBe(true);
+        expect(payload.confirm_create_version).toBe(true);
+        expect(payload.expected_target_manifest_sha256).toBe("d".repeat(64));
         return response({
-          schema_version: "rag-corpus-release-v1",
+          schema_version: "rag-corpus-version-v1",
           corpus_version: payload.corpus_version,
           manifest_sha256: "d".repeat(64),
           discovered: 32,
@@ -533,23 +543,22 @@ describe("RAG console diagnostics", () => {
     fireEvent.change(screen.getByLabelText("发布方"), { target: { value: "Apache RocketMQ" } });
     fireEvent.change(screen.getByLabelText("HTTPS 地址"), { target: { value: "https://rocketmq.apache.org/zh/docs/featureBehavior/02delaymessage" } });
     fireEvent.change(screen.getByLabelText(/^正文/), { target: { value: privateBody } });
-    await user.click(screen.getByRole("button", { name: /预检资料/ }));
+    await user.click(screen.getByRole("button", { name: /校验并预览/ }));
 
-    expect(await screen.findByText("预检通过，可以生成新版本")).toBeInTheDocument();
+    expect(await screen.findByText("校验通过，Re-index 预览已生成")).toBeInTheDocument();
     expect(window.location.href).not.toContain(privateBody);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
-    await user.click(screen.getByLabelText(/允许生成新增资料所需的向量/));
-    await user.click(screen.getByLabelText(/确认激活新语料版本/));
-    await user.click(screen.getByRole("button", { name: "确认发布" }));
+    await user.click(screen.getByLabelText(/确认创建并启用该语料版本/));
+    await user.click(screen.getByRole("button", { name: "创建新版本" }));
 
-    expect(await screen.findByText("资料已加入当前语料")).toBeInTheDocument();
+    expect(await screen.findByText("新语料版本已创建")).toBeInTheDocument();
     expect(screen.getByText(/复用 31 条向量/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(privateBody);
   });
 
   it("positions the overview as a technical showcase with honest experiment findings", async () => {
-    routeFetch({ "/api/rag/overview": { schema_version: "rag-overview-v2", generated_at: "2026-08-14T00:00:00Z", project_scope: "learning_project_technical_showcase", current_engine: "legacy", comparison_engines: ["legacy", "hybrid-v2"], remote_reranker_enabled: false, evidence_gate_enabled: true, corpus: { version: "v4", manifest_sha256: "a".repeat(64), chunk_count: 31 }, embedding: { provider: "test", model: "test", revision: "v1", dimension: 3 }, profiles: [], component_versions: { fusion: "weighted-rrf-v1" }, capabilities: { diagnostic_ui: true, live_inspector: true, eval_artifacts: true, authored_eval_queries: false, corpus_write: false, access_mode: "loopback" }, technologies: ["Semantic Retrieval", "Lexical Retrieval", "Weighted RRF Fusion"], diagnostic_dataset: { label: "Demo Diagnostic Dataset", curation: "Curated / Machine-assisted", tuning_case_count: 75, diagnostic_case_count: 25, human_annotator_count: 0, production_claim: false }, experiment_findings: ["现有机器辅助诊断制品不能证明 Hybrid 已整体优于 Legacy。", "No-evidence 仍是当前最明确的算法缺口。"], demo_boundaries: ["仅用于本地学习项目与技术展示。", "不包含生产 Shadow、Canary、Promotion 或 Legacy 退役流程。"] } });
+    routeFetch({ "/api/rag/overview": { schema_version: "rag-overview-v2", generated_at: "2026-08-14T00:00:00Z", project_scope: "learning_project_technical_showcase", current_engine: "legacy", comparison_engines: ["legacy", "hybrid-v2"], remote_reranker_enabled: false, evidence_gate_enabled: true, corpus: { version: "v4", manifest_sha256: "a".repeat(64), chunk_count: 31 }, embedding: { provider: "test", model: "test", revision: "v1", dimension: 3 }, profiles: [], component_versions: { fusion: "weighted-rrf-v1" }, capabilities: { console_read: true, live_execution: true, corpus_write: false, access_mode: "loopback" }, technologies: ["Semantic Retrieval", "Lexical Retrieval", "Weighted RRF Fusion"], diagnostic_dataset: { label: "Demo Diagnostic Dataset", curation: "Curated / Machine-assisted", tuning_case_count: 75, diagnostic_case_count: 25, human_annotator_count: 0, production_claim: false }, experiment_findings: ["现有机器辅助诊断制品不能证明 Hybrid 已整体优于 Legacy。", "No-evidence 仍是当前最明确的算法缺口。"], demo_boundaries: ["仅用于本地学习项目与技术展示。", "不包含生产 Shadow、Canary、Promotion 或 Legacy 退役流程。"] } });
     render(<RagOverviewPage />);
     expect(await screen.findByText("学习项目 / 技术展示")).toBeInTheDocument();
     expect(screen.getByText("Demo Diagnostic Dataset")).toBeInTheDocument();

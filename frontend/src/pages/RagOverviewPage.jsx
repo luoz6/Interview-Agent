@@ -34,10 +34,10 @@ export function RagOverviewPage() {
                   Legacy 与 Hybrid 的差异请直接进入检索诊断现场比较。
                 </span>
               </div>
-              <div className="rag-release-stamp" data-state="ready">
+              <div className="rag-runtime-stamp" data-state="ready">
                 <small>项目定位</small>
                 <strong>学习项目 / 技术展示</strong>
-                <span>本地诊断，不代表生产发布</span>
+                <span>本地诊断，不代表线上结论</span>
               </div>
             </header>
             <section className="rag-identity-strip">

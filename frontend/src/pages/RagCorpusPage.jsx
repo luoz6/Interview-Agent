@@ -55,9 +55,9 @@ function Corpus({ data, onRefresh }) {
     <>
       <header className="rag-page-head">
         <div>
-          <p>语料与治理状态</p>
+          <p>版本化知识资料</p>
           <h1>知识语料</h1>
-          <span>查看已发布知识单元，并通过预检和二次确认增加经过治理的中文资料。</span>
+          <span>查看现有知识单元，并按“校验 → 预览 → 创建新版本”增加中文资料。</span>
         </div>
         <div className="rag-corpus-head-actions">
           <StatusPill value={data.write_enabled ? "available" : "not_recorded"}>{data.write_enabled ? "可新增" : "写入未启用"}</StatusPill>
@@ -91,7 +91,7 @@ function Corpus({ data, onRefresh }) {
         <CorpusEntryForm
           corpus={data}
           onCancel={() => setAdding(false)}
-          onPublished={() => onRefresh?.()}
+          onCreated={() => onRefresh?.()}
         />
       )}
       <section className="rag-panel">

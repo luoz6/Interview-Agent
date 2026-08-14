@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.api.rag.models import (
     ConsumerActionRecord,
-    CorpusReleaseRequest,
+    CorpusCreateVersionRequest,
     CorpusValidateRequest,
     RetrievalInspectionRequest,
     RetrievalCompareRequest,
@@ -66,18 +66,19 @@ def test_compare_contract_never_exposes_query_or_provider_payload_fields():
 
 def test_corpus_write_contracts_do_not_put_source_content_in_response_models():
     request_fields = set(CorpusValidateRequest.model_fields)
-    release_fields = set(CorpusReleaseRequest.model_fields)
-    assert request_fields == {"entry"}
-    assert "entry" in release_fields
+    create_fields = set(CorpusCreateVersionRequest.model_fields)
+    assert request_fields == {"entry", "corpus_version"}
+    assert "entry" in create_fields
+    assert {"expected_active_manifest_sha256", "expected_target_manifest_sha256", "validation_sha256", "confirm_create_version"} <= create_fields
 
     from app.application.knowledge.diagnostic_models import (
-        CorpusReleaseResponse,
+        CorpusCreateVersionResponse,
         CorpusValidateResponse,
     )
 
     forbidden = {"content", "entry", "references", "source_url", "provider_payload"}
     assert not set(CorpusValidateResponse.model_fields).intersection(forbidden)
-    assert not set(CorpusReleaseResponse.model_fields).intersection(forbidden)
+    assert not set(CorpusCreateVersionResponse.model_fields).intersection(forbidden)
 
 
 def test_safe_candidate_has_no_raw_content_metadata_query_or_url_fields():
