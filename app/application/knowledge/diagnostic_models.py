@@ -369,6 +369,7 @@ class CorpusReleaseResponse(SafeModel):
     model_name: str
     model_revision: str
     dimension: int = Field(ge=1)
+    replayed: bool = False
 
 
 class EvidenceTraceStage(SafeModel):

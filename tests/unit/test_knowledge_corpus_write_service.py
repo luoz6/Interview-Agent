@@ -6,6 +6,7 @@ import pytest
 from app.application.knowledge import corpus_write_service as subject
 from app.application.knowledge.corpus_write_service import (
     CorpusConflictError,
+    CorpusWriteUnavailable,
     CorpusWriteService,
 )
 from app.application.knowledge.diagnostic_models import (
@@ -55,6 +56,26 @@ class FakeStore:
 
     def activate_corpus(self, **payload):
         self.activations.append(payload)
+        provider = payload["provider"]
+        chunks = payload["chunks"]
+        self.catalog = {
+            "corpus_version": payload["corpus_version"],
+            "manifest_sha256": payload["manifest_sha256"],
+            "embedding": {
+                "provider": provider.provider_name,
+                "model": provider.model_name,
+                "revision": provider.model_revision,
+                "dimension": provider.dimension,
+            },
+            "chunk_count": len(chunks),
+            "units": tuple(
+                {
+                    "unit_id": prepared.chunk.chunk_id,
+                    "content_sha256": prepared.content_sha256,
+                }
+                for prepared in chunks
+            ),
+        }
 
 
 def _entry(content="中" * 320):
@@ -159,6 +180,7 @@ def test_release_reuses_existing_embeddings_and_activates_complete_version(
     persisted = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert persisted["corpus_version"] == "base-v2"
     assert persisted["chunk_count"] == 2
+    assert response.replayed is False
 
 
 def test_release_requires_both_confirmations_and_current_manifest(isolated_corpus):
@@ -180,7 +202,7 @@ def test_release_requires_both_confirmations_and_current_manifest(isolated_corpu
     with pytest.raises(ValueError):
         service.release(CorpusReleaseRequest(**{**base, "confirm_activation": False}))
     store.catalog["manifest_sha256"] = "f" * 64
-    with pytest.raises(CorpusConflictError):
+    with pytest.raises(CorpusWriteUnavailable, match="identity conflict"):
         service.release(CorpusReleaseRequest(**base))
     assert store.activations == []
 
@@ -207,3 +229,91 @@ def test_provider_failure_does_not_activate_or_leave_managed_source(isolated_cor
     assert not (root / "extensions" / "console" / "rocketmq_delay_queue.md").exists()
     persisted = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert persisted["corpus_version"] == "base-v1"
+
+
+def test_manifest_write_failure_after_activation_is_recoverable(
+    isolated_corpus,
+    monkeypatch,
+):
+    root, manifest = isolated_corpus
+    service, store, provider = _service(manifest)
+    entry = _entry()
+    validation = service.validate(entry)
+    request = CorpusReleaseRequest(
+        entry=entry,
+        corpus_version="base-v2",
+        expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+        validation_sha256=validation.validation_sha256,
+        confirm_provider_cost=True,
+        confirm_activation=True,
+    )
+    original_write = subject._write_json_atomic
+    attempts = 0
+
+    def fail_once(path, payload):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError("simulated manifest write failure")
+        return original_write(path, payload)
+
+    monkeypatch.setattr(subject, "_write_json_atomic", fail_once)
+
+    with pytest.raises(OSError, match="simulated manifest write failure"):
+        service.release(request)
+
+    stale = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert stale["corpus_version"] == "base-v1"
+    assert store.catalog["corpus_version"] == "base-v2"
+    assert (root / "extensions" / "console" / "rocketmq_delay_queue.md").is_file()
+
+    replay = service.release(request)
+
+    recovered = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert recovered["corpus_version"] == "base-v2"
+    assert recovered["corpus_manifest_sha256"] == store.catalog["manifest_sha256"]
+    assert replay.replayed is True
+    assert replay.embedded == 0
+    assert replay.reused == replay.discovered == 2
+    assert len(provider.calls) == 1
+    assert len(store.activations) == 1
+
+
+def test_manifest_recovery_is_idempotent(isolated_corpus, monkeypatch):
+    _root, manifest = isolated_corpus
+    service, store, _provider = _service(manifest)
+    entry = _entry()
+    validation = service.validate(entry)
+    request = CorpusReleaseRequest(
+        entry=entry,
+        corpus_version="base-v2",
+        expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+        validation_sha256=validation.validation_sha256,
+        confirm_provider_cost=True,
+        confirm_activation=True,
+    )
+    original_write = subject._write_json_atomic
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(subject, "_write_json_atomic", fail_write)
+    with pytest.raises(OSError, match="write failed"):
+        service.release(request)
+    monkeypatch.setattr(subject, "_write_json_atomic", original_write)
+
+    first = service.release(request)
+    second = service.release(request)
+
+    assert first.replayed is True
+    assert second == first
+    assert len(store.activations) == 1
+
+
+def test_manifest_recovery_refuses_hash_mismatch(isolated_corpus):
+    _root, manifest = isolated_corpus
+    service, store, _provider = _service(manifest)
+    store.catalog["manifest_sha256"] = "f" * 64
+
+    with pytest.raises(CorpusWriteUnavailable, match="identity conflict"):
+        service.validate(_entry())

@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from threading import Lock
+from threading import RLock
 
 from pydantic import ValidationError
 import yaml
@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[3]
 CORPUS_ROOT = ROOT / KNOWLEDGE_V2_ROOT
 MANIFEST_PATH = CORPUS_ROOT / "manifest.json"
 CONSOLE_ENTRY_ROOT = CORPUS_ROOT / "extensions" / "console"
-_WRITE_LOCK = Lock()
+_WRITE_LOCK = RLock()
 
 
 class CorpusConflictError(RuntimeError):
@@ -52,7 +52,15 @@ class CorpusWriteService:
         self.provider = provider
 
     def validate(self, entry: CorpusEntryInput) -> CorpusValidateResponse:
-        manifest = _read_manifest()
+        with _WRITE_LOCK:
+            manifest = self._reconciled_manifest()
+            return self._validate_entry(entry, manifest)
+
+    def _validate_entry(
+        self,
+        entry: CorpusEntryInput,
+        manifest: dict,
+    ) -> CorpusValidateResponse:
         issues: list[CorpusValidationIssue] = []
         document = None
         try:
@@ -119,7 +127,12 @@ class CorpusWriteService:
             raise ValueError("release confirmations are required")
 
         with _WRITE_LOCK:
-            validation = self.validate(payload.entry)
+            catalog = self._active_catalog()
+            manifest = self._reconciled_manifest(catalog)
+            if catalog.get("corpus_version") == payload.corpus_version:
+                return self._committed_response(payload, catalog, manifest)
+
+            validation = self._validate_entry(payload.entry, manifest)
             if not validation.valid:
                 raise ValueError("corpus entry did not pass validation")
             if validation.validation_sha256 != payload.validation_sha256:
@@ -130,7 +143,6 @@ class CorpusWriteService:
             ):
                 raise CorpusConflictError("corpus manifest changed")
 
-            catalog = self._active_catalog()
             if (
                 catalog.get("manifest_sha256")
                 != payload.expected_active_manifest_sha256
@@ -164,6 +176,97 @@ class CorpusWriteService:
                 raise
 
         return CorpusReleaseResponse(**summary.model_dump(mode="json"))
+
+    def _reconciled_manifest(self, catalog: dict | None = None) -> dict:
+        active = catalog or self._active_catalog()
+        active_version = str(active.get("corpus_version", ""))
+        active_sha256 = str(active.get("manifest_sha256", ""))
+        if not active_version or not active_sha256:
+            raise CorpusWriteUnavailable("active corpus identity is unavailable")
+
+        try:
+            manifest = _read_manifest()
+        except CorpusWriteUnavailable:
+            manifest = {}
+        if (
+            manifest.get("corpus_version") == active_version
+            and manifest.get("corpus_manifest_sha256") == active_sha256
+        ):
+            return manifest
+
+        try:
+            rebuilt = build_manifest_v2(
+                CORPUS_ROOT,
+                corpus_version=active_version,
+            )
+        except (OSError, ValueError, ValidationError) as exc:
+            raise CorpusWriteUnavailable(
+                "corpus source and active release identity conflict"
+            ) from exc
+        if rebuilt.get("corpus_manifest_sha256") != active_sha256:
+            raise CorpusWriteUnavailable(
+                "corpus source and active release identity conflict"
+            )
+        _write_json_atomic(MANIFEST_PATH, rebuilt)
+        return rebuilt
+
+    def _committed_response(
+        self,
+        payload: CorpusReleaseRequest,
+        catalog: dict,
+        manifest: dict,
+    ) -> CorpusReleaseResponse:
+        if _entry_sha256(payload.entry) != payload.validation_sha256:
+            raise CorpusConflictError("validated content changed")
+        target = CONSOLE_ENTRY_ROOT / f"{payload.entry.unit_id}.md"
+        try:
+            persisted = target.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CorpusWriteUnavailable(
+                "committed corpus source is unavailable"
+            ) from exc
+        if _normalized_text(persisted) != _normalized_text(
+            _serialize_entry(payload.entry)
+        ):
+            raise CorpusConflictError("committed corpus content changed")
+        if not any(
+            isinstance(item, dict)
+            and item.get("chunk_id") == payload.entry.unit_id
+            for item in manifest.get("chunks", ())
+        ):
+            raise CorpusWriteUnavailable(
+                "committed corpus entry is missing from the active manifest"
+            )
+
+        embedding = catalog.get("embedding")
+        if not isinstance(embedding, dict):
+            raise CorpusWriteUnavailable("active embedding identity is unavailable")
+        try:
+            chunk_count = int(catalog["chunk_count"])
+            dimension = int(embedding["dimension"])
+            provider_name = str(embedding["provider"])
+            model_name = str(embedding["model"])
+            model_revision = str(embedding["revision"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CorpusWriteUnavailable(
+                "active embedding identity is unavailable"
+            ) from exc
+        if chunk_count < 1 or dimension < 1:
+            raise CorpusWriteUnavailable("active corpus identity is unavailable")
+
+        return CorpusReleaseResponse(
+            corpus_version=str(catalog["corpus_version"]),
+            manifest_sha256=str(catalog["manifest_sha256"]),
+            discovered=chunk_count,
+            reused=chunk_count,
+            embedded=0,
+            activated=chunk_count,
+            provider_name=provider_name,
+            model_name=model_name,
+            model_revision=model_revision,
+            dimension=dimension,
+            replayed=True,
+        )
 
     def _active_catalog(self) -> dict:
         getter = getattr(self.store, "get_corpus_catalog", None)
