@@ -1,5 +1,7 @@
 # RAG Learning Demo Execution Baseline
 
+> HISTORICAL BASELINE SNAPSHOT. Use the current architecture, Eval and Console guides for active instructions.
+
 Status: active implementation baseline  
 Captured: 2026-08-14 (Asia/Hong_Kong)  
 Purpose: reference evidence for the RAG learning/demo simplification work

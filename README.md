@@ -4,6 +4,31 @@ Local V1 is a single-machine interview assistant for generating technical interv
 
 This project is designed for local single-user deployment. It does not include login, account isolation, or cross-device synchronization.
 
+## Current RAG position
+
+Knowledge RAG is maintained as a **Learning Project / Technical Showcase**. The active path includes explicit Legacy/Hybrid execution, privacy-safe comparison, diagnostic evaluation, frozen replay, and versioned Corpus management. It does not include production Shadow, Canary, Promotion, rollout assignment, or Legacy retirement.
+
+Start with:
+
+- [RAG Demo Architecture](docs/architecture/rag-demo-architecture.md)
+- [RAG Console Guide](docs/runbooks/rag-engineering-console.md)
+- [Eval V3 Diagnostic Guide](docs/runbooks/knowledge-eval-v3.md)
+- [Five-scene Demo Script](docs/demo/rag-demo-script.md)
+
+Local console capabilities are fail-closed:
+
+```powershell
+$env:RAG_CONSOLE_ENABLED="true"
+$env:RAG_LIVE_EXECUTION_ENABLED="true"
+$env:RAG_CORPUS_WRITE_ENABLED="false"
+```
+
+Corpus writes, protected PostgreSQL tests, and external Embedding calls require an applicable structured authorization. Without it, use read-only diagnostics and frozen replay.
+
+## Historical implementation log
+
+The stage-by-stage notes below are retained as historical project context. Statements about earlier release candidates, Shadow reviewers, canaries, or production gates do not describe the active Knowledge RAG workflow.
+
 Memory, context-budget, compression, artifact, retention, and Interview graph
 runtime settings are resolved through the immutable
 `memory-runtime-config-v1` model. Prefer the structured `MEMORY_*` names shown

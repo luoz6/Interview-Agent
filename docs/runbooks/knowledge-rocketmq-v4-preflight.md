@@ -1,5 +1,7 @@
 # RocketMQ V4 Knowledge Preflight
 
+> HISTORICAL / NOT AN ACTIVE RAG WORKFLOW. This records the earlier authorized ingestion preflight. The current demo uses the Corpus “校验 → 预览 → 创建新版本” flow and does not imply authorization for Provider calls or PostgreSQL writes.
+
 Run this gate before any request to load or promote the active knowledge corpus.
 It is offline and read-only: it does not connect to PostgreSQL, call an embedding
 provider, write artifacts, enable Hybrid, or activate Shadow.
