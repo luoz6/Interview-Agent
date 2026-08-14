@@ -6,6 +6,7 @@ from app.domain.knowledge.fusion import (
     rank_normalized_score_fusion,
     weighted_reciprocal_rank_fusion,
 )
+from app.domain.knowledge.evidence import EvidenceSufficiency
 from app.domain.knowledge.lexical import extract_technical_terms
 from app.domain.knowledge.models import KnowledgeChunk
 from app.domain.knowledge.retrieval import (
@@ -277,6 +278,53 @@ def test_hybrid_service_keeps_lexical_only_win_and_channel_trace():
     assert result.trace.latency_breakdown_ms["total"] == result.latency_ms
 
 
+def test_hybrid_service_records_actual_query_aware_fusion_decision():
+    shared = _chunk(
+        "lock",
+        "分布式锁安全释放",
+        aliases=["Redis 锁"],
+        score=0.8,
+    )
+    service = HybridKnowledgeRetrievalService(
+        Semantic([_semantic_candidate(shared)]),
+        ExactTermLexicalRetriever(Source([shared])),
+    )
+    profile = _profile().model_copy(update={"query_aware_fusion": True})
+
+    result = service.retrieve(_request("Redis 锁应该如何安全释放？"), profile)
+    service.close()
+
+    summary = result.trace.fusion_summary
+    assert summary.query_signal == "lexical_dominant"
+    assert summary.semantic_weight == 0.8
+    assert summary.lexical_weight == 1.4
+    assert "exact_alias_match" in summary.reason_codes
+
+
+def test_hybrid_service_keeps_fixed_weights_when_query_aware_is_disabled():
+    shared = _chunk("lock", "分布式锁", aliases=["Redis 锁"], score=0.8)
+    service = HybridKnowledgeRetrievalService(
+        Semantic([_semantic_candidate(shared)]),
+        ExactTermLexicalRetriever(Source([shared])),
+    )
+    profile = _profile().model_copy(
+        update={
+            "semantic_weight": 1.0,
+            "lexical_weight": 1.2,
+            "query_aware_fusion": False,
+        }
+    )
+
+    result = service.retrieve(_request("Redis 锁应该如何安全释放？"), profile)
+    service.close()
+
+    summary = result.trace.fusion_summary
+    assert summary.query_signal == "balanced"
+    assert summary.semantic_weight == 1.0
+    assert summary.lexical_weight == 1.2
+    assert summary.reason_codes == ("query_aware_fusion_disabled",)
+
+
 def test_hybrid_service_degrades_to_lexical_when_semantic_is_unavailable():
     lexical_chunk = _chunk("lock", "分布式锁", aliases=["Lua"])
     service = HybridKnowledgeRetrievalService(
@@ -289,6 +337,25 @@ def test_hybrid_service_degrades_to_lexical_when_semantic_is_unavailable():
     assert result.availability == RetrievalAvailability.DEGRADED
     assert [item.chunk_id for item in result.selected_evidence] == ["lock"]
     assert result.degraded_reasons == ["semantic_unavailable"]
+
+
+def test_hybrid_service_keeps_candidates_but_abstains_from_weak_evidence():
+    weak = _chunk("weak", "unrelated candidate", score=0.31)
+    service = HybridKnowledgeRetrievalService(
+        Semantic([_semantic_candidate(weak)]),
+        ExactTermLexicalRetriever(Source([])),
+    )
+
+    result = service.retrieve(_request("unmatched question"), _profile())
+    service.close()
+
+    assert [item.chunk_id for item in result.candidates] == ["weak"]
+    assert result.selected_evidence == []
+    assert result.evidence_decision.sufficiency == EvidenceSufficiency.INSUFFICIENT
+    assert result.evidence_decision.reason_codes == (
+        "minimum_semantic_support_missing",
+        "exact_lexical_evidence_missing",
+    )
 
 
 def test_hybrid_service_reports_unavailable_when_all_channels_fail():
@@ -393,3 +460,33 @@ def test_fusion_order_is_authoritative_when_raw_scores_conflict():
     assert candidates["fusion-first"].fusion_rank == 1
     assert candidates["fusion-first"].rerank_rank == 1
     assert candidates["fusion-first"].rerank_score > candidates["raw-first"].rerank_score
+    assert candidates["fusion-first"].ranking_explanation.base_score_source == "fusion_score"
+    assert candidates["fusion-first"].ranking_explanation.tie_break_fusion_rank == 1
+
+
+def test_rank_normalized_fusion_remains_authoritative_during_rerank():
+    fusion_first = _chunk("normalized-first", "neutral one", score=0.55)
+    raw_first = _chunk("normalized-raw", "neutral two", score=0.99)
+    service = HybridKnowledgeRetrievalService(
+        Semantic(
+            [
+                _semantic_candidate(fusion_first, 1),
+                _semantic_candidate(raw_first, 2),
+            ]
+        ),
+        ExactTermLexicalRetriever(Source([])),
+    )
+    profile = _profile().model_copy(
+        update={"fusion_strategy": "rank_normalized_score"}
+    )
+
+    result = service.retrieve(_request("neutral query"), profile)
+    service.close()
+
+    assert [item.chunk_id for item in result.selected_evidence[:2]] == [
+        "normalized-first",
+        "normalized-raw",
+    ]
+    candidates = {item.chunk_id: item for item in result.candidates}
+    assert candidates["normalized-first"].ranking_explanation.base_score_source == "fusion_score"
+    assert candidates["normalized-first"].rerank_rank == 1

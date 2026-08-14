@@ -27,6 +27,7 @@ const profileFields = [
   "fusion_strategy",
   "semantic_weight",
   "lexical_weight",
+  "query_aware_fusion",
   "semantic_candidate_limit",
   "lexical_candidate_limit",
   "fusion_candidate_limit",
@@ -476,8 +477,7 @@ export function RagRetrievalPage() {
                 )}
               </dl>
               <p className="rag-footnote">
-                当前接口未提供问题信号分类、动态权重、分类器置信度与动态路由原因；
-                界面不会推断或补造这些信息。
+                这里只展示安全请求事实，不包含问题原文、完整候选正文或模型载荷。
               </p>
             </section>
             <section className="rag-panel">
@@ -498,7 +498,37 @@ export function RagRetrievalPage() {
           </div>
           <section className="rag-panel">
             <SectionHead
-              eyebrow="03 · 检索流水线"
+              eyebrow="03 · 融合决策"
+              title="本次问题如何分配检索权重"
+            />
+            {Object.keys(data.fusion_summary || {}).length > 0 ? (
+              <dl className="rag-detail-list">
+                {Object.entries(data.fusion_summary).map(([key, value]) => (
+                  <IdentityValue
+                    key={`fusion-${key}`}
+                    label={displayFieldLabel(key)}
+                    value={
+                      key === "query_signal"
+                        ? displayStatus(value)
+                        : Array.isArray(value)
+                          ? value.join(" · ") || "无"
+                          : value
+                    }
+                  />
+                ))}
+              </dl>
+            ) : (
+              <p className="rag-footnote">
+                当前历史制品未记录融合决策；界面不会根据候选排名反推问题分类或权重。
+              </p>
+            )}
+            <p className="rag-footnote">
+              问题信号、实际权重和原因代码均由后端确定性生成；这里不展示问题原文。
+            </p>
+          </section>
+          <section className="rag-panel">
+            <SectionHead
+              eyebrow="04 · 检索流水线"
               title="候选排名"
               aside={
                 <span className="rag-count">
@@ -514,7 +544,7 @@ export function RagRetrievalPage() {
           </section>
           <div className="rag-grid">
             <section className="rag-panel">
-              <SectionHead eyebrow="04 · 证据门禁" title="证据决策" />
+              <SectionHead eyebrow="05 · 证据门禁" title="证据决策" />
               <div className="rag-decision-grid">
                 {evidenceDimensions.map((key) => (
                   <div key={key}>
@@ -558,7 +588,7 @@ export function RagRetrievalPage() {
               </div>
             </section>
             <section className="rag-panel">
-              <SectionHead eyebrow="05 · 耗时" title="各阶段实际耗时" />
+              <SectionHead eyebrow="06 · 耗时" title="各阶段实际耗时" />
               <div className="rag-latency">
                 {Object.entries(data.latency_ms).map(([key, value]) => (
                   <div key={key}>

@@ -4,8 +4,10 @@ from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 from threading import Lock
 from time import perf_counter
 
+from app.domain.knowledge.evidence import EvidenceSufficiency
 from app.domain.knowledge.evidence_gate import RetrievalEvidenceGate
 from app.domain.knowledge.fusion import fuse_retrieval_candidates
+from app.domain.knowledge.query_signals import QuerySignalAnalyzer
 from app.domain.knowledge.reranking import KnowledgeReranker
 from app.domain.knowledge.retrieval import (
     RetrievalFusionSummary,
@@ -32,12 +34,14 @@ class HybridKnowledgeRetrievalService:
         reranker: KnowledgeReranker | None = None,
         component_versions: dict[str, str] | None = None,
         evidence_gate: RetrievalEvidenceGate | None = None,
+        query_signal_analyzer: QuerySignalAnalyzer | None = None,
     ) -> None:
         self._semantic = semantic_retriever
         self._lexical = lexical_retriever
         self._reranker = reranker or KnowledgeReranker()
         self._component_versions = dict(component_versions or {})
         self._evidence_gate = evidence_gate or RetrievalEvidenceGate()
+        self._query_signal_analyzer = query_signal_analyzer or QuerySignalAnalyzer()
         self._executor = ThreadPoolExecutor(
             max_workers=3,
             thread_name_prefix="knowledge-hybrid-channel",
@@ -122,14 +126,26 @@ class HybridKnowledgeRetrievalService:
         else:
             availability = RetrievalAvailability.AVAILABLE
 
+        semantic_candidates = semantic.candidates if semantic in available else []
+        lexical_candidates = lexical.candidates if lexical in available else []
+        signal_decision = self._query_signal_analyzer.decide(
+            request.query_text,
+            semantic_candidates=semantic_candidates,
+            lexical_candidates=lexical_candidates,
+            base_semantic_weight=profile.semantic_weight,
+            base_lexical_weight=profile.lexical_weight,
+            enabled=profile.query_aware_fusion,
+            semantic_available=semantic in available,
+            lexical_available=lexical in available,
+        )
         fusion_started_at = perf_counter()
         fused = fuse_retrieval_candidates(
-            semantic.candidates if semantic in available else [],
-            lexical.candidates if lexical in available else [],
+            semantic_candidates,
+            lexical_candidates,
             strategy=profile.fusion_strategy,
             k=profile.rrf_k,
-            semantic_weight=profile.semantic_weight,
-            lexical_weight=profile.lexical_weight,
+            semantic_weight=signal_decision.semantic_weight,
+            lexical_weight=signal_decision.lexical_weight,
             limit=profile.fusion_candidate_limit,
         )
         fusion_ms = round((perf_counter() - fusion_started_at) * 1000, 3)
@@ -160,15 +176,25 @@ class HybridKnowledgeRetrievalService:
                         if item.chunk_id in reranked_by_id
                         else None
                     ),
+                    "ranking_explanation": (
+                        reranked_by_id[item.chunk_id].ranking_explanation
+                        if item.chunk_id in reranked_by_id
+                        else None
+                    ),
                 }
             )
             for item in fused
         ]
-        ranked_chunks = [item.chunk for item in ranked_candidates]
         evidence_gate_started_at = perf_counter()
-        evidence_decision = self._evidence_gate.decide_selection(
+        evidence_decision = self._evidence_gate.decide_candidates(
             availability,
-            ranked_chunks,
+            ranked_candidates,
+            request=request,
+        )
+        ranked_chunks = (
+            []
+            if evidence_decision.sufficiency == EvidenceSufficiency.INSUFFICIENT
+            else [item.chunk for item in ranked_candidates]
         )
         evidence_gate_ms = round(
             (perf_counter() - evidence_gate_started_at) * 1000, 3
@@ -202,16 +228,18 @@ class HybridKnowledgeRetrievalService:
                 fusion_summary=RetrievalFusionSummary(
                     strategy=profile.fusion_strategy,
                     semantic_candidate_count=len(
-                        semantic.candidates if semantic in available else []
+                        semantic_candidates
                     ),
                     lexical_candidate_count=len(
-                        lexical.candidates if lexical in available else []
+                        lexical_candidates
                     ),
                     fused_candidate_count=len(fused),
                     candidate_limit=profile.fusion_candidate_limit,
                     rrf_k=profile.rrf_k,
-                    semantic_weight=profile.semantic_weight,
-                    lexical_weight=profile.lexical_weight,
+                    semantic_weight=signal_decision.semantic_weight,
+                    lexical_weight=signal_decision.lexical_weight,
+                    query_signal=signal_decision.query_signal,
+                    reason_codes=signal_decision.reason_codes,
                 ),
                 evidence_decision=evidence_decision,
                 rerank_summary=RetrievalRerankSummary(

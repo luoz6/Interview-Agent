@@ -6,8 +6,10 @@ from app.domain.knowledge.evidence import (
     EvidenceSufficiency,
 )
 from app.domain.knowledge.evidence_gate import (
+    EvidenceSufficiencySignals,
     EvaluationSupportGate,
     RetrievalEvidenceGate,
+    build_evidence_sufficiency_signals,
 )
 from app.domain.knowledge.engine import (
     KnowledgeEngine,
@@ -31,6 +33,10 @@ from app.domain.knowledge.models import (
     KnowledgeQuery,
 )
 from app.domain.knowledge.reranking import KnowledgeReranker
+from app.domain.knowledge.query_signals import (
+    QuerySignalAnalyzer,
+    QuerySignalDecision,
+)
 from app.domain.knowledge.retrieval import (
     RetrievalReasonCode,
     ResolvedRetrievalProfile,
@@ -71,7 +77,11 @@ __all__ = [
     "EvidenceConsistency",
     "EvidenceDecision",
     "EvidenceSufficiency",
+    "EvidenceSufficiencySignals",
     "RetrievalEvidenceGate",
+    "QuerySignalAnalyzer",
+    "QuerySignalDecision",
+    "build_evidence_sufficiency_signals",
     "extract_technical_terms",
     "analyze_answer_gap",
     "select_followup_brief",

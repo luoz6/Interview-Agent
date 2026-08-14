@@ -58,8 +58,9 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
         if method in methods
     ]
 
-    assert len(schema["paths"]) == 62
-    assert len(operations) == 68
+    # RAG Corpus exposes separate preview and create-version commands.
+    assert len(schema["paths"]) == 63
+    assert len(operations) == 69
     assert len(operations) == len(set(operations))
 
 

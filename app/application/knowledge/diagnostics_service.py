@@ -656,6 +656,7 @@ class RagDiagnosticsService:
             query_facts={"status": "not_recorded"},
             resolved_profile={},
             routing_summary={},
+            fusion_summary={},
             channel_summary=(),
             candidates=candidates,
             evidence_decision=None,
@@ -683,6 +684,10 @@ class RagDiagnosticsService:
         dataset = self._catalog.dataset_for(artifact)
         cases = {item.case_id: item for item in dataset.cases if item.split == artifact.split}
         correct_evidence = false_abstention = false_evidence = correct_abstention = 0
+        false_abstention_case_ids: list[str] = []
+        false_evidence_case_ids: list[str] = []
+        correct_abstention_case_ids: list[str] = []
+        reason_code_breakdown: dict[str, int] = {}
         for result in artifact.cases:
             case = cases.get(result.case_id)
             if case is None:
@@ -693,10 +698,17 @@ class RagDiagnosticsService:
                 correct_evidence += 1
             elif not actual_no_evidence and abstained:
                 false_abstention += 1
+                false_abstention_case_ids.append(result.case_id)
             elif actual_no_evidence and not abstained:
                 false_evidence += 1
+                false_evidence_case_ids.append(result.case_id)
             else:
                 correct_abstention += 1
+                correct_abstention_case_ids.append(result.case_id)
+            for reason_code in result.reason_codes:
+                reason_code_breakdown[reason_code] = (
+                    reason_code_breakdown.get(reason_code, 0) + 1
+                )
         total = correct_evidence + false_abstention + false_evidence + correct_abstention
         expected_no_evidence = false_evidence + correct_abstention
         abstentions = false_abstention + correct_abstention
@@ -716,6 +728,10 @@ class RagDiagnosticsService:
             precision=precision,
             recall=recall,
             f1=f1,
+            false_abstention_case_ids=tuple(sorted(false_abstention_case_ids)),
+            false_evidence_case_ids=tuple(sorted(false_evidence_case_ids)),
+            correct_abstention_case_ids=tuple(sorted(correct_abstention_case_ids)),
+            reason_code_breakdown=dict(sorted(reason_code_breakdown.items())),
         )
 
     def evidence_trace(self, trace_id: str) -> EvidenceTraceResponse:
@@ -961,6 +977,11 @@ def _inspection_response(
         ),
         resolved_profile=(trace.resolved_profile.model_dump(mode="json") if trace.resolved_profile else {}),
         routing_summary=(trace.routing_hints.model_dump(mode="json") if trace.routing_hints else {}),
+        fusion_summary=(
+            trace.fusion_summary.model_dump(mode="json")
+            if trace.fusion_summary
+            else {}
+        ),
         channel_summary=tuple(item.model_dump(mode="json") for item in trace.channels),
         candidates=tuple(_safe_candidate(item, selected) for item in result.candidates),
         evidence_decision=result.evidence_decision,
@@ -1175,6 +1196,7 @@ def _snapshot_response(snapshot: RetrievalDiagnosticSnapshotV1):
         query_facts={"query_sha256": snapshot.query_sha256, "character_count": snapshot.query_character_count},
         resolved_profile={},
         routing_summary={},
+        fusion_summary=snapshot.fusion_summary or {},
         channel_summary=(),
         candidates=candidates,
         evidence_decision=snapshot.evidence_decision,

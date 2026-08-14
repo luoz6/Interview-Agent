@@ -355,6 +355,32 @@ function EvaluationContent({ artifacts }) {
                   label="F1"
                   value={formatMetric("rate", noEvidence.f1)}
                 />
+                <IdentityValue
+                  label="错误拒答案例"
+                  value={
+                    noEvidence.false_abstention_case_ids?.join(" · ") || "无"
+                  }
+                />
+                <IdentityValue
+                  label="错误取证案例"
+                  value={
+                    noEvidence.false_evidence_case_ids?.join(" · ") || "无"
+                  }
+                />
+                <IdentityValue
+                  label="正确拒答案例"
+                  value={
+                    noEvidence.correct_abstention_case_ids?.join(" · ") || "无"
+                  }
+                />
+                <IdentityValue
+                  label="原因代码分布"
+                  value={
+                    Object.entries(noEvidence.reason_code_breakdown || {})
+                      .map(([code, count]) => `${code} × ${count}`)
+                      .join(" · ") || "未记录"
+                  }
+                />
               </dl>
             </>
           ) : (

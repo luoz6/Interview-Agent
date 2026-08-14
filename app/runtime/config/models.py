@@ -98,7 +98,7 @@ class KnowledgeRuntimeSettings:
     retrieval_engine_version: str = "hybrid-v2"
     fusion_version: str = "weighted-rrf-v1"
     reranker_version: str = "deterministic-v1"
-    evidence_gate_version: str = "retrieval-gate-v1"
+    evidence_gate_version: str = "retrieval-gate-v2"
     taxonomy_version: str = "pilot-v1"
 
     def safe_summary(self) -> dict[str, object]:

@@ -41,6 +41,7 @@ ABLATION_CHOICES = (
     "lexical-only",
     "unweighted-rrf",
     "weighted-rrf",
+    "query-aware-weighted-rrf",
     "rank-normalized-score",
 )
 
@@ -232,6 +233,13 @@ def _profile(
             "semantic_weight": 1.0,
             "lexical_weight": 1.2,
         },
+        "query-aware-weighted-rrf": {
+            "semantic_enabled": True,
+            "lexical_enabled": True,
+            "semantic_weight": 1.0,
+            "lexical_weight": 1.0,
+            "query_aware_fusion": True,
+        },
         "rank-normalized-score": {
             "semantic_enabled": True,
             "lexical_enabled": True,
@@ -254,6 +262,7 @@ def _profile(
         "rrf_k": 60,
         "semantic_weight": 1.0,
         "lexical_weight": 1.0,
+        "query_aware_fusion": False,
         "semantic_timeout_ms": 1500,
         "lexical_timeout_ms": 500,
         "rerank_timeout_ms": 1500,
@@ -279,15 +288,25 @@ def _validate_ablation_profile(profile, ablation: str) -> None:
     if ablation == "unweighted-rrf" and (
         profile.semantic_weight != profile.lexical_weight
         or profile.fusion_strategy != "weighted_rrf"
+        or profile.query_aware_fusion
     ):
         raise ValueError("unweighted RRF requires equal weights and RRF strategy")
     if ablation == "weighted-rrf" and (
         profile.semantic_weight == profile.lexical_weight
         or profile.fusion_strategy != "weighted_rrf"
+        or profile.query_aware_fusion
     ):
         raise ValueError("weighted RRF requires unequal weights and RRF strategy")
+    if ablation == "query-aware-weighted-rrf" and (
+        not profile.query_aware_fusion
+        or profile.fusion_strategy != "weighted_rrf"
+    ):
+        raise ValueError(
+            "query-aware weighted RRF requires dynamic fusion and RRF strategy"
+        )
     if ablation == "rank-normalized-score" and (
         profile.fusion_strategy != "rank_normalized_score"
+        or profile.query_aware_fusion
     ):
         raise ValueError("rank-normalized ablation requires matching strategy")
 

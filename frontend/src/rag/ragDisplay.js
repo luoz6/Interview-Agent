@@ -61,6 +61,9 @@ const statusLabels = {
   secondary_cn: "中文二手来源",
   official: "官方资料",
   internal: "内部资料",
+  lexical_dominant: "词法优先",
+  semantic_dominant: "语义优先",
+  balanced: "均衡融合",
 };
 
 const fieldLabels = {
@@ -86,6 +89,14 @@ const fieldLabels = {
   fusion_strategy: "融合策略",
   semantic_weight: "语义权重",
   lexical_weight: "词法权重",
+  query_aware_fusion: "按问题动态融合",
+  query_signal: "问题信号",
+  strategy: "融合算法",
+  semantic_candidate_count: "语义候选数",
+  lexical_candidate_count: "词法候选数",
+  fused_candidate_count: "融合候选数",
+  candidate_limit: "候选上限",
+  rrf_k: "RRF 常数 K",
   semantic_candidate_limit: "语义候选上限",
   lexical_candidate_limit: "词法候选上限",
   fusion_candidate_limit: "融合候选上限",

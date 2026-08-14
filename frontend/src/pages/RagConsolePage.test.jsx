@@ -35,6 +35,18 @@ const inspection = {
   query_facts: { query_sha256: "a".repeat(64) },
   resolved_profile: {},
   routing_summary: {},
+  fusion_summary: {
+    strategy: "weighted_rrf",
+    semantic_candidate_count: 8,
+    lexical_candidate_count: 5,
+    fused_candidate_count: 10,
+    candidate_limit: 12,
+    rrf_k: 60,
+    semantic_weight: 0.8,
+    lexical_weight: 1.4,
+    query_signal: "lexical_dominant",
+    reason_codes: ["exact_alias_match"],
+  },
   channel_summary: [],
   candidates: [{
     candidate_id: "redis-lock", title: "Redis lock", safe_excerpt: "Safe summary",
@@ -193,6 +205,9 @@ describe("RAG console diagnostics", () => {
     expect(screen.getByText("failure mode")).toBeInTheDocument();
     expect(screen.getByText("signal_gap")).toBeInTheDocument();
     expect(screen.getByText("gate-v2")).toBeInTheDocument();
+    expect(screen.getByText("本次问题如何分配检索权重")).toBeInTheDocument();
+    expect(screen.getByText("词法优先")).toBeInTheDocument();
+    expect(screen.getByText("exact_alias_match")).toBeInTheDocument();
   });
 
   it("cancels a live inspection without persisting the query", async () => {
@@ -329,7 +344,7 @@ describe("RAG console diagnostics", () => {
         { case_id: "alias-case", case_type: "alias_only", evaluation_group: "alias", primary_relevant_chunk_ids: ["redis-lock"], accepted_related_chunk_ids: [], excluded_chunk_ids: [], expected_no_evidence: false, availability: "available", selected_evidence_ids: ["redis-lock"], declared_no_evidence: false, latency_ms: 4, reason_codes: [], diagnostic_fidelity: "partial_historical", diagnostic_snapshot_ref: null },
         { case_id: "negative-case", case_type: "hard_negative", evaluation_group: "negative", primary_relevant_chunk_ids: [], accepted_related_chunk_ids: [], excluded_chunk_ids: ["redis-lock"], expected_no_evidence: true, availability: "available", selected_evidence_ids: ["redis-lock"], declared_no_evidence: false, latency_ms: 5, reason_codes: ["false_evidence"], diagnostic_fidelity: "partial_historical", diagnostic_snapshot_ref: null },
       ] },
-      [`/api/rag/evaluations/${tuning.artifact_sha256}/no-evidence`]: { correct_evidence: 67, false_abstention: 0, false_evidence: 8, correct_abstention: 0, total_case_count: 75, expected_no_evidence_count: 8, abstention_count: 0, no_evidence_prevalence: 8 / 75, abstention_rate: 0, precision: 0, recall: 0, f1: 0 },
+      [`/api/rag/evaluations/${tuning.artifact_sha256}/no-evidence`]: { correct_evidence: 67, false_abstention: 0, false_evidence: 8, correct_abstention: 0, total_case_count: 75, expected_no_evidence_count: 8, abstention_count: 0, no_evidence_prevalence: 8 / 75, abstention_rate: 0, precision: 0, recall: 0, f1: 0, false_abstention_case_ids: [], false_evidence_case_ids: ["negative-case"], correct_abstention_case_ids: [], reason_code_breakdown: { exact_lexical_evidence_missing: 8 } },
     });
     window.history.replaceState({}, "", "/rag/evaluation");
     render(<RagEvaluationPage />);
@@ -341,11 +356,13 @@ describe("RAG console diagnostics", () => {
     expect(await screen.findByText("诊断比较")).toBeInTheDocument();
     expect(screen.queryByText(/发布证据|证据资格|人工标注人数/)).not.toBeInTheDocument();
     expect(screen.getByText("错误返回证据").nextElementSibling).toHaveTextContent("8");
+    expect(screen.getByText("错误取证案例").nextElementSibling).toHaveTextContent("negative-case");
+    expect(screen.getByText("原因代码分布").nextElementSibling).toHaveTextContent("exact_lexical_evidence_missing × 8");
     expect(screen.getAllByText(/alias_only/).length).toBeGreaterThan(1);
     expect(await screen.findAllByText("缺失阶段不会被重建。")).not.toHaveLength(0);
 
     await user.selectOptions(screen.getByLabelText("案例类型"), "hard_negative");
-    expect(screen.getByText("negative-case")).toBeInTheDocument();
+    expect(screen.getAllByText("negative-case").length).toBeGreaterThan(0);
     expect(screen.queryByText("alias-case")).not.toBeInTheDocument();
     const replay = screen.getByRole("link", { name: "在检索诊断中打开冻结回放" });
     expect(replay.getAttribute("href")).not.toContain("query");

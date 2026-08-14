@@ -299,7 +299,7 @@ def _load_knowledge_runtime_settings() -> KnowledgeRuntimeSettings:
             "KNOWLEDGE_RERANKER_VERSION", "deterministic-v1"
         ).strip(),
         "evidence_gate_version": env.get(
-            "KNOWLEDGE_EVIDENCE_GATE_VERSION", "retrieval-gate-v1"
+            "KNOWLEDGE_EVIDENCE_GATE_VERSION", "retrieval-gate-v2"
         ).strip(),
         "taxonomy_version": env.get(
             "KNOWLEDGE_TAXONOMY_VERSION", "pilot-v1"

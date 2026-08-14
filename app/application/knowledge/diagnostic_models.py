@@ -145,6 +145,7 @@ class SafeRetrievalInspectionResponse(SafeModel):
     query_facts: dict[str, str | int]
     resolved_profile: dict
     routing_summary: dict
+    fusion_summary: dict
     channel_summary: tuple[dict, ...]
     candidates: tuple[SafeRetrievalCandidate, ...]
     evidence_decision: EvidenceDecision | None
@@ -266,6 +267,10 @@ class NoEvidenceConfusionSummary(SafeModel):
     precision: float = Field(ge=0, le=1)
     recall: float = Field(ge=0, le=1)
     f1: float = Field(ge=0, le=1)
+    false_abstention_case_ids: tuple[str, ...] = ()
+    false_evidence_case_ids: tuple[str, ...] = ()
+    correct_abstention_case_ids: tuple[str, ...] = ()
+    reason_code_breakdown: dict[str, int] = Field(default_factory=dict)
 
 
 class EvalCaseSummary(SafeModel):

@@ -295,11 +295,13 @@ def test_paired_artifact_requires_identical_dataset_corpus_split_and_cases():
 
 def test_eval_ignores_unselected_raw_candidates_and_degraded_empty_is_not_true_empty():
     class RawOnlyEngine(Engine):
+        availability = RetrievalAvailability.DEGRADED
+
         def retrieve(self, request, profile):
             chunk = _chunk()
             return RetrievalResult(
                 request_id=request.request_id,
-                availability=RetrievalAvailability.DEGRADED,
+                    availability=self.availability,
                 candidates=[
                     RetrievalCandidate(
                         chunk=chunk,
@@ -341,6 +343,20 @@ def test_eval_ignores_unselected_raw_candidates_and_degraded_empty_is_not_true_e
 
     assert artifact.cases[0].candidates == ()
     assert artifact.cases[0].declared_no_evidence is False
+
+    RawOnlyEngine.availability = RetrievalAvailability.AVAILABLE
+    abstained = evaluate_knowledge_engine_v3(
+        _dataset(),
+        RawOnlyEngine(),
+        Repository(),
+        split="holdout",
+        profile=PROFILE,
+        identity=identity,
+        created_at=NOW,
+    )
+
+    assert abstained.cases[0].candidates == ()
+    assert abstained.cases[0].declared_no_evidence is True
     assert artifact.metrics.recall_at_5 == 0.0
 
 

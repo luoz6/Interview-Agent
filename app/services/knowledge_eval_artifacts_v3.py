@@ -141,6 +141,7 @@ class RetrievalDiagnosticSnapshotV1(BaseModel):
     profile_id: str = Field(min_length=1)
     profile_version: str = Field(min_length=1)
     component_versions: dict[str, str]
+    fusion_summary: dict | None = None
     candidates: tuple[RetrievalDiagnosticCandidateV1, ...]
     selected_evidence_ids: tuple[str, ...] = ()
     evidence_decision: EvidenceDecision | None = None
@@ -155,6 +156,8 @@ class RetrievalDiagnosticSnapshotV1(BaseModel):
         if len({item.chunk_id for item in self.candidates}) != len(self.candidates):
             raise ValueError("snapshot candidates must be unique")
         payload = self.model_dump(mode="json", exclude={"snapshot_sha256"})
+        if self.fusion_summary is None:
+            payload.pop("fusion_summary", None)
         if canonical_sha256(payload) != self.snapshot_sha256:
             raise ValueError("snapshot SHA-256 mismatch")
         return self
@@ -469,6 +472,11 @@ def build_retrieval_diagnostic_snapshot_v1(
         "profile_id": result.trace.profile_id,
         "profile_version": result.profile_version,
         "component_versions": versions,
+        "fusion_summary": (
+            result.trace.fusion_summary.model_dump(mode="json")
+            if result.trace.fusion_summary is not None
+            else {}
+        ),
         "candidates": candidates,
         "selected_evidence_ids": tuple(item.chunk_id for item in result.selected_evidence),
         "evidence_decision": result.evidence_decision,
@@ -590,7 +598,7 @@ def _observe_case(case_id, result, repository, *, engine_version):
     semantic_ids = channel_hits.get("semantic", [])
     lexical_ids = channel_hits.get("lexical", [])
     declared_empty = (
-        not ranked
+        not selected_ids
         and result.availability == RetrievalAvailability.AVAILABLE
     )
     observation = KnowledgeRetrievalObservationV3(
@@ -634,7 +642,18 @@ def _observe_case(case_id, result, repository, *, engine_version):
         lexical_hit_ids=tuple(lexical_ids),
         declared_no_evidence=declared_empty,
         latency_ms=result.latency_ms,
-        reason_codes=tuple(result.degraded_reasons),
+        reason_codes=tuple(
+            dict.fromkeys(
+                (
+                    *result.degraded_reasons,
+                    *(
+                        result.evidence_decision.reason_codes
+                        if result.evidence_decision is not None
+                        else ()
+                    ),
+                )
+            )
+        ),
     )
 
 

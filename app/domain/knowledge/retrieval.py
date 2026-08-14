@@ -122,6 +122,7 @@ class ResolvedRetrievalProfile(BaseModel):
     rrf_k: int = Field(default=60, ge=1, le=1000)
     semantic_weight: float = Field(default=1.0, gt=0)
     lexical_weight: float = Field(default=1.0, gt=0)
+    query_aware_fusion: bool = False
     semantic_timeout_ms: int = Field(default=1500, ge=1)
     lexical_timeout_ms: int = Field(default=500, ge=1)
     rerank_timeout_ms: int = Field(default=1500, ge=1)
@@ -215,6 +216,12 @@ class RetrievalFusionSummary(BaseModel):
     rrf_k: int = Field(ge=1)
     semantic_weight: float = Field(gt=0)
     lexical_weight: float = Field(gt=0)
+    query_signal: Literal[
+        "lexical_dominant",
+        "semantic_dominant",
+        "balanced",
+    ] = "balanced"
+    reason_codes: tuple[str, ...] = ()
 
 
 class RetrievalRerankSummary(BaseModel):

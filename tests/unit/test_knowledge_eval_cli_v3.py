@@ -70,12 +70,18 @@ def test_ablation_profiles_are_distinct_and_custom_profiles_are_validated(tmp_pa
     lexical = _profile("hybrid-v2", ablation="lexical-only")
     unweighted = _profile("hybrid-v2", ablation="unweighted-rrf")
     weighted = _profile("hybrid-v2", ablation="weighted-rrf")
+    query_aware = _profile(
+        "hybrid-v2",
+        ablation="query-aware-weighted-rrf",
+    )
     normalized = _profile("hybrid-v2", ablation="rank-normalized-score")
 
     assert semantic.semantic_enabled and not semantic.lexical_enabled
     assert lexical.lexical_enabled and not lexical.semantic_enabled
     assert unweighted.semantic_weight == unweighted.lexical_weight
     assert weighted.semantic_weight != weighted.lexical_weight
+    assert query_aware.query_aware_fusion is True
+    assert query_aware.semantic_weight == query_aware.lexical_weight
     assert normalized.fusion_strategy == "rank_normalized_score"
     assert len(
         {
@@ -83,9 +89,10 @@ def test_ablation_profiles_are_distinct_and_custom_profiles_are_validated(tmp_pa
             lexical.profile_id,
             unweighted.profile_id,
             weighted.profile_id,
+            query_aware.profile_id,
             normalized.profile_id,
         }
-    ) == 5
+    ) == 6
 
     invalid = tmp_path / "invalid-profile.json"
     invalid.write_text(weighted.model_dump_json(), encoding="utf-8")
