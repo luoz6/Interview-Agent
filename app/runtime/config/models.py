@@ -72,9 +72,6 @@ class KnowledgeProfileBudget:
 class KnowledgeRuntimeSettings:
     minimum_score: float
     engine: str = "legacy"
-    hybrid_rollout_percent: int = 0
-    assignment_version: str = "knowledge-assignment-v1"
-    shadow_enabled: bool = False
     semantic_enabled: bool = True
     lexical_enabled: bool = True
     remote_reranker_enabled: bool = False
@@ -107,9 +104,6 @@ class KnowledgeRuntimeSettings:
     def safe_summary(self) -> dict[str, object]:
         return {
             "engine": self.engine,
-            "hybrid_rollout_percent": self.hybrid_rollout_percent,
-            "assignment_version": self.assignment_version,
-            "shadow_enabled": self.shadow_enabled,
             "semantic_enabled": self.semantic_enabled,
             "lexical_enabled": self.lexical_enabled,
             "remote_reranker_enabled": self.remote_reranker_enabled,

@@ -186,7 +186,6 @@ def build_runtime_knowledge_repository(
         legacy,
         hybrid,
         configured_engine=settings.engine,
-        shadow_enabled=settings.shadow_enabled,
         trace_sink=KnowledgeTraceRecorder.from_env(),
     )
     return RuntimeKnowledgeRepository(resolved, coordinator, settings)

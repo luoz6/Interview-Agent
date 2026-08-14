@@ -588,6 +588,79 @@
   list-style: none;
 }
 
+.rag-overview-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: var(--start-rule-thin) solid var(--rag-line);
+  background: var(--rag-canvas);
+}
+
+.rag-overview-action > div {
+  display: grid;
+  gap: .25rem;
+}
+
+.rag-overview-action strong {
+  color: var(--rag-ink);
+  font-size: var(--start-text-sm);
+}
+
+.rag-overview-action span {
+  color: var(--rag-muted);
+  font-size: var(--start-text-xs);
+  line-height: 1.5;
+}
+
+.rag-finding-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rag-finding-list li {
+  display: grid;
+  grid-template-columns: 2.15rem minmax(0, 1fr);
+  gap: .75rem;
+  align-items: start;
+  padding: .9rem 1rem;
+  border-top: var(--start-rule-thin) solid var(--rag-line);
+}
+
+.rag-finding-list span {
+  color: var(--rag-accent-strong);
+  font-family: var(--start-font-mono);
+  font-size: .6875rem;
+  font-weight: 700;
+}
+
+.rag-finding-list p {
+  margin: 0;
+  color: var(--rag-ink-soft);
+  font-size: var(--start-text-xs);
+  line-height: 1.6;
+}
+
+.rag-boundary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rag-boundary-grid p {
+  margin: 0;
+  padding: 1rem;
+  border-right: var(--start-rule-thin) solid var(--rag-line);
+  color: var(--rag-ink-soft);
+  font-size: var(--start-text-xs);
+  line-height: 1.6;
+}
+
+.rag-boundary-grid p:last-child {
+  border-right: 0;
+}
+
 .rag-blockers li {
   display: grid;
   gap: .45rem;
@@ -1954,6 +2027,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .rag-boundary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rag-boundary-grid p {
+    border-right: 0;
+    border-bottom: var(--start-rule-thin) solid var(--rag-line);
+  }
+
+  .rag-boundary-grid p:last-child {
+    border-bottom: 0;
+  }
+
   .rag-compare-sides {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1982,6 +2068,11 @@
   .rag-query-bar > button,
   .rag-trace-lookup > button {
     width: 100%;
+  }
+
+  .rag-overview-action {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .rag-form-grid-three,

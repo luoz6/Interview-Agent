@@ -547,11 +547,15 @@ describe("RAG console diagnostics", () => {
     expect(document.body.textContent).not.toContain(privateBody);
   });
 
-  it("renders the backend promotion decision without deriving it from capabilities", async () => {
-    routeFetch({ "/api/rag/overview": { schema_version: "rag-overview-v1", generated_at: "2026-08-13T00:00:00Z", formal_engine: "legacy", candidate_engine: "hybrid-v2", hybrid_rollout_percent: 0, shadow_enabled: false, remote_reranker_enabled: false, evidence_gate_enabled: true, corpus: { version: "v4", manifest_sha256: "a".repeat(64), chunk_count: 31 }, embedding: { provider: "test", model: "test", revision: "v1", dimension: 3 }, profiles: [], component_versions: {}, capabilities: { diagnostic_ui: true, live_inspector: true, eval_artifacts: true, authored_eval_queries: false, access_mode: "loopback" }, release_evidence: { annotation_status: "machine_preannotation", human_annotator_count: 0, independent_evidence_eligible: false, holdout_status: "historical_diagnostic", formal_sealed_holdout_available: false }, promotion: { allowed: false, decision_version: "knowledge-promotion-decision-v1", evaluated_at: "2026-08-13T00:00:00Z", artifact_sha256: null, blockers: [{ code: "HUMAN_TUNING_GT_MISSING", severity: "hard_stop", blocks: ["production"], observed_evidence: "No human tuning GT.", required_action: "Complete annotation.", last_evaluated_at: "2026-08-13T00:00:00Z" }] } } });
+  it("positions the overview as a technical showcase with honest experiment findings", async () => {
+    routeFetch({ "/api/rag/overview": { schema_version: "rag-overview-v2", generated_at: "2026-08-14T00:00:00Z", project_scope: "learning_project_technical_showcase", current_engine: "legacy", comparison_engines: ["legacy", "hybrid-v2"], remote_reranker_enabled: false, evidence_gate_enabled: true, corpus: { version: "v4", manifest_sha256: "a".repeat(64), chunk_count: 31 }, embedding: { provider: "test", model: "test", revision: "v1", dimension: 3 }, profiles: [], component_versions: { fusion: "weighted-rrf-v1" }, capabilities: { diagnostic_ui: true, live_inspector: true, eval_artifacts: true, authored_eval_queries: false, corpus_write: false, access_mode: "loopback" }, technologies: ["Semantic Retrieval", "Lexical Retrieval", "Weighted RRF Fusion"], diagnostic_dataset: { label: "Demo Diagnostic Dataset", curation: "Curated / Machine-assisted", tuning_case_count: 75, diagnostic_case_count: 25, human_annotator_count: 0, production_claim: false }, experiment_findings: ["现有机器辅助诊断制品不能证明 Hybrid 已整体优于 Legacy。", "No-evidence 仍是当前最明确的算法缺口。"], demo_boundaries: ["仅用于本地学习项目与技术展示。", "不包含生产 Shadow、Canary、Promotion 或 Legacy 退役流程。"] } });
     render(<RagOverviewPage />);
-    expect(await screen.findByText("暂不允许发布")).toBeInTheDocument();
-    expect(screen.getByText("HUMAN_TUNING_GT_MISSING")).toBeInTheDocument();
-    expect(screen.getByText(/代码已合并，不代表候选引擎已晋级/)).toBeInTheDocument();
+    expect(await screen.findByText("学习项目 / 技术展示")).toBeInTheDocument();
+    expect(screen.getByText("Demo Diagnostic Dataset")).toBeInTheDocument();
+    expect(screen.getByText("Curated / Machine-assisted")).toBeInTheDocument();
+    expect(screen.getByText(/不能证明 Hybrid 已整体优于 Legacy/)).toBeInTheDocument();
+    expect(screen.getByText(/不包含生产 Shadow、Canary、Promotion/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "打开检索诊断" })).toHaveAttribute("href", "/rag/retrieval");
+    expect(screen.queryByText(/允许发布|暂不允许发布/)).not.toBeInTheDocument();
   });
 });

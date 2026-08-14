@@ -67,6 +67,12 @@ const fieldLabels = {
   live_inspector: "实时检索诊断",
   eval_artifacts: "评测制品",
   authored_eval_queries: "评测原始问题",
+  corpus_write: "语料写入",
+  label: "数据集名称",
+  curation: "整理方式",
+  tuning_case_count: "调优案例数",
+  diagnostic_case_count: "诊断案例数",
+  production_claim: "生产结论",
   annotation_status: "标注状态",
   human_annotator_count: "人工标注人数",
   independent_evidence_eligible: "独立证据资格",
@@ -146,40 +152,6 @@ const caseTypeLabels = {
   no_evidence: "无证据",
 };
 
-const promotionBlockers = {
-  HUMAN_TUNING_GT_MISSING: {
-    observed: "人工标注人数为 0，裁决尚未完成。",
-    action: "完成独立的 tuning 人工标注与裁决。",
-  },
-  NO_EVIDENCE_GATE_FAILED: {
-    observed: "机器标注 tuning 集的无证据 F1 仍低于发布门槛。",
-    action: "校准并验证证据充分性策略。",
-  },
-  HYBRID_NOT_BETTER_THAN_LEGACY: {
-    observed: "冻结的 weighted-RRF tuning 评测制品尚未整体超过 Legacy。",
-    action: "基于完成裁决的 tuning Ground Truth 重新评测后再考虑晋级。",
-  },
-  SEALED_HOLDOUT_MISSING: {
-    observed: "当前只有曾被查看的历史机器留出集。",
-    action: "冻结 tuning 后，执行受治理的密封 holdout 评测。",
-  },
-  BUSINESS_BLIND_AB_PENDING: {
-    observed: "尚未登记已完成的 Reviewer 与 Follow-up 盲测 A/B 制品。",
-    action: "完成 Reviewer 与 Follow-up 盲测 A/B。",
-  },
-  SHADOW_NOT_AUTHORIZED: {
-    observed: "Shadow 当前关闭，且尚未登记授权记录。",
-    action: "所有前置门禁通过后，再取得明确的 Shadow 授权。",
-  },
-};
-
-const promotionTargets = {
-  candidate_activation: "候选引擎激活",
-  shadow: "Shadow 影子流量",
-  canary: "Canary 灰度",
-  production: "正式环境",
-};
-
 export function displayStatus(value) {
   return statusLabels[value] || value || "不可用";
 }
@@ -190,15 +162,6 @@ export function displayFieldLabel(value) {
 
 export function displayCaseType(value) {
   return caseTypeLabels[value] ? `${caseTypeLabels[value]}（${value}）` : value;
-}
-
-export function displayPromotionBlocker(blocker) {
-  const translated = promotionBlockers[blocker.code];
-  return {
-    observed: translated?.observed || blocker.observed_evidence,
-    action: translated?.action || blocker.required_action,
-    targets: blocker.blocks.map((value) => promotionTargets[value] || value),
-  };
 }
 
 export function shortHash(value = "") {

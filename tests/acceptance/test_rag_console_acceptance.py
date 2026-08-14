@@ -149,7 +149,7 @@ def _client(service):
     return TestClient(app, client=("127.0.0.1", 51000))
 
 
-def test_default_off_and_runtime_release_invariants_remain_legacy():
+def test_default_off_and_learning_demo_runtime_remains_explicit_legacy():
     client = TestClient(app, client=("127.0.0.1", 51000))
     assert client.get("/api/rag/overview").status_code == 404
     assert client.post(
@@ -164,11 +164,13 @@ def test_default_off_and_runtime_release_invariants_remain_legacy():
 
     assert overview.status_code == 200
     body = overview.json()
-    assert body["formal_engine"] == "legacy"
-    assert body["hybrid_rollout_percent"] == 0
-    assert body["shadow_enabled"] is False
+    assert body["current_engine"] == "legacy"
+    assert body["project_scope"] == "learning_project_technical_showcase"
+    assert body["comparison_engines"] == ["legacy", "hybrid-v2"]
     assert body["remote_reranker_enabled"] is False
-    assert body["promotion"]["allowed"] is False
+    assert body["diagnostic_dataset"]["label"] == "Demo Diagnostic Dataset"
+    assert body["diagnostic_dataset"]["production_claim"] is False
+    assert not {"promotion", "shadow_enabled", "hybrid_rollout_percent"}.intersection(body)
 
 
 def test_live_inspection_is_synchronous_safe_and_uses_fixed_local_repository():

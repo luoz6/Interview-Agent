@@ -39,9 +39,6 @@ from app.application.knowledge.retrieval_profiles import (
     compatibility_profile,
     resolve_runtime_profile,
 )
-from app.application.knowledge.promotion_service import (
-    current_knowledge_promotion_decision,
-)
 from app.domain.knowledge.retrieval import (
     RetrievalHardConstraints,
     RetrievalRequest,
@@ -353,13 +350,20 @@ class RagDiagnosticsService:
                 _intent("report_repair"),
             )
         )
-        evaluated_at = _utc_now()
+        artifacts = self._catalog.list().artifacts
+        tuning_case_count = max(
+            (item.case_count for item in artifacts if item.split == "tuning"),
+            default=0,
+        )
+        diagnostic_case_count = max(
+            (item.case_count for item in artifacts if item.split == "holdout"),
+            default=0,
+        )
         return RagOverviewResponse(
             generated_at=_utc_now(),
-            formal_engine=settings.engine,
-            candidate_engine=settings.retrieval_engine_version,
-            hybrid_rollout_percent=settings.hybrid_rollout_percent,
-            shadow_enabled=settings.shadow_enabled,
+            project_scope="learning_project_technical_showcase",
+            current_engine=settings.engine,
+            comparison_engines=("legacy", "hybrid-v2"),
             remote_reranker_enabled=settings.remote_reranker_enabled,
             evidence_gate_enabled=settings.evidence_gate_enabled,
             corpus={
@@ -383,15 +387,33 @@ class RagDiagnosticsService:
                 authored_eval_queries=console.authored_eval_query_access_enabled,
                 corpus_write=console.corpus_write_enabled,
             ),
-            release_evidence={
-                "annotation_status": "machine_preannotation",
+            technologies=(
+                "Semantic Retrieval",
+                "Lexical Retrieval",
+                "Weighted RRF Fusion",
+                "Deterministic Rerank",
+                "Evidence Gate",
+                "Evidence Binding / Replay",
+                "Versioned Corpus",
+                "Privacy-safe Diagnostics",
+            ),
+            diagnostic_dataset={
+                "label": "Demo Diagnostic Dataset",
+                "curation": "Curated / Machine-assisted",
+                "tuning_case_count": tuning_case_count,
+                "diagnostic_case_count": diagnostic_case_count,
                 "human_annotator_count": 0,
-                "independent_evidence_eligible": False,
-                "holdout_status": "historical_diagnostic",
-                "formal_sealed_holdout_available": False,
+                "production_claim": False,
             },
-            promotion=current_knowledge_promotion_decision(
-                evaluated_at=evaluated_at
+            experiment_findings=(
+                "现有机器辅助诊断制品不能证明 Hybrid 已整体优于 Legacy。",
+                "No-evidence 仍是当前最明确的算法缺口。",
+                "请在检索诊断中按候选与流水线阶段解释差异。",
+            ),
+            demo_boundaries=(
+                "仅用于本地学习项目与技术展示。",
+                "不包含生产 Shadow、Canary、Promotion 或 Legacy 退役流程。",
+                "实时问题不写入 URL，安全响应不回显问题原文。",
             ),
         )
 

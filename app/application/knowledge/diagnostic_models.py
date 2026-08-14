@@ -22,28 +22,12 @@ class RagCapabilitySummary(SafeModel):
     access_mode: Literal["loopback"] = "loopback"
 
 
-class PromotionBlocker(SafeModel):
-    code: str
-    severity: Literal["hard_stop", "warning"]
-    blocks: tuple[str, ...]
-    observed_evidence: str
-    required_action: str
-    last_evaluated_at: datetime
-
-
-class PromotionDecision(SafeModel):
-    allowed: bool = False
-    decision_version: str = "knowledge-promotion-decision-v1"
-    blockers: tuple[PromotionBlocker, ...]
-
-
 class RagOverviewResponse(SafeModel):
-    schema_version: str = "rag-overview-v1"
+    schema_version: str = "rag-overview-v2"
     generated_at: datetime
-    formal_engine: str
-    candidate_engine: str
-    hybrid_rollout_percent: int = Field(ge=0, le=100)
-    shadow_enabled: bool
+    project_scope: Literal["learning_project_technical_showcase"]
+    current_engine: Literal["legacy", "hybrid-v2"]
+    comparison_engines: tuple[Literal["legacy", "hybrid-v2"], ...]
     remote_reranker_enabled: bool
     evidence_gate_enabled: bool
     corpus: dict[str, str | int | bool]
@@ -51,8 +35,10 @@ class RagOverviewResponse(SafeModel):
     profiles: tuple[dict[str, str | int | float | bool], ...]
     component_versions: dict[str, str]
     capabilities: RagCapabilitySummary
-    promotion: PromotionDecision
-    release_evidence: dict[str, str | int | bool]
+    technologies: tuple[str, ...]
+    diagnostic_dataset: dict[str, str | int | bool]
+    experiment_findings: tuple[str, ...]
+    demo_boundaries: tuple[str, ...]
 
 
 class RetrievalInspectionRequest(SafeModel):

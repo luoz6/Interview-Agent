@@ -12,12 +12,11 @@ from app.application.knowledge.diagnostics_service import DiagnosticCapacityExha
 class FakeDiagnostics:
     def overview(self):
         return {
-            "schema_version": "rag-overview-v1",
+            "schema_version": "rag-overview-v2",
             "generated_at": "2026-08-13T00:00:00Z",
-            "formal_engine": "legacy",
-            "candidate_engine": "hybrid-v2",
-            "hybrid_rollout_percent": 0,
-            "shadow_enabled": False,
+            "project_scope": "learning_project_technical_showcase",
+            "current_engine": "legacy",
+            "comparison_engines": ["legacy", "hybrid-v2"],
             "remote_reranker_enabled": False,
             "evidence_gate_enabled": True,
             "corpus": {"version": "v1", "manifest_sha256": "a" * 64, "chunk_count": 1},
@@ -31,18 +30,17 @@ class FakeDiagnostics:
                 "authored_eval_queries": False,
                 "access_mode": "loopback",
             },
-            "release_evidence": {
-                "annotation_status": "machine_preannotation",
+            "technologies": ["Semantic Retrieval", "Lexical Retrieval"],
+            "diagnostic_dataset": {
+                "label": "Demo Diagnostic Dataset",
+                "curation": "Curated / Machine-assisted",
+                "tuning_case_count": 75,
+                "diagnostic_case_count": 25,
                 "human_annotator_count": 0,
-                "independent_evidence_eligible": False,
-                "holdout_status": "historical_diagnostic",
-                "formal_sealed_holdout_available": False,
+                "production_claim": False,
             },
-            "promotion": {
-                "allowed": False,
-                "decision_version": "knowledge-promotion-decision-v1",
-                "blockers": [],
-            },
+            "experiment_findings": ["Hybrid 尚未被证明整体优于 Legacy。"],
+            "demo_boundaries": ["仅用于本地技术展示。"],
         }
 
     def evidence_trace(self, trace_id):
@@ -208,7 +206,7 @@ def test_loopback_capability_allows_safe_overview_but_not_live_inspection():
             client = TestClient(app, client=("127.0.0.1", 50000))
             response = client.get("/api/rag/overview")
             assert response.status_code == 200
-            assert response.json()["formal_engine"] == "legacy"
+            assert response.json()["current_engine"] == "legacy"
             assert client.post(
                 "/api/rag/inspections", json={"query_text": "Redis"}
             ).status_code == 404

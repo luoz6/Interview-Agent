@@ -10,6 +10,7 @@ from app.domain.knowledge.evidence_gate import (
     RetrievalEvidenceGate,
 )
 from app.domain.knowledge.engine import (
+    KnowledgeEngine,
     LegacyKnowledgeEngineAssignment,
     RuntimeEngineExecution,
     RuntimeFallbackReason,
@@ -39,36 +40,9 @@ from app.domain.knowledge.retrieval import (
     RetrievalRequest,
     RetrievalResult,
 )
-from app.domain.knowledge.retirement import (
-    DataDrivenEnhancementEvidence,
-    LegacyRetirementDecision,
-    LegacyRetirementEvidence,
-    LegacyRetirementStatus,
-    eligible_data_driven_enhancements,
-    evaluate_legacy_retirement,
-)
-from app.domain.knowledge.rollout import (
-    KnowledgeCanaryProgressDecision,
-    KnowledgeCanaryStageEvidence,
-    KnowledgeRollbackDrillDecision,
-    KnowledgeRollbackDrillEvidence,
-    KnowledgeCanaryDecision,
-    KnowledgeCanaryObservation,
-    KnowledgeCanaryRunbook,
-    KnowledgeEngine,
-    KnowledgeEngineAssignment,
-    KnowledgeRollbackDecision,
-    assign_knowledge_engine,
-    evaluate_knowledge_canary,
-    evaluate_knowledge_canary_progression,
-    evaluate_knowledge_rollback_drill,
-    plan_knowledge_rollback,
-    resolve_knowledge_engine_assignment,
-)
-from app.domain.knowledge.shadow import (
-    RetrievalShadowComparison,
-    RetrievalShadowFailure,
-)
+
+# Historical import compatibility only; new runtime paths use RuntimeEngineExecution.
+KnowledgeEngineAssignment = LegacyKnowledgeEngineAssignment
 
 __all__ = [
     "DEFAULT_SOURCE_TYPES",
@@ -79,23 +53,11 @@ __all__ = [
     "KnowledgeQuery",
     "KnowledgeReranker",
     "KnowledgeUnit",
-    "KnowledgeCanaryDecision",
-    "KnowledgeCanaryObservation",
-    "KnowledgeCanaryProgressDecision",
-    "KnowledgeCanaryRunbook",
-    "KnowledgeCanaryStageEvidence",
     "KnowledgeEngine",
     "KnowledgeEngineAssignment",
     "LegacyKnowledgeEngineAssignment",
     "RuntimeEngineExecution",
     "RuntimeFallbackReason",
-    "KnowledgeRollbackDecision",
-    "KnowledgeRollbackDrillDecision",
-    "KnowledgeRollbackDrillEvidence",
-    "DataDrivenEnhancementEvidence",
-    "LegacyRetirementDecision",
-    "LegacyRetirementEvidence",
-    "LegacyRetirementStatus",
     "ResolvedRetrievalProfile",
     "RetrievalAvailability",
     "RetrievalCandidate",
@@ -113,15 +75,5 @@ __all__ = [
     "extract_technical_terms",
     "analyze_answer_gap",
     "select_followup_brief",
-    "assign_knowledge_engine",
-    "evaluate_knowledge_canary",
-    "evaluate_knowledge_canary_progression",
-    "evaluate_knowledge_rollback_drill",
-    "eligible_data_driven_enhancements",
-    "evaluate_legacy_retirement",
-    "plan_knowledge_rollback",
-    "resolve_knowledge_engine_assignment",
-    "RetrievalShadowComparison",
-    "RetrievalShadowFailure",
     "weighted_reciprocal_rank_fusion",
 ]

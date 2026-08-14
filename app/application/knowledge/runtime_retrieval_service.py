@@ -14,22 +14,13 @@ from app.domain.knowledge.engine import (
     RuntimeEngineExecution,
     RuntimeFallbackReason,
 )
-from app.domain.knowledge.shadow import (
-    RetrievalShadowComparison,
-    RetrievalShadowFailure,
-)
 from app.ports.knowledge import RetrievalTraceSink
-from app.application.knowledge.shadow_service import RetrievalShadowService
-
-
-ShadowObservation = RetrievalShadowComparison | RetrievalShadowFailure
 
 
 @dataclass(frozen=True)
 class RuntimeRetrievalOutcome:
     result: RetrievalResult
     execution: RuntimeEngineExecution
-    shadow_observation: ShadowObservation | None = None
 
 
 class RuntimeKnowledgeRetrievalService:
@@ -41,15 +32,12 @@ class RuntimeKnowledgeRetrievalService:
         candidate_engine,
         *,
         configured_engine: KnowledgeEngine | str,
-        shadow_enabled: bool = False,
         trace_sink: RetrievalTraceSink | None = None,
     ) -> None:
         self._legacy = legacy_engine
         self._candidate = candidate_engine
         self._configured_engine = KnowledgeEngine(configured_engine)
-        self._shadow_enabled = shadow_enabled
         self._trace_sink = trace_sink
-        self._shadow = RetrievalShadowService(legacy_engine, candidate_engine)
 
     def close(self) -> None:
         close = getattr(self._candidate, "close", None)
@@ -78,25 +66,6 @@ class RuntimeKnowledgeRetrievalService:
         legacy_profile: ResolvedRetrievalProfile,
         candidate_profile: ResolvedRetrievalProfile,
     ) -> RuntimeRetrievalOutcome:
-        if self._shadow_enabled:
-            formal_result = self._legacy.retrieve(request, legacy_profile)
-            _, observation = self._shadow.compare_with_legacy(
-                request,
-                legacy_result=formal_result,
-                candidate_profile=candidate_profile,
-            )
-            outcome = RuntimeRetrievalOutcome(
-                result=formal_result,
-                execution=self._execution(
-                    requested=KnowledgeEngine.LEGACY,
-                    effective=KnowledgeEngine.LEGACY,
-                    result=formal_result,
-                ),
-                shadow_observation=observation,
-            )
-            self._record(outcome, request)
-            return outcome
-
         if self._configured_engine == KnowledgeEngine.HYBRID_V2:
             try:
                 result = self._candidate.retrieve(request, candidate_profile)
@@ -192,8 +161,6 @@ class RuntimeKnowledgeRetrievalService:
             ),
             "retrieval_trace": outcome.result.trace.model_dump(mode="json"),
         }
-        if outcome.shadow_observation is not None:
-            payload["shadow"] = outcome.shadow_observation.model_dump(mode="json")
         try:
             self._trace_sink.record_retrieval_trace(payload)
         except Exception:

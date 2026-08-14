@@ -281,24 +281,9 @@ def _load_knowledge_runtime_settings() -> KnowledgeRuntimeSettings:
     engine = env.get("KNOWLEDGE_ENGINE", "legacy").strip().lower()
     if engine not in {"legacy", "hybrid-v2"}:
         raise ValueError("KNOWLEDGE_ENGINE must be legacy or hybrid-v2")
-    assignment_version = env.get(
-        "KNOWLEDGE_ASSIGNMENT_VERSION", "knowledge-assignment-v1"
-    ).strip()
-    if not assignment_version:
-        raise ValueError("KNOWLEDGE_ASSIGNMENT_VERSION must not be blank")
-    rollout_percent = _percent(env, "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT", 0)
-    shadow_enabled = _strict_bool(env, "KNOWLEDGE_SHADOW_ENABLED", False)
     remote_reranker_enabled = _strict_bool(
         env, "KNOWLEDGE_REMOTE_RERANKER_ENABLED", False
     )
-    if rollout_percent and engine != "hybrid-v2":
-        raise ValueError("knowledge Hybrid rollout requires KNOWLEDGE_ENGINE=hybrid-v2")
-    if shadow_enabled and engine != "hybrid-v2":
-        raise ValueError("knowledge Shadow requires KNOWLEDGE_ENGINE=hybrid-v2")
-    if shadow_enabled and rollout_percent:
-        raise ValueError(
-            "knowledge Shadow and non-zero Hybrid rollout are mutually exclusive"
-        )
     if remote_reranker_enabled:
         raise ValueError(
             "knowledge remote reranker is blocked until the ranking-gap evidence gate passes"
@@ -389,9 +374,6 @@ def _load_knowledge_runtime_settings() -> KnowledgeRuntimeSettings:
             0.45,
         ),
         engine=engine,
-        hybrid_rollout_percent=rollout_percent,
-        assignment_version=assignment_version,
-        shadow_enabled=shadow_enabled,
         semantic_enabled=_strict_bool(env, "KNOWLEDGE_SEMANTIC_ENABLED", True),
         lexical_enabled=_strict_bool(env, "KNOWLEDGE_LEXICAL_ENABLED", True),
         remote_reranker_enabled=remote_reranker_enabled,

@@ -235,42 +235,24 @@ def test_no_evidence_is_not_treated_as_a_candidate_failure():
     assert legacy.calls == []
 
 
-def test_shadow_returns_legacy_and_records_only_sanitized_comparison():
+def test_runtime_trace_records_engine_execution_without_private_query_or_content():
     sink = Sink()
     outcome = RuntimeKnowledgeRetrievalService(
         Engine(_result("compatibility-v1", "legacy")),
         Engine(_result("hybrid-v2", "hybrid")),
         configured_engine="hybrid-v2",
-        shadow_enabled=True,
         trace_sink=sink,
     ).retrieve(_request(), legacy_profile=PROFILE, candidate_profile=PROFILE)
 
-    assert outcome.result.retrieval_engine_version == "compatibility-v1"
-    assert outcome.execution.effective_engine == KnowledgeEngine.LEGACY
-    assert outcome.shadow_observation.selected_evidence_changed is True
-    serialized = str(sink.traces)
-    assert "PRIVATE QUERY TEXT" not in serialized
-    assert "private body" not in serialized
+    assert outcome.execution.effective_engine == KnowledgeEngine.HYBRID_V2
+    assert sink.traces[0]["execution"]["effective_engine"] == "hybrid-v2"
     assert sink.traces[0]["retrieval_trace"]["trace_schema_version"] == (
         "retrieval-trace-v3"
     )
-    assert outcome.shadow_observation.shadow_overhead_latency_ms >= 0
-    assert outcome.shadow_observation.gate_changed is True
-    assert outcome.shadow_observation.legacy.gate_reason_codes == ("gate-legacy",)
-    assert outcome.shadow_observation.candidate.gate_reason_codes == ("gate-hybrid",)
-
-
-def test_shadow_candidate_failure_isolated_from_formal_result():
-    outcome = RuntimeKnowledgeRetrievalService(
-        Engine(_result("compatibility-v1", "legacy")),
-        Engine(fail=True),
-        configured_engine="hybrid-v2",
-        shadow_enabled=True,
-    ).retrieve(_request(), legacy_profile=PROFILE, candidate_profile=PROFILE)
-
-    assert outcome.result.retrieval_engine_version == "compatibility-v1"
-    assert outcome.shadow_observation.reason_code == "shadow_candidate_failed"
-    assert "private provider detail" not in outcome.shadow_observation.model_dump_json()
+    serialized = str(sink.traces)
+    assert "PRIVATE QUERY TEXT" not in serialized
+    assert "private body" not in serialized
+    assert "shadow" not in serialized
 
 
 def test_prep_grounding_uses_prep_intent_and_records_execution_per_query():

@@ -111,14 +111,13 @@ def test_knowledge_v2_settings_are_unified_and_safe_to_summarize():
     settings = load_knowledge_runtime_settings(
         {
             "KNOWLEDGE_ENGINE": "hybrid-v2",
-            "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "5",
-            "KNOWLEDGE_ASSIGNMENT_VERSION": "assignment-v2",
             "KNOWLEDGE_REMOTE_RERANKER_ENABLED": "false",
         }
     )
     assert settings.engine == "hybrid-v2"
-    assert settings.hybrid_rollout_percent == 5
-    assert settings.assignment_version == "assignment-v2"
+    assert "hybrid_rollout_percent" not in settings.safe_summary()
+    assert "assignment_version" not in settings.safe_summary()
+    assert "shadow_enabled" not in settings.safe_summary()
     assert settings.safe_summary()["retrieval_engine_version"] == "hybrid-v2"
     assert settings.safe_summary()["profile_budgets"]["followup"][
         "absolute_p95_budget_ms"
@@ -159,26 +158,9 @@ def test_knowledge_profile_budget_configuration_fails_closed(environment):
         load_knowledge_runtime_settings(environment)
 
 
-def test_knowledge_v2_settings_fail_closed_on_invalid_rollout_or_engine():
+def test_knowledge_v2_settings_fail_closed_on_invalid_engine_or_profile():
     with pytest.raises(ValueError, match="legacy or hybrid-v2"):
         load_knowledge_runtime_settings({"KNOWLEDGE_ENGINE": "experimental"})
-    with pytest.raises(ValueError, match="between 0 and 100"):
-        load_knowledge_runtime_settings({
-            "KNOWLEDGE_ENGINE": "hybrid-v2",
-            "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "101",
-        })
-    with pytest.raises(ValueError, match="requires KNOWLEDGE_ENGINE"):
-        load_knowledge_runtime_settings({"KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "1"})
-    with pytest.raises(ValueError, match="Shadow requires"):
-        load_knowledge_runtime_settings({"KNOWLEDGE_SHADOW_ENABLED": "true"})
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        load_knowledge_runtime_settings(
-            {
-                "KNOWLEDGE_ENGINE": "hybrid-v2",
-                "KNOWLEDGE_SHADOW_ENABLED": "true",
-                "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "1",
-            }
-        )
     with pytest.raises(ValueError, match="<profile-id>@<version>"):
         load_knowledge_runtime_settings({"KNOWLEDGE_PROFILE_PREP": "prep"})
     with pytest.raises(ValueError, match="ranking-gap evidence gate"):

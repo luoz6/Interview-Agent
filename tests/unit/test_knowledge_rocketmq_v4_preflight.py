@@ -31,8 +31,6 @@ def test_default_preflight_proves_repository_readiness_without_release_claims():
     assert result["datasets"]["memory_p1_case_count"] == 18
     assert result["runtime_defaults"] == {
         "engine": "legacy",
-        "hybrid_rollout_percent": 0,
-        "shadow_enabled": False,
     }
     assert result["legacy_compatibility"] == {
         "frozen": True,
@@ -61,7 +59,6 @@ def test_preflight_fails_closed_on_unsafe_runtime_selection():
     result = build_rocketmq_v4_preflight(
         runtime_environ={
             "KNOWLEDGE_ENGINE": "hybrid-v2",
-            "KNOWLEDGE_HYBRID_ROLLOUT_PERCENT": "1",
         }
     )
 

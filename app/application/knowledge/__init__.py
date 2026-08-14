@@ -7,7 +7,6 @@ from app.application.knowledge.followup_gap_service import (
     append_followup_gap_message,
 )
 from app.application.knowledge.retrieval_service import KnowledgeRetrievalService
-from app.application.knowledge.shadow_service import RetrievalShadowService
 from app.application.knowledge.runtime_retrieval_service import (
     RuntimeKnowledgeRetrievalService,
     RuntimeRetrievalOutcome,
@@ -18,7 +17,6 @@ __all__ = [
     "FollowupGapService",
     "HybridKnowledgeRetrievalService",
     "KnowledgeRetrievalService",
-    "RetrievalShadowService",
     "RuntimeKnowledgeRetrievalService",
     "RuntimeRetrievalOutcome",
     "append_followup_gap_message",

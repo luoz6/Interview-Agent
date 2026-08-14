@@ -155,11 +155,7 @@ def build_rocketmq_v4_preflight(
     settings = load_knowledge_runtime_settings(
         {} if runtime_environ is None else runtime_environ
     )
-    runtime_defaults_safe = (
-        settings.engine == "legacy"
-        and settings.hybrid_rollout_percent == 0
-        and settings.shadow_enabled is False
-    )
+    runtime_defaults_safe = settings.engine == "legacy"
     if not runtime_defaults_safe:
         failure_reasons.append("UNSAFE_RUNTIME_DEFAULTS")
 
@@ -211,8 +207,6 @@ def build_rocketmq_v4_preflight(
         },
         "runtime_defaults": {
             "engine": settings.engine,
-            "hybrid_rollout_percent": settings.hybrid_rollout_percent,
-            "shadow_enabled": settings.shadow_enabled,
         },
         "legacy_compatibility": {
             "frozen": legacy_frozen,
