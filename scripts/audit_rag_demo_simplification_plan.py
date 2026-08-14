@@ -24,7 +24,7 @@ DEFAULT_PLAN = Path(
     r"C:\Users\admin\Downloads\2026-08-14-interview-agent-rag-learning-demo-simplification-plan.md"
 )
 EXPECTED_PLAN_SHA256 = (
-    "d249321bd075c47c692eeb9acd7f61fada151fe4acf6a22752a93d4fee7f2256"
+    "97b08afe328ba9229e581aa56ab81ead696c376615cc4c11b6fc5db920f120e0"
 )
 ARCHIVE_REF = "archive/rag-production-governance-v1"
 
