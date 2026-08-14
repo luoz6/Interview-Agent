@@ -223,7 +223,7 @@ def test_create_version_requires_confirmation_and_current_manifest(isolated_corp
     assert store.activations == []
 
 
-def test_provider_failure_does_not_activate_or_leave_managed_source(isolated_corpus):
+def test_provider_failure_leaves_no_source_or_active_release(isolated_corpus):
     root, manifest = isolated_corpus
     service, store, _provider = _service(manifest, provider=FakeProvider(fail=True))
     entry = _entry()
@@ -245,6 +245,35 @@ def test_provider_failure_does_not_activate_or_leave_managed_source(isolated_cor
     assert not (root / "extensions" / "console" / "rocketmq_delay_queue.md").exists()
     persisted = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert persisted["corpus_version"] == "base-v1"
+
+
+def test_retry_after_committed_activation_reports_committed_state(isolated_corpus):
+    root, manifest = isolated_corpus
+    service, store, provider = _service(manifest)
+    entry = _entry()
+    validation = service.validate(entry, "base-v2")
+    request = CorpusCreateVersionRequest(
+        entry=entry,
+        corpus_version="base-v2",
+        expected_active_manifest_sha256=manifest["corpus_manifest_sha256"],
+        expected_target_manifest_sha256=validation.target_manifest_sha256,
+        validation_sha256=validation.validation_sha256,
+        confirm_create_version=True,
+    )
+
+    committed = service.create_version(request)
+    replay = service.create_version(request)
+
+    persisted = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert committed.replayed is False
+    assert replay.replayed is True
+    assert replay.corpus_version == committed.corpus_version == "base-v2"
+    assert replay.manifest_sha256 == committed.manifest_sha256
+    assert persisted["corpus_manifest_sha256"] == replay.manifest_sha256
+    assert replay.embedded == 0
+    assert replay.reused == replay.discovered == 2
+    assert len(provider.calls) == 1
+    assert len(store.activations) == 1
 
 
 def test_manifest_write_failure_after_activation_is_recoverable(

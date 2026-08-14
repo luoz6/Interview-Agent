@@ -105,6 +105,9 @@ def run_audit(
     routes = _read(root / "app/api/rag/routes.py")
     runtime = _read(root / "app/application/knowledge/runtime_retrieval_service.py")
     config_loader = _read(root / "app/runtime/config/loader.py")
+    corpus_tests = _read(
+        root / "tests/unit/test_knowledge_corpus_write_service.py"
+    )
     record(
         "runtime.explicit_engine_and_compare",
         all(
@@ -124,8 +127,19 @@ def run_audit(
             marker in routes
             for marker in ('"/corpus/drafts/validate"', '"/corpus/versions"')
         )
-        and "/corpus/releases/activate" not in routes,
-        "validate/create-version routes present; release activation route absent",
+        and "/corpus/releases/activate" not in routes
+        and all(
+            marker in corpus_tests
+            for marker in (
+                "test_manifest_write_failure_after_activation_is_recoverable",
+                "test_manifest_recovery_is_idempotent",
+                "test_manifest_recovery_refuses_hash_mismatch",
+                "test_retry_after_committed_activation_reports_committed_state",
+                "test_provider_failure_leaves_no_source_or_active_release",
+            )
+        ),
+        "validate/create-version routes and recovery tests present; "
+        "release activation route absent",
     )
 
     capability_vars = (
