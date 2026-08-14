@@ -39,3 +39,9 @@ $env:RAG_CORPUS_WRITE_ENABLED="false"
 ## 隐私边界
 
 Live query 不进入 URL、localStorage、sessionStorage 或业务 Session。响应不返回原始 query、知识正文、简历、JD、Provider payload 或 chain-of-thought。失败信息使用稳定 reason code，不回显请求正文。
+
+## 查看融合与拒答原因
+
+Inspector 的“融合决策”显示后端记录的 `query_signal`、实际 Semantic / Lexical 权重和 reason codes。`routing_summary` 只表示请求路由事实，`fusion_summary` 表示检索通道完成后的融合决策；界面不会在前端重新分类或计算权重。
+
+Evidence 区域显示 candidate-aware sufficiency 结果。候选表仍可用于排错，但当门禁给出 `insufficient` 时，最终 Evidence 为空。Evaluation 的无证据面板进一步显示错误拒答、错误取证 case IDs 和 reason-code breakdown。

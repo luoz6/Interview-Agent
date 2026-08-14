@@ -14,7 +14,8 @@ Purpose: reference evidence for the RAG learning/demo simplification work
 | Implementation branch | `codex/rag-learning-demo-simplification-v1` |
 | Archive ref | `archive/rag-production-governance-v1` |
 | Approved plan | `C:\Users\admin\Downloads\2026-08-14-interview-agent-rag-learning-demo-simplification-plan.md` |
-| Plan SHA-256 | `5bf49de13bf26940e6abb56a889b66f3b529fc0632f62eebd1b4692570f7a603` |
+| Plan SHA-256 at baseline freeze | `5bf49de13bf26940e6abb56a889b66f3b529fc0632f62eebd1b4692570f7a603` |
+| Current revised plan SHA-256 | `d249321bd075c47c692eeb9acd7f61fada151fe4acf6a22752a93d4fee7f2256` |
 
 The archive ref preserves the complete pre-simplification rollout, Shadow,
 promotion, release-governance, and business-evaluation implementation. It is the

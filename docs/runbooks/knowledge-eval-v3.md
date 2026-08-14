@@ -26,6 +26,29 @@ F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py compare --he
 
 75 条 tuning 可用于权重、路由和 abstention 实验。25 条 final diagnostic 只在方案冻结后运行，并记录 Artifact SHA；不要反复查看后继续调参。
 
-## 4. 回放
+## 4. 运行 tuning ablation
 
-在 Evaluation 选择 case 后打开 Frozen Replay。完整 Snapshot 显示候选和流水线安全字段；历史缺失阶段显示 `partial_historical`，不会重新调用检索或 Provider。
+在具有适用 PostgreSQL 读取授权且当前 Corpus identity 与 Dataset 一致时，依次生成不可覆盖的 tuning Artifact：
+
+```powershell
+F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py run --engine legacy --split tuning --output <legacy.json>
+F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py run --engine hybrid-v2 --ablation semantic-only --split tuning --output <semantic.json>
+F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py run --engine hybrid-v2 --ablation lexical-only --split tuning --output <lexical.json>
+F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py run --engine hybrid-v2 --ablation weighted-rrf --split tuning --output <fixed-rrf.json>
+F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py run --engine hybrid-v2 --ablation query-aware-weighted-rrf --split tuning --output <query-aware-rrf.json>
+F:\python3.11\python.exe scripts\evaluate_knowledge_retrieval_v3.py run --engine hybrid-v2 --ablation rank-normalized-score --split tuning --output <rank-normalized.json>
+```
+
+每个 Artifact 会冻结 Dataset、Corpus、Embedding、profile、code revision 和 engine identity。使用 `compare` 分别与 Legacy 比较，不得覆盖已有输出。
+
+如果当前没有适用结构化授权，停在 Dataset 校验、单元/契约测试和已有 Frozen Artifact 兼容验证，并记录：
+
+```text
+REAL TUNING RETRIEVAL NOT RUN — AUTHORIZATION REQUIRED
+```
+
+不得用测试 double 或机器预标注结论冒充真实 paired evaluation。
+
+## 5. 回放
+
+在 Evaluation 选择 case 后打开 Frozen Replay。新 Snapshot 显示候选、Fusion Summary、Evidence Decision 和流水线安全字段；历史缺失阶段显示 `partial_historical`，不会重新调用检索或 Provider。

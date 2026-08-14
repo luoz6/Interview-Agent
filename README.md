@@ -6,7 +6,7 @@ This project is designed for local single-user deployment. It does not include l
 
 ## Current RAG position
 
-Knowledge RAG is maintained as a **Learning Project / Technical Showcase**. The active path includes explicit Legacy/Hybrid execution, privacy-safe comparison, diagnostic evaluation, frozen replay, and versioned Corpus management. It does not include production Shadow, Canary, Promotion, rollout assignment, or Legacy retirement.
+Knowledge RAG is maintained as a **Learning Project / Technical Showcase**. The active path includes explicit Legacy/Hybrid execution, deterministic Query-aware Fusion experiments, candidate-aware Evidence Sufficiency, privacy-safe comparison, diagnostic evaluation, frozen replay, and versioned Corpus management. It does not include production Shadow, Canary, Promotion, rollout assignment, or Legacy retirement. Query-aware Fusion remains an experimental profile until a newly authorized 75-case tuning run produces real paired Artifacts; current local tests do not claim metric improvement.
 
 Start with:
 
