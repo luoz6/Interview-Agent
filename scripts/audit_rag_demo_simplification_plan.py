@@ -13,11 +13,21 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.validate_knowledge_diagnostic_dataset import (
-    DEFAULT_DIAGNOSTIC_DIR,
-    DEFAULT_MANIFEST,
-    validate_diagnostic_dataset,
-)
+if __package__:
+    from scripts.validate_knowledge_diagnostic_dataset import (
+        DEFAULT_DIAGNOSTIC_DIR,
+        DEFAULT_MANIFEST,
+        validate_diagnostic_dataset,
+    )
+else:
+    # Direct script execution places ``scripts/`` on sys.path. Import the
+    # sibling module from there so an unrelated site-packages ``scripts``
+    # package cannot shadow this repository's namespace.
+    from validate_knowledge_diagnostic_dataset import (
+        DEFAULT_DIAGNOSTIC_DIR,
+        DEFAULT_MANIFEST,
+        validate_diagnostic_dataset,
+    )
 
 
 DEFAULT_PLAN = Path(
