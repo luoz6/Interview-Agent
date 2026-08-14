@@ -1021,6 +1021,85 @@ class PgVectorKnowledgeStore:
             raise RuntimeError("pgvector knowledge store is unavailable") from exc
         return str(row[0]) if row is not None else None
 
+    def get_corpus_catalog(self) -> dict[str, Any]:
+        """Return an allowlisted active-release catalog for local governance UI."""
+
+        psycopg2, sql = self._import_psycopg2()
+        try:
+            with self._connection_provider.connection() as connection:
+                self._ensure_schema(connection)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT corpus_version, manifest_sha256,
+                                   embedding_provider, embedding_model,
+                                   embedding_revision, embedding_dimension,
+                                   chunk_count
+                            FROM {releases}
+                            WHERE status = 'active'
+                            ORDER BY activated_at DESC NULLS LAST
+                            LIMIT 1
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table))
+                    )
+                    release = cursor.fetchone()
+                    if release is None:
+                        return {}
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT chunk_id, title, source_type, domain, tags,
+                                   metadata, content_sha256
+                            FROM {versions}
+                            WHERE corpus_version = %s
+                            ORDER BY chunk_id
+                            """
+                        ).format(versions=sql.Identifier(self.versions_table)),
+                        (release[0],),
+                    )
+                    unit_rows = cursor.fetchall()
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            SELECT corpus_version
+                            FROM {releases}
+                            WHERE status = 'retired'
+                            ORDER BY activated_at DESC NULLS LAST, corpus_version
+                            """
+                        ).format(releases=sql.Identifier(self.releases_table))
+                    )
+                    retired = tuple(str(row[0]) for row in cursor.fetchall())
+        except Exception as exc:
+            raise RuntimeError("pgvector knowledge store is unavailable") from exc
+
+        units = []
+        for chunk_id, title, source_type, domain, tags, metadata, content_hash in unit_rows:
+            units.append(
+                {
+                    "unit_id": str(chunk_id),
+                    "title": str(title),
+                    "source_type": str(source_type),
+                    "domain": str(domain),
+                    "tags": tuple(self.codec.json_value(tags, default=[])),
+                    "metadata": self.codec.json_value(metadata, default={}),
+                    "content_sha256": str(content_hash),
+                }
+            )
+        return {
+            "corpus_version": str(release[0]),
+            "manifest_sha256": str(release[1]),
+            "embedding": {
+                "provider": str(release[2]),
+                "model": str(release[3]),
+                "revision": str(release[4]),
+                "dimension": int(release[5]),
+            },
+            "chunk_count": int(release[6]),
+            "retired_versions": retired,
+            "units": tuple(units),
+        }
+
     def _prepare_legacy_rows(self, source_rows) -> list[dict[str, Any]]:
         prepared: list[dict[str, Any]] = []
         for row in source_rows:

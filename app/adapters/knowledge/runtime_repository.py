@@ -89,6 +89,11 @@ class RuntimeKnowledgeRepository:
             raise RuntimeError("knowledge retrieval is unavailable")
         return outcome
 
+    def inspect_retrieval(self, request, *, profile, engine: str):
+        """Run an explicitly selected diagnostic engine without rollout mutation."""
+
+        return self._coordinator.inspect(request, profile=profile, engine=engine)
+
     def get_by_ids(self, ids, *, expected_hashes=None):
         return self._repository.get_by_ids(ids, expected_hashes=expected_hashes)
 

@@ -1,0 +1,290 @@
+from fastapi.testclient import TestClient
+
+from app.api.shared.dependencies import (
+    get_rag_corpus_write_service,
+    get_rag_diagnostics_service,
+)
+from app.main import app
+from app.runtime.config import use_environment
+from app.application.knowledge.diagnostics_service import DiagnosticCapacityExhausted
+
+
+class FakeDiagnostics:
+    def overview(self):
+        return {
+            "schema_version": "rag-overview-v1",
+            "generated_at": "2026-08-13T00:00:00Z",
+            "formal_engine": "legacy",
+            "candidate_engine": "hybrid-v2",
+            "hybrid_rollout_percent": 0,
+            "shadow_enabled": False,
+            "remote_reranker_enabled": False,
+            "evidence_gate_enabled": True,
+            "corpus": {"version": "v1", "manifest_sha256": "a" * 64, "chunk_count": 1},
+            "embedding": {"provider": "test", "model": "test", "revision": "v1", "dimension": 3},
+            "profiles": [],
+            "component_versions": {},
+            "capabilities": {
+                "diagnostic_ui": True,
+                "live_inspector": False,
+                "eval_artifacts": False,
+                "authored_eval_queries": False,
+                "access_mode": "loopback",
+            },
+            "release_evidence": {
+                "annotation_status": "machine_preannotation",
+                "human_annotator_count": 0,
+                "independent_evidence_eligible": False,
+                "holdout_status": "historical_diagnostic",
+                "formal_sealed_holdout_available": False,
+            },
+            "promotion": {
+                "allowed": False,
+                "decision_version": "knowledge-promotion-decision-v1",
+                "blockers": [],
+            },
+        }
+
+    def evidence_trace(self, trace_id):
+        return {
+            "schema_version": "rag-evidence-trace-v1",
+            "trace_id": trace_id,
+            "generated_at": "2026-08-13T00:00:00Z",
+            "stages": [{
+                "stage": "followup_decision",
+                "recording_status": "not_recorded",
+                "evidence_ids": [],
+                "corpus_manifest_sha256": "",
+                "note": "No value inferred.",
+            }],
+        }
+
+    def inspect(self, payload):
+        raise AssertionError("invalid requests must not reach diagnostics service")
+
+
+class SaturatedDiagnostics(FakeDiagnostics):
+    def inspect(self, payload):
+        raise DiagnosticCapacityExhausted("private capacity detail")
+
+
+class FakeCorpusWriter:
+    def __init__(self):
+        self.validated = 0
+        self.released = 0
+
+    def validate(self, entry):
+        self.validated += 1
+        return {
+            "schema_version": "rag-corpus-validation-v1",
+            "valid": True,
+            "validation_sha256": "b" * 64,
+            "current_corpus_version": "memory-p1-zh-v4",
+            "current_manifest_sha256": "a" * 64,
+            "content_sha256": "c" * 64,
+            "chinese_character_count": 320,
+            "provider_call_required": True,
+            "estimated_embedding_count": 1,
+            "issues": [],
+        }
+
+    def release(self, payload):
+        self.released += 1
+        return {
+            "schema_version": "rag-corpus-release-v1",
+            "corpus_version": payload.corpus_version,
+            "manifest_sha256": "d" * 64,
+            "discovered": 32,
+            "reused": 31,
+            "embedded": 1,
+            "activated": 32,
+            "provider_name": "siliconflow",
+            "model_name": "BAAI/bge-m3",
+            "model_revision": "revision-v1",
+            "dimension": 1024,
+        }
+
+
+def _corpus_entry():
+    return {
+        "unit_id": "rocketmq_delay_queue",
+        "title": "RocketMQ 延迟消息实践",
+        "domain": "rocketmq",
+        "topic": "delay-message",
+        "source_type": "engineering_guide",
+        "content_kind": "engineering_practice",
+        "difficulty": "intermediate",
+        "tags": ["rocketmq", "reliability"],
+        "aliases": ["延迟队列"],
+        "technical_terms": ["RocketMQ"],
+        "question_patterns": ["如何实现延迟消息？", "延迟消息失败时如何处理？"],
+        "references": [{
+            "title": "RocketMQ 中文文档",
+            "url": "https://rocketmq.apache.org/zh/docs/featureBehavior/02delaymessage",
+            "source_kind": "official_cn",
+            "publisher": "Apache RocketMQ",
+        }],
+        "content": "中" * 320,
+    }
+
+
+def test_console_is_404_by_default():
+    client = TestClient(app)
+    assert client.get("/api/rag/overview").status_code == 404
+    assert client.post("/api/rag/inspections", json={"query_text": "Redis"}).status_code == 404
+    assert client.post(
+        "/api/rag/corpus/drafts/validate", json={"entry": _corpus_entry()}
+    ).status_code == 404
+
+
+def test_corpus_write_requires_loopback_and_explicit_capability():
+    writer = FakeCorpusWriter()
+    app.dependency_overrides[get_rag_corpus_write_service] = lambda: writer
+    try:
+        with use_environment(
+            {
+                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
+                "RAG_CORPUS_WRITE_ENABLED": "true",
+            }
+        ):
+            remote = TestClient(app, client=("198.51.100.7", 50000))
+            assert remote.post(
+                "/api/rag/corpus/drafts/validate",
+                json={"entry": _corpus_entry()},
+            ).status_code == 404
+            local = TestClient(app, client=("127.0.0.1", 50000))
+            response = local.post(
+                "/api/rag/corpus/drafts/validate",
+                json={"entry": _corpus_entry()},
+            )
+            assert response.status_code == 200
+            assert response.json()["estimated_embedding_count"] == 1
+            assert writer.validated == 1
+    finally:
+        app.dependency_overrides.pop(get_rag_corpus_write_service, None)
+
+
+def test_corpus_release_response_does_not_reflect_content():
+    private_content = "敏感资料" * 110
+    writer = FakeCorpusWriter()
+    app.dependency_overrides[get_rag_corpus_write_service] = lambda: writer
+    try:
+        with use_environment(
+            {
+                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
+                "RAG_CORPUS_WRITE_ENABLED": "true",
+            }
+        ):
+            client = TestClient(app, client=("127.0.0.1", 50000))
+            entry = {**_corpus_entry(), "content": private_content}
+            response = client.post(
+                "/api/rag/corpus/releases/activate",
+                json={
+                    "entry": entry,
+                    "corpus_version": "memory-p1-zh-v5",
+                    "expected_active_manifest_sha256": "a" * 64,
+                    "validation_sha256": "b" * 64,
+                    "confirm_provider_cost": True,
+                    "confirm_activation": True,
+                },
+            )
+            assert response.status_code == 200
+            assert private_content not in response.text
+            assert writer.released == 1
+    finally:
+        app.dependency_overrides.pop(get_rag_corpus_write_service, None)
+
+
+def test_loopback_capability_allows_safe_overview_but_not_live_inspection():
+    app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
+    try:
+        with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
+            client = TestClient(app, client=("127.0.0.1", 50000))
+            response = client.get("/api/rag/overview")
+            assert response.status_code == 200
+            assert response.json()["formal_engine"] == "legacy"
+            assert client.post(
+                "/api/rag/inspections", json={"query_text": "Redis"}
+            ).status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_rag_diagnostics_service, None)
+
+
+def test_forwarded_header_does_not_turn_remote_client_into_loopback():
+    app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
+    try:
+        with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
+            client = TestClient(app, client=("198.51.100.7", 50000))
+            response = client.get(
+                "/api/rag/overview",
+                headers={"x-forwarded-for": "127.0.0.1"},
+            )
+            assert response.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_rag_diagnostics_service, None)
+
+
+def test_no_persistent_inspection_get_endpoint_exists():
+    client = TestClient(app)
+    assert client.get("/api/rag/inspections/any-id").status_code == 404
+
+
+def test_invalid_live_query_is_not_reflected_by_validation_response():
+    private_query = "PRIVATE QUERY MUST NOT BE REFLECTED"
+    app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
+    try:
+        with use_environment(
+            {
+                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
+                "RAG_LIVE_INSPECTOR_ENABLED": "true",
+            }
+        ):
+            client = TestClient(app, client=("127.0.0.1", 50000))
+            response = client.post(
+                "/api/rag/inspections",
+                json={"query_text": private_query, "unexpected": private_query},
+            )
+            assert response.status_code == 422
+            assert response.json()["code"] == "RAG_REQUEST_INVALID"
+            assert private_query not in response.text
+    finally:
+        app.dependency_overrides.pop(get_rag_diagnostics_service, None)
+
+
+def test_live_diagnostic_saturation_has_stable_non_sensitive_error():
+    app.dependency_overrides[get_rag_diagnostics_service] = SaturatedDiagnostics
+    try:
+        with use_environment(
+            {
+                "RAG_DIAGNOSTIC_UI_ENABLED": "true",
+                "RAG_LIVE_INSPECTOR_ENABLED": "true",
+            }
+        ):
+            client = TestClient(app, client=("127.0.0.1", 50000))
+            response = client.post(
+                "/api/rag/inspections",
+                json={"query_text": "private Redis query"},
+            )
+            assert response.status_code == 429
+            assert response.json()["detail"]["code"] == (
+                "RAG_DIAGNOSTIC_CAPACITY_EXHAUSTED"
+            )
+            assert "private Redis query" not in response.text
+            assert "private capacity detail" not in response.text
+    finally:
+        app.dependency_overrides.pop(get_rag_diagnostics_service, None)
+
+
+def test_evidence_trace_is_capability_protected_and_safe():
+    app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
+    try:
+        client = TestClient(app, client=("127.0.0.1", 50000))
+        assert client.get("/api/rag/evidence-traces/session-1").status_code == 404
+        with use_environment({"RAG_DIAGNOSTIC_UI_ENABLED": "true"}):
+            response = client.get("/api/rag/evidence-traces/session-1")
+            assert response.status_code == 200
+            rendered = response.text
+            assert "query_text" not in rendered
+            assert '"chain_of_thought"' not in rendered
+    finally:
+        app.dependency_overrides.pop(get_rag_diagnostics_service, None)

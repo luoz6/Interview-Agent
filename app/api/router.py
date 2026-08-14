@@ -8,6 +8,7 @@ from app.api.memory.routes import router as memory_router
 from app.api.plans.routes import router as plans_router
 from app.api.prep.routes import router as prep_router
 from app.api.reports.routes import router as reports_router
+from app.api.rag.routes import router as rag_router
 from app.api.runtime.routes import router as runtime_router
 
 
@@ -19,6 +20,7 @@ router.include_router(interview_router)
 router.include_router(deletion_router)
 router.include_router(memory_router)
 router.include_router(reports_router)
+router.include_router(rag_router)
 
 
 __all__ = ["router"]

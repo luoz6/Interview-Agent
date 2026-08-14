@@ -105,6 +105,7 @@ _runtime_container = RuntimeContainer()
 
 _RUNTIME_CLOSERS = (
     RuntimeCloser("report_executor", close_without_wait_argument),
+    RuntimeCloser("rag_console_knowledge_repository", close_without_wait_argument),
     RuntimeCloser("runtime_knowledge_repository", close_without_wait_argument),
     RuntimeCloser("runtime_outbox_service", shutdown_with_optional_wait),
     RuntimeCloser(
@@ -196,6 +197,20 @@ def get_runtime_knowledge_repository():
     return _runtime_container.get_or_create(
         "runtime_knowledge_repository",
         build_runtime_knowledge_repository,
+    )
+
+
+def get_rag_console_knowledge_repository():
+    """Keep RAG diagnostics on pgvector when business runtime uses memory mode."""
+
+    runtime_repository = get_runtime_knowledge_repository()
+    if callable(getattr(runtime_repository, "get_corpus_catalog", None)):
+        return runtime_repository
+    return _runtime_container.get_or_create(
+        "rag_console_knowledge_repository",
+        lambda: build_runtime_knowledge_repository(
+            PgVectorKnowledgeStore.from_env(schema_mode="validate")
+        ),
     )
 
 

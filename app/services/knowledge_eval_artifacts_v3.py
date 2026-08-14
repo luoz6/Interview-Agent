@@ -5,8 +5,11 @@ import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.domain.knowledge.evidence import EvidenceDecision
 
 from app.domain.knowledge.retrieval import (
     ResolvedRetrievalProfile,
@@ -96,6 +99,66 @@ class KnowledgeEvalCaseResultV3(BaseModel):
     declared_no_evidence: bool = False
     latency_ms: float = Field(ge=0)
     reason_codes: tuple[str, ...] = ()
+
+
+class RetrievalDiagnosticCandidateV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    chunk_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    domain: str = Field(min_length=1)
+    topic: str = ""
+    source_type: str = Field(min_length=1)
+    tags: tuple[str, ...] = ()
+    content_sha256: str = ""
+    semantic_rank: int | None = Field(default=None, ge=1)
+    semantic_score: float | None = None
+    lexical_rank: int | None = Field(default=None, ge=1)
+    lexical_score: float | None = None
+    fusion_rank: int | None = Field(default=None, ge=1)
+    fusion_score: float | None = None
+    rerank_rank: int | None = Field(default=None, ge=1)
+    rerank_score: float | None = None
+    channel_hits: tuple[str, ...] = ()
+    matched_terms: tuple[str, ...] = ()
+    ranking_explanation: dict | None = None
+    selected: bool = False
+
+
+class RetrievalDiagnosticSnapshotV1(BaseModel):
+    """Privacy-safe immutable sidecar for exact five-stage replay."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = "retrieval-diagnostic-snapshot-v1"
+    created_at: datetime
+    artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    case_id: str = Field(min_length=1)
+    request_id: str = Field(min_length=1)
+    trace_schema_version: Literal["retrieval-trace-v2", "retrieval-trace-v3"]
+    query_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    query_character_count: int = Field(ge=1, le=4000)
+    engine_version: str = Field(min_length=1)
+    profile_id: str = Field(min_length=1)
+    profile_version: str = Field(min_length=1)
+    component_versions: dict[str, str]
+    candidates: tuple[RetrievalDiagnosticCandidateV1, ...]
+    selected_evidence_ids: tuple[str, ...] = ()
+    evidence_decision: EvidenceDecision | None = None
+    latency_breakdown_ms: dict[str, float | None]
+    degraded_reasons: tuple[str, ...] = ()
+    snapshot_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_integrity(self):
+        if self.created_at.tzinfo is None:
+            raise ValueError("snapshot created_at must be timezone-aware")
+        if len({item.chunk_id for item in self.candidates}) != len(self.candidates):
+            raise ValueError("snapshot candidates must be unique")
+        payload = self.model_dump(mode="json", exclude={"snapshot_sha256"})
+        if canonical_sha256(payload) != self.snapshot_sha256:
+            raise ValueError("snapshot SHA-256 mismatch")
+        return self
 
 
 class KnowledgeEvalArtifactV3(BaseModel):
@@ -379,6 +442,7 @@ def evaluate_knowledge_engine_v3(
     identity: KnowledgeEvalEngineIdentityV3,
     vector_validity_rate: float = 1.0,
     created_at: datetime | None = None,
+    result_observer: Callable[[str, RetrievalResult], None] | None = None,
 ) -> KnowledgeEvalArtifactV3:
     if identity.corpus_manifest_sha256 != dataset.corpus_manifest_sha256:
         raise ValueError("engine identity corpus manifest does not match dataset")
@@ -413,6 +477,8 @@ def evaluate_knowledge_engine_v3(
             result = engine.retrieve(request, profile)
         except Exception:
             result = _unavailable_result(request, profile, identity.engine_version)
+        if result_observer is not None:
+            result_observer(case.case_id, result)
         observation, case_result = _observe_case(
             case.case_id,
             result,
@@ -532,6 +598,124 @@ def load_eval_artifact_v3(path: Path | str) -> KnowledgeEvalArtifactV3:
     return KnowledgeEvalArtifactV3.model_validate_json(
         Path(path).read_text(encoding="utf-8")
     )
+
+
+def build_retrieval_diagnostic_snapshot_v1(
+    *,
+    artifact_sha256: str,
+    case_id: str,
+    result: RetrievalResult,
+    created_at: datetime | None = None,
+) -> RetrievalDiagnosticSnapshotV1:
+    selected = {item.chunk_id for item in result.selected_evidence}
+    query_facts = result.trace.sanitized_query_facts
+    if query_facts is None:
+        raise ValueError("retrieval result has no sanitized query facts")
+    versions = (
+        result.trace.component_versions.model_dump(mode="json")
+        if result.trace.component_versions is not None
+        else {}
+    )
+    candidates = tuple(
+        RetrievalDiagnosticCandidateV1(
+            chunk_id=item.chunk_id,
+            title=item.chunk.title,
+            domain=item.chunk.domain,
+            topic=str(item.chunk.metadata.get("topic") or ""),
+            source_type=item.chunk.source_type,
+            tags=tuple(item.chunk.tags),
+            content_sha256=str(item.chunk.metadata.get("content_sha256") or ""),
+            semantic_rank=item.semantic_rank,
+            semantic_score=item.semantic_score,
+            lexical_rank=item.lexical_rank,
+            lexical_score=item.lexical_score,
+            fusion_rank=item.fusion_rank,
+            fusion_score=item.fusion_score,
+            rerank_rank=item.rerank_rank,
+            rerank_score=item.rerank_score,
+            channel_hits=tuple(item.channel_hits),
+            matched_terms=tuple(item.matched_terms),
+            ranking_explanation=(
+                item.ranking_explanation.model_dump(mode="json")
+                if item.ranking_explanation is not None
+                else None
+            ),
+            selected=item.chunk_id in selected,
+        )
+        for item in result.candidates
+    )
+    payload = {
+        "schema_version": "retrieval-diagnostic-snapshot-v1",
+        "created_at": created_at or datetime.now(timezone.utc),
+        "artifact_sha256": artifact_sha256,
+        "case_id": case_id,
+        "request_id": result.request_id,
+        "trace_schema_version": result.trace.trace_schema_version,
+        "query_sha256": query_facts.query_sha256,
+        "query_character_count": query_facts.character_count,
+        "engine_version": result.retrieval_engine_version,
+        "profile_id": result.trace.profile_id,
+        "profile_version": result.profile_version,
+        "component_versions": versions,
+        "candidates": candidates,
+        "selected_evidence_ids": tuple(item.chunk_id for item in result.selected_evidence),
+        "evidence_decision": result.evidence_decision,
+        "latency_breakdown_ms": dict(result.trace.latency_breakdown_ms),
+        "degraded_reasons": tuple(result.degraded_reasons),
+    }
+    return RetrievalDiagnosticSnapshotV1(
+        **payload,
+        snapshot_sha256=canonical_sha256(payload),
+    )
+
+
+def load_retrieval_diagnostic_snapshot_v1(
+    path: Path | str,
+) -> RetrievalDiagnosticSnapshotV1:
+    return RetrievalDiagnosticSnapshotV1.model_validate_json(
+        Path(path).read_text(encoding="utf-8")
+    )
+
+
+def write_retrieval_diagnostic_snapshots_v1(
+    artifact: KnowledgeEvalArtifactV3,
+    results: dict[str, RetrievalResult],
+    root: Path | str,
+) -> Path:
+    """Atomically publish validated sidecars from the artifact's retrieval run."""
+
+    expected_ids = tuple(item.case_id for item in artifact.cases)
+    if tuple(results) != expected_ids:
+        raise ValueError("snapshot results must match artifact case order")
+    target = Path(root) / artifact.artifact_sha256
+    if target.exists():
+        raise FileExistsError(f"refusing to overwrite frozen snapshots: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.parent / f".{target.name}.staging"
+    if staging.exists():
+        raise FileExistsError(f"snapshot staging path already exists: {staging}")
+    staging.mkdir()
+    try:
+        for case_id, result in results.items():
+            snapshot = build_retrieval_diagnostic_snapshot_v1(
+                artifact_sha256=artifact.artifact_sha256,
+                case_id=case_id,
+                result=result,
+                created_at=artifact.created_at,
+            )
+            path = staging / f"{case_id}.json"
+            path.write_text(
+                snapshot.model_dump_json(indent=2) + "\n",
+                encoding="utf-8",
+            )
+            load_retrieval_diagnostic_snapshot_v1(path)
+        staging.rename(target)
+    except Exception:
+        import shutil
+
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return target
 
 
 def load_threshold_registration_v3(
@@ -735,7 +919,10 @@ def _observe_case(case_id, result, repository, *, engine_version):
 
 
 def _unavailable_result(request, profile, engine_version):
-    from app.domain.knowledge.retrieval import RetrievalTrace
+    from app.domain.knowledge.retrieval import (
+        RetrievalTrace,
+        SanitizedRetrievalQueryFacts,
+    )
 
     return RetrievalResult(
         request_id=request.request_id,
@@ -744,7 +931,21 @@ def _unavailable_result(request, profile, engine_version):
             request_id=request.request_id,
             profile_id=profile.profile_id,
             profile_version=profile.profile_version,
+            sanitized_query_facts=SanitizedRetrievalQueryFacts(
+                query_sha256=hashlib.sha256(
+                    request.query_text.encode("utf-8")
+                ).hexdigest(),
+                character_count=len(request.query_text),
+            ),
             latency_ms=0,
+            latency_breakdown_ms={
+                "semantic": None,
+                "lexical": None,
+                "fusion": None,
+                "rerank": None,
+                "evidence_gate": None,
+                "total": 0,
+            },
             degraded_reasons=["evaluation_engine_failed"],
         ),
         retrieval_engine_version=engine_version,

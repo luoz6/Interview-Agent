@@ -139,6 +139,24 @@ class RetrievalChannelTrace(BaseModel):
     reason_code: str | None = None
 
 
+class CandidateRankingExplanation(BaseModel):
+    """Auditable values emitted by the ranking path that used them."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    base_score_source: Literal[
+        "fusion_score", "semantic_score", "lexical_score", "chunk_score"
+    ]
+    base_score: float
+    exact_term_boost: float = 0.0
+    routing_tag_boost: float = 0.0
+    eligibility_score: float
+    eligible: bool
+    final_rerank_score: float | None = None
+    tie_break_fusion_rank: int | None = Field(default=None, ge=1)
+    reason_codes: tuple[str, ...] = ()
+
+
 class RetrievalCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -153,6 +171,7 @@ class RetrievalCandidate(BaseModel):
     rerank_rank: int | None = Field(default=None, ge=1)
     channel_hits: list[str] = Field(default_factory=list)
     matched_terms: list[str] = Field(default_factory=list)
+    ranking_explanation: CandidateRankingExplanation | None = None
 
     @property
     def chunk_id(self) -> str:
@@ -230,7 +249,9 @@ class RetrievalTrace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str
-    trace_schema_version: str = "retrieval-trace-v2"
+    trace_schema_version: Literal["retrieval-trace-v2", "retrieval-trace-v3"] = (
+        "retrieval-trace-v3"
+    )
     intent: RetrievalIntent | None = None
     profile_id: str
     profile_version: str
@@ -243,7 +264,7 @@ class RetrievalTrace(BaseModel):
     rerank_summary: RetrievalRerankSummary | None = None
     evidence_decision: EvidenceDecision | None = None
     latency_ms: float = Field(ge=0)
-    latency_breakdown_ms: dict[str, float] = Field(default_factory=dict)
+    latency_breakdown_ms: dict[str, float | None] = Field(default_factory=dict)
     selected_evidence_ids: list[str] = Field(default_factory=list)
     selected_evidence_hashes: dict[str, str] = Field(default_factory=dict)
     degraded_path_latency_ms: float | None = Field(default=None, ge=0)
@@ -285,7 +306,7 @@ def build_retrieval_trace(
     selected_evidence: list[KnowledgeChunk],
     degraded_reasons: list[str],
     latency_ms: float,
-    latency_breakdown_ms: dict[str, float],
+    latency_breakdown_ms: dict[str, float | None],
     fusion_summary: RetrievalFusionSummary | None,
     rerank_summary: RetrievalRerankSummary,
     evidence_decision: EvidenceDecision,

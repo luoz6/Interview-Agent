@@ -271,6 +271,14 @@ def load_knowledge_document_v2(path: Path) -> KnowledgeDocumentV2:
         raise ValueError("document front matter must be a YAML mapping")
 
     metadata = KnowledgeMetadataV2.model_validate(metadata_payload)
+    return validate_knowledge_document_v2(metadata=metadata, body=body)
+
+
+def validate_knowledge_document_v2(
+    *, metadata: KnowledgeMetadataV2, body: str
+) -> KnowledgeDocumentV2:
+    """Validate an in-memory document with the same contract as a corpus file."""
+
     prose = strip_non_prose_markdown(body)
     chinese_character_count = len(_CJK_RE.findall(prose))
     if not _MIN_CHINESE_CHARACTERS <= chinese_character_count <= _MAX_CHINESE_CHARACTERS:

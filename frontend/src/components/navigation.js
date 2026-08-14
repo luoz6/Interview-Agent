@@ -21,6 +21,13 @@ export const PRODUCT_NAVIGATION = [
     icon: "memory",
   },
   {
+    href: "/rag",
+    label: "RAG",
+    mobileLabel: "RAG",
+    match: ["/rag", "/rag/retrieval", "/rag/evaluation", "/rag/evidence-trace", "/rag/corpus"],
+    icon: "rag",
+  },
+  {
     href: "/help",
     label: "帮助",
     mobileLabel: "帮助",

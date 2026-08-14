@@ -19,6 +19,7 @@ const MemoryCenterPage = lazyNamedPage(
   () => import("./pages/MemoryCenterPage"),
   "MemoryCenterPage",
 );
+const RagConsolePage = lazyNamedPage(() => import("./pages/RagConsolePage"), "RagConsolePage");
 
 const routes = {
   "/": StartPage,
@@ -33,7 +34,9 @@ const routes = {
 };
 
 export default function App() {
-  const Page = routes[window.location.pathname] || NotFoundPage;
+  const Page = window.location.pathname.startsWith("/rag")
+    ? RagConsolePage
+    : routes[window.location.pathname] || NotFoundPage;
   return (
     <RouteLoadBoundary>
       <Suspense fallback={<RouteLoadingFallback />}>

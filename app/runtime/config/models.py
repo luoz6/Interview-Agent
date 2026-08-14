@@ -133,6 +133,30 @@ class KnowledgeRuntimeSettings:
 
 
 @dataclass(frozen=True)
+class RagConsoleRuntimeSettings:
+    """Fail-closed capabilities for the local engineering console."""
+
+    diagnostic_ui_enabled: bool = False
+    live_inspector_enabled: bool = False
+    eval_artifact_access_enabled: bool = False
+    authored_eval_query_access_enabled: bool = False
+    corpus_write_enabled: bool = False
+    access_mode: str = "loopback"
+
+    def safe_summary(self) -> dict[str, bool | str]:
+        return {
+            "diagnostic_ui_enabled": self.diagnostic_ui_enabled,
+            "live_inspector_enabled": self.live_inspector_enabled,
+            "eval_artifact_access_enabled": self.eval_artifact_access_enabled,
+            "authored_eval_query_access_enabled": (
+                self.authored_eval_query_access_enabled
+            ),
+            "corpus_write_enabled": self.corpus_write_enabled,
+            "access_mode": self.access_mode,
+        }
+
+
+@dataclass(frozen=True)
 class CoreRuntimeSettings:
     postgres_dsn: str = field(repr=False)
     runtime_store: str

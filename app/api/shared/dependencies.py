@@ -37,6 +37,7 @@ from app.services.runtime import (
     get_principal_memory_fact_store,
     get_principal_memory_safe_ref_store,
     get_question_memory_index_store,
+    get_rag_console_knowledge_repository,
     get_report_artifact_store,
     get_report_job_store,
     get_runtime_knowledge_repository,
@@ -63,6 +64,25 @@ def get_prep_question_regenerator() -> PrepQuestionRegenerator:
 
 def get_prep_knowledge_repository():
     return get_runtime_knowledge_repository()
+
+
+def get_rag_diagnostics_service():
+    from app.application.knowledge.diagnostics_service import RagDiagnosticsService
+
+    return RagDiagnosticsService(
+        repository=get_rag_console_knowledge_repository(),
+        session_store=get_session_store(),
+    )
+
+
+def get_rag_corpus_write_service():
+    from app.application.knowledge.corpus_write_service import CorpusWriteService
+
+    repository = get_rag_console_knowledge_repository()
+    return CorpusWriteService(
+        store=repository,
+        provider=repository.embedding_provider,
+    )
 
 
 def get_plan_regenerator():
@@ -215,6 +235,9 @@ __all__ = [
     "get_principal_memory_fact_store",
     "get_principal_memory_safe_ref_store",
     "get_question_memory_index_store",
+    "get_rag_console_knowledge_repository",
+    "get_rag_diagnostics_service",
+    "get_rag_corpus_write_service",
     "get_report_artifact_store",
     "get_report_job_queue",
     "get_report_job_store",

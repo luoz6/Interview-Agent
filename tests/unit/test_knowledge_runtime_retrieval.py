@@ -153,7 +153,7 @@ def test_shadow_returns_legacy_and_records_only_sanitized_comparison():
     assert "PRIVATE QUERY TEXT" not in serialized
     assert "private body" not in serialized
     assert sink.traces[0]["retrieval_trace"]["trace_schema_version"] == (
-        "retrieval-trace-v2"
+        "retrieval-trace-v3"
     )
     assert outcome.shadow_observation.shadow_overhead_latency_ms >= 0
     assert outcome.shadow_observation.gate_changed is True

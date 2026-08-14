@@ -12,6 +12,7 @@ DOMAIN_ROUTE_MODULES = (
     API / "prep" / "routes.py",
     API / "reports" / "routes.py",
     API / "runtime" / "routes.py",
+    API / "rag" / "routes.py",
 )
 
 
@@ -57,6 +58,17 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
         if method in methods
     ]
 
-    assert len(schema["paths"]) == 50
-    assert len(operations) == 56
+    assert len(schema["paths"]) == 62
+    assert len(operations) == 68
     assert len(operations) == len(set(operations))
+
+
+def test_application_layer_does_not_import_rag_api_adapter():
+    application = ROOT / "app" / "application"
+    for path in application.rglob("*.py"):
+        imported = {
+            node.module
+            for node in ast.walk(_tree(path))
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        assert not any(module.startswith("app.api.rag") for module in imported), path

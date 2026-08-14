@@ -2,7 +2,10 @@ import re
 import unicodedata
 
 from app.domain.knowledge.models import KnowledgeChunk
-from app.domain.knowledge.retrieval import RetrievalCandidate
+from app.domain.knowledge.retrieval import (
+    CandidateRankingExplanation,
+    RetrievalCandidate,
+)
 
 
 _ENGLISH_TECHNICAL_TERM = re.compile(r"[a-z0-9]+(?:\+\+|#)?")
@@ -129,25 +132,34 @@ class KnowledgeReranker:
             eligibility_score = min(1.0, max(0.0, raw_score + exact_boost + tag_boost))
             if eligibility_score < minimum_score:
                 continue
-            policy_score = next(
-                (
-                    float(score)
-                    for score in (
-                        candidate.fusion_score,
-                        candidate.semantic_score,
-                        candidate.lexical_score,
-                        chunk.score,
-                    )
-                    if score is not None
-                ),
-                0.0,
+            score_sources = (
+                ("fusion_score", candidate.fusion_score),
+                ("semantic_score", candidate.semantic_score),
+                ("lexical_score", candidate.lexical_score),
+                ("chunk_score", chunk.score),
             )
+            base_score_source, source_score = next(
+                ((name, score) for name, score in score_sources if score is not None),
+                ("chunk_score", 0.0),
+            )
+            policy_score = float(source_score)
             rerank_score = policy_score + exact_boost + tag_boost
             ranked.append(
                 candidate.model_copy(
                     update={
                         "chunk": chunk.model_copy(update={"score": rerank_score}),
                         "rerank_score": rerank_score,
+                        "ranking_explanation": CandidateRankingExplanation(
+                            base_score_source=base_score_source,
+                            base_score=policy_score,
+                            exact_term_boost=exact_boost,
+                            routing_tag_boost=tag_boost,
+                            eligibility_score=eligibility_score,
+                            eligible=True,
+                            final_rerank_score=rerank_score,
+                            tie_break_fusion_rank=candidate.fusion_rank,
+                            reason_codes=("eligible",),
+                        ),
                     }
                 )
             )

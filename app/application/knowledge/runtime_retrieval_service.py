@@ -58,6 +58,21 @@ class RuntimeKnowledgeRetrievalService:
         if callable(close):
             close()
 
+    def inspect(
+        self,
+        request: RetrievalRequest,
+        *,
+        profile: ResolvedRetrievalProfile,
+        engine: str,
+    ) -> RetrievalResult:
+        """Run a console diagnostic without assignment, Shadow, or trace recording."""
+
+        if engine == "legacy":
+            return self._legacy.retrieve(request, profile)
+        if engine == "hybrid-v2":
+            return self._candidate.retrieve(request, profile)
+        raise ValueError("unsupported diagnostic engine")
+
     def retrieve(
         self,
         request: RetrievalRequest,

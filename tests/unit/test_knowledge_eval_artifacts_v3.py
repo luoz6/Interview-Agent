@@ -12,6 +12,7 @@ from app.domain.knowledge.retrieval import (
     RetrievalCandidate,
     RetrievalResult,
     RetrievalTrace,
+    SanitizedRetrievalQueryFacts,
 )
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.knowledge_eval_artifacts_v3 import (
@@ -23,6 +24,8 @@ from app.services.knowledge_eval_artifacts_v3 import (
     evaluate_knowledge_engine_v3,
     load_eval_artifact_v3,
     write_frozen_eval_artifact,
+    write_retrieval_diagnostic_snapshots_v1,
+    load_retrieval_diagnostic_snapshot_v1,
 )
 from app.services.knowledge_eval_dataset_v3 import (
     KnowledgeRetrievalCaseV3,
@@ -121,6 +124,10 @@ class Engine:
                     request_id=request.request_id,
                     profile_id=profile.profile_id,
                     profile_version=profile.profile_version,
+                    sanitized_query_facts=SanitizedRetrievalQueryFacts(
+                        query_sha256="d" * 64,
+                        character_count=len(request.query_text),
+                    ),
                     latency_ms=2,
                 ),
                 retrieval_engine_version=self.ENGINE_VERSION,
@@ -146,6 +153,10 @@ class Engine:
                 request_id=request.request_id,
                 profile_id=profile.profile_id,
                 profile_version=profile.profile_version,
+                sanitized_query_facts=SanitizedRetrievalQueryFacts(
+                    query_sha256="e" * 64,
+                    character_count=len(request.query_text),
+                ),
                 latency_ms=4,
             ),
             retrieval_engine_version=self.ENGINE_VERSION,
@@ -247,6 +258,41 @@ def test_frozen_writer_refuses_overwrite_and_loader_detects_tampering(tmp_path):
     payload["cases"][0]["latency_ms"] = 999
     with pytest.raises(ValidationError, match="SHA-256 mismatch"):
         KnowledgeEvalArtifactV3.model_validate(payload)
+
+
+def test_snapshot_sidecars_use_the_same_eval_results_and_publish_atomically(tmp_path):
+    results = {}
+    engine = Engine()
+    identity = build_engine_identity_v3(
+        engine_version=engine.ENGINE_VERSION,
+        code_revision="deadbeef",
+        code_tree_sha256="c" * 64,
+        profile=PROFILE,
+        repository=Repository(),
+        corpus_version="corpus-v1",
+        corpus_manifest_sha256="a" * 64,
+    )
+    artifact = evaluate_knowledge_engine_v3(
+        _dataset(),
+        engine,
+        Repository(),
+        split="holdout",
+        profile=PROFILE,
+        identity=identity,
+        created_at=NOW,
+        result_observer=lambda case_id, result: results.__setitem__(case_id, result),
+    )
+
+    target = write_retrieval_diagnostic_snapshots_v1(artifact, results, tmp_path)
+
+    assert target.name == artifact.artifact_sha256
+    snapshot = load_retrieval_diagnostic_snapshot_v1(target / "redis-lock.json")
+    assert snapshot.artifact_sha256 == artifact.artifact_sha256
+    assert snapshot.selected_evidence_ids == ("lock",)
+    assert "PRIVATE KNOWLEDGE BODY" not in snapshot.model_dump_json()
+    assert not (tmp_path / f".{artifact.artifact_sha256}.staging").exists()
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        write_retrieval_diagnostic_snapshots_v1(artifact, results, tmp_path)
 
 
 def test_paired_artifact_requires_identical_dataset_corpus_split_and_cases():

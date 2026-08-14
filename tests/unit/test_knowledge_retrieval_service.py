@@ -86,7 +86,8 @@ def test_compatibility_service_owns_reranking_and_returns_trace_with_result():
     assert result.trace.channels[0].hit_ids == ["alpha", "beta"]
     assert result.retrieval_engine_version == "compatibility-v1"
     assert result.candidates[1].rerank_rank == 1
-    assert result.trace.trace_schema_version == "retrieval-trace-v2"
+    assert result.trace.trace_schema_version == "retrieval-trace-v3"
+    assert result.trace.latency_breakdown_ms["lexical"] is None
     assert result.trace.intent == RetrievalIntent.PREP
     assert result.trace.sanitized_query_facts.character_count == len(
         request.query_text

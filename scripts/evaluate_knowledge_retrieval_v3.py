@@ -31,6 +31,7 @@ from app.services.knowledge_eval_artifacts_v3 import (
     load_threshold_registration_v3,
     validate_registered_candidate_v3,
     write_frozen_eval_artifact,
+    write_retrieval_diagnostic_snapshots_v1,
 )
 from app.services.knowledge_eval_dataset_v3 import (
     DEFAULT_DATASET_V3_PATH,
@@ -72,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--code-revision")
     run.add_argument("--vector-validity-rate", type=float, default=1.0)
+    run.add_argument(
+        "--diagnostic-snapshot-root",
+        type=Path,
+        help="Optional frozen sidecar root; writes <artifact-sha>/<case-id>.json.",
+    )
 
     template = subparsers.add_parser("template")
     template.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST_PATH)
@@ -238,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
                     "threshold registration has different corpus_manifest_sha256"
                 )
             validate_registered_candidate_v3(registration, identity)
+        diagnostic_results = {}
         artifact = evaluate_knowledge_engine_v3(
             dataset,
             engine,
@@ -246,8 +253,23 @@ def main(argv: list[str] | None = None) -> int:
             profile=profile,
             identity=identity,
             vector_validity_rate=args.vector_validity_rate,
+            result_observer=(
+                lambda case_id, result: diagnostic_results.__setitem__(case_id, result)
+                if args.diagnostic_snapshot_root is not None
+                else None
+            ),
         )
         write_frozen_eval_artifact(artifact, args.output)
+        if args.diagnostic_snapshot_root is not None:
+            try:
+                write_retrieval_diagnostic_snapshots_v1(
+                    artifact,
+                    diagnostic_results,
+                    args.diagnostic_snapshot_root,
+                )
+            except Exception:
+                args.output.unlink(missing_ok=True)
+                raise
     finally:
         close = getattr(engine, "close", None)
         if callable(close):

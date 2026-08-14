@@ -67,6 +67,7 @@ _PROFILE_BY_INTENT = {
     RetrievalIntent.PREP: PREP_PROFILE,
     RetrievalIntent.FOLLOWUP: FOLLOWUP_PROFILE,
     RetrievalIntent.QUESTION_REVIEW: QUESTION_REVIEW_PROFILE,
+    RetrievalIntent.EVAL: QUESTION_REVIEW_PROFILE,
     RetrievalIntent.REPORT_REPAIR: REPORT_REPAIR_PROFILE,
 }
 
@@ -82,12 +83,14 @@ def resolve_runtime_profile(
         RetrievalIntent.PREP: settings.profile_prep,
         RetrievalIntent.FOLLOWUP: settings.profile_followup,
         RetrievalIntent.QUESTION_REVIEW: settings.profile_question_review,
+        RetrievalIntent.EVAL: settings.profile_question_review,
         RetrievalIntent.REPORT_REPAIR: settings.profile_report_repair,
     }.get(intent, settings.profile_prep)
     budget = {
         RetrievalIntent.PREP: settings.prep_budget,
         RetrievalIntent.FOLLOWUP: settings.followup_budget,
         RetrievalIntent.QUESTION_REVIEW: settings.question_review_budget,
+        RetrievalIntent.EVAL: settings.question_review_budget,
         RetrievalIntent.REPORT_REPAIR: settings.report_repair_budget,
     }.get(intent, settings.prep_budget)
     profile_id, separator, version = configured.rpartition("@")

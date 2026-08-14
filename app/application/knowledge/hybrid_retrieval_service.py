@@ -122,6 +122,7 @@ class HybridKnowledgeRetrievalService:
         else:
             availability = RetrievalAvailability.AVAILABLE
 
+        fusion_started_at = perf_counter()
         fused = fuse_retrieval_candidates(
             semantic.candidates if semantic in available else [],
             lexical.candidates if lexical in available else [],
@@ -131,13 +132,16 @@ class HybridKnowledgeRetrievalService:
             lexical_weight=profile.lexical_weight,
             limit=profile.fusion_candidate_limit,
         )
+        fusion_ms = round((perf_counter() - fusion_started_at) * 1000, 3)
         rerank_candidates = fused[: profile.rerank_candidate_limit]
+        rerank_started_at = perf_counter()
         ranked_candidates, reranker_reason = self._run_reranker(
             rerank_candidates,
             request=request,
             profile=profile,
             started_at=started_at,
         )
+        rerank_ms = round((perf_counter() - rerank_started_at) * 1000, 3)
         if reranker_reason:
             degraded_reasons.append(reranker_reason)
             if availability == RetrievalAvailability.AVAILABLE:
@@ -161,11 +165,15 @@ class HybridKnowledgeRetrievalService:
             for item in fused
         ]
         ranked_chunks = [item.chunk for item in ranked_candidates]
-        latency = round((perf_counter() - started_at) * 1000, 3)
+        evidence_gate_started_at = perf_counter()
         evidence_decision = self._evidence_gate.decide_selection(
             availability,
             ranked_chunks,
         )
+        evidence_gate_ms = round(
+            (perf_counter() - evidence_gate_started_at) * 1000, 3
+        )
+        latency = round((perf_counter() - started_at) * 1000, 3)
         return RetrievalResult(
             request_id=request.request_id,
             availability=availability,
@@ -180,18 +188,15 @@ class HybridKnowledgeRetrievalService:
                 degraded_reasons=degraded_reasons,
                 latency_ms=latency,
                 latency_breakdown_ms={
+                    "semantic": None,
+                    "lexical": None,
                     **{
                         item.trace.channel: item.trace.latency_ms
                         for item in channel_results
                     },
-                    "fusion_rerank_and_selection": max(
-                        0.0,
-                        latency
-                        - max(
-                            (item.trace.latency_ms for item in channel_results),
-                            default=0.0,
-                        ),
-                    ),
+                    "fusion": fusion_ms,
+                    "rerank": rerank_ms,
+                    "evidence_gate": evidence_gate_ms,
                     "total": latency,
                 },
                 fusion_summary=RetrievalFusionSummary(

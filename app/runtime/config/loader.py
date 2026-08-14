@@ -9,6 +9,7 @@ from app.runtime.config.models import (
     CoreRuntimeSettings,
     EffectiveRuntimeConfig,
     KnowledgeRuntimeSettings,
+    RagConsoleRuntimeSettings,
     KnowledgeProfileBudget,
     LLMRuntimeSettings,
     ProviderCredentialSettings,
@@ -90,6 +91,15 @@ def load_knowledge_runtime_settings(
         with use_environment(environ):
             return _load_knowledge_runtime_settings()
     return _load_knowledge_runtime_settings()
+
+
+def load_rag_console_runtime_settings(
+    environ: Mapping[str, str] | None = None,
+) -> RagConsoleRuntimeSettings:
+    if environ is not None:
+        with use_environment(environ):
+            return _load_rag_console_runtime_settings()
+    return _load_rag_console_runtime_settings()
 
 
 def load_langgraph_strict_msgpack(
@@ -401,6 +411,34 @@ def _load_knowledge_runtime_settings() -> KnowledgeRuntimeSettings:
         ),
         **profile_values,
         **component_versions,
+    )
+
+
+def _load_rag_console_runtime_settings() -> RagConsoleRuntimeSettings:
+    env = process_environment()
+    access_mode = env.get("RAG_DIAGNOSTIC_ACCESS_MODE", "loopback").strip().lower()
+    if access_mode != "loopback":
+        raise ValueError(
+            "RAG_DIAGNOSTIC_ACCESS_MODE must be loopback until authenticated "
+            "diagnostic principals are implemented"
+        )
+    return RagConsoleRuntimeSettings(
+        diagnostic_ui_enabled=_strict_bool(
+            env, "RAG_DIAGNOSTIC_UI_ENABLED", False
+        ),
+        live_inspector_enabled=_strict_bool(
+            env, "RAG_LIVE_INSPECTOR_ENABLED", False
+        ),
+        eval_artifact_access_enabled=_strict_bool(
+            env, "RAG_EVAL_ARTIFACT_ACCESS_ENABLED", False
+        ),
+        authored_eval_query_access_enabled=_strict_bool(
+            env, "RAG_EVAL_AUTHORED_QUERY_ACCESS_ENABLED", False
+        ),
+        corpus_write_enabled=_strict_bool(
+            env, "RAG_CORPUS_WRITE_ENABLED", False
+        ),
+        access_mode=access_mode,
     )
 
 

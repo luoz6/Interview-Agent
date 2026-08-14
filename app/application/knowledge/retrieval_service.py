@@ -47,6 +47,7 @@ class KnowledgeRetrievalService:
             candidate_limit=profile.semantic_candidate_limit,
         )
         raw_chunks = [candidate.chunk for candidate in channel.candidates]
+        rerank_started_at = perf_counter()
         ranked = self._reranker.rerank(
             raw_chunks,
             query_text=request.query_text,
@@ -57,6 +58,7 @@ class KnowledgeRetrievalService:
             minimum_score=profile.minimum_score,
             limit=profile.evidence_limit,
         )
+        rerank_ms = round((perf_counter() - rerank_started_at) * 1000, 3)
         scores = {chunk.chunk_id: float(chunk.score or 0.0) for chunk in ranked}
         rank_by_id = {chunk.chunk_id: rank for rank, chunk in enumerate(ranked, 1)}
         candidates = [
@@ -68,14 +70,18 @@ class KnowledgeRetrievalService:
             )
             for candidate in channel.candidates
         ]
-        latency_ms = round((perf_counter() - started_at) * 1000, 3)
         degraded_reasons = (
             [channel.trace.reason_code] if channel.trace.reason_code else []
         )
+        evidence_gate_started_at = perf_counter()
         evidence_decision = self._evidence_gate.decide_selection(
             channel.availability,
             ranked,
         )
+        evidence_gate_ms = round(
+            (perf_counter() - evidence_gate_started_at) * 1000, 3
+        )
+        latency_ms = round((perf_counter() - started_at) * 1000, 3)
         trace = build_retrieval_trace(
             request=request,
             profile=profile,
@@ -85,7 +91,10 @@ class KnowledgeRetrievalService:
             latency_ms=latency_ms,
             latency_breakdown_ms={
                 "semantic": channel.trace.latency_ms,
-                "rerank_and_selection": max(0.0, latency_ms - channel.trace.latency_ms),
+                "lexical": None,
+                "fusion": None,
+                "rerank": rerank_ms,
+                "evidence_gate": evidence_gate_ms,
                 "total": latency_ms,
             },
             fusion_summary=None,
