@@ -5,7 +5,6 @@ import hashlib
 import json
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -23,13 +22,10 @@ from app.application.knowledge.retrieval_profiles import compatibility_profile
 from app.domain.knowledge.retrieval import ResolvedRetrievalProfile
 from app.services.knowledge_eval_artifacts_v3 import (
     build_engine_identity_v3,
-    build_threshold_registration_v3,
     canonical_sha256,
     compare_knowledge_eval_artifacts_v3,
     evaluate_knowledge_engine_v3,
     load_eval_artifact_v3,
-    load_threshold_registration_v3,
-    validate_registered_candidate_v3,
     write_frozen_eval_artifact,
     write_retrieval_diagnostic_snapshots_v1,
 )
@@ -52,8 +48,8 @@ ABLATION_CHOICES = (
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Template, validate, run, pre-register, and compare "
-            "privacy-safe Knowledge Eval V3 artifacts"
+            "Validate, run, and compare privacy-safe Knowledge Eval V3 "
+            "diagnostic artifacts"
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -68,7 +64,6 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--engine", choices=("legacy", "hybrid-v2"), required=True)
     run.add_argument("--ablation", choices=ABLATION_CHOICES)
     run.add_argument("--profile", type=Path)
-    run.add_argument("--thresholds", type=Path)
     run.add_argument("--split", choices=("tuning", "holdout"), required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--code-revision")
@@ -79,50 +74,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional frozen sidecar root; writes <artifact-sha>/<case-id>.json.",
     )
 
-    template = subparsers.add_parser("template")
-    template.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST_PATH)
-    template.add_argument("--output", type=Path, required=True)
-    template.add_argument("--catalog-output", type=Path, required=True)
-
-    register = subparsers.add_parser("register-thresholds")
-    register.add_argument("--baseline", type=Path, required=True)
-    register.add_argument("--policy", type=Path, required=True)
-    register.add_argument(
-        "--candidate-ablation",
-        choices=ABLATION_CHOICES,
-        default="weighted-rrf",
-    )
-    register.add_argument("--candidate-profile", type=Path)
-    register.add_argument("--candidate-code-revision")
-    register.add_argument("--output", type=Path, required=True)
-
     compare = subparsers.add_parser("compare")
     compare.add_argument("--baseline", type=Path, required=True)
     compare.add_argument("--candidate", type=Path, required=True)
-    compare.add_argument("--thresholds", type=Path)
     compare.add_argument("--output", type=Path, required=True)
 
     args = parser.parse_args(argv)
-    if args.command == "template":
-        manifest = _load_manifest(args.manifest)
-        template_artifact, catalog = _annotation_template(manifest)
-        _write_frozen_json(template_artifact, args.output)
-        try:
-            _write_frozen_json(catalog, args.catalog_output)
-        except Exception:
-            args.output.unlink(missing_ok=True)
-            raise
-        print(
-            json.dumps(
-                {
-                    "annotation_template": str(args.output),
-                    "chunk_catalog": str(args.catalog_output),
-                    "chunk_count": len(catalog["chunks"]),
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
     if args.command == "validate":
         dataset, _ = _load_dataset(args.dataset, args.manifest)
         print(
@@ -140,15 +97,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "compare":
         baseline = load_eval_artifact_v3(args.baseline)
-        registration = (
-            load_threshold_registration_v3(args.thresholds)
-            if args.thresholds is not None
-            else None
-        )
         paired = compare_knowledge_eval_artifacts_v3(
             baseline,
             load_eval_artifact_v3(args.candidate),
-            threshold_registration=registration,
         )
         write_frozen_eval_artifact(paired, args.output)
         print(
@@ -157,46 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                     "artifact": str(args.output),
                     "artifact_sha256": paired.artifact_sha256,
                     "split": paired.split,
-                    "thresholds_passed": paired.thresholds_passed,
-                    "failed_thresholds": list(paired.failed_thresholds),
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
-    if args.command == "register-thresholds":
-        baseline = load_eval_artifact_v3(args.baseline)
-        policy = json.loads(args.policy.read_text(encoding="utf-8"))
-        candidate_profile = _profile(
-            "hybrid-v2",
-            ablation=args.candidate_ablation,
-            profile_path=args.candidate_profile,
-        )
-        registration = build_threshold_registration_v3(
-            baseline,
-            primary_metric=policy["primary_metric"],
-            minimum_deltas=policy["minimum_deltas"],
-            maximum_deltas=policy["maximum_deltas"],
-            absolute_minimums=policy["absolute_minimums"],
-            absolute_maximums=policy["absolute_maximums"],
-            profile_p95_budgets_ms=policy["profile_p95_budgets_ms"],
-            profile_p95_relative_limits=policy["profile_p95_relative_limits"],
-            candidate_engine_version=_engine_version(
-                "hybrid-v2", args.candidate_ablation
-            ),
-            candidate_code_revision=(
-                args.candidate_code_revision or _git_revision()
-            ),
-            candidate_code_tree_sha256=_code_tree_sha256(),
-            candidate_profile=candidate_profile,
-            rationale_record_sha256=policy["rationale_record_sha256"],
-        )
-        write_frozen_eval_artifact(registration, args.output)
-        print(
-            json.dumps(
-                {
-                    "artifact": str(args.output),
-                    "registration_sha256": registration.registration_sha256,
+                    "comparison_status": "diagnostic",
                 },
                 sort_keys=True,
             )
@@ -207,10 +119,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.engine == "legacy" and (args.ablation is not None or args.profile is not None):
         raise ValueError("Legacy evaluation does not accept Hybrid ablation/profile")
     ablation = args.ablation or "weighted-rrf"
-    if args.split == "holdout" and args.engine == "hybrid-v2" and args.thresholds is None:
-        raise ValueError(
-            "Hybrid holdout run requires a pre-registered threshold artifact"
-        )
     repository = PgVectorKnowledgeStore.from_env(schema_mode="validate")
     profile = _profile(args.engine, ablation=ablation, profile_path=args.profile)
     engine = _engine(args.engine, repository, ablation=ablation)
@@ -224,26 +132,6 @@ def main(argv: list[str] | None = None) -> int:
             corpus_version=str(manifest["corpus_version"]),
             corpus_manifest_sha256=str(manifest["corpus_manifest_sha256"]),
         )
-        if args.split == "holdout" and args.engine == "hybrid-v2":
-            registration = load_threshold_registration_v3(args.thresholds)
-            if registration.registered_at >= datetime.now(timezone.utc):
-                raise ValueError(
-                    "threshold registration must predate the Hybrid holdout run"
-                )
-            if registration.dataset_version != dataset.version:
-                raise ValueError("threshold registration has different dataset_version")
-            if registration.dataset_sha256 != canonical_sha256(
-                dataset.model_dump(mode="json")
-            ):
-                raise ValueError("threshold registration has different dataset_sha256")
-            if (
-                registration.corpus_manifest_sha256
-                != str(manifest["corpus_manifest_sha256"])
-            ):
-                raise ValueError(
-                    "threshold registration has different corpus_manifest_sha256"
-                )
-            validate_registered_candidate_v3(registration, identity)
         diagnostic_results = {}
         artifact = evaluate_knowledge_engine_v3(
             dataset,
@@ -295,92 +183,13 @@ def _load_dataset(dataset_path: Path, manifest_path: Path):
     dataset = load_knowledge_retrieval_dataset_v3(
         dataset_path,
         manifest=manifest,
-        require_release_shape=True,
+        require_diagnostic_integrity=True,
     )
     return dataset, manifest
 
 
 def _load_manifest(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _annotation_template(manifest: dict) -> tuple[dict, dict]:
-    manifest_sha = str(manifest["corpus_manifest_sha256"])
-    template = {
-        "schema_version": "knowledge-eval-v3-annotation-template",
-        "dataset": {
-            "version": "REPLACE_WITH_FROZEN_DATASET_VERSION",
-            "corpus_manifest_sha256": manifest_sha,
-            "governance": {
-                "annotation_protocol_version": "REPLACE_ME",
-                "annotator_role": "REPLACE_ME",
-                "minimum_annotators_per_case": 2,
-                "implementation_output_blinded": True,
-                "split_frozen": True,
-                "agreement_metric": "REPLACE_ME",
-                "agreement_value": None,
-                "minimum_agreement": None,
-                "labeling_started_at": "REPLACE_WITH_TIMEZONE_AWARE_TIMESTAMP",
-                "split_frozen_at": "REPLACE_WITH_TIMEZONE_AWARE_TIMESTAMP",
-                "provenance_record_sha256": "REPLACE_WITH_SHA256",
-            },
-            "cases": [],
-        },
-        "case_schema": {
-            "case_id": "",
-            "case_family": "",
-            "case_type": "",
-            "split": "tuning_or_holdout",
-            "evaluation_group": "",
-            "query_text": "",
-            "canonical_tags": [],
-            "source_types": [],
-            "allowed_domains": [],
-            "primary_relevant_chunk_ids": [],
-            "accepted_related_chunk_ids": [],
-            "excluded_chunk_ids": [],
-            "annotator_identity_sha256s": [],
-            "annotation_record_sha256s": [],
-            "label_consensus_record_sha256": None,
-            "expected_no_evidence": False,
-            "top_k": 5,
-        },
-        "rules": [
-            "Create 80-120 independently labeled cases; do not copy engine output.",
-            "Freeze case-family split before any engine evaluation.",
-            "Keep each case family entirely within tuning or holdout.",
-            "Use at least two blinded annotators and retain hashed records.",
-        ],
-    }
-    catalog_fields = (
-        "chunk_id",
-        "title",
-        "domain",
-        "source_type",
-        "tags",
-        "aliases",
-        "content_kind",
-    )
-    catalog = {
-        "schema_version": "knowledge-eval-v3-chunk-catalog",
-        "corpus_version": manifest["corpus_version"],
-        "corpus_manifest_sha256": manifest_sha,
-        "chunks": [
-            {key: item[key] for key in catalog_fields if key in item}
-            for item in manifest.get("chunks", [])
-        ],
-    }
-    return template, catalog
-
-
-def _write_frozen_json(payload: dict, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with path.open("x", encoding="utf-8", newline="\n") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
-    except FileExistsError as exc:
-        raise FileExistsError(f"refusing to overwrite frozen eval artifact: {path}") from exc
 
 
 def _profile(

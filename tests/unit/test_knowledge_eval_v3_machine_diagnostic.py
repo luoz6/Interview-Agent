@@ -12,7 +12,7 @@ def test_machine_diagnostic_rejects_candidate_claiming_independent_evidence(
 ):
     monkeypatch.setattr(
         diagnostic,
-        "validate_machine_dataset",
+        "validate_diagnostic_dataset",
         lambda *args: {"eligible_as_independent_eval_evidence": True},
     )
 
@@ -26,13 +26,18 @@ def test_machine_diagnostic_rejects_candidate_claiming_independent_evidence(
         )
 
 
-def test_machine_paired_diagnostic_refuses_unregistered_holdout(monkeypatch):
+def test_machine_paired_diagnostic_requires_the_same_diagnostic_split(monkeypatch):
     class Artifact:
-        split = "holdout"
+        def __init__(self, split):
+            self.split = split
 
-    monkeypatch.setattr(diagnostic, "load_eval_artifact_v3", lambda path: Artifact())
+    monkeypatch.setattr(
+        diagnostic,
+        "load_eval_artifact_v3",
+        lambda path: Artifact("tuning" if "baseline" in str(path) else "holdout"),
+    )
 
-    with pytest.raises(ValueError, match="limited to tuning"):
+    with pytest.raises(ValueError, match="same split"):
         diagnostic.compare_machine_diagnostics(
             baseline_path=Path("baseline.json"),
             candidate_path=Path("candidate.json"),

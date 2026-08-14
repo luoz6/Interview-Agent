@@ -145,12 +145,12 @@ function artifact(overrides = {}) {
     artifact_sha256: "a".repeat(64), schema_version: "knowledge-eval-artifact-v3",
     dataset_version: "eval-v3", split: "tuning", engine_version: "legacy",
     created_at: "2026-08-13T00:00:00Z", case_count: 75,
-    annotation_status: "machine_preannotation", human_annotator_count: 0,
-    independent_evidence_eligible: false, holdout_status: "not_applicable",
+    benchmark_type: "demo_diagnostic_dataset", label_source: "curated_machine_assisted",
+    purpose: "engineering_comparison", diagnostic_status: "current",
     corpus_manifest_sha256: "b".repeat(64), embedding_provider: "siliconflow",
     embedding_model: "BAAI/bge-m3", embedding_revision: "revision-v1", embedding_dimension: 1024,
     code_revision: "revision", code_tree_sha256: "c".repeat(64), profile_id: "question-review",
-    profile_version: "hybrid-v1", profile_sha256: "d".repeat(64), promotion_status: "blocked",
+    profile_version: "hybrid-v1", profile_sha256: "d".repeat(64),
     diagnostic_fidelity: "partial_historical", metrics,
     ...overrides,
   };
@@ -318,13 +318,13 @@ describe("RAG console diagnostics", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/rag/evidence-traces/session-1", expect.any(Object)));
   });
 
-  it("renders evaluation identity before KPI, historical governance, server summaries, and partial replay", async () => {
+  it("renders diagnostic identity before KPI, paired summaries, and partial replay", async () => {
     const user = userEvent.setup();
     const tuning = artifact();
-    const historical = artifact({ artifact_sha256: "e".repeat(64), split: "holdout", case_count: 25, holdout_status: "historical_diagnostic" });
+    const historical = artifact({ artifact_sha256: "e".repeat(64), split: "holdout", case_count: 25, diagnostic_status: "historical_compatible" });
     routeFetch({
-      "/api/rag/evaluations": { schema_version: "rag-artifact-catalog-v1", artifacts: [tuning, historical] },
-      "/api/rag/evaluations-paired": { schema_version: "rag-paired-evaluations-v1", comparisons: [{ artifact_sha256: "f".repeat(64), dataset_version: "eval-v3", split: "tuning", baseline_artifact_sha256: tuning.artifact_sha256, candidate_artifact_sha256: "9".repeat(64), baseline_engine_version: "legacy", candidate_engine_version: "hybrid-v2", thresholds_passed: null, failed_thresholds: [], metrics: [], case_type_deltas: {} }] },
+      "/api/rag/evaluations": { schema_version: "rag-artifact-catalog-v2", artifacts: [tuning, historical] },
+      "/api/rag/evaluations-paired": { schema_version: "rag-paired-evaluations-v2", comparisons: [{ artifact_sha256: "f".repeat(64), dataset_version: "eval-v3", split: "tuning", baseline_artifact_sha256: tuning.artifact_sha256, candidate_artifact_sha256: "9".repeat(64), baseline_engine_version: "legacy", candidate_engine_version: "hybrid-v2", comparison_status: "diagnostic", metrics: [], case_type_deltas: {} }] },
       [`/api/rag/evaluations/${tuning.artifact_sha256}/cases`]: { artifact_sha256: tuning.artifact_sha256, cases: [
         { case_id: "alias-case", case_type: "alias_only", evaluation_group: "alias", primary_relevant_chunk_ids: ["redis-lock"], accepted_related_chunk_ids: [], excluded_chunk_ids: [], expected_no_evidence: false, availability: "available", selected_evidence_ids: ["redis-lock"], declared_no_evidence: false, latency_ms: 4, reason_codes: [], diagnostic_fidelity: "partial_historical", diagnostic_snapshot_ref: null },
         { case_id: "negative-case", case_type: "hard_negative", evaluation_group: "negative", primary_relevant_chunk_ids: [], accepted_related_chunk_ids: [], excluded_chunk_ids: ["redis-lock"], expected_no_evidence: true, availability: "available", selected_evidence_ids: ["redis-lock"], declared_no_evidence: false, latency_ms: 5, reason_codes: ["false_evidence"], diagnostic_fidelity: "partial_historical", diagnostic_snapshot_ref: null },
@@ -335,10 +335,11 @@ describe("RAG console diagnostics", () => {
     render(<RagEvaluationPage />);
 
     const identity = await screen.findByText("冻结执行身份");
-    const matrix = screen.getByText("Legacy 与候选检索引擎对比");
+    const matrix = screen.getByText("Legacy 与检索引擎对比");
     expect(identity.compareDocumentPosition(matrix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("历史机器留出集")).toBeInTheDocument();
-    expect(await screen.findByText("未评估")).toBeInTheDocument();
+    expect(screen.getByText("历史兼容的最终诊断集")).toBeInTheDocument();
+    expect(await screen.findByText("诊断比较")).toBeInTheDocument();
+    expect(screen.queryByText(/发布证据|证据资格|人工标注人数/)).not.toBeInTheDocument();
     expect(screen.getByText("错误返回证据").nextElementSibling).toHaveTextContent("8");
     expect(screen.getAllByText(/alias_only/).length).toBeGreaterThan(1);
     expect(await screen.findAllByText("缺失阶段不会被重建。")).not.toHaveLength(0);
@@ -354,8 +355,8 @@ describe("RAG console diagnostics", () => {
     const rejected = artifact({ artifact_sha256: "8".repeat(64), engine_version: "hybrid-v2:rank-normalized-score" });
     const candidate = artifact({ artifact_sha256: "7".repeat(64), engine_version: "hybrid-v2:weighted-rrf" });
     routeFetch({
-      "/api/rag/evaluations": { schema_version: "rag-artifact-catalog-v1", artifacts: [rejected, candidate] },
-      "/api/rag/evaluations-paired": { schema_version: "rag-paired-evaluations-v1", comparisons: [] },
+      "/api/rag/evaluations": { schema_version: "rag-artifact-catalog-v2", artifacts: [rejected, candidate] },
+      "/api/rag/evaluations-paired": { schema_version: "rag-paired-evaluations-v2", comparisons: [] },
       [`/api/rag/evaluations/${candidate.artifact_sha256}/cases`]: { artifact_sha256: candidate.artifact_sha256, cases: [] },
       [`/api/rag/evaluations/${candidate.artifact_sha256}/no-evidence`]: { correct_evidence: 0, false_abstention: 0, false_evidence: 0, correct_abstention: 0, total_case_count: 0, expected_no_evidence_count: 0, abstention_count: 0, no_evidence_prevalence: 0, abstention_rate: 0, precision: 0, recall: 0, f1: 0 },
     });

@@ -208,12 +208,10 @@ class ArtifactSummary(SafeModel):
     engine_version: str
     created_at: datetime
     case_count: int
-    annotation_status: str
-    human_annotator_count: int = Field(ge=0)
-    independent_evidence_eligible: bool
-    holdout_status: Literal[
-        "not_applicable", "historical_diagnostic", "sealed", "formal"
-    ]
+    benchmark_type: Literal["demo_diagnostic_dataset"]
+    label_source: Literal["curated_machine_assisted"]
+    purpose: Literal["engineering_comparison"]
+    diagnostic_status: Literal["current", "historical_compatible"]
     corpus_manifest_sha256: str
     embedding_provider: str
     embedding_model: str
@@ -224,18 +222,17 @@ class ArtifactSummary(SafeModel):
     profile_id: str
     profile_version: str
     profile_sha256: str
-    promotion_status: Literal["blocked", "not_evaluated"] = "blocked"
     diagnostic_fidelity: Literal["full_snapshot", "partial_historical"]
     metrics: dict[str, object]
 
 
 class ArtifactCatalogResponse(SafeModel):
-    schema_version: str = "rag-artifact-catalog-v1"
+    schema_version: str = "rag-artifact-catalog-v2"
     artifacts: tuple[ArtifactSummary, ...]
 
 
 class ArtifactDetailResponse(SafeModel):
-    schema_version: str = "rag-artifact-detail-v1"
+    schema_version: str = "rag-artifact-detail-v2"
     artifact: ArtifactSummary
     paired_comparisons: tuple["PairedEvaluationSummary", ...] = ()
 
@@ -248,14 +245,13 @@ class PairedEvaluationSummary(SafeModel):
     candidate_artifact_sha256: str
     baseline_engine_version: str
     candidate_engine_version: str
-    thresholds_passed: bool | None
-    failed_thresholds: tuple[str, ...]
+    comparison_status: Literal["diagnostic"] = "diagnostic"
     metrics: tuple[dict[str, str | float], ...]
     case_type_deltas: dict[str, dict[str, float]]
 
 
 class PairedEvaluationsResponse(SafeModel):
-    schema_version: str = "rag-paired-evaluations-v1"
+    schema_version: str = "rag-paired-evaluations-v2"
     comparisons: tuple[PairedEvaluationSummary, ...]
 
 

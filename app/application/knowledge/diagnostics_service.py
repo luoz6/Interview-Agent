@@ -198,8 +198,6 @@ class RagArtifactCatalog:
                     candidate_artifact_sha256=value.candidate_artifact_sha256,
                     baseline_engine_version=baseline.identity.engine_version,
                     candidate_engine_version=candidate.identity.engine_version,
-                    thresholds_passed=value.thresholds_passed,
-                    failed_thresholds=value.failed_thresholds,
                     metrics=tuple(
                         item.model_dump(mode="json") for item in value.comparison.metrics
                     ),
@@ -278,13 +276,11 @@ class RagArtifactCatalog:
             engine_version=artifact.identity.engine_version,
             created_at=artifact.created_at,
             case_count=artifact.metrics.case_count,
-            annotation_status="machine_preannotation",
-            human_annotator_count=0,
-            independent_evidence_eligible=False,
-            holdout_status=(
-                "historical_diagnostic"
-                if artifact.split == "holdout"
-                else "not_applicable"
+            benchmark_type="demo_diagnostic_dataset",
+            label_source="curated_machine_assisted",
+            purpose="engineering_comparison",
+            diagnostic_status=(
+                "historical_compatible" if artifact.split == "holdout" else "current"
             ),
             corpus_manifest_sha256=artifact.identity.corpus_manifest_sha256,
             embedding_provider=artifact.identity.provider_name,
@@ -311,7 +307,7 @@ class RagArtifactCatalog:
                 dataset = load_knowledge_retrieval_dataset_v3(
                     path,
                     manifest=_manifest(),
-                    require_release_shape=False,
+                    require_diagnostic_integrity=False,
                 )
             except (ValueError, OSError):
                 continue

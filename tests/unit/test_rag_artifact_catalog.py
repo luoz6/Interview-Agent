@@ -160,9 +160,10 @@ def test_machine_preannotation_holdout_is_visible_only_as_historical_diagnostic(
 
     assert len(holdouts) == 1
     assert holdouts[0].case_count == 25
-    assert holdouts[0].holdout_status == "historical_diagnostic"
-    assert holdouts[0].human_annotator_count == 0
-    assert holdouts[0].independent_evidence_eligible is False
+    assert holdouts[0].benchmark_type == "demo_diagnostic_dataset"
+    assert holdouts[0].label_source == "curated_machine_assisted"
+    assert holdouts[0].purpose == "engineering_comparison"
+    assert holdouts[0].diagnostic_status == "historical_compatible"
     assert catalog.load(holdouts[0].artifact_sha256).split == "holdout"
 
 

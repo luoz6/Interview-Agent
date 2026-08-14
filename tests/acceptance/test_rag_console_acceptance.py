@@ -307,7 +307,7 @@ def test_compare_rejects_mixed_corpus_identity_without_reflecting_query():
     assert "private mixed identity query" not in response.text
 
 
-def test_artifact_catalog_replay_is_provider_free_and_historical_holdout_is_not_sealed():
+def test_artifact_catalog_replay_is_provider_free_and_holdout_is_diagnostic_only():
     class RetrievalMustNotRun:
         def inspect_retrieval(self, *args, **kwargs):
             raise AssertionError("artifact replay must not call retrieval")
@@ -329,8 +329,10 @@ def test_artifact_catalog_replay_is_provider_free_and_historical_holdout_is_not_
     assert listed.status_code == 200
     assert len(listed.json()["artifacts"]) == 6
     assert historical.case_count == 25
-    assert historical.holdout_status == "historical_diagnostic"
-    assert historical.independent_evidence_eligible is False
+    assert historical.benchmark_type == "demo_diagnostic_dataset"
+    assert historical.label_source == "curated_machine_assisted"
+    assert historical.purpose == "engineering_comparison"
+    assert historical.diagnostic_status == "historical_compatible"
     assert replay.status_code == 200
     assert replay.json()["diagnostic_fidelity"] == "partial_historical"
     assert replay.json()["provider_call_possible"] is False
@@ -473,7 +475,7 @@ def test_artifact_detail_returns_safe_dto_and_invalid_identity_fails_closed():
 
     assert detail.status_code == 200
     body = detail.json()
-    assert body["schema_version"] == "rag-artifact-detail-v1"
+    assert body["schema_version"] == "rag-artifact-detail-v2"
     assert body["artifact"]["artifact_sha256"] == artifact.artifact_sha256
     assert isinstance(body["paired_comparisons"], list)
     for forbidden in (

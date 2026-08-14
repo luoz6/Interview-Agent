@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Literal
@@ -220,10 +219,6 @@ class KnowledgeEvalPairedArtifactV3(BaseModel):
             raise ValueError("paired artifact created_at must be timezone-aware")
         if self.comparison.split != self.split:
             raise ValueError("paired artifact comparison split mismatch")
-        if self.split == "holdout" and self.threshold_registration_sha256 is None:
-            raise ValueError("holdout paired artifact requires threshold registration")
-        if self.split == "holdout" and self.thresholds_passed is None:
-            raise ValueError("holdout paired artifact requires a threshold decision")
         if self.thresholds_passed is True and self.failed_thresholds:
             raise ValueError("passing paired artifact cannot contain failed thresholds")
         if self.thresholds_passed is False and not self.failed_thresholds:
@@ -232,175 +227,6 @@ class KnowledgeEvalPairedArtifactV3(BaseModel):
         if canonical_sha256(payload) != self.artifact_sha256:
             raise ValueError("paired artifact SHA-256 mismatch")
         return self
-
-
-class KnowledgeEvalThresholdRegistrationV3(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: str = "knowledge-eval-threshold-registration-v3"
-    registered_at: datetime
-    dataset_version: str = Field(min_length=1)
-    dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    split: DatasetSplit
-    baseline_artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    candidate_engine_version: str = Field(min_length=1)
-    candidate_code_revision: str = Field(min_length=1)
-    candidate_code_tree_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    candidate_profile_id: str = Field(min_length=1)
-    candidate_profile_version: str = Field(min_length=1)
-    candidate_profile_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    candidate_provider_name: str = Field(min_length=1)
-    candidate_model_name: str = Field(min_length=1)
-    candidate_model_revision: str = Field(min_length=1)
-    candidate_embedding_dimension: int = Field(ge=1)
-    primary_metric: str = Field(min_length=1)
-    minimum_deltas: dict[str, float]
-    maximum_deltas: dict[str, float]
-    absolute_minimums: dict[str, float]
-    absolute_maximums: dict[str, float]
-    profile_p95_budgets_ms: dict[str, float]
-    profile_p95_relative_limits: dict[str, float]
-    rationale_record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    registration_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-    @model_validator(mode="after")
-    def validate_integrity(self):
-        if self.registered_at.tzinfo is None:
-            raise ValueError("threshold registration time must be timezone-aware")
-        if self.split != "holdout":
-            raise ValueError("threshold registration is required for holdout")
-        registered_metrics = (
-            set(self.minimum_deltas)
-            | set(self.maximum_deltas)
-            | set(self.absolute_minimums)
-            | set(self.absolute_maximums)
-        )
-        known_metrics = {
-            "recall_at_5",
-            "mrr_at_5",
-            "ndcg_at_5",
-            "hit_at_1",
-            "filter_correctness_rate",
-            "vector_validity_rate",
-            "hard_negative_false_positive_rate",
-            "no_evidence_precision",
-            "no_evidence_recall",
-            "no_evidence_f1",
-            "evidence_precision_at_5",
-            "domain_routing_accuracy",
-            "topic_routing_accuracy",
-            "cross_channel_contribution_rate",
-            "evidence_replay_stability_rate",
-            "observation_completeness_rate",
-            "excluded_chunk_violation_rate",
-            "p95_latency_ms",
-        }
-        unknown = sorted(registered_metrics - known_metrics)
-        if unknown:
-            raise ValueError(
-                "threshold registration has unknown metrics: " + ", ".join(unknown)
-            )
-        all_thresholds = (
-            list(self.minimum_deltas.values())
-            + list(self.maximum_deltas.values())
-            + list(self.absolute_minimums.values())
-            + list(self.absolute_maximums.values())
-            + list(self.profile_p95_budgets_ms.values())
-            + list(self.profile_p95_relative_limits.values())
-        )
-        if any(not math.isfinite(value) for value in all_thresholds):
-            raise ValueError("threshold values must be finite")
-        required_metrics = {
-            "recall_at_5",
-            "mrr_at_5",
-            "ndcg_at_5",
-            "hit_at_1",
-            "hard_negative_false_positive_rate",
-            "no_evidence_f1",
-            "excluded_chunk_violation_rate",
-            "evidence_replay_stability_rate",
-            "observation_completeness_rate",
-            "p95_latency_ms",
-        }
-        missing = sorted(required_metrics - registered_metrics)
-        if missing:
-            raise ValueError(
-                "threshold registration is missing release metrics: "
-                + ", ".join(missing)
-            )
-        if self.primary_metric not in registered_metrics:
-            raise ValueError("primary metric must have a registered threshold")
-        if not self.profile_p95_budgets_ms:
-            raise ValueError("threshold registration requires profile latency budgets")
-        if set(self.profile_p95_budgets_ms) != set(self.profile_p95_relative_limits):
-            raise ValueError(
-                "absolute and relative profile latency budgets must cover the same profiles"
-            )
-        if any(value <= 0 for value in self.profile_p95_budgets_ms.values()):
-            raise ValueError("profile latency budgets must be positive")
-        if any(value <= 0 for value in self.profile_p95_relative_limits.values()):
-            raise ValueError("relative profile latency limits must be positive")
-        if self.candidate_profile_id not in self.profile_p95_budgets_ms:
-            raise ValueError(
-                "threshold registration requires latency budgets for candidate profile"
-            )
-        payload = self.model_dump(mode="json", exclude={"registration_sha256"})
-        if canonical_sha256(payload) != self.registration_sha256:
-            raise ValueError("threshold registration SHA-256 mismatch")
-        return self
-
-
-def build_threshold_registration_v3(
-    baseline: KnowledgeEvalArtifactV3,
-    *,
-    primary_metric: str,
-    minimum_deltas: dict[str, float],
-    maximum_deltas: dict[str, float],
-    absolute_minimums: dict[str, float],
-    absolute_maximums: dict[str, float],
-    profile_p95_budgets_ms: dict[str, float],
-    profile_p95_relative_limits: dict[str, float],
-    candidate_engine_version: str,
-    candidate_code_revision: str,
-    candidate_code_tree_sha256: str,
-    candidate_profile: ResolvedRetrievalProfile,
-    rationale_record_sha256: str,
-    registered_at: datetime | None = None,
-) -> KnowledgeEvalThresholdRegistrationV3:
-    payload = {
-        "schema_version": "knowledge-eval-threshold-registration-v3",
-        "registered_at": registered_at or datetime.now(timezone.utc),
-        "dataset_version": baseline.dataset_version,
-        "dataset_sha256": baseline.dataset_sha256,
-        "corpus_manifest_sha256": baseline.identity.corpus_manifest_sha256,
-        "split": baseline.split,
-        "baseline_artifact_sha256": baseline.artifact_sha256,
-        "candidate_engine_version": candidate_engine_version,
-        "candidate_code_revision": candidate_code_revision,
-        "candidate_code_tree_sha256": candidate_code_tree_sha256,
-        "candidate_profile_id": candidate_profile.profile_id,
-        "candidate_profile_version": candidate_profile.profile_version,
-        "candidate_profile_sha256": canonical_sha256(
-            candidate_profile.model_dump(mode="json")
-        ),
-        "candidate_provider_name": baseline.identity.provider_name,
-        "candidate_model_name": baseline.identity.model_name,
-        "candidate_model_revision": baseline.identity.model_revision,
-        "candidate_embedding_dimension": baseline.identity.embedding_dimension,
-        "primary_metric": primary_metric,
-        "minimum_deltas": minimum_deltas,
-        "maximum_deltas": maximum_deltas,
-        "absolute_minimums": absolute_minimums,
-        "absolute_maximums": absolute_maximums,
-        "profile_p95_budgets_ms": profile_p95_budgets_ms,
-        "profile_p95_relative_limits": profile_p95_relative_limits,
-        "rationale_record_sha256": rationale_record_sha256,
-    }
-    return KnowledgeEvalThresholdRegistrationV3(
-        **payload,
-        registration_sha256=canonical_sha256(payload),
-    )
 
 
 def build_engine_identity_v3(
@@ -430,7 +256,6 @@ def build_engine_identity_v3(
         corpus_version=corpus_version,
         corpus_manifest_sha256=corpus_manifest_sha256,
     )
-
 
 def evaluate_knowledge_engine_v3(
     dataset: KnowledgeRetrievalDatasetV3,
@@ -497,7 +322,7 @@ def evaluate_knowledge_engine_v3(
         "schema_version": "knowledge-eval-artifact-v3",
         "created_at": created_at or datetime.now(timezone.utc),
         "dataset_version": dataset.version,
-        "dataset_sha256": canonical_sha256(dataset.model_dump(mode="json")),
+        "dataset_sha256": canonical_sha256(dataset.identity_payload()),
         "split": split,
         "identity": identity,
         "vector_validity_rate": vector_validity_rate,
@@ -514,9 +339,10 @@ def compare_knowledge_eval_artifacts_v3(
     baseline: KnowledgeEvalArtifactV3,
     candidate: KnowledgeEvalArtifactV3,
     *,
-    threshold_registration: KnowledgeEvalThresholdRegistrationV3 | None = None,
     created_at: datetime | None = None,
 ) -> KnowledgeEvalPairedArtifactV3:
+    """Build an identity-bound diagnostic comparison without release gates."""
+
     for field_name in ("dataset_version", "dataset_sha256", "split"):
         if getattr(baseline, field_name) != getattr(candidate, field_name):
             raise ValueError(f"paired artifacts have different {field_name}")
@@ -541,19 +367,10 @@ def compare_knowledge_eval_artifacts_v3(
         raise ValueError("paired artifacts require the same ordered case IDs")
     if baseline.identity.engine_version == candidate.identity.engine_version:
         raise ValueError("paired artifacts require different engine versions")
-    if baseline.split == "holdout":
-        if threshold_registration is None:
-            raise ValueError(
-                "holdout comparison requires a pre-registered threshold artifact"
-            )
-        _validate_threshold_registration(threshold_registration, baseline, candidate)
+
     comparison = compare_knowledge_retrieval_metrics_v3(
-        baseline.metrics, candidate.metrics
-    )
-    failed_thresholds = (
-        _failed_thresholds(comparison, threshold_registration, candidate)
-        if threshold_registration is not None
-        else ()
+        baseline.metrics,
+        candidate.metrics,
     )
     payload = {
         "schema_version": "knowledge-eval-paired-v3",
@@ -564,16 +381,11 @@ def compare_knowledge_eval_artifacts_v3(
         "split": baseline.split,
         "baseline_artifact_sha256": baseline.artifact_sha256,
         "candidate_artifact_sha256": candidate.artifact_sha256,
-        "threshold_registration_sha256": (
-            threshold_registration.registration_sha256
-            if threshold_registration is not None
-            else None
-        ),
+        # Legacy release-era fields remain null so old artifacts stay readable.
+        "threshold_registration_sha256": None,
         "comparison": comparison,
-        "thresholds_passed": (
-            not failed_thresholds if threshold_registration is not None else None
-        ),
-        "failed_thresholds": failed_thresholds,
+        "thresholds_passed": None,
+        "failed_thresholds": (),
         "case_ids": baseline_ids,
     }
     return KnowledgeEvalPairedArtifactV3(
@@ -716,98 +528,6 @@ def write_retrieval_diagnostic_snapshots_v1(
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return target
-
-
-def load_threshold_registration_v3(
-    path: Path | str,
-) -> KnowledgeEvalThresholdRegistrationV3:
-    return KnowledgeEvalThresholdRegistrationV3.model_validate_json(
-        Path(path).read_text(encoding="utf-8")
-    )
-
-
-def _validate_threshold_registration(registration, baseline, candidate) -> None:
-    expected = {
-        "dataset_version": baseline.dataset_version,
-        "dataset_sha256": baseline.dataset_sha256,
-        "corpus_manifest_sha256": baseline.identity.corpus_manifest_sha256,
-        "split": baseline.split,
-        "baseline_artifact_sha256": baseline.artifact_sha256,
-    }
-    for field_name, value in expected.items():
-        if getattr(registration, field_name) != value:
-            raise ValueError(
-                f"threshold registration has different {field_name}"
-            )
-    if registration.registered_at <= baseline.created_at:
-        raise ValueError(
-            "thresholds cannot be registered before the baseline artifact exists"
-        )
-    if registration.registered_at >= candidate.created_at:
-        raise ValueError(
-            "thresholds must be registered before the candidate holdout run"
-        )
-    validate_registered_candidate_v3(registration, candidate.identity)
-
-
-def validate_registered_candidate_v3(
-    registration: KnowledgeEvalThresholdRegistrationV3,
-    identity: KnowledgeEvalEngineIdentityV3,
-) -> None:
-    expected = {
-        "candidate_engine_version": identity.engine_version,
-        "candidate_code_revision": identity.code_revision,
-        "candidate_code_tree_sha256": identity.code_tree_sha256,
-        "candidate_profile_id": identity.profile_id,
-        "candidate_profile_version": identity.profile_version,
-        "candidate_profile_sha256": identity.profile_sha256,
-        "candidate_provider_name": identity.provider_name,
-        "candidate_model_name": identity.model_name,
-        "candidate_model_revision": identity.model_revision,
-        "candidate_embedding_dimension": identity.embedding_dimension,
-    }
-    for field_name, value in expected.items():
-        if getattr(registration, field_name) != value:
-            raise ValueError(
-                f"threshold registration has different {field_name}"
-            )
-
-
-def _failed_thresholds(comparison, registration, candidate) -> tuple[str, ...]:
-    metrics = {item.metric: item for item in comparison.metrics}
-    failed: list[str] = []
-    for metric, threshold in registration.minimum_deltas.items():
-        if metrics[metric].delta < threshold:
-            failed.append(f"minimum_delta:{metric}")
-    for metric, threshold in registration.maximum_deltas.items():
-        if metrics[metric].delta > threshold:
-            failed.append(f"maximum_delta:{metric}")
-    for metric, threshold in registration.absolute_minimums.items():
-        if metrics[metric].candidate < threshold:
-            failed.append(f"absolute_minimum:{metric}")
-    for metric, threshold in registration.absolute_maximums.items():
-        if metrics[metric].candidate > threshold:
-            failed.append(f"absolute_maximum:{metric}")
-    profile_id = candidate.identity.profile_id
-    if profile_id not in registration.profile_p95_budgets_ms:
-        failed.append(f"missing_p95_budget:{profile_id}")
-    elif (
-        candidate.metrics.p95_latency_ms
-        > registration.profile_p95_budgets_ms[profile_id]
-    ):
-        failed.append(f"profile_p95_budget:{profile_id}")
-    if profile_id not in registration.profile_p95_relative_limits:
-        failed.append(f"missing_relative_p95_budget:{profile_id}")
-    else:
-        baseline_p95 = metrics["p95_latency_ms"].baseline
-        candidate_p95 = metrics["p95_latency_ms"].candidate
-        relative_limit = registration.profile_p95_relative_limits[profile_id]
-        if baseline_p95 <= 0:
-            if candidate_p95 > 0:
-                failed.append(f"relative_p95_unavailable:{profile_id}")
-        elif candidate_p95 / baseline_p95 > relative_limit:
-            failed.append(f"relative_p95_budget:{profile_id}")
-    return tuple(sorted(failed))
 
 
 def _observe_case(case_id, result, repository, *, engine_version):

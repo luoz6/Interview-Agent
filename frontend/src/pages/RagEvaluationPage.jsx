@@ -139,7 +139,7 @@ function EvaluationContent({ artifacts }) {
     (item) => caseTypeFilter === "all" || item.case_type === caseTypeFilter,
   );
   const historical = artifacts.filter(
-    (item) => item.holdout_status === "historical_diagnostic",
+    (item) => item.diagnostic_status === "historical_compatible",
   );
   const mainEngines = engines.filter(
     (item) => !item.engine_version.includes("rank-normalized"),
@@ -152,13 +152,13 @@ function EvaluationContent({ artifacts }) {
     <>
       <header className="rag-page-head">
         <div>
-          <p>冻结评测制品 · 机器预标注</p>
-          <h1>RAG 评测看板</h1>
+          <p>Demo Diagnostic Dataset · Curated / Machine-assisted</p>
+          <h1>RAG 诊断评测</h1>
           <span>
-            先核对数据集、评测制品、标注与留出集身份，再解释各项指标。
+            用冻结制品比较不同检索引擎，观察指标、案例类型与无证据表现。
           </span>
         </div>
-        <StatusPill value="blocked">不属于发布证据</StatusPill>
+        <StatusPill value="diagnostic">工程对比</StatusPill>
       </header>
       {active && (
         <section className="rag-artifact-hero">
@@ -166,22 +166,18 @@ function EvaluationContent({ artifacts }) {
             <small>数据集 / 分区</small>
             <strong>{active.dataset_version}</strong>
             <span>
-              {displayStatus(active.split)} · {displayStatus(active.holdout_status)}
+              {displayStatus(active.split)} · {displayStatus(active.diagnostic_status)}
             </span>
           </div>
           <div>
-            <small>标注状态</small>
-            <strong>{displayStatus(active.annotation_status)}</strong>
-            <span>人工标注人数：{active.human_annotator_count}</span>
+            <small>Benchmark 类型</small>
+            <strong>Demo Diagnostic Dataset</strong>
+            <span>{displayStatus(active.label_source)}</span>
           </div>
           <div>
-            <small>证据资格</small>
-            <strong>
-              {active.independent_evidence_eligible
-                ? "具备独立证据资格"
-                : "不具备独立证据资格"}
-            </strong>
-            <StatusPill value={active.promotion_status} />
+            <small>用途</small>
+            <strong>工程对比</strong>
+            <span>本地学习与技术展示</span>
           </div>
           <label>
             <span>当前评测制品</span>
@@ -249,17 +245,16 @@ function EvaluationContent({ artifacts }) {
       )}
       {historical.length > 0 && (
         <div className="rag-mode-notice" data-mode="replay">
-          <strong>历史机器留出集</strong>
+          <strong>历史兼容的最终诊断集</strong>
           <span>
-            {historical[0].case_count} 个曾被查看的案例仅作为历史诊断使用；
-            它们不是密封数据，也不能作为正式发布证据。
+            {historical[0].case_count} 个案例保留用于最终诊断与历史回放，不参与反复调参。
           </span>
         </div>
       )}
       <section className="rag-panel">
         <SectionHead
           eyebrow="01 · 引擎矩阵"
-          title="Legacy 与候选检索引擎对比"
+          title="Legacy 与检索引擎对比"
           aside={
             <span className="rag-count">{paired.length} 组配对评测</span>
           }
@@ -267,7 +262,7 @@ function EvaluationContent({ artifacts }) {
         <MetricTable engines={mainEngines} />
         {activePairs.length > 0 && (
           <div className="rag-paired-deltas">
-            <h3>冻结配对差值</h3>
+            <h3>冻结诊断差值</h3>
             {activePairs.map((pair) => (
               <article key={pair.artifact_sha256}>
                 <header>
@@ -276,20 +271,8 @@ function EvaluationContent({ artifacts }) {
                     {pair.candidate_engine_version}
                   </strong>
                   <div>
-                    <StatusPill
-                      value={
-                        pair.thresholds_passed == null
-                          ? "not_evaluated"
-                          : pair.thresholds_passed
-                            ? "passed"
-                            : "failed"
-                      }
-                    >
-                      {pair.thresholds_passed == null
-                        ? "未评估"
-                        : pair.thresholds_passed
-                          ? "通过"
-                          : "未通过"}
+                    <StatusPill value={pair.comparison_status}>
+                      诊断比较
                     </StatusPill>
                     <code>{shortHash(pair.artifact_sha256)}</code>
                   </div>

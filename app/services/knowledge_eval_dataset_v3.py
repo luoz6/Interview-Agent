@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from app.services.knowledge_eval_dataset_v2 import (
     EVALUATION_GROUP_DOMAIN_MAP,
@@ -17,7 +16,7 @@ from app.services.knowledge_eval_dataset_v2 import (
 )
 
 
-DEFAULT_DATASET_V3_PATH = Path("tests/golden/knowledge_retrieval_v3.json")
+DEFAULT_DATASET_V3_PATH = Path("eval/knowledge-v3/machine-preannotation/dataset.json")
 _CJK_CHARACTER = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
 CaseType = Literal[
@@ -37,35 +36,6 @@ CaseType = Literal[
     "filter_boundary",
 ]
 DatasetSplit = Literal["tuning", "holdout"]
-Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
-
-
-class KnowledgeEvalGovernanceV3(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    annotation_protocol_version: str = Field(min_length=1)
-    annotator_role: str = Field(min_length=1)
-    minimum_annotators_per_case: int = Field(ge=1)
-    implementation_output_blinded: bool
-    split_frozen: bool
-    agreement_metric: str = Field(min_length=1)
-    agreement_value: float = Field(ge=0, le=1)
-    minimum_agreement: float = Field(ge=0, le=1)
-    labeling_started_at: datetime
-    split_frozen_at: datetime
-    provenance_record_sha256: Sha256
-
-    @model_validator(mode="after")
-    def validate_timeline(self):
-        if self.labeling_started_at.tzinfo is None or self.split_frozen_at.tzinfo is None:
-            raise ValueError("annotation governance timestamps must be timezone-aware")
-        if self.split_frozen_at < self.labeling_started_at:
-            raise ValueError("split cannot be frozen before labeling starts")
-        if self.agreement_value < self.minimum_agreement:
-            raise ValueError("inter-rater agreement is below the registered minimum")
-        return self
-
-
 class KnowledgeRetrievalCaseV3(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -81,9 +51,6 @@ class KnowledgeRetrievalCaseV3(BaseModel):
     primary_relevant_chunk_ids: list[str] = Field(default_factory=list)
     accepted_related_chunk_ids: list[str] = Field(default_factory=list)
     excluded_chunk_ids: list[str] = Field(default_factory=list)
-    annotator_identity_sha256s: list[Sha256] = Field(default_factory=list)
-    annotation_record_sha256s: list[Sha256] = Field(default_factory=list)
-    label_consensus_record_sha256: Sha256 | None = None
     expected_no_evidence: bool = False
     top_k: Literal[5] = 5
 
@@ -106,8 +73,6 @@ class KnowledgeRetrievalCaseV3(BaseModel):
             "primary_relevant_chunk_ids",
             "accepted_related_chunk_ids",
             "excluded_chunk_ids",
-            "annotator_identity_sha256s",
-            "annotation_record_sha256s",
         ):
             values = getattr(self, field_name)
             if len(values) != len(set(values)):
@@ -153,9 +118,10 @@ class KnowledgeRetrievalCaseV3(BaseModel):
 class KnowledgeRetrievalDatasetV3(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    _identity_payload: dict | None = PrivateAttr(default=None)
+
     version: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    governance: KnowledgeEvalGovernanceV3 | None = None
     cases: list[KnowledgeRetrievalCaseV3] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -196,38 +162,26 @@ class KnowledgeRetrievalDatasetV3(BaseModel):
             cases=[case.as_v2() for case in self.evidence_cases(split)],
         )
 
-    def validate_release_shape(
+    def identity_payload(self) -> dict:
+        """Return the frozen source shape when reading a legacy-compatible dataset."""
+
+        return self._identity_payload or self.model_dump(mode="json")
+
+    def validate_diagnostic_integrity(
         self,
         *,
-        minimum_cases: int = 80,
-        maximum_cases: int = 120,
-        minimum_cases_per_type: int = 3,
+        minimum_cases: int = 1,
+        minimum_cases_per_type: int = 1,
     ) -> None:
         if len(self.cases) < minimum_cases:
             raise ValueError(
-                f"V3 release dataset requires at least {minimum_cases} cases"
+                f"V3 diagnostic dataset requires at least {minimum_cases} cases"
             )
-        if len(self.cases) > maximum_cases:
-            raise ValueError(
-                f"V3 release dataset allows at most {maximum_cases} cases"
-            )
-        holdout_ratio = sum(case.split == "holdout" for case in self.cases) / len(
-            self.cases
-        )
-        if not 0.20 <= holdout_ratio <= 0.30:
-            raise ValueError("V3 holdout ratio must be between 20% and 30%")
-        if self.governance is None:
-            raise ValueError("V3 release dataset requires annotation governance")
-        if not self.governance.implementation_output_blinded:
-            raise ValueError("V3 release annotation must be blinded to implementation output")
-        if not self.governance.split_frozen:
-            raise ValueError("V3 release tuning/holdout split must be frozen")
-        if self.governance.minimum_annotators_per_case < 2:
-            raise ValueError("V3 release cases require at least two annotators")
         missing_families = sorted(case.case_id for case in self.cases if not case.case_family)
         if missing_families:
             raise ValueError(
-                "V3 release cases require case_family: " + ", ".join(missing_families)
+                "V3 diagnostic cases require case_family: "
+                + ", ".join(missing_families)
             )
         family_splits: dict[str, set[str]] = {}
         for case in self.cases:
@@ -239,22 +193,6 @@ class KnowledgeRetrievalDatasetV3(BaseModel):
             raise ValueError(
                 "V3 case families cannot cross tuning/holdout: "
                 + ", ".join(leaked_families)
-            )
-        incomplete_annotations = []
-        for case in self.cases:
-            required = self.governance.minimum_annotators_per_case
-            if (
-                len(case.annotator_identity_sha256s) < required
-                or len(case.annotation_record_sha256s) < required
-                or len(case.annotator_identity_sha256s)
-                != len(case.annotation_record_sha256s)
-                or case.label_consensus_record_sha256 is None
-            ):
-                incomplete_annotations.append(case.case_id)
-        if incomplete_annotations:
-            raise ValueError(
-                "V3 release cases require independent annotation and consensus records: "
-                + ", ".join(sorted(incomplete_annotations))
             )
         missing_types = sorted(
             set(CaseType.__args__) - {case.case_type for case in self.cases}
@@ -276,7 +214,7 @@ class KnowledgeRetrievalDatasetV3(BaseModel):
                 for case_type, count in sorted(underrepresented.items())
             )
             raise ValueError(
-                "V3 core case types require at least "
+                "V3 diagnostic case types require at least "
                 f"{minimum_cases_per_type} cases each: {details}"
             )
 
@@ -285,10 +223,31 @@ def load_knowledge_retrieval_dataset_v3(
     path: Path | str = DEFAULT_DATASET_V3_PATH,
     *,
     manifest: dict,
-    require_release_shape: bool = True,
+    require_diagnostic_integrity: bool = True,
 ) -> KnowledgeRetrievalDatasetV3:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    dataset = KnowledgeRetrievalDatasetV3.model_validate(payload)
+    legacy_case_fields = {
+        "annotator_identity_sha256s",
+        "annotation_record_sha256s",
+        "label_consensus_record_sha256",
+    }
+    if require_diagnostic_integrity and payload.get("governance") is not None:
+        raise ValueError("diagnostic dataset cannot claim release governance")
+    sanitized_cases = []
+    for case in payload.get("cases", []):
+        if require_diagnostic_integrity and any(
+            case.get(field_name) not in (None, []) for field_name in legacy_case_fields
+        ):
+            raise ValueError("diagnostic cases cannot claim human annotation records")
+        sanitized_cases.append(
+            {key: value for key, value in case.items() if key not in legacy_case_fields}
+        )
+    sanitized_payload = {
+        key: value for key, value in payload.items() if key != "governance"
+    }
+    sanitized_payload["cases"] = sanitized_cases
+    dataset = KnowledgeRetrievalDatasetV3.model_validate(sanitized_payload)
+    dataset._identity_payload = payload
     manifest_sha256 = manifest.get("corpus_manifest_sha256")
     if dataset.corpus_manifest_sha256 != manifest_sha256:
         raise ValueError("dataset corpus manifest does not match the supplied manifest")
@@ -310,6 +269,6 @@ def load_knowledge_retrieval_dataset_v3(
     missing_ids = sorted(referenced_ids - known_ids)
     if missing_ids:
         raise ValueError(f"dataset references missing chunk IDs: {missing_ids}")
-    if require_release_shape:
-        dataset.validate_release_shape()
+    if require_diagnostic_integrity:
+        dataset.validate_diagnostic_integrity()
     return dataset

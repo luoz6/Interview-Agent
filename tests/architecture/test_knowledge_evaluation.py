@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 EVALUATION_RUNNER = ROOT / "scripts" / "evaluate_knowledge_retrieval.py"
 EVALUATION_RUNNER_V3 = ROOT / "scripts" / "evaluate_knowledge_retrieval_v3.py"
-EVIDENCE_EVALUATION_RUNNER = ROOT / "scripts" / "evaluate_knowledge_evidence.py"
 def _imported_modules(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     modules = {
@@ -38,7 +37,6 @@ def test_knowledge_retrieval_evaluation_has_no_llm_or_report_dependency():
     for runner in (
         EVALUATION_RUNNER,
         EVALUATION_RUNNER_V3,
-        EVIDENCE_EVALUATION_RUNNER,
     ):
         imported_modules = _imported_modules(runner)
         findings = {

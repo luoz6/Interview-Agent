@@ -17,7 +17,6 @@ from app.domain.knowledge.retrieval import (
 from app.ports.runtime import KnowledgeLookupResult
 from app.services.knowledge_eval_artifacts_v3 import (
     KnowledgeEvalArtifactV3,
-    build_threshold_registration_v3,
     build_engine_identity_v3,
     canonical_sha256,
     compare_knowledge_eval_artifacts_v3,
@@ -200,37 +199,6 @@ def _artifact(
     )
 
 
-def _threshold_registration(baseline):
-    candidate_profile = PROFILE.model_copy(update={"profile_id": "eval-hybrid-v3"})
-    return build_threshold_registration_v3(
-        baseline,
-        primary_metric="mrr_at_5",
-        minimum_deltas={
-            "recall_at_5": 0.0,
-            "mrr_at_5": 0.01,
-            "ndcg_at_5": 0.01,
-            "hit_at_1": 0.0,
-            "no_evidence_f1": 0.0,
-            "evidence_replay_stability_rate": 0.0,
-            "observation_completeness_rate": 0.0,
-        },
-        maximum_deltas={
-            "hard_negative_false_positive_rate": 0.0,
-            "excluded_chunk_violation_rate": 0.0,
-        },
-        absolute_minimums={},
-        absolute_maximums={"p95_latency_ms": 1500.0},
-        profile_p95_budgets_ms={"eval-hybrid-v3": 1500.0},
-        profile_p95_relative_limits={"eval-hybrid-v3": 1.25},
-        candidate_engine_version="hybrid-v2",
-        candidate_code_revision="deadbeef",
-        candidate_code_tree_sha256="c" * 64,
-        candidate_profile=candidate_profile,
-        rationale_record_sha256="e" * 64,
-        registered_at=datetime(2026, 8, 12, 9, tzinfo=timezone.utc),
-    )
-
-
 def test_v3_eval_artifact_freezes_identity_per_case_rank_score_and_replay():
     artifact = _artifact()
 
@@ -306,15 +274,14 @@ def test_paired_artifact_requires_identical_dataset_corpus_split_and_cases():
     paired = compare_knowledge_eval_artifacts_v3(
         baseline,
         candidate,
-        threshold_registration=_threshold_registration(baseline),
         created_at=datetime(2026, 8, 12, 11, tzinfo=timezone.utc),
     )
 
     assert paired.baseline_artifact_sha256 == baseline.artifact_sha256
     assert paired.candidate_artifact_sha256 == candidate.artifact_sha256
     assert paired.case_ids == ("redis-lock", "no-evidence")
-    assert paired.thresholds_passed is False
-    assert "minimum_delta:mrr_at_5" in paired.failed_thresholds
+    assert paired.thresholds_passed is None
+    assert paired.failed_thresholds == ()
 
     changed = candidate.model_copy(
         update={"dataset_sha256": "d" * 64},
@@ -323,91 +290,7 @@ def test_paired_artifact_requires_identical_dataset_corpus_split_and_cases():
         compare_knowledge_eval_artifacts_v3(
             baseline,
             changed,
-            threshold_registration=_threshold_registration(baseline),
         )
-
-
-def test_holdout_compare_requires_thresholds_registered_before_candidate_run():
-    baseline = _artifact("compatibility-v1")
-    hybrid_profile = PROFILE.model_copy(update={"profile_id": "eval-hybrid-v3"})
-    candidate = _artifact(
-        "hybrid-v2",
-        created_at=datetime(2026, 8, 12, 10, tzinfo=timezone.utc),
-        profile=hybrid_profile,
-    )
-
-    with pytest.raises(ValueError, match="pre-registered"):
-        compare_knowledge_eval_artifacts_v3(baseline, candidate)
-
-    late = _threshold_registration(baseline).model_copy(
-        update={"registered_at": datetime(2026, 8, 13, tzinfo=timezone.utc)}
-    )
-    with pytest.raises(ValueError, match="before the candidate"):
-        compare_knowledge_eval_artifacts_v3(
-            baseline,
-            candidate,
-            threshold_registration=late,
-        )
-
-
-def test_holdout_registration_binds_candidate_identity_and_relative_latency():
-    baseline = _artifact("compatibility-v1")
-    hybrid_profile = PROFILE.model_copy(update={"profile_id": "eval-hybrid-v3"})
-    candidate = _artifact(
-        "hybrid-v2",
-        created_at=datetime(2026, 8, 12, 10, tzinfo=timezone.utc),
-        profile=hybrid_profile,
-    )
-    registration = _threshold_registration(baseline)
-
-    changed_identity = candidate.model_copy(
-        update={
-            "identity": candidate.identity.model_copy(
-                update={"profile_sha256": "d" * 64}
-            )
-        }
-    )
-    with pytest.raises(ValueError, match="candidate_profile_sha256"):
-        compare_knowledge_eval_artifacts_v3(
-            baseline,
-            changed_identity,
-            threshold_registration=registration,
-        )
-
-    strict = build_threshold_registration_v3(
-        baseline,
-        primary_metric="mrr_at_5",
-        minimum_deltas={
-            "recall_at_5": 0.0,
-            "mrr_at_5": 0.0,
-            "ndcg_at_5": 0.0,
-            "hit_at_1": 0.0,
-            "no_evidence_f1": 0.0,
-            "evidence_replay_stability_rate": 0.0,
-            "observation_completeness_rate": 0.0,
-        },
-        maximum_deltas={
-            "hard_negative_false_positive_rate": 0.0,
-            "excluded_chunk_violation_rate": 0.0,
-        },
-        absolute_minimums={},
-        absolute_maximums={"p95_latency_ms": 1500.0},
-        profile_p95_budgets_ms={"eval-hybrid-v3": 1500.0},
-        profile_p95_relative_limits={"eval-hybrid-v3": 0.5},
-        candidate_engine_version="hybrid-v2",
-        candidate_code_revision="deadbeef",
-        candidate_code_tree_sha256="c" * 64,
-        candidate_profile=hybrid_profile,
-        rationale_record_sha256="e" * 64,
-        registered_at=datetime(2026, 8, 12, 9, tzinfo=timezone.utc),
-    )
-    paired = compare_knowledge_eval_artifacts_v3(
-        baseline,
-        candidate,
-        threshold_registration=strict,
-        created_at=datetime(2026, 8, 12, 11, tzinfo=timezone.utc),
-    )
-    assert "relative_p95_budget:eval-hybrid-v3" in paired.failed_thresholds
 
 
 def test_eval_ignores_unselected_raw_candidates_and_degraded_empty_is_not_true_empty():

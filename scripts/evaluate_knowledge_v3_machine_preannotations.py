@@ -19,10 +19,10 @@ from app.services.knowledge_eval_artifacts_v3 import (
     write_frozen_eval_artifact,
 )
 from app.services.knowledge_eval_dataset_v3 import load_knowledge_retrieval_dataset_v3
-from scripts.build_knowledge_eval_v3_machine_preannotations import (
+from scripts.validate_knowledge_diagnostic_dataset import (
+    DEFAULT_DIAGNOSTIC_DIR,
     DEFAULT_MANIFEST,
-    DEFAULT_OUTPUT_DIR,
-    validate_machine_dataset,
+    validate_diagnostic_dataset,
 )
 from scripts.evaluate_knowledge_retrieval_v3 import (
     _code_tree_sha256,
@@ -43,7 +43,7 @@ def run_machine_diagnostic(
     engine_name: str = "legacy",
     ablation: str = "weighted-rrf",
 ) -> dict:
-    candidate_summary = validate_machine_dataset(
+    candidate_summary = validate_diagnostic_dataset(
         dataset_path,
         provenance_path,
         manifest_path,
@@ -54,7 +54,7 @@ def run_machine_diagnostic(
     dataset = load_knowledge_retrieval_dataset_v3(
         dataset_path,
         manifest=manifest,
-        require_release_shape=False,
+        require_diagnostic_integrity=False,
     )
     if dataset.governance is not None:
         raise ValueError("machine diagnostic cannot claim human governance")
@@ -127,11 +127,8 @@ def compare_machine_diagnostics(
 ) -> dict:
     baseline = load_eval_artifact_v3(baseline_path)
     candidate = load_eval_artifact_v3(candidate_path)
-    if baseline.split != "tuning" or candidate.split != "tuning":
-        raise ValueError(
-            "machine paired diagnostics are limited to tuning without a "
-            "pre-registered formal holdout policy"
-        )
+    if baseline.split != candidate.split:
+        raise ValueError("paired diagnostics require the same split")
     paired = compare_knowledge_eval_artifacts_v3(baseline, candidate)
     write_frozen_eval_artifact(paired, output_path)
     return {
@@ -142,7 +139,7 @@ def compare_machine_diagnostics(
         "baseline_artifact_sha256": paired.baseline_artifact_sha256,
         "candidate_artifact_sha256": paired.candidate_artifact_sha256,
         "split": paired.split,
-        "thresholds_passed": None,
+        "comparison_status": "diagnostic",
     }
 
 
@@ -151,9 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         description="Run or pair diagnostics for a non-independent Eval V3 machine candidate"
     )
     parser.add_argument("--compare", action="store_true")
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_OUTPUT_DIR / "dataset.json")
+    parser.add_argument("--dataset", type=Path, default=DEFAULT_DIAGNOSTIC_DIR / "dataset.json")
     parser.add_argument(
-        "--provenance", type=Path, default=DEFAULT_OUTPUT_DIR / "provenance.json"
+        "--provenance", type=Path, default=DEFAULT_DIAGNOSTIC_DIR / "provenance.json"
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--split", choices=("tuning", "holdout"))
