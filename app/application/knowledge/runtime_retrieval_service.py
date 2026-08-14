@@ -5,13 +5,14 @@ from typing import Any
 
 from app.domain.knowledge.retrieval import (
     ResolvedRetrievalProfile,
+    RetrievalAvailability,
     RetrievalRequest,
     RetrievalResult,
 )
-from app.domain.knowledge.rollout import (
+from app.domain.knowledge.engine import (
     KnowledgeEngine,
-    KnowledgeEngineAssignment,
-    resolve_knowledge_engine_assignment,
+    RuntimeEngineExecution,
+    RuntimeFallbackReason,
 )
 from app.domain.knowledge.shadow import (
     RetrievalShadowComparison,
@@ -27,28 +28,25 @@ ShadowObservation = RetrievalShadowComparison | RetrievalShadowFailure
 @dataclass(frozen=True)
 class RuntimeRetrievalOutcome:
     result: RetrievalResult
-    assignment: KnowledgeEngineAssignment
+    execution: RuntimeEngineExecution
     shadow_observation: ShadowObservation | None = None
-    runtime_reason_code: str | None = None
 
 
 class RuntimeKnowledgeRetrievalService:
-    """Owns engine assignment and compare-only Shadow orchestration."""
+    """Runs the explicitly configured engine with a narrow Legacy fallback."""
 
     def __init__(
         self,
         legacy_engine,
         candidate_engine,
         *,
-        rollout_percent: int,
-        assignment_version: str,
+        configured_engine: KnowledgeEngine | str,
         shadow_enabled: bool = False,
         trace_sink: RetrievalTraceSink | None = None,
     ) -> None:
         self._legacy = legacy_engine
         self._candidate = candidate_engine
-        self._rollout_percent = rollout_percent
-        self._assignment_version = assignment_version
+        self._configured_engine = KnowledgeEngine(configured_engine)
         self._shadow_enabled = shadow_enabled
         self._trace_sink = trace_sink
         self._shadow = RetrievalShadowService(legacy_engine, candidate_engine)
@@ -79,18 +77,7 @@ class RuntimeKnowledgeRetrievalService:
         *,
         legacy_profile: ResolvedRetrievalProfile,
         candidate_profile: ResolvedRetrievalProfile,
-        existing_assignment: KnowledgeEngineAssignment | None = None,
     ) -> RuntimeRetrievalOutcome:
-        assignment_key = request.prep_run_id or request.session_id
-        if not assignment_key:
-            raise ValueError("runtime retrieval requires a stable session_id or prep_run_id")
-        assignment = resolve_knowledge_engine_assignment(
-            assignment_key,
-            rollout_percent=(0 if self._shadow_enabled else self._rollout_percent),
-            assignment_version=self._assignment_version,
-            existing=existing_assignment,
-        )
-
         if self._shadow_enabled:
             formal_result = self._legacy.retrieve(request, legacy_profile)
             _, observation = self._shadow.compare_with_legacy(
@@ -100,29 +87,89 @@ class RuntimeKnowledgeRetrievalService:
             )
             outcome = RuntimeRetrievalOutcome(
                 result=formal_result,
-                assignment=assignment,
+                execution=self._execution(
+                    requested=KnowledgeEngine.LEGACY,
+                    effective=KnowledgeEngine.LEGACY,
+                    result=formal_result,
+                ),
                 shadow_observation=observation,
             )
             self._record(outcome, request)
             return outcome
 
-        if assignment.engine == KnowledgeEngine.HYBRID_V2:
+        if self._configured_engine == KnowledgeEngine.HYBRID_V2:
             try:
                 result = self._candidate.retrieve(request, candidate_profile)
-                outcome = RuntimeRetrievalOutcome(result=result, assignment=assignment)
             except Exception:
-                outcome = RuntimeRetrievalOutcome(
-                    result=self._legacy.retrieve(request, legacy_profile),
-                    assignment=assignment,
-                    runtime_reason_code="candidate_engine_failed",
+                outcome = self._legacy_fallback(
+                    request,
+                    legacy_profile=legacy_profile,
+                    reason=RuntimeFallbackReason.CANDIDATE_ENGINE_FAILED,
                 )
+            else:
+                if result.availability == RetrievalAvailability.UNAVAILABLE:
+                    outcome = self._legacy_fallback(
+                        request,
+                        legacy_profile=legacy_profile,
+                        reason=RuntimeFallbackReason.RETRIEVAL_UNAVAILABLE,
+                    )
+                else:
+                    outcome = RuntimeRetrievalOutcome(
+                        result=result,
+                        execution=self._execution(
+                            requested=KnowledgeEngine.HYBRID_V2,
+                            effective=KnowledgeEngine.HYBRID_V2,
+                            result=result,
+                        ),
+                    )
         else:
+            result = self._legacy.retrieve(request, legacy_profile)
             outcome = RuntimeRetrievalOutcome(
-                result=self._legacy.retrieve(request, legacy_profile),
-                assignment=assignment,
+                result=result,
+                execution=self._execution(
+                    requested=KnowledgeEngine.LEGACY,
+                    effective=KnowledgeEngine.LEGACY,
+                    result=result,
+                ),
             )
         self._record(outcome, request)
         return outcome
+
+    def _legacy_fallback(
+        self,
+        request: RetrievalRequest,
+        *,
+        legacy_profile: ResolvedRetrievalProfile,
+        reason: RuntimeFallbackReason,
+    ) -> RuntimeRetrievalOutcome:
+        """Run the narrow fallback once and let a Legacy failure propagate."""
+
+        fallback = self._legacy.retrieve(request, legacy_profile)
+        return RuntimeRetrievalOutcome(
+            result=fallback,
+            execution=self._execution(
+                requested=KnowledgeEngine.HYBRID_V2,
+                effective=KnowledgeEngine.LEGACY,
+                result=fallback,
+                fallback_reason=reason,
+            ),
+        )
+
+    @staticmethod
+    def _execution(
+        *,
+        requested: KnowledgeEngine,
+        effective: KnowledgeEngine,
+        result: RetrievalResult,
+        fallback_reason: RuntimeFallbackReason | None = None,
+    ) -> RuntimeEngineExecution:
+        return RuntimeEngineExecution(
+            requested_engine=requested,
+            effective_engine=effective,
+            fallback_reason=fallback_reason,
+            retrieval_availability=result.availability.value,
+            engine_version=result.retrieval_engine_version,
+        )
 
     def _record(
         self,
@@ -135,10 +182,14 @@ class RuntimeKnowledgeRetrievalService:
             "trace_scope_id": request.prep_run_id or request.request_id,
             "request_id": request.request_id,
             "intent": request.intent.value,
-            "assignment": outcome.assignment.model_dump(mode="json"),
+            "execution": outcome.execution.model_dump(mode="json"),
             "formal_engine_version": outcome.result.retrieval_engine_version,
             "formal_profile_version": outcome.result.profile_version,
-            "runtime_reason_code": outcome.runtime_reason_code,
+            "fallback_reason": (
+                outcome.execution.fallback_reason.value
+                if outcome.execution.fallback_reason is not None
+                else None
+            ),
             "retrieval_trace": outcome.result.trace.model_dump(mode="json"),
         }
         if outcome.shadow_observation is not None:

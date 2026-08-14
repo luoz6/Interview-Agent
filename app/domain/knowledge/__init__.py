@@ -9,6 +9,11 @@ from app.domain.knowledge.evidence_gate import (
     EvaluationSupportGate,
     RetrievalEvidenceGate,
 )
+from app.domain.knowledge.engine import (
+    LegacyKnowledgeEngineAssignment,
+    RuntimeEngineExecution,
+    RuntimeFallbackReason,
+)
 from app.domain.knowledge.fusion import weighted_reciprocal_rank_fusion
 from app.domain.knowledge.followup_gap import (
     AnswerGapAnalysis,
@@ -81,6 +86,9 @@ __all__ = [
     "KnowledgeCanaryStageEvidence",
     "KnowledgeEngine",
     "KnowledgeEngineAssignment",
+    "LegacyKnowledgeEngineAssignment",
+    "RuntimeEngineExecution",
+    "RuntimeFallbackReason",
     "KnowledgeRollbackDecision",
     "KnowledgeRollbackDrillDecision",
     "KnowledgeRollbackDrillEvidence",

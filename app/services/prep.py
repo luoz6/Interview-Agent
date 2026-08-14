@@ -2,12 +2,16 @@ from collections import Counter
 from typing import Any, TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 from app.services.interview_plan_knowledge import PlanQuestionKnowledgeBinding
 from app.services.llm import InterviewLLM
 from app.domain.knowledge.evidence import BaseEvidenceBundle, QuestionEvidenceBinding
-from app.domain.knowledge.rollout import KnowledgeEngineAssignment
+from app.domain.knowledge.engine import (
+    LegacyKnowledgeEngineAssignment,
+    RuntimeEngineExecution,
+    execution_from_legacy_assignment,
+)
 
 if TYPE_CHECKING:
     from app.ports.runtime import KnowledgeRepository
@@ -48,6 +52,7 @@ class KnowledgeQuerySnapshot(BaseModel):
     hit_content_sha256: dict[str, str] = Field(default_factory=dict)
     status: Literal["completed", "empty", "degraded"] = "completed"
     degraded_reason: str | None = None
+    engine_execution: RuntimeEngineExecution | None = None
 
 
 class KnowledgeBindingSnapshot(BaseModel):
@@ -56,11 +61,23 @@ class KnowledgeBindingSnapshot(BaseModel):
     queries: list[KnowledgeQuerySnapshot] = Field(default_factory=list)
     status: Literal["completed", "empty", "degraded"]
     degraded_reason: str | None = None
-    knowledge_engine_assignment: KnowledgeEngineAssignment | None = None
+    knowledge_engine_execution: RuntimeEngineExecution | None = None
+    knowledge_engine_assignment: LegacyKnowledgeEngineAssignment | None = None
     base_evidence_bundle: BaseEvidenceBundle | None = None
     question_evidence_bindings: list[QuestionEvidenceBinding] = Field(
         default_factory=list
     )
+
+    @model_validator(mode="after")
+    def migrate_legacy_engine_assignment(self):
+        if (
+            self.knowledge_engine_execution is None
+            and self.knowledge_engine_assignment is not None
+        ):
+            self.knowledge_engine_execution = execution_from_legacy_assignment(
+                self.knowledge_engine_assignment
+            )
+        return self
 
 
 class PrepKnowledgeTopic(BaseModel):

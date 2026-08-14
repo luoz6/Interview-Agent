@@ -43,7 +43,6 @@ from app.domain.knowledge.retrieval import (
     RetrievalResult,
     RetrievalTrace,
 )
-from app.domain.knowledge.rollout import KnowledgeEngineAssignment
 from app.adapters.pgvector.repository import KnowledgeSearchStore
 from app.services.context_budget import (
     QUESTION_REVIEW_CONTEXT_POLICY,
@@ -262,16 +261,6 @@ def _targeted_reviewer_search(state, chunk, vector_store) -> list:
     if callable(getattr(vector_store, "search_runtime", None)):
         context = state["plan"].prep_context
         snapshot = context.binding_snapshot if context is not None else None
-        raw_assignment = (
-            snapshot.knowledge_engine_assignment if snapshot is not None else None
-        )
-        assignment = (
-            raw_assignment
-            if isinstance(raw_assignment, KnowledgeEngineAssignment)
-            else KnowledgeEngineAssignment.model_validate(raw_assignment)
-            if raw_assignment
-            else None
-        )
         outcome = vector_store.search_runtime(
             ExpertShadowEvaluator._build_query_text(
                 chunk.question_text,
@@ -285,7 +274,6 @@ def _targeted_reviewer_search(state, chunk, vector_store) -> list:
             session_id=state["session_id"],
             question_id=chunk.question_id,
             prep_run_id=(snapshot.prep_run_id if snapshot is not None else None),
-            existing_assignment=assignment,
         )
         return list(outcome.result.selected_evidence)
     return list(

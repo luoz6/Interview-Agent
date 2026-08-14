@@ -5,20 +5,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowledge.engine import (
+    KnowledgeEngine,
+    LegacyKnowledgeEngineAssignment,
+)
 
-class KnowledgeEngine(StrEnum):
-    LEGACY = "legacy"
-    HYBRID_V2 = "hybrid-v2"
 
-
-class KnowledgeEngineAssignment(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    session_id_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    engine: KnowledgeEngine
-    assignment_version: str
-    bucket: int = Field(ge=0, le=99)
-    rollout_percent: int = Field(ge=0, le=100)
+KnowledgeEngineAssignment = LegacyKnowledgeEngineAssignment
 
 
 def assign_knowledge_engine(

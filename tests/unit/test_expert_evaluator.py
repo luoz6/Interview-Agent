@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 import pytest
 
 from app.domain.knowledge.evidence import (
@@ -10,7 +12,10 @@ from app.domain.knowledge.evidence import (
     QuestionEvidenceBinding,
 )
 from app.domain.knowledge.retrieval import RetrievalIntent
-from app.domain.knowledge.rollout import assign_knowledge_engine
+from app.domain.knowledge.engine import (
+    KnowledgeEngine,
+    LegacyKnowledgeEngineAssignment,
+)
 from app.domain.knowledge.knowledge_unit import KnowledgeReviewStatus, KnowledgeUnit
 
 from app.graphs.interview_state import build_initial_state
@@ -185,8 +190,12 @@ def make_v2_state():
 def make_v2_state_without_bound_evidence():
     state = make_v2_state()
     context = state["plan"].prep_context
-    assignment = assign_knowledge_engine(
-        "prep-v2", rollout_percent=100, assignment_version="v1"
+    assignment = LegacyKnowledgeEngineAssignment(
+        session_id_sha256=sha256(b"prep-v2").hexdigest(),
+        engine=KnowledgeEngine.HYBRID_V2,
+        assignment_version="v1",
+        bucket=0,
+        rollout_percent=100,
     )
     state["plan"] = state["plan"].model_copy(
         update={
@@ -195,13 +204,17 @@ def make_v2_state_without_bound_evidence():
                     "question_hints": [
                         PrepQuestionHint(question_id="q1", evidence_ids=[])
                     ],
-                    "binding_snapshot": context.binding_snapshot.model_copy(
-                        update={
-                            "knowledge_engine_assignment": assignment,
+                    "binding_snapshot": KnowledgeBindingSnapshot.model_validate(
+                        {
+                            **context.binding_snapshot.model_dump(mode="json"),
+                            "knowledge_engine_execution": None,
+                            "knowledge_engine_assignment": assignment.model_dump(
+                                mode="json"
+                            ),
                             "question_evidence_bindings": [
                                 context.binding_snapshot.question_evidence_bindings[0].model_copy(
                                     update={"selected_evidence_ids": ()}
-                                )
+                                ).model_dump(mode="json")
                             ],
                         }
                     ),
@@ -737,7 +750,13 @@ def test_targeted_reviewer_reuses_prep_assignment_and_question_review_profile():
     assert store.kwargs["session_id"] == "s-v2"
     assert store.kwargs["question_id"] == "q1"
     assert store.kwargs["prep_run_id"] == "prep-v2"
-    assert store.kwargs["existing_assignment"] is assignment
+    assert "existing_assignment" not in store.kwargs
+    assert (
+        state["plan"]
+        .prep_context.binding_snapshot.knowledge_engine_execution
+        .migrated_from_legacy_assignment
+        is True
+    )
     review_binding = evaluator.last_retrieval_by_question["q1"][
         "review_evidence_binding"
     ]

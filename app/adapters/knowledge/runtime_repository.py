@@ -11,7 +11,6 @@ from app.domain.knowledge.retrieval import (
     RetrievalRequest,
     RetrievalRoutingHints,
 )
-from app.domain.knowledge.rollout import KnowledgeEngineAssignment
 
 
 class RuntimeKnowledgeRepository:
@@ -54,7 +53,6 @@ class RuntimeKnowledgeRepository:
         session_id: str | None = None,
         question_id: str | None = None,
         prep_run_id: str | None = None,
-        existing_assignment: KnowledgeEngineAssignment | None = None,
     ):
         candidate_profile = resolve_runtime_profile(
             intent,
@@ -83,7 +81,6 @@ class RuntimeKnowledgeRepository:
             request,
             legacy_profile=legacy_profile,
             candidate_profile=candidate_profile,
-            existing_assignment=existing_assignment,
         )
         if outcome.result.availability == RetrievalAvailability.UNAVAILABLE:
             raise RuntimeError("knowledge retrieval is unavailable")

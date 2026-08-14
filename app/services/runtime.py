@@ -185,8 +185,7 @@ def build_runtime_knowledge_repository(
     coordinator = RuntimeKnowledgeRetrievalService(
         legacy,
         hybrid,
-        rollout_percent=settings.hybrid_rollout_percent,
-        assignment_version=settings.assignment_version,
+        configured_engine=settings.engine,
         shadow_enabled=settings.shadow_enabled,
         trace_sink=KnowledgeTraceRecorder.from_env(),
     )

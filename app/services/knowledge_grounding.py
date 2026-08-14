@@ -14,7 +14,7 @@ from app.ports.runtime import KnowledgeRepository
 from app.services.knowledge_profile import CANONICAL_TAXONOMY
 from app.domain.knowledge.models import KnowledgeChunk, KnowledgeQuery
 from app.domain.knowledge.retrieval import RetrievalAvailability, RetrievalIntent
-from app.domain.knowledge.rollout import KnowledgeEngineAssignment
+from app.domain.knowledge.engine import RuntimeEngineExecution
 from app.services.prep import (
     InterviewPlan,
     KnowledgeBindingSnapshot,
@@ -52,6 +52,7 @@ class QueryRetrieval:
     profile_version: str | None = None
     resolved_profile_snapshot: dict = field(default_factory=dict)
     component_versions: dict[str, str] = field(default_factory=dict)
+    engine_execution: RuntimeEngineExecution | None = None
 
 
 @dataclass
@@ -68,7 +69,7 @@ class GroundingResult:
     status: RetrievalStatus
     degraded_reason: str | None
     corpus_manifest_sha256: str
-    knowledge_engine_assignment: KnowledgeEngineAssignment | None = None
+    knowledge_engine_execution: RuntimeEngineExecution | None = None
 
 
 def retrieve_grounding(
@@ -76,14 +77,13 @@ def retrieve_grounding(
     repository: KnowledgeRepository,
     *,
     prep_run_id: str | None = None,
-    existing_assignment: KnowledgeEngineAssignment | None = None,
     expected_manifest_sha256: str | None = None,
 ) -> GroundingResult:
     retrievals: list[QueryRetrieval] = []
     candidate_lookup: dict[str, GroundedCandidate] = {}
     corpus_manifest_sha256 = expected_manifest_sha256 or ""
     overall_degraded_reason: str | None = None
-    assignment: KnowledgeEngineAssignment | None = existing_assignment
+    execution: RuntimeEngineExecution | None = None
 
     for query in queries:
         started_at = perf_counter()
@@ -97,21 +97,17 @@ def retrieve_grounding(
                     source_types=query.source_types,
                     limit=query.top_k,
                     prep_run_id=prep_run_id,
-                    existing_assignment=assignment,
                 )
-                assignment = outcome.assignment
+                execution = outcome.execution
                 raw_chunks = outcome.result.selected_evidence
                 runtime_result = outcome.result
+                fallback_reason = outcome.execution.fallback_reason
                 runtime_reasons = [
                     *outcome.result.degraded_reasons,
-                    *(
-                        [outcome.runtime_reason_code]
-                        if outcome.runtime_reason_code
-                        else []
-                    ),
+                    *([fallback_reason.value] if fallback_reason is not None else []),
                 ]
-                if outcome.runtime_reason_code:
-                    runtime_degraded_reason = outcome.runtime_reason_code
+                if fallback_reason is not None:
+                    runtime_degraded_reason = fallback_reason.value
                 elif outcome.result.availability == RetrievalAvailability.DEGRADED:
                     runtime_degraded_reason = next(
                         iter(runtime_reasons), "knowledge_degraded"
@@ -216,6 +212,7 @@ def retrieve_grounding(
                     and runtime_result.trace.component_versions is not None
                     else {}
                 ),
+                engine_execution=(execution if runtime_result is not None else None),
             )
         )
 
@@ -235,7 +232,7 @@ def retrieve_grounding(
         status=overall_status,
         degraded_reason=overall_degraded_reason,
         corpus_manifest_sha256=corpus_manifest_sha256,
-        knowledge_engine_assignment=assignment,
+        knowledge_engine_execution=execution,
     )
 
 
@@ -264,7 +261,6 @@ def supplement_question_grounding(
         supplemental_queries,
         repository,
         prep_run_id=prep_run_id,
-        existing_assignment=result.knowledge_engine_assignment,
         expected_manifest_sha256=result.corpus_manifest_sha256 or None,
     )
     return _merge_grounding_results(result, supplemental)
@@ -325,7 +321,7 @@ def attach_grounded_prep_context(
         queries=[_query_snapshot(retrieval) for retrieval in result.retrievals],
         status=result.status,
         degraded_reason=result.degraded_reason,
-        knowledge_engine_assignment=result.knowledge_engine_assignment,
+        knowledge_engine_execution=result.knowledge_engine_execution,
         base_evidence_bundle=base_bundle,
         question_evidence_bindings=question_bindings,
     )
@@ -458,6 +454,7 @@ def _query_snapshot(retrieval: QueryRetrieval) -> KnowledgeQuerySnapshot:
         },
         status=retrieval.status,
         degraded_reason=retrieval.degraded_reason,
+        engine_execution=retrieval.engine_execution,
     )
 
 
@@ -523,9 +520,9 @@ def _merge_grounding_results(
             role_result.corpus_manifest_sha256
             or supplemental.corpus_manifest_sha256
         ),
-        knowledge_engine_assignment=(
-            supplemental.knowledge_engine_assignment
-            or role_result.knowledge_engine_assignment
+        knowledge_engine_execution=(
+            supplemental.knowledge_engine_execution
+            or role_result.knowledge_engine_execution
         ),
     )
 
