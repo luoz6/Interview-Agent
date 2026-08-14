@@ -62,6 +62,9 @@ class FakeDiagnostics:
     def inspect(self, payload):
         raise AssertionError("invalid requests must not reach diagnostics service")
 
+    def compare(self, payload):
+        raise AssertionError("invalid requests must not reach diagnostics service")
+
 
 class SaturatedDiagnostics(FakeDiagnostics):
     def inspect(self, payload):
@@ -132,6 +135,9 @@ def test_console_is_404_by_default():
     client = TestClient(app)
     assert client.get("/api/rag/overview").status_code == 404
     assert client.post("/api/rag/inspections", json={"query_text": "Redis"}).status_code == 404
+    assert client.post(
+        "/api/rag/inspections/compare", json={"query_text": "Redis"}
+    ).status_code == 404
     assert client.post(
         "/api/rag/corpus/drafts/validate", json={"entry": _corpus_entry()}
     ).status_code == 404
@@ -247,6 +253,13 @@ def test_invalid_live_query_is_not_reflected_by_validation_response():
             assert response.status_code == 422
             assert response.json()["code"] == "RAG_REQUEST_INVALID"
             assert private_query not in response.text
+            compare = client.post(
+                "/api/rag/inspections/compare",
+                json={"query_text": private_query, "unexpected": private_query},
+            )
+            assert compare.status_code == 422
+            assert compare.json()["code"] == "RAG_REQUEST_INVALID"
+            assert private_query not in compare.text
     finally:
         app.dependency_overrides.pop(get_rag_diagnostics_service, None)
 

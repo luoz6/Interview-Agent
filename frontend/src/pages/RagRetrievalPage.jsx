@@ -7,7 +7,11 @@ import {
 } from "../components/rag/RagPrimitives";
 import { RagConsoleShell } from "../components/rag/RagConsoleShell";
 import { usePageMeta } from "../hooks/usePageMeta";
-import { getRagReplay, runRagInspection } from "../rag/ragApi";
+import {
+  getRagReplay,
+  runRagComparison,
+  runRagInspection,
+} from "../rag/ragApi";
 import { displayFieldLabel, displayStatus } from "../rag/ragDisplay";
 import "../styles/pages/rag-console.css";
 
@@ -34,6 +38,162 @@ const profileFields = [
   "total_timeout_ms",
 ];
 
+const sideStatusLabel = {
+  success: "完成",
+  failed: "执行失败",
+  timeout: "执行超时",
+};
+
+function stageText(candidate) {
+  if (!candidate) return "未进入候选集";
+  const value = (rank, score) => `${rank ?? "—"} / ${score ?? "—"}`;
+  return [
+    `语义 ${value(candidate.semantic_rank, candidate.semantic_score)}`,
+    `词法 ${value(candidate.lexical_rank, candidate.lexical_score)}`,
+    `融合 ${value(candidate.fusion_rank, candidate.fusion_score)}`,
+    `重排 ${value(candidate.rerank_rank, candidate.rerank_score)}`,
+  ];
+}
+
+function CompareResult({ comparison, onInspect }) {
+  const legacy = comparison.legacy?.inspection;
+  const hybrid = comparison.hybrid?.inspection;
+  const legacyCandidates = new Map(
+    (legacy?.candidates || []).map((candidate) => [candidate.candidate_id, candidate]),
+  );
+  const hybridCandidates = new Map(
+    (hybrid?.candidates || []).map((candidate) => [candidate.candidate_id, candidate]),
+  );
+  const selectedIds = (inspection) => (inspection?.candidates || [])
+    .filter((candidate) => candidate.selected)
+    .map((candidate) => candidate.candidate_id);
+  const decisionText = (inspection) => inspection?.evidence_decision?.reason_codes
+    ?.join(" · ") || "未记录原因";
+  const changedLabel = (value) => value == null
+    ? "无法比较"
+    : value
+      ? "发生变化"
+      : "保持一致";
+
+  return (
+    <section className="rag-panel rag-compare-result">
+      <SectionHead
+        eyebrow="00 · 双引擎现场对比"
+        title="同一问题的服务端差异"
+        aside={<StatusPill value="diagnostic_only" />}
+      />
+      <div className="rag-compare-metrics">
+        <div>
+          <small>Top-5 重合</small>
+          <strong>
+            {comparison.top_k_overlap
+              ? `${comparison.top_k_overlap.overlap_count} / ${comparison.top_k_overlap.k}`
+              : "无法比较"}
+          </strong>
+        </div>
+        <div>
+          <small>最终证据</small>
+          <strong>{changedLabel(comparison.selected_evidence_changed)}</strong>
+        </div>
+        <div>
+          <small>证据门禁</small>
+          <strong>{changedLabel(comparison.evidence_decision_changed)}</strong>
+        </div>
+        <div>
+          <small>Hybrid 延迟差</small>
+          <strong>
+            {comparison.latency_delta_ms == null
+              ? "无法比较"
+              : `${comparison.latency_delta_ms > 0 ? "+" : ""}${comparison.latency_delta_ms} ms`}
+          </strong>
+        </div>
+      </div>
+      <div className="rag-compare-sides">
+        {[
+          ["Legacy", comparison.legacy, legacy],
+          ["Hybrid V2", comparison.hybrid, hybrid],
+        ].map(([label, side, inspection]) => (
+          <article key={label} data-status={side?.status}>
+            <header>
+              <strong>{label}</strong>
+              <span>{sideStatusLabel[side?.status] || "未运行"}</span>
+            </header>
+            {inspection ? (
+              <>
+                <p>
+                  最终证据：{selectedIds(inspection).join(" · ") || "未选择证据"}
+                </p>
+                <small>门禁原因：{decisionText(inspection)}</small>
+              </>
+            ) : (
+              <p>该侧没有可比较结果；另一侧结果仍然保留。</p>
+            )}
+          </article>
+        ))}
+      </div>
+      {comparison.rank_changes?.length > 0 && (
+        <div className="rag-table-wrap">
+          <table className="rag-table rag-compare-table">
+            <thead>
+              <tr>
+                <th>候选资料</th>
+                <th>Legacy：语义 / 词法 / 融合 / 重排</th>
+                <th>Hybrid：语义 / 词法 / 融合 / 重排</th>
+                <th>最终排名变化</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.rank_changes.map((change) => {
+                const legacyCandidate = legacyCandidates.get(change.candidate_id);
+                const hybridCandidate = hybridCandidates.get(change.candidate_id);
+                const candidate = hybridCandidate || legacyCandidate;
+                return (
+                  <tr key={change.candidate_id}>
+                    <td>
+                      <strong>{candidate?.title || change.candidate_id}</strong>
+                      <code>{change.candidate_id}</code>
+                      <button
+                        type="button"
+                        className="rag-link-button"
+                        onClick={(event) => onInspect(candidate, event.currentTarget)}
+                      >
+                        查看候选解释
+                      </button>
+                    </td>
+                    <td>
+                      {stageText(legacyCandidate).map((line) => <small key={line}>{line}</small>)}
+                      <em>{change.legacy_selected ? "已选为证据" : "未选为证据"}</em>
+                    </td>
+                    <td>
+                      {stageText(hybridCandidate).map((line) => <small key={line}>{line}</small>)}
+                      <em>{change.hybrid_selected ? "已选为证据" : "未选为证据"}</em>
+                    </td>
+                    <td>
+                      <strong>
+                        {change.rank_delta == null
+                          ? "仅一侧出现"
+                          : change.rank_delta === 0
+                            ? "排名不变"
+                            : change.rank_delta > 0
+                              ? `Hybrid 上升 ${change.rank_delta} 位`
+                              : `Hybrid 下降 ${Math.abs(change.rank_delta)} 位`}
+                      </strong>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="rag-footnote">
+        两侧共享同一条问题、约束和当前语料身份；比较结果不写入面试会话，
+        也不会生成生产 Shadow 记录。问题原文不包含在响应中。
+      </p>
+    </section>
+  );
+}
+
 export function RagRetrievalPage() {
   usePageMeta({
     title: "检索诊断",
@@ -41,6 +201,7 @@ export function RagRetrievalPage() {
     bodyClass: "start-page-body",
   });
   const [query, setQuery] = useState("");
+  const [runMode, setRunMode] = useState("compare");
   const [engine, setEngine] = useState("hybrid-v2");
   const [state, setState] = useState({
     status: "idle",
@@ -78,15 +239,20 @@ export function RagRetrievalPage() {
     requestRef.current = controller;
     setState({ status: "loading", data: null, error: null });
     try {
-      const data = await runRagInspection(
-        {
-          query_text: query,
-          engine,
-          profile_id: "question-review",
-          intent: "question_review",
-        },
-        { timeoutMs: 10000, signal: controller.signal },
-      );
+      const payload = {
+        query_text: query,
+        profile_id: "question-review",
+        intent: "question_review",
+      };
+      const data = runMode === "compare"
+        ? await runRagComparison(payload, {
+          timeoutMs: 12000,
+          signal: controller.signal,
+        })
+        : await runRagInspection(
+          { ...payload, engine },
+          { timeoutMs: 10000, signal: controller.signal },
+        );
       setState({ status: "success", data, error: null });
     } catch (error) {
       if (error?.code !== "REQUEST_ABORTED")
@@ -101,7 +267,12 @@ export function RagRetrievalPage() {
     setQuery("");
     setState({ status: "idle", data: null, error: null });
   };
-  const data = state.data;
+  const comparison = state.data?.schema_version === "rag-retrieval-compare-v1"
+    ? state.data
+    : null;
+  const data = comparison
+    ? comparison.hybrid?.inspection || comparison.legacy?.inspection
+    : state.data;
   const replay = data?.mode === "artifact_replay";
 
   useEffect(() => {
@@ -129,7 +300,11 @@ export function RagRetrievalPage() {
   return (
     <RagConsoleShell
       statusLabel={
-        data ? `${data.engine} · ${displayStatus(data.diagnostic_fidelity)}` : "检索器待命"
+        comparison
+          ? "Legacy / Hybrid · 对比完成"
+          : data
+            ? `${data.engine} · ${displayStatus(data.diagnostic_fidelity)}`
+            : "检索器待命"
       }
       statusTone={state.status === "error" ? "error" : "ready"}
     >
@@ -165,17 +340,33 @@ export function RagRetrievalPage() {
             />
           </label>
           <label>
-            <span>检索引擎</span>
+            <span>诊断方式</span>
             <select
-              value={engine}
-              onChange={(event) => setEngine(event.target.value)}
+              value={runMode}
+              onChange={(event) => setRunMode(event.target.value)}
             >
-              <option value="hybrid-v2">Hybrid V2</option>
-              <option value="legacy">Legacy</option>
+              <option value="compare">Legacy / Hybrid 对比</option>
+              <option value="single">单引擎诊断</option>
             </select>
           </label>
+          {runMode === "single" && (
+            <label>
+              <span>检索引擎</span>
+              <select
+                value={engine}
+                onChange={(event) => setEngine(event.target.value)}
+              >
+                <option value="hybrid-v2">Hybrid V2</option>
+                <option value="legacy">Legacy</option>
+              </select>
+            </label>
+          )}
           <button type="submit" disabled={state.status === "loading"}>
-            {state.status === "loading" ? "正在运行…" : "开始诊断"}
+            {state.status === "loading"
+              ? "正在运行…"
+              : runMode === "compare"
+                ? "比较两种引擎"
+                : "开始诊断"}
           </button>
           {state.status === "loading" && (
             <button type="button" className="rag-secondary" onClick={cancel}>
@@ -205,6 +396,9 @@ export function RagRetrievalPage() {
       )}
       {data && (
         <>
+          {comparison && (
+            <CompareResult comparison={comparison} onInspect={openCandidate} />
+          )}
           <section className="rag-identity-strip">
             <IdentityValue label="模式" value={displayStatus(data.mode)} />
             <IdentityValue label="检索引擎" value={data.engine} />

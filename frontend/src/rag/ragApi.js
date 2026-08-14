@@ -2,6 +2,7 @@ import { getJson, postJson } from "../api/client";
 
 export const getRagOverview = (options) => getJson("/api/rag/overview", options);
 export const runRagInspection = (payload, options) => postJson("/api/rag/inspections", payload, options);
+export const runRagComparison = (payload, options) => postJson("/api/rag/inspections/compare", payload, options);
 export const getRagEvaluations = (options) => getJson("/api/rag/evaluations", options);
 export const getRagPairedEvaluations = (options) => getJson("/api/rag/evaluations-paired", options);
 export const getRagEvaluationCases = (sha, options) => getJson(`/api/rag/evaluations/${encodeURIComponent(sha)}/cases`, options);

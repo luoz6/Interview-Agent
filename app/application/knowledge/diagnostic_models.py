@@ -74,6 +74,25 @@ class RetrievalInspectionRequest(SafeModel):
         return value
 
 
+class RetrievalCompareRequest(SafeModel):
+    """One privacy-safe request that compares both supported engines."""
+
+    query_text: str = Field(min_length=1, max_length=4000)
+    intent: RetrievalIntent = RetrievalIntent.EVAL
+    profile_id: str = Field(default="question-review", min_length=1, max_length=100)
+    domains: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
+    canonical_tags: tuple[str, ...] = ()
+    source_types: tuple[str, ...] = ()
+
+    @field_validator("query_text")
+    @classmethod
+    def reject_blank_query(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query_text must not be blank")
+        return value
+
+
 class SafeRankingExplanation(SafeModel):
     base_score_source: str
     base_score: float
@@ -153,6 +172,46 @@ class SafeRetrievalInspectionResponse(SafeModel):
     artifact_identity: dict[str, str | int | bool]
     artifact_sha256: str | None = None
     case_id: str | None = None
+
+
+class SafeCompareSide(SafeModel):
+    status: Literal["success", "failed", "timeout"]
+    inspection: SafeRetrievalInspectionResponse | None = None
+    failure_code: Literal[
+        "retrieval_failed",
+        "retrieval_timeout",
+    ] | None = None
+
+
+class SafeTopKOverlap(SafeModel):
+    k: int = Field(ge=1)
+    overlap_count: int = Field(ge=0)
+    overlap_ratio: float = Field(ge=0, le=1)
+    candidate_ids: tuple[str, ...]
+
+
+class SafeRankChange(SafeModel):
+    candidate_id: str
+    legacy_rank: int | None
+    hybrid_rank: int | None
+    rank_delta: int | None
+    legacy_selected: bool
+    hybrid_selected: bool
+
+
+class SafeRetrievalCompareResponse(SafeModel):
+    schema_version: str = "rag-retrieval-compare-v1"
+    created_at: datetime
+    request_id: str
+    requested_profile_id: str
+    corpus_manifest_sha256: str | None = None
+    legacy: SafeCompareSide
+    hybrid: SafeCompareSide
+    top_k_overlap: SafeTopKOverlap | None = None
+    rank_changes: tuple[SafeRankChange, ...] = ()
+    selected_evidence_changed: bool | None = None
+    evidence_decision_changed: bool | None = None
+    latency_delta_ms: float | None = None
 
 
 class ArtifactSummary(SafeModel):

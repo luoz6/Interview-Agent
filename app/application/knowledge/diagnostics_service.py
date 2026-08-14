@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
 
 from app.application.knowledge.diagnostic_models import (
     ArtifactCatalogResponse,
@@ -21,12 +22,17 @@ from app.application.knowledge.diagnostic_models import (
     PairedEvaluationsResponse,
     RagCapabilitySummary,
     RagOverviewResponse,
+    RetrievalCompareRequest,
     RetrievalInspectionRequest,
+    SafeCompareSide,
     SafeRankingExplanation,
     SafeInspectionInputs,
+    SafeRankChange,
     SafeEvidenceTraceRef,
     SafeRetrievalCandidate,
+    SafeRetrievalCompareResponse,
     SafeRetrievalInspectionResponse,
+    SafeTopKOverlap,
     NoEvidenceConfusionSummary,
 )
 from app.application.knowledge.retrieval_profiles import (
@@ -59,6 +65,7 @@ MANIFEST_PATH = ROOT / "app" / "data" / "knowledge_v2" / "manifest.json"
 ARTIFACT_ROOTS = (ROOT / "eval" / "knowledge-v3" / "machine-preannotation",)
 SNAPSHOT_ROOT = ROOT / "eval" / "knowledge-v3" / "diagnostic-snapshots"
 LIVE_INSPECTION_MAX_CONCURRENCY = 2
+COMPARE_TIMEOUT_SECONDS = 10.0
 
 
 def _utc_now() -> datetime:
@@ -67,6 +74,10 @@ def _utc_now() -> datetime:
 
 class DiagnosticCapacityExhausted(RuntimeError):
     """Raised before retrieval when the bounded live-diagnostic lane is full."""
+
+
+class DiagnosticIdentityConflict(RuntimeError):
+    """Raised when two successful compare sides did not use one corpus identity."""
 
 
 class DiagnosticCapacityGuard:
@@ -319,11 +330,15 @@ class RagDiagnosticsService:
         catalog: RagArtifactCatalog | None = None,
         session_store=None,
         capacity_guard: DiagnosticCapacityGuard | None = None,
+        compare_timeout_seconds: float = COMPARE_TIMEOUT_SECONDS,
     ) -> None:
+        if compare_timeout_seconds <= 0:
+            raise ValueError("compare_timeout_seconds must be positive")
         self._repository = repository
         self._catalog = catalog or RagArtifactCatalog()
         self._session_store = session_store
         self._capacity_guard = capacity_guard or _LIVE_INSPECTION_CAPACITY
+        self._compare_timeout_seconds = compare_timeout_seconds
 
     def overview(self) -> RagOverviewResponse:
         settings = load_knowledge_runtime_settings()
@@ -429,6 +444,145 @@ class RagDiagnosticsService:
                 requested_topics=payload.topics,
                 canonical_tags=payload.canonical_tags,
                 source_types=payload.source_types,
+            ),
+        )
+
+    def compare(
+        self,
+        payload: RetrievalCompareRequest,
+    ) -> SafeRetrievalCompareResponse:
+        """Compare Legacy and Hybrid once without mutating runtime or persisting traces."""
+
+        if self._repository is None:
+            raise RuntimeError("knowledge repository unavailable")
+        settings = load_knowledge_runtime_settings()
+        profile = resolve_runtime_profile(payload.intent, settings)
+        if payload.profile_id not in {
+            profile.profile_id,
+            f"{profile.profile_id}@{profile.profile_version}",
+        }:
+            raise ValueError("profile_id is not allowed for this intent")
+        request = RetrievalRequest(
+            query_text=payload.query_text,
+            intent=payload.intent,
+            profile_id=profile.profile_id,
+            hard_constraints=RetrievalHardConstraints(
+                source_types=payload.source_types
+            ),
+            routing_hints=RetrievalRoutingHints(
+                domains=payload.domains,
+                topics=payload.topics,
+                canonical_tags=payload.canonical_tags,
+            ),
+        )
+        inspection_inputs = SafeInspectionInputs(
+            intent=payload.intent.value,
+            requested_domains=payload.domains,
+            requested_topics=payload.topics,
+            canonical_tags=payload.canonical_tags,
+            source_types=payload.source_types,
+        )
+        inspect_retrieval = getattr(self._repository, "inspect_retrieval", None)
+        if not callable(inspect_retrieval):
+            raise RuntimeError("knowledge diagnostic retrieval unavailable")
+        if not self._capacity_guard.acquire():
+            raise DiagnosticCapacityExhausted("live diagnostic capacity exhausted")
+
+        profiles = {
+            "legacy": compatibility_profile(
+                minimum_score=settings.minimum_score,
+                evidence_limit=profile.evidence_limit,
+            ),
+            "hybrid": profile,
+        }
+        executor = None
+        futures = {}
+        pending_futures = set()
+        try:
+            executor = ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="rag-compare",
+            )
+            for side, side_profile in profiles.items():
+                future = executor.submit(
+                    inspect_retrieval,
+                    request,
+                    profile=side_profile,
+                    engine=("legacy" if side == "legacy" else "hybrid-v2"),
+                )
+                futures[side] = future
+                pending_futures.add(future)
+            done, pending = wait(
+                futures.values(),
+                timeout=self._compare_timeout_seconds,
+            )
+            pending_futures = set(pending)
+            for future in pending:
+                future.cancel()
+            sides = {
+                side: self._compare_side(
+                    future,
+                    completed=future in done,
+                    inspection_inputs=inspection_inputs,
+                )
+                for side, future in futures.items()
+            }
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=False, cancel_futures=True)
+            if pending_futures:
+                _release_capacity_when_complete(
+                    pending_futures,
+                    self._capacity_guard,
+                )
+            else:
+                self._capacity_guard.release()
+
+        legacy = sides["legacy"]
+        hybrid = sides["hybrid"]
+        legacy_inspection = legacy.inspection
+        hybrid_inspection = hybrid.inspection
+        corpus_manifest_sha256 = _compare_corpus_identity(
+            legacy_inspection,
+            hybrid_inspection,
+        )
+        diff = _compare_inspections(legacy_inspection, hybrid_inspection)
+        return SafeRetrievalCompareResponse(
+            created_at=_utc_now(),
+            request_id=request.request_id,
+            requested_profile_id=profile.profile_id,
+            corpus_manifest_sha256=corpus_manifest_sha256,
+            legacy=legacy,
+            hybrid=hybrid,
+            **diff,
+        )
+
+    @staticmethod
+    def _compare_side(
+        future,
+        *,
+        completed: bool,
+        inspection_inputs: SafeInspectionInputs,
+    ) -> SafeCompareSide:
+        if not completed:
+            return SafeCompareSide(
+                status="timeout",
+                failure_code="retrieval_timeout",
+            )
+        try:
+            result = future.result()
+        except Exception:
+            return SafeCompareSide(
+                status="failed",
+                failure_code="retrieval_failed",
+            )
+        return SafeCompareSide(
+            status="success",
+            inspection=_inspection_response(
+                result,
+                mode="live",
+                diagnostic_fidelity="live",
+                inspection_inputs=inspection_inputs,
             ),
         )
 
@@ -838,6 +992,130 @@ def _safe_candidate(item, selected):
         ),
         selected=item.chunk_id in selected,
     )
+
+
+def _compare_corpus_identity(
+    legacy: SafeRetrievalInspectionResponse | None,
+    hybrid: SafeRetrievalInspectionResponse | None,
+) -> str | None:
+    identities: list[str] = []
+    for inspection in (legacy, hybrid):
+        if inspection is None:
+            continue
+        side_identities = {
+            str(value)
+            for value in (
+                inspection.component_versions.get("corpus_manifest_sha256"),
+                *(item.corpus_manifest_sha256 for item in inspection.candidates),
+            )
+            if value
+        }
+        if len(side_identities) > 1:
+            raise DiagnosticIdentityConflict("one compare side used mixed corpus identities")
+        identities.extend(side_identities)
+    unique = set(identities)
+    if len(unique) > 1:
+        raise DiagnosticIdentityConflict("compare sides used different corpus identities")
+    return next(iter(unique), None)
+
+
+def _release_capacity_when_complete(futures, guard: DiagnosticCapacityGuard) -> None:
+    """Retain capacity for timed-out work until every provider thread exits."""
+
+    lock = Lock()
+    remaining = {"count": len(futures)}
+
+    def release_one(_future) -> None:
+        should_release = False
+        with lock:
+            remaining["count"] -= 1
+            should_release = remaining["count"] == 0
+        if should_release:
+            guard.release()
+
+    for future in futures:
+        future.add_done_callback(release_one)
+
+
+def _compare_inspections(
+    legacy: SafeRetrievalInspectionResponse | None,
+    hybrid: SafeRetrievalInspectionResponse | None,
+) -> dict:
+    if legacy is None or hybrid is None:
+        return {
+            "top_k_overlap": None,
+            "rank_changes": (),
+            "selected_evidence_changed": None,
+            "evidence_decision_changed": None,
+            "latency_delta_ms": None,
+        }
+
+    k = 5
+    legacy_ids = [item.candidate_id for item in legacy.candidates[:k]]
+    hybrid_ids = [item.candidate_id for item in hybrid.candidates[:k]]
+    hybrid_id_set = set(hybrid_ids)
+    overlap_ids = tuple(item for item in legacy_ids if item in hybrid_id_set)
+
+    legacy_rank = {
+        item.candidate_id: index
+        for index, item in enumerate(legacy.candidates, start=1)
+    }
+    hybrid_rank = {
+        item.candidate_id: index
+        for index, item in enumerate(hybrid.candidates, start=1)
+    }
+    legacy_selected = {
+        item.candidate_id for item in legacy.candidates if item.selected
+    }
+    hybrid_selected = {
+        item.candidate_id for item in hybrid.candidates if item.selected
+    }
+    ordered_ids = tuple(dict.fromkeys((*legacy_rank, *hybrid_rank)))
+    rank_changes = tuple(
+        SafeRankChange(
+            candidate_id=candidate_id,
+            legacy_rank=legacy_rank.get(candidate_id),
+            hybrid_rank=hybrid_rank.get(candidate_id),
+            rank_delta=(
+                legacy_rank[candidate_id] - hybrid_rank[candidate_id]
+                if candidate_id in legacy_rank and candidate_id in hybrid_rank
+                else None
+            ),
+            legacy_selected=candidate_id in legacy_selected,
+            hybrid_selected=candidate_id in hybrid_selected,
+        )
+        for candidate_id in ordered_ids
+    )
+
+    legacy_decision = (
+        legacy.evidence_decision.model_dump(mode="json")
+        if legacy.evidence_decision is not None
+        else None
+    )
+    hybrid_decision = (
+        hybrid.evidence_decision.model_dump(mode="json")
+        if hybrid.evidence_decision is not None
+        else None
+    )
+    legacy_latency = legacy.latency_ms.get("total")
+    hybrid_latency = hybrid.latency_ms.get("total")
+    latency_delta = (
+        round(float(hybrid_latency) - float(legacy_latency), 4)
+        if legacy_latency is not None and hybrid_latency is not None
+        else None
+    )
+    return {
+        "top_k_overlap": SafeTopKOverlap(
+            k=k,
+            overlap_count=len(overlap_ids),
+            overlap_ratio=len(overlap_ids) / k,
+            candidate_ids=overlap_ids,
+        ),
+        "rank_changes": rank_changes,
+        "selected_evidence_changed": legacy_selected != hybrid_selected,
+        "evidence_decision_changed": legacy_decision != hybrid_decision,
+        "latency_delta_ms": latency_delta,
+    }
 
 
 def _snapshot_response(snapshot: RetrievalDiagnosticSnapshotV1):

@@ -22,7 +22,9 @@ from app.api.rag.models import (
     NoEvidenceConfusionSummary,
     PairedEvaluationsResponse,
     RagOverviewResponse,
+    RetrievalCompareRequest,
     RetrievalInspectionRequest,
+    SafeRetrievalCompareResponse,
     SafeRetrievalInspectionResponse,
 )
 from app.api.shared.dependencies import (
@@ -33,7 +35,10 @@ from app.application.knowledge.corpus_write_service import (
     CorpusConflictError,
     CorpusWriteUnavailable,
 )
-from app.application.knowledge.diagnostics_service import DiagnosticCapacityExhausted
+from app.application.knowledge.diagnostics_service import (
+    DiagnosticCapacityExhausted,
+    DiagnosticIdentityConflict,
+)
 
 
 class SafeDiagnosticRoute(APIRoute):
@@ -107,6 +112,56 @@ def run_inspection(
             detail={
                 "code": "RAG_RETRIEVAL_UNAVAILABLE",
                 "message": "Retrieval diagnostics are unavailable.",
+                "retryable": True,
+            },
+        ) from exc
+
+
+@router.post(
+    "/inspections/compare",
+    response_model=SafeRetrievalCompareResponse,
+)
+def compare_inspections(
+    payload: RetrievalCompareRequest,
+    request: Request,
+    _access=Depends(require_live_inspector),
+    service=Depends(get_rag_diagnostics_service),
+):
+    try:
+        return service.compare(payload)
+    except DiagnosticCapacityExhausted as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "RAG_DIAGNOSTIC_CAPACITY_EXHAUSTED",
+                "message": "实时诊断并发已满，请稍后重试。",
+                "retryable": True,
+            },
+        ) from exc
+    except DiagnosticIdentityConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "RAG_COMPARE_IDENTITY_CONFLICT",
+                "message": "两侧检索未使用同一语料版本，本次结果已拒绝。",
+                "retryable": True,
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "RAG_COMPARE_REQUEST_REJECTED",
+                "message": "该比较请求不符合诊断约束。",
+                "retryable": False,
+            },
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "RAG_COMPARE_UNAVAILABLE",
+                "message": "双引擎比较当前不可用。",
                 "retryable": True,
             },
         ) from exc

@@ -89,6 +89,47 @@ const fullSnapshotReplay = {
   case_id: "full-snapshot-case",
 };
 
+const comparison = {
+  schema_version: "rag-retrieval-compare-v1",
+  created_at: "2026-08-14T00:00:00Z",
+  request_id: "req-compare",
+  requested_profile_id: "question-review",
+  corpus_manifest_sha256: "c".repeat(64),
+  legacy: {
+    status: "success",
+    failure_code: null,
+    inspection: {
+      ...inspection,
+      engine: "legacy",
+      candidates: [{
+        ...inspection.candidates[0],
+        semantic_rank: null,
+        semantic_score: null,
+        lexical_rank: 1,
+        lexical_score: 2.4,
+        fusion_rank: null,
+        fusion_score: null,
+        rerank_rank: 1,
+        selected: true,
+      }],
+      latency_ms: { ...inspection.latency_ms, total: 1.5 },
+    },
+  },
+  hybrid: { status: "success", failure_code: null, inspection },
+  top_k_overlap: { k: 5, overlap_count: 1, overlap_ratio: 0.2, candidate_ids: ["redis-lock"] },
+  rank_changes: [{
+    candidate_id: "redis-lock",
+    legacy_rank: 1,
+    hybrid_rank: 1,
+    rank_delta: 0,
+    legacy_selected: true,
+    hybrid_selected: true,
+  }],
+  selected_evidence_changed: false,
+  evidence_decision_changed: false,
+  latency_delta_ms: 0.5,
+};
+
 const metrics = {
   recall_at_5: 0.8, mrr_at_5: 0.7, ndcg_at_5: 0.72, hit_at_1: 0.65,
   filter_correctness_rate: 1, no_evidence_precision: 0, no_evidence_recall: 0,
@@ -137,6 +178,7 @@ describe("RAG console diagnostics", () => {
     window.history.replaceState({}, "", "/rag/retrieval");
     render(<RagRetrievalPage />);
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "private Redis query");
+    await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
     await user.click(screen.getByRole("button", { name: "开始诊断" }));
     expect(await screen.findByText("Redis lock")).toBeInTheDocument();
     expect(window.location.search).toBe("");
@@ -161,9 +203,52 @@ describe("RAG console diagnostics", () => {
     window.history.replaceState({}, "", "/rag/retrieval");
     render(<RagRetrievalPage />);
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "ephemeral query");
+    await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
     await user.click(screen.getByRole("button", { name: "开始诊断" }));
     await user.click(screen.getByRole("button", { name: "取消" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "开始诊断" })).toBeEnabled());
+    expect(window.location.search).toBe("");
+    expect(localStorage.length).toBe(0);
+  });
+
+  it("compares Legacy and Hybrid in one cancellable request and renders stage differences", async () => {
+    const user = userEvent.setup();
+    fetch.mockImplementationOnce((url, options) => {
+      expect(url).toBe("/api/rag/inspections/compare");
+      const payload = JSON.parse(options.body);
+      expect(payload.query_text).toBe("private compare query");
+      expect(payload.engine).toBeUndefined();
+      expect(options.signal).toBeInstanceOf(AbortSignal);
+      return response(comparison);
+    });
+    window.history.replaceState({}, "", "/rag/retrieval");
+    render(<RagRetrievalPage />);
+    await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "private compare query");
+    await user.click(screen.getByRole("button", { name: "比较两种引擎" }));
+
+    expect(await screen.findByText("同一问题的服务端差异")).toBeInTheDocument();
+    expect(screen.getByText("1 / 5")).toBeInTheDocument();
+    expect(screen.getAllByText("保持一致")).toHaveLength(2);
+    expect(screen.getByText("+0.5 ms")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /Legacy：语义/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /Hybrid：语义/ })).toBeInTheDocument();
+    expect(screen.getByText("排名不变")).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+    expect(JSON.stringify(comparison)).not.toContain("private compare query");
+  });
+
+  it("cancels the default dual-engine comparison without storing the query", async () => {
+    const user = userEvent.setup();
+    fetch.mockImplementationOnce((url, options) => new Promise((_resolve, reject) => {
+      expect(url).toBe("/api/rag/inspections/compare");
+      options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    }));
+    window.history.replaceState({}, "", "/rag/retrieval");
+    render(<RagRetrievalPage />);
+    await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "ephemeral compare query");
+    await user.click(screen.getByRole("button", { name: "比较两种引擎" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "比较两种引擎" })).toBeEnabled());
     expect(window.location.search).toBe("");
     expect(localStorage.length).toBe(0);
   });

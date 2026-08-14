@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from time import sleep
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.shared.dependencies import get_rag_diagnostics_service
 from app.application.knowledge.diagnostics_service import (
+    DiagnosticCapacityGuard,
     RagArtifactCatalog,
     RagDiagnosticsService,
 )
+from app.application.knowledge.diagnostic_models import RetrievalCompareRequest
 from app.domain.knowledge.evidence_gate import RetrievalEvidenceGate
 from app.domain.knowledge.models import KnowledgeChunk
 from app.domain.knowledge.retrieval import (
@@ -192,6 +195,114 @@ def test_live_inspection_is_synchronous_safe_and_uses_fixed_local_repository():
     assert private_query not in response.text
     assert "Private source body" not in response.text
     assert body["consumer_action"]["recording_status"] == "not_recorded"
+
+
+def test_compare_runs_both_engines_in_one_safe_request_and_returns_server_diff():
+    repository = DeterministicDiagnosticRepository()
+    client = _client(RagDiagnosticsService(repository=repository))
+    private_query = "PRIVATE compare query must never be reflected"
+
+    with use_environment(CONSOLE_ENV):
+        response = client.post(
+            "/api/rag/inspections/compare",
+            json={
+                "query_text": private_query,
+                "intent": "question_review",
+                "profile_id": "question-review",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert repository.calls == 2
+    assert body["legacy"]["status"] == "success"
+    assert body["hybrid"]["status"] == "success"
+    assert body["top_k_overlap"]["candidate_ids"] == ["redis-lock"]
+    assert body["selected_evidence_changed"] is False
+    assert body["evidence_decision_changed"] is False
+    assert body["corpus_manifest_sha256"] == "c" * 64
+    assert private_query not in response.text
+    assert "Private source body" not in response.text
+
+
+def test_compare_isolates_one_engine_failure_without_leaking_exception_detail():
+    class OneSideFailureRepository(DeterministicDiagnosticRepository):
+        def inspect_retrieval(self, request, *, profile, engine):
+            if engine == "hybrid-v2":
+                self.calls += 1
+                raise RuntimeError("PRIVATE provider failure detail")
+            return super().inspect_retrieval(request, profile=profile, engine=engine)
+
+    repository = OneSideFailureRepository()
+    client = _client(RagDiagnosticsService(repository=repository))
+    with use_environment(CONSOLE_ENV):
+        response = client.post(
+            "/api/rag/inspections/compare",
+            json={"query_text": "private failure query", "intent": "question_review"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert repository.calls == 2
+    assert body["legacy"]["status"] == "success"
+    assert body["hybrid"] == {
+        "status": "failed",
+        "inspection": None,
+        "failure_code": "retrieval_failed",
+    }
+    assert body["top_k_overlap"] is None
+    assert "PRIVATE provider failure detail" not in response.text
+    assert "private failure query" not in response.text
+
+
+def test_compare_timeout_is_bounded_and_does_not_discard_successful_side():
+    class SlowHybridRepository(DeterministicDiagnosticRepository):
+        def inspect_retrieval(self, request, *, profile, engine):
+            if engine == "hybrid-v2":
+                sleep(0.05)
+            return super().inspect_retrieval(request, profile=profile, engine=engine)
+
+    guard = DiagnosticCapacityGuard(max_concurrency=1)
+    service = RagDiagnosticsService(
+        repository=SlowHybridRepository(),
+        capacity_guard=guard,
+        compare_timeout_seconds=0.01,
+    )
+    response = service.compare(
+        RetrievalCompareRequest(
+            query_text="bounded compare",
+            intent="question_review",
+        )
+    )
+
+    assert response.legacy.status == "success"
+    assert response.hybrid.status == "timeout"
+    assert response.hybrid.failure_code == "retrieval_timeout"
+    assert response.top_k_overlap is None
+    assert guard.acquire() is False
+    sleep(0.06)
+    assert guard.acquire() is True
+    guard.release()
+
+
+def test_compare_rejects_mixed_corpus_identity_without_reflecting_query():
+    class MixedIdentityRepository(DeterministicDiagnosticRepository):
+        def inspect_retrieval(self, request, *, profile, engine):
+            result = super().inspect_retrieval(request, profile=profile, engine=engine)
+            if engine == "hybrid-v2":
+                result.candidates[0].chunk.metadata["corpus_manifest_sha256"] = "d" * 64
+            return result
+
+    client = _client(RagDiagnosticsService(repository=MixedIdentityRepository()))
+    with use_environment(CONSOLE_ENV):
+        response = client.post(
+            "/api/rag/inspections/compare",
+            json={"query_text": "private mixed identity query", "intent": "question_review"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "RAG_COMPARE_IDENTITY_CONFLICT"
+    assert "private mixed identity query" not in response.text
 
 
 def test_artifact_catalog_replay_is_provider_free_and_historical_holdout_is_not_sealed():

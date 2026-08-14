@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+import pytest
 from pydantic import ValidationError
 
 from app.api.rag.models import (
@@ -7,6 +8,8 @@ from app.api.rag.models import (
     CorpusReleaseRequest,
     CorpusValidateRequest,
     RetrievalInspectionRequest,
+    RetrievalCompareRequest,
+    SafeRetrievalCompareResponse,
     SafeRetrievalCandidate,
 )
 from app.domain.knowledge.models import KnowledgeChunk
@@ -43,6 +46,22 @@ def test_console_models_forbid_unknown_fields_and_blank_queries():
         pass
     else:
         raise AssertionError("blank query must be rejected")
+
+    for payload in (
+        {"query_text": "query", "engine": "legacy"},
+        {"query_text": "   "},
+    ):
+        with pytest.raises(ValidationError):
+            RetrievalCompareRequest.model_validate(payload)
+
+
+def test_compare_contract_never_exposes_query_or_provider_payload_fields():
+    request_fields = set(RetrievalCompareRequest.model_fields)
+    assert "engine" not in request_fields
+    response_fields = set(SafeRetrievalCompareResponse.model_fields)
+    assert not response_fields.intersection(
+        {"query_text", "provider_payload", "resume", "job_description"}
+    )
 
 
 def test_corpus_write_contracts_do_not_put_source_content_in_response_models():
