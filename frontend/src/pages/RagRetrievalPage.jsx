@@ -12,7 +12,13 @@ import {
   runRagComparison,
   runRagInspection,
 } from "../rag/ragApi";
-import { displayFieldLabel, displayStatus } from "../rag/ragDisplay";
+import {
+  defaultHybridFusionMode,
+  displayFieldLabel,
+  displayFusionMode,
+  displayStatus,
+  hybridFusionModeOptions,
+} from "../rag/ragDisplay";
 import "../styles/pages/rag-console.css";
 
 const evidenceDimensions = [
@@ -204,6 +210,9 @@ export function RagRetrievalPage() {
   const [query, setQuery] = useState("");
   const [runMode, setRunMode] = useState("compare");
   const [engine, setEngine] = useState("hybrid-v2");
+  const [hybridFusionMode, setHybridFusionMode] = useState(
+    defaultHybridFusionMode,
+  );
   const [state, setState] = useState({
     status: "idle",
     data: null,
@@ -251,7 +260,13 @@ export function RagRetrievalPage() {
           signal: controller.signal,
         })
         : await runRagInspection(
-          { ...payload, engine },
+          engine === "hybrid-v2"
+            ? {
+              ...payload,
+              engine,
+              hybrid_fusion_mode: hybridFusionMode,
+            }
+            : { ...payload, engine },
           { timeoutMs: 10000, signal: controller.signal },
         );
       setState({ status: "success", data, error: null });
@@ -266,6 +281,7 @@ export function RagRetrievalPage() {
   const clear = () => {
     requestRef.current?.abort();
     setQuery("");
+    setHybridFusionMode(defaultHybridFusionMode);
     setState({ status: "idle", data: null, error: null });
   };
   const comparison = state.data?.schema_version === "rag-retrieval-compare-v1"
@@ -355,10 +371,32 @@ export function RagRetrievalPage() {
               <span>检索引擎</span>
               <select
                 value={engine}
-                onChange={(event) => setEngine(event.target.value)}
+                onChange={(event) => {
+                  const nextEngine = event.target.value;
+                  setEngine(nextEngine);
+                  if (nextEngine === "legacy") {
+                    setHybridFusionMode(defaultHybridFusionMode);
+                  }
+                }}
               >
                 <option value="hybrid-v2">Hybrid V2</option>
                 <option value="legacy">Legacy</option>
+              </select>
+            </label>
+          )}
+          {runMode === "single" && engine === "hybrid-v2" && (
+            <label>
+              <span>融合模式</span>
+              <select
+                aria-label="融合模式"
+                value={hybridFusionMode}
+                onChange={(event) => setHybridFusionMode(event.target.value)}
+              >
+                {hybridFusionModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
           )}
@@ -501,6 +539,22 @@ export function RagRetrievalPage() {
               eyebrow="03 · 融合决策"
               title="本次问题如何分配检索权重"
             />
+            <dl className="rag-detail-list">
+              <IdentityValue
+                label={displayFieldLabel("requested_hybrid_fusion_mode")}
+                value={displayFusionMode(
+                  data.requested_hybrid_fusion_mode,
+                  data.engine === "legacy" ? "不适用" : "未记录",
+                )}
+              />
+              <IdentityValue
+                label={displayFieldLabel("effective_hybrid_fusion_mode")}
+                value={displayFusionMode(
+                  data.effective_hybrid_fusion_mode,
+                  data.engine === "legacy" ? "不适用" : "未记录",
+                )}
+              />
+            </dl>
             {Object.keys(data.fusion_summary || {}).length > 0 ? (
               <dl className="rag-detail-list">
                 {Object.entries(data.fusion_summary).map(([key, value]) => (
@@ -519,11 +573,16 @@ export function RagRetrievalPage() {
               </dl>
             ) : (
               <p className="rag-footnote">
-                当前历史制品未记录融合决策；界面不会根据候选排名反推问题分类或权重。
+                {data.engine === "legacy"
+                  ? "Legacy 检索不执行 Hybrid 融合，融合决策不适用。"
+                  : replay
+                    ? "当前历史制品未记录融合决策；界面不会根据候选排名反推问题分类或权重。"
+                    : "本次响应未记录融合决策；界面不会自行推断问题分类或权重。"}
               </p>
             )}
             <p className="rag-footnote">
-              问题信号、实际权重和原因代码均由后端确定性生成；这里不展示问题原文。
+              问题信号、实际权重和原因代码均由服务端确定性生成；仅用于算法演示，
+              不代表质量更优，且不展示问题原文。
             </p>
           </section>
           <section className="rag-panel">

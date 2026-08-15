@@ -14,6 +14,17 @@ export const metricLabels = {
   p95_latency_ms: "P95 延迟",
 };
 
+export const defaultHybridFusionMode = "fixed_weighted_rrf";
+
+const hybridFusionModeLabels = {
+  [defaultHybridFusionMode]: "固定权重 RRF",
+  query_aware_weighted_rrf: "查询感知 RRF",
+};
+
+export const hybridFusionModeOptions = Object.entries(
+  hybridFusionModeLabels,
+).map(([value, label]) => ({ value, label }));
+
 const statusLabels = {
   available: "可用",
   unavailable: "不可用",
@@ -90,6 +101,8 @@ const fieldLabels = {
   semantic_weight: "语义权重",
   lexical_weight: "词法权重",
   query_aware_fusion: "按问题动态融合",
+  requested_hybrid_fusion_mode: "请求融合模式",
+  effective_hybrid_fusion_mode: "实际融合模式",
   query_signal: "问题信号",
   strategy: "融合算法",
   semantic_candidate_count: "语义候选数",
@@ -172,6 +185,11 @@ export function displayStatus(value) {
 
 export function displayFieldLabel(value) {
   return fieldLabels[value] || value;
+}
+
+export function displayFusionMode(value, nullLabel = "未记录") {
+  if (value == null) return nullLabel;
+  return hybridFusionModeLabels[value] || value;
 }
 
 export function displayCaseType(value) {

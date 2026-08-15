@@ -11,6 +11,7 @@ import {
   IdentityValue,
   StatusPill,
 } from "../components/rag/RagPrimitives";
+import { displayFusionMode } from "../rag/ragDisplay";
 
 function response(payload, status = 200) {
   return Promise.resolve({
@@ -31,6 +32,8 @@ const inspection = {
   profile_id: "question-review",
   profile_version: "hybrid-v1",
   trace_schema_version: "retrieval-trace-v3",
+  requested_hybrid_fusion_mode: "query_aware_weighted_rrf",
+  effective_hybrid_fusion_mode: "query_aware_weighted_rrf",
   inspection_inputs: { intent: "question_review", requested_domains: [], requested_topics: [], canonical_tags: [], source_types: [] },
   query_facts: { query_sha256: "a".repeat(64) },
   resolved_profile: {},
@@ -69,6 +72,8 @@ const fullSnapshotReplay = {
   request_id: "acceptance-snapshot",
   mode: "artifact_replay",
   diagnostic_fidelity: "full_snapshot",
+  requested_hybrid_fusion_mode: null,
+  effective_hybrid_fusion_mode: null,
   query_facts: { query_sha256: "f".repeat(64), character_count: 17 },
   candidates: [{
     ...inspection.candidates[0],
@@ -113,6 +118,8 @@ const comparison = {
     inspection: {
       ...inspection,
       engine: "legacy",
+      requested_hybrid_fusion_mode: null,
+      effective_hybrid_fusion_mode: null,
       candidates: [{
         ...inspection.candidates[0],
         semantic_rank: null,
@@ -127,7 +134,15 @@ const comparison = {
       latency_ms: { ...inspection.latency_ms, total: 1.5 },
     },
   },
-  hybrid: { status: "success", failure_code: null, inspection },
+  hybrid: {
+    status: "success",
+    failure_code: null,
+    inspection: {
+      ...inspection,
+      requested_hybrid_fusion_mode: "fixed_weighted_rrf",
+      effective_hybrid_fusion_mode: "fixed_weighted_rrf",
+    },
+  },
   top_k_overlap: { k: 5, overlap_count: 1, overlap_ratio: 0.2, candidate_ids: ["redis-lock"] },
   rank_changes: [{
     candidate_id: "redis-lock",
@@ -180,17 +195,30 @@ describe("RAG console diagnostics", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 
+  it("uses the caller fallback for null Fusion modes and preserves unknown values", () => {
+    expect(displayFusionMode(null, "不适用")).toBe("不适用");
+    expect(displayFusionMode(null)).toBe("未记录");
+    expect(displayFusionMode("future_fusion_mode")).toBe("future_fusion_mode");
+  });
+
   it("keeps a live query out of the URL and response, and restores drawer focus", async () => {
     const user = userEvent.setup();
     fetch.mockImplementationOnce((url, options) => {
       expect(url).toBe("/api/rag/inspections");
-      expect(JSON.parse(options.body).query_text).toBe("private Redis query");
+      const payload = JSON.parse(options.body);
+      expect(payload.query_text).toBe("private Redis query");
+      expect(payload.engine).toBe("hybrid-v2");
+      expect(payload.hybrid_fusion_mode).toBe("query_aware_weighted_rrf");
       return response(inspection);
     });
     window.history.replaceState({}, "", "/rag/retrieval");
     render(<RagRetrievalPage />);
+    expect(screen.queryByLabelText("融合模式")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "private Redis query");
     await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
+    const fusionMode = screen.getByRole("combobox", { name: "融合模式" });
+    expect(fusionMode).toHaveValue("fixed_weighted_rrf");
+    await user.selectOptions(fusionMode, "query_aware_weighted_rrf");
     await user.click(screen.getByRole("button", { name: "开始诊断" }));
     expect(await screen.findByText("Redis lock")).toBeInTheDocument();
     expect(window.location.search).toBe("");
@@ -208,6 +236,51 @@ describe("RAG console diagnostics", () => {
     expect(screen.getByText("本次问题如何分配检索权重")).toBeInTheDocument();
     expect(screen.getByText("词法优先")).toBeInTheDocument();
     expect(screen.getByText("exact_alias_match")).toBeInTheDocument();
+    expect(screen.getByText("请求融合模式")).toBeInTheDocument();
+    expect(screen.getByText("实际融合模式")).toBeInTheDocument();
+    expect(screen.getAllByText("查询感知 RRF").length).toBeGreaterThan(1);
+    expect(screen.getByText("0.8")).toBeInTheDocument();
+    expect(screen.getByText("1.4")).toBeInTheDocument();
+    expect(screen.getByText(/实际权重和原因代码均由服务端确定性生成/)).toBeInTheDocument();
+    expect(screen.getByText(/仅用于算法演示/)).toBeInTheDocument();
+  });
+
+  it("uses Fixed Weighted RRF by default without exposing weight inputs", async () => {
+    const user = userEvent.setup();
+    const fixedInspection = {
+      ...inspection,
+      requested_hybrid_fusion_mode: "fixed_weighted_rrf",
+      effective_hybrid_fusion_mode: "fixed_weighted_rrf",
+      resolved_profile: { query_aware_fusion: false },
+      fusion_summary: {
+        ...inspection.fusion_summary,
+        semantic_weight: 1,
+        lexical_weight: 1,
+        query_signal: "balanced",
+        reason_codes: ["query_aware_fusion_disabled"],
+      },
+    };
+    fetch.mockImplementationOnce((url, options) => {
+      expect(url).toBe("/api/rag/inspections");
+      const payload = JSON.parse(options.body);
+      expect(payload.hybrid_fusion_mode).toBe("fixed_weighted_rrf");
+      expect(payload.semantic_weight).toBeUndefined();
+      expect(payload.lexical_weight).toBeUndefined();
+      expect(payload.rrf_k).toBeUndefined();
+      return response(fixedInspection);
+    });
+    window.history.replaceState({}, "", "/rag/retrieval");
+    render(<RagRetrievalPage />);
+
+    await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "fixed demo");
+    await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
+    expect(screen.getByLabelText("融合模式")).toHaveValue("fixed_weighted_rrf");
+    await user.click(screen.getByRole("button", { name: "开始诊断" }));
+
+    expect(await screen.findByText("Redis lock")).toBeInTheDocument();
+    expect(screen.getByText("请求融合模式").nextElementSibling).toHaveTextContent("固定权重 RRF");
+    expect(screen.getByText("实际融合模式").nextElementSibling).toHaveTextContent("固定权重 RRF");
+    expect(screen.queryByLabelText(/语义权重|词法权重|RRF 常数/)).not.toBeInTheDocument();
   });
 
   it("cancels a live inspection without persisting the query", async () => {
@@ -233,11 +306,13 @@ describe("RAG console diagnostics", () => {
       const payload = JSON.parse(options.body);
       expect(payload.query_text).toBe("private compare query");
       expect(payload.engine).toBeUndefined();
+      expect(payload.hybrid_fusion_mode).toBeUndefined();
       expect(options.signal).toBeInstanceOf(AbortSignal);
       return response(comparison);
     });
     window.history.replaceState({}, "", "/rag/retrieval");
     render(<RagRetrievalPage />);
+    expect(screen.queryByLabelText("融合模式")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "private compare query");
     await user.click(screen.getByRole("button", { name: "比较两种引擎" }));
 
@@ -250,6 +325,42 @@ describe("RAG console diagnostics", () => {
     expect(screen.getByText("排名不变")).toBeInTheDocument();
     expect(window.location.search).toBe("");
     expect(JSON.stringify(comparison)).not.toContain("private compare query");
+  });
+
+  it("keeps Fusion mode out of Legacy requests and resets Hybrid to Fixed", async () => {
+    const user = userEvent.setup();
+    fetch.mockImplementationOnce((url, options) => {
+      expect(url).toBe("/api/rag/inspections");
+      const payload = JSON.parse(options.body);
+      expect(payload.engine).toBe("legacy");
+      expect(payload.hybrid_fusion_mode).toBeUndefined();
+      return response({
+        ...inspection,
+        engine: "legacy",
+        requested_hybrid_fusion_mode: null,
+        effective_hybrid_fusion_mode: null,
+        fusion_summary: {},
+      });
+    });
+    window.history.replaceState({}, "", "/rag/retrieval");
+    render(<RagRetrievalPage />);
+
+    await user.selectOptions(screen.getByLabelText("诊断方式"), "single");
+    const fusionMode = screen.getByLabelText("融合模式");
+    await user.selectOptions(fusionMode, "query_aware_weighted_rrf");
+    await user.selectOptions(screen.getByLabelText("检索引擎"), "legacy");
+    expect(screen.queryByLabelText("融合模式")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("检索引擎"), "hybrid-v2");
+    expect(screen.getByLabelText("融合模式")).toHaveValue("fixed_weighted_rrf");
+    await user.selectOptions(screen.getByLabelText("检索引擎"), "legacy");
+    await user.type(screen.getByRole("textbox", { name: "诊断问题" }), "legacy query");
+    await user.click(screen.getByRole("button", { name: "开始诊断" }));
+
+    expect(await screen.findByText("Redis lock")).toBeInTheDocument();
+    expect(screen.getByText("请求融合模式").nextElementSibling).toHaveTextContent("不适用");
+    expect(screen.getByText("实际融合模式").nextElementSibling).toHaveTextContent("不适用");
+    expect(screen.getByText("Legacy 检索不执行 Hybrid 融合，融合决策不适用。")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("not_recorded");
   });
 
   it("cancels the default dual-engine comparison without storing the query", async () => {
@@ -291,6 +402,9 @@ describe("RAG console diagnostics", () => {
 
     expect(await screen.findAllByText("冻结制品回放")).not.toHaveLength(0);
     expect(screen.getByText(/不调用模型服务/)).toBeInTheDocument();
+    expect(screen.getByText("请求融合模式").nextElementSibling).toHaveTextContent("未记录");
+    expect(screen.getByText("实际融合模式").nextElementSibling).toHaveTextContent("未记录");
+    expect(document.body).not.toHaveTextContent("not_recorded");
     for (const stage of ["语义检索", "词法检索", "融合", "重排", "最终结果"]) {
       expect(screen.getByRole("columnheader", { name: stage })).toBeInTheDocument();
     }
