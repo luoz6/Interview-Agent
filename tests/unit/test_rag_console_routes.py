@@ -9,6 +9,41 @@ from app.runtime.config import use_environment
 from app.application.knowledge.diagnostics_service import DiagnosticCapacityExhausted
 
 
+ARTIFACT_SHA = "a" * 64
+REPLAY_URL = (
+    f"/api/rag/evaluations/{ARTIFACT_SHA}/cases/case-1/diagnostic-snapshot"
+)
+
+
+def _inspection_payload(*, mode, engine, provider_call_possible):
+    return {
+        "request_id": f"test-{mode}",
+        "mode": mode,
+        "created_at": "2026-08-13T00:00:00Z",
+        "diagnostic_fidelity": (
+            "live" if mode == "live" else "partial_historical"
+        ),
+        "engine": engine,
+        "profile_id": "question-review",
+        "profile_version": "hybrid-v1",
+        "trace_schema_version": "retrieval-trace-v3",
+        "inspection_inputs": {},
+        "query_facts": {},
+        "resolved_profile": {},
+        "routing_summary": {},
+        "fusion_summary": {},
+        "channel_summary": [],
+        "candidates": [],
+        "evidence_decision": None,
+        "consumer_action": {},
+        "latency_ms": {"total": 0.0},
+        "degraded_reasons": [],
+        "component_versions": {},
+        "provider_call_possible": provider_call_possible,
+        "artifact_identity": {},
+    }
+
+
 class FakeDiagnostics:
     def overview(self):
         return {
@@ -57,10 +92,43 @@ class FakeDiagnostics:
         }
 
     def inspect(self, payload):
-        raise AssertionError("invalid requests must not reach diagnostics service")
+        return _inspection_payload(
+            mode="live",
+            engine=payload.engine,
+            provider_call_possible=True,
+        )
 
     def compare(self, payload):
-        raise AssertionError("invalid requests must not reach diagnostics service")
+        return {
+            "created_at": "2026-08-13T00:00:00Z",
+            "request_id": "test-compare",
+            "requested_profile_id": payload.profile_id,
+            "legacy": {
+                "status": "success",
+                "inspection": _inspection_payload(
+                    mode="live",
+                    engine="legacy",
+                    provider_call_possible=True,
+                ),
+            },
+            "hybrid": {
+                "status": "success",
+                "inspection": _inspection_payload(
+                    mode="live",
+                    engine="hybrid-v2",
+                    provider_call_possible=True,
+                ),
+            },
+        }
+
+    def artifact_replay(self, artifact_sha256, case_id):
+        assert artifact_sha256 == ARTIFACT_SHA
+        assert case_id == "case-1"
+        return _inspection_payload(
+            mode="artifact_replay",
+            engine="hybrid-v2",
+            provider_call_possible=False,
+        )
 
 
 class SaturatedDiagnostics(FakeDiagnostics):
@@ -140,6 +208,7 @@ def _corpus_entry():
 def test_console_is_404_by_default():
     client = TestClient(app)
     assert client.get("/api/rag/overview").status_code == 404
+    assert client.get(REPLAY_URL).status_code == 404
     assert client.post("/api/rag/inspections", json={"query_text": "Redis"}).status_code == 404
     assert client.post(
         "/api/rag/inspections/compare", json={"query_text": "Redis"}
@@ -207,17 +276,49 @@ def test_corpus_version_response_does_not_reflect_content():
         app.dependency_overrides.pop(get_rag_corpus_write_service, None)
 
 
-def test_loopback_capability_allows_safe_overview_but_not_live_inspection():
+def test_console_only_allows_safe_read_and_replay_but_not_live_execution():
     app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
     try:
         with use_environment({"RAG_CONSOLE_ENABLED": "true"}):
             client = TestClient(app, client=("127.0.0.1", 50000))
             response = client.get("/api/rag/overview")
+            replay = client.get(REPLAY_URL)
             assert response.status_code == 200
             assert response.json()["current_engine"] == "legacy"
+            assert replay.status_code == 200
+            assert replay.json()["mode"] == "artifact_replay"
+            assert replay.json()["provider_call_possible"] is False
             assert client.post(
                 "/api/rag/inspections", json={"query_text": "Redis"}
             ).status_code == 404
+            assert client.post(
+                "/api/rag/inspections/compare", json={"query_text": "Redis"}
+            ).status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_rag_diagnostics_service, None)
+
+
+def test_console_and_live_execution_allow_replay_inspection_and_compare():
+    app.dependency_overrides[get_rag_diagnostics_service] = FakeDiagnostics
+    try:
+        with use_environment(
+            {
+                "RAG_CONSOLE_ENABLED": "true",
+                "RAG_LIVE_EXECUTION_ENABLED": "true",
+            }
+        ):
+            client = TestClient(app, client=("127.0.0.1", 50000))
+            replay = client.get(REPLAY_URL)
+            inspection = client.post(
+                "/api/rag/inspections", json={"query_text": "Redis"}
+            )
+            compare = client.post(
+                "/api/rag/inspections/compare", json={"query_text": "Redis"}
+            )
+
+        assert replay.status_code == 200
+        assert inspection.status_code == 200
+        assert compare.status_code == 200
     finally:
         app.dependency_overrides.pop(get_rag_diagnostics_service, None)
 
@@ -232,6 +333,10 @@ def test_forwarded_header_does_not_turn_remote_client_into_loopback():
                 headers={"x-forwarded-for": "127.0.0.1"},
             )
             assert response.status_code == 404
+            assert client.get(
+                REPLAY_URL,
+                headers={"x-forwarded-for": "127.0.0.1"},
+            ).status_code == 404
     finally:
         app.dependency_overrides.pop(get_rag_diagnostics_service, None)
 

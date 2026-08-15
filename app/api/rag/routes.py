@@ -240,7 +240,7 @@ def evaluation_snapshot(
     artifact_sha256: str,
     case_id: str,
     request: Request,
-    _access=Depends(require_live_execution),
+    _access=Depends(require_rag_console),
     service=Depends(get_rag_diagnostics_service),
 ):
     try:

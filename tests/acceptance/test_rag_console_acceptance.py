@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.shared.dependencies import get_rag_diagnostics_service
+from app.application.knowledge import diagnostics_service as diagnostics_service_module
 from app.application.knowledge.diagnostics_service import (
     DiagnosticCapacityGuard,
     RagArtifactCatalog,
@@ -45,9 +46,11 @@ MACHINE_ARTIFACT_ROOT = REPOSITORY_ROOT / "eval" / "knowledge-v3" / "machine-pre
 class DeterministicDiagnosticRepository:
     def __init__(self) -> None:
         self.calls = 0
+        self.invocations = []
 
     def inspect_retrieval(self, request, *, profile, engine):
         self.calls += 1
+        self.invocations.append((engine, profile))
         chunk = KnowledgeChunk(
             chunk_id="redis-lock",
             title="Redis distributed lock",
@@ -171,7 +174,19 @@ def test_default_off_and_learning_demo_runtime_remains_explicit_legacy():
 
     assert overview.status_code == 200
     assert evaluations.status_code == 200
-    assert replay.status_code == 404
+    assert replay.status_code == 200
+    replay_body = replay.json()
+    assert replay_body["mode"] == "artifact_replay"
+    assert replay_body["provider_call_possible"] is False
+    for forbidden in (
+        "query_text",
+        "content",
+        "provider_payload",
+        "embedding",
+        "filesystem_path",
+        "source_url",
+    ):
+        assert f'"{forbidden}"' not in replay.text
     body = overview.json()
     assert body["current_engine"] == "legacy"
     assert body["project_scope"] == "learning_project_technical_showcase"
@@ -201,11 +216,67 @@ def test_live_inspection_is_synchronous_safe_and_uses_fixed_local_repository():
     assert response.status_code == 200
     body = response.json()
     assert repository.calls == 1
+    assert repository.invocations[0][0] == "hybrid-v2"
+    assert repository.invocations[0][1].query_aware_fusion is False
     assert body["mode"] == "live"
+    assert body["requested_hybrid_fusion_mode"] == "fixed_weighted_rrf"
+    assert body["effective_hybrid_fusion_mode"] == "fixed_weighted_rrf"
+    assert body["resolved_profile"]["query_aware_fusion"] is False
     assert body["candidates"][0]["safe_excerpt"].startswith("Safe summary")
     assert private_query not in response.text
     assert "Private source body" not in response.text
     assert body["consumer_action"]["recording_status"] == "not_recorded"
+
+
+def test_live_hybrid_query_aware_mode_only_changes_diagnostic_profile_switch():
+    repository = DeterministicDiagnosticRepository()
+    client = _client(RagDiagnosticsService(repository=repository))
+
+    with use_environment(CONSOLE_ENV):
+        response = client.post(
+            "/api/rag/inspections",
+            json={
+                "query_text": "Redis 锁应该如何安全释放？",
+                "intent": "question_review",
+                "profile_id": "question-review",
+                "engine": "hybrid-v2",
+                "hybrid_fusion_mode": "query_aware_weighted_rrf",
+            },
+        )
+
+    assert response.status_code == 200
+    _, diagnostic_profile = repository.invocations[0]
+    body = response.json()
+    assert diagnostic_profile.query_aware_fusion is True
+    assert diagnostic_profile.semantic_weight == 1.0
+    assert diagnostic_profile.lexical_weight == 1.0
+    assert body["requested_hybrid_fusion_mode"] == "query_aware_weighted_rrf"
+    assert body["effective_hybrid_fusion_mode"] == "query_aware_weighted_rrf"
+    assert body["resolved_profile"]["query_aware_fusion"] is True
+
+
+def test_live_legacy_reports_fixed_request_without_hybrid_fusion_execution():
+    repository = DeterministicDiagnosticRepository()
+    client = _client(RagDiagnosticsService(repository=repository))
+
+    with use_environment(CONSOLE_ENV):
+        response = client.post(
+            "/api/rag/inspections",
+            json={
+                "query_text": "Redis",
+                "intent": "question_review",
+                "profile_id": "question-review",
+                "engine": "legacy",
+            },
+        )
+
+    assert response.status_code == 200
+    engine, compatibility = repository.invocations[0]
+    body = response.json()
+    assert engine == "legacy"
+    assert compatibility.profile_id == "legacy-compatibility"
+    assert body["requested_hybrid_fusion_mode"] is None
+    assert body["effective_hybrid_fusion_mode"] is None
 
 
 def test_compare_runs_both_engines_in_one_safe_request_and_returns_server_diff():
@@ -226,14 +297,61 @@ def test_compare_runs_both_engines_in_one_safe_request_and_returns_server_diff()
     assert response.status_code == 200
     body = response.json()
     assert repository.calls == 2
+    profiles = {engine: profile for engine, profile in repository.invocations}
+    assert profiles["hybrid-v2"].query_aware_fusion is False
+    assert profiles["legacy"].profile_id == "legacy-compatibility"
     assert body["legacy"]["status"] == "success"
     assert body["hybrid"]["status"] == "success"
+    assert body["legacy"]["inspection"]["requested_hybrid_fusion_mode"] is None
+    assert body["legacy"]["inspection"]["effective_hybrid_fusion_mode"] is None
+    assert body["hybrid"]["inspection"]["requested_hybrid_fusion_mode"] == (
+        "fixed_weighted_rrf"
+    )
+    assert body["hybrid"]["inspection"]["effective_hybrid_fusion_mode"] == (
+        "fixed_weighted_rrf"
+    )
     assert body["top_k_overlap"]["candidate_ids"] == ["redis-lock"]
     assert body["selected_evidence_changed"] is False
     assert body["evidence_decision_changed"] is False
     assert body["corpus_manifest_sha256"] == "c" * 64
     assert private_query not in response.text
     assert "Private source body" not in response.text
+
+
+def test_compare_forces_fixed_profile_when_runtime_profile_is_query_aware(
+    monkeypatch,
+):
+    original_resolver = diagnostics_service_module.resolve_runtime_profile
+    resolved_runtime_profiles = []
+
+    def query_aware_runtime_profile(*args, **kwargs):
+        profile = original_resolver(*args, **kwargs).model_copy(
+            update={"query_aware_fusion": True}
+        )
+        resolved_runtime_profiles.append(profile)
+        return profile
+
+    monkeypatch.setattr(
+        diagnostics_service_module,
+        "resolve_runtime_profile",
+        query_aware_runtime_profile,
+    )
+    repository = DeterministicDiagnosticRepository()
+    client = _client(RagDiagnosticsService(repository=repository))
+
+    with use_environment(CONSOLE_ENV):
+        response = client.post(
+            "/api/rag/inspections/compare",
+            json={"query_text": "Compare must remain fixed"},
+        )
+
+    assert response.status_code == 200
+    assert resolved_runtime_profiles[0].query_aware_fusion is True
+    profiles = {engine: profile for engine, profile in repository.invocations}
+    assert profiles["hybrid-v2"].query_aware_fusion is False
+    hybrid = response.json()["hybrid"]["inspection"]
+    assert hybrid["requested_hybrid_fusion_mode"] == "fixed_weighted_rrf"
+    assert hybrid["effective_hybrid_fusion_mode"] == "fixed_weighted_rrf"
 
 
 def test_compare_isolates_one_engine_failure_without_leaking_exception_detail():
@@ -346,6 +464,8 @@ def test_artifact_catalog_replay_is_provider_free_and_holdout_is_diagnostic_only
     assert replay.json()["diagnostic_fidelity"] == "partial_historical"
     assert replay.json()["provider_call_possible"] is False
     assert replay.json()["trace_schema_version"] == "not_recorded"
+    assert replay.json()["requested_hybrid_fusion_mode"] is None
+    assert replay.json()["effective_hybrid_fusion_mode"] is None
 
 
 def test_valid_snapshot_supports_full_replay_without_retrieval(tmp_path):
@@ -448,6 +568,8 @@ def test_valid_snapshot_supports_full_replay_without_retrieval(tmp_path):
     assert repository.calls == 0
     assert body["diagnostic_fidelity"] == "full_snapshot"
     assert body["provider_call_possible"] is False
+    assert body["requested_hybrid_fusion_mode"] is None
+    assert body["effective_hybrid_fusion_mode"] is None
     candidate = body["candidates"][0]
     assert candidate["semantic_rank"] == 1
     assert candidate["lexical_rank"] == 2

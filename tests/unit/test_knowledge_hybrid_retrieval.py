@@ -295,9 +295,14 @@ def test_hybrid_service_records_actual_query_aware_fusion_decision():
     service.close()
 
     summary = result.trace.fusion_summary
+    assert (profile.semantic_weight, profile.lexical_weight) == (1.0, 1.0)
     assert summary.query_signal == "lexical_dominant"
     assert summary.semantic_weight == 0.8
     assert summary.lexical_weight == 1.4
+    assert (summary.semantic_weight, summary.lexical_weight) != (
+        profile.semantic_weight,
+        profile.lexical_weight,
+    )
     assert "exact_alias_match" in summary.reason_codes
 
 

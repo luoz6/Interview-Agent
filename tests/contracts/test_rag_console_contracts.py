@@ -1,16 +1,18 @@
 from datetime import datetime, timezone
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from app.api.rag.models import (
     ConsumerActionRecord,
     CorpusCreateVersionRequest,
     CorpusValidateRequest,
+    HybridFusionMode,
     RetrievalInspectionRequest,
     RetrievalCompareRequest,
     SafeRetrievalCompareResponse,
     SafeRetrievalCandidate,
+    SafeRetrievalInspectionResponse,
 )
 from app.domain.knowledge.models import KnowledgeChunk
 from app.domain.knowledge.retrieval import (
@@ -55,12 +57,117 @@ def test_console_models_forbid_unknown_fields_and_blank_queries():
             RetrievalCompareRequest.model_validate(payload)
 
 
+@pytest.mark.parametrize(
+    "request_type",
+    (RetrievalInspectionRequest, RetrievalCompareRequest),
+)
+def test_active_retrieval_requests_reject_shadow_without_reflecting_query(
+    request_type,
+):
+    private_query = "PRIVATE SHADOW QUERY MUST NOT BE REFLECTED"
+
+    with pytest.raises(ValidationError) as exc_info:
+        request_type(query_text=private_query, intent="shadow")
+
+    assert private_query not in str(exc_info.value)
+    assert private_query not in exc_info.value.json()
+
+
+def test_inspection_fusion_mode_has_fixed_default_and_two_controlled_values():
+    assert {mode.value for mode in HybridFusionMode} == {
+        "fixed_weighted_rrf",
+        "query_aware_weighted_rrf",
+    }
+    assert (
+        RetrievalInspectionRequest(query_text="query").hybrid_fusion_mode
+        is HybridFusionMode.FIXED_WEIGHTED_RRF
+    )
+    assert (
+        RetrievalInspectionRequest(
+            query_text="query",
+            engine="hybrid-v2",
+            hybrid_fusion_mode="query_aware_weighted_rrf",
+        ).hybrid_fusion_mode
+        is HybridFusionMode.QUERY_AWARE_WEIGHTED_RRF
+    )
+    assert (
+        RetrievalInspectionRequest(
+            query_text="query",
+            engine="legacy",
+            hybrid_fusion_mode="fixed_weighted_rrf",
+        ).hybrid_fusion_mode
+        is HybridFusionMode.FIXED_WEIGHTED_RRF
+    )
+
+
+@pytest.mark.parametrize(
+    "restricted_fields",
+    (
+        {
+            "engine": "legacy",
+            "hybrid_fusion_mode": "query_aware_weighted_rrf",
+        },
+        {"hybrid_fusion_mode": "custom_rrf"},
+        {"semantic_weight": 1.3},
+        {"lexical_weight": 0.7},
+        {"rrf_k": 60},
+    ),
+)
+def test_inspection_rejects_unsafe_fusion_configuration_without_query_reflection(
+    restricted_fields,
+):
+    private_query = "PRIVATE FUSION QUERY MUST NOT BE REFLECTED"
+
+    with pytest.raises(ValidationError) as exc_info:
+        RetrievalInspectionRequest(
+            query_text=private_query,
+            **restricted_fields,
+        )
+
+    assert private_query not in str(exc_info.value)
+    assert private_query not in exc_info.value.json()
+
+
 def test_compare_contract_never_exposes_query_or_provider_payload_fields():
     request_fields = set(RetrievalCompareRequest.model_fields)
-    assert "engine" not in request_fields
+    assert not request_fields.intersection(
+        {
+            "engine",
+            "hybrid_fusion_mode",
+            "semantic_weight",
+            "lexical_weight",
+            "rrf_k",
+        }
+    )
     response_fields = set(SafeRetrievalCompareResponse.model_fields)
     assert not response_fields.intersection(
         {"query_text", "provider_payload", "resume", "job_description"}
+    )
+
+    private_query = "PRIVATE COMPARE FUSION QUERY MUST NOT BE REFLECTED"
+    with pytest.raises(ValidationError) as exc_info:
+        RetrievalCompareRequest(
+            query_text=private_query,
+            hybrid_fusion_mode="query_aware_weighted_rrf",
+        )
+    assert private_query not in str(exc_info.value)
+    assert private_query not in exc_info.value.json()
+
+
+def test_inspection_response_records_only_fusion_mode_identity_at_top_level():
+    fields = SafeRetrievalInspectionResponse.model_fields
+    for name in (
+        "requested_hybrid_fusion_mode",
+        "effective_hybrid_fusion_mode",
+    ):
+        field = fields[name]
+        adapter = TypeAdapter(field.annotation)
+        assert field.default is None
+        assert adapter.validate_python(None) is None
+        with pytest.raises(ValidationError):
+            adapter.validate_python("not_recorded")
+    assert not set(fields).intersection(
+        {"query_signal", "semantic_weight", "lexical_weight", "reason_codes"}
     )
 
 

@@ -18,6 +18,7 @@ from app.application.knowledge.diagnostic_models import (
     EvalCasesResponse,
     EvidenceTraceResponse,
     EvidenceTraceStage,
+    HybridFusionMode,
     PairedEvaluationSummary,
     PairedEvaluationsResponse,
     RagCapabilitySummary,
@@ -37,6 +38,7 @@ from app.application.knowledge.diagnostic_models import (
 )
 from app.application.knowledge.retrieval_profiles import (
     compatibility_profile,
+    resolve_diagnostic_profile,
     resolve_runtime_profile,
 )
 from app.domain.knowledge.retrieval import (
@@ -435,7 +437,7 @@ class RagDiagnosticsService:
                 evidence_limit=profile.evidence_limit,
             )
             if payload.engine == "legacy"
-            else profile
+            else resolve_diagnostic_profile(profile, payload.hybrid_fusion_mode)
         )
         inspect_retrieval = getattr(self._repository, "inspect_retrieval", None)
         if not callable(inspect_retrieval):
@@ -454,6 +456,16 @@ class RagDiagnosticsService:
             result,
             mode=payload.mode,
             diagnostic_fidelity="live",
+            requested_hybrid_fusion_mode=(
+                payload.hybrid_fusion_mode
+                if payload.engine == "hybrid-v2"
+                else None
+            ),
+            effective_hybrid_fusion_mode=(
+                payload.hybrid_fusion_mode
+                if payload.engine == "hybrid-v2"
+                else None
+            ),
             inspection_inputs=SafeInspectionInputs(
                 intent=payload.intent.value,
                 requested_domains=payload.domains,
@@ -509,7 +521,10 @@ class RagDiagnosticsService:
                 minimum_score=settings.minimum_score,
                 evidence_limit=profile.evidence_limit,
             ),
-            "hybrid": profile,
+            "hybrid": resolve_diagnostic_profile(
+                profile,
+                HybridFusionMode.FIXED_WEIGHTED_RRF,
+            ),
         }
         executor = None
         futures = {}
@@ -539,6 +554,16 @@ class RagDiagnosticsService:
                 side: self._compare_side(
                     future,
                     completed=future in done,
+                    requested_hybrid_fusion_mode=(
+                        HybridFusionMode.FIXED_WEIGHTED_RRF
+                        if side == "hybrid"
+                        else None
+                    ),
+                    effective_hybrid_fusion_mode=(
+                        HybridFusionMode.FIXED_WEIGHTED_RRF
+                        if side == "hybrid"
+                        else None
+                    ),
                     inspection_inputs=inspection_inputs,
                 )
                 for side, future in futures.items()
@@ -578,6 +603,8 @@ class RagDiagnosticsService:
         future,
         *,
         completed: bool,
+        requested_hybrid_fusion_mode: HybridFusionMode | None,
+        effective_hybrid_fusion_mode: HybridFusionMode | None,
         inspection_inputs: SafeInspectionInputs,
     ) -> SafeCompareSide:
         if not completed:
@@ -598,6 +625,8 @@ class RagDiagnosticsService:
                 result,
                 mode="live",
                 diagnostic_fidelity="live",
+                requested_hybrid_fusion_mode=requested_hybrid_fusion_mode,
+                effective_hybrid_fusion_mode=effective_hybrid_fusion_mode,
                 inspection_inputs=inspection_inputs,
             ),
         )
@@ -651,6 +680,8 @@ class RagDiagnosticsService:
             engine=artifact.identity.engine_version,
             profile_id=artifact.identity.profile_id,
             profile_version=artifact.identity.profile_version,
+            requested_hybrid_fusion_mode=None,
+            effective_hybrid_fusion_mode=None,
             trace_schema_version="not_recorded",
             inspection_inputs=SafeInspectionInputs(),
             query_facts={"status": "not_recorded"},
@@ -956,6 +987,8 @@ def _inspection_response(
     *,
     mode,
     diagnostic_fidelity,
+    requested_hybrid_fusion_mode: HybridFusionMode | None,
+    effective_hybrid_fusion_mode: HybridFusionMode | None,
     inspection_inputs: SafeInspectionInputs,
 ):
     selected = {item.chunk_id for item in result.selected_evidence}
@@ -968,6 +1001,8 @@ def _inspection_response(
         engine=result.retrieval_engine_version,
         profile_id=trace.profile_id,
         profile_version=result.profile_version,
+        requested_hybrid_fusion_mode=requested_hybrid_fusion_mode,
+        effective_hybrid_fusion_mode=effective_hybrid_fusion_mode,
         trace_schema_version=trace.trace_schema_version,
         inspection_inputs=inspection_inputs,
         query_facts=(
@@ -1191,6 +1226,8 @@ def _snapshot_response(snapshot: RetrievalDiagnosticSnapshotV1):
         engine=snapshot.engine_version,
         profile_id=snapshot.profile_id,
         profile_version=snapshot.profile_version,
+        requested_hybrid_fusion_mode=None,
+        effective_hybrid_fusion_mode=None,
         trace_schema_version=snapshot.trace_schema_version,
         inspection_inputs=SafeInspectionInputs(intent="eval"),
         query_facts={"query_sha256": snapshot.query_sha256, "character_count": snapshot.query_character_count},

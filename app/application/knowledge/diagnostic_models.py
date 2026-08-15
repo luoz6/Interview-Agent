@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.domain.knowledge.evidence import EvidenceDecision
 from app.domain.knowledge.retrieval import RetrievalIntent
+
+
+class HybridFusionMode(StrEnum):
+    FIXED_WEIGHTED_RRF = "fixed_weighted_rrf"
+    QUERY_AWARE_WEIGHTED_RRF = "query_aware_weighted_rrf"
 
 
 class SafeModel(BaseModel):
@@ -45,6 +51,7 @@ class RetrievalInspectionRequest(SafeModel):
     intent: RetrievalIntent = RetrievalIntent.EVAL
     profile_id: str = Field(default="question-review", min_length=1, max_length=100)
     engine: Literal["legacy", "hybrid-v2"] = "hybrid-v2"
+    hybrid_fusion_mode: HybridFusionMode = HybridFusionMode.FIXED_WEIGHTED_RRF
     domains: tuple[str, ...] = ()
     topics: tuple[str, ...] = ()
     canonical_tags: tuple[str, ...] = ()
@@ -55,6 +62,20 @@ class RetrievalInspectionRequest(SafeModel):
     def reject_blank_query(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("query_text must not be blank")
+        return value
+
+    @field_validator("hybrid_fusion_mode")
+    @classmethod
+    def reject_query_aware_legacy(
+        cls,
+        value: HybridFusionMode,
+        info: ValidationInfo,
+    ) -> HybridFusionMode:
+        if (
+            info.data.get("engine") == "legacy"
+            and value is HybridFusionMode.QUERY_AWARE_WEIGHTED_RRF
+        ):
+            raise ValueError("query-aware fusion requires hybrid-v2")
         return value
 
 
@@ -140,6 +161,8 @@ class SafeRetrievalInspectionResponse(SafeModel):
     engine: str
     profile_id: str
     profile_version: str
+    requested_hybrid_fusion_mode: HybridFusionMode | None = None
+    effective_hybrid_fusion_mode: HybridFusionMode | None = None
     trace_schema_version: str
     inspection_inputs: SafeInspectionInputs
     query_facts: dict[str, str | int]

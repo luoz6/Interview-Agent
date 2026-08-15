@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from app.application.knowledge.diagnostic_models import HybridFusionMode
+from app.application.knowledge.retrieval_profiles import (
+    resolve_diagnostic_profile,
+    resolve_runtime_profile,
+)
 from app.runtime.config import (
     load_api_runtime_settings,
     load_effective_runtime_config,
@@ -13,7 +18,6 @@ from app.runtime.config import (
     use_environment,
 )
 from app.runtime.config.compatibility import get_runtime_store
-from app.application.knowledge.retrieval_profiles import resolve_runtime_profile
 from app.domain.knowledge.retrieval import RetrievalIntent
 
 def test_effective_config_can_be_built_from_an_explicit_mapping():
@@ -142,6 +146,40 @@ def test_knowledge_profiles_keep_independent_runtime_budgets():
     assert prep.semantic_timeout_ms != followup.semantic_timeout_ms
 
 
+def test_diagnostic_profile_only_changes_query_aware_switch():
+    settings = load_knowledge_runtime_settings(
+        {
+            "KNOWLEDGE_SEMANTIC_WEIGHT": "0.9",
+            "KNOWLEDGE_LEXICAL_WEIGHT": "1.1",
+        }
+    )
+    runtime_profile = resolve_runtime_profile(RetrievalIntent.EVAL, settings)
+    runtime_before = runtime_profile.model_dump()
+
+    fixed = resolve_diagnostic_profile(
+        runtime_profile,
+        HybridFusionMode.FIXED_WEIGHTED_RRF,
+    )
+    query_aware = resolve_diagnostic_profile(
+        runtime_profile,
+        HybridFusionMode.QUERY_AWARE_WEIGHTED_RRF,
+    )
+
+    assert runtime_profile.model_dump() == runtime_before
+    assert fixed.query_aware_fusion is False
+    assert query_aware.query_aware_fusion is True
+    assert fixed.semantic_weight == query_aware.semantic_weight == 0.9
+    assert fixed.lexical_weight == query_aware.lexical_weight == 1.1
+    unchanged_fields = runtime_profile.model_dump(
+        exclude={"query_aware_fusion"}
+    )
+    assert fixed.model_dump(exclude={"query_aware_fusion"}) == unchanged_fields
+    assert (
+        query_aware.model_dump(exclude={"query_aware_fusion"})
+        == unchanged_fields
+    )
+
+
 @pytest.mark.parametrize(
     "environment",
     [
@@ -163,7 +201,7 @@ def test_knowledge_v2_settings_fail_closed_on_invalid_engine_or_profile():
         load_knowledge_runtime_settings({"KNOWLEDGE_ENGINE": "experimental"})
     with pytest.raises(ValueError, match="<profile-id>@<version>"):
         load_knowledge_runtime_settings({"KNOWLEDGE_PROFILE_PREP": "prep"})
-    with pytest.raises(ValueError, match="ranking-gap evidence gate"):
+    with pytest.raises(ValueError, match="not enabled in the current demo scope"):
         load_knowledge_runtime_settings(
             {"KNOWLEDGE_REMOTE_RERANKER_ENABLED": "true"}
         )

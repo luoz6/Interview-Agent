@@ -286,7 +286,7 @@ def _load_knowledge_runtime_settings() -> KnowledgeRuntimeSettings:
     )
     if remote_reranker_enabled:
         raise ValueError(
-            "knowledge remote reranker is blocked until the ranking-gap evidence gate passes"
+            "knowledge remote reranker is not enabled in the current demo scope"
         )
     component_versions = {
         "retrieval_engine_version": env.get(

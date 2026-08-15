@@ -175,6 +175,25 @@ def run_audit(
     diagnostics = _read(root / "app/application/knowledge/diagnostics_service.py")
     inspector = _read(root / "frontend/src/pages/RagRetrievalPage.jsx")
     eval_runner = _read(root / "scripts/evaluate_knowledge_retrieval_v3.py")
+    lingering_knowledge_shadow = tuple(
+        marker
+        for marker in ('SHADOW = "shadow"', "RetrievalIntent.SHADOW")
+        if marker in retrieval or marker in active_text
+    )
+    record(
+        "governance.knowledge_retrieval_shadow_absent",
+        not lingering_knowledge_shadow,
+        f"lingering={lingering_knowledge_shadow}",
+    )
+    remote_reranker_message = (
+        "knowledge remote reranker is not enabled in the current demo scope"
+    )
+    record(
+        "config.remote_reranker_demo_scope",
+        remote_reranker_message in config_loader
+        and "ranking-gap evidence gate" not in config_loader,
+        "remote reranker remains fail-closed with current demo-scope wording",
+    )
     record(
         "algorithm.query_aware_fusion",
         all(

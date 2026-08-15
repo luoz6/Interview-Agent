@@ -18,7 +18,6 @@ class RetrievalIntent(StrEnum):
     QUESTION_REVIEW = "question_review"
     REPORT_REPAIR = "report_repair"
     EVAL = "eval"
-    SHADOW = "shadow"
 
 
 class RetrievalAvailability(StrEnum):

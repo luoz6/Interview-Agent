@@ -1,3 +1,4 @@
+from app.application.knowledge.diagnostic_models import HybridFusionMode
 from app.domain.knowledge.retrieval import (
     ResolvedRetrievalProfile,
     RetrievalIntent,
@@ -13,6 +14,21 @@ def compatibility_profile(*, minimum_score: float, evidence_limit: int) -> Resol
         rerank_candidate_limit=max(12, evidence_limit),
         evidence_limit=evidence_limit,
         minimum_score=minimum_score,
+    )
+
+
+def resolve_diagnostic_profile(
+    runtime_profile: ResolvedRetrievalProfile,
+    mode: HybridFusionMode,
+) -> ResolvedRetrievalProfile:
+    if mode is HybridFusionMode.FIXED_WEIGHTED_RRF:
+        query_aware_fusion = False
+    elif mode is HybridFusionMode.QUERY_AWARE_WEIGHTED_RRF:
+        query_aware_fusion = True
+    else:
+        raise ValueError("unsupported hybrid fusion mode")
+    return runtime_profile.model_copy(
+        update={"query_aware_fusion": query_aware_fusion}
     )
 
 
