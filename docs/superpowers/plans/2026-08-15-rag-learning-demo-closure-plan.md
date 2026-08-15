@@ -2,7 +2,7 @@
 
 > 日期：2026-08-15
 >
-> 状态：`IN_EXECUTION`
+> 状态：`COMPLETED`
 >
 > 基线分支：`master`
 >
@@ -13,6 +13,8 @@
 > 文档类型：实施型 How-to Plan；不是发布批准、生产上线计划或算法效果报告
 >
 > v1.1 修订：增加 Baseline & Audit Migration；冻结 Fusion 缺失值、Diagnostic Profile Identity 和 Corpus capability 契约；执行方式改为单一实施子代理按主线程逐轮指令执行，主线程逐轮独立复核并在最终 Review Gate 收口
+>
+> 完成记录：Batch A～E 与 Review Gate 已完成；聚焦后端 `107 passed`、相关 Knowledge/RAG `353 passed / 1 protected PostgreSQL node deselected`、Architecture + Acceptance `449 passed`、前端 `135 passed`，ESLint、production build、bundle gate、compileall、Closure Audit `20/20` 与 Git 模式 `23/23`、`git diff --check` 均通过。PostgreSQL、外部 Provider、Corpus 写入、人工标注、paired evaluation、No-evidence 调参、截图与视觉验证均未执行。
 
 ## 0. 执行摘要
 
