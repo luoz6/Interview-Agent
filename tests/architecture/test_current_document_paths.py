@@ -17,6 +17,11 @@ EXCLUDED_CURRENT_DOCUMENTS = frozenset(
         ROOT / "docs" / "refactoring-plan.md",
     }
 )
+HISTORICAL_DOCUMENTS = frozenset(
+    {
+        ROOT / "docs" / "archive" / "development-history.md",
+    }
+)
 SCRIPT_MODULE_PATTERN = re.compile(
     r"(?<![\w.-])python(?:\.exe)?\s+-m\s+"
     r"(?P<module>scripts(?:\.[A-Za-z_][A-Za-z0-9_]*)+)"
@@ -41,6 +46,7 @@ def _current_documents() -> tuple[Path, ...]:
             path
             for path in candidates
             if path not in EXCLUDED_CURRENT_DOCUMENTS
+            and path not in HISTORICAL_DOCUMENTS
             and not any(_is_below(path, archive) for archive in ARCHIVE_DIRECTORIES)
         )
     )
@@ -86,6 +92,17 @@ def test_historical_plan_and_spec_directories_have_explicit_boundaries():
         assert (archive / "README.md").is_file()
         relative = archive.relative_to(ROOT).as_posix()
         assert relative in root_readme
+
+
+def test_development_history_is_archived_and_linked_from_current_readme():
+    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    history = ROOT / "docs" / "archive" / "development-history.md"
+
+    assert history.is_file()
+    assert "docs/archive/development-history.md" in root_readme
+    assert "does not describe the current runtime" in history.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_current_document_script_modules_and_test_paths_exist():

@@ -24,11 +24,15 @@ Interview consumer
 
 控制台是同一检索系统的安全观察面，不是第二套运行时。Compare 在服务端共享 query、constraints、profile 和 Corpus identity，并隔离两侧失败。
 
+Compare 固定为 Legacy / Fixed Hybrid 两路。只有单引擎 Hybrid Inspector 接受受控 Fusion mode；该诊断选择不会修改业务 Runtime profile 或 Interview consumer。
+
 ## Query-aware Fusion
 
 Query Signal Analyzer 在两个检索通道完成后、Fusion 之前运行。它综合精确别名、技术词、缩写、Lexical matched terms、查询长度和中文自然语言比例，输出 `lexical_dominant`、`semantic_dominant` 或 `balanced`。实现是确定性的，不调用 LLM，也不把原始 query 写入决策对象。
 
-`query_aware_fusion=false` 保持固定权重和历史重放语义；实验 profile 显式开启动态权重。实际分类、权重和 reason codes 写入独立 `fusion_summary`，不与请求阶段的 `routing_summary` 混用。
+`query_aware_fusion=false` 保持固定权重；Inspector 的受控 Query-aware 选项显式开启动态权重。实际分类、权重和 reason codes 写入独立 `fusion_summary`，不与请求阶段的 `routing_summary` 混用。
+
+Runtime `profile_id/profile_version` 保持原身份。诊断变体由 `requested_hybrid_fusion_mode` 与 `effective_hybrid_fusion_mode` 表达；两字段类型为合法 Fusion 枚举或 `null`。Legacy 的 `null` 表示不适用，历史 Frozen Replay 的 `null` 表示未记录，服务端不会用当前算法回填历史事实。
 
 Fusion 后的 Reranker 消费 `RetrievalCandidate`。raw Provider score 只参与最低资格判断；排序以 Fusion score 为基础，再应用确定性 exact-term / routing-tag boost，并使用 Fusion rank 和 chunk ID 决胜。这样 raw score 不会在 Fusion 后静默覆盖 RRF 或 rank-normalized policy。
 
@@ -53,7 +57,7 @@ source documents
 
 ## 能力边界
 
-Console Read 只读安全摘要。Live Execution 处理用户输入并访问真实检索链路。Corpus Write 可能写入 source、调用 Provider 并启用新版本，因此独立关闭。三者都要求 loopback。
+Console Read 提供只读安全摘要与 Frozen Replay。Frozen Replay 读取不可变 Artifact/Snapshot，不运行 Retriever，并明确返回 `provider_call_possible=false`。Live Execution 处理用户输入并访问真实检索链路。Corpus Write 可能写入 source、调用 Provider 并启用新版本，因此独立关闭。三者都要求 loopback。
 
 ## 评测边界
 
