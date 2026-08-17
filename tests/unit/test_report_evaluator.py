@@ -11,6 +11,7 @@ from app.services.report import (
     ReportGenerationTimeout,
     ReportOutputFormatError,
 )
+from app.services.report_provider_adapter import normalize_provider_payload
 
 
 def make_plan() -> InterviewPlan:
@@ -309,3 +310,86 @@ def test_evaluator_propagates_provider_failures_for_worker_retry_logic():
 
     with pytest.raises(ReportGenerationFailed, match="report provider returned 502"):
         evaluator.evaluate(make_finished_state())
+
+
+@pytest.mark.parametrize(
+    (
+        "candidate_answer",
+        "observed_excerpt",
+        "missing_point",
+        "rationale",
+        "critique",
+        "supported_signal",
+        "missing_signal",
+    ),
+    [
+        (
+            "First update the database, then delete Redis and retry on failure.",
+            "First update the database, then delete Redis and retry on failure.",
+            "metric_gap: missing measurable metrics",
+            "The candidate gives database-to-Redis steps and retry handling.",
+            "The answer does not provide a measurable metric such as p95.",
+            "fallback",
+            "metric",
+        ),
+        (
+            "We monitor production p95 and error rate during a canary release.",
+            "We monitor production p95 and error rate during a canary release.",
+            "recovery_gap: missing recovery loop",
+            "The candidate provides production p95 monitoring and canary evidence.",
+            "The answer does not explain a recovery or fallback path.",
+            "metric",
+            "fallback",
+        ),
+    ],
+)
+def test_rationale_and_critique_align_with_candidate_evidence_and_backend_signals(
+    candidate_answer,
+    observed_excerpt,
+    missing_point,
+    rationale,
+    critique,
+    supported_signal,
+    missing_signal,
+):
+    evaluation_item = {
+        "question_id": "q1",
+        "question_text": "How do you keep Redis cache data reliable?",
+        "question_kind": "technical",
+        "messages": [{"role": "candidate", "content": candidate_answer}],
+    }
+    normalized = normalize_provider_payload(
+        {
+            "question_results": [
+                {
+                    "question_id": "q1",
+                    "dimension_evidence": [
+                        {
+                            "dimension": "depth",
+                            "observed": [observed_excerpt],
+                            "missing": [missing_point],
+                            "quality_signals": [],
+                        }
+                    ],
+                    "rationale": rationale,
+                    "critique": critique,
+                }
+            ]
+        },
+        [evaluation_item],
+    ).question_results[0]
+
+    evidence = normalized.dimension_evidence[0]
+    assert normalized.user_answer == candidate_answer
+    assert evidence["observed"] == [observed_excerpt]
+    assert evidence["missing"] == [missing_point]
+    assert supported_signal in evidence["quality_signals"]
+    assert missing_signal not in evidence["quality_signals"]
+    assert rationale == normalized.rationale
+    assert critique == normalized.critique
+    supported_anchor = {"fallback": "retry", "metric": "p95"}[supported_signal]
+    missing_anchor = {"metric": "metric", "fallback": "recovery"}[missing_signal]
+    assert supported_anchor in candidate_answer.lower()
+    assert supported_anchor in normalized.rationale.lower()
+    assert missing_anchor in missing_point.lower()
+    assert missing_anchor in normalized.critique.lower()

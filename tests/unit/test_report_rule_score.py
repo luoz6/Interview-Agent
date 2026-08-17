@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.report import DimensionScores
 from app.services.report_rule_score import (
     REPORT_SCORING_RUBRIC_VERSION,
@@ -13,7 +15,10 @@ from app.services.report_rule_score import (
 
 
 def test_report_scoring_rubric_has_stable_version():
-    assert REPORT_SCORING_RUBRIC_VERSION == "interview-quality-rubric-v3.3-candidate"
+    assert REPORT_SCORING_RUBRIC_VERSION == "interview-quality-rubric-v3.4-candidate"
+    assert REPORT_SCORING_RUBRIC_SHA256 == (
+        "fc66d645626779ee531f4b3cb34470ff7c0e1a71827f86079d1ac67b8235c564"
+    )
     assert len(REPORT_SCORING_RUBRIC_SHA256) == 64
     assert set(REPORT_SCORING_RUBRIC_SHA256) <= set("0123456789abcdef")
 
@@ -423,3 +428,132 @@ def test_aggregate_feedback_scores_excludes_non_applicable_dimensions():
         engineering=70,
         communication=70,
     )
+
+
+def _score_candidate_answer(question_kind: str, answer: str):
+    return score_question_from_evidence(
+        {
+            "question_id": f"q-{question_kind}",
+            "question_kind": question_kind,
+            "messages": [{"role": "candidate", "content": answer}],
+        },
+        [
+            DimensionEvidence(
+                dimension="depth",
+                observed=[answer],
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("case_name", "answer", "expected_maximum"),
+    [
+        (
+            "keyword_stuffing",
+            (
+                "Redis API first then risk failure retry rollback tradeoff p95 "
+                "production monitor alert fallback Redis API"
+            ),
+            40,
+        ),
+        (
+            "long_but_irrelevant",
+            (
+                "I can discuss a long gardening routine with soil, sunlight, and "
+                "watering schedules, but this does not answer the cache incident "
+                "review question."
+            ),
+            0,
+        ),
+        (
+            "semantic_repetition",
+            " ".join(["Redis cache consistency uses cache aside."] * 6),
+            20,
+        ),
+    ],
+)
+def test_low_information_adversarial_answers_cannot_gain_high_scores(
+    case_name,
+    answer,
+    expected_maximum,
+):
+    result = _score_candidate_answer("technical", answer)
+
+    assert result.score <= expected_maximum, case_name
+    assert all(
+        value is None or value <= expected_maximum
+        for value in result.dimension_scores.model_dump().values()
+    ), case_name
+
+
+@pytest.mark.parametrize(
+    "question_kind",
+    ["project", "technical", "system-design", "behavioral"],
+)
+def test_candidate_answer_quality_is_strictly_monotonic_across_question_kinds(
+    question_kind,
+):
+    answer_tiers = (
+        "1",
+        (
+            "The candidate describes a mechanism with several components whose "
+            "behavior depends on the operating context"
+        ),
+        (
+            "First update the database, then delete Redis; a race can cause "
+            "failure, so retry."
+        ),
+        (
+            "First commit the database transaction, then delete Redis; however, "
+            "a race creates inconsistency risk, so retry with rollback and "
+            "fallback, monitor production API p95 and error rate, and finally "
+            "validate with a canary release."
+        ),
+    )
+
+    scores = [
+        _score_candidate_answer(question_kind, answer).score
+        for answer in answer_tiers
+    ]
+
+    assert all(score is not None for score in scores)
+    assert all(
+        lower < higher
+        for lower, higher in zip(scores, scores[1:])
+    ), (question_kind, scores)
+
+
+@pytest.mark.parametrize(
+    ("answer_profile", "answer", "expected_relation"),
+    [
+        (
+            "technical_but_unclear",
+            "数据库事务提交后删除 Redis 缓存并使用版本号处理并发写入失败时重试",
+            "technical_above_communication",
+        ),
+        (
+            "fluent_but_empty",
+            (
+                "The response is polished, fluent, orderly, and easy to read. "
+                "It restates the topic in complete sentences."
+            ),
+            "communication_not_technical",
+        ),
+    ],
+)
+def test_communication_and_technical_dimensions_remain_separate(
+    answer_profile,
+    answer,
+    expected_relation,
+):
+    result = _score_candidate_answer("technical", answer)
+    dimensions = result.dimension_scores
+
+    if expected_relation == "technical_above_communication":
+        assert dimensions.depth > dimensions.communication, answer_profile
+        assert dimensions.engineering > dimensions.communication, answer_profile
+    else:
+        assert dimensions.communication >= dimensions.depth, answer_profile
+        assert dimensions.communication >= dimensions.engineering, answer_profile
+        assert result.score <= 45, answer_profile

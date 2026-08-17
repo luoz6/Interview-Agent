@@ -69,7 +69,9 @@ def test_rescore_run_uses_saved_evidence_without_mutating_source(tmp_path):
     assert store.load_normalized_attempts()[0]["score"] == 0
     assert replay_store.load_normalized_attempts()[0]["score"] > 0
     assert metrics["completed_attempt_count"] == 1
-    assert replay_store.read_manifest()["rubric_version"] == "interview-quality-rubric-v3.3-candidate"
+    assert replay_store.read_manifest()["rubric_version"] == (
+        "interview-quality-rubric-v3.4-candidate"
+    )
     assert replay_store.read_manifest()["rescored_from_saved_evidence"] is True
     assert replay_store.read_manifest()["provider_invocations"] == 0
     assert metrics["saved_response_replay_delta"] == 0

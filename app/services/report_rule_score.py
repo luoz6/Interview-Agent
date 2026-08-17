@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.services.report import DimensionScores
 
-REPORT_SCORING_RUBRIC_VERSION = "interview-quality-rubric-v3.3-candidate"
+REPORT_SCORING_RUBRIC_VERSION = "interview-quality-rubric-v3.4-candidate"
 logger = logging.getLogger(__name__)
 
 
@@ -160,6 +160,10 @@ REPORT_SCORING_RUBRIC_SHA256 = hashlib.sha256(
             "missing_point_signal_map": MISSING_POINT_SIGNAL_MAP,
             "missing_evidence_caps": {"advanced_signal_present": 90, "otherwise": 75},
             "deterministic_low_quality_without_extracted_evidence": 0,
+            "answer_quality_detectors": {
+                "keyword_stuffing": "signal-token-density-v1",
+                "semantic_repetition": "normalized-sentence-majority-v1",
+            },
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -470,8 +474,12 @@ def answer_quality_score_cap(item: dict) -> int:
         return CURRENT_REPORT_RUBRIC.score_caps["low_information"]
     if _contains_any(normalized, ("does not answer", "not answering", "off topic", "\u6ca1\u6709\u56de\u7b54", "\u672a\u56de\u7b54", "\u6ca1\u6709\u590d\u76d8", "\u4e0e\u95ee\u9898\u65e0\u5173")):
         return CURRENT_REPORT_RUBRIC.score_caps["empty_or_off_topic"]
+    if _looks_like_semantic_repetition(normalized):
+        return CURRENT_REPORT_RUBRIC.score_caps["short_or_repeated"]
     if _contains_unsafe_absolute_claim(answer.lower()):
         return CURRENT_REPORT_RUBRIC.score_caps["unsafe_absolute_claim"]
+    if _looks_like_keyword_stuffing(normalized):
+        return CURRENT_REPORT_RUBRIC.score_caps["low_information"]
     return CURRENT_REPORT_RUBRIC.score_caps["unrestricted"]
 
 
@@ -629,3 +637,37 @@ def _looks_like_low_information_answer(compact: str) -> bool:
         "不太清楚",
     )
     return any(phrase in compact for phrase in low_information_phrases)
+
+
+def _looks_like_semantic_repetition(answer: str) -> bool:
+    segments = [
+        re.sub(r"[\W_]+", "", segment, flags=re.UNICODE).lower()
+        for segment in re.split(r"[.!?;。！？；\n]+", answer)
+    ]
+    segments = [segment for segment in segments if len(segment) >= 8]
+    if len(segments) < 3:
+        return False
+    largest_repeat = max(segments.count(segment) for segment in set(segments))
+    return largest_repeat >= 3 and largest_repeat * 5 >= len(segments) * 3
+
+
+def _looks_like_keyword_stuffing(answer: str) -> bool:
+    if re.search(r"[.!?;:。！？；：]", answer):
+        return False
+    tokens = re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", answer.lower())
+    if len(tokens) < 10:
+        return False
+    signal_tokens = {
+        term
+        for signal, terms in SIGNAL_TERMS.items()
+        if signal not in {"concept", "clarity"}
+        for term in terms
+        if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)?", term)
+    }
+    signal_token_count = sum(token in signal_tokens for token in tokens)
+    signal_groups = sum(
+        _contains_positive_signal(answer, terms)
+        for signal, terms in SIGNAL_TERMS.items()
+        if signal not in {"concept", "clarity"}
+    )
+    return signal_groups >= 5 and signal_token_count * 10 >= len(tokens) * 7

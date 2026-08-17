@@ -267,7 +267,7 @@ class InterviewReport(BaseModel):
         default_factory=ReportTechnicalAppendixV2
     )
     report_path: Literal["microbatch", "full_session", "heuristic", "legacy"] = "full_session"
-    scoring_rubric_version: str = "interview-quality-rubric-v3.3-candidate"
+    scoring_rubric_version: str = "interview-quality-rubric-v3.4-candidate"
     scoring_rubric_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     summary: str
     highlights: list[str] = Field(min_length=1, max_length=3)

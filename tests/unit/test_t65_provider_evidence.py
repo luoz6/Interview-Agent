@@ -173,7 +173,7 @@ def _evaluate(tmp_path: Path, dataset: CalibrationDataset, **overrides):
         "worktree_clean": True,
         "prompt_version": "stage40-evidence-v1",
         "prompt_sha256": "c" * 64,
-        "rubric_version": "interview-quality-rubric-v3.3-candidate",
+        "rubric_version": "interview-quality-rubric-v3.4-candidate",
         "rubric_sha256": "d" * 64,
         "context_window_tokens": 128_000,
         "credential_present": True,
