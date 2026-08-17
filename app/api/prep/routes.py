@@ -1,7 +1,16 @@
 import inspect
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 
 from app.api.shared.dependencies import (
     get_agent_execution_runner,
@@ -16,6 +25,8 @@ from app.api.shared.dependencies import (
 from app.api.shared.errors import (
     raise_interview_knowledge_scope_error,
     raise_prep_plan_error,
+    raise_prep_source_import_error,
+    raise_prep_source_import_invalid_request,
     raise_user_materials_hidden,
 )
 from app.api.shared.models import (
@@ -39,9 +50,56 @@ from app.services.prep import (
 )
 from app.services.prep_plans import PrepPlanError
 from app.services.prep_question_regeneration import PrepQuestionRegenerator
+from app.services.prep_source_import import (
+    PREP_SOURCE_MAX_BYTES,
+    PrepSourceImportError,
+    extract_prep_source,
+)
 
 
 router = APIRouter()
+
+
+@router.post("/prep/source-imports")
+async def import_prep_source(
+    request: Request,
+    file: Annotated[UploadFile, File(...)],
+    target: Annotated[str, Form(...)],
+):
+    form = await request.form()
+    if (
+        set(form) != {"file", "target"}
+        or len(form.getlist("file")) != 1
+        or len(form.getlist("target")) != 1
+        or target not in {"job_description", "resume_text"}
+    ):
+        raise_prep_source_import_invalid_request()
+
+    filename = file.filename or ""
+    media_type = file.content_type or ""
+    try:
+        content = await file.read(PREP_SOURCE_MAX_BYTES + 1)
+    finally:
+        await file.close()
+
+    try:
+        result = extract_prep_source(
+            filename=filename,
+            media_type=media_type,
+            content=content,
+        )
+    except PrepSourceImportError as exc:
+        raise_prep_source_import_error(exc)
+
+    return {
+        "target": target,
+        "filename": result.filename,
+        "media_type": result.media_type,
+        "text": result.text,
+        "character_count": result.character_count,
+        "truncated": result.truncated,
+        "warning_codes": list(result.warning_codes),
+    }
 
 
 @router.post("/prep")
@@ -207,6 +265,7 @@ def regenerate_prep_question(
 
 __all__ = [
     "get_prep_plan",
+    "import_prep_source",
     "patch_prep_plan",
     "prep_interview",
     "regenerate_prep_question",

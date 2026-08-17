@@ -7,6 +7,7 @@ from app.domain.interview.errors import SessionDeletingError, SessionVersionConf
 from app.application.materials.service import UserMaterialsError
 from app.services.interview_knowledge_scope import InterviewKnowledgeScopeError
 from app.services.prep_plans import PrepPlanError
+from app.services.prep_source_import import PrepSourceImportError
 
 
 _USER_MATERIALS_ERRORS = {
@@ -34,6 +35,22 @@ _KNOWLEDGE_SCOPE_ERRORS = {
     "knowledge_scope_document_unavailable": (
         409,
         "所选资料当前不可用，请返回准备页重新确认。",
+    ),
+}
+
+_PREP_SOURCE_IMPORT_ERRORS = {
+    "unsupported_file_type": (422, "仅支持 PDF、DOCX、Markdown 或 TXT 文件。"),
+    "file_too_large": (413, "文件大小不能超过 5 MiB。"),
+    "invalid_file_signature": (
+        422,
+        "文件扩展名、MIME 类型或内容格式不一致。",
+    ),
+    "invalid_utf8": (422, "Markdown 或 TXT 文件必须使用 UTF-8 编码。"),
+    "malformed_document": (422, "文件已损坏、加密或格式不受支持。"),
+    "document_too_complex": (422, "文档超过页数、压缩包或解压资源限制。"),
+    "no_extractable_text": (
+        422,
+        "未提取到可用文本；如为扫描件，请复制文本后粘贴。",
     ),
 }
 
@@ -100,6 +117,21 @@ def raise_user_materials_invalid_request() -> None:
     )
 
 
+def raise_prep_source_import_error(exc: PrepSourceImportError) -> None:
+    status_code, message = _PREP_SOURCE_IMPORT_ERRORS[exc.code]
+    raise HTTPException(
+        status_code=status_code,
+        detail={"code": exc.code, "message": message},
+    ) from exc
+
+
+def raise_prep_source_import_invalid_request() -> None:
+    raise HTTPException(
+        status_code=422,
+        detail={"code": "invalid_request", "message": "请求字段不合法。"},
+    )
+
+
 def raise_value_error(exc: ValueError) -> None:
     detail = str(exc)
     status_code = 404 if detail == "session not found" else 400
@@ -121,6 +153,8 @@ __all__ = [
     "raise_if_deleting",
     "raise_interview_knowledge_scope_error",
     "raise_prep_plan_error",
+    "raise_prep_source_import_error",
+    "raise_prep_source_import_invalid_request",
     "raise_session_deleting_error",
     "raise_user_materials_error",
     "raise_user_materials_hidden",
