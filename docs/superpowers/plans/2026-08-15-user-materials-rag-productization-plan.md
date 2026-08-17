@@ -152,6 +152,8 @@ NOT STARTED
 
 2026-08-15 U1b 无实库验收证据：subagent 与主线程分别运行完整 Materials 静态/Fake/无实库回归，均为 94 passed；`git diff --check` 无格式错误。验收修复了 PostgreSQL Runtime 仍静默装配 InMemory Materials 的问题，PostgreSQL 模式现在使用共享 business connection provider、`schema_mode=validate` 的 Postgres Store/PgVector Repository，Schema 不可用时安全失败且不回退内存。没有连接真实数据库，因此 U1b 保持 `REAL POSTGRES ACCEPTANCE PENDING`。
 
+2026-08-17 C5 状态：真实 PostgreSQL Materials integration test 已定义并完成纯收集，状态为 `TEST_DEFINED / NOT_RUN`；本轮没有连接 PostgreSQL、没有执行 `pg_runtime` 节点，因此继续保持 `REAL_POSTGRES_ACCEPTANCE=PENDING`，不得把无实库 contract 结果记作实库验收。
+
 2026-08-15 U1c 验收证据：subagent 与主线程均运行全量前端 Vitest，14 files / 147 tests passed；ESLint 0 warnings；生产 Build 和 Bundle Gate 通过；Materials 与 RAG Lab 保持 lazy route。验收修复了 Materials 搜索、用途选择和行操作低于 44px 的触控目标，以及 initial JavaScript 超预算 26 bytes 的回归。当前初始 JavaScript 只比预算低 3 bytes，记录为 U4 必须重新核验的收口风险，不通过放宽预算掩盖。
 
 2026-08-15 U2a 历史验收证据（当前不构成有效状态）：subagent 受影响回归 139 passed；主线程扩大到 Scope Resolver、Prep API、Plan Revision、Session serialization/row mapper、Start/replay 和 configured E2E 共 154 passed；`git diff --check` 无格式错误。当时验收统一了不可枚举 Scope 错误，冻结并规范化请求，给 protected Plan Source/Session Binding 增加服务端 Owner，保持 legacy source hash，修复成功 Session replay 在资料随后停用/删除时被错误阻断的问题，并收紧公共 Scope 投影。
@@ -1508,3 +1510,44 @@ Commit U5  文本层 PDF（未来可选）
 交付原则：
 
 > U1 先完成 Markdown / TXT 的真实资料闭环；U2 再接 Scope 与 Retrieval；U3 再接业务 Citation；U4 收口信息架构和验收；文本层 PDF 单独进入非阻断 U5。
+
+## Implementation Errata — 2026-08-17
+
+本节记录最终实现对本计划早期示例和摄取描述的勘误。上文保留当时的设计轨迹，但以下内容是当前 Local V1 的权威实现契约；不得再从旧示例推导第二套字段或异步任务协议。
+
+### Materials CRUD 字段命名
+
+`/api/materials` 的公共请求与响应使用：
+
+```text
+display_name
+allowed_usage = question | follow_up | feedback
+```
+
+内部 `UserDocument` 把公共 `display_name` 映射到领域字段 `display_title`；领域 Document、冻结 Scope 和 Selected Revision 使用复数内部字段 `allowed_usages`。`default_use_policy` 不是活动字段，也没有兼容写入路径。
+
+因此，上文早期 PATCH 示例应按以下最终契约理解：
+
+```json
+{
+  "display_name": "Redis 面试笔记",
+  "enabled": false,
+  "allowed_usage": ["question", "follow_up", "feedback"]
+}
+```
+
+Citation 投影中已有的 `display_title` 属于 Citation 自身的安全展示字段，不会为 Materials CRUD API 创建 `display_title` 别名。
+
+### 上传与重试的同步终态
+
+当前 Local V1 没有 User Materials Job、Worker 或 polling 协议。两个 mutation 都在请求内完成校验、分块、Embedding、索引和状态发布：
+
+```text
+POST /api/materials
+POST /api/materials/{document_id}/retry
+→ status = ready | failed
+```
+
+`processing` 继续存在于持久化状态和列表响应中，用于异常中间态及兼容读取，但不是上传或重试的正常成功完成语义。客户端意外收到 `processing` 时只显示“仍在处理中”，并允许用户手动刷新列表；不得宣称处理完成，也不得据此增加自动轮询。
+
+所以上文“公共 API 仍返回可轮询状态”和“上传 → processing → ready / failed”只保留为历史设计记录。最终实现中，后者可以描述内部持久化状态迁移，但不能被解释为调用方必须轮询的 HTTP mutation 协议。

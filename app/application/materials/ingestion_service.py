@@ -118,11 +118,10 @@ class UserDocumentIngestionService:
         )
         if document is None:
             raise UserMaterialsError("document_not_found")
-        if document.public_status in {
-            UserDocumentPublicStatus.PROCESSING,
-            UserDocumentPublicStatus.READY,
-        }:
+        if document.public_status is UserDocumentPublicStatus.READY:
             return document
+        if document.public_status is UserDocumentPublicStatus.PROCESSING:
+            raise UserMaterialsError("retry_not_allowed")
         if document.public_status != UserDocumentPublicStatus.FAILED:
             raise UserMaterialsError("retry_not_allowed")
         revision = self._store.get_latest_revision(

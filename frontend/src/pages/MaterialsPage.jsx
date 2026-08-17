@@ -2,6 +2,7 @@ import { useId, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise,
   Books,
+  CaretDown,
   CheckCircle,
   ClockCountdown,
   FileText,
@@ -31,6 +32,26 @@ import {
 import { useMaterials } from "../materials/useMaterials";
 import "../styles/pages/materials.css";
 
+const MATERIAL_NOTICE_FALLBACK_TITLES = Object.freeze({
+  success: "操作已完成",
+  warning: "请留意当前状态",
+  info: "状态提示",
+  error: "操作未完成",
+  danger: "操作未完成",
+});
+
+function normalizeMaterialUsages(usages) {
+  const selected = new Set(Array.isArray(usages) ? usages : []);
+  return MATERIAL_USAGE_OPTIONS
+    .map((option) => option.value)
+    .filter((usage) => selected.has(usage));
+}
+
+function equalMaterialUsages(left, right) {
+  return left.length === right.length
+    && left.every((usage, index) => usage === right[index]);
+}
+
 function UploadPanel({ model, onClose }) {
   const inputId = useId();
   const inputRef = useRef(null);
@@ -56,6 +77,7 @@ function UploadPanel({ model, onClose }) {
       return;
     }
     const outcome = await model.upload(file, normalizedName.value);
+    if (outcome.aborted) return;
     if (!outcome.ok) {
       setError(outcome.message);
       return;
@@ -156,13 +178,43 @@ function UploadPanel({ model, onClose }) {
   );
 }
 
-function MaterialRow({ item, model, onDelete }) {
+function MaterialRow({ item, model, onDelete, expanded, onExpandedChange }) {
   const state = materialStatus(item.status);
+  const managementId = `materials-management-${useId()}`;
+  const disclosureTriggerRef = useRef(null);
+  const usageSaveInFlightRef = useRef(false);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(item.displayName);
   const [editError, setEditError] = useState("");
+  const [usageDraft, setUsageDraft] = useState(() => normalizeMaterialUsages(item.allowedUsage));
+  const [usageError, setUsageError] = useState("");
   const busy = Boolean(model.busy[item.documentId]);
-  const locked = busy || item.status === "deleting";
+  const locked = busy || item.status === "processing" || item.status === "deleting";
+  const serverUsages = normalizeMaterialUsages(item.allowedUsage);
+  const usageDirty = !equalMaterialUsages(usageDraft, serverUsages);
+  const usageSummary = MATERIAL_USAGE_OPTIONS
+    .filter((option) => serverUsages.includes(option.value))
+    .map((option) => option.label)
+    .join(" · ");
+
+  const resetLocalDrafts = () => {
+    setEditing(false);
+    setDraftName(item.displayName);
+    setEditError("");
+    setUsageDraft(serverUsages);
+    setUsageError("");
+  };
+
+  const openManagement = () => {
+    resetLocalDrafts();
+    onExpandedChange(true);
+  };
+
+  const closeManagement = (restoreFocus = true) => {
+    resetLocalDrafts();
+    onExpandedChange(false);
+    if (restoreFocus) disclosureTriggerRef.current?.focus();
+  };
 
   const saveName = async (event) => {
     event.preventDefault();
@@ -178,6 +230,7 @@ function MaterialRow({ item, model, onDelete }) {
     );
     if (outcome.ok) {
       setEditing(false);
+      setDraftName(outcome.item.displayName);
       setEditError("");
     } else {
       setEditError(outcome.message);
@@ -185,50 +238,57 @@ function MaterialRow({ item, model, onDelete }) {
   };
 
   const toggleUsage = (usage) => {
-    const selected = item.allowedUsage.includes(usage);
-    const next = selected
-      ? item.allowedUsage.filter((value) => value !== usage)
-      : MATERIAL_USAGE_OPTIONS.map((option) => option.value).filter((value) => (
-        value === usage || item.allowedUsage.includes(value)
-      ));
+    const selected = usageDraft.includes(usage);
+    const next = normalizeMaterialUsages(selected
+      ? usageDraft.filter((value) => value !== usage)
+      : [...usageDraft, usage]);
     if (!next.length) return;
-    model.update(item.documentId, { allowed_usage: next }, "资料用途已更新。");
+    setUsageDraft(next);
+    setUsageError("");
+  };
+
+  const saveUsage = async (event) => {
+    event.preventDefault();
+    if (usageSaveInFlightRef.current || locked || !usageDirty) return;
+    const nextUsages = normalizeMaterialUsages(usageDraft);
+    usageSaveInFlightRef.current = true;
+    try {
+      const outcome = await model.update(
+        item.documentId,
+        { allowed_usage: nextUsages },
+        "资料用途已更新。",
+      );
+      if (outcome.ok) {
+        setUsageDraft(normalizeMaterialUsages(outcome.item.allowedUsage));
+        setUsageError("");
+      } else {
+        setUsageError(outcome.message);
+      }
+    } finally {
+      usageSaveInFlightRef.current = false;
+    }
   };
 
   return (
-    <li className="materials-item" data-status={state.tone} data-busy={busy || undefined} aria-busy={busy || undefined}>
+    <li
+      className="materials-item"
+      data-status={state.tone}
+      data-busy={busy || undefined}
+      aria-busy={busy || undefined}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && expanded) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeManagement();
+        }
+      }}
+    >
       <div className="materials-item-main">
         <span className="materials-file-mark" aria-hidden="true"><FileText size={21} weight="duotone" /></span>
         <div className="materials-item-copy">
-          {editing ? (
-            <form className="materials-rename" onSubmit={saveName}>
-              <label>
-                <span className="materials-visually-hidden">新的资料名称</span>
-                <input
-                  autoFocus
-                  value={draftName}
-                  maxLength="200"
-                  onChange={(event) => {
-                    setDraftName(event.target.value);
-                    setEditError("");
-                  }}
-                  aria-invalid={Boolean(editError)}
-                />
-              </label>
-              <Button type="submit" busy={model.busy[item.documentId] === "update"}>保存</Button>
-              <Button type="button" onClick={() => {
-                setEditing(false);
-                setDraftName(item.displayName);
-                setEditError("");
-              }}>取消</Button>
-              {editError ? <p role="alert">{editError}</p> : null}
-            </form>
-          ) : (
-            <>
-              <h3>{item.displayName}</h3>
-              <p>{materialFormat(item.mediaType)} · {formatMaterialSize(item.sizeBytes)}</p>
-            </>
-          )}
+          <h3>{item.displayName}</h3>
+          <p>{materialFormat(item.mediaType)} · {formatMaterialSize(item.sizeBytes)}</p>
+          <p className="materials-item-usage-summary">用于：{usageSummary}</p>
         </div>
         <div className="materials-status" data-tone={state.tone} role="status" aria-label={`状态：${state.label}`}>
           <span aria-hidden="true" />
@@ -245,51 +305,137 @@ function MaterialRow({ item, model, onDelete }) {
         <p className="materials-failure" role="status">{materialFailureMessage(item.errorCode)}</p>
       ) : null}
 
-      <div className="materials-item-lower">
-        <fieldset className="materials-usages" disabled={locked}>
-          <legend>使用场景</legend>
-          {MATERIAL_USAGE_OPTIONS.map((option) => {
-            const checked = item.allowedUsage.includes(option.value);
-            return (
-              <label key={option.value}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={locked || (checked && item.allowedUsage.length === 1)}
-                  onChange={() => toggleUsage(option.value)}
-                  aria-label={`${item.displayName}：${option.label}`}
-                />
-                <span>{option.label}</span>
-              </label>
-            );
-          })}
-        </fieldset>
-        <div className="materials-item-actions" aria-label={`${item.displayName}的操作`}>
-          {!editing ? (
-            <Button type="button" className="materials-action materials-action-quiet" disabled={locked} onClick={() => setEditing(true)}>
-              <PencilSimple size={16} aria-hidden="true" />改名
-            </Button>
-          ) : null}
-          {item.status === "failed" ? (
-            <Button type="button" variant="primary" className="materials-action" disabled={locked || !model.ingestAvailable} busy={model.busy[item.documentId] === "retry"} onClick={() => model.retry(item.documentId)}>
-              <ArrowClockwise size={16} aria-hidden="true" />重试
-            </Button>
-          ) : null}
-          {item.status === "ready" ? (
-            <Button type="button" className="materials-action" disabled={locked} busy={model.busy[item.documentId] === "update"} onClick={() => model.update(item.documentId, { enabled: false }, "资料已停用。") }>
-              <Power size={16} aria-hidden="true" />停用
-            </Button>
-          ) : null}
-          {item.status === "disabled" ? (
-            <Button type="button" variant="primary" className="materials-action" disabled={locked} busy={model.busy[item.documentId] === "update"} onClick={() => model.update(item.documentId, { enabled: true }, "资料已启用。") }>
-              <Power size={16} aria-hidden="true" />启用
-            </Button>
-          ) : null}
-          <Button type="button" className="materials-action materials-delete-action" disabled={locked} onClick={() => onDelete(item)}>
-            <Trash size={16} aria-hidden="true" />永久删除
+      <div className="materials-row-actions" aria-label={`${item.displayName}的操作`}>
+        {item.status === "failed" ? (
+          <Button type="button" variant="primary" className="materials-action" disabled={locked || !model.ingestAvailable} busy={model.busy[item.documentId] === "retry"} onClick={() => model.retry(item.documentId)}>
+            <ArrowClockwise size={16} aria-hidden="true" />重试
           </Button>
-        </div>
+        ) : null}
+        <button
+          ref={disclosureTriggerRef}
+          type="button"
+          className="button button-secondary materials-disclosure-trigger"
+          aria-expanded={expanded}
+          aria-controls={managementId}
+          disabled={locked}
+          onClick={() => (expanded ? closeManagement() : openManagement())}
+        >
+          <span>更多操作</span>
+          <span className="materials-disclosure-indicator" aria-hidden="true">
+            <CaretDown size={15} weight="bold" />
+          </span>
+        </button>
       </div>
+
+      <section
+        id={managementId}
+        className="materials-management-panel"
+        aria-label={`${item.displayName}的更多操作`}
+        hidden={!expanded}
+      >
+          <header className="materials-management-head">
+            <div>
+              <p>管理资料</p>
+              <h4>用途、名称与可用状态</h4>
+            </div>
+          </header>
+
+          <div className="materials-management-section">
+            <form onSubmit={saveUsage}>
+              <fieldset className="materials-usage-draft" disabled={locked}>
+                <legend>设置用途</legend>
+                <p>选择这份资料可参与的面试准备环节。</p>
+                <div className="materials-usage-options">
+                  {MATERIAL_USAGE_OPTIONS.map((option) => {
+                    const checked = usageDraft.includes(option.value);
+                    return (
+                      <label key={option.value}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={locked || (checked && usageDraft.length === 1)}
+                          onChange={() => toggleUsage(option.value)}
+                          aria-label={`${item.displayName}：${option.label}`}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="materials-usage-actions">
+                  <Button type="submit" variant="primary" busy={model.busy[item.documentId] === "update"} disabled={!usageDirty}>保存用途</Button>
+                  <Button type="button" onClick={() => {
+                    setUsageDraft(serverUsages);
+                    setUsageError("");
+                  }}>取消</Button>
+                </div>
+                {usageError ? <p className="materials-management-error" role="alert">用途保存失败：{usageError}</p> : null}
+              </fieldset>
+            </form>
+          </div>
+
+          <div className="materials-management-section">
+            <div className="materials-management-section-head">
+              <div><strong>重命名</strong><small>修改资料在列表中显示的名称。</small></div>
+              {!editing ? (
+                <Button type="button" className="materials-action materials-action-quiet" disabled={locked} onClick={() => {
+                  setDraftName(item.displayName);
+                  setEditError("");
+                  setEditing(true);
+                }}>
+                  <PencilSimple size={16} aria-hidden="true" />改名
+                </Button>
+              ) : null}
+            </div>
+            {editing ? (
+              <form className="materials-rename" onSubmit={saveName}>
+                <label>
+                  <span className="materials-visually-hidden">新的资料名称</span>
+                  <input
+                    autoFocus
+                    value={draftName}
+                    maxLength="200"
+                    disabled={locked}
+                    onChange={(event) => {
+                      setDraftName(event.target.value);
+                      setEditError("");
+                    }}
+                    aria-invalid={Boolean(editError)}
+                  />
+                </label>
+                <Button type="submit" busy={model.busy[item.documentId] === "update"}>保存名称</Button>
+                <Button type="button" disabled={locked} onClick={() => {
+                  setEditing(false);
+                  setDraftName(item.displayName);
+                  setEditError("");
+                }}>取消改名</Button>
+                {editError ? <p role="alert">{editError}</p> : null}
+              </form>
+            ) : null}
+          </div>
+
+          <div className="materials-management-actions" aria-label={`${item.displayName}的管理操作`}>
+            {item.status === "ready" ? (
+              <Button type="button" className="materials-action" disabled={locked} busy={model.busy[item.documentId] === "update"} onClick={() => model.update(item.documentId, { enabled: false }, "资料已停用。") }>
+                <Power size={16} aria-hidden="true" />停用
+              </Button>
+            ) : null}
+            {item.status === "disabled" ? (
+              <Button type="button" variant="primary" className="materials-action" disabled={locked} busy={model.busy[item.documentId] === "update"} onClick={() => model.update(item.documentId, { enabled: true }, "资料已启用。") }>
+                <Power size={16} aria-hidden="true" />启用
+              </Button>
+            ) : null}
+            <Button type="button" className="materials-action materials-delete-action" disabled={locked} onClick={() => onDelete(item)}>
+              <Trash size={16} aria-hidden="true" />永久删除
+            </Button>
+          </div>
+
+          <div className="materials-collapse-action">
+            <Button type="button" onClick={() => closeManagement()}>
+              收起管理操作
+            </Button>
+          </div>
+        </section>
     </li>
   );
 }
@@ -305,8 +451,17 @@ export function MaterialsPage() {
   const searchId = useId();
   const [search, setSearch] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [expandedDocumentId, setExpandedDocumentId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const updateSearch = (nextSearch) => {
+    setSearch(nextSearch);
+    setExpandedDocumentId(null);
+  };
+  const refreshMaterials = () => {
+    setExpandedDocumentId(null);
+    model.refresh();
+  };
   const filteredItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("zh-CN");
     return query
@@ -368,7 +523,7 @@ export function MaterialsPage() {
             <StatusNotice
               className="materials-notice"
               notice={model.notice}
-              title={model.notice.tone === "error" ? "操作未完成" : "操作已完成"}
+              title={model.notice.title || MATERIAL_NOTICE_FALLBACK_TITLES[model.notice.tone] || "状态提示"}
               onDismiss={model.dismissNotice}
             />
           ) : null}
@@ -400,7 +555,7 @@ export function MaterialsPage() {
               <span className="materials-state-icon" aria-hidden="true"><Books size={28} weight="duotone" /></span>
               <h2>资料功能当前未启用</h2>
               <p>此环境尚未开放个人资料管理，你可以稍后重新检测。</p>
-              <Button type="button" onClick={model.refresh}>重新检测</Button>
+              <Button type="button" onClick={refreshMaterials}>重新检测</Button>
             </section>
           ) : null}
 
@@ -409,7 +564,7 @@ export function MaterialsPage() {
               <span className="materials-state-icon" data-tone="error" aria-hidden="true"><WarningCircle size={28} weight="duotone" /></span>
               <h2>资料列表暂时无法加载</h2>
               <p>请检查连接后重试。页面不会显示内部错误信息。</p>
-              <Button type="button" onClick={model.refresh}>重新加载</Button>
+              <Button type="button" onClick={refreshMaterials}>重新加载</Button>
             </section>
           ) : null}
 
@@ -421,11 +576,16 @@ export function MaterialsPage() {
                   <h2 id="materials-library-title">{model.items.length} 份资料</h2>
                   <span>{search ? `当前显示 ${filteredItems.length} 份匹配结果` : "按最近上传顺序展示"}</span>
                 </div>
-                <div className="materials-search">
-                  <MagnifyingGlass size={17} aria-hidden="true" />
-                  <label className="materials-visually-hidden" htmlFor={searchId}>搜索资料</label>
-                  <input id={searchId} type="search" value={search} placeholder="搜索资料名称" onChange={(event) => setSearch(event.target.value)} />
-                  {search ? <button type="button" onClick={() => setSearch("")} aria-label="清除搜索"><X size={15} weight="bold" aria-hidden="true" /></button> : null}
+                <div className="materials-library-controls">
+                  <Button type="button" className="materials-refresh-action" onClick={refreshMaterials}>
+                    <ArrowClockwise size={16} aria-hidden="true" />刷新列表
+                  </Button>
+                  <div className="materials-search">
+                    <MagnifyingGlass size={17} aria-hidden="true" />
+                    <label className="materials-visually-hidden" htmlFor={searchId}>搜索资料</label>
+                    <input id={searchId} type="search" value={search} placeholder="搜索资料名称" onChange={(event) => updateSearch(event.target.value)} />
+                    {search ? <button type="button" onClick={() => updateSearch("")} aria-label="清除搜索"><X size={15} weight="bold" aria-hidden="true" /></button> : null}
+                  </div>
                 </div>
               </header>
 
@@ -441,15 +601,22 @@ export function MaterialsPage() {
                   <span className="materials-empty-icon" aria-hidden="true"><MagnifyingGlass size={28} /></span>
                   <h3>没有匹配的资料</h3>
                   <p>尝试修改搜索关键词。</p>
-                  <Button type="button" onClick={() => setSearch("")}>清除搜索</Button>
+                  <Button type="button" onClick={() => updateSearch("")}>清除搜索</Button>
                 </div>
               ) : (
                 <ul className="materials-list">
                   {filteredItems.map((item) => (
-                    <MaterialRow key={item.documentId} item={item} model={model} onDelete={(target) => {
-                      setDeleteError("");
-                      setDeleteTarget(target);
-                    }} />
+                    <MaterialRow
+                      key={item.documentId}
+                      item={item}
+                      model={model}
+                      expanded={expandedDocumentId === item.documentId}
+                      onExpandedChange={(open) => setExpandedDocumentId(open ? item.documentId : null)}
+                      onDelete={(target) => {
+                        setDeleteError("");
+                        setDeleteTarget(target);
+                      }}
+                    />
                   ))}
                 </ul>
               )}
@@ -476,6 +643,7 @@ export function MaterialsPage() {
             setDeleteError(outcome.message);
             return;
           }
+          setExpandedDocumentId(null);
           setDeleteTarget(null);
         }}
       />

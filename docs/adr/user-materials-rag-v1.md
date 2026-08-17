@@ -58,6 +58,33 @@ Cross-owner lookup is non-enumerable (`404` or the equivalent stable safe error)
 This owner boundary does not authorize accounts, login, roles, tenants, teams,
 sharing, administrators, or RBAC.
 
+#### Domain independence and default runtime identity coupling
+
+The Materials domain and application services depend on their own Document Store,
+Chunk Repository, ingestion/deletion services, and the shared
+`PrincipalIdentityResolver` owner boundary. They do not depend on Principal Memory
+Fact, Proposal, Consent, Shadow, or Retrieval stores/services. A `UserDocument` is
+never written as a Principal Memory Fact or Proposal, and a Principal Memory Fact is
+never promoted automatically into a `UserDocument`. With an explicitly injected
+Principal resolver and Materials stores/services, the Materials service and API run
+without constructing Principal Memory dependencies.
+
+The default Local V1 runtime composition still obtains its Principal resolver from
+`LongTermMemoryConfig.local_principal_enabled`. Setting
+`MEMORY_LONG_TERM_MODE=disabled` makes that gate false, so the runtime constructs a
+`NullPrincipalIdentityResolver` and Materials fail closed with the existing hidden
+`404` response even when the two Materials capabilities are enabled. The current
+configuration intentionally rejects `disabled` plus a local-Principal gate; there is
+no identity-only runtime mode.
+
+This is a known identity-composition coupling, not a Materials/Memory domain-data
+coupling. This cleanup records and tests the behavior but does not split the identity
+configuration, add an environment variable, or change Long-Term Memory defaults.
+
+Implementation history note: commit `189f3c36` contains both User Materials work and
+earlier Long-Term Memory runtime closure changes. They are separate product
+capabilities and should remain separate in future commits and reviews.
+
 ### 3. Frozen document contract
 
 The stable Document identity and immutable Revision identity are distinct. Rename
@@ -95,6 +122,22 @@ document_not_found
 document_deleted
 retry_not_allowed
 ```
+
+#### Public API and synchronous mutation contract
+
+The Materials CRUD API exposes `display_name` and `allowed_usage`. Its PATCH body
+accepts only `display_name`, `enabled`, and `allowed_usage`; `default_use_policy` is
+not an active or compatibility field. The domain maps `display_name` to
+`UserDocument.display_title`, while the Document and frozen Scope models use the
+internal plural field `allowed_usages`.
+
+`POST /api/materials` and `POST /api/materials/{document_id}/retry` perform ingestion
+synchronously. A normal successful HTTP response is terminal with `status=ready` or
+`status=failed`; neither endpoint returns a Job ID or defines a polling protocol.
+`processing` remains part of the persisted/public list status model for exceptional
+in-flight state and compatibility reads. An unexpected mutation response containing
+`processing` must be presented as incomplete and may be reconciled by an explicit
+list refresh; it is not evidence that ingestion completed.
 
 ### 4. Plan V2 knowledge scope
 

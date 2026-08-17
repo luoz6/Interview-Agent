@@ -28,6 +28,39 @@ const ERROR_MESSAGES = Object.freeze({
   invalid_request: "提交的资料信息不符合要求，请检查后重试。",
 });
 
+const MUTATION_NOTICES = Object.freeze({
+  upload: Object.freeze({
+    ready: Object.freeze({
+      tone: "success",
+      title: "上传完成",
+      text: "资料已上传并可以使用。",
+    }),
+    failed: Object.freeze({
+      tone: "warning",
+      title: "资料需要处理",
+      text: "资料已上传，但处理未完成。请查看失败原因后重试。",
+    }),
+  }),
+  retry: Object.freeze({
+    ready: Object.freeze({
+      tone: "success",
+      title: "重新处理完成",
+      text: "资料已重新处理并可以使用。",
+    }),
+    failed: Object.freeze({
+      tone: "warning",
+      title: "资料仍需处理",
+      text: "重新处理仍未完成，请检查失败原因。",
+    }),
+  }),
+});
+
+const PROCESSING_MUTATION_NOTICE = Object.freeze({
+  tone: "info",
+  title: "资料仍在处理中",
+  text: "资料仍在处理中，请稍后手动刷新资料列表。",
+});
+
 export function materialStatus(status) {
   return STATUS[status] || STATUS.failed;
 }
@@ -44,6 +77,11 @@ export function isMaterialsUnavailable(error) {
 
 export function materialFailureMessage(errorCode) {
   return ERROR_MESSAGES[errorCode] || "资料处理没有完成，你可以重新处理。";
+}
+
+export function materialMutationNotice(action, status) {
+  if (status === "processing") return PROCESSING_MUTATION_NOTICE;
+  return MUTATION_NOTICES[action]?.[status] || null;
 }
 
 export function formatMaterialSize(sizeBytes) {

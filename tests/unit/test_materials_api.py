@@ -19,8 +19,10 @@ from app.api.shared.dependencies import (
 from app.application.materials.deletion_service import UserDocumentDeletionService
 from app.application.materials.ingestion_service import UserDocumentIngestionService
 from app.application.materials.service import UserDocumentService
+from app.domain.knowledge.user_document import UserDocumentPublicStatus
 from app.main import app
 from app.runtime.config.models import UserMaterialsRuntimeSettings
+from app.services import runtime
 from app.services.embedding_providers import EmbeddingProviderError
 from app.services.postgres_connections import PostgresSchemaNotReady
 from app.services.principal_identity import (
@@ -201,6 +203,31 @@ def test_enabled_materials_support_full_upload_list_patch_retry_delete_lifecycle
     assert CLIENT.get("/api/materials").json() == {"items": []}
 
 
+def test_explicit_principal_materials_api_constructs_no_principal_memory_dependency():
+    runtime.reset_runtime_for_tests()
+    bundle = _bundle()
+    try:
+        _configure(bundle, enabled=True, ingest_enabled=True)
+
+        uploaded = _upload(
+            filename="redis.txt",
+            content=b"Redis cache aside",
+            display_name="Redis Notes",
+        )
+        listed = CLIENT.get("/api/materials")
+
+        assert uploaded.status_code == 201
+        assert uploaded.json()["status"] == "ready"
+        assert listed.status_code == 200
+        assert listed.json()["items"] == [uploaded.json()]
+        instance_keys = runtime.get_runtime_container().snapshot().instance_keys
+        assert not any(
+            key.startswith("principal_memory_") for key in instance_keys
+        )
+    finally:
+        runtime.reset_runtime_for_tests()
+
+
 def test_failed_upload_retry_reuses_revision_and_never_reflects_provider_error():
     provider = FlakyEmbeddingProvider()
     bundle = _bundle(provider)
@@ -226,6 +253,24 @@ def test_failed_upload_retry_reuses_revision_and_never_reflects_provider_error()
         owner_principal_id=OWNER_A,
         document_id=document_id,
     ) == revisions_before
+
+
+def test_retry_does_not_return_processing_as_a_successful_mutation():
+    bundle = _bundle()
+    ready = _ingest_direct(bundle)
+    processing = ready.model_copy(
+        update={"public_status": UserDocumentPublicStatus.PROCESSING}
+    )
+    bundle.store.save_document(
+        owner_principal_id=OWNER_A,
+        document=processing,
+    )
+    _configure(bundle, enabled=True, ingest_enabled=True)
+
+    retried = CLIENT.post(f"/api/materials/{ready.document_id}/retry")
+
+    assert retried.status_code == 409
+    assert retried.json()["detail"]["code"] == "retry_not_allowed"
 
 
 def test_public_document_response_is_an_exact_safe_projection():
@@ -351,6 +396,48 @@ def test_missing_principal_fails_closed_even_for_delete():
         owner_principal_id=OWNER_A,
         document_id=document.document_id,
     ) == document
+
+
+def test_disabled_long_term_memory_default_identity_hides_materials_api(
+    monkeypatch,
+):
+    monkeypatch.setenv("MEMORY_LONG_TERM_MODE", "disabled")
+    for name in (
+        "MEMORY_LOCAL_PRINCIPAL_ENABLED",
+        "MEMORY_LOCAL_PRINCIPAL_ID",
+        "MEMORY_TRUSTED_LOCAL_PRINCIPAL_MEMORY_API_ENABLED",
+        "MEMORY_LONG_TERM_WRITE_SHADOW_ENABLED",
+        "MEMORY_LONG_TERM_READ_SHADOW_ENABLED",
+        "MEMORY_LONG_TERM_LOCAL_CONSUMPTION_ENABLED",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    runtime.reset_runtime_for_tests()
+    bundle = _bundle()
+    settings = UserMaterialsRuntimeSettings(enabled=True, ingest_enabled=True)
+    app.dependency_overrides[get_user_materials_runtime_settings] = lambda: settings
+    app.dependency_overrides[get_user_document_service] = lambda: bundle.documents
+    app.dependency_overrides[get_user_document_ingestion_service] = (
+        lambda: bundle.ingestion
+    )
+    app.dependency_overrides[get_user_document_deletion_service] = (
+        lambda: bundle.deletion
+    )
+
+    try:
+        response = CLIENT.get("/api/materials")
+        resolver = runtime.get_principal_identity_resolver()
+
+        assert isinstance(resolver, NullPrincipalIdentityResolver)
+        assert resolver.resolve() is None
+        assert response.status_code == 404
+        assert response.json() == {
+            "detail": {"code": "not_found", "message": "未找到资源。"}
+        }
+        assert bundle.store.list_documents(owner_principal_id=OWNER_A) == ()
+        instance_keys = runtime.get_runtime_container().snapshot().instance_keys
+        assert instance_keys == ("principal_identity_resolver",)
+    finally:
+        runtime.reset_runtime_for_tests()
 
 
 def test_missing_postgres_materials_schema_fails_closed_without_details(

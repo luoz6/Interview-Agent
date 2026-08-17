@@ -56,13 +56,15 @@ $env:USER_MATERIALS_INGEST_ENABLED="true"
 本地操作顺序：
 
 1. 打开 `/materials`，上传 UTF-8 Markdown 或 TXT。单个文件上限为 1 MiB；当前不接受 PDF、DOCX、图片或 OCR。
-2. 等待状态变为“已就绪”。“处理中”需要等待，“处理失败”可以重试，“已停用”需要先重新启用。只有 `Ready + Enabled` 的资料可供选择。
+2. 上传和重试会在当前请求内同步完成；正常响应直接返回 `ready` 或 `failed`，不需要 Job ID 或轮询。“处理失败”可以重试，“已停用”需要先重新启用。列表若读到异常中间态 `processing`，不得当作已完成；稍后手动刷新资料列表以重新读取权威状态。只有 `Ready + Enabled` 的资料可供选择。
 3. 打开 `/prep`，选择本次允许使用的资料并确认计划。服务端把 Revision、内容摘要和允许用途固化到 Plan；首次 Start 会以同一个 owner 重新验证，再把同一 Scope 固化到 Session。成功启动后的恢复与回放读取冻结绑定，不从当前资料库重新推断选择。
 4. 完成面试后，在报告中查看实际 Citation。被选择只表示允许使用；只有同时进入 Final Evidence、业务绑定并被反馈实际消费的资料才显示为“我的资料”。删除资料后，历史报告只显示不含标题和摘录的“已删除资料”。
 
 Source Scope 只是 Semantic 与 Lexical 两个现有检索通道内的候选约束，不是第三个 Fusion 输入。用户资料是非权威的提问、追问和反馈上下文，不会改变 rubric、权重、及格线或数值评分；没有 Citation 也不代表自动扣分。
 
 Local V1 由服务端 Local Principal 提供 owner 边界，不提供账号、登录、租户、团队或 RBAC。本节可用 InMemory/Fake 自动化验证产品契约，但真实 PostgreSQL 的 FK、索引、级联和事务恢复仍需单独授权验收；不得把非保护回归记为该实库验收已经通过。
+
+Materials 的领域数据与 Principal Memory 独立：资料不会写成 Memory Fact/Proposal，Memory Fact 也不会自动变成 UserDocument；显式注入 Principal 与 Materials Store/Service 时，不需要 Memory Fact、Proposal、Consent、Shadow 或 Retrieval Store/Service。默认运行时装配仍有一个已知身份耦合：Local Principal 来自 `LongTermMemoryConfig`。设置 `MEMORY_LONG_TERM_MODE=disabled` 会得到 Null Principal，即使两个 Materials capability 为 true，Materials API 仍按现有契约隐藏为 404。当前没有 identity-only 模式，也不能在 disabled mode 下强行打开 local Principal gate；本次 Cleanup 不拆分或更改该行为。
 
 ## 2. PowerShell Setup
 

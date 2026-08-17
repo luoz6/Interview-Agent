@@ -16,7 +16,6 @@ export const AppShell = forwardRef(function AppShell({
   ...rootProps
 }, ref) {
   const pathname = window.location.pathname;
-  const navigate = (href, item) => onNavigate?.(href, item);
 
   return (
     <div ref={ref} className={`start-app-root ${className}`.trim()} {...rootProps}>
@@ -27,7 +26,7 @@ export const AppShell = forwardRef(function AppShell({
           href="/prep"
           aria-label="面试智能体开始页"
           onClick={(event) => {
-            if (navigate("/prep") === false) event.preventDefault();
+            if (onNavigate?.("/prep", undefined) === false) event.preventDefault();
           }}
         >
           <span className="start-brand-mark" aria-hidden="true">IA</span>
@@ -36,7 +35,7 @@ export const AppShell = forwardRef(function AppShell({
             <small>{brandSubtitle}</small>
           </span>
         </a>
-        <PrimaryNav pathname={pathname} onNavigate={navigate} />
+        <PrimaryNav pathname={pathname} onNavigate={onNavigate} />
         {status || (
           <div className={`start-app-topbar-status status-${statusTone}`}>
             <span className="status-dot" aria-hidden="true" />
@@ -45,7 +44,7 @@ export const AppShell = forwardRef(function AppShell({
         )}
       </header>
       {children}
-      <MobileNav pathname={pathname} onNavigate={navigate} />
+      <MobileNav pathname={pathname} onNavigate={onNavigate} />
     </div>
   );
 });

@@ -33,6 +33,11 @@ class FlakyEmbeddingProvider(FakeEmbeddingProvider):
         return super().embed_documents(texts)
 
 
+class UnavailableEmbeddingProvider(FakeEmbeddingProvider):
+    def embed_documents(self, texts):
+        raise EmbeddingProviderError("synthetic_unavailable", retryable=True)
+
+
 def _services(embedder=None):
     store = InMemoryUserDocumentStore()
     chunks = InMemoryUserDocumentChunkRepository()
@@ -169,6 +174,46 @@ def test_failed_embedding_retry_is_idempotent_and_publishes_one_active_revision(
             document_revision_id=ready.active_revision_id,
         )
     ) == 1
+
+
+def test_retry_returns_failed_when_synchronous_reprocessing_still_fails():
+    _, _, ingestion, _, _ = _services(UnavailableEmbeddingProvider())
+    failed = ingestion.ingest(
+        owner_principal_id=OWNER_A,
+        original_filename="redis.txt",
+        media_type="text/plain",
+        content=b"Redis cache aside",
+    )
+
+    retried = ingestion.retry(
+        owner_principal_id=OWNER_A,
+        document_id=failed.document_id,
+    )
+
+    assert failed.public_status is UserDocumentPublicStatus.FAILED
+    assert retried.public_status is UserDocumentPublicStatus.FAILED
+
+
+def test_retry_rejects_an_existing_processing_state_instead_of_returning_it():
+    store, _, ingestion, _, _ = _services()
+    ready = ingestion.ingest(
+        owner_principal_id=OWNER_A,
+        original_filename="redis.txt",
+        media_type="text/plain",
+        content=b"Redis cache aside",
+    )
+    processing = ready.model_copy(
+        update={"public_status": UserDocumentPublicStatus.PROCESSING}
+    )
+    store.save_document(owner_principal_id=OWNER_A, document=processing)
+
+    with pytest.raises(UserMaterialsError) as exc_info:
+        ingestion.retry(
+            owner_principal_id=OWNER_A,
+            document_id=ready.document_id,
+        )
+
+    assert exc_info.value.code == "retry_not_allowed"
 
 
 def test_document_operations_are_owner_scoped_and_enablement_is_reversible():

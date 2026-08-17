@@ -125,6 +125,34 @@ def test_materials_contract_adds_no_rbac_or_role_hierarchy():
     assert "PrincipalIdentityResolver" in _symbols(principal_port)
 
 
+def test_materials_domain_application_and_api_do_not_depend_on_principal_memory():
+    forbidden_module_prefixes = (
+        "app.domain.memory",
+        "app.ports.principal_memory",
+        "app.services.principal_memory",
+        "app.adapters.memory.principal_memory",
+        "app.adapters.postgres.principal_memory",
+    )
+    forbidden_symbols = {
+        "PrincipalMemoryFact",
+        "PrincipalMemoryFactStorePort",
+        "PrincipalMemoryProposal",
+        "PrincipalMemoryProposalProcessor",
+        "PrincipalMemorySelector",
+        "get_principal_memory_consume_service",
+        "get_principal_memory_fact_store",
+        "get_principal_memory_proposal_processor",
+        "get_principal_memory_shadow_service",
+    }
+
+    for path in _material_paths():
+        assert not any(
+            module.startswith(forbidden_module_prefixes)
+            for module in _imports(path)
+        ), path
+        assert not (_symbols(path) & forbidden_symbols), path
+
+
 def test_materials_contract_freezes_only_two_persistence_ports():
     assert USER_MATERIALS_PERSISTENCE_PORTS == (
         "UserDocumentStorePort",

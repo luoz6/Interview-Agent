@@ -16,6 +16,7 @@ const SAFE_STATUSES = new Set([
 ]);
 const SAFE_MEDIA_TYPES = new Set(["text/markdown", "text/plain"]);
 const SAFE_USAGES = new Set(["question", "follow_up", "feedback"]);
+const TERMINAL_MUTATION_STATUSES = new Set(["ready", "failed"]);
 
 function materialFromApi(value) {
   if (!value || typeof value !== "object") return null;
@@ -46,6 +47,15 @@ function requireMaterial(value) {
   return material;
 }
 
+function requireSynchronousMutationMaterial(value) {
+  const material = requireMaterial(value);
+  if (TERMINAL_MUTATION_STATUSES.has(material.status)) return material;
+  // Preserve read compatibility for an anomalous in-flight response without
+  // treating it as a completed synchronous mutation.
+  if (material.status === "processing") return material;
+  throw new Error("Invalid materials mutation response");
+}
+
 export async function listMaterials(options = {}) {
   const payload = await getJson(MATERIALS_PATH, { ...options, cache: "no-store" });
   if (!Array.isArray(payload?.items)) throw new Error("Invalid materials response");
@@ -56,7 +66,9 @@ export async function uploadMaterial({ file, displayName }, options = {}) {
   const formData = new FormData();
   formData.append("file", file);
   if (displayName) formData.append("display_name", displayName);
-  return requireMaterial(await postForm(MATERIALS_PATH, formData, options));
+  return requireSynchronousMutationMaterial(
+    await postForm(MATERIALS_PATH, formData, options),
+  );
 }
 
 export async function patchMaterial(documentId, changes, options = {}) {
@@ -68,7 +80,7 @@ export async function patchMaterial(documentId, changes, options = {}) {
 }
 
 export async function retryMaterial(documentId, options = {}) {
-  return requireMaterial(await postJson(
+  return requireSynchronousMutationMaterial(await postJson(
     `${MATERIALS_PATH}/${encodeURIComponent(documentId)}/retry`,
     {},
     options,

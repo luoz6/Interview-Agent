@@ -6,7 +6,15 @@ import {
   retryMaterial,
   uploadMaterial,
 } from "./materialsApi";
-import { isMaterialsUnavailable, materialErrorMessage } from "./materialsDisplay";
+import {
+  isMaterialsUnavailable,
+  materialErrorMessage,
+  materialMutationNotice,
+} from "./materialsDisplay";
+
+function isRequestAborted(error) {
+  return error?.code === "REQUEST_ABORTED";
+}
 
 export function useMaterials() {
   const [items, setItems] = useState([]);
@@ -62,9 +70,10 @@ export function useMaterials() {
   const update = useCallback(async (documentId, changes, successText) => {
     setItemBusy(documentId, "update");
     try {
-      replaceItem(await patchMaterial(documentId, changes));
+      const updated = await patchMaterial(documentId, changes);
+      replaceItem(updated);
       setNotice({ tone: "success", text: successText });
-      return { ok: true };
+      return { ok: true, item: updated };
     } catch (error) {
       const message = materialErrorMessage(error);
       setNotice({ tone: "error", text: message });
@@ -77,10 +86,12 @@ export function useMaterials() {
   const retry = useCallback(async (documentId) => {
     setItemBusy(documentId, "retry");
     try {
-      replaceItem(await retryMaterial(documentId));
-      setNotice({ tone: "success", text: "已重新开始处理资料。" });
-      return { ok: true };
+      const retried = await retryMaterial(documentId);
+      replaceItem(retried);
+      setNotice(materialMutationNotice("retry", retried.status));
+      return { ok: true, item: retried };
     } catch (error) {
+      if (isRequestAborted(error)) return { ok: false, aborted: true };
       if (isMaterialsUnavailable(error)) setIngestAvailable(false);
       const message = isMaterialsUnavailable(error)
         ? "资料上传与重新处理当前未启用。"
@@ -97,9 +108,10 @@ export function useMaterials() {
     try {
       const created = await uploadMaterial({ file, displayName });
       setItems((current) => [created, ...current]);
-      setNotice({ tone: "success", text: "资料已上传，正在处理中。" });
+      setNotice(materialMutationNotice("upload", created.status));
       return { ok: true, item: created };
     } catch (error) {
+      if (isRequestAborted(error)) return { ok: false, aborted: true };
       if (isMaterialsUnavailable(error)) setIngestAvailable(false);
       const message = isMaterialsUnavailable(error)
         ? "资料上传与重新处理当前未启用。"
