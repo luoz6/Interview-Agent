@@ -291,7 +291,6 @@ function SourceEditor({
         </div>
         <label
           className="start-file-button"
-          aria-label={importLabel}
           aria-busy={importing || undefined}
           data-state={importing ? "loading" : undefined}
         >
@@ -305,6 +304,8 @@ function SourceEditor({
           <span>{importing ? "正在提取" : "导入文件"}</span>
           <input
             type="file"
+            aria-label={importLabel}
+            aria-busy={importing || undefined}
             accept={SOURCE_FILE_ACCEPT}
             onChange={(event) => onFile(event.target.files?.[0], event.target)}
             disabled={disabled}

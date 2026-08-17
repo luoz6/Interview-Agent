@@ -598,14 +598,107 @@ test("draft save is explicit, singular, and reports actual durability", async ({
   expect(writes).toHaveLength(1);
 });
 
-test("unsupported documents provide a paste fallback", async ({ page }) => {
-  await page.goto("/prep");
-  await page.locator('input[type="file"]').first().setInputFiles({
-    name: "role.pdf",
-    mimeType: "application/pdf",
-    buffer: Buffer.from("unsupported"),
+test("source imports use exact targets, invalidate plans only on success, and preserve state on safe failure", async ({ page }) => {
+  const observedTargets = [];
+  const mutations = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && pathname === "/api/prep") mutations.push("generate");
+    if (request.method() === "POST" && pathname === "/api/interview-drafts") mutations.push("draft");
+    if (request.method() === "PATCH" && pathname.startsWith("/api/interview-plans/")) mutations.push("plan-patch");
   });
-  await expect(page.getByRole("alert")).toContainText("复制其中的文本后粘贴");
+  await page.route("**/api/prep/source-imports", async (route) => {
+    const body = route.request().postDataBuffer()?.toString("utf8") || "";
+    const target = body.match(/name="target"\r?\n\r?\n([^\r\n]+)/)?.[1];
+    observedTargets.push(target);
+    if (body.includes('filename="legacy-role.doc"')) {
+      await route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: {
+            code: "unsupported_file_type",
+            message: "仅支持 PDF、DOCX、Markdown 或 TXT 文件；请复制文本后粘贴。",
+            parser: "private parser traceback",
+            content_sha256: "secret-hash",
+          },
+        }),
+      });
+      return;
+    }
+    const imported = target === "job_description"
+      ? { filename: "backend-role.pdf", mediaType: "application/pdf", text: "Imported backend role" }
+      : { filename: "production-resume.txt", mediaType: "text/plain", text: "Imported production resume" };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        target,
+        filename: imported.filename,
+        media_type: imported.mediaType,
+        text: imported.text,
+        character_count: imported.text.length,
+        truncated: false,
+        warning_codes: [],
+      }),
+    });
+  });
+
+  await generatePlan(page);
+  const start = page.getByRole("button", { name: "开始本次面试" });
+  await expect(page.locator(".start-revision-state")).toContainText(/已保存.*R1/);
+  await expect(start).toBeEnabled();
+
+  await page.getByRole("tab", { name: /岗位 JD/ }).click();
+  await page.getByLabel("导入当前岗位文档").setInputFiles({
+    name: "backend-role.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("mock pdf"),
+  });
+  await expect(page.getByLabel("岗位 JD")).toHaveValue("Imported backend role");
+  await expect(page.locator(".start-revision-state")).toHaveCount(0);
+  await expect(page.locator(".start-plan-question")).toHaveCount(0);
+  await expect(start).toBeDisabled();
+  await expect(page.getByRole("button", { name: "生成面试计划" })).toBeEnabled();
+
+  await page.getByRole("tab", { name: /候选人经历/ }).click();
+  await page.getByLabel("导入当前经历文档").setInputFiles({
+    name: "production-resume.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("mock resume"),
+  });
+  await expect(page.getByLabel("简历内容")).toHaveValue("Imported production resume");
+  expect(observedTargets).toEqual(["job_description", "resume_text"]);
+  await page.waitForTimeout(200);
+  expect(mutations).toEqual(["generate"]);
+
+  await page.getByRole("button", { name: "生成面试计划" }).click();
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
+  await expect(page.locator(".start-revision-state")).toContainText(/已保存.*R1/);
+  await expect(start).toBeEnabled();
+  expect(mutations).toEqual(["generate", "generate"]);
+
+  await page.getByRole("tab", { name: /岗位 JD/ }).click();
+  const jdEditor = page.locator(".start-document-editor").filter({ has: page.getByLabel("岗位 JD") });
+  await expect(jdEditor.locator(".start-document-file")).toContainText("backend-role.pdf · 已导入");
+  await page.getByLabel("导入当前岗位文档").setInputFiles({
+    name: "legacy-role.doc",
+    mimeType: "application/msword",
+    buffer: Buffer.from("legacy document"),
+  });
+
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("仅支持 PDF、DOCX、Markdown 或 TXT 文件；请复制文本后粘贴。");
+  await expect(page.getByLabel("岗位 JD")).toHaveValue("Imported backend role");
+  await expect(jdEditor.locator(".start-document-file")).toContainText("backend-role.pdf · 已导入");
+  await expect(page.locator(".start-plan-question")).toHaveCount(5);
+  await expect(page.locator(".start-revision-state")).toContainText(/已保存.*R1/);
+  await expect(start).toBeEnabled();
+  expect(mutations).toEqual(["generate", "generate"]);
+  expect(observedTargets).toEqual(["job_description", "resume_text", "job_description"]);
+  await expect(page.locator("body")).not.toContainText("unsupported_file_type");
+  await expect(page.locator("body")).not.toContainText("private parser traceback");
+  await expect(page.locator("body")).not.toContainText("secret-hash");
 });
 
 test("prep geometry is bounded at the frozen Phase 2 widths", async ({ page }, testInfo) => {

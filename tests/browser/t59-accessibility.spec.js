@@ -170,6 +170,88 @@ test("long question editing and actions remain reachable at 320 and 375 pixels",
   }
 });
 
+test("prep source imports expose target names, keyboard focus, busy state, and safe errors", async ({ page }) => {
+  let releaseImport;
+  let markRequestSeen;
+  const importReleased = new Promise((resolve) => {
+    releaseImport = resolve;
+  });
+  const requestSeen = new Promise((resolve) => {
+    markRequestSeen = resolve;
+  });
+  await page.route("**/api/prep/source-imports", async (route) => {
+    const body = route.request().postDataBuffer()?.toString("utf8") || "";
+    if (body.includes('filename="role.pdf"')) {
+      markRequestSeen();
+      await importReleased;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          target: "job_description",
+          filename: "role.pdf",
+          media_type: "application/pdf",
+          text: "Imported accessible role",
+          character_count: 24,
+          truncated: false,
+          warning_codes: [],
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: {
+          code: "unsupported_file_type",
+          message: "仅支持 PDF、DOCX、Markdown 或 TXT 文件；请复制文本后粘贴。",
+          parser: "private parser traceback",
+          content_sha256: "secret-hash",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/prep");
+  const jdImport = page.getByLabel("导入当前岗位文档");
+  await expect(jdImport).toHaveAttribute("type", "file");
+  await page.getByLabel("岗位 JD").focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(jdImport).toBeFocused();
+
+  const upload = jdImport.setInputFiles({
+    name: "role.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("mock pdf"),
+  });
+  await requestSeen;
+  try {
+    await expect(jdImport).toHaveAttribute("aria-busy", "true");
+    await expect(jdImport.locator("..")).toContainText("正在提取");
+  } finally {
+    releaseImport();
+  }
+  await upload;
+  await expect(jdImport).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.getByLabel("岗位 JD")).toHaveValue("Imported accessible role");
+
+  await page.getByRole("tab", { name: /候选人经历/ }).click();
+  const resumeImport = page.getByLabel("导入当前经历文档");
+  await expect(resumeImport).toHaveAttribute("type", "file");
+  await resumeImport.setInputFiles({
+    name: "resume.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("mock image"),
+  });
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("请复制文本后粘贴");
+  await expect(alert).toHaveAttribute("aria-live", "assertive");
+  await expect(page.locator("body")).not.toContainText("unsupported_file_type");
+  await expect(page.locator("body")).not.toContainText("private parser traceback");
+  await expect(page.locator("body")).not.toContainText("secret-hash");
+});
+
 test("offline, 422, and 500 prep failures preserve inputs and expose assertive guidance", async ({ page }) => {
   await page.goto("/prep");
   await fillPrepSources(page);

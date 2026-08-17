@@ -601,6 +601,7 @@ def prepare_browser_interview(
     resume_text,
     llm=None,
     knowledge_store=None,
+    knowledge_scope=None,
     execution_runner=None,
     configuration=None,
     allow_fallback=True,
@@ -628,6 +629,7 @@ def prepare_browser_interview(
                 prep_run_id=prep_run_id,
             ),
             effective_configuration,
+            knowledge_scope=knowledge_scope,
         ),
         metadata=lambda plan: {
             "question_count": len(plan.questions),
