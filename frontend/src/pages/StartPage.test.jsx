@@ -155,6 +155,21 @@ function response(payload, status = 200) {
   });
 }
 
+function deferredResponse() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+function sourceFileInput(label) {
+  const labeled = screen.getByLabelText(label);
+  return labeled.matches("input")
+    ? labeled
+    : labeled.querySelector('input[type="file"]');
+}
+
 async function generatePlan(user, fetchMock) {
   fetchMock.mockImplementationOnce(() => response(revisionResponse(1)));
   await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
@@ -186,6 +201,237 @@ describe("StartPage editable plan workflow", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("imports a PDF job description through the shared multipart client", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/prep/source-imports") {
+        return response({
+          target: "job_description",
+          filename: "backend-role.pdf",
+          media_type: "application/pdf",
+          text: "Backend engineer\nDistributed systems",
+          character_count: 36,
+          truncated: false,
+          warning_codes: [],
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+
+    const input = sourceFileInput("导入当前岗位文档");
+    expect(input).toHaveAttribute(
+      "accept",
+      ".pdf,.docx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain",
+    );
+    expect(screen.getByText("导入文件")).toBeInTheDocument();
+
+    const file = new File(["%PDF-test"], "backend-role.pdf", {
+      type: "application/pdf",
+    });
+    await user.upload(input, file);
+
+    await waitFor(() => expect(
+      screen.getByRole("textbox", { name: "岗位 JD" }),
+    ).toHaveValue("Backend engineer\nDistributed systems"));
+    const importCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/api/prep/source-imports",
+    );
+    expect(importCall).toBeDefined();
+    expect(importCall[1].method).toBe("POST");
+    expect(importCall[1].body).toBeInstanceOf(FormData);
+    expect(importCall[1].body.get("target")).toBe("job_description");
+    expect(importCall[1].body.get("file")).toBe(file);
+    expect(importCall[1].headers).toBeUndefined();
+    expect(screen.getByText("backend-role.pdf · 已导入")).toBeInTheDocument();
+    expect(screen.getByText(/生成计划前仍可继续编辑/)).toBeInTheDocument();
+
+    await user.type(
+      screen.getByRole("textbox", { name: "岗位 JD" }),
+      "\nUser edit",
+    );
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toHaveValue(
+      "Backend engineer\nDistributed systems\nUser edit",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("imports a truncated DOCX resume with the exact resume target", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/prep/source-imports") {
+        return response({
+          target: "resume_text",
+          filename: "candidate.docx",
+          media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          text: "Platform engineer",
+          character_count: 17,
+          truncated: true,
+          warning_codes: ["text_truncated"],
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+
+    const file = new File(["PK-test"], "candidate.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    await user.upload(sourceFileInput("导入当前经历文档"), file);
+
+    await waitFor(() => expect(
+      screen.getByRole("textbox", { name: "简历内容" }),
+    ).toHaveValue("Platform engineer"));
+    const importCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/api/prep/source-imports",
+    );
+    expect(importCall[1].body.get("target")).toBe("resume_text");
+    expect(importCall[1].body.get("file")).toBe(file);
+    expect(screen.getByText("candidate.docx · 已截断")).toBeInTheDocument();
+    expect(screen.getByText(/后续内容未导入/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("text_truncated");
+  });
+
+  it("locks only the SourceEditor whose file is being extracted", async () => {
+    const user = userEvent.setup();
+    const pending = deferredResponse();
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/prep/source-imports") return pending.promise;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+    await user.click(screen.getByRole("tab", { name: /并排查看/ }));
+
+    const jdFile = sourceFileInput("导入当前岗位文档");
+    const resumeFile = sourceFileInput("导入当前经历文档");
+    await user.upload(
+      jdFile,
+      new File(["# Role"], "role.md", { type: "text/markdown" }),
+    );
+
+    await waitFor(() => expect(jdFile).toBeDisabled());
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toBeDisabled();
+    expect(resumeFile).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "简历内容" })).toBeEnabled();
+    expect(screen.getByText("未导入文件 · 正在提取")).toBeInTheDocument();
+
+    pending.resolve(await response({
+      target: "job_description",
+      filename: "role.md",
+      media_type: "text/markdown",
+      text: "# Role",
+      character_count: 6,
+      truncated: false,
+      warning_codes: [],
+    }));
+    await waitFor(() => expect(jdFile).toBeEnabled());
+  });
+
+  it("invalidates an existing plan after import without saving or regenerating", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/prep") return response(revisionResponse(1));
+      if (path === "/api/prep/source-imports") {
+        return response({
+          target: "job_description",
+          filename: "replacement.txt",
+          media_type: "text/plain",
+          text: "Replacement JD",
+          character_count: 14,
+          truncated: false,
+          warning_codes: [],
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Old JD");
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
+    await user.click(screen.getByRole("tab", { name: /岗位 JD/ }));
+
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["Replacement JD"], "replacement.txt", { type: "text/plain" }),
+    );
+
+    await waitFor(() => expect(
+      screen.getByRole("textbox", { name: "岗位 JD" }),
+    ).toHaveValue("Replacement JD"));
+    expect(screen.queryByText("R1")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成面试计划" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeDisabled();
+    expect(screen.getByText(/原面试计划已失效，请重新生成/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/prep",
+      "/api/prep/source-imports",
+    ]);
+  });
+
+  it("preserves text, file state, and plan when a later import fails safely", async () => {
+    const user = userEvent.setup();
+    let imports = 0;
+    fetchMock.mockImplementation((path) => {
+      if (path === "/api/prep/source-imports") {
+        imports += 1;
+        if (imports === 1) {
+          return response({
+            target: "job_description",
+            filename: "current.txt",
+            media_type: "text/plain",
+            text: "Current JD",
+            character_count: 10,
+            truncated: false,
+            warning_codes: [],
+          });
+        }
+        return response({
+          detail: {
+            code: "invalid_file_signature",
+            message: "文件格式不一致，请重新选择。",
+            parser: "private parser traceback",
+            content_sha256: "secret-hash",
+          },
+        }, 422);
+      }
+      if (path === "/api/prep") return response(revisionResponse(1));
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["Current JD"], "current.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(
+      screen.getByRole("textbox", { name: "岗位 JD" }),
+    ).toHaveValue("Current JD"));
+    await user.click(screen.getByRole("tab", { name: /候选人经历/ }));
+    await user.type(screen.getByRole("textbox", { name: "简历内容" }), "Resume");
+    await user.click(screen.getByRole("button", { name: "生成面试计划" }));
+    await screen.findByText("R1");
+    await user.click(screen.getByRole("tab", { name: /岗位 JD/ }));
+
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["%PDF-bad"], "bad.pdf", { type: "application/pdf" }),
+    );
+
+    expect(await screen.findByText(/文件格式不一致，请重新选择/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toHaveValue("Current JD");
+    expect(screen.getByText("current.txt · 已导入")).toBeInTheDocument();
+    expect(screen.getByText("R1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始本次面试" })).toBeEnabled();
+    expect(document.body).not.toHaveTextContent(
+      /invalid_file_signature|secret-hash|private parser traceback/,
+    );
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/prep")).toHaveLength(1);
   });
 
   it("shows every material state but only allows Ready and Enabled items", async () => {
@@ -1145,9 +1391,22 @@ describe("StartPage editable plan workflow", () => {
 
   it("confirms before a manual draft restore can replace the current canvas", async () => {
     const user = userEvent.setup();
+    fetchMock.mockImplementationOnce(() => response({
+      target: "job_description",
+      filename: "current.pdf",
+      media_type: "application/pdf",
+      text: "New canvas content",
+      character_count: 18,
+      truncated: true,
+      warning_codes: ["text_truncated"],
+    }));
     render(<StartPage />);
     const jdInput = screen.getByRole("textbox", { name: "岗位 JD" });
-    await user.type(jdInput, "New canvas content");
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["%PDF-current"], "current.pdf", { type: "application/pdf" }),
+    );
+    await screen.findByText("current.pdf · 已截断");
     window.localStorage.setItem("interview-agent:draft-id", "draft-t58");
     const restoreButton = screen.getByRole("button", { name: "恢复草稿" });
     await user.click(restoreButton);
@@ -1155,15 +1414,13 @@ describe("StartPage editable plan workflow", () => {
     const dialog = screen.getByRole("dialog", { name: "用已保存草稿替换当前画布？" });
     expect(dialog).toHaveTextContent("当前画布中的岗位 JD 和候选人经历会被替换");
     expect(dialog).toHaveTextContent("已保存的匿名草稿不会被删除");
-    expect(fetchMock.mock.calls.every(([path]) => path === "/api/runtime/principal-memory/status")).toBe(true);
+    expect(fetchMock.mock.calls.some(
+      ([path]) => path === "/api/interview-drafts/draft-t58",
+    )).toBe(false);
 
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
     expect(jdInput).toHaveValue("New canvas content");
-    expect(
-      fetchMock.mock.calls.every(
-        ([path]) => path === "/api/runtime/principal-memory/status",
-      ),
-    ).toBe(true);
+    expect(screen.getByText("current.pdf · 已截断")).toBeInTheDocument();
     await waitFor(() => expect(restoreButton).toHaveFocus());
 
     fetchMock.mockImplementationOnce(() => response({
@@ -1179,14 +1436,32 @@ describe("StartPage editable plan workflow", () => {
     await user.click(screen.getByRole("button", { name: "确认恢复草稿" }));
 
     await waitFor(() => expect(jdInput).toHaveValue("Restored saved JD"));
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/interview-drafts/draft-t58");
+    await user.click(screen.getByRole("tab", { name: /并排查看/ }));
+    expect(screen.getAllByText("来自匿名草稿")).toHaveLength(2);
+    expect(screen.queryByText(/来自匿名草稿 ·/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(
+      ([path]) => path === "/api/interview-drafts/draft-t58",
+    )).toBe(true);
   });
 
   it("uses a dialog before clearing the canvas and keeps saved drafts recoverable", async () => {
     const user = userEvent.setup();
+    fetchMock.mockImplementationOnce(() => response({
+      target: "job_description",
+      filename: "current.pdf",
+      media_type: "application/pdf",
+      text: "Do not clear without confirmation",
+      character_count: 33,
+      truncated: true,
+      warning_codes: ["text_truncated"],
+    }));
     render(<StartPage />);
     const jdInput = screen.getByRole("textbox", { name: "岗位 JD" });
-    await user.type(jdInput, "Do not clear without confirmation");
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["%PDF-current"], "current.pdf", { type: "application/pdf" }),
+    );
+    await screen.findByText("current.pdf · 已截断");
     const clearButton = screen.getByRole("button", { name: "清空当前画布" });
 
     await user.click(clearButton);
@@ -1200,12 +1475,13 @@ describe("StartPage editable plan workflow", () => {
     await user.click(clearButton);
     await user.click(screen.getByRole("button", { name: "确认清空画布" }));
     expect(jdInput).toHaveValue("");
+    await user.click(screen.getByRole("tab", { name: /并排查看/ }));
+    expect(screen.getAllByText("未导入文件")).toHaveLength(2);
+    expect(screen.queryByText(/未导入文件 ·/)).not.toBeInTheDocument();
     expect(screen.getByText("当前画布已清空；此前保存的匿名草稿仍可恢复。")).toBeInTheDocument();
-    expect(
-      fetchMock.mock.calls.every(
-        ([path]) => path === "/api/runtime/principal-memory/status",
-      ),
-    ).toBe(true);
+    expect(fetchMock.mock.calls.filter(
+      ([path]) => path === "/api/prep/source-imports",
+    )).toHaveLength(1);
   });
 
   it("keeps the current canvas and draft link when a confirmed restore fails mid-read", async () => {

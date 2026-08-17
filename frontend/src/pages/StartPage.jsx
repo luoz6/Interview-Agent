@@ -63,6 +63,7 @@ import {
   deleteJson,
   getJson,
   patchJson,
+  postForm,
   postJson,
   stableRequestId,
 } from "../api/client";
@@ -73,13 +74,29 @@ import "../styles/pages/prep.css";
 
 const DRAFT_KEYS = ["interview-agent:draft-id", "interviewDraftId"];
 const CONFIGURATION_KEY = "interview-agent:plan-configuration-v1";
-const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TEXT_LENGTH = 50000;
+const SOURCE_FILE_ACCEPT = [
+  ".pdf",
+  ".docx",
+  ".md",
+  ".txt",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/markdown",
+  "text/plain",
+].join(",");
 const PENDING_STATES = ["generating", "saving", "restoring", "starting"];
 const KNOWLEDGE_SCOPE_ERROR_CODES = new Set([
   "knowledge_scope_document_not_found",
   "knowledge_scope_document_unavailable",
 ]);
+
+function createSourceImportStates() {
+  return {
+    jd: { status: "idle", truncated: false },
+    resume: { status: "idle", truncated: false },
+  };
+}
 
 const KNOWLEDGE_STATUS_LABELS = {
   keyword: "关键词准备",
@@ -225,6 +242,7 @@ function SourceEditor({
   onChange,
   onFile,
   fileName,
+  importState,
   invalid,
   placeholder,
   disabled,
@@ -236,11 +254,21 @@ function SourceEditor({
   const feedbackState = invalid ? "error" : ready ? "ready" : "hint";
   const FeedbackIcon = invalid ? WarningCircle : ready ? CheckCircle : Info;
   const importLabel = code === "JD" ? "导入当前岗位文档" : "导入当前经历文档";
+  const importing = importState?.status === "importing";
+  const imported = importState?.status === "ready";
+  const fileStatus = importing
+    ? "正在提取"
+    : imported
+      ? importState.truncated
+        ? "已截断"
+        : "已导入"
+      : "";
+  const ImportIcon = importing ? SpinnerGap : UploadSimple;
   const feedbackText = invalid
     ? `请先填写${label}，系统不会根据空白资料生成计划。`
     : ready
       ? "内容已就绪；系统会根据当前文本建立考察边界。"
-      : "支持粘贴或导入 .txt / .md，最多 50,000 字。";
+      : "支持粘贴或导入 PDF / DOCX / Markdown / TXT，最多 50,000 字。";
   return (
     <section className={`start-source start-document-editor ${compact ? "is-compact" : ""}`} data-ready={ready}>
       <header className="start-document-head">
@@ -253,12 +281,23 @@ function SourceEditor({
             <p>{description}</p>
           </div>
         </div>
-        <label className="start-file-button" aria-label={importLabel}>
-          <UploadSimple size={16} weight="bold" aria-hidden="true" focusable="false" />
-          <span>导入文本</span>
+        <label
+          className="start-file-button"
+          aria-label={importLabel}
+          aria-busy={importing || undefined}
+          data-state={importing ? "loading" : undefined}
+        >
+          <ImportIcon
+            className={importing ? "start-spinner" : undefined}
+            size={16}
+            weight="bold"
+            aria-hidden="true"
+            focusable="false"
+          />
+          <span>{importing ? "正在提取" : "导入文件"}</span>
           <input
             type="file"
-            accept=".txt,.md,text/plain,text/markdown"
+            accept={SOURCE_FILE_ACCEPT}
             onChange={(event) => onFile(event.target.files?.[0], event.target)}
             disabled={disabled}
           />
@@ -277,7 +316,9 @@ function SourceEditor({
         disabled={disabled}
       />
       <footer className="start-document-foot">
-        <span className="start-document-file">{fileName}</span>
+        <span className="start-document-file">
+          {fileName}{fileStatus ? ` · ${fileStatus}` : ""}
+        </span>
         <span className="start-document-count">{value.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()} 字</span>
       </footer>
       <p
@@ -834,6 +875,9 @@ export function StartPage() {
   const [draftId, setDraftId] = useState(() => getStoredDraftId());
   const [draftDurability, setDraftDurability] = useState("");
   const [fileNames, setFileNames] = useState({ jd: "未导入文件", resume: "未导入文件" });
+  const [sourceImportStates, setSourceImportStates] = useState(
+    createSourceImportStates,
+  );
   const [invalid, setInvalid] = useState({ jd: false, resume: false });
   const [activeDocument, setActiveDocument] = useState("jd");
   const [inspectorView, setInspectorView] = useState("plan");
@@ -1067,41 +1111,63 @@ export function StartPage() {
     return true;
   }
 
-  async function importFile(file, target, input) {
+  async function importFile(file, source, target, input) {
     if (!file) return;
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    if (!extension || !["txt", "md"].includes(extension)) {
-      setNotice({ tone: "error", text: "仅支持 .txt 或 .md 文件；PDF、Word 和图片不会被静默解析。请复制其中的文本后粘贴。" });
-      input.value = "";
-      return;
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      setNotice({ tone: "error", text: "文件不能超过 1 MB。请保留与岗位和项目经历直接相关的内容后重新导入。" });
-      input.value = "";
-      return;
-    }
-    let fileText;
+    const previousState = sourceImportStates[source];
+    setSourceImportStates((current) => ({
+      ...current,
+      [source]: { ...current[source], status: "importing" },
+    }));
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("target", target);
     try {
-      fileText = await file.text();
-    } catch {
-      setNotice({ tone: "error", text: `${file.name} 读取失败。请确认文件未损坏后重新导入。` });
+      const result = await postForm("/api/prep/source-imports", formData);
+      if (
+        result?.target !== target
+        || typeof result?.filename !== "string"
+        || typeof result?.text !== "string"
+      ) {
+        throw new Error("文件提取结果无法识别，请重新导入。");
+      }
+      const truncated = result.truncated === true
+        || result.warning_codes?.includes("text_truncated");
+      if (source === "jd") {
+        setJobDescription(result.text);
+        setInvalid((value) => ({ ...value, jd: false }));
+      } else {
+        setResumeText(result.text);
+        setInvalid((value) => ({ ...value, resume: false }));
+      }
+      setFileNames((value) => ({ ...value, [source]: result.filename }));
+      setSourceImportStates((current) => ({
+        ...current,
+        [source]: { status: "ready", truncated },
+      }));
+      dispatchEditor({ type: "INVALIDATE_SOURCE" });
+      setStatus("idle");
+      const nextStep = plan
+        ? "原面试计划已失效，请重新生成。"
+        : "生成计划前仍可继续编辑。";
+      setNotice({
+        tone: truncated ? "warning" : "success",
+        text: truncated
+          ? `${result.filename} 已导入并保留前 ${result.character_count.toLocaleString()} 字，后续内容未导入。${nextStep}`
+          : `${result.filename} 已导入。${nextStep}`,
+      });
+    } catch (error) {
+      setSourceImportStates((current) => ({
+        ...current,
+        [source]: previousState,
+      }));
+      const normalized = normalizeApiError(error);
+      setNotice({
+        tone: "error",
+        text: `${file.name} 导入失败：${normalized.message}`,
+      });
+    } finally {
       input.value = "";
-      return;
     }
-    const truncated = fileText.length > MAX_TEXT_LENGTH;
-    const text = fileText.slice(0, MAX_TEXT_LENGTH);
-    if (target === "jd") {
-      setJobDescription(text);
-      setInvalid((value) => ({ ...value, jd: false }));
-    } else {
-      setResumeText(text);
-      setInvalid((value) => ({ ...value, resume: false }));
-    }
-    setFileNames((value) => ({ ...value, [target]: file.name }));
-    dispatchEditor({ type: "INVALIDATE_SOURCE" });
-    setStatus("idle");
-    setNotice({ tone: truncated ? "info" : "success", text: truncated ? `${file.name} 已导入，并按上限保留前 50,000 字。` : `${file.name} 已导入。生成计划前仍可继续编辑。` });
-    input.value = "";
   }
 
   async function generatePlan() {
@@ -1210,6 +1276,7 @@ export function StartPage() {
       }
       setInvalid({ jd: false, resume: false });
       setFileNames({ jd: "来自匿名草稿", resume: "来自匿名草稿" });
+      setSourceImportStates(createSourceImportStates());
       setStatus(draft.plan_status === "active" ? "ready" : "idle");
       setActiveDocument("jd");
       setInspectorView("readiness");
@@ -1288,6 +1355,7 @@ export function StartPage() {
     dispatchEditor({ type: "INVALIDATE_SOURCE" });
     setInvalid({ jd: false, resume: false });
     setFileNames({ jd: "未导入文件", resume: "未导入文件" });
+    setSourceImportStates(createSourceImportStates());
     setStatus("idle");
     setActiveDocument("jd");
     setInspectorView("readiness");
@@ -1826,6 +1894,7 @@ export function StartPage() {
       label: "岗位 JD",
       value: jobDescription,
       fileName: fileNames.jd,
+      importState: sourceImportStates.jd,
       invalid: invalid.jd,
       placeholder: "粘贴岗位 JD。优先保留职责、技术栈、业务规模、性能或稳定性要求……",
       onChange: (value) => {
@@ -1836,7 +1905,12 @@ export function StartPage() {
         setStatus("idle");
         setInvalid((state) => ({ ...state, jd: false }));
       },
-      onFile: (file, input) => importFile(file, "jd", input),
+      onFile: (file, input) => importFile(
+        file,
+        "jd",
+        "job_description",
+        input,
+      ),
       DocumentIcon: Briefcase,
     },
     resume: {
@@ -1846,6 +1920,7 @@ export function StartPage() {
       label: "简历内容",
       value: resumeText,
       fileName: fileNames.resume,
+      importState: sourceImportStates.resume,
       invalid: invalid.resume,
       placeholder: "粘贴候选人经历。优先保留项目背景、个人贡献、方案取舍和可验证结果……",
       onChange: (value) => {
@@ -1856,14 +1931,26 @@ export function StartPage() {
         setStatus("idle");
         setInvalid((state) => ({ ...state, resume: false }));
       },
-      onFile: (file, input) => importFile(file, "resume", input),
+      onFile: (file, input) => importFile(
+        file,
+        "resume",
+        "resume_text",
+        input,
+      ),
       DocumentIcon: IdentificationCard,
     },
   };
 
   function renderDocument(type, compact = false) {
     const document = documentConfig[type];
-    return <SourceEditor key={type} {...document} disabled={busy} compact={compact} />;
+    return (
+      <SourceEditor
+        key={type}
+        {...document}
+        disabled={busy || document.importState.status === "importing"}
+        compact={compact}
+      />
+    );
   }
 
   return (
