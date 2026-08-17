@@ -36,6 +36,11 @@ def configuration() -> PlanConfigurationSnapshot:
 def plan(*, title: str = "后端工程师模拟面试", suffix: str = "") -> InterviewPlanV2:
     config = configuration()
     kinds = ("project", "technical", "system-design")
+    prompts = (
+        "In your project, how did you recover from a regional failure?",
+        "In your project, how did you reduce request latency?",
+        "In your project, how did you secure an authentication boundary?",
+    )
     return InterviewPlanV2(
         title=title,
         configuration_snapshot=config,
@@ -43,7 +48,7 @@ def plan(*, title: str = "后端工程师模拟面试", suffix: str = "") -> Int
             InterviewPlanQuestionV2(
                 question_id=str(uuid4()),
                 position=index,
-                question_text=f"问题 {index}：请说明方案与取舍。{suffix}",
+                question_text=f"{prompts[index - 1]}{suffix}",
                 focus=f"重点 {index}",
                 question_type=kind,
                 difficulty="intermediate",

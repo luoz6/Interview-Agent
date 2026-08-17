@@ -7,6 +7,7 @@ from app.services.agent_runtime import AgentExecutionRunner
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
+    PlanGenerationValidationError,
     build_prep_context,
     fallback_interview_plan,
     prepare_interview,
@@ -115,6 +116,71 @@ def test_prepare_interview_uses_llm_for_question_plan():
     assert len(plan.questions) == 3
     assert llm.last_job_description.startswith("后端岗位")
     assert llm.last_resume_text.startswith("做过票务系统")
+
+
+def test_legacy_initial_generation_blocks_hard_quality_after_shape_validation():
+    class HardQualityPlanLLM(FakePlanLLM):
+        def generate_plan(self, job_description: str, resume_text: str):
+            plan = super().generate_plan(job_description, resume_text)
+            plan.questions[1].prompt = (
+                "请介绍：一个最匹配岗位的项目，并说明你的职责。"
+            )
+            plan.questions[0].prompt = (
+                "请介绍一个最匹配岗位的项目，并说明你的职责。"
+            )
+            return plan
+
+    with pytest.raises(PlanGenerationValidationError) as rejected:
+        prepare_interview(
+            job_description="Backend role",
+            resume_text="Backend resume",
+            llm=HardQualityPlanLLM(),
+            allow_fallback=False,
+        )
+
+    assert rejected.value.code == "near_duplicate_question"
+    assert "最匹配岗位" not in str(rejected.value)
+
+
+def test_legacy_initial_generation_soft_warnings_do_not_block():
+    class SoftWarningPlanLLM(FakePlanLLM):
+        def generate_plan(self, job_description: str, resume_text: str):
+            return InterviewPlan(
+                title="Soft warnings remain diagnostic",
+                questions=[
+                    InterviewQuestion(
+                        id="q1",
+                        kind="project",
+                        prompt="What is Redis?",
+                        focus="general",
+                    ),
+                    InterviewQuestion(
+                        id="q2",
+                        kind="technical",
+                        prompt="What is Kafka?",
+                        focus="technical",
+                    ),
+                    InterviewQuestion(
+                        id="q3",
+                        kind="system-design",
+                        prompt="What is PostgreSQL?",
+                        focus="system design",
+                    ),
+                ],
+            )
+
+    generated = prepare_interview(
+        job_description="Backend role",
+        resume_text="Backend resume",
+        llm=SoftWarningPlanLLM(),
+        allow_fallback=False,
+    )
+
+    assert [item.prompt for item in generated.questions] == [
+        "What is Redis?",
+        "What is Kafka?",
+        "What is PostgreSQL?",
+    ]
 
 
 def test_interview_plan_can_be_serialized_for_api():

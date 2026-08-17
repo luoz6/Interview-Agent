@@ -106,6 +106,117 @@ def test_restore_appends_a_new_monotonic_revision_instead_of_moving_pointer():
     assert len(store.list_revisions(initial.plan_family_id)) == 3
 
 
+def test_manual_text_and_custom_question_hard_quality_block_before_revision():
+    store, editor, initial = setup_editor()
+    second_prompt = initial.plan.questions[1].question_text
+    fullwidth_second_prompt = "".join(
+        chr(ord(character) + 0xFEE0)
+        if "!" <= character <= "~"
+        else character
+        for character in second_prompt
+    )
+
+    with pytest.raises(PlanOperationValidationError) as duplicate:
+        editor.apply(
+            initial.plan_family_id,
+            request(
+                {
+                    "op": "edit_question_text",
+                    "question_id": initial.plan.questions[0].question_id,
+                    "question_text": fullwidth_second_prompt,
+                }
+            ),
+        )
+    assert duplicate.value.detail() == {
+        "code": "near_duplicate_question",
+        "message": (
+            "Questions have substantially overlapping wording and assessment intent."
+        ),
+        "operation_index": None,
+    }
+    assert store.get_latest(initial.plan_family_id).revision == 1
+
+    with pytest.raises(PlanOperationValidationError) as leakage:
+        editor.apply(
+            initial.plan_family_id,
+            request(
+                {
+                    "op": "add_custom_question",
+                    "question_text": "The correct answer is Redis fencing tokens.",
+                    "focus": "cache ownership",
+                    "question_type": "technical",
+                    "difficulty": "advanced",
+                    "expected_minutes": 6,
+                    "expected_followups": 1,
+                }
+            ),
+        )
+    assert leakage.value.code == "answer_leakage"
+    assert "fencing tokens" not in str(leakage.value)
+    assert store.get_latest(initial.plan_family_id).revision == 1
+
+
+def test_manual_custom_soft_warnings_remain_non_blocking():
+    store, editor, initial = setup_editor()
+
+    created = editor.apply(
+        initial.plan_family_id,
+        request(
+            {
+                "op": "add_custom_question",
+                "question_text": "What is RabbitMQ?",
+                "focus": "general",
+                "question_type": "technical",
+                "difficulty": "advanced",
+                "expected_minutes": 6,
+                "expected_followups": 1,
+            }
+        ),
+    )
+
+    assert created.revision == 2
+    assert created.plan.questions[-1].question_text == "What is RabbitMQ?"
+    assert not hasattr(created, "question_quality_warnings")
+    assert store.get_latest(initial.plan_family_id).revision == 2
+
+
+def test_frozen_history_restore_never_reassesses_or_rewrites_quality(
+    monkeypatch,
+):
+    store, editor, initial = setup_editor()
+    changed = editor.apply(
+        initial.plan_family_id,
+        request(
+            {
+                "op": "edit_focus",
+                "question_id": initial.plan.questions[0].question_id,
+                "focus": "changed",
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        "app.services.interview_plan_editor.assess_interview_question_quality",
+        lambda _questions: (_ for _ in ()).throw(
+            AssertionError("frozen history must not be reassessed")
+        ),
+    )
+    restored = editor.apply(
+        initial.plan_family_id,
+        request(
+            {
+                "op": "restore_revision",
+                "target_revision_id": initial.plan_revision_id,
+            },
+            revision=changed.revision,
+        ),
+    )
+
+    assert restored.plan == initial.plan
+    assert restored.plan_sha256 == initial.plan_sha256
+    assert restored.revision == 3
+
+
 def test_configuration_change_requires_explicit_server_owned_capability():
     store, editor, initial = setup_editor()
     configuration = initial.configuration_snapshot.model_copy(
@@ -227,13 +338,22 @@ def test_add_custom_question_is_server_identified_and_respects_maximum():
     }
     revisions = []
     current_revision = 1
-    for question_number in range(4, 11):
+    custom_prompts = (
+        "请说明你在项目中如何处理缓存一致性。",
+        "请说明你在项目中如何完成故障恢复。",
+        "请说明你在项目中如何降低接口延迟。",
+        "请说明你在项目中如何设计安全鉴权。",
+        "请说明你在项目中如何建设服务监控。",
+        "请说明你在项目中如何处理并发竞态。",
+        "请说明你在项目中如何验证关键发布。",
+    )
+    for prompt in custom_prompts:
         created = editor.apply(
             initial.plan_family_id,
             request(
                 add
                 | {
-                    "question_text": f"请说明第 {question_number} 个不同场景。",
+                    "question_text": prompt,
                 },
                 revision=current_revision,
             ),

@@ -118,6 +118,37 @@ def test_regeneration_failure_and_duplicate_leave_version_history_unchanged():
     assert store.version_count(public["plan_id"]) == 1
 
 
+def test_regeneration_quality_compares_replacement_with_all_remaining_questions():
+    store = InMemoryPrepPlanStore()
+    public = create_in_memory_prep_plan(store)
+    target_id = public["questions"][0]["question_id"]
+    remaining_prompt = public["questions"][1]["prompt"]
+    generated = interview_plan_with_context(replacement=True)
+    generated.questions[0].prompt = "".join(
+        chr(ord(character) + 0xFEE0)
+        if "!" <= character <= "~"
+        else character
+        for character in remaining_prompt
+    )
+
+    with pytest.raises(PrepPlanError) as rejected:
+        PrepQuestionRegenerator(lambda _context: generated).regenerate(
+            store,
+            plan_id=public["plan_id"],
+            question_id=target_id,
+            expected_version=1,
+        )
+
+    assert rejected.value.code == "PREP_PLAN_REGENERATION_QUALITY_VIOLATION"
+    assert rejected.value.details == {
+        "question_id": target_id,
+        "quality_code": "near_duplicate_question",
+    }
+    assert remaining_prompt not in rejected.value.message
+    assert store.get(public["plan_id"])["plan_version"] == 1
+    assert store.version_count(public["plan_id"]) == 1
+
+
 def test_regeneration_cas_does_not_overwrite_a_concurrent_patch():
     store = InMemoryPrepPlanStore()
     public = create_in_memory_prep_plan(store)

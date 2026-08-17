@@ -131,6 +131,18 @@ def plan_for_configuration(
         for _ in range(configuration.question_type_budget.get(question_type, 0))
     ]
     kinds.extend(extra_kinds)
+    quality_safe_prompts = (
+        "In your project, how did you recover from a regional failure?",
+        "In your project, how did you preserve cache consistency during writes?",
+        "In your project, how did you secure an authentication boundary?",
+        "In your project, how did you reduce request latency?",
+        "In your project, how did you design service monitoring?",
+        "In your project, how did you control concurrency and race conditions?",
+        "In your project, how did you test a critical release?",
+        "In your project, how did you choose transaction and index boundaries?",
+        "In your project, how did you scale capacity for traffic growth?",
+        "In your project, how did you explain a difficult tradeoff?",
+    )
     return InterviewPlan(
         title=(
             f"{configuration.target_duration_minutes}-minute "
@@ -142,7 +154,8 @@ def plan_for_configuration(
                 kind=kind,
                 prompt=(
                     f"{job_marker} {configuration.difficulty} "
-                    f"{configuration.focus_preset} {kind} question {index}"
+                    f"{configuration.focus_preset}: "
+                    f"{quality_safe_prompts[(index - 1) % len(quality_safe_prompts)]}"
                 ),
                 focus=f"{configuration.focus_preset} focus {index}",
             )
@@ -416,6 +429,62 @@ def test_provider_sequence_duplicates_and_above_safe_maximum_fail_closed():
     invalid_positions["questions"][1]["position"] = 1
     with pytest.raises(ValidationError, match="position must be unique"):
         InterviewPlanV2.model_validate(invalid_positions)
+
+
+def test_configured_generation_runs_hard_quality_after_existing_structure_checks():
+    configuration = configured_snapshot(duration=15)
+    generated = plan_for_configuration(configuration)
+    generated.questions[0].prompt = (
+        "How did you handle cache invalidation in your Redis project?"
+    )
+    generated.questions[1].prompt = (
+        "In your Redis project, how did you handle cache invalidation?"
+    )
+    generated.questions[2].prompt = (
+        "How did you validate authentication boundaries in your API?"
+    )
+    generated.questions[1].id = "q1"
+
+    with pytest.raises(PlanGenerationValidationError) as structural:
+        enforce_generated_interview_plan(generated, configuration)
+    assert structural.value.code == "provider_question_sequence_invalid"
+
+    generated.questions[1].id = "q2"
+    with pytest.raises(PlanGenerationValidationError) as quality:
+        enforce_generated_interview_plan(generated, configuration)
+
+    assert quality.value.code == "near_duplicate_question"
+    assert "cache invalidation" not in str(quality.value)
+
+
+def test_configured_generation_allows_different_boundaries_and_soft_warnings():
+    configuration = configured_snapshot(duration=15)
+    boundary_plan = plan_for_configuration(configuration)
+    boundary_plan.questions[0].prompt = (
+        "How did you keep Redis cache consistent during writes?"
+    )
+    boundary_plan.questions[1].prompt = (
+        "How did you recover Redis after a node failure?"
+    )
+    boundary_plan.questions[2].prompt = (
+        "How did you validate authentication boundaries in your API?"
+    )
+
+    assert (
+        enforce_generated_interview_plan(boundary_plan, configuration).questions
+        == boundary_plan.questions
+    )
+
+    soft_only = plan_for_configuration(configuration)
+    for question, prompt in zip(
+        soft_only.questions,
+        ("What is Redis?", "What is Kafka?", "What is PostgreSQL?"),
+        strict=True,
+    ):
+        question.prompt = prompt
+        question.focus = "general"
+
+    assert enforce_generated_interview_plan(soft_only, configuration).questions
 
 
 def test_invalid_configuration_stops_before_provider_and_no_fallback_hides_it():
@@ -745,6 +814,102 @@ def test_regeneration_reuses_frozen_configuration_and_exact_budget():
             source=store.get_source(current.source_id).protected_payload,
         )
     assert error.value.code == "provider_question_count_under_budget"
+
+
+def test_full_regeneration_blocks_provider_hard_question_quality():
+    configuration = configured_snapshot(duration=15)
+    initial_legacy = bind_prepared_plan_revision(
+        plan_for_configuration(configuration),
+        configuration,
+    )
+    store = InMemoryInterviewPlanRevisionStore()
+    current = store.create_initial(
+        source_payload=PlanSourcePayload(
+            job_description="Backend role",
+            resume_text="Backend resume",
+        ),
+        plan=prepared_plan_revision(initial_legacy, configuration),
+        retention_policy="test-v1",
+        generator_version=configuration.generator_version,
+    )
+    generated = plan_for_configuration(configuration)
+    generated.questions[0].prompt = (
+        "Explain the architecture, compare three alternatives, and describe "
+        "the rollout and monitoring plan."
+    )
+    generated.questions[1].prompt = (
+        "How did you recover Redis after a node failure?"
+    )
+    generated.questions[2].prompt = (
+        "How did you validate authentication boundaries in your API?"
+    )
+
+    with pytest.raises(PlanRegenerationFailed) as rejected:
+        ProviderPlanRegenerator(
+            lambda _job, _resume, _configuration: generated
+        ).regenerate_all(
+            current=current,
+            source=store.get_source(current.source_id).protected_payload,
+        )
+
+    assert rejected.value.code == "overloaded_multi_ask"
+    assert "architecture" not in str(rejected.value)
+
+
+def test_single_regeneration_compares_replacement_with_the_remaining_plan():
+    configuration = configured_snapshot(duration=15)
+    current_legacy = plan_for_configuration(configuration)
+    current_legacy.questions[0].prompt = (
+        "In your checkout project, how did you recover failed writes?"
+    )
+    current_legacy.questions[1].prompt = (
+        "How did you keep Redis cache consistent during writes?"
+    )
+    current_legacy.questions[2].prompt = (
+        "How did you validate authentication boundaries in your API?"
+    )
+    initial_legacy = bind_prepared_plan_revision(current_legacy, configuration)
+    store = InMemoryInterviewPlanRevisionStore()
+    current = store.create_initial(
+        source_payload=PlanSourcePayload(
+            job_description="Backend role",
+            resume_text="Backend resume",
+        ),
+        plan=prepared_plan_revision(initial_legacy, configuration),
+        retention_policy="test-v1",
+        generator_version=configuration.generator_version,
+    )
+
+    def fullwidth_ascii(value: str) -> str:
+        return "".join(
+            chr(ord(character) + 0xFEE0)
+            if "!" <= character <= "~"
+            else character
+            for character in value
+        )
+
+    generated = plan_for_configuration(configuration)
+    generated.questions[0].prompt = fullwidth_ascii(
+        current.plan.questions[1].question_text
+    )
+    generated.questions[1].prompt = (
+        "In your project, how did you recover a failed regional write?"
+    )
+    generated.questions[2].prompt = (
+        "How did you monitor latency during a traffic surge?"
+    )
+
+    with pytest.raises(PlanRegenerationFailed) as rejected:
+        ProviderPlanRegenerator(
+            lambda _job, _resume, _configuration: generated
+        ).regenerate_question(
+            current=current,
+            source=store.get_source(current.source_id).protected_payload,
+            question_id=current.plan.questions[0].question_id,
+        )
+
+    assert rejected.value.code == "near_duplicate_question"
+    assert store.get_latest(current.plan_family_id).revision == 1
 
 
 def test_regeneration_accepts_an_explicit_backend_validated_configuration():

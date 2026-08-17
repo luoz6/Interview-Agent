@@ -4,6 +4,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
+from app.services.interview_question_quality import (
+    QuestionQualityInput,
+    assess_interview_question_quality,
+)
 from app.services.interview_plan_knowledge import PlanQuestionKnowledgeBinding
 from app.services.llm import InterviewLLM
 from app.domain.knowledge.evidence import BaseEvidenceBundle, QuestionEvidenceBinding
@@ -162,6 +166,23 @@ class PlanGenerationValidationError(ValueError):
         self.code = code
 
 
+def enforce_generated_interview_question_quality(
+    plan: InterviewPlan,
+) -> InterviewPlan:
+    """Reject only deterministic Hard findings at a generation boundary."""
+
+    report = assess_interview_question_quality(
+        tuple(QuestionQualityInput.from_question(item) for item in plan.questions)
+    )
+    if report.hard_violations:
+        violation = report.hard_violations[0]
+        raise PlanGenerationValidationError(
+            violation.code,
+            violation.evidence_summary,
+        )
+    return plan
+
+
 def validate_generation_configuration(
     configuration: "PlanConfigurationSnapshot",
 ) -> "PlanConfigurationSnapshot":
@@ -273,7 +294,8 @@ def enforce_generated_interview_plan(
         "provider_question_count": provider_count,
         "retained_question_count": target_count,
     }
-    return validate_launchable_interview_plan(enforced, configuration)
+    launchable = validate_launchable_interview_plan(enforced, configuration)
+    return enforce_generated_interview_question_quality(launchable)
 
 
 def bind_prepared_plan_revision(

@@ -7,6 +7,10 @@ import json
 from typing import Any
 from uuid import uuid4
 
+from app.services.interview_question_quality import (
+    QuestionQualityInput,
+    assess_interview_question_quality,
+)
 from app.services.prep import (
     InterviewPlan,
     InterviewQuestion,
@@ -229,6 +233,11 @@ def build_question_replacement(
 ) -> dict[str, Any]:
     candidate = select_regeneration_candidate(
         generated_plan,
+        target_question=target_question,
+        current_questions=current_questions,
+    )
+    _validate_replacement_question_quality(
+        candidate,
         target_question=target_question,
         current_questions=current_questions,
     )
@@ -532,6 +541,51 @@ def select_regeneration_candidate(
         return (focus_similarity * 4 + kind_bonus + novelty, novelty, candidate.id)
 
     return max(eligible, key=score)
+
+
+def _validate_replacement_question_quality(
+    candidate: InterviewQuestion,
+    *,
+    target_question: dict[str, Any],
+    current_questions: list[dict[str, Any]],
+) -> None:
+    replacement_ref = "replacement_candidate"
+    questions = []
+    for question in current_questions:
+        if question["question_id"] == target_question["question_id"]:
+            questions.append(
+                QuestionQualityInput(
+                    question_ref=replacement_ref,
+                    prompt=candidate.prompt,
+                    focus=candidate.focus,
+                    question_type=candidate.kind,
+                    difficulty=None,
+                    expected_followups=None,
+                )
+            )
+        else:
+            questions.append(QuestionQualityInput.from_question(question))
+
+    report = assess_interview_question_quality(tuple(questions))
+    violation = next(
+        (
+            item
+            for item in report.hard_violations
+            if replacement_ref in item.question_refs
+        ),
+        None,
+    )
+    if violation is not None:
+        raise PrepPlanError(
+            "PREP_PLAN_REGENERATION_QUALITY_VIOLATION",
+            "替代题未通过确定性质量校验，原题已保留。",
+            status_code=422,
+            retryable=True,
+            details={
+                "question_id": target_question["question_id"],
+                "quality_code": violation.code,
+            },
+        )
 
 
 def _launch_prep_context(

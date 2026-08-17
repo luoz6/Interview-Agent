@@ -5,6 +5,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from app.services.interview_question_quality import (
+    QuestionQualityInput,
+    assess_interview_question_quality,
+)
 from app.services.interview_plan_audit import (
     PlanAuditFieldDiff,
     PlanAuditOperation,
@@ -181,7 +185,21 @@ class InterviewPlanEditor:
                 "invalid_plan",
                 "edited plan violates the interview-plan-v2 schema",
             ) from exc
-        self._validate_duplicate_questions(plan)
+        frozen_restore = all(
+            operation.op == "restore_revision" for operation in request.operations
+        )
+        if not frozen_restore:
+            self._validate_duplicate_questions(plan)
+            affected_refs = self._quality_affected_question_refs(
+                before=current.plan,
+                after=plan,
+                operations=request.operations,
+            )
+            if affected_refs is None or affected_refs:
+                self._validate_hard_question_quality(
+                    plan,
+                    affected_refs=affected_refs,
+                )
         source_kind = self._source_kind(request.operations)
         reason = request.operations[0].op if len(request.operations) == 1 else "batch_edit"
         audit = PlanRevisionAudit(
@@ -218,7 +236,7 @@ class InterviewPlanEditor:
                 raise PlanOperationValidationError(
                     "restore_cross_family", "target revision belongs to another family"
                 )
-            return synchronize_plan_knowledge_context(target.plan)
+            return target.plan
         if operation.op == "regenerate_all":
             assert operation.regenerated_plan is not None
             if (
@@ -521,6 +539,62 @@ class InterviewPlanEditor:
         if len(normalized) != len(set(normalized)):
             raise PlanOperationValidationError(
                 "duplicate_question", "plan questions must not contain duplicate text"
+            )
+
+    @staticmethod
+    def _quality_affected_question_refs(
+        *,
+        before: InterviewPlanV2,
+        after: InterviewPlanV2,
+        operations: tuple[PlanOperation, ...],
+    ) -> frozenset[str] | None:
+        if any(operation.op == "regenerate_all" for operation in operations):
+            return None
+
+        affected: set[str] = set()
+        for operation in operations:
+            if operation.op == "edit_question_text" and operation.question_id:
+                affected.add(operation.question_id)
+            elif operation.op == "regenerate_question" and operation.question_id:
+                affected.update(
+                    question.question_id
+                    for question in after.questions
+                    if question.replaces_question_id == operation.question_id
+                )
+        if any(operation.op == "add_custom_question" for operation in operations):
+            before_ids = {question.question_id for question in before.questions}
+            affected.update(
+                question.question_id
+                for question in after.questions
+                if question.question_id not in before_ids
+            )
+        return frozenset(affected)
+
+    @staticmethod
+    def _validate_hard_question_quality(
+        plan: InterviewPlanV2,
+        *,
+        affected_refs: frozenset[str] | None,
+    ) -> None:
+        report = assess_interview_question_quality(
+            tuple(
+                QuestionQualityInput.from_question(question)
+                for question in plan.questions
+            )
+        )
+        violation = next(
+            (
+                item
+                for item in report.hard_violations
+                if affected_refs is None
+                or bool(affected_refs.intersection(item.question_refs))
+            ),
+            None,
+        )
+        if violation is not None:
+            raise PlanOperationValidationError(
+                violation.code,
+                violation.evidence_summary,
             )
 
     @staticmethod

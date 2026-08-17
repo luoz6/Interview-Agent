@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from app.services.interview_question_quality import (
+    QuestionQualityInput,
+    assess_interview_question_quality,
+)
 from app.services.interview_plan_revision import (
     InterviewPlanQuestionV2,
     InterviewPlanRevision,
@@ -63,7 +67,13 @@ class ProviderPlanRegenerator:
                 "provider_invalid_response",
                 "Provider response does not contain the requested question position",
             )
-        return regenerated.questions[position - 1]
+        replacement = regenerated.questions[position - 1]
+        _validate_replacement_question_quality(
+            current=current,
+            question_id=question_id,
+            replacement=replacement,
+        )
+        return replacement
 
     def regenerate_all(
         self,
@@ -137,3 +147,42 @@ def _provider_boundary_projection(plan: InterviewPlanV2):
         for index, question in enumerate(legacy.questions, start=1)
     ]
     return legacy
+
+
+def _validate_replacement_question_quality(
+    *,
+    current: InterviewPlanRevision,
+    question_id: str,
+    replacement: InterviewPlanQuestionV2,
+) -> None:
+    replacement_ref = "replacement_candidate"
+    questions = []
+    for question in current.plan.questions:
+        if question.question_id == question_id:
+            questions.append(
+                QuestionQualityInput(
+                    question_ref=replacement_ref,
+                    prompt=replacement.question_text,
+                    focus=replacement.focus,
+                    question_type=replacement.question_type,
+                    difficulty=replacement.difficulty,
+                    expected_followups=replacement.expected_followups,
+                )
+            )
+        else:
+            questions.append(QuestionQualityInput.from_question(question))
+
+    report = assess_interview_question_quality(tuple(questions))
+    violation = next(
+        (
+            item
+            for item in report.hard_violations
+            if replacement_ref in item.question_refs
+        ),
+        None,
+    )
+    if violation is not None:
+        raise PlanRegenerationFailed(
+            violation.code,
+            violation.evidence_summary,
+        )

@@ -18,6 +18,7 @@ from app.services.llm import InterviewLLM
 from app.services.prep import (
     InterviewPlan,
     attach_prep_context,
+    enforce_generated_interview_question_quality,
     enforce_generated_interview_plan,
     validate_launchable_interview_plan,
 )
@@ -142,7 +143,8 @@ class KnowledgeAgent:
         configuration: PlanConfigurationSnapshot | None,
     ) -> InterviewPlan:
         if configuration is None:
-            return validate_launchable_interview_plan(plan)
+            launchable = validate_launchable_interview_plan(plan)
+            return enforce_generated_interview_question_quality(launchable)
         return enforce_generated_interview_plan(plan, configuration)
 
     @staticmethod

@@ -241,6 +241,86 @@ def test_edit_move_delete_restore_api_appends_monotonic_revisions(api_plan):
     )
 
 
+def test_api_projects_stable_quality_detail_and_history_read_does_not_reassess(
+    api_plan,
+    monkeypatch,
+):
+    client, store, initial, _ = api_plan
+    second_prompt = initial.plan.questions[1].question_text
+    fullwidth_second_prompt = "".join(
+        chr(ord(character) + 0xFEE0)
+        if "!" <= character <= "~"
+        else character
+        for character in second_prompt
+    )
+
+    rejected = client.patch(
+        f"/api/interview-plans/{initial.plan_family_id}",
+        json=edit_payload(
+            1,
+            "quality-edit-rejected",
+            {
+                "op": "edit_question_text",
+                "question_id": initial.plan.questions[0].question_id,
+                "question_text": fullwidth_second_prompt,
+            },
+        ),
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"] == {
+        "code": "near_duplicate_question",
+        "message": (
+            "Questions have substantially overlapping wording and assessment intent."
+        ),
+        "operation_index": None,
+    }
+    assert store.get_latest(initial.plan_family_id).revision == 1
+
+    monkeypatch.setattr(
+        "app.services.interview_plan_editor.assess_interview_question_quality",
+        lambda _questions: (_ for _ in ()).throw(
+            AssertionError("frozen history read must not reassess quality")
+        ),
+    )
+    history = client.get(
+        f"/api/interview-plans/{initial.plan_family_id}/revisions/"
+        f"{initial.plan_revision_id}"
+    )
+
+    assert history.status_code == 200
+    assert history.json()["plan_sha256"] == initial.plan_sha256
+
+
+def test_api_preserves_regenerator_quality_error_owner(api_plan):
+    client, store, initial, _ = api_plan
+
+    class QualityFailingRegenerator:
+        def regenerate_question(self, **_kwargs):
+            raise PlanRegenerationFailed(
+                "answer_leakage",
+                "Question explicitly supplies or prescribes content for the answer.",
+            )
+
+    app.dependency_overrides[route_module.get_plan_regenerator] = (
+        lambda: QualityFailingRegenerator()
+    )
+    response = client.post(
+        f"/api/interview-plans/{initial.plan_family_id}/questions/"
+        f"{initial.plan.questions[0].question_id}/regenerate",
+        json={"expected_revision": 1, "request_id": "quality-regeneration"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "answer_leakage",
+        "message": (
+            "Question explicitly supplies or prescribes content for the answer."
+        ),
+    }
+    assert store.get_latest(initial.plan_family_id).revision == 1
+
+
 def test_revision_history_api_returns_safe_newest_first_summaries(api_plan):
     client, _, initial, _ = api_plan
     edited = client.patch(
