@@ -186,3 +186,23 @@ Only two new production pure modules are conditionally allowed by the plan:
 IQ0 freezes one owner per core responsibility, confirms that `GapType` is already the follow-up strategy taxonomy, keeps numeric scoring in `report_rule_score.py`, keeps cross-question synthesis in the existing observation/summary/action modules, and records existing Golden/Eval/Gate evidence without upgrading pending quality status.
 
 Recommended next stage: IQP. Start with the bounded source-import contract and tests, then add only `prep_source_import.py`, the existing Prep route, and the existing `StartPage` integration. Do not touch RAG, Memory, scoring, report logic, a real Provider, or real PostgreSQL while doing so.
+
+## 7. Approved-plan execution results
+
+| Stage / dependency | Result | Delta-audit evidence |
+|---|---|---|
+| IQP | `completed` | The bounded transient source-import path, Prep API integration, target-scoped request ownership, and existing UI integration are present in the approved owners. |
+| IQ1 | `completed` | Deterministic question-quality signals and bounded repair are integrated through the existing plan-generation, edit, and regeneration owners. |
+| IQ2 | `completed` | Repeated-answer diagnostics and gap-specific follow-up guidance are integrated through the existing diagnostics and Prompt owners. |
+| IQ3 | `completed` | The scoring regression matrix and the minimal versioned rule-scorer repair are integrated in the existing numeric-score owner. |
+| IQ4 | `no-proven-gap` | The existing observation, summary, action, and answer-guidance regressions passed (`28 passed`); no missing direct regression or unambiguous production defect was found, so no production or test implementation was added. |
+| IQ5 | `regression-verified` | Interview/Report backend state and safe-error regressions passed (`103 passed`); relevant frontend state and page regressions passed (`65 passed`), and frontend ESLint passed with zero warnings. Question, follow-up, scoring, and report visibility/state contracts remain unchanged. |
+| Backend final non-PostgreSQL regression | `passed` | Explicitly excluding `tests/integration/postgres` and selecting `not pg_runtime` produced `4567 passed, 4 skipped, 17 deselected`; this does not count as real PostgreSQL acceptance. |
+| Frontend final regression | `passed` | Vitest passed `16` files / `191` tests; ESLint, production build, and Bundle Gate passed. Initial JS gzip was `67,565 / 67,584` bytes with protected routes still lazy. |
+| Focused source-import browser contracts | `passed` | The two import-specific Playwright tests passed. The complete two browser spec files were not run, and no screenshot or visual acceptance was performed. |
+| Static closure | `passed` | `python -m compileall -q app tests` and `git diff --check` passed; Windows line-ending warnings are informational. |
+| IQ1 code-budget re-audit | `passed-with-justification` | `interview_question_quality.py` is 638 lines rather than the preferred 250-line budget, but remains a pure deterministic signal helper. Its size is dominated by bilingual patterns and explainable comparison boundaries; it owns no generation, Provider, DB, RAG, Memory, or runtime state. |
+| Real Provider | `not run` | No real-model quality claim is made by this Delta audit. |
+| PostgreSQL | `Pending` | `REAL_POSTGRES_ACCEPTANCE=PENDING`; no real PostgreSQL or `pg_runtime` suite was run. |
+
+These results are engineering execution evidence only. They do not upgrade pending real-model, human-review, Golden, or Gate quality evidence to PASS, and they do not alter the frozen IQ0 baseline claims above.

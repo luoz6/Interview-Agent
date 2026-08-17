@@ -134,14 +134,14 @@ def test_compressor_config_identity_is_non_secret_and_behavior_complete():
             base_url="https://provider.example/v1/",
             temperature=0.1,
             request_timeout_seconds=45,
-            max_retries=2,
+            max_retries=1,
             tokenizer_family="cl100k_base",
         )
     )
 
     assert config.base_url_identity == "https://provider.example/v1"
     assert config.request_timeout_seconds == 45
-    assert config.max_retries == 2
+    assert config.max_retries == 1
     assert "secret-key" not in compressor_settings_sha256(config)
 
 

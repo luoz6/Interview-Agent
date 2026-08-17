@@ -60,8 +60,8 @@ def test_composed_openapi_has_expected_unique_operation_inventory():
     ]
 
     # RAG Corpus exposes separate preview and create-version commands.
-    assert len(schema["paths"]) == 66
-    assert len(operations) == 74
+    assert len(schema["paths"]) == 67
+    assert len(operations) == 75
     assert len(operations) == len(set(operations))
 
 
