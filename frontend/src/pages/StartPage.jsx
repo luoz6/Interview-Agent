@@ -86,6 +86,7 @@ const SOURCE_FILE_ACCEPT = [
   "text/plain",
 ].join(",");
 const PENDING_STATES = ["generating", "saving", "restoring", "starting"];
+const SOURCE_IMPORT_KEYS = ["jd", "resume"];
 const KNOWLEDGE_SCOPE_ERROR_CODES = new Set([
   "knowledge_scope_document_not_found",
   "knowledge_scope_document_unavailable",
@@ -95,6 +96,13 @@ function createSourceImportStates() {
   return {
     jd: { status: "idle", truncated: false },
     resume: { status: "idle", truncated: false },
+  };
+}
+
+function createSourceImportRequests() {
+  return {
+    jd: { controller: null, sequence: 0, previousState: null },
+    resume: { controller: null, sequence: 0, previousState: null },
   };
 }
 
@@ -898,6 +906,21 @@ export function StartPage() {
   const materials = useMaterials();
   const automaticRestoreStarted = useRef(false);
   const appliedScopeSignature = useRef("");
+  const sourceImportRequests = useRef(createSourceImportRequests());
+  const sourceImportsMounted = useRef(true);
+
+  const invalidateSourceImportRequest = useCallback((source) => {
+    const request = sourceImportRequests.current[source];
+    const previousState = request.controller ? request.previousState : null;
+    request.sequence += 1;
+    request.controller?.abort();
+    request.controller = null;
+    return previousState;
+  }, []);
+
+  const invalidateAllSourceImportRequests = useCallback(() => {
+    SOURCE_IMPORT_KEYS.forEach(invalidateSourceImportRequest);
+  }, [invalidateSourceImportRequest]);
 
   const plan = editor.serverPlan;
   const questions = editableQuestions(plan);
@@ -985,6 +1008,14 @@ export function StartPage() {
     },
     [questions],
   );
+
+  useEffect(() => {
+    sourceImportsMounted.current = true;
+    return () => {
+      sourceImportsMounted.current = false;
+      invalidateAllSourceImportRequests();
+    };
+  }, [invalidateAllSourceImportRequests]);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -1113,7 +1144,21 @@ export function StartPage() {
 
   async function importFile(file, source, target, input) {
     if (!file) return;
-    const previousState = sourceImportStates[source];
+    const request = sourceImportRequests.current[source];
+    const previousState = request.controller
+      ? request.previousState
+      : sourceImportStates[source];
+    request.controller?.abort();
+    request.sequence += 1;
+    const sequence = request.sequence;
+    const controller = new AbortController();
+    request.controller = controller;
+    request.previousState = previousState;
+    const isLatestRequest = () => (
+      sourceImportsMounted.current
+      && request.sequence === sequence
+      && request.controller === controller
+    );
     setSourceImportStates((current) => ({
       ...current,
       [source]: { ...current[source], status: "importing" },
@@ -1122,7 +1167,12 @@ export function StartPage() {
     formData.append("file", file);
     formData.append("target", target);
     try {
-      const result = await postForm("/api/prep/source-imports", formData);
+      const result = await postForm(
+        "/api/prep/source-imports",
+        formData,
+        { signal: controller.signal },
+      );
+      if (!isLatestRequest()) return;
       if (
         result?.target !== target
         || typeof result?.filename !== "string"
@@ -1132,6 +1182,9 @@ export function StartPage() {
       }
       const truncated = result.truncated === true
         || result.warning_codes?.includes("text_truncated");
+      const readyState = { status: "ready", truncated };
+      request.controller = null;
+      request.previousState = readyState;
       if (source === "jd") {
         setJobDescription(result.text);
         setInvalid((value) => ({ ...value, jd: false }));
@@ -1142,7 +1195,7 @@ export function StartPage() {
       setFileNames((value) => ({ ...value, [source]: result.filename }));
       setSourceImportStates((current) => ({
         ...current,
-        [source]: { status: "ready", truncated },
+        [source]: readyState,
       }));
       dispatchEditor({ type: "INVALIDATE_SOURCE" });
       setStatus("idle");
@@ -1156,11 +1209,15 @@ export function StartPage() {
           : `${result.filename} 已导入。${nextStep}`,
       });
     } catch (error) {
+      if (!isLatestRequest()) return;
+      const normalized = normalizeApiError(error);
+      request.controller = null;
+      request.previousState = previousState;
       setSourceImportStates((current) => ({
         ...current,
         [source]: previousState,
       }));
-      const normalized = normalizeApiError(error);
+      if (normalized.code === "REQUEST_ABORTED") return;
       setNotice({
         tone: "error",
         text: `${file.name} 导入失败：${normalized.message}`,
@@ -1264,6 +1321,7 @@ export function StartPage() {
 
       setDraftId(draft.draft_id);
       setDraftDurability(draft.durability);
+      invalidateAllSourceImportRequests();
       setJobDescription(draft.job_description || "");
       setResumeText(draft.resume_text || "");
       if (restoredPlan) {
@@ -1294,7 +1352,7 @@ export function StartPage() {
       setStatus("error");
       setNotice({ tone: "error", text: `草稿恢复失败：${error.message}` });
     }
-  }, [draftId]);
+  }, [draftId, invalidateAllSourceImportRequests]);
 
   useEffect(() => {
     if (automaticRestoreStarted.current || !draftId) return;
@@ -1347,6 +1405,7 @@ export function StartPage() {
   }
 
   function clearWorkspace() {
+    invalidateAllSourceImportRequests();
     setJobDescription("");
     setResumeText("");
     setConfiguration(createPlanConfiguration());
@@ -1898,6 +1957,13 @@ export function StartPage() {
       invalid: invalid.jd,
       placeholder: "粘贴岗位 JD。优先保留职责、技术栈、业务规模、性能或稳定性要求……",
       onChange: (value) => {
+        const previousImportState = invalidateSourceImportRequest("jd");
+        if (previousImportState) {
+          setSourceImportStates((current) => ({
+            ...current,
+            jd: previousImportState,
+          }));
+        }
         setJobDescription(value);
         if (plan) setNotice({ tone: "info", text: "岗位 JD 已修改。原面试计划已失效，请重新生成。" });
         else if (invalid.jd) setNotice(invalid.resume ? { tone: "error", text: "岗位 JD 已补充；候选人经历仍未填写。" } : null);
@@ -1924,6 +1990,13 @@ export function StartPage() {
       invalid: invalid.resume,
       placeholder: "粘贴候选人经历。优先保留项目背景、个人贡献、方案取舍和可验证结果……",
       onChange: (value) => {
+        const previousImportState = invalidateSourceImportRequest("resume");
+        if (previousImportState) {
+          setSourceImportStates((current) => ({
+            ...current,
+            resume: previousImportState,
+          }));
+        }
         setResumeText(value);
         if (plan) setNotice({ tone: "info", text: "候选人经历已修改。原面试计划已失效，请重新生成。" });
         else if (invalid.resume) setNotice(invalid.jd ? { tone: "error", text: "候选人经历已补充；岗位 JD 仍未填写。" } : null);
@@ -1947,7 +2020,7 @@ export function StartPage() {
       <SourceEditor
         key={type}
         {...document}
-        disabled={busy || document.importState.status === "importing"}
+        disabled={busy}
         compact={compact}
       />
     );

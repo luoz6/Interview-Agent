@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -170,6 +170,27 @@ function sourceFileInput(label) {
     : labeled.querySelector('input[type="file"]');
 }
 
+function sourceImportPayload(target, filename, text, overrides = {}) {
+  return {
+    target,
+    filename,
+    media_type: filename.endsWith(".pdf") ? "application/pdf" : "text/plain",
+    text,
+    character_count: text.length,
+    truncated: false,
+    warning_codes: [],
+    ...overrides,
+  };
+}
+
+async function resolveDeferred(pending, payload, status = 200) {
+  const nextResponse = await response(payload, status);
+  await act(async () => {
+    pending.resolve(nextResponse);
+    await Promise.resolve();
+  });
+}
+
 async function generatePlan(user, fetchMock) {
   fetchMock.mockImplementationOnce(() => response(revisionResponse(1)));
   await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Backend role");
@@ -295,7 +316,7 @@ describe("StartPage editable plan workflow", () => {
     expect(document.body).not.toHaveTextContent("text_truncated");
   });
 
-  it("locks only the SourceEditor whose file is being extracted", async () => {
+  it("keeps both SourceEditors editable while only the current one shows extraction", async () => {
     const user = userEvent.setup();
     const pending = deferredResponse();
     fetchMock.mockImplementation((path) => {
@@ -312,13 +333,15 @@ describe("StartPage editable plan workflow", () => {
       new File(["# Role"], "role.md", { type: "text/markdown" }),
     );
 
-    await waitFor(() => expect(jdFile).toBeDisabled());
-    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toBeDisabled();
+    await waitFor(() => expect(
+      screen.getByText("未导入文件 · 正在提取"),
+    ).toBeInTheDocument());
+    expect(jdFile).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toBeEnabled();
     expect(resumeFile).toBeEnabled();
     expect(screen.getByRole("textbox", { name: "简历内容" })).toBeEnabled();
-    expect(screen.getByText("未导入文件 · 正在提取")).toBeInTheDocument();
 
-    pending.resolve(await response({
+    await resolveDeferred(pending, {
       target: "job_description",
       filename: "role.md",
       media_type: "text/markdown",
@@ -326,8 +349,245 @@ describe("StartPage editable plan workflow", () => {
       character_count: 6,
       truncated: false,
       warning_codes: [],
-    }));
+    });
     await waitFor(() => expect(jdFile).toBeEnabled());
+  });
+
+  it("keeps only the latest same-source response and aborts the older request silently", async () => {
+    const user = userEvent.setup();
+    const requests = [];
+    fetchMock.mockImplementation((path, options) => {
+      if (path !== "/api/prep/source-imports") {
+        throw new Error(`Unexpected request: ${path}`);
+      }
+      const pending = deferredResponse();
+      requests.push({ ...pending, signal: options.signal });
+      return pending.promise;
+    });
+    render(<StartPage />);
+
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["old"], "old.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(requests).toHaveLength(1));
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["new"], "new.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    expect(requests[0].signal.aborted).toBe(true);
+    expect(requests[1].signal.aborted).toBe(false);
+    await resolveDeferred(
+      requests[1],
+      sourceImportPayload("job_description", "new.txt", "New JD"),
+    );
+    await waitFor(() => expect(
+      screen.getByRole("textbox", { name: "岗位 JD" }),
+    ).toHaveValue("New JD"));
+
+    await resolveDeferred(
+      requests[0],
+      sourceImportPayload("job_description", "old.txt", "Old JD"),
+    );
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toHaveValue("New JD");
+    expect(screen.getByText("new.txt · 已导入")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/old\.txt|请求已取消|导入失败/);
+  });
+
+  it("lets manual source edits abort an import and win without an error notice", async () => {
+    const user = userEvent.setup();
+    let importSignal;
+    fetchMock.mockImplementation((path, options) => {
+      if (path !== "/api/prep/source-imports") {
+        throw new Error(`Unexpected request: ${path}`);
+      }
+      importSignal = options.signal;
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        }, { once: true });
+      });
+    });
+    render(<StartPage />);
+    const jdInput = screen.getByRole("textbox", { name: "岗位 JD" });
+    await user.type(jdInput, "Current JD");
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["pending"], "pending.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(importSignal).toBeInstanceOf(AbortSignal));
+
+    await user.type(jdInput, " wins");
+
+    await waitFor(() => expect(importSignal.aborted).toBe(true));
+    expect(jdInput).toHaveValue("Current JD wins");
+    expect(screen.getByText("未导入文件")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/请求已取消|导入失败|REQUEST_ABORTED/);
+  });
+
+  it("runs job and resume imports in parallel without cross-cancellation", async () => {
+    const user = userEvent.setup();
+    const requests = new Map();
+    fetchMock.mockImplementation((path, options) => {
+      if (path !== "/api/prep/source-imports") {
+        throw new Error(`Unexpected request: ${path}`);
+      }
+      const pending = deferredResponse();
+      requests.set(options.body.get("target"), {
+        ...pending,
+        signal: options.signal,
+      });
+      return pending.promise;
+    });
+    render(<StartPage />);
+    await user.click(screen.getByRole("tab", { name: /并排查看/ }));
+
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["job"], "job.txt", { type: "text/plain" }),
+    );
+    await user.upload(
+      sourceFileInput("导入当前经历文档"),
+      new File(["resume"], "resume.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(requests.size).toBe(2));
+    expect(requests.get("job_description").signal.aborted).toBe(false);
+    expect(requests.get("resume_text").signal.aborted).toBe(false);
+
+    await resolveDeferred(
+      requests.get("resume_text"),
+      sourceImportPayload("resume_text", "resume.txt", "Resume text"),
+    );
+    await resolveDeferred(
+      requests.get("job_description"),
+      sourceImportPayload("job_description", "job.txt", "Job text"),
+    );
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toHaveValue("Job text");
+    expect(screen.getByRole("textbox", { name: "简历内容" })).toHaveValue("Resume text");
+    expect(screen.getByText("job.txt · 已导入")).toBeInTheDocument();
+    expect(screen.getByText("resume.txt · 已导入")).toBeInTheDocument();
+  });
+
+  it("invalidates a pending import when the workspace is cleared", async () => {
+    const user = userEvent.setup();
+    const pending = deferredResponse();
+    let importSignal;
+    fetchMock.mockImplementation((path, options) => {
+      if (path !== "/api/prep/source-imports") {
+        throw new Error(`Unexpected request: ${path}`);
+      }
+      importSignal = options.signal;
+      return pending.promise;
+    });
+    render(<StartPage />);
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Current JD");
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["old"], "old.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(importSignal).toBeInstanceOf(AbortSignal));
+
+    await user.click(screen.getByRole("button", { name: "清空当前画布" }));
+    await user.click(screen.getByRole("button", { name: "确认清空画布" }));
+    expect(importSignal.aborted).toBe(true);
+    await resolveDeferred(
+      pending,
+      sourceImportPayload("job_description", "old.txt", "Old response"),
+    );
+
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toHaveValue("");
+    expect(screen.getByText("未导入文件")).toBeInTheDocument();
+    expect(screen.getByText(/当前画布已清空/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/old\.txt|Old response/);
+  });
+
+  it("invalidates a pending import after a successful draft restore", async () => {
+    const user = userEvent.setup();
+    const pending = deferredResponse();
+    let importSignal;
+    fetchMock.mockImplementation((path, options) => {
+      if (path === "/api/prep/source-imports") {
+        importSignal = options.signal;
+        return pending.promise;
+      }
+      if (path === "/api/interview-drafts/draft-race") {
+        return response({
+          draft_id: "draft-race",
+          durability: "memory",
+          job_description: "Restored JD",
+          resume_text: "Restored resume",
+          job_tags: [],
+          plan_status: "stale",
+          plan_family_id: null,
+          latest_plan_revision_id: null,
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<StartPage />);
+    await user.type(screen.getByRole("textbox", { name: "岗位 JD" }), "Current JD");
+    window.localStorage.setItem("interview-agent:draft-id", "draft-race");
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["old"], "old.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(importSignal).toBeInstanceOf(AbortSignal));
+
+    await user.click(screen.getByRole("button", { name: "恢复草稿" }));
+    await user.click(screen.getByRole("button", { name: "确认恢复草稿" }));
+    await waitFor(() => expect(
+      screen.getByRole("textbox", { name: "岗位 JD" }),
+    ).toHaveValue("Restored JD"));
+    expect(importSignal.aborted).toBe(true);
+    await resolveDeferred(
+      pending,
+      sourceImportPayload("job_description", "old.txt", "Old response"),
+    );
+
+    expect(screen.getByRole("textbox", { name: "岗位 JD" })).toHaveValue("Restored JD");
+    expect(screen.getByText("来自匿名草稿")).toBeInTheDocument();
+    expect(screen.getByText(/草稿已恢复/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/old\.txt|Old response/);
+  });
+
+  it("aborts both source requests on unmount without publishing late state", async () => {
+    const user = userEvent.setup();
+    const requests = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock.mockImplementation((path, options) => {
+      if (path !== "/api/prep/source-imports") {
+        throw new Error(`Unexpected request: ${path}`);
+      }
+      const pending = deferredResponse();
+      requests.push({ ...pending, signal: options.signal });
+      return pending.promise;
+    });
+    const { unmount } = render(<StartPage />);
+    await user.click(screen.getByRole("tab", { name: /并排查看/ }));
+    await user.upload(
+      sourceFileInput("导入当前岗位文档"),
+      new File(["job"], "job.txt", { type: "text/plain" }),
+    );
+    await user.upload(
+      sourceFileInput("导入当前经历文档"),
+      new File(["resume"], "resume.txt", { type: "text/plain" }),
+    );
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    unmount();
+    expect(requests.every(({ signal }) => signal.aborted)).toBe(true);
+    await resolveDeferred(
+      requests[0],
+      sourceImportPayload("job_description", "job.txt", "Late job"),
+    );
+    await resolveDeferred(
+      requests[1],
+      sourceImportPayload("resume_text", "resume.txt", "Late resume"),
+    );
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("invalidates an existing plan after import without saving or regenerating", async () => {
