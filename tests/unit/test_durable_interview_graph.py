@@ -50,6 +50,7 @@ from app.services.interview_context_artifacts import (
     InterviewContextArtifactCoordinator,
 )
 from app.services.interview_generation_store import (
+    GenerationAlreadyCompleted,
     PostgresInterviewGenerationStore,
 )
 from app.services.decision_store import InMemoryDecisionStore
@@ -1993,6 +1994,44 @@ def test_generation_heartbeat_is_throttled_independently_of_chunk_flushes():
 
     assert result["generated_text"] == "abcd"
     assert generation_store.heartbeats == 1
+
+
+def test_completed_generation_replay_returns_original_text_without_provider_call():
+    class CompletedGenerationStore:
+        def start_or_reclaim_attempt(self, *_args, **_kwargs):
+            raise GenerationAlreadyCompleted("gen-completed-v1")
+
+        def get_by_id(self, generation_id):
+            assert generation_id == "gen-completed-v1"
+            return SimpleNamespace(final_text="Original completed follow-up.")
+
+    class NeverCalledExaminer:
+        def stream_followup_attempt(self, **_kwargs):
+            raise AssertionError("completed generation replay must not call Provider")
+
+    state = make_initial_input()
+    state.update(
+        {
+            "active_command_id": "cmd-completed-v1",
+            "generation_id": "gen-completed-v1",
+            "generation_attempt": 1,
+            "command_provider_invocations": 0,
+        }
+    )
+    deps = DurableInterviewGraphDependencies(
+        workflow_store=FakeWorkflowStore(),
+        generation_store=CompletedGenerationStore(),
+        examiner=NeverCalledExaminer(),
+        coalescer_factory=CharacterizationCoalescer,
+    )
+
+    result = generate_followup(state, deps)
+
+    assert result == {
+        "generation_outcome": "completed",
+        "generated_text": "Original completed follow-up.",
+        "command_provider_invocations": 0,
+    }
 
 
 def test_durable_context_uses_same_safe_answer_gap_helper():

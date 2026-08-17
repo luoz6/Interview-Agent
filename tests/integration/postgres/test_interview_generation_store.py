@@ -113,7 +113,7 @@ def test_generation_binds_one_source_decision_and_rejects_rebinding(store):
     assert first.active_attempt == 1
 
 
-def test_generation_prompt_lineage_rejects_non_null_drift(store):
+def test_pending_generation_prompt_lineage_rejects_non_null_old_version(store):
     decision_id = str(uuid4())
     kwargs = {
         "session_id": store.session_id,
@@ -132,10 +132,31 @@ def test_generation_prompt_lineage_rejects_non_null_drift(store):
         store.prepare_generation(
             **{
                 **kwargs,
-                "generation_prompt_version": "followup-generation-v2",
+                "generation_prompt_version": "followup-generation-v1",
                 "generation_prompt_sha256": "f" * 64,
             }
         )
+
+
+def test_pending_legacy_null_generation_lineage_is_not_rebound(store):
+    legacy = store.prepare_generation(
+        session_id=store.session_id,
+        source_command_id="command-legacy-null-lineage",
+        question_id="q1",
+    )
+
+    with pytest.raises(GenerationInputConflict, match="input conflicts"):
+        store.prepare_generation(
+            session_id=store.session_id,
+            source_command_id="command-legacy-null-lineage",
+            question_id="q1",
+            generation_prompt_version=FOLLOWUP_GENERATION_PROMPT_VERSION,
+            generation_prompt_sha256=FOLLOWUP_GENERATION_PROMPT_SHA256,
+        )
+
+    stored = store.get_by_id(legacy.generation_id)
+    assert stored.generation_prompt_version is None
+    assert stored.generation_prompt_sha256 is None
 
 
 def test_chunks_are_ordered_and_attempt_scoped(store):

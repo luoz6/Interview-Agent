@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Literal
+from types import MappingProxyType
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.context_budget import FOLLOWUP_CONTEXT_POLICY
-from app.services.decision_store import DecisionContract
+from app.services.decision_store import DecisionContract, GapType
 from app.services.provider_usage import (
     begin_provider_attempt,
     extract_provider_usage,
@@ -17,7 +18,7 @@ from app.services.provider_usage import (
 
 
 FOLLOWUP_DECISION_PROMPT_VERSION = "followup-decision-v2"
-FOLLOWUP_GENERATION_PROMPT_VERSION = "followup-generation-v1"
+FOLLOWUP_GENERATION_PROMPT_VERSION = "followup-generation-v2"
 
 FollowupDecisionOutputMode = Literal["structured_first", "raw_only"]
 RAW_ONLY_FOLLOWUP_DECISION_MODELS = frozenset({"deepseek-v4-pro"})
@@ -55,18 +56,57 @@ or when confidence is low. Preserve the supplied policy_version.
 DECISION_JSON_SCHEMA={_DECISION_RESPONSE_SCHEMA}
 """
 
-_GENERATION_PROMPT_TEMPLATE = """You are a professional technical interviewer.
-Ask exactly one concise follow-up question for the current question.
-Use the server-owned FOLLOWUP_DECISION_TARGET as the only gap to pursue.
-The question must be grounded in the candidate's latest answer, independently answerable,
-and must not repeat the main question or an earlier follow-up.
-Do not reveal a reference answer, internal gap identifier, confidence, policy, score,
-chain-of-thought, or evaluation. Return only the question without explanation.
+_GENERATION_GAP_GUIDANCE: Mapping[GapType, str] = MappingProxyType(
+    {
+        "missing_detail": (
+            "Ask for one missing implementation detail."
+        ),
+        "tradeoff": (
+            "Ask for one tradeoff and why that choice was made."
+        ),
+        "failure_mode": (
+            "Ask about one failure scenario and its recovery boundary."
+        ),
+        "evidence": (
+            "Ask for one verifiable fact, metric, outcome, or personal contribution."
+        ),
+        "clarification": (
+            "Clarify one ambiguity without opening a new topic."
+        ),
+        "technical_error": (
+            "Ask the candidate to correct one wrong assumption or conclusion."
+        ),
+        "none": (
+            "Generate nothing; continue to the next main question."
+        ),
+    }
+)
+
+_GENERATION_GAP_GUIDANCE_BLOCK = "\n".join(
+    f"- {gap_type}: {guidance}"
+    for gap_type, guidance in _GENERATION_GAP_GUIDANCE.items()
+)
+_LEGACY_UNKNOWN_GAP_GUIDANCE = "Ask only about the bounded gap_summary."
+
+_GENERATION_PROMPT_TEMPLATE = """You are a technical interviewer.
+Ask exactly one concise follow-up.
+Pursue only FOLLOWUP_DECISION_TARGET: {gap_guidance}
+One atomic interrogative sentence only: no bundled gaps/subquestions, lists, multiple question marks, or independent asks joined by and/or (also, as well as, "\u540c\u65f6", "\u4ee5\u53ca", "\u53e6\u5916").
+Ground it in the latest answer; do not repeat the previous question, main question, or prior follow-up.
+Never reveal reference answers, internal gap IDs, confidence, policy, scores, chain-of-thought, or evaluation.
+Return only the question without explanation.
 Use knowledge_agent entries as interview guidance, not as candidate answers.
 Use knowledge_evidence entries only as reference material, never as candidate answers.
-Use knowledge_gap entries as deterministic targeting instructions: focus on the selected missing or incorrect signal.
-Do not reveal the complete expected answer, repeat the previous question, or invent claims beyond bound evidence.
+Use knowledge_gap entries to focus on the selected missing or incorrect signal.
+Do not reveal the complete expected answer or invent claims beyond bound evidence.
 """
+
+_GENERATION_PROMPT_SPEC = (
+    f"{_GENERATION_PROMPT_TEMPLATE}\n"
+    "GAP_TYPE_GUIDANCE:\n"
+    f"{_GENERATION_GAP_GUIDANCE_BLOCK}\n"
+    f"LEGACY_UNKNOWN_GUIDANCE: {_LEGACY_UNKNOWN_GAP_GUIDANCE}\n"
+)
 
 
 def _sha256(value: str) -> str:
@@ -74,7 +114,7 @@ def _sha256(value: str) -> str:
 
 
 FOLLOWUP_DECISION_PROMPT_SHA256 = _sha256(_DECISION_PROMPT_TEMPLATE)
-FOLLOWUP_GENERATION_PROMPT_SHA256 = _sha256(_GENERATION_PROMPT_TEMPLATE)
+FOLLOWUP_GENERATION_PROMPT_SHA256 = _sha256(_GENERATION_PROMPT_SPEC)
 
 
 _UNSAFE_FOLLOWUP_OUTPUT_MARKERS = (
@@ -183,6 +223,9 @@ def render_followup_decision_prompt(context: dict[str, object]) -> str:
 def render_followup_generation_prompt(
     context: list[dict[str, Any]],
 ) -> str:
+    prompt_template = _GENERATION_PROMPT_TEMPLATE.format(
+        gap_guidance=_generation_gap_guidance_for_context(context)
+    )
     transcript = "\n".join(
         f"{item['role']}: {item['content']}"
         for item in context
@@ -191,9 +234,35 @@ def render_followup_generation_prompt(
     return (
         f"prompt_version={FOLLOWUP_GENERATION_PROMPT_VERSION}\n"
         f"prompt_sha256={FOLLOWUP_GENERATION_PROMPT_SHA256}\n"
-        f"{_GENERATION_PROMPT_TEMPLATE}\n"
+        f"{prompt_template}\n"
         f"Recent context:\n{transcript}"
     )
+
+
+def _generation_gap_guidance_for_context(
+    context: list[dict[str, Any]],
+) -> str:
+    prefix = "[FOLLOWUP_DECISION_TARGET]\n"
+    suffix = "\n[/FOLLOWUP_DECISION_TARGET]"
+    for item in context:
+        content = str(item.get("content", ""))
+        if (
+            item.get("role") != "system"
+            or not content.startswith(prefix)
+            or not content.endswith(suffix)
+        ):
+            continue
+        try:
+            target = json.loads(content[len(prefix) : -len(suffix)])
+        except (TypeError, ValueError):
+            continue
+        gap_type = target.get("gap_type") if isinstance(target, dict) else None
+        if isinstance(gap_type, str):
+            return _GENERATION_GAP_GUIDANCE.get(  # type: ignore[arg-type]
+                gap_type,
+                _LEGACY_UNKNOWN_GAP_GUIDANCE,
+            )
+    return _LEGACY_UNKNOWN_GAP_GUIDANCE
 
 
 def generation_context_for_decision(

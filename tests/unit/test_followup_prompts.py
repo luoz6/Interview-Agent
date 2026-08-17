@@ -21,6 +21,7 @@ from app.services.followup_prompts import (
     build_followup_decision_provider,
     build_followup_decision_provider_for_llm,
     generation_context_for_decision,
+    generation_context_for_target,
     render_followup_decision_prompt,
     render_followup_generation_prompt,
     resolve_followup_decision_output_mode,
@@ -48,12 +49,18 @@ def decision(**updates):
 
 def test_decision_and_generation_prompts_have_independent_frozen_lineage():
     assert FOLLOWUP_DECISION_PROMPT_VERSION == "followup-decision-v2"
-    assert FOLLOWUP_GENERATION_PROMPT_VERSION == "followup-generation-v1"
+    assert FOLLOWUP_GENERATION_PROMPT_VERSION == "followup-generation-v2"
     assert re.fullmatch(r"[0-9a-f]{64}", FOLLOWUP_DECISION_PROMPT_SHA256)
     assert re.fullmatch(r"[0-9a-f]{64}", FOLLOWUP_GENERATION_PROMPT_SHA256)
     assert FOLLOWUP_DECISION_PROMPT_SHA256 != FOLLOWUP_GENERATION_PROMPT_SHA256
     assert FOLLOWUP_DECISION_PROMPT_SHA256 == hashlib.sha256(
         followup_prompts._DECISION_PROMPT_TEMPLATE.encode("utf-8")
+    ).hexdigest()
+    assert FOLLOWUP_GENERATION_PROMPT_SHA256 == (
+        "d9d19873f8cf793bb21e8c238d0ddf76704b7e8e7f950671f9f52d2a47e25f56"
+    )
+    assert FOLLOWUP_GENERATION_PROMPT_SHA256 == hashlib.sha256(
+        followup_prompts._GENERATION_PROMPT_SPEC.encode("utf-8")
     ).hexdigest()
 
 
@@ -111,6 +118,102 @@ def test_generation_prompt_consumes_only_bounded_decision_target():
                 reason_code="answer_complete",
             ),
         )
+
+
+@pytest.mark.parametrize(
+    ("gap_type", "guidance"),
+    [
+        (
+            "missing_detail",
+            "Ask for one missing implementation detail.",
+        ),
+        (
+            "tradeoff",
+            "Ask for one tradeoff and why that choice was made.",
+        ),
+        (
+            "failure_mode",
+            "Ask about one failure scenario and its recovery boundary.",
+        ),
+        (
+            "evidence",
+            "Ask for one verifiable fact, metric, outcome, or personal contribution.",
+        ),
+        (
+            "clarification",
+            "Clarify one ambiguity without opening a new topic.",
+        ),
+        (
+            "technical_error",
+            "Ask the candidate to correct one wrong assumption or conclusion.",
+        ),
+    ],
+)
+def test_generation_prompt_freezes_specific_guidance_for_each_open_gap(
+    gap_type,
+    guidance,
+):
+    context = generation_context_for_target(
+        [{"role": "candidate", "content": "My latest answer."}],
+        gap_type=gap_type,
+        gap_summary="Pursue exactly this bounded gap.",
+    )
+
+    prompt = render_followup_generation_prompt(context)
+
+    assert f'"gap_type":"{gap_type}"' in prompt
+    assert f"Pursue only FOLLOWUP_DECISION_TARGET: {guidance}" in prompt
+    assert all(
+        other_guidance not in prompt
+        for other_type, other_guidance in followup_prompts._GENERATION_GAP_GUIDANCE.items()
+        if other_type not in {gap_type, "none"}
+    )
+
+
+def test_generation_prompt_none_contract_never_enters_generation():
+    assert followup_prompts._GENERATION_GAP_GUIDANCE["none"] == (
+        "Generate nothing; continue to the next main question."
+    )
+    with pytest.raises(TypeError):
+        followup_prompts._GENERATION_GAP_GUIDANCE["none"] = "generate"  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="one bounded open gap"):
+        generation_context_for_target(
+            [],
+            gap_type="none",
+            gap_summary="No open gap.",
+        )
+
+
+def test_generation_prompt_preserves_legacy_unknown_gap_target_compatibility():
+    context = generation_context_for_target(
+        [],
+        gap_type="trade_off",
+        gap_summary="Legacy checkpoint still has one bounded gap.",
+    )
+
+    assert '"gap_type":"trade_off"' in context[0]["content"]
+    assert (
+        "Pursue only FOLLOWUP_DECISION_TARGET: "
+        "Ask only about the bounded gap_summary."
+        in render_followup_generation_prompt(context)
+    )
+
+
+def test_generation_prompt_forbids_bundled_or_multi_question_output():
+    prompt = render_followup_generation_prompt(
+        generation_context_for_target(
+            [{"role": "candidate", "content": "I used retries."}],
+            gap_type="failure_mode",
+            gap_summary="Recovery after the failed write is missing.",
+        )
+    )
+
+    assert "One atomic interrogative sentence only" in prompt
+    assert "no bundled gaps/subquestions, lists" in prompt
+    assert "multiple question marks" in prompt
+    assert "independent asks joined by and/or" in prompt
+    assert all(marker in prompt for marker in ("同时", "以及", "另外"))
 
 
 def test_structured_decision_provider_uses_schema_and_bounded_output():
