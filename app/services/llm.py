@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -50,6 +51,35 @@ logger = logging.getLogger(__name__)
 
 REPORT_EVIDENCE_PROMPT_VERSION = "stage40-evidence-v1"
 RAW_ONLY_PLAN_MODELS = frozenset({"deepseek-v4-pro"})
+PLAN_MAX_LOGICAL_GENERATION_ROUNDS = 2
+PLAN_MAX_QUALITY_REPAIR_ROUNDS = 1
+PLAN_MAX_PROVIDER_INVOCATIONS = 4
+PLAN_SDK_MAX_RETRIES = 1
+PLAN_MAX_TRANSPORT_ATTEMPTS = PLAN_MAX_PROVIDER_INVOCATIONS * (
+    PLAN_SDK_MAX_RETRIES + 1
+)
+PLAN_QUALITY_REPAIR_PROMPT_VERSION = "plan-quality-repair-v1"
+PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE = (
+    "Plan quality repair prompt version: {prompt_version}.\n"
+    "Prompt template SHA-256: {prompt_sha256}.\n"
+    "You are repairing a structurally valid interview plan.\n"
+    "Correct every listed Hard quality finding and do not introduce a new one.\n"
+    "Preserve the plan title, question count, question ids, question kinds, and "
+    "all generation-contract fields.\n"
+    "Change only question prompts or focus text needed to correct the findings.\n"
+    "Use only the candidate plan and deterministic metadata below. No job "
+    "description, resume, or source evidence is available in this repair round.\n"
+    "Return valid JSON only in the same candidate-plan shape. Do not return markdown.\n\n"
+    "Hard quality findings (safe deterministic metadata only):\n"
+    "{quality_findings}\n\n"
+    "Generation contract:\n"
+    "{generation_contract}\n\n"
+    "Candidate plan:\n"
+    "{candidate_plan}"
+)
+PLAN_QUALITY_REPAIR_PROMPT_SHA256 = (
+    "5031ef7d322a64d5db6500c1b9afdb3020ba3886c0dc1cbcfbc22ba6bbd005b2"
+)
 
 
 class MissingLLMConfigError(RuntimeError):
@@ -78,6 +108,16 @@ class LLMConfig:
     context_safety_margin_tokens: int = 1024
     tokenizer_family: str | None = None
     plan_output_mode: Literal["structured_first", "raw_only"] = "structured_first"
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.max_retries, bool)
+            or not isinstance(self.max_retries, int)
+            or not 0 <= self.max_retries <= PLAN_SDK_MAX_RETRIES
+        ):
+            raise ValueError(
+                "LLM SDK max_retries must be an integer between 0 and at most 1"
+            )
 
     @classmethod
     def from_env(cls, *, memory=None) -> "LLMConfig":
@@ -203,8 +243,14 @@ class OpenAIInterviewLLM:
     ):
         from app.services.prep import (
             enforce_generated_interview_plan,
+            enforce_generated_interview_question_quality,
             InterviewPlan,
+            PlanGenerationValidationError,
+            validate_launchable_interview_plan,
             validate_generation_configuration,
+        )
+        from app.services.interview_question_quality import (
+            HARD_QUESTION_QUALITY_CODES,
         )
 
         configuration = (
@@ -238,25 +284,17 @@ class OpenAIInterviewLLM:
             PLAN_CONTEXT_POLICY,
             force_enforcement=True,
         )
-        if self.plan_output_mode == "raw_only":
-            payload = self._invoke_raw_json_plan(
-                prompt,
-                force_context_enforcement=True,
-            )
-            try:
-                generated = InterviewPlan.model_validate(payload)
-            except ValidationError as exc:
-                raise ValueError(
-                    f"raw interview plan JSON schema validation failed: {exc}"
-                ) from exc
-        else:
-            try:
-                generated = self._invoke_structured_plan(prompt, InterviewPlan)
-            except Exception as exc:
-                logger.warning(
-                    "Structured interview plan output failed, trying raw JSON path",
-                    extra={"error_code": type(exc).__name__},
-                )
+        provider_invocations = 0
+
+        def reserve_provider_invocation() -> None:
+            nonlocal provider_invocations
+            if provider_invocations >= PLAN_MAX_PROVIDER_INVOCATIONS:
+                raise RuntimeError("plan Provider invocation budget exhausted")
+            provider_invocations += 1
+
+        for logical_round in range(PLAN_MAX_LOGICAL_GENERATION_ROUNDS):
+            if self.plan_output_mode == "raw_only":
+                reserve_provider_invocation()
                 payload = self._invoke_raw_json_plan(
                     prompt,
                     force_context_enforcement=True,
@@ -267,9 +305,149 @@ class OpenAIInterviewLLM:
                     raise ValueError(
                         f"raw interview plan JSON schema validation failed: {exc}"
                     ) from exc
+            else:
+                try:
+                    reserve_provider_invocation()
+                    generated = self._invoke_structured_plan(prompt, InterviewPlan)
+                except Exception as exc:
+                    logger.warning(
+                        "Structured interview plan output failed, trying raw JSON path",
+                        extra={"error_code": type(exc).__name__},
+                    )
+                    reserve_provider_invocation()
+                    payload = self._invoke_raw_json_plan(
+                        prompt,
+                        force_context_enforcement=True,
+                    )
+                    try:
+                        generated = InterviewPlan.model_validate(payload)
+                    except ValidationError as exc:
+                        raise ValueError(
+                            "raw interview plan JSON schema validation failed: "
+                            f"{exc}"
+                        ) from exc
+
+            try:
+                if configuration is None:
+                    launchable = validate_launchable_interview_plan(generated)
+                    return enforce_generated_interview_question_quality(launchable)
+                return enforce_generated_interview_plan(generated, configuration)
+            except PlanGenerationValidationError as exc:
+                repair_round_available = (
+                    logical_round < PLAN_MAX_QUALITY_REPAIR_ROUNDS
+                )
+                if (
+                    not repair_round_available
+                    or exc.code not in HARD_QUESTION_QUALITY_CODES
+                ):
+                    raise
+                repair_candidate = self._quality_repair_candidate(
+                    generated,
+                    configuration=configuration,
+                )
+                prompt = self._build_plan_quality_repair_prompt(
+                    repair_candidate,
+                    configuration=configuration,
+                )
+                self._guard_prompt(
+                    prompt,
+                    PLAN_CONTEXT_POLICY,
+                    force_enforcement=True,
+                )
+
+        raise RuntimeError("plan generation rounds exhausted without a result")
+
+    @staticmethod
+    def _quality_repair_candidate(
+        generated,
+        *,
+        configuration: "PlanConfigurationSnapshot | None",
+    ):
         if configuration is None:
             return generated
-        return enforce_generated_interview_plan(generated, configuration)
+        target_count = sum(configuration.question_type_budget.values())
+        return generated.model_copy(
+            update={"questions": list(generated.questions[:target_count])}
+        )
+
+    @staticmethod
+    def _build_plan_quality_repair_prompt(
+        candidate,
+        *,
+        configuration: "PlanConfigurationSnapshot | None",
+    ) -> str:
+        from app.services.interview_question_quality import (
+            HARD_QUESTION_QUALITY_CODES,
+            QuestionQualityInput,
+            assess_interview_question_quality,
+        )
+
+        report = assess_interview_question_quality(
+            tuple(
+                QuestionQualityInput.from_question(question)
+                for question in candidate.questions
+            )
+        )
+        findings = [
+            {
+                "code": finding.code,
+                "evidence_summary": finding.evidence_summary,
+                "question_refs": list(finding.question_refs),
+            }
+            for finding in report.hard_violations
+            if finding.code in HARD_QUESTION_QUALITY_CODES
+        ]
+        if not findings:
+            raise RuntimeError("quality repair requires a deterministic Hard finding")
+
+        candidate_payload = {
+            "title": candidate.title,
+            "questions": [
+                {
+                    "id": question.id,
+                    "kind": question.kind,
+                    "prompt": question.prompt,
+                    "focus": question.focus,
+                }
+                for question in candidate.questions
+            ],
+        }
+        if configuration is None:
+            generation_contract = {
+                "question_count": len(candidate.questions),
+                "question_ids": [question.id for question in candidate.questions],
+                "question_kinds": [
+                    question.kind for question in candidate.questions
+                ],
+            }
+        else:
+            generation_contract = configuration.model_dump(mode="json")
+
+        actual_template_sha256 = hashlib.sha256(
+            PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE.encode("utf-8")
+        ).hexdigest()
+        if actual_template_sha256 != PLAN_QUALITY_REPAIR_PROMPT_SHA256:
+            raise RuntimeError("plan quality repair prompt integrity check failed")
+        return PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE.format(
+            prompt_version=PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+            prompt_sha256=PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+            quality_findings=json.dumps(
+                findings,
+                ensure_ascii=False,
+                indent=2,
+            ),
+            generation_contract=json.dumps(
+                generation_contract,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            ),
+            candidate_plan=json.dumps(
+                candidate_payload,
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
 
     def _build_plan_prompt(
         self,

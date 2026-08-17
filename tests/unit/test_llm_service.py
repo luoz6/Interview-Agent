@@ -1,17 +1,33 @@
 import asyncio
+import hashlib
+import json
 import sys
 from types import SimpleNamespace
 
 import pytest
 
+from app.services.context_budget import ContextBudgetExceeded
 from app.services.llm import (
     LLMConfig,
     MissingLLMConfigError,
     OpenAIInterviewLLM,
+    PLAN_MAX_LOGICAL_GENERATION_ROUNDS,
+    PLAN_MAX_PROVIDER_INVOCATIONS,
+    PLAN_MAX_QUALITY_REPAIR_ROUNDS,
+    PLAN_MAX_TRANSPORT_ATTEMPTS,
+    PLAN_QUALITY_REPAIR_PROMPT_SHA256,
+    PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE,
+    PLAN_QUALITY_REPAIR_PROMPT_VERSION,
+    PLAN_SDK_MAX_RETRIES,
     resolve_plan_output_mode,
 )
 from app.services.model_capabilities import ContextConfigurationError
-from app.services.prep import InterviewPlan, InterviewQuestion
+from app.services.interview_plan_revision import PlanConfigurationSnapshot
+from app.services.prep import (
+    InterviewPlan,
+    InterviewQuestion,
+    PlanGenerationValidationError,
+)
 from app.services.provider_usage import (
     consume_provider_context_metadata,
     reset_provider_context_metadata,
@@ -45,6 +61,25 @@ def test_llm_config_reads_bounded_provider_request_settings(monkeypatch):
 
     assert config.request_timeout_seconds == 75
     assert config.max_retries == 0
+
+
+def test_plan_generation_retry_and_round_constants_freeze_transport_ceiling():
+    assert PLAN_MAX_LOGICAL_GENERATION_ROUNDS == 2
+    assert PLAN_MAX_QUALITY_REPAIR_ROUNDS == 1
+    assert PLAN_MAX_PROVIDER_INVOCATIONS == 4
+    assert PLAN_SDK_MAX_RETRIES == 1
+    assert PLAN_MAX_TRANSPORT_ATTEMPTS == 8
+    assert PLAN_MAX_TRANSPORT_ATTEMPTS == PLAN_MAX_PROVIDER_INVOCATIONS * (
+        PLAN_SDK_MAX_RETRIES + 1
+    )
+
+
+def test_llm_config_rejects_sdk_retry_count_above_frozen_ceiling(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MAX_RETRIES", "2")
+
+    with pytest.raises(ValueError, match="at most 1"):
+        LLMConfig.from_env()
 
 
 def test_deepseek_production_config_resolves_single_request_plan_protocol(
@@ -315,6 +350,75 @@ class FailingRawPlanChatModel(FallbackPlanChatModel):
         raise RuntimeError("provider unavailable")
 
 
+class CountingFailingPlanStructuredModel:
+    def __init__(self, owner):
+        self.owner = owner
+
+    def invoke(self, prompt: str):
+        self.owner.structured_invoke_count += 1
+        self.owner.prompts.append(prompt)
+        raise RuntimeError("structured response unavailable")
+
+
+class SequentialPlanChatModel:
+    def __init__(self, contents: list[str], *, metered: bool = False):
+        self.contents = list(contents)
+        self.metered = metered
+        self.schema = None
+        self.method = None
+        self.raw_invoke_count = 0
+        self.structured_invoke_count = 0
+        self.prompts: list[str] = []
+
+    def with_structured_output(self, schema, method=None, include_raw=False):
+        self.schema = schema
+        self.method = method
+        return CountingFailingPlanStructuredModel(self)
+
+    def invoke(self, prompt: str):
+        self.raw_invoke_count += 1
+        self.prompts.append(prompt)
+        content = self.contents.pop(0)
+        message_type = MeteredJsonMessage if self.metered else FakeJsonMessage
+        return message_type(content)
+
+
+def serialized_plan(*, overloaded: bool) -> str:
+    first_prompt = (
+        "Explain the architecture, compare three alternatives, and describe "
+        "the rollout and monitoring plan."
+        if overloaded
+        else "In your backend project, how did you diagnose a production cache failure?"
+    )
+    return json.dumps(
+        {
+            "title": "Bounded quality repair plan",
+            "questions": [
+                {
+                    "id": "q1",
+                    "kind": "project",
+                    "prompt": first_prompt,
+                    "focus": "project ownership",
+                },
+                {
+                    "id": "q2",
+                    "kind": "technical",
+                    "prompt": (
+                        "How would you preserve consistency when Redis becomes unavailable?"
+                    ),
+                    "focus": "cache consistency",
+                },
+                {
+                    "id": "q3",
+                    "kind": "system-design",
+                    "prompt": "How would you scale your API under ten times traffic?",
+                    "focus": "system scalability",
+                },
+            ],
+        }
+    )
+
+
 def test_openai_interview_llm_uses_structured_output_for_plan():
     chat_model = FakeChatModel()
     llm = OpenAIInterviewLLM(chat_model=chat_model)
@@ -442,6 +546,232 @@ def test_openai_interview_llm_raw_only_plan_skips_structured_request():
     assert chat_model.schema is None
     assert chat_model.method is None
     assert "Return valid JSON only" in chat_model.last_prompt
+
+
+def test_raw_only_plan_repairs_one_structurally_valid_hard_quality_failure():
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), serialized_plan(overloaded=False)]
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    plan = llm.generate_plan("Backend JD", "Backend resume")
+
+    assert plan.questions[0].prompt.startswith("In your backend project")
+    assert chat_model.raw_invoke_count == 2
+    assert chat_model.structured_invoke_count == 0
+
+
+def test_plan_quality_repair_request_excludes_raw_sources_and_freezes_prompt():
+    job_secret = "RAW-JD-SECRET-MARKER"
+    resume_secret = "RAW-RESUME-SECRET-MARKER"
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), serialized_plan(overloaded=False)]
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    llm.generate_plan(job_secret, resume_secret)
+
+    assert len(chat_model.prompts) == 2
+    initial_prompt, repair_prompt = chat_model.prompts
+    assert job_secret in initial_prompt
+    assert resume_secret in initial_prompt
+    assert job_secret not in repair_prompt
+    assert resume_secret not in repair_prompt
+    assert PLAN_QUALITY_REPAIR_PROMPT_VERSION in repair_prompt
+    assert '"code": "overloaded_multi_ask"' in repair_prompt
+    assert (
+        "Question contains multiple independently assessable asks."
+        in repair_prompt
+    )
+    assert "Job description:" not in repair_prompt
+    assert "Resume:" not in repair_prompt
+    assert hashlib.sha256(
+        PLAN_QUALITY_REPAIR_PROMPT_TEMPLATE.encode("utf-8")
+    ).hexdigest() == PLAN_QUALITY_REPAIR_PROMPT_SHA256
+
+
+def test_second_hard_quality_failure_returns_existing_quality_error_without_third_round():
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), serialized_plan(overloaded=True)]
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    with pytest.raises(PlanGenerationValidationError) as rejected:
+        llm.generate_plan("Backend JD", "Backend resume")
+
+    assert rejected.value.code == "overloaded_multi_ask"
+    assert str(rejected.value) == (
+        "Question contains multiple independently assessable asks."
+    )
+    assert chat_model.raw_invoke_count == 2
+    assert chat_model.structured_invoke_count == 0
+
+
+def test_structured_fallback_quality_repair_never_exceeds_four_provider_invocations():
+    provider_attempts = []
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), serialized_plan(overloaded=False)],
+        metered=True,
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            model="deepseek-v4-pro",
+            plan_output_mode="structured_first",
+        ),
+        chat_model=chat_model,
+        provider_attempt_hook=lambda: provider_attempts.append("started"),
+    )
+    reset_provider_context_metadata()
+
+    plan = llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert plan.questions[0].prompt.startswith("In your backend project")
+    assert chat_model.structured_invoke_count == 2
+    assert chat_model.raw_invoke_count == 2
+    assert len(provider_attempts) == PLAN_MAX_PROVIDER_INVOCATIONS
+    assert metadata["provider_attempt_count"] == PLAN_MAX_PROVIDER_INVOCATIONS
+    assert metadata["provider_metered_attempt_count"] == 2
+    assert metadata["provider_usage_available"] is False
+    assert metadata["provider_input_tokens"] == 240
+    assert metadata["provider_output_tokens"] == 60
+
+
+def test_quality_repair_usage_accounts_for_every_application_invocation():
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), serialized_plan(overloaded=False)],
+        metered=True,
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+    reset_provider_context_metadata()
+
+    llm.generate_plan("Backend JD", "Backend resume")
+    metadata = consume_provider_context_metadata()
+
+    assert metadata["provider_attempt_count"] == 2
+    assert metadata["provider_metered_attempt_count"] == 2
+    assert metadata["provider_usage_available"] is True
+    assert metadata["provider_input_tokens"] == 240
+    assert metadata["provider_output_tokens"] == 60
+    assert metadata["provider_cached_input_tokens"] == 40
+
+
+def test_configured_plan_generation_uses_the_same_bounded_quality_repair_owner():
+    configuration = PlanConfigurationSnapshot(
+        difficulty="intermediate",
+        target_duration_minutes=15,
+        focus_preset="balanced",
+        question_type_budget={
+            "project": 1,
+            "technical": 1,
+            "system-design": 1,
+        },
+        expected_followup_budget=3,
+        max_followups_per_question=2,
+        generator_version="plan-generator-v2",
+        followup_policy_version="fixed_v1",
+    )
+    chat_model = SequentialPlanChatModel(
+        [serialized_plan(overloaded=True), serialized_plan(overloaded=False)]
+    )
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    plan = llm.generate_plan(
+        "CONFIGURED-RAW-JD",
+        "CONFIGURED-RAW-RESUME",
+        configuration=configuration,
+    )
+
+    assert plan.questions[0].prompt.startswith("In your backend project")
+    assert chat_model.raw_invoke_count == 2
+    assert '"generator_version": "plan-generator-v2"' in chat_model.prompts[1]
+    assert "CONFIGURED-RAW-JD" not in chat_model.prompts[1]
+    assert "CONFIGURED-RAW-RESUME" not in chat_model.prompts[1]
+
+
+def test_structurally_invalid_plan_fails_closed_without_quality_repair_round():
+    payload = json.loads(serialized_plan(overloaded=False))
+    payload["questions"].pop()
+    chat_model = SequentialPlanChatModel([json.dumps(payload)])
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+
+    with pytest.raises(ValueError, match="3 to 5 questions"):
+        llm.generate_plan("Backend JD", "Backend resume")
+
+    assert chat_model.raw_invoke_count == 1
+    assert chat_model.structured_invoke_count == 0
+
+
+def test_quality_repair_context_budget_failure_stops_before_second_provider_call(
+    monkeypatch,
+):
+    chat_model = SequentialPlanChatModel([serialized_plan(overloaded=True)])
+    llm = OpenAIInterviewLLM(
+        config=LLMConfig(
+            api_key="injected-chat-model",
+            plan_output_mode="raw_only",
+        ),
+        chat_model=chat_model,
+    )
+    original_guard = llm._guard_prompt
+
+    def reject_repair_prompt(prompt, policy, *, force_enforcement=False):
+        if PLAN_QUALITY_REPAIR_PROMPT_VERSION in prompt:
+            raise ContextBudgetExceeded(
+                operation=policy.operation,
+                estimated_input_tokens=2,
+                available_input_tokens=1,
+            )
+        return original_guard(
+            prompt,
+            policy,
+            force_enforcement=force_enforcement,
+        )
+
+    monkeypatch.setattr(llm, "_guard_prompt", reject_repair_prompt)
+
+    with pytest.raises(ContextBudgetExceeded):
+        llm.generate_plan("Backend JD", "Backend resume")
+
+    assert chat_model.raw_invoke_count == 1
+    assert chat_model.structured_invoke_count == 0
 
 
 def test_raw_only_plan_publishes_one_complete_provider_usage_record():
